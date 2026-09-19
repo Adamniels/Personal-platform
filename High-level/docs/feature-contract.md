@@ -2,7 +2,7 @@
 
 Status: exploratory. Nothing is built.
 
-Last updated: 2026 09 08
+Last updated: 2026 09 18
 
 Isolation of implementation, coupling through contracts. This is what someone building a feature
 needs to know. The brain's own internals are in `Brain/docs/`, and the platform wide thinking
@@ -156,8 +156,9 @@ something upstream, and it never takes it from a parameter. Three things, and th
 it:
 
 - Fetch the core's public key from the endpoint it is served at, cache it, and verify the
-  signature on the access token in the request cookie. The identity is whatever the verified token
-  says.
+  signature on the access token. It arrives in a cookie when a browser is asking, and in an
+  `Authorization` header when the core is calling a display endpoint on the user's behalf, so
+  accept both. The identity is whatever the verified token says.
 - On anything that changes state, check that the `Origin` header is the platform's own, and never
   change state on a GET. That is the CSRF defence in full.
 - Handle expiry. An API call returns 401 and the frontend refreshes and retries; a plain page load

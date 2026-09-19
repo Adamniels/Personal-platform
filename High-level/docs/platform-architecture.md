@@ -2,7 +2,7 @@
 
 Status: exploratory. Nothing is built.
 
-Last updated: 2026 09 08
+Last updated: 2026 09 18
 
 The top of the documentation. What the platform is, what services exist, and the thinking that
 shapes more than one of them. Anything you only need when you sit down to write a particular
@@ -115,7 +115,7 @@ breaks that.
 
 - **Rust** for the core and for infrastructure services.
 - **Python** for the brain.
-- **TypeScript** for frontends, probably React.
+- **TypeScript** for feature frontends, probably React.
 - **Each feature picks its own** when that feature gets planned.
 
 The number of languages is deliberately not capped.
@@ -139,6 +139,12 @@ tempting, since its only argument was that both would have been C#. And authenti
 work rather than something adopted, since Rust has excellent primitives and no assembled auth
 system. That is wanted as practice, and `Core/docs/core-architecture.md` covers how it gets
 built and where the line sits.
+
+**The core's frontend is not TypeScript.** It renders HTML from templates in Rust, because an
+application cannot serve a page composed on the server in one response, and that is what the front
+page's design rests on. Feature frontends are unaffected.
+`Core/docs/core-architecture.md` has the reasoning and says where it would stop being the right
+tool.
 
 **Why feature languages are not picked here.** An earlier list assigned wiki, learning and news
 to Python and projects to C# before any of them had been designed, which is a guess wearing the

@@ -2,7 +2,7 @@
 
 Status: exploratory. Nothing is built.
 
-Last updated: 2026 09 08
+Last updated: 2026 09 19
 
 The platform's infrastructure: the thing every feature is reached through, and where nothing
 interesting lives. The platform wide thinking that places it is in
@@ -34,7 +34,8 @@ worked out rather than a gap in the writing. Worth knowing, given the core goes 
 
 The core changes as features arrive, and that is the workflow rather than a smell. Adding a
 feature means three things outside the feature itself: a proxy entry, connecting it to the brain,
-and deciding whether anything of it belongs on the front page. There is no rule against the core
+and deciding whether anything of it belongs on the front page, which means writing that feature's
+piece of the page if it does. There is no rule against the core
 changing, and there is no requirement that it never be down. Sessions survive a restart, since
 tokens are verified locally rather than by calling back.
 
@@ -223,6 +224,44 @@ the application connects as a role that does not own its tables, and migrations 
 
 ---
 
+## The core's frontend
+
+The core renders its own HTML, from a template engine in Rust. No Node in the core, no build
+step, no second process. The pages are the login and registration flows, the front page, and
+whatever account screens arrive later.
+
+**Why not a TypeScript application, when feature frontends are expected to be one.** Server
+composition is the reason. An application cannot serve a composed page in one response: it loads
+a shell, then asks, and the composition either moves into the browser or becomes a JSON endpoint
+rendered after a second round trip. Rendering on the server is what the front page's whole design
+rests on, so the core's frontend is the one place the platform's frontend language does not apply.
+Feature frontends are unaffected.
+
+Two things come with that and both are worth having on their own. Login is a plain form post, so
+the most security sensitive surface in the platform works with no JavaScript at all and carries
+the least code it can. And the `Origin` check that handles CSRF behaves identically for a form
+post and a fetch, so there is one mechanism rather than two.
+
+**The nav script is used on the core's own pages too**, rather than the nav being rendered into
+the templates. The core has the feature list in hand and could render it directly, but then the
+bar exists in two implementations and they drift.
+
+**Styling has no build step either**, just a stylesheet the core serves. If a design system ever
+arrives it should arrive because that cost was chosen deliberately, and
+`High-level/docs/platform-architecture.md` names it as the largest permanent cost in the plan.
+
+**Where this stops being the right tool**, written down now so it is recognised rather than
+discovered. It holds while the front page is something you read and click through. The moment you
+want to act on a card without leaving it, mark something done, edit a value inline, watch a number
+change, you are building an application and templates start to hurt. There are three stages and
+each is cheap to enter the day it is needed: templates with plain form posts, which covers more
+than it sounds like; htmx, one script tag and still no build step, which is the natural next step
+for a page rendered on the server; then a real framework if the front page becomes an application
+in its own right. Unlike the user id this is cheap to be wrong about, since the front page is one
+page in one service.
+
+---
+
 ## What a feature exposes for the front page
 
 Optional, per feature, and not a contract. When you build a feature you decide whether anything
@@ -235,6 +274,46 @@ want to read it later.
 
 Nothing is required. A feature with nothing worth showing exposes nothing, and the registry
 records which features have one and where.
+
+**There is no shared display shape, and there is not going to be one.** Each feature exposes
+whatever its own data naturally is, and the core gets rendering written for that feature
+specifically. Putting a feature on the front page means editing the core: a call, a type for what
+comes back, and a piece of template. That is the intended workflow, not a cost being tolerated.
+
+```json
+{ "active": 4, "due_today": 2, "next": "Finish the invite flow" }
+```
+
+That is what projects happens to send. It is not a format. The next feature sends something else,
+shaped by what it actually has, and the core learns to render that too.
+
+The alternative is a common vocabulary every feature conforms to, some arrangement of titles and
+counters and lists, so that the core can draw anything without being touched. It is the same idea
+as the generic search envelope in `High-level/docs/feature-contract.md`, and it is rejected for
+the same reason: flattening every domain into one shape loses exactly the structure that made the
+thing worth putting on the page, and the abstraction buys nothing except not editing a codebase
+that is one person's and sitting right there.
+
+What that costs, plainly: the front page grows with the number of features rather than staying
+fixed, so each one adds a small amount of permanent code to the core. At five or ten features that
+is a handful of functions. It would be the wrong trade in a system with a hundred of them.
+
+**The line that keeps this honest is that a feature sends data about its own domain, never
+presentation.** The moment a payload carries a colour, a width, an ordering, or a string meant to
+be shown verbatim, the feature is remote controlling the core's page and the whole reason for
+sending data rather than rendered output is gone. The core reads domain data and decides
+everything about how it looks.
+
+**The calls are concurrent and have a deadline**, on the order of five hundred milliseconds each.
+Without one, a down feature costing its piece rather than the page is not actually true. A feature
+that misses the deadline gets a visible placeholder saying it could not be reached, rather than
+disappearing, because a card that silently vanishes is how something stays broken for a week
+without being noticed.
+
+**The core calls with the user's token in an `Authorization` header**, since it has no cookie jar
+of its own. The same endpoint receives it in a cookie when a browser asks. A feature accepts
+either, see `High-level/docs/feature-contract.md`.
+
 
 ---
 
