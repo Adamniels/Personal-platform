@@ -26,7 +26,8 @@ worked out rather than a gap in the writing. Worth knowing, given the core goes 
 - **Its own frontend**, meaning the login pages, the front page, and shared navigation.
 - **Composing the front page**, meaning calling the display endpoints of whichever features you
   chose and assembling the result.
-- **The public key** that everything else verifies tokens with, served at an endpoint.
+- **The public keys** that everything else verifies tokens with, served as a set at an
+  endpoint.
 
 ## What the core grows into, and what stays out
 
@@ -95,8 +96,8 @@ arriving as a parameter wearing a different hat.
 the only thing that can mint a token. Everyone else holds the public half and can only check one.
 With a shared secret every verifier is also a minter, so any feature could issue a token for any
 account, which is a strange property in a platform whose whole shape is features not trusting each
-other. The core serves the public key at an endpoint, so nothing hardcodes it or passes it around
-by hand, and rotating it stays a core only operation. RS256 is the fallback if a language picked
+other. The core serves its public keys at an endpoint, so nothing hardcodes one or passes it around by
+hand, and rotation stays a core only operation. RS256 is the fallback if a language picked
 for some later feature has no Ed25519. PASETO was the alternative and lost on library coverage,
 since most of the safety it adds is already bought by never hand writing primitives.
 
@@ -136,6 +137,29 @@ with a handful of invited accounts.
 **Expiry is not free for features.** An API call gets a 401 and the frontend refreshes and
 retries, but a plain page load needs the feature's backend to redirect to the core and back. So a
 feature holds signature verification and one redirect, which is little but is not nothing.
+
+### The signing key
+
+The private key signs every token in the platform. If it leaks, anyone can mint a token for any
+account and everything above is void, so it is handled differently from other configuration.
+
+**It never goes in the repository, not even in development.** A development key committed for now
+is how a production key ends up committed later, because the file already exists and someone fills
+it in. Configuration arrives as environment variables, loaded from a file that is not tracked,
+with a tracked example listing the names and no values.
+
+**Every environment generates its own**, from a small command in the core that emits a keypair. A
+development key must never verify anything real.
+
+**The token header carries a key id, and the endpoint serves a set rather than one key.** Both are
+unused while there is a single key. They are what makes rotation possible later without a flag
+day: publish the new key, start signing with it, keep verifying the old one until everything signed
+with it has expired, then drop it. Without them, rotating means every live token becoming invalid
+at once and every verifier being restarted in the right order. This is the same trade as the token
+id above, free now and expensive to retrofit.
+
+**No pepper on the password hash.** It adds a second secret to protect in exchange for very little
+on top of Argon2id.
 
 ---
 

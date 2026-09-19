@@ -328,6 +328,43 @@ behind the core.
 
 ---
 
+## Databases, migrations, and running it
+
+**One Postgres instance, a database per service.** The core, the brain, and each feature that
+needs one, each with its own role. Separate databases rather than schemas inside one, because a
+role scopes cleanly to a database and a join across two services becomes impossible rather than
+merely discouraged.
+
+**Each service owns its own migrations.** No central runner and no ordering between services,
+which is the same isolation the rest of the design has.
+
+**Plain SQL files, numbered, forward only.** Not a migration DSL: roles, grants and row level
+security policies cannot be expressed in most of them, and the brain needs all three. Forward only
+because down migrations are rarely run in practice, cannot reverse the interesting cases anyway,
+and the recovery path at this scale is a restore or another migration going forwards.
+
+**Migrations are a command, never something that happens at startup.** That is a consequence
+rather than a preference: the application connects as a role that does not own its tables, which
+the isolation section above already requires, so it is not permitted to migrate. Two roles, two
+connection strings, and only one of them is ever used from a terminal.
+
+**Everything runs on one laptop for now.** Postgres and the proxy in a compose file, since they
+are infrastructure that never gets rebuilt, and the services themselves run natively, where the
+edit and rebuild loop actually is.
+
+**It runs under a real hostname with real HTTPS from the first day**, with the proxy issuing a
+certificate from its own local authority. Without that, `Secure` cookies do not behave normally
+and the single origin is only ever tested against an address and a port rather than a domain, so
+the cookie and origin model in `Core/docs/core-architecture.md` stays unproven until the day it is
+deployed. The other half of not being shaped like a laptop is that configuration arrives as
+environment variables rather than constants, so the same binary runs elsewhere unchanged.
+
+**Deployment and backups are outside the first milestone**, which is worth saying rather than
+leaving implied. Backups become serious the moment the brain holds anything, since that is the
+part of this system that cannot be rebuilt.
+
+---
+
 ## The first milestone
 
 Two tracks. They do not block each other, and saying so stops either from waiting on the other.

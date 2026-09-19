@@ -155,8 +155,8 @@ A feature verifies the user's token itself. It never takes the user id from a he
 something upstream, and it never takes it from a parameter. Three things, and this is the whole of
 it:
 
-- Fetch the core's public key from the endpoint it is served at, cache it, and verify the
-  signature on the access token. It arrives in a cookie when a browser is asking, and in an
+- Fetch the core's public keys from the endpoint that serves them, cache the set, and verify the
+  signature on the access token, choosing the key by the id in its header. It arrives in a cookie when a browser is asking, and in an
   `Authorization` header when the core is calling a display endpoint on the user's behalf, so
   accept both. The identity is whatever the verified token says.
 - On anything that changes state, check that the `Origin` header is the platform's own, and never
