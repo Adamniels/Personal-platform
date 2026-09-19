@@ -19,6 +19,11 @@ goes stale and then quietly lies. Documents point at each other instead, in both
 Each document describes the current state of its area, including the parts deliberately left
 open and what would settle them. There is no separate list of loose ends.
 
+**Sprint scope is not in these docs.** What a sprint must prove and the tickets that get it there
+live on the GitHub Project, in issues, and nowhere else: each item has a state, matters for one
+sprint, and then is history. These docs keep only what outlasts a sprint, which includes decisions
+about how the work gets done as well as the architecture.
+
 ---
 
 ## Where to start
@@ -51,8 +56,8 @@ open and what would settle them. There is no separate list of loose ends.
 
 - `core-architecture.md` — what the core owns, what stays out of it, how authentication gets
   built, the session and token model, the signing key, password reset, the core's own tables and
-  the user id, the feature registry, how its frontend is built, and what a feature exposes for the
-  front page
+  the user id, routing, the feature registry, how its frontend is built, and what a feature
+  exposes for the front page
 
 **Brain**
 

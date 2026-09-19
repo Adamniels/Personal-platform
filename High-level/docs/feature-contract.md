@@ -2,7 +2,7 @@
 
 Status: exploratory. Nothing is built.
 
-Last updated: 2026 09 18
+Last updated: 2026 09 19
 
 Isolation of implementation, coupling through contracts. This is what someone building a feature
 needs to know. The brain's own internals are in `Brain/docs/`, and the platform wide thinking
@@ -156,13 +156,18 @@ something upstream, and it never takes it from a parameter. Three things, and th
 it:
 
 - Fetch the core's public keys from the endpoint that serves them, cache the set, and verify the
-  signature on the access token, choosing the key by the id in its header. It arrives in a cookie when a browser is asking, and in an
-  `Authorization` header when the core is calling a display endpoint on the user's behalf, so
-  accept both. The identity is whatever the verified token says.
+  signature on the access token, choosing the key by the id in its header. An id the cached set
+  does not know means fetching the set once more before failing, which is what lets the core rotate
+  keys without every feature rejecting fresh tokens. The token arrives in a cookie when a browser is
+  asking, and in an `Authorization` header when the core is calling a display endpoint on the
+  user's behalf, so accept both. The identity is whatever the verified token says.
 - On anything that changes state, check that the `Origin` header is the platform's own, and never
   change state on a GET. That is the CSRF defence in full.
-- Handle expiry. An API call returns 401 and the frontend refreshes and retries; a plain page load
-  redirects to the core's refresh endpoint and back.
+- Treat a missing token, an expired one and one that fails verification the same way. An API call
+  returns 401 and the frontend refreshes and retries; a plain page load redirects to the core's
+  refresh endpoint with the path to come back to. The feature never decides whether someone needs
+  to log in, since it cannot tell a logged out browser from one whose access cookie simply ran
+  out, and the core can.
 
 So a feature frontend needing no authentication code is not quite true. It needs none to be
 authenticated, since the browser attaches the session cookie by itself on a shared origin, but the

@@ -378,7 +378,7 @@ something you can actually look at.
 front page composition have nothing to act on while there are zero features, so all three would be
 written against an imagined one. `canary` is a couple of hundred lines that exists in order to be
 a feature: one page that includes the nav and verifies the token itself, a display endpoint, and a
-switch that makes it fail so the front page can be watched rendering without it. It is not thrown
+switch that makes it hang or fail, so the front page can be watched rendering without it. It is not thrown
 away afterwards. It stays as the thing to point at when the platform needs checking, and as the
 template for the first real feature.
 
