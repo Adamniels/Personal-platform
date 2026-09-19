@@ -8,8 +8,9 @@ The platform's infrastructure: the thing every feature is reached through, and w
 interesting lives. The platform wide thinking that places it is in
 `High-level/docs/platform-architecture.md`.
 
-This is the least specified part of the project, and that reflects how much has actually been
-worked out rather than a gap in the writing. Worth knowing, given the core goes first.
+This is the most fully specified part of the documentation, which is what you would expect of the
+part that gets built first. What is still open is noted where it sits rather than collected into a
+list.
 
 ---
 
