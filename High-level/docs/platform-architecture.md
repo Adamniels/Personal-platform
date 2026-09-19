@@ -15,6 +15,7 @@ says what breaks without them.
 **Read next**
 
 - `High-level/docs/feature-contract.md` — what a feature is, and what it may depend on
+- `High-level/docs/how-we-build.md` — how the work is cut up and ordered
 - `Core/docs/` — the core in depth
 - `Brain/docs/` — the brain in depth, including what it is trying to know and how evidence
   gets in
@@ -362,6 +363,49 @@ environment variables rather than constants, so the same binary runs elsewhere u
 **Deployment and backups are outside the first milestone**, which is worth saying rather than
 leaving implied. Backups become serious the moment the brain holds anything, since that is the
 part of this system that cannot be rebuilt.
+
+---
+
+## One repository
+
+The core, every feature, the brain, the infrastructure configuration and these docs live in one
+public repository, each service in a directory of its own.
+
+**A repository boundary belongs where changes do not cross it**, and here almost every change
+crosses services. The Caddyfile and the registry change in the same commit, and both name
+features. Putting a feature on the front page means editing the core in step with that feature's
+display endpoint, with no shared shape checking that they agree. The vertical slices in
+`High-level/docs/how-we-build.md` routinely touch the core and a feature in one piece of work, and
+a slice sometimes shows that a document is wrong. In one repository each of those is one branch,
+one pull request and one link to its issue. Split, each is several pull requests that have to
+merge in the right order with nothing tying them together.
+
+v1 is the evidence. It was split by layer, backend, frontend, workers and docs, and on almost
+every day one of them changed, the others changed too. That is a boundary cutting through the
+unit of change, and splitting v2 by service would recreate it along a different line.
+
+**Repositories are not what isolates services.** Processes, separate databases and roles, and
+signed tokens do that. A feature in its own repository could still call another one; a feature
+in this one still cannot read another's database.
+
+**The rule: no service imports from another service's directory, and each one builds and runs
+from its own directory alone.** This is written as a rule rather than a preference, and here is
+what goes wrong without it. One repository makes shared code the path of least resistance: a
+helper imported across directories, a common library every feature pulls in, a root level
+configuration everything quietly depends on. That is the same drift the nav rejects a shared
+package over, and it is what turns splitting a service out later from a mechanical step into
+untangling. The root of the repository holds only what is genuinely platform wide: the proxy
+configuration and the registry, the compose file, and continuous integration.
+
+**What it costs, and how it is paid.** Every push would build and test every service, so
+continuous integration is filtered by path from its first workflow, and a change to one service
+runs that service's checks. The number of languages is not itself a cost, since each directory
+keeps its own toolchain and lockfile and nothing tries to build them as one graph.
+
+**What would split a service out**, none of which is size: code that should not be public, a
+feature becoming a product with its own releases or contributors, or someone who should work on
+one service without seeing the rest. Each is a reason to move one directory out with its history,
+not to abandon the arrangement, and the rule above is what keeps that cheap.
 
 ---
 

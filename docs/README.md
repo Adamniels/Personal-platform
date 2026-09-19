@@ -47,10 +47,12 @@ about how the work gets done as well as the architecture.
 
 - `platform-architecture.md` — the brain as a service, dependency and extraction, languages,
   multi user and isolation, the user id, the core's frontend, notifications, databases and
-  migrations, the first milestone, memory layers, candidate features, and what is deliberately not
-  being done
+  migrations, the one repository, the first milestone, memory layers, candidate features, and
+  what is deliberately not being done
 - `feature-contract.md` — what a feature is, what it owns, what it may depend on, how it
   authenticates a request, the two contracts, and where reminders sit
+- `how-we-build.md` — how work is cut and ordered: a walking skeleton, then vertical slices
+  ordered by risk, with a sprint's checks as acceptance criteria
 
 **Core**
 
