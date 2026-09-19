@@ -2,7 +2,7 @@
 
 Status: exploratory. Nothing is built.
 
-Last updated: 2026 09 18
+Last updated: 2026 09 19
 
 These are planning notes, not specifications. Everything here is a current position with the
 reasoning attached, and almost all of it can be argued with. A few things are written as rules,
@@ -49,8 +49,8 @@ open and what would settle them. There is no separate list of loose ends.
 **Core**
 
 - `core-architecture.md` — what the core owns, what stays out of it, how authentication gets
-  built, the session and token model, the core's own tables and the user id, how its frontend is
-  built, and what a feature exposes for the front page
+  built, the session and token model, the core's own tables and the user id, the feature registry,
+  how its frontend is built, and what a feature exposes for the front page
 
 **Brain**
 

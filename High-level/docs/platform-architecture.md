@@ -2,7 +2,7 @@
 
 Status: exploratory. Nothing is built.
 
-Last updated: 2026 09 18
+Last updated: 2026 09 19
 
 The top of the documentation. What the platform is, what services exist, and the thinking that
 shapes more than one of them. Anything you only need when you sit down to write a particular
@@ -336,6 +336,20 @@ Two tracks. They do not block each other, and saying so stops either from waitin
 registration, routing, the feature registry, and the core's own frontend with the front page on
 it. Finishable, well understood, where the security work lives, and the track that produces
 something you can actually look at.
+
+**The core track also includes one small feature, written in Python.** Routing, the registry and
+front page composition have nothing to act on while there are zero features, so all three would be
+written against an imagined one. `canary` is a couple of hundred lines that exists in order to be
+a feature: one page that includes the nav and verifies the token itself, a display endpoint, and a
+switch that makes it fail so the front page can be watched rendering without it. It is not thrown
+away afterwards. It stays as the thing to point at when the platform needs checking, and as the
+template for the first real feature.
+
+Python rather than Rust, deliberately. The least tested claim in the architecture is that a feature
+can be written in any language and the coupling is two nav lines and verifying a token. A stub in
+Rust would share libraries with the core and prove almost nothing, and if verifying the token turns
+out to be awkward elsewhere, that is better found on two hundred lines than halfway through
+designing a domain.
 
 **Brain track.** Profile, plus events, plus deliberately dumb retrieval, plus roughly ten
 evaluation cases. Nothing else. Small, but it makes everything after it measurable.

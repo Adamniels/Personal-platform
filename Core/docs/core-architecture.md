@@ -21,10 +21,8 @@ worked out rather than a gap in the writing. Worth knowing, given the core goes 
 - **Routing** to features, which is a reverse proxy. Path based routing to separate processes is
   most likely a Caddy or Traefik config file rather than code. It also puts everything behind one
   domain, which is what makes cookies and requests between the core and features simple.
-- **The feature registry**, where a feature declares itself. A manifest would carry its routes,
-  its read API version, the entity types it exposes and the scopes it requests. What exactly
-  goes in it matters once there is a second feature to register, since one feature does not need
-  a registry to find itself.
+- **The feature registry**, meaning the list of what features exist, where they live, and what
+  they offer.
 - **Its own frontend**, meaning the login pages, the front page, and shared navigation.
 - **Composing the front page**, meaning calling the display endpoints of whichever features you
   chose and assembling the result.
@@ -221,6 +219,31 @@ mechanism placed where the failure mode is not becomes decoration.
 
 Two halves of the discipline are kept anyway, because they cost nothing and stand on their own:
 the application connects as a role that does not own its tables, and migrations run as the owner.
+
+---
+
+## The feature registry
+
+A config file the core reads at startup, not a database table.
+
+The deciding argument is that routing is already a config file for the proxy. If the registry were
+a table, adding a feature would mean editing a file and inserting a row, and those two could
+disagree about the same fact, which is a class of bug with no upside whatsoever. The two files sit
+in the same directory and change in the same commit.
+
+The rest follows. The registry holds no user data and has no user scope, so it would be a strange
+guest in a database that is otherwise entirely per account. Nothing edits it while the system is
+running, since there is no interface for registering a feature and there is not going to be one.
+And a table quietly invites a registration endpoint, which invites features announcing themselves
+at boot, which is a distributed systems problem that does not otherwise exist here.
+
+Four fields per feature are enough to build against: display name, path prefix, upstream address,
+and the display endpoint if it has one. The fuller manifest, a read API version, the entity types
+a feature exposes, the scopes it requests, has no consumer yet. It belongs to the brain and to a
+platform with several features, and writing it before either exists would be guessing.
+
+The cost is that adding or disabling a feature needs a restart, which is consistent with the core
+changing as features arrive being the workflow rather than a smell.
 
 ---
 
