@@ -161,6 +161,41 @@ id above, free now and expensive to retrofit.
 **No pepper on the password hash.** It adds a second secret to protect in exchange for very little
 on top of Argon2id.
 
+### Password reset, and changing a password
+
+Reset works like registration: a command generates a single use token and no email is involved.
+It prints the token, you paste it into the reset page, you set a new password. Delivery is the
+only missing piece, and delivery is exactly the piece that belongs to the notification service, so
+when that exists the flow does not change. The core sends a delivery request instead of printing.
+
+Sending mail from the core is ruled out rather than deferred. It is the drift the notification
+decision exists to prevent, and it would pull a provider, deliverability and templates into a
+service holding one account.
+
+**Consuming a reset token deletes every session for that account.** A reset happens because
+someone may have the password, so a session that survives it defeats the whole point. This is also
+where the thirty minute window is least comfortable: nothing new can be minted, but an access
+token already in someone's hands keeps working until it expires. It does not change the answer at
+this size, since an attacker would have to be inside the account during that particular half hour,
+but it is the scenario that comes closest to justifying the revocation feed under what we are not
+doing.
+
+**The token is short lived, an hour rather than a day**, stored hashed, usable once. That is the
+invite code machinery again rather than anything new. Using it does not log you in: it sets the
+password and sends you to the login page, because letting a reset token turn into a session adds a
+second path by which something becomes a session, and that is a category worth keeping to exactly
+one.
+
+**Changing a password while logged in is a separate flow.** It requires the current password, and
+it revokes your other sessions but not the one you are sitting in. It is also the one you will
+actually use.
+
+**No defence against user enumeration, deliberately.** A public forgot password form has to answer
+identically whether or not an address exists, or it becomes a way to find out who has an account.
+There is no such form here and the command is run by the owner, so the concern does not arise.
+Worth writing down, because it is a reflex that would otherwise be carried forever without anyone
+remembering the reason.
+
 ---
 
 ## The core's data
@@ -388,7 +423,8 @@ session epoch per account, one integer, bumped to invalidate everything that acc
 not built because thirty minutes is an acceptable window here, and because the token already
 carries the identifiers that would make adding it later a small piece of work rather than a
 migration. Whatever is built has to serve stale on a core outage, since failing closed would mean
-the core going down logs the whole platform out.
+the core going down logs the whole platform out. The case that comes closest to justifying it is
+password reset, and the reasoning for that sits with reset rather than here.
 
 ---
 

@@ -50,8 +50,9 @@ open and what would settle them. There is no separate list of loose ends.
 **Core**
 
 - `core-architecture.md` — what the core owns, what stays out of it, how authentication gets
-  built, the session and token model, the signing key, the core's own tables and the user id, the
-  feature registry, how its frontend is built, and what a feature exposes for the front page
+  built, the session and token model, the signing key, password reset, the core's own tables and
+  the user id, the feature registry, how its frontend is built, and what a feature exposes for the
+  front page
 
 **Brain**
 
