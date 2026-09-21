@@ -2,7 +2,7 @@
 
 Status: exploratory. Nothing is built.
 
-Last updated: 2026 09 19
+Last updated: 2026 09 21
 
 How work gets cut up and ordered, as opposed to what gets built. What a particular sprint must
 prove, and the tickets that get it there, live on the GitHub Project rather than here, see
@@ -35,6 +35,12 @@ checks are a behaviour one slice delivers. Some are properties that fall out of 
 staying logged in across a restart, and those get attached to the slice that makes them true
 rather than becoming work of their own.
 
+**Checks are walked by hand, and never turned into automated tests.** Each one is walked when its
+slice lands, as part of that slice being done, and then all of them are walked again together at
+the end of the sprint, on a fresh start of the whole stack, as the sprint being done. The final
+walk exists to catch a later slice breaking an earlier one. Walking them only at the end would
+find a problem from the first week in the last one.
+
 ### Why not layers
 
 Layers buy two things. The first is designing each tier coherently before code accumulates on top
@@ -66,7 +72,8 @@ system, because it is there and it is early. Anything with a slice to own it wai
 already designed, so building it incrementally would only add migrations, and forward only
 migrations make that churn permanent.
 
-**Each slice carries its own tests.** Tests are not a later pass over finished slices.
+**Each slice carries its own tests.** Tests are not a later pass over finished slices. Which
+tests, see what gets tests below.
 
 ### What it costs
 
@@ -86,3 +93,50 @@ Layers would win if the data model were genuinely uncertain and had to settle be
 could stand on it, or if several people were dividing the work by tier. The skeleton can be dropped
 when the stack is already proven end to end, such as a later sprint on the same pieces, and slices
 alone are enough.
+
+---
+
+## What gets tests
+
+**Tests exist to make the thing good, not to prove a sprint is done.** A sprint's checks answer
+whether it is finished, once, on the real stack. Tests answer whether something is still true after
+a change months later, and whether it holds in cases nobody can produce by clicking. They are chosen
+per ticket, for the sake of the code, and never written to mirror a check.
+
+**Anything meeting one of three criteria gets tests:**
+
+- **It is security and it breaks silently.** A missing cookie flag or an open redirect looks
+  exactly like a working platform.
+- **It cannot be reproduced by hand.** Races, time boundaries, concurrency, a dependency slow in
+  one particular way.
+- **It is a contract between two languages.** Drift there is otherwise only caught at runtime, and
+  a test is the cheapest runtime there is.
+
+Anything meeting none of them is checked by hand when it is built, and that is enough.
+
+**A ticket whose work meets a criterion names its tests in its own definition of done.** Without
+that floor, the tests that matter most are the ones skipped, because they are also the awkward
+ones, a clock to inject, a database to run, a stub to stand up, and the feature already works when
+it is clicked.
+
+**Time is an input.** Anything deciding on expiry, a window or a limit takes the current time as a
+parameter rather than reading the clock itself. Otherwise the only way to test it is to wait.
+
+**A guarantee that lives in SQL is tested against a real Postgres, never a mock.** A mocked
+conditional update tests the mock. Continuous integration runs a database for this reason.
+
+**A deterministic test beats a race.** Where correctness rests on a single statement, the test
+exercises that statement's guarantee directly, for example running the same conditional update
+twice and expecting the second to change nothing. Firing concurrent requests and hoping for the
+bad interleaving passes whether or not the code is right.
+
+**A feature's authentication tests are part of the feature template.** Verifying the core's token
+is the one piece of security logic every feature carries, and the ways it gets broken are known:
+an expired token, a bad signature, an unknown key id, and a token naming an algorithm it should not,
+`none`, or a symmetric one keyed with the public key. `canary` carries these, along with a test
+verifying a token the core actually produced, and every feature after it starts from them.
+
+**No automated browser tests yet.** They would need a new dependency and the proxy's local
+certificate authority trusted inside continuous integration, to automate what is walked by hand
+once per slice. Worth revisiting when walking by hand becomes frequent, or when regressions start
+appearing only in the browser.

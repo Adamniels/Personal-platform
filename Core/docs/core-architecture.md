@@ -2,7 +2,7 @@
 
 Status: exploratory. Nothing is built.
 
-Last updated: 2026 09 19
+Last updated: 2026 09 21
 
 The platform's infrastructure: the thing every feature is reached through, and where nothing
 interesting lives. The platform wide thinking that places it is in
@@ -134,7 +134,9 @@ detectable, so a `DELETE` anywhere in these flows quietly turns a replay into an
 
 **Marking a token used is one conditional update**, setting the used time only where it is still
 empty and returning the row. Read first and write second, and two concurrent refreshes both find
-the token unused and both rotate it, so the family forks and nothing ever notices.
+the token unused and both rotate it, so the family forks and nothing ever notices. Invite codes and
+reset tokens are consumed the same way, for the same reason: two registrations racing on one code
+would otherwise both succeed, and a single use code would make two accounts.
 
 **A token used within the last thirty seconds is not reuse.** Normal browsing presents the same
 refresh token twice: two tabs reloaded after a break, or one page whose API calls all get a 401 at
@@ -152,6 +154,15 @@ expires. The refresh token dies the instant you act, so nothing new can be minte
 case is one already issued access token surviving half an hour. Fifteen minutes is the textbook
 figure and is aimed at a stranger replaying a stolen token, which is not the threat on a platform
 with a handful of invited accounts.
+
+**The clock leeway on verification is chosen, not inherited, and it is five seconds everywhere.**
+JWT libraries accept a token slightly past its expiry to absorb clock skew, and their defaults
+differ: Rust's `jsonwebtoken` allows sixty seconds unless told otherwise, PyJWT none. Left at the
+defaults, the core and a feature disagree about when the same token died, and the thirty minute
+window above is quietly thirty one. Every verifier, the core included, sets the leeway explicitly
+to the same value. Five seconds is small enough to leave the window meaning what it says and large
+enough that services on different machines one day do not reject a fresh token over a clock
+drifting by a second.
 
 **The refresh token lasts fourteen days idle, and the session thirty days in total.** Each refresh
 issues a token expiring fourteen days out, or at the family's thirty day cap if that comes first,

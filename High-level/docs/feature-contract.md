@@ -2,7 +2,7 @@
 
 Status: exploratory. Nothing is built.
 
-Last updated: 2026 09 19
+Last updated: 2026 09 21
 
 Isolation of implementation, coupling through contracts. This is what someone building a feature
 needs to know. The brain's own internals are in `Brain/docs/`, and the platform wide thinking
@@ -160,7 +160,9 @@ it:
   does not know means fetching the set once more before failing, which is what lets the core rotate
   keys without every feature rejecting fresh tokens. The token arrives in a cookie when a browser is
   asking, and in an `Authorization` header when the core is calling a display endpoint on the
-  user's behalf, so accept both. The identity is whatever the verified token says.
+  user's behalf, so accept both. Set the clock leeway explicitly rather than taking the library's
+  default, see `Core/docs/core-architecture.md` for the value and why. The identity is whatever the
+  verified token says.
 - On anything that changes state, check that the `Origin` header is the platform's own, and never
   change state on a GET. That is the CSRF defence in full.
 - Treat a missing token, an expired one and one that fails verification the same way. An API call
