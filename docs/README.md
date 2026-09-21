@@ -2,11 +2,20 @@
 
 Status: exploratory. Nothing is built.
 
-Last updated: 2026 09 19
+Last updated: 2026 09 21
 
-These are planning notes, not specifications. Everything here is a current position with the
-reasoning attached, and almost all of it can be argued with. A few things are written as rules,
-and where that happens the document says what breaks without them.
+These are planning notes, not specifications. Everything here is the current best idea with the
+reasoning attached, and it is expected to change as building teaches things planning could not.
+Some of it will turn out wrong, and that is normal.
+
+Where something is written as a rule, it is a tripwire rather than a law. When work runs into one,
+stop and decide which is wrong, the rule or the plan, using the reasoning beside it. If the rule
+loses, change the document in the same pull request as the code, so the docs keep describing what
+is true.
+
+How long to think before changing something depends on how expensive it is to undo. Most
+decisions are cheap to reverse and should simply be changed when a better idea appears. A few are
+not, such as the user id, and the documents say so where they apply.
 
 Planning is split by **level**, not by subsystem. The test for where something belongs:
 
