@@ -41,6 +41,10 @@ the end of the sprint, on a fresh start of the whole stack, as the sprint being 
 walk exists to catch a later slice breaking an earlier one. Walking them only at the end would
 find a problem from the first week in the last one.
 
+**On the board, a slice is a parent issue, and it closes when its check is walked.** How finely it
+is broken down beneath that, and into what shape, is up to whoever does the work and changes with
+use. Only the slice has to end in something checkable.
+
 ### Why not layers
 
 Layers buy two things. The first is designing each tier coherently before code accumulates on top
