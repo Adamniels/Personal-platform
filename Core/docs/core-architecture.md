@@ -107,6 +107,12 @@ revocation mechanism can be added later without changing the format. Adding a cl
 means updating every verifier and reissuing every live session; a claim that has always been there
 simply starts being read one day.
 
+**The session id is the family id**, not the id of the refresh token row. Rotation writes a new row
+every thirty minutes, while the family lasts the whole session, and a family is what gets revoked:
+by logout, reuse detection, a reset, or a password change. Changing a password is also likely the
+first thing to read the claim, since it revokes every other session but keeps the current one, and
+the refresh cookie that could identify the current one never reaches that endpoint.
+
 **The session lives in two cookies.** The access token on `Path=/`, so it reaches the core and
 every feature. The refresh token on the path of the refresh endpoint alone, so it never reaches a
 feature at all. Both `HttpOnly`, `Secure`, `SameSite=Lax`.
@@ -339,6 +345,12 @@ mechanism placed where the failure mode is not becomes decoration.
 
 Two halves of the discipline are kept anyway, because they cost nothing and stand on their own:
 the application connects as a role that does not own its tables, and migrations run as the owner.
+
+**The application role is granted no `DELETE`.** Nothing in the core deletes in normal operation,
+see the session above, and a `DELETE` that slipped into a session flow would turn a replay into an
+unknown token without raising anything. Without the grant it is a permission error instead. The day
+something genuinely needs deleting, account deletion or pruning old sessions, it gets a grant in a
+migration of its own.
 
 ---
 
