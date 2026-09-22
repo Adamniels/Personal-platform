@@ -2,7 +2,7 @@
 
 Status: exploratory. Nothing is built.
 
-Last updated: 2026 09 21
+Last updated: 2026 09 22
 
 These are planning notes, not specifications. Everything here is the current best idea with the
 reasoning attached, and it is expected to change as building teaches things planning could not.
@@ -46,8 +46,11 @@ about how the work gets done as well as the architecture.
 | Folder             | Holds                                                                       |
 | ------------------ | --------------------------------------------------------------------------- |
 | `High-level/docs/` | The platform, the services that exist, and anything shaping more than one   |
+| `Core/`            | The core's code, a Rust crate, with its docs in `Core/docs/`                |
 | `Core/docs/`       | The core: auth, accounts, routing, the registry, and its own frontend       |
 | `Brain/docs/`      | The brain: memory, the trust model, events, retrieval                       |
+| `canary/`          | Canary, the Python feature proving another language can verify the token    |
+| `infra/`           | The Caddyfile and the compose file, and later the feature registry          |
 | `docs/`            | This index, and anything that fits nowhere else                             |
 
 ## The files
