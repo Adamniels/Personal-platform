@@ -1,0 +1,5 @@
+- [Docs are tripwires](docs-are-tripwires.md) — frame collisions with the docs as a question of which should change; weigh by cost to undo
+- [Small nested tickets](small-nested-tickets.md) — small nested sub-issues; planning leaf first in each slice; one branch and PR per slice
+- [zsh commands](zsh-commands.md) — the owner's shell is zsh; write flags out, never rely on variable word splitting
+- [GitHub changes](github-changes.md) — script bulk changes, dry-run, run on the owner's word, verify; bash 3.2 pitfalls
+- [GitHub board](github-board.md) — Project 5; auto-add covers every issue; Size only on leaves; field conventions

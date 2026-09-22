@@ -17,6 +17,10 @@ Sprint scope and tickets are not in the docs. They live on GitHub, in the issues
 issue under it, and the leaves under a slice are the work. How work is cut and ordered is in
 `High-level/docs/how-we-build.md`.
 
+Project memory lives in `.claude/memory/`, indexed by `.claude/memory/MEMORY.md`. Read the index at
+the start of a session. When something should outlive the session, propose adding it there rather
+than writing it silently, and keep memory to what the docs and the code do not already record.
+
 ## AI and code
 
 The owner writes this repository's code by hand while learning it. What AI is for here is planning,
