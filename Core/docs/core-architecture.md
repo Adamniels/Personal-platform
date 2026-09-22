@@ -216,6 +216,12 @@ is how a production key ends up committed later, because the file already exists
 it in. Configuration arrives as environment variables, loaded from a file that is not tracked,
 with a tracked example listing the names and no values.
 
+A fixed seed inside the core's test code is not an exception to this. The token contract test
+signs with one so the output is the same bytes every time, see contract fixtures in
+`High-level/docs/platform-architecture.md`, but it is a constant in a test rather than a key file,
+the core never loads a key from anywhere but the environment, and nothing it signs verifies against
+a real key set.
+
 **Every environment generates its own**, from a small command in the core that emits a keypair. A
 development key must never verify anything real.
 

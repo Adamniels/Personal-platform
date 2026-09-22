@@ -2,15 +2,13 @@
 
 Status: exploratory. Nothing is built.
 
-Last updated: 2026 09 19
+Last updated: 2026 09 22
 
 The top of the documentation. What the platform is, what services exist, and the thinking that
 shapes more than one of them. Anything you only need when you sit down to write a particular
 service lives in that service's folder instead, `Brain/docs/` or `Core/docs/`.
 
-These are notes, not rulings. Almost everything here is a current position with the reasoning
-attached, so it can be argued with. A few things are written as rules, and where that happens it
-says what breaks without them.
+How to read these documents, and how firmly, is in `docs/README.md`.
 
 **Read next**
 
@@ -395,7 +393,14 @@ helper imported across directories, a common library every feature pulls in, a r
 configuration everything quietly depends on. That is the same drift the nav rejects a shared
 package over, and it is what turns splitting a service out later from a mechanical step into
 untangling. The root of the repository holds only what is genuinely platform wide: the proxy
-configuration and the registry, the compose file, and continuous integration.
+configuration and the registry, the compose file, continuous integration, and contract fixtures.
+
+**Contract fixtures are the one thing two services read from the same place.** A contract between
+languages is tested by both sides against the same bytes, and those bytes belong to neither side's
+directory. The first is the token: the core's tests assert that it still produces the committed
+token exactly, and each feature's tests verify that token against the committed public keys. It
+holds public material only. Every workflow that tests against a fixture includes its directory in
+its path filter.
 
 **What it costs, and how it is paid.** Every push would build and test every service, so
 continuous integration is filtered by path from its first workflow, and a change to one service

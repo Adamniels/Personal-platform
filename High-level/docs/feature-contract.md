@@ -2,7 +2,7 @@
 
 Status: exploratory. Nothing is built.
 
-Last updated: 2026 09 21
+Last updated: 2026 09 22
 
 Isolation of implementation, coupling through contracts. This is what someone building a feature
 needs to know. The brain's own internals are in `Brain/docs/`, and the platform wide thinking
@@ -158,7 +158,8 @@ it:
 - Fetch the core's public keys from the endpoint that serves them, cache the set, and verify the
   signature on the access token, choosing the key by the id in its header. An id the cached set
   does not know means fetching the set once more before failing, which is what lets the core rotate
-  keys without every feature rejecting fresh tokens. The token arrives in a cookie when a browser is
+  keys without every feature rejecting fresh tokens. Refetch at most once every thirty seconds,
+  or a stream of made up key ids turns every request into a call to the core. The token arrives in a cookie when a browser is
   asking, and in an `Authorization` header when the core is calling a display endpoint on the
   user's behalf, so accept both. Set the clock leeway explicitly rather than taking the library's
   default, see `Core/docs/core-architecture.md` for the value and why. The identity is whatever the
