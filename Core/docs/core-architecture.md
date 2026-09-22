@@ -264,6 +264,10 @@ There is no such form here and the command is run by the owner, so the concern d
 Worth writing down, because it is a reflex that would otherwise be carried forever without anyone
 remembering the reason.
 
+This is about reset only. Login is a public form, so it does the cheap thing: the same answer for an
+unknown email and a wrong password, and an Argon2id verification against a dummy hash when the
+email is unknown, so the timing does not tell them apart either.
+
 ---
 
 ## The core's data
