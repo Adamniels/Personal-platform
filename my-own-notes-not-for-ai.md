@@ -1,2 +1,0 @@
-# This is just a place for me to write down some personal notes
-- I would like to really understand how to work with my system, how do i actually close sub-issues if a branch is for a issue above? can a commit close a sub-issue as well? maybe it can?
