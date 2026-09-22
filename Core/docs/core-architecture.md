@@ -2,7 +2,7 @@
 
 Status: exploratory. Nothing is built.
 
-Last updated: 2026 09 21
+Last updated: 2026 09 22
 
 The platform's infrastructure: the thing every feature is reached through, and where nothing
 interesting lives. The platform wide thinking that places it is in
@@ -125,8 +125,10 @@ token theft through XSS is not, which is the whole trade.
 
 **CSRF is handled by `SameSite=Lax`, an `Origin` check on anything that changes state, and never
 changing state on a GET.** No synchronizer tokens and no double submit, so there is no shared
-state between the core and features. Accepting only JSON on mutations closes the same hole a
-second time and costs nothing.
+state between the core and features. Accepting only JSON on mutations called by `fetch` closes the
+same hole a second time and costs nothing. The core's own pages are the exception: login,
+registration and the refresh page post plain forms, see the core's frontend below, and rely on
+`SameSite` and the `Origin` check alone, which behave the same for a form as for a `fetch`.
 
 **The refresh token is opaque rather than a JWT.** A random string, stored hashed, usable once.
 Each refresh mints a new one and marks the old one used. Presenting an already used token means a
@@ -278,6 +280,11 @@ as invite codes, since reset is the invite code machinery again, see password re
 Invite codes, reset tokens and refresh tokens are stored hashed. Each of them is a credential, and
 a database backup should not be a working set of them. All three are plain random bytes rather
 than UUIDs, since a UUIDv7 carries its own creation time and a secret should carry nothing.
+
+They are hashed with SHA-256, not Argon2id. A slow hash exists to make guessing expensive, which
+matters for a password a person chose and not for thirty two random bytes, which cannot be guessed
+either way. And each of these is found by its hash, so the hash has to be deterministic and cheap,
+where a salted slow hash would mean no index to look it up by.
 
 Passwords are hashed with Argon2id through a library, per the line above about primitives.
 
