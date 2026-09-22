@@ -114,8 +114,10 @@ first thing to read the claim, since it revokes every other session but keeps th
 the refresh cookie that could identify the current one never reaches that endpoint.
 
 **The session lives in two cookies.** The access token on `Path=/`, so it reaches the core and
-every feature. The refresh token on the path of the refresh endpoint alone, so it never reaches a
-feature at all. Both `HttpOnly`, `Secure`, `SameSite=Lax`.
+every feature. The refresh token on `Path=/auth`, which holds refresh and logout and nothing else,
+so it never reaches a feature at all. Logout is there rather than beside the other pages because it
+revokes the family the refresh token belongs to, and so has to receive it, whether or not the access
+token is still valid. Both `HttpOnly`, `Secure`, `SameSite=Lax`.
 
 Cookies rather than a token held in JavaScript, because with everything on one origin the browser
 attaches the session by itself, so a feature frontend needs no code to be authenticated, and
