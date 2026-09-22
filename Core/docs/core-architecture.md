@@ -2,7 +2,7 @@
 
 Status: exploratory. Nothing is built.
 
-Last updated: 2026 09 19
+Last updated: 2026 09 22
 
 The platform's infrastructure: the thing every feature is reached through, and where nothing
 interesting lives. The platform wide thinking that places it is in
@@ -19,9 +19,9 @@ list.
 - **Authentication**, and the account record.
 - **Identity at the account level.** The core owns who you are as an account, the brain owns who
   you are as a person.
-- **Routing** to features, which is a reverse proxy. Path based routing to separate processes is
-  most likely a Caddy or Traefik config file rather than code. It also puts everything behind one
-  domain, which is what makes cookies and requests between the core and features simple.
+- **Routing** to features, which is a reverse proxy, Caddy, configured by a file rather than code.
+  It also puts everything behind one domain, which is what makes cookies and requests between the
+  core and features simple. See routing below.
 - **The feature registry**, meaning the list of what features exist, where they live, and what
   they offer.
 - **Its own frontend**, meaning the login pages, the front page, and shared navigation.
@@ -107,9 +107,17 @@ revocation mechanism can be added later without changing the format. Adding a cl
 means updating every verifier and reissuing every live session; a claim that has always been there
 simply starts being read one day.
 
+**The session id is the family id**, not the id of the refresh token row. Rotation writes a new row
+every thirty minutes, while the family lasts the whole session, and a family is what gets revoked:
+by logout, reuse detection, a reset, or a password change. Changing a password is also likely the
+first thing to read the claim, since it revokes every other session but keeps the current one, and
+the refresh cookie that could identify the current one never reaches that endpoint.
+
 **The session lives in two cookies.** The access token on `Path=/`, so it reaches the core and
-every feature. The refresh token on the path of the refresh endpoint alone, so it never reaches a
-feature at all. Both `HttpOnly`, `Secure`, `SameSite=Lax`.
+every feature. The refresh token on `Path=/auth`, which holds refresh and logout and nothing else,
+so it never reaches a feature at all. Logout is there rather than beside the other pages because it
+revokes the family the refresh token belongs to, and so has to receive it, whether or not the access
+token is still valid. Both `HttpOnly`, `Secure`, `SameSite=Lax`.
 
 Cookies rather than a token held in JavaScript, because with everything on one origin the browser
 attaches the session by itself, so a feature frontend needs no code to be authenticated, and
@@ -119,14 +127,36 @@ token theft through XSS is not, which is the whole trade.
 
 **CSRF is handled by `SameSite=Lax`, an `Origin` check on anything that changes state, and never
 changing state on a GET.** No synchronizer tokens and no double submit, so there is no shared
-state between the core and features. Accepting only JSON on mutations closes the same hole a
-second time and costs nothing.
+state between the core and features. Accepting only JSON on mutations called by `fetch` closes the
+same hole a second time and costs nothing. The core's own pages are the exception: login,
+registration and the refresh page post plain forms, see the core's frontend below, and rely on
+`SameSite` and the `Origin` check alone, which behave the same for a form as for a `fetch`.
 
 **The refresh token is opaque rather than a JWT.** A random string, stored hashed, usable once.
 Each refresh mints a new one and marks the old one used. Presenting an already used token means a
 copy exists somewhere, so the whole session family is revoked and that person logs in again. This
 is also what makes logout mean something and what lets sessions survive a restart, since the truth
 is a row rather than a signature.
+
+Nothing about a session is deleted in normal operation. Rotation marks a row used, and logout,
+reuse detection, a password change and a reset mark it revoked. The used row is what makes reuse
+detectable, so a `DELETE` anywhere in these flows quietly turns a replay into an unknown token.
+
+**Marking a token used is one conditional update**, setting the used time only where it is still
+empty and returning the row. Read first and write second, and two concurrent refreshes both find
+the token unused and both rotate it, so the family forks and nothing ever notices. Invite codes and
+reset tokens are consumed the same way, for the same reason: two registrations racing on one code
+would otherwise both succeed, and a single use code would make two accounts.
+
+**A token used within the last thirty seconds is not reuse.** Normal browsing presents the same
+refresh token twice: two tabs reloaded after a break, or one page whose API calls all get a 401 at
+once. Without a grace window the second of them revokes the family, and using the platform logs you
+out. Inside the window the late request gets a fresh access token and nothing else, no rotation and
+no new refresh cookie, because tabs share one cookie jar and whichever request won has already set
+it. That keeps the outcome independent of which response arrives first. The cost is that a stolen
+copy presented within thirty seconds of the owner's own use earns one access token without being
+caught then. It cannot mint anything further, and if the thief got there first, the owner's next
+refresh falls outside the window and revokes the family, so detection is delayed rather than lost.
 
 **The access token lasts thirty minutes, and that number is the revocation window.** A locally
 verified token cannot be called back on, so a logout or a stolen laptop stays live until it
@@ -135,9 +165,48 @@ case is one already issued access token surviving half an hour. Fifteen minutes 
 figure and is aimed at a stranger replaying a stolen token, which is not the threat on a platform
 with a handful of invited accounts.
 
+**The clock leeway on verification is chosen, not inherited, and it is five seconds everywhere.**
+JWT libraries accept a token slightly past its expiry to absorb clock skew, and their defaults
+differ: Rust's `jsonwebtoken` allows sixty seconds unless told otherwise, PyJWT none. Left at the
+defaults, the core and a feature disagree about when the same token died, and the thirty minute
+window above is quietly thirty one. Every verifier, the core included, sets the leeway explicitly
+to the same value. Five seconds is small enough to leave the window meaning what it says and large
+enough that services on different machines one day do not reject a fresh token over a clock
+drifting by a second.
+
+**The refresh token lasts fourteen days idle, and the session thirty days in total.** Each refresh
+issues a token expiring fourteen days out, or at the family's thirty day cap if that comes first,
+and rotation never moves the cap. The idle limit ends a session left alone. The cap is for the case
+reuse detection cannot see: a copy is only caught when both copies get used, so a stolen laptop
+whose owner simply logs in somewhere else leaves the stolen family alive for as long as the thief
+keeps refreshing it. Changing the password revokes it, but only if the owner thinks to. The cap
+is the backstop for when they do not, and costs one login per device a month. The refresh
+cookie's lifetime matches the token's, so the browser drops it when the core would reject it
+anyway.
+
 **Expiry is not free for features.** An API call gets a 401 and the frontend refreshes and
 retries, but a plain page load needs the feature's backend to redirect to the core and back. So a
 feature holds signature verification and one redirect, which is little but is not nothing.
+
+**The refresh endpoint is the one place that decides between refreshing and logging in.** A
+feature sends every request without a valid access token there, whatever the reason, see
+`High-level/docs/feature-contract.md`. A valid refresh cookie gets a rotation, both cookies set,
+and a redirect back. Anything else goes to the login page carrying the same return path, and login
+sends you there afterwards. The access cookie's lifetime matches its token, thirty minutes, and
+logout clears both cookies as well as revoking the family.
+
+**Refresh is always a POST.** A redirect arrives as a GET, and state never changes on a GET, since
+that rule is what makes `SameSite=Lax` enough. So the GET on the refresh endpoint only renders a
+small page whose form posts to the same path at once, with one line of inline script and a visible
+button if scripts are off. The POST passes the same `Origin` check as everything else, and it is
+the same request a frontend's `fetch` makes after a 401, so refresh has one behaviour however it is
+reached. It costs a round trip at most once every thirty minutes. Keeping refresh as a GET would
+have been defensible, since a forced refresh only rotates your tokens inside your own browser, but
+a rule with one justified exception is how the next one arrives.
+
+**A return path is only ever a relative path**, starting with a single `/`. An absolute URL or one
+starting with `//` is dropped and replaced with the front page. Without that, the login page is an
+open redirect: a genuine login link that lands you on someone else's site afterwards.
 
 ### The signing key
 
@@ -148,6 +217,12 @@ account and everything above is void, so it is handled differently from other co
 is how a production key ends up committed later, because the file already exists and someone fills
 it in. Configuration arrives as environment variables, loaded from a file that is not tracked,
 with a tracked example listing the names and no values.
+
+A fixed seed inside the core's test code is not an exception to this. The token contract test
+signs with one so the output is the same bytes every time, see contract fixtures in
+`High-level/docs/platform-architecture.md`, but it is a constant in a test rather than a key file,
+the core never loads a key from anywhere but the environment, and nothing it signs verifies against
+a real key set.
 
 **Every environment generates its own**, from a small command in the core that emits a keypair. A
 development key must never verify anything real.
@@ -173,7 +248,7 @@ Sending mail from the core is ruled out rather than deferred. It is the drift th
 decision exists to prevent, and it would pull a provider, deliverability and templates into a
 service holding one account.
 
-**Consuming a reset token deletes every session for that account.** A reset happens because
+**Consuming a reset token revokes every session for that account.** A reset happens because
 someone may have the password, so a session that survives it defeats the whole point. This is also
 where the thirty minute window is least comfortable: nothing new can be minted, but an access
 token already in someone's hands keeps working until it expires. It does not change the answer at
@@ -197,6 +272,10 @@ There is no such form here and the command is run by the owner, so the concern d
 Worth writing down, because it is a reflex that would otherwise be carried forever without anyone
 remembering the reason.
 
+This is about reset only. Login is a public form, so it does the cheap thing: the same answer for an
+unknown email and a wrong password, and an Argon2id verification against a dummy hash when the
+email is unknown, so the timing does not tell them apart either.
+
 ---
 
 ## The core's data
@@ -206,12 +285,18 @@ Four tables, and nothing else.
 `accounts` holds the id, the email, the password hash, a status, and when it was created.
 `invite_codes` holds the code hashed, when it was created, when it expires, when it was used and
 by which account. `sessions` is the refresh side of the token model: id, account id, family id,
-token hash, issued at, expires at, used at, revoked at. `password_reset_tokens` has the same shape
-as invite codes, and whether it exists at all depends on where password reset lands.
+token hash, issued at, expires at, family expires at, used at, revoked at. The family expiry is set
+at login and copied forward on each rotation, so a refresh can respect the cap by reading one row. `password_reset_tokens` has the same shape
+as invite codes, since reset is the invite code machinery again, see password reset above.
 
 Invite codes, reset tokens and refresh tokens are stored hashed. Each of them is a credential, and
 a database backup should not be a working set of them. All three are plain random bytes rather
 than UUIDs, since a UUIDv7 carries its own creation time and a secret should carry nothing.
+
+They are hashed with SHA-256, not Argon2id. A slow hash exists to make guessing expensive, which
+matters for a password a person chose and not for thirty two random bytes, which cannot be guessed
+either way. And each of these is found by its hash, so the hash has to be deterministic and cheap,
+where a salted slow hash would mean no index to look it up by.
 
 Passwords are hashed with Argon2id through a library, per the line above about primitives.
 
@@ -279,6 +364,41 @@ mechanism placed where the failure mode is not becomes decoration.
 
 Two halves of the discipline are kept anyway, because they cost nothing and stand on their own:
 the application connects as a role that does not own its tables, and migrations run as the owner.
+
+**The application role is granted no `DELETE`.** Nothing in the core deletes in normal operation,
+see the session above, and a `DELETE` that slipped into a session flow would turn a replay into an
+unknown token without raising anything. Without the grant it is a permission error instead. The day
+something genuinely needs deleting, account deletion or pruning old sessions, it gets a grant in a
+migration of its own.
+
+---
+
+## Routing
+
+Caddy, configured by a Caddyfile that sits next to the feature registry and changes in the same
+commit.
+
+Chosen over Traefik because what Traefik is built for is not what this is. Its strength is
+discovering routes from whatever is running, through Docker labels or Kubernetes, and here the
+services run natively and the registry is static by decision, so it would be used through its file
+provider, which is the Caddyfile in more YAML. The local certificate authority that
+`High-level/docs/platform-architecture.md` asks for is built into Caddy and would be a second tool
+alongside Traefik. nginx has neither. Worth revisiting if the platform ever moves to containers
+that come and go, and cheap to be wrong about, since the proxy is a handful of routes in one file.
+Trusting Caddy's local root on the laptop is a manual step, done once.
+
+Two rules come with it.
+
+**The proxy is for browsers, and services call each other directly.** The core calls a display
+endpoint at the upstream address in the registry, and a feature fetches the public keys from the
+core's own address, given to it as configuration. Going through the proxy would mean every client
+library trusting Caddy's local root, and the day one forgot, it would surface as a TLS error in
+some other language's HTTP client.
+
+**The path prefix is kept, not stripped.** A feature receives `/canary/...` rather than `/...`, so
+its links and redirects are right without it knowing a proxy exists. Nothing in a feature depends
+on anything Caddy specific, which is what keeps changing proxies a config file rather than a
+migration.
 
 ---
 
@@ -369,6 +489,12 @@ comes back, and a piece of template. That is the intended workflow, not a cost b
 
 That is what projects happens to send. It is not a format. The next feature sends something else,
 shaped by what it actually has, and the core learns to render that too.
+
+Each feature's shape is still a contract between two languages, one feature at a time, so a feature
+on the front page commits a fixture of its data with the contract fixtures in
+`High-level/docs/platform-architecture.md`. The feature's tests check its real response against it
+and the core's tests read it into the type the card renders, so drift fails a test rather than
+blanking a card.
 
 The alternative is a common vocabulary every feature conforms to, some arrangement of titles and
 counters and lists, so that the core can draw anything without being touched. It is the same idea
