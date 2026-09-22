@@ -488,6 +488,12 @@ comes back, and a piece of template. That is the intended workflow, not a cost b
 That is what projects happens to send. It is not a format. The next feature sends something else,
 shaped by what it actually has, and the core learns to render that too.
 
+Each feature's shape is still a contract between two languages, one feature at a time, so a feature
+on the front page commits a fixture of its data with the contract fixtures in
+`High-level/docs/platform-architecture.md`. The feature's tests check its real response against it
+and the core's tests read it into the type the card renders, so drift fails a test rather than
+blanking a card.
+
 The alternative is a common vocabulary every feature conforms to, some arrangement of titles and
 counters and lists, so that the core can draw anything without being touched. It is the same idea
 as the generic search envelope in `High-level/docs/feature-contract.md`, and it is rejected for
