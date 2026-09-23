@@ -7,3 +7,6 @@ Regarding AI I will have one goal/rule and that is to ONLY use AI to write thing
 ## Notes:
 - Question 22/9: I would like to really understand how to work with my system, how do i actually close sub-issues if a branch is for a issue above? can a commit close a sub-issue as well? maybe it can?
 answer 22/9: It works like this, I create a branch for the other issue, then in that branch I work through the leaves and by hand moves the issues along the board. When that slice then is done I create a pr which will close the other issue
+
+- To move an item on the board: gh project item-edit 5 --owner Adamniels --url https://github.com/Adamniels/personal-platform/issues/10 --field "Status" --value "In progress"
+- To close: gh issue close issue_nr --reason completed --comment "message"
