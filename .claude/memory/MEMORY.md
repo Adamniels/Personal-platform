@@ -3,3 +3,4 @@
 - [zsh commands](zsh-commands.md) — the owner's shell is zsh; write flags out, never rely on variable word splitting
 - [GitHub changes](github-changes.md) — script bulk changes, dry-run, run on the owner's word, verify; bash 3.2 pitfalls
 - [GitHub board](github-board.md) — Project 5; auto-add covers every issue; Size only on leaves; field conventions
+- [First-time teaching](first-time-teaching.md) — first of a kind of task: step by step, concept first, then repo-specific code to copy

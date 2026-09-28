@@ -5,10 +5,13 @@ services:
     image: postgres:18
     environment:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in infra/.env}
+      CORE_OWNER_PASSWORD: ${CORE_OWNER_PASSWORD:?set CORE_OWNER_PASSWORD in infra/.env}
+      CORE_APP_PASSWORD: ${CORE_APP_PASSWORD:?set CORE_APP_PASSWORD in infra/.env}
     ports:
       - "127.0.0.1:5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql
+      - ./postgres/initdb:/docker-entrypoint-initdb.d:ro
 
 volumes:
   pgdata:
