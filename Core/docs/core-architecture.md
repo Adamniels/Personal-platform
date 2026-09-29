@@ -526,6 +526,19 @@ either, see `High-level/docs/feature-contract.md`.
 
 ---
 
+## Libraries the core is built on
+
+**axum for HTTP**, on tokio. Chosen because it is built on tower rather than its own middleware
+system: the hand written auth, session checks and token handling, becomes ordinary tower layers
+and extractors, and `tower-http` covers the generic ones. Handlers are plain async functions, with
+little macro machinery hiding the request pipeline. It pairs naturally with sqlx on the same
+runtime and with the Rust template engines for the core's own HTML. Actix-web was the close
+alternative, equally mature and marginally faster, which does not matter at this scale, but with
+its own middleware model. Rocket's batteries, mainly sessions and auth helpers, are the part this
+project writes by hand anyway. Cheap to reconsider now, expensive once auth middleware exists.
+
+---
+
 ## What we are not doing
 
 Recorded so it does not get re proposed without new information.
