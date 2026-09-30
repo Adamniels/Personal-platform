@@ -2,7 +2,7 @@
 
 Status: exploratory. Nothing is built.
 
-Last updated: 2026 09 22
+Last updated: 2026 09 30
 
 The platform's infrastructure: the thing every feature is reached through, and where nothing
 interesting lives. The platform wide thinking that places it is in
@@ -536,6 +536,19 @@ runtime and with the Rust template engines for the core's own HTML. Actix-web wa
 alternative, equally mature and marginally faster, which does not matter at this scale, but with
 its own middleware model. Rocket's batteries, mainly sessions and auth helpers, are the part this
 project writes by hand anyway. Cheap to reconsider now, expensive once auth middleware exists.
+
+**sqlx for Postgres**, on the same tokio runtime. Chosen because it is a driver, a pool and a
+migration runner in one crate without being an ORM: every query is plain SQL, which the core's
+small and security critical set of queries wants visible. Its `query!` macros are used from the
+first query. They check each one against a real database at compile time, so a wrong column or
+type is a build error rather than a login failing at runtime. They cannot see permissions, so a
+query the app role is not granted still compiles and fails when it runs, which is where the grants
+are meant to bite. Its migrations are plain numbered SQL files run by `sqlx-cli` as the owner, as
+`High-level/docs/platform-architecture.md` requires, and its documented habit of migrating at
+startup is not followed, because the app role cannot migrate. tokio-postgres was the close
+alternative, nearer the protocol, but it needs a pool and a migration runner added and checks
+nothing before runtime. Diesel puts a DSL where the SQL should be and is synchronous at its core,
+and SeaORM writes migrations in a DSL, which the platform rules out.
 
 ---
 
