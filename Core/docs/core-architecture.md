@@ -365,6 +365,12 @@ mechanism placed where the failure mode is not becomes decoration.
 Two halves of the discipline are kept anyway, because they cost nothing and stand on their own:
 the application connects as a role that does not own its tables, and migrations run as the owner.
 
+**The running core holds only the app role's connection string.** The owner's is never in the
+core's environment file, because that file is loaded into the running process, and a core holding
+the owner's credentials has the role split only on paper. sqlx is pointed at the app's variable
+too, so its query macros check against the app role, and a migration command run without the
+owner's connection string passed on purpose connects as the app and is refused.
+
 **The application role is granted no `DELETE`.** Nothing in the core deletes in normal operation,
 see the session above, and a `DELETE` that slipped into a session flow would turn a replay into an
 unknown token without raising anything. Without the grant it is a permission error instead. The day

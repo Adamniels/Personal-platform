@@ -1,0 +1,6 @@
+# Where sqlx's query macros and sqlx-cli find the database. The app role, so
+# the running core never needs the owner's connection string, and a migration
+# run without the owner's passed on purpose is refused. See "Row level security
+# does not apply here" in docs/core-architecture.md.
+[common]
+database-url-var = "CORE_APP_DATABASE_URL"
