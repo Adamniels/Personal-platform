@@ -1,8 +1,8 @@
 # Platform architecture
 
-Status: exploratory. Nothing is built.
+Status: exploratory. The walking skeleton is being built.
 
-Last updated: 2026 09 22
+Last updated: 2026 10 01
 
 The top of the documentation. What the platform is, what services exist, and the thinking that
 shapes more than one of them. Anything you only need when you sit down to write a particular

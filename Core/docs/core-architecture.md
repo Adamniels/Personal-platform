@@ -1,8 +1,8 @@
 # The core
 
-Status: exploratory. Nothing is built.
+Status: exploratory. The walking skeleton is being built.
 
-Last updated: 2026 09 30
+Last updated: 2026 10 01
 
 The platform's infrastructure: the thing every feature is reached through, and where nothing
 interesting lives. The platform wide thinking that places it is in
@@ -366,10 +366,11 @@ Two halves of the discipline are kept anyway, because they cost nothing and stan
 the application connects as a role that does not own its tables, and migrations run as the owner.
 
 **The running core holds only the app role's connection string.** The owner's is never in the
-core's environment file, because that file is loaded into the running process, and a core holding
-the owner's credentials has the role split only on paper. sqlx is pointed at the app's variable
-too, so its query macros check against the app role, and a migration command run without the
-owner's connection string passed on purpose connects as the app and is refused.
+core's environment file, because the binary loads that file on every run, the server's included,
+and a core holding the owner's credentials has the role split only on paper. The `migrate`
+subcommand reads the owner's connection string from a variable of its own, set in the terminal for
+that one command. sqlx's query macros are pointed at the app's variable, so they check queries as
+the app role.
 
 **The application role is granted no `DELETE`.** Nothing in the core deletes in normal operation,
 see the session above, and a `DELETE` that slipped into a session flow would turn a replay into an
@@ -549,12 +550,14 @@ small and security critical set of queries wants visible. Its `query!` macros ar
 first query. They check each one against a real database at compile time, so a wrong column or
 type is a build error rather than a login failing at runtime. They cannot see permissions, so a
 query the app role is not granted still compiles and fails when it runs, which is where the grants
-are meant to bite. Its migrations are plain numbered SQL files run by `sqlx-cli` as the owner, as
-`High-level/docs/platform-architecture.md` requires, and its documented habit of migrating at
-startup is not followed, because the app role cannot migrate. tokio-postgres was the close
-alternative, nearer the protocol, but it needs a pool and a migration runner added and checks
-nothing before runtime. Diesel puts a DSL where the SQL should be and is synchronous at its core,
-and SeaORM writes migrations in a DSL, which the platform rules out.
+are meant to bite. Its migrations are plain numbered SQL files, as
+`High-level/docs/platform-architecture.md` requires, embedded in the core binary and applied by
+its `migrate` subcommand as the owner. Its documented habit of migrating at startup is not
+followed, because the app role cannot migrate. `sqlx-cli` is used only to write the macros'
+offline cache, `.sqlx/`, which is committed so the core builds without a running database.
+tokio-postgres was the close alternative, nearer the protocol, but it needs a pool and a migration
+runner added and checks nothing before runtime. Diesel puts a DSL where the SQL should be and is
+synchronous at its core, and SeaORM writes migrations in a DSL, which the platform rules out.
 
 ---
 

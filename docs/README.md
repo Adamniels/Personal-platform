@@ -1,8 +1,8 @@
 # Documentation index
 
-Status: exploratory. Nothing is built.
+Status: exploratory. The walking skeleton is being built.
 
-Last updated: 2026 09 22
+Last updated: 2026 10 01
 
 These are planning notes, not specifications. Everything here is the current best idea with the
 reasoning attached, and it is expected to change as building teaches things planning could not.

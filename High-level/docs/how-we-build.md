@@ -1,8 +1,8 @@
 # How we build
 
-Status: exploratory. Nothing is built.
+Status: exploratory. The walking skeleton is being built.
 
-Last updated: 2026 09 21
+Last updated: 2026 10 01
 
 How work gets cut up and ordered, as opposed to what gets built. What a particular sprint must
 prove, and the tickets that get it there, live on the GitHub Project rather than here, see
