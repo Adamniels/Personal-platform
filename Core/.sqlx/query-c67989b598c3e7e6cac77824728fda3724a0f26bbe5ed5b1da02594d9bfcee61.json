@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT count(*) AS \"owned!\"\n        FROM pg_shdepend\n        WHERE deptype = 'o'\n          AND refobjid = (SELECT oid FROM pg_roles WHERE rolname = current_user)\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "owned!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "c67989b598c3e7e6cac77824728fda3724a0f26bbe5ed5b1da02594d9bfcee61"
+}
