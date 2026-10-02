@@ -1,7 +1,9 @@
-//! The core connects as a role that owns nothing and cannot create tables.
-//! Connecting as the owner would work just as well and silently bypass the
-//! role split, see "Row level security does not apply here" in
-//! docs/core-architecture.md. Needs the compose Postgres running.
+//! The core connects as a role that owns nothing, cannot create tables, and
+//! cannot delete from any. Connecting as the owner would work just as well and
+//! silently bypass the role split, see "Row level security does not apply
+//! here" in docs/core-architecture.md, and for deleting, "The application role
+//! is granted no DELETE". Needs the compose Postgres running, migrated.
+
 
 use sqlx::PgPool;
 
@@ -51,4 +53,30 @@ async fn app_role_owns_nothing() {
     .unwrap();
 
     assert_eq!(owned, 0, "the app role owns {owned} objects");
+}
+
+#[tokio::test]
+async fn app_role_cannot_delete_from_any_table() {
+    let pool = app_pool().await;
+
+    let deletable = sqlx::query_scalar!(
+        r#"
+        SELECT c.relname::text AS "table!"
+        FROM pg_class c
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = 'public'
+        AND c.relkind IN ('r', 'p', 'v')
+        AND (has_table_privilege(current_user, c.oid, 'DELETE')
+                OR has_table_privilege(current_user, c.oid, 'TRUNCATE'))
+        ORDER BY 1
+        "#
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+
+    assert!(
+        deletable.is_empty(),
+        "the app role can delete from or truncate: {deletable:?}"
+    );
 }

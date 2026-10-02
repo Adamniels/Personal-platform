@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT c.relname::text AS \"table!\"\n        FROM pg_class c\n        JOIN pg_namespace n ON n.oid = c.relnamespace\n        WHERE n.nspname = 'public'\n        AND c.relkind IN ('r', 'p', 'v')\n        AND (has_table_privilege(current_user, c.oid, 'DELETE')\n                OR has_table_privilege(current_user, c.oid, 'TRUNCATE'))\n        ORDER BY 1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "table!",
+        "type_info": "Text",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "a24b6e45d0efac0f7b0fa70159e43ba177ff854943b38bce27c62a0fb8717a86"
+}

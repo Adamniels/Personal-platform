@@ -374,9 +374,10 @@ the app role.
 
 **The application role is granted no `DELETE`.** Nothing in the core deletes in normal operation,
 see the session above, and a `DELETE` that slipped into a session flow would turn a replay into an
-unknown token without raising anything. Without the grant it is a permission error instead. The day
-something genuinely needs deleting, account deletion or pruning old sessions, it gets a grant in a
-migration of its own.
+unknown token without raising anything. Without the grant it is a permission error instead.
+`TRUNCATE` is withheld too, since it empties a table without needing `DELETE`. The day something
+genuinely needs deleting, account deletion or pruning old sessions, it gets a grant in a migration
+of its own.
 
 ---
 
