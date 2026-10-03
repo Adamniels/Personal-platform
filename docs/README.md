@@ -2,7 +2,7 @@
 
 Status: exploratory. The walking skeleton is being built.
 
-Last updated: 2026 10 01
+Last updated: 2026 10 03
 
 These are planning notes, not specifications. Everything here is the current best idea with the
 reasoning attached, and it is expected to change as building teaches things planning could not.
@@ -72,6 +72,10 @@ about how the work gets done as well as the architecture.
   built, the session and token model, the signing key, password reset, the core's own tables and
   the user id, routing, the feature registry, how its frontend is built, what a feature
   exposes for the front page, and the libraries it is built on
+
+**Canary**
+
+- `canary/README.md` — how to run canary and its tests, and the libraries it is built on
 
 **Brain**
 
