@@ -28,3 +28,32 @@ and add at the end:
 
 To check it, `dscacheutil -q host -a name platform.test` should print `127.0.0.1`. `dig` asks DNS
 and never reads the hosts file, so it reports `NXDOMAIN`, which is expected.
+
+## Caddy
+
+Caddy serves `https://platform.test`, routing `/canary` and everything under it to canary, prefix
+kept, and the rest to the core. Why Caddy, rather than Traefik or nginx, is in "Routing" in
+`Core/docs/core-architecture.md`. The core and canary run natively, on 8080 and 8081, and Caddy
+runs in compose. From this directory:
+
+```zsh
+docker compose up -d caddy
+```
+
+The upstreams are `host.docker.internal`, which only Docker Desktop provides. It reaches services
+bound to `127.0.0.1` on the Mac, tested, but on Linux neither holds, so this setup is Mac only.
+Ports 80 and 443 are published on `127.0.0.1` only, as Postgres is, so the platform is not
+reachable from the network. Port 80 only redirects to HTTPS.
+
+Caddy's local certificate authority signs the certificate, through `tls internal`, since `.test`
+is not a name Caddy treats as local. Its root, intermediate and private keys live in the
+`caddy_data` volume. `docker compose down -v` deletes them, and a new root is generated on the next
+start, so the root trusted on the laptop stops working until it is trusted again.
+
+The Caddyfile is mounted as a single file, and editors that save by replacing the file leave the
+container reading the old one. After editing it, recreate the container rather than reloading:
+
+```zsh
+docker compose run --rm caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+docker compose up -d --force-recreate caddy
+```
