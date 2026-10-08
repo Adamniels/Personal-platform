@@ -2,7 +2,7 @@
 
 Status: exploratory. The walking skeleton is being built.
 
-Last updated: 2026 10 03
+Last updated: 2026 10 08
 
 These are planning notes, not specifications. Everything here is the current best idea with the
 reasoning attached, and it is expected to change as building teaches things planning could not.
@@ -50,6 +50,7 @@ about how the work gets done as well as the architecture.
 | `Core/docs/`       | The core: auth, accounts, routing, the registry, and its own frontend       |
 | `Brain/docs/`      | The brain: memory, the trust model, events, retrieval                       |
 | `canary/`          | Canary, the Python feature proving another language can verify the token    |
+| `desk/docs/`       | Desk, the feature for working through the day, described but not yet built  |
 | `infra/`           | The Caddyfile and the compose file, and later the feature registry          |
 | `docs/`            | This index, and anything that fits nowhere else                             |
 
@@ -76,6 +77,11 @@ about how the work gets done as well as the architecture.
 **Canary**
 
 - `canary/README.md` — how to run canary and its tests, and the libraries it is built on
+
+**Desk**
+
+- `desk-architecture.md` — the problem and the Notion evidence behind it, why desk is one
+  feature, projects, sessions, the calendar on top of Google, views, review, and what is open
 
 **Infra**
 

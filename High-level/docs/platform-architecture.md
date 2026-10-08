@@ -2,7 +2,7 @@
 
 Status: exploratory. The walking skeleton is being built.
 
-Last updated: 2026 10 01
+Last updated: 2026 10 08
 
 The top of the documentation. What the platform is, what services exist, and the thinking that
 shapes more than one of them. Anything you only need when you sit down to write a particular
@@ -495,7 +495,9 @@ Not a plan, and not a commitment. Things that might get built, written down so t
 designed with them in mind rather than around them. Any of them may be dropped, and things not
 on this list will certainly appear. There is no point trying to write the complete list.
 
-- **Projects.** Likely the first feature after the core.
+- **Desk.** The first feature after the core: the calendar, sessions, projects and review the
+  owner works through the day in. First because it gets used every day, and so gets evaluated
+  every day. It absorbed what was listed here as Projects. `desk/docs/desk-architecture.md`.
 - **Learning new topics.** The one the brain design leans on hardest. The worked example of a
   per feature context call is a learning call end to end, the end of session quiz is what
   replaced passive tracking, and how the knowledge model represents level gets answered against

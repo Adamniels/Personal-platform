@@ -3,7 +3,7 @@
 Working document. Covers the shape of memory events. Companion to `knowledge-model.md`, which
 covers what the brain is trying to know. This one covers how evidence gets in.
 
-Last updated: 2026 09 03
+Last updated: 2026 10 08
 
 **Read this as multi user.** The platform is multi user and every user has their own
 isolated brain. The event kinds, the shape, the verbs and the consolidation rules are generic.
@@ -79,7 +79,7 @@ payload:   { claimed_level: "intermediate" }
 ```
 verb:      decided
 subject:   project: personal-platform
-context:   origin: projects
+context:   origin: desk
 evidence:  "Decided the brain is its own service, because splitting memory across
             two languages failed in v1. Rejected keeping memory inside the core
             backend."

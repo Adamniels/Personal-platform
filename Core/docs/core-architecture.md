@@ -2,7 +2,7 @@
 
 Status: exploratory. The walking skeleton is being built.
 
-Last updated: 2026 10 01
+Last updated: 2026 10 08
 
 The platform's infrastructure: the thing every feature is reached through, and where nothing
 interesting lives. The platform wide thinking that places it is in
@@ -495,7 +495,7 @@ comes back, and a piece of template. That is the intended workflow, not a cost b
 { "active": 4, "due_today": 2, "next": "Finish the invite flow" }
 ```
 
-That is what projects happens to send. It is not a format. The next feature sends something else,
+That is what desk happens to send. It is not a format. The next feature sends something else,
 shaped by what it actually has, and the core learns to render that too.
 
 Each feature's shape is still a contract between two languages, one feature at a time, so a feature
