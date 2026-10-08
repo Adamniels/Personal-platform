@@ -78,6 +78,11 @@ A session holds:
 - **Planning.** What to accomplish and what the goal is. Filled in whenever suits, a week ahead or
   in the first minutes of the session, since what matters is that the place exists rather than
   when it is used. The exact fields are open.
+- **Priming**, an idea still to be discussed. Getting a feel for the subject before the work, so
+  the material is easier to learn, written as free text: a few questions answered in one flowing
+  text rather than a form, as the Notion system showed. It is not planning, which is about what to
+  do and the goal, while priming is about the subject. It matters most when learning, and like
+  every field it can stay empty.
 - **Questions and answers**, in the style of Cornell notes. Questions that come up during the
   work, each with its answer, stored so they can be reviewed later. This is the main thing a
   session is for. A repeat session on the same material uses the same place, so new questions
