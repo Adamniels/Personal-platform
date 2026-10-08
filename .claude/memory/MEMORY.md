@@ -4,4 +4,5 @@
 - [GitHub changes](github-changes.md) — script bulk changes, dry-run, run on the owner's word, verify; bash 3.2 pitfalls
 - [GitHub board](github-board.md) — Project 5; auto-add covers every issue; Size only on leaves; field conventions
 - [Read the plan first](read-the-plan-first.md) — before any recommendation or doc edit, grep every issue body and the docs, not just the current ticket
+- [Cross-feature calls](cross-feature-calls.md) — the ban on backends calling each other is a default; raise cases where a direct call would be better
 - [First-time teaching](first-time-teaching.md) — first of a kind of task: step by step, concept first, then repo-specific code to copy

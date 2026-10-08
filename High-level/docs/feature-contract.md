@@ -2,7 +2,7 @@
 
 Status: exploratory. Nothing is built.
 
-Last updated: 2026 09 22
+Last updated: 2026 10 08
 
 Isolation of implementation, coupling through contracts. This is what someone building a feature
 needs to know. The brain's own internals are in `Brain/docs/`, and the platform wide thinking
@@ -55,22 +55,56 @@ feature content, because it does not have any.
 
 The brain owns what that data means about the person, and that is the whole division.
 
-## Features do not call each other
+## How features reach each other
 
-All cross feature access goes through the brain. This is written as a rule rather than a
-preference, and here is what goes wrong without it: with N features calling each other directly
-you get N squared coupling, every feature has to know the shape of every other one, and a
-refactor anywhere breaks something somewhere else. At the size this platform is aiming for that
-is the difference between adding a feature being cheap and adding a feature being a project.
-It is the rule to defend hardest.
+Three different needs cross a feature boundary, and each has a path of its own. They used to be
+one rule, all cross feature access goes through the brain, and that was too broad. Routing a
+lookup of one specific record through the brain removes no coupling. The asking feature still
+depends on the shape of what comes back, the brain now depends on it too, and the brain has
+learned a piece of another feature's domain.
 
-Nothing enforces it cryptographically today. The session is one cookie valid at every feature, so
-a feature backend receives a credential it could replay against any other one. Per feature tokens
-are the answer if that ever stops being acceptable, and `Core/docs/core-architecture.md` covers
-why they are not built yet.
+**Knowledge about the owner goes through the brain.** What the owner already knows about B trees,
+what has gone wrong lately, what they are working towards. A feature asks one place in one
+vocabulary and never learns which features exist or how they store things. The brain earns that
+by translating into its own model, not by forwarding. A brain that hands a feature's records
+across unchanged is a proxy, and a proxy leaves every coupling in place.
 
-Note that a browser calling several features to draw one page is not a feature calling another.
-That is the user, holding their own token.
+**Display and navigation are composed in the browser.** A button in a desk session that opens a
+learning session is a link. If desk wants that session's title beside the link, desk's frontend
+fetches it from learning with the owner's own token. That is the user holding their own token,
+not a feature calling another. A failure stays local: the piece showing learning's data says it
+is unavailable and the rest of desk works. Where a feature lives comes from the registry.
+
+**A reference to another feature's record is an address plus a snapshot**, owned by the feature
+that holds it. Desk keeps `/learning/sessions/123` together with "B tree internals", the title
+at the moment of linking. The address is a path rather than a full URL, so the hostname can
+change. The target may move or disappear, and then the link fails while the snapshot stays
+readable. Nothing is kept in sync and nothing else holds the link. It is the brain's reasoning
+about self contained evidence, applied between features. How the holding feature gets the
+address in the first place, pasted by the owner, picked from a list the browser fetches, or
+handed over by a link from the other feature, is decided with the first real case.
+
+**Backends do not call each other.** This part stays the default, and the reason is not mainly the
+number of couplings, which at this size, with one owner, one repository and contract tests,
+would be manageable. It is two things at run time. A backend that calls another while serving a
+request fails when that one fails, so an experimental feature could take down desk, which is
+used every day. And calls grow cycles, desk asking learning for its sessions while learning asks
+desk for free time, after which services start, deploy and fail together as a distributed
+monolith. The brain and the browser cover every case found so far without either.
+
+**This is a default, not a wall.** The clearest case for an exception is a backend that needs
+another feature's records to decide something, with no browser involved, such as a nightly job
+that plans the week from learning's sessions. It is not the only one. Whenever a direct call
+would make the platform work better than the brain or the browser can, that is worth raising and
+discussing rather than designing around. What an allowed call probably looks like is read only,
+in one declared direction so no cycle forms, and with a timeout so a failure stays local. Each
+one is written down here with the case that justified it.
+
+Nothing enforces any of this cryptographically today. The session is one cookie valid at every
+feature, so a feature backend receives a credential it could replay against any other one. Per
+feature tokens are the answer if that ever stops being acceptable, and
+`Core/docs/core-architecture.md` covers why they are not built yet. If they come, they have to
+keep composition in the browser working.
 
 ## The brain does not connect to feature databases
 
@@ -199,8 +233,9 @@ has how per feature calls work instead.
 - a narrow read API over its own domain, shaped per feature
 - the events it emits
 
-Only the brain calls a feature's read API. That is a topology rule rather than a security one:
-it is what keeps features from linking to each other directly.
+Only the brain calls a feature's read API, which is a different thing from the API a feature's
+own frontend uses. The browser may call the second from another feature's page, and no other
+backend calls either. That is a topology rule rather than a security one.
 
 **Both directions carry a verified user identity, taken from the token rather than from a
 parameter.** This one is firm, and what goes wrong without it is not a wrong answer but one
