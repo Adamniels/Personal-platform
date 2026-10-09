@@ -2,7 +2,7 @@
 
 Status: idea. The shape is described, almost nothing is modelled, and nothing is built.
 
-Last updated: 2026 10 08
+Last updated: 2026 10 09
 
 Desk is where the owner sits down to work through the day: a calendar to plan time in, sessions to
 do the work in, projects to organise it, and a review space to make it stick. This document holds
@@ -94,12 +94,12 @@ A session holds:
 A session also carries fields that place it. They are described here, not modelled:
 
 - **Project**, a relation to a project such as School.
-- **Subject**, which takes the place of a course.
-- **Category**, which takes the place of a section.
+- **Area**, which takes the place of a course.
+- **Topic**, which takes the place of a section.
 
-Whether project, subject and category form a hierarchy or are independent tags is open. Subject is
-obvious inside School and unclear for a project like the platform itself, and that difference is
-what should settle it.
+Whether project, area and topic form a hierarchy or are independent tags is open. Inside School an
+area is a course; for a project like the platform it might be a part such as the brain, and
+whether that holds up is what should settle it.
 
 How a session relates to a coursework card, such as a session spent on Assignment 3, is open.
 
@@ -122,12 +122,12 @@ is stored and how it is protected is undecided.
 ## Views
 
 The calendar is a view over sessions. Beside it sits a list of sessions, filtered by project,
-subject, category, date and so on. Which views exist beyond these two is open.
+area, topic, date and so on. Which views exist beyond these two is open.
 
 ## Review
 
 A space of its own for working through the questions written in sessions, closer to flashcards
-than to reading notes back. The owner chooses what to work on: a particular day, one subject,
+than to reading notes back. The owner chooses what to work on: a particular day, one area,
 particular sessions, and other ways still to be found.
 
 The rules are all open: the scheduling, whether review is tracked per question or per session, and
