@@ -11,9 +11,10 @@ Regarding AI I will have one goal/rule and that is to ONLY use AI to write thing
 
 - To move an item on the board: gh project item-edit 5 --owner Adamniels --url https://github.com/Adamniels/personal-platform/issues/10 --field "Status" --value "In progress"
 - To close: gh issue close issue_nr --reason completed --comment "message"
-
+- Want to do a recap of everything done so far, so I can really learn
 
 ## prompt for starting on ticket 22
+
 I'm picking up #22, "Trust Caddy's local root on the laptop", the last leaf of slice #19 on
 branch 5-walking-skeleton. Read #22, #19 and the docs it points at, and infra/README.md, before
 anything else.
@@ -24,6 +25,7 @@ check questions about things you have actually taught. Teach the foundation befo
 that depends on it, and make questions concrete scenarios with clear wording.
 
 Where things stand:
+
 - #20 is done: platform.test maps to 127.0.0.1 in /etc/hosts, documented in infra/README.md.
 - #21 is done: Caddy (caddy:2) runs in infra/compose.yaml, ports 80 and 443 on 127.0.0.1 only,
   with tls internal and skip_install_trust in infra/Caddyfile. The upstreams are
@@ -33,14 +35,13 @@ Where things stand:
   /data/caddy/pki/authorities/local/root.crt in the container. The chain is
   "Caddy Local Authority - 2026 ECC Root" -> "Caddy Local Authority - ECC Intermediate" -> leaf
   (empty subject, platfur lifetime). Today
-  `openssl s_client -coervername platform.test` gives   Verify return code 20rm.test/` fails without -k. - I already understand e root is trusted rather than the leaf, that
+  `openssl s_client -coervername platform.test` gives Verify return code 20rm.test/` fails without -k. - I already understand e root is trusted rather than the leaf, that
   private keys rather than certificates are the secret, and that docker compose down -v makes
   a new root, so the old one must be re-trusted and the stale one removed
-from the keychain.
+  from the keychain.
 
 What Session 4 should cover: the login vs System keychain and which to choose (recommend one,
-with reasons), `securitat its trust settingsmean, why `caddy trust`
-inside the container does nothing for the Mac, getting the root out with `docker compose cp`,
+with reasons), `securitat its trust settingsmean, why `caddy trust`inside the container does nothing for the Mac, getting the root out with`docker compose cp`,
 which browsers use the 't by default), how toremove the root later,
 and verifying with curl without -k, openssl returning 0 (ok), and the
 browser padlock on both
