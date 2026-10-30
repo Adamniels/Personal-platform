@@ -85,7 +85,7 @@ about how the work gets done as well as the architecture.
 
 **Infra**
 
-- `infra/README.md` — the local hostname, running Caddy and what its data volume holds
+- `infra/README.md` — the local hostname, running Caddy and what its data volume holds, and trusting its root
 
 **Brain**
 
