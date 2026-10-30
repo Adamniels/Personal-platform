@@ -61,7 +61,9 @@ picking a side.
 
 **One branch per slice**, named `<number>-<slug>` like every branch so far, and one pull request
 that closes the slice with a single closing keyword. If the branch already exists, pickup
-continues it.
+continues it. A slice that finishes its parent's work, such as the last piece of the walking
+skeleton, can instead continue the parent's branch and close the parent, when its Decisions
+comment says so.
 
 **One commit per leaf**, with the owner's convention: a subject, a short body and `Refs #<leaf>`.
 The agent closes the leaf once its commit is pushed. Commits made in a review round say what they
@@ -177,7 +179,9 @@ visible once code exists, which the docs deciding things up front is meant to pr
    ```
 6. **Environment.** Copy `infra/.env.example` to `infra/.env` and `Core/.env.example` to
    `Core/.env`, and fill in the passwords. They are local to this machine and never leave it.
-7. **Stack.** From `infra/`, `docker compose up -d --wait`, then the core's `migrate` command.
+7. **Stack.** From `infra/`, `docker compose up -d --wait`, then the core's `migrate` command as
+   the owner role, with the connection string set for that command only, as step 3 of
+   `.claude/skills/pick-up-slice/SKILL.md` shows.
 8. **Caddy's root.** Not trusted in the keychain here, since an SSH session cannot change trust and
    nothing on the Mac mini uses a browser. The agent copies the root out of the volume and passes it
    to `curl` with `--cacert`, see "Trusting Caddy's root" in `infra/README.md` for the copy step.
