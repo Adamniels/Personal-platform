@@ -165,11 +165,14 @@ visible once code exists, which the docs deciding things up front is meant to pr
 ### Once, on the Mac mini
 
 1. **Tools.** rustup with the stable toolchain, uv, Docker Desktop started at sign in, `gh`, `jq`,
-   tmux and Claude Code. Docker Desktop's keychain helper cannot unlock from an SSH session, so a
-   new image is pulled once from the Mac's own Terminal, `docker pull postgres:18` and
-   `docker pull caddy:2`, and compose uses it from then on.
+   tmux and Claude Code, with `~/.docker/bin` and `. "$HOME/.cargo/env"` in `~/.zprofile`. Docker
+   Desktop's credential helper needs the login keychain, which a plain SSH session cannot unlock,
+   so a new image is pulled by hand once, over `ssh -t` so the unlock can ask for the password,
+   with `~/.docker/bin` on `PATH` so docker finds the helper:
+   `ssh -t <mac-mini> 'security unlock-keychain ~/Library/Keychains/login.keychain-db && export PATH="$HOME/.docker/bin:$PATH" && docker pull postgres:18 && docker pull caddy:2'`.
+   Compose uses the images from then on.
 2. **Hostname.** The `/etc/hosts` line from `infra/README.md`.
-3. **Clone.** `git clone https://github.com/Adamniels/Personal-platform.git ~/dev/personal-platform`
+3. **Clone.** `git clone https://github.com/Adamniels/Personal-platform.git ~/dev/Personal-platform`
 4. **Log in as the bot.** `gh auth login` with the bot account and the scopes `repo`, `workflow`,
    `project` and `read:org`, then `gh auth setup-git`, so pushes use the bot.
 5. **Git identity, this clone only.**
@@ -200,7 +203,7 @@ In the clone, each of these holds, and `pick-up-slice` refuses to start if one d
 ```zsh
 ssh <mac-mini>
 tmux new -s platform
-cd ~/dev/personal-platform && git fetch
+cd ~/dev/Personal-platform && git fetch
 claude --permission-mode auto --remote-control
 ```
 
