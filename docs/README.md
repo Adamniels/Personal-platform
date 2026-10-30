@@ -66,6 +66,8 @@ about how the work gets done as well as the architecture.
   authenticates a request, the two contracts, and where reminders sit
 - `how-we-build.md` — how work is cut and ordered: a walking skeleton, then vertical slices
   ordered by risk, with a sprint's checks as acceptance criteria
+- `agent-workflow.md` — who does what: the owner plans slices ahead and reviews, agents implement
+  on the Mac mini; the life of a slice, self review, the pull request, safety, and the runbook
 
 **Core**
 
