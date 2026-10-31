@@ -560,6 +560,10 @@ tokio-postgres was the close alternative, nearer the protocol, but it needs a po
 runner added and checks nothing before runtime. Diesel puts a DSL where the SQL should be and is
 synchronous at its core, and SeaORM writes migrations in a DSL, which the platform rules out.
 
+**Rust itself is pinned**, in `Core/rust-toolchain.toml`, so the laptop, the Mac mini and
+continuous integration build with the same compiler, and a new stable release cannot turn clippy
+red on a push that changed nothing. Moving to a newer Rust is a commit of its own.
+
 ---
 
 ## What we are not doing

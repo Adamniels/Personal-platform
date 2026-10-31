@@ -4,7 +4,6 @@
 //! here" in docs/core-architecture.md, and for deleting, "The application role
 //! is granted no DELETE". Needs the compose Postgres running, migrated.
 
-
 use sqlx::PgPool;
 
 async fn app_pool() -> PgPool {

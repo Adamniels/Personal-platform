@@ -1,0 +1,90 @@
+# The core's checks: format, lints, tests against a real Postgres, and the
+# query macros' offline cache. Runs only when something the core builds from
+# changes, see "One repository" in High-level/docs/platform-architecture.md.
+name: Core
+
+on:
+  push:
+    paths:
+      - "Core/**"
+      - "infra/postgres/**"
+      - ".github/workflows/core.yml"
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        # Must match the image in infra/compose.yaml.
+        image: postgres:18
+        env:
+          POSTGRES_PASSWORD: ci-only-superuser
+        ports:
+          - "5432:5432"
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 15
+
+    # Throwaway passwords for a database that lives as long as the job. The
+    # owner's connection string is not here: it is set only on the steps that
+    # need it, as on any other machine, see "Row level security does not apply
+    # here" in Core/docs/core-architecture.md.
+    env:
+      CORE_OWNER_PASSWORD: ci-only-owner
+      CORE_APP_PASSWORD: ci-only-app
+      # The query macros read this through Core/sqlx.toml, so every step that
+      # compiles needs it.
+      CORE_APP_DATABASE_URL: postgres://core_app:ci-only-app@127.0.0.1:5432/core
+
+    defaults:
+      run:
+        working-directory: Core
+
+    steps:
+      - uses: actions/checkout@v7
+
+      # Service containers start before the checkout exists, so the init
+      # script compose mounts runs here instead, from the runner.
+      - name: Create the core's database and roles
+        env:
+          PGHOST: 127.0.0.1
+          PGPASSWORD: ci-only-superuser
+          POSTGRES_USER: postgres
+          POSTGRES_DB: postgres
+        run: bash ../infra/postgres/initdb/core.sh
+
+      # Installs the toolchain pinned in rust-toolchain.toml, before the cache
+      # keys on it.
+      - name: Install Rust
+        run: rustup toolchain install
+
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: Core
+
+      - name: Format
+        run: cargo fmt --check
+
+      - name: Migrate
+        env:
+          CORE_OWNER_DATABASE_URL: postgres://core_owner:ci-only-owner@127.0.0.1:5432/core
+        run: cargo run -- migrate
+
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Test
+        run: cargo test
+
+      # Must match the sqlx version in Cargo.toml. The cache keeps ~/.cargo/bin,
+      # so this is close to a no op after the first run.
+      - name: Install sqlx-cli
+        run: cargo install sqlx-cli --version 0.9.0 --locked --no-default-features --features postgres,sqlx-toml
+
+      # Fails when a query changed without regenerating Core/.sqlx/.
+      - name: Check the offline query cache
+        run: cargo sqlx prepare --check -- --all-targets
