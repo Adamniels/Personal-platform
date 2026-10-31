@@ -117,32 +117,33 @@ async fn app_role_cannot_delete_from_any_table() {
     );
 }
 
+// A violation, not just any error: a probe that fails to run as the owner
+// must not pass for the check catching something. Every violation the
+// helpers report starts with "the role ".
+fn assert_violation(result: Result<(), String>) {
+    match result {
+        Err(message) if message.starts_with("the role ") => {}
+        other => panic!("expected the check to report a violation for the owner, got: {other:?}"),
+    }
+}
+
 #[tokio::test]
 #[ignore = "negative control: needs CORE_OWNER_DATABASE_URL, run in CI"]
 async fn owner_can_create_table() {
     let result = cannot_create_table(&owner_pool().await).await;
-    assert!(
-        result.is_err(),
-        "the check passed for the owner: {result:?}"
-    );
+    assert_violation(result);
 }
 
 #[tokio::test]
 #[ignore = "negative control: needs CORE_OWNER_DATABASE_URL, run in CI"]
 async fn owner_owns_something() {
     let result = owns_nothing(&owner_pool().await).await;
-    assert!(
-        result.is_err(),
-        "the check passed for the owner: {result:?}"
-    );
+    assert_violation(result);
 }
 
 #[tokio::test]
 #[ignore = "negative control: needs CORE_OWNER_DATABASE_URL, run in CI"]
 async fn owner_can_delete_from_a_table() {
     let result = cannot_delete_from_any_table(&owner_pool().await).await;
-    assert!(
-        result.is_err(),
-        "the check passed for the owner: {result:?}"
-    );
+    assert_violation(result);
 }
