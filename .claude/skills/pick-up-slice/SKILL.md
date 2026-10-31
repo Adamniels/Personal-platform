@@ -51,7 +51,7 @@ The first row that matches decides.
 | An open pull request | **Review**: step R |
 | A merged or closed pull request | **Stop and ask** |
 | Issue closed, or status Done or In review without a pull request | **Stop and ask** |
-| A branch `<n>-<slug>`, or the branch the Decisions comment names, locally or on `origin`, no pull request | **Continue**: `git switch <branch>` (with `--track origin/<branch>` if only remote), never recreate, reset or force it; resume at step 2 and then at the first open leaf |
+| A branch `<n>-<slug>`, or the branch the Decisions comment names, locally or on `origin`, no pull request | **Continue**: `git switch <branch>` (with `--track origin/<branch>` if only remote), then `git merge --ff-only origin/<branch>` so it holds everything pushed since; if that is not a fast forward, stop and ask. Never recreate, reset or force it; resume at step 2 and then at the first open leaf |
 | Status In progress, no branch anywhere | **Stop and ask**: someone else may be working on it |
 | Status Backlog or none | **Stop**: it is not planned. Tell the owner to run `/plan-slice <n>` on the laptop |
 | Status Ready | **New**: step 2 |
