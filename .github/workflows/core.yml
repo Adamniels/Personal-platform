@@ -30,12 +30,10 @@ jobs:
           --health-retries 15
 
     # Throwaway passwords for a database that lives as long as the job. The
-    # owner's connection string is not here: it is set only on the steps that
-    # need it, as on any other machine, see "Row level security does not apply
-    # here" in Core/docs/core-architecture.md.
+    # owner's credentials are not here: they are set only on the steps that
+    # need them, as on any other machine, see "Row level security does not
+    # apply here" in Core/docs/core-architecture.md.
     env:
-      CORE_OWNER_PASSWORD: ci-only-owner
-      CORE_APP_PASSWORD: ci-only-app
       # The query macros read this through Core/sqlx.toml, so every step that
       # compiles needs it.
       CORE_APP_DATABASE_URL: postgres://core_app:ci-only-app@127.0.0.1:5432/core
@@ -55,6 +53,8 @@ jobs:
           PGPASSWORD: ci-only-superuser
           POSTGRES_USER: postgres
           POSTGRES_DB: postgres
+          CORE_OWNER_PASSWORD: ci-only-owner
+          CORE_APP_PASSWORD: ci-only-app
         run: bash ../infra/postgres/initdb/core.sh
 
       # Installs the toolchain pinned in rust-toolchain.toml, before the cache
