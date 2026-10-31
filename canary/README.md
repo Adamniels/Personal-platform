@@ -10,6 +10,8 @@ From this directory, with uv installed:
 ```zsh
 uv run uvicorn canary.app:app --host 127.0.0.1 --port 8081 --reload
 uv run pytest
+uv run ruff check
+uv run ruff format --check
 ```
 
 `uv run` builds `.venv` from `uv.lock` on first use. Port 8081 sits beside the core's 8080, and the
@@ -42,3 +44,7 @@ watching do not matter here.
 
 **pytest for tests**, with `httpx2`, which Starlette's `TestClient` uses to call the app in process.
 Plain `httpx` still works but is deprecated for this since Starlette 1.7.
+
+**ruff for linting and formatting**, a dev dependency, with its default rules and no configuration.
+Chosen because one tool does both, the job flake8 and black would do as two, and it is fast enough
+to run on every push. The defaults stay until a rule earns its place by catching something.
