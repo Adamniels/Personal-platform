@@ -80,6 +80,13 @@ jobs:
       - name: Test
         run: cargo test
 
+      # The negative control: each app role check run as the owner, where it
+      # must fail. The only step besides Migrate holding the owner's string.
+      - name: Test the app role checks fail for the owner
+        env:
+          CORE_OWNER_DATABASE_URL: postgres://core_owner:ci-only-owner@127.0.0.1:5432/core
+        run: cargo test --test app_roles -- --ignored
+
       # Must match the sqlx version in Cargo.toml. The cache keeps ~/.cargo/bin,
       # so this is close to a no op after the first run.
       - name: Install sqlx-cli
