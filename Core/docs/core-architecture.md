@@ -1,8 +1,8 @@
 # The core
 
-Status: exploratory. Nothing is built.
+Status: exploratory. The walking skeleton is being built.
 
-Last updated: 2026 09 22
+Last updated: 2026 10 08
 
 The platform's infrastructure: the thing every feature is reached through, and where nothing
 interesting lives. The platform wide thinking that places it is in
@@ -365,11 +365,19 @@ mechanism placed where the failure mode is not becomes decoration.
 Two halves of the discipline are kept anyway, because they cost nothing and stand on their own:
 the application connects as a role that does not own its tables, and migrations run as the owner.
 
+**The running core holds only the app role's connection string.** The owner's is never in the
+core's environment file, because the binary loads that file on every run, the server's included,
+and a core holding the owner's credentials has the role split only on paper. The `migrate`
+subcommand reads the owner's connection string from a variable of its own, set in the terminal for
+that one command. sqlx's query macros are pointed at the app's variable, so they check queries as
+the app role.
+
 **The application role is granted no `DELETE`.** Nothing in the core deletes in normal operation,
 see the session above, and a `DELETE` that slipped into a session flow would turn a replay into an
-unknown token without raising anything. Without the grant it is a permission error instead. The day
-something genuinely needs deleting, account deletion or pruning old sessions, it gets a grant in a
-migration of its own.
+unknown token without raising anything. Without the grant it is a permission error instead.
+`TRUNCATE` is withheld too, since it empties a table without needing `DELETE`. The day something
+genuinely needs deleting, account deletion or pruning old sessions, it gets a grant in a migration
+of its own.
 
 ---
 
@@ -487,7 +495,7 @@ comes back, and a piece of template. That is the intended workflow, not a cost b
 { "active": 4, "due_today": 2, "next": "Finish the invite flow" }
 ```
 
-That is what projects happens to send. It is not a format. The next feature sends something else,
+That is what desk happens to send. It is not a format. The next feature sends something else,
 shaped by what it actually has, and the core learns to render that too.
 
 Each feature's shape is still a contract between two languages, one feature at a time, so a feature
@@ -523,6 +531,38 @@ without being noticed.
 of its own. The same endpoint receives it in a cookie when a browser asks. A feature accepts
 either, see `High-level/docs/feature-contract.md`.
 
+
+---
+
+## Libraries the core is built on
+
+**axum for HTTP**, on tokio. Chosen because it is built on tower rather than its own middleware
+system: the hand written auth, session checks and token handling, becomes ordinary tower layers
+and extractors, and `tower-http` covers the generic ones. Handlers are plain async functions, with
+little macro machinery hiding the request pipeline. It pairs naturally with sqlx on the same
+runtime and with the Rust template engines for the core's own HTML. Actix-web was the close
+alternative, equally mature and marginally faster, which does not matter at this scale, but with
+its own middleware model. Rocket's batteries, mainly sessions and auth helpers, are the part this
+project writes by hand anyway. Cheap to reconsider now, expensive once auth middleware exists.
+
+**sqlx for Postgres**, on the same tokio runtime. Chosen because it is a driver, a pool and a
+migration runner in one crate without being an ORM: every query is plain SQL, which the core's
+small and security critical set of queries wants visible. Its `query!` macros are used from the
+first query. They check each one against a real database at compile time, so a wrong column or
+type is a build error rather than a login failing at runtime. They cannot see permissions, so a
+query the app role is not granted still compiles and fails when it runs, which is where the grants
+are meant to bite. Its migrations are plain numbered SQL files, as
+`High-level/docs/platform-architecture.md` requires, embedded in the core binary and applied by
+its `migrate` subcommand as the owner. Its documented habit of migrating at startup is not
+followed, because the app role cannot migrate. `sqlx-cli` is used only to write the macros'
+offline cache, `.sqlx/`, which is committed so the core builds without a running database.
+tokio-postgres was the close alternative, nearer the protocol, but it needs a pool and a migration
+runner added and checks nothing before runtime. Diesel puts a DSL where the SQL should be and is
+synchronous at its core, and SeaORM writes migrations in a DSL, which the platform rules out.
+
+**Rust itself is pinned**, in `Core/rust-toolchain.toml`, so the laptop, the Mac mini and
+continuous integration build with the same compiler, and a new stable release cannot turn clippy
+red on a push that changed nothing. Moving to a newer Rust is a commit of its own.
 
 ---
 

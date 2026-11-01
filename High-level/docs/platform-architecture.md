@@ -1,8 +1,8 @@
 # Platform architecture
 
-Status: exploratory. Nothing is built.
+Status: exploratory. The walking skeleton is being built.
 
-Last updated: 2026 09 22
+Last updated: 2026 10 08
 
 The top of the documentation. What the platform is, what services exist, and the thinking that
 shapes more than one of them. Anything you only need when you sit down to write a particular
@@ -36,9 +36,9 @@ collection of apps, and it is the part most worth getting right.
 
 The ambition is large, and it is worth saying because a few things only make sense at that
 size. This is meant to become the owner's main tool in daily life, with features added over
-years rather than a small fixed set that gets finished. Three things follow from that. Features
-not calling each other is what keeps growth linear instead of quadratic, which matters more the
-more features there are. The front page is a real surface rather than a list of links. And the
+years rather than a small fixed set that gets finished. Three things follow from that. Knowledge
+about the owner flowing through the brain, rather than features asking each other, is what keeps
+growth linear instead of quadratic, which matters more the more features there are. The front page is a real surface rather than a list of links. And the
 cost
 of running several languages is paid once per feature rather than once, by one person, so it is
 a running cost rather than a one time one.
@@ -495,7 +495,9 @@ Not a plan, and not a commitment. Things that might get built, written down so t
 designed with them in mind rather than around them. Any of them may be dropped, and things not
 on this list will certainly appear. There is no point trying to write the complete list.
 
-- **Projects.** Likely the first feature after the core.
+- **Desk.** The first feature after the core: the calendar, sessions, projects and review the
+  owner works through the day in. First because it gets used every day, and so gets evaluated
+  every day. It absorbed what was listed here as Projects. `desk/docs/desk-architecture.md`.
 - **Learning new topics.** The one the brain design leans on hardest. The worked example of a
   per feature context call is a learning call end to end, the end of session quiz is what
   replaced passive tracking, and how the knowledge model represents level gets answered against
@@ -534,9 +536,10 @@ engineered around.
 form "this thing in feature A is that thing in feature B", created by hand through a feature's
 UI. A link like that is a join table rather than anything the brain knows about a person, and it
 would live in the brain only because the brain is the one place two features can both reach,
-which is the drift the brain exists to avoid. Its one concrete case was a project that is also a
-wiki page, which depended on a feature that may never exist. If two features ever need to know
-they point at the same real thing, that gets worked out then with a real case in hand.
+which is the drift the brain exists to avoid. The real case arrived with desk, a session pointing
+at a learning session, and it is answered without the brain: an address plus a snapshot, owned by
+the feature holding the link. See "How features reach each other" in
+`High-level/docs/feature-contract.md`.
 
 **Sorting features into tiers.** There was a model with three of them, federated, embedded and
 linked. Two were empty and the third was every feature, so it sorted nothing. Embedded meant a

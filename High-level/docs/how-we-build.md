@@ -1,12 +1,13 @@
 # How we build
 
-Status: exploratory. Nothing is built.
+Status: exploratory. The walking skeleton is being built.
 
-Last updated: 2026 09 21
+Last updated: 2026 10 01
 
 How work gets cut up and ordered, as opposed to what gets built. What a particular sprint must
 prove, and the tickets that get it there, live on the GitHub Project rather than here, see
-`docs/README.md`.
+`docs/README.md`. Who does each part, the owner planning and reviewing and agents implementing, is
+in `agent-workflow.md`.
 
 Everything below was decided while planning the core sprint and argued against that sprint's
 checks. It is written as platform wide because nothing in it is specific to the core, but it has

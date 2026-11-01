@@ -1,5 +1,8 @@
 - [Docs are tripwires](docs-are-tripwires.md) — frame collisions with the docs as a question of which should change; weigh by cost to undo
-- [Small nested tickets](small-nested-tickets.md) — small nested sub-issues; planning leaf first in each slice; one branch and PR per slice
+- [Small nested tickets](small-nested-tickets.md) — small nested sub-issues; planning leaf first in each slice; one branch and PR per slice; the agent closes leaves as they land
 - [zsh commands](zsh-commands.md) — the owner's shell is zsh; write flags out, never rely on variable word splitting
 - [GitHub changes](github-changes.md) — script bulk changes, dry-run, run on the owner's word, verify; bash 3.2 pitfalls
 - [GitHub board](github-board.md) — Project 5; auto-add covers every issue; Size only on leaves; field conventions
+- [Read the plan first](read-the-plan-first.md) — before any recommendation or doc edit, grep every issue body and the docs, not just the current ticket
+- [Cross-feature calls](cross-feature-calls.md) — the ban on backends calling each other is a default; raise cases where a direct call would be better
+- [First-time teaching](first-time-teaching.md) — the first of a kind of code in a PR is taught as a lesson during review, concept first

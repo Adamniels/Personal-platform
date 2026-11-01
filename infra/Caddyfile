@@ -1,0 +1,22 @@
+{
+	# Caddy runs in a container, so installing its root there would trust
+	# nothing on the laptop. The root is trusted by hand, see README.md.
+	skip_install_trust
+}
+
+platform.test {
+	# .test is not a name Caddy treats as local, so without this it would
+	# ask Let's Encrypt and fail. Caddy's own CA signs instead.
+	tls internal
+
+	# /canary and everything under it, but not /canaryfoo. handle rather
+	# than handle_path, so canary receives the prefix.
+	@canary path /canary /canary/*
+	handle @canary {
+		reverse_proxy host.docker.internal:8081
+	}
+
+	handle {
+		reverse_proxy host.docker.internal:8080
+	}
+}

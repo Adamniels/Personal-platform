@@ -11,3 +11,11 @@
 # Env
 .env
 .env.local
+
+# Core
+Core/target/
+
+# Python
+.venv/
+__pycache__/
+.pytest_cache/

@@ -1,0 +1,6 @@
+# The Rust the core builds with, on every machine and in CI. rustup reads this
+# and installs it on first use. See "Libraries the core is built on" in
+# docs/core-architecture.md for why it is pinned rather than stable.
+[toolchain]
+channel = "1.98.1"
+components = ["rustfmt", "clippy"]

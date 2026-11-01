@@ -1,8 +1,8 @@
 # Documentation index
 
-Status: exploratory. Nothing is built.
+Status: exploratory. The walking skeleton is being built.
 
-Last updated: 2026 09 21
+Last updated: 2026 10 08
 
 These are planning notes, not specifications. Everything here is the current best idea with the
 reasoning attached, and it is expected to change as building teaches things planning could not.
@@ -46,8 +46,12 @@ about how the work gets done as well as the architecture.
 | Folder             | Holds                                                                       |
 | ------------------ | --------------------------------------------------------------------------- |
 | `High-level/docs/` | The platform, the services that exist, and anything shaping more than one   |
+| `Core/`            | The core's code, a Rust crate, with its docs in `Core/docs/`                |
 | `Core/docs/`       | The core: auth, accounts, routing, the registry, and its own frontend       |
 | `Brain/docs/`      | The brain: memory, the trust model, events, retrieval                       |
+| `canary/`          | Canary, the Python feature proving another language can verify the token    |
+| `desk/docs/`       | Desk, the feature for working through the day, described but not yet built  |
+| `infra/`           | The Caddyfile and the compose file, and later the feature registry          |
 | `docs/`            | This index, and anything that fits nowhere else                             |
 
 ## The files
@@ -62,13 +66,28 @@ about how the work gets done as well as the architecture.
   authenticates a request, the two contracts, and where reminders sit
 - `how-we-build.md` — how work is cut and ordered: a walking skeleton, then vertical slices
   ordered by risk, with a sprint's checks as acceptance criteria
+- `agent-workflow.md` — who does what: the owner plans slices ahead and reviews, agents implement
+  on the Mac mini; the life of a slice, self review, the pull request, safety, and the runbook
 
 **Core**
 
 - `core-architecture.md` — what the core owns, what stays out of it, how authentication gets
   built, the session and token model, the signing key, password reset, the core's own tables and
-  the user id, routing, the feature registry, how its frontend is built, and what a feature
-  exposes for the front page
+  the user id, routing, the feature registry, how its frontend is built, what a feature
+  exposes for the front page, and the libraries it is built on
+
+**Canary**
+
+- `canary/README.md` — how to run canary and its tests, and the libraries it is built on
+
+**Desk**
+
+- `desk-architecture.md` — the problem and the Notion evidence behind it, why desk is one
+  feature, projects, sessions, the calendar on top of Google, views, review, and what is open
+
+**Infra**
+
+- `infra/README.md` — the local hostname, running Caddy and what its data volume holds, and trusting its root
 
 **Brain**
 
