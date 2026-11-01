@@ -1,8 +1,8 @@
 # Agent workflow
 
-Status: exploratory. Not yet run; the first run is the pilot on #23.
+Status: exploratory. Piloted on #23, in use for the core sprint.
 
-Last updated: 2026 10 30
+Last updated: 2026 11 01
 
 How agents build this repository and what the owner does around them. How work is cut, slices,
 the walking skeleton and what gets tests, is in `how-we-build.md` and holds unchanged. This
@@ -138,7 +138,10 @@ blocker is an unmerged pull request.
 - **The ruleset** "Protect main" requires a pull request with one approval, dismisses an approval
   when new commits arrive, allows merge commits only, and forbids deleting or force pushing `main`.
   The admin bypass is for pull requests only, so nobody pushes to `main` directly. Continuous
-  integration's checks become required once #23 lands.
+  integration's checks are not required: each workflow is filtered by path, and one that does not
+  run never reports, so requiring it would block every pull request outside its paths, see the
+  Decisions comment on #23. The agent watches the checks that did run before handing a pull request
+  over, step 9 of `.claude/skills/pick-up-slice/SKILL.md`.
 - **Deny rules** in `.claude/settings.json` refuse merging a pull request, pushing to `main` and any
   admin flag, so a confused agent fails rather than tries.
 - **Auto mode.** Runs on the Mac mini use Claude Code's auto permission mode, so routine commands do
