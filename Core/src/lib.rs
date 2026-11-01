@@ -1,6 +1,7 @@
 //! The core, as a library: the binary in main.rs parses the command and
 //! calls into it, and the tests in tests/ import what they test.
 
+pub mod invite;
 pub mod secret_token;
 
 use axum::{Router, routing::get};
@@ -12,6 +13,7 @@ use std::env;
 use std::error::Error;
 use std::net::SocketAddr;
 use std::time::Duration;
+use time::OffsetDateTime;
 use tokio::net::TcpListener;
 
 // The SQL files in Core/migrations, embedded at compile time. build.rs makes
@@ -65,6 +67,29 @@ async fn connect_database() -> Result<PgPool, Box<dyn Error>> {
 // core root endpoint
 async fn root() -> &'static str {
     "platform core root endpoint"
+}
+
+// for the invite command: stores a code as the app role, prints it once on
+// stdout and its expiry on stderr, so the code alone can be piped or copied.
+pub async fn invite(expires_in: time::Duration) -> Result<(), Box<dyn Error>> {
+    let pool = connect_database().await?;
+    let now = OffsetDateTime::now_utc();
+    let expires_at = now
+        .checked_add(expires_in)
+        .ok_or("--expires-in is too far in the future")?;
+
+    let code = invite::create(&pool, now, expires_at)
+        .await
+        .map_err(|err| format!("could not store the invite code: {err}"))?;
+
+    println!("{code}");
+    eprintln!(
+        "expires {}",
+        expires_at
+            .replace_nanosecond(0)?
+            .format(&time::format_description::well_known::Rfc3339)?
+    );
+    Ok(())
 }
 
 // for migrate command
