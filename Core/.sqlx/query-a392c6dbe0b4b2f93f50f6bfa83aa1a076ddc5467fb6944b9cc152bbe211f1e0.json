@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE invite_codes SET used_at = $3, used_by = $2\n         WHERE code_hash = $1 AND used_at IS NULL AND expires_at > $3\n         RETURNING code_hash",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "code_hash",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "invite_codes",
+            "name": "code_hash"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Bytea",
+        "Uuid",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "a392c6dbe0b4b2f93f50f6bfa83aa1a076ddc5467fb6944b9cc152bbe211f1e0"
+}

@@ -11,6 +11,7 @@ base64 = "0.23.1"
 dotenvy = "0.15.7"
 getrandom = "0.4.3"
 sha2 = "0.11.1"
-sqlx = { version = "0.9.0", default-features = false, features = ["macros", "migrate", "postgres", "runtime-tokio", "sqlx-toml", "time"] }
+sqlx = { version = "0.9.0", default-features = false, features = ["macros", "migrate", "postgres", "runtime-tokio", "sqlx-toml", "time", "uuid"] }
 time = { version = "0.3.55", features = ["formatting"] }
 tokio = { version = "1.53.1", features = ["macros", "rt-multi-thread", "net", "sync"] }
+uuid = { version = "1.29.0", features = ["v7"] }
