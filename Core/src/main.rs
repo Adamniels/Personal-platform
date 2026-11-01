@@ -1,19 +1,7 @@
-use axum::{Router, routing::get};
-use sqlx::Connection;
-use sqlx::migrate::{Migrate, Migration, Migrator};
-use sqlx::postgres::{PgConnection, PgPool, PgPoolOptions};
-use std::collections::HashSet;
 use std::env;
 use std::error::Error;
-use std::net::SocketAddr;
-use std::time::Duration;
-use tokio::net::TcpListener;
 
 const USAGE: &str = "usage: platform_core [migrate]";
-
-// The SQL files in Core/migrations, embedded at compile time. build.rs makes
-// Cargo rebuild when one is added.
-static MIGRATOR: Migrator = sqlx::migrate!();
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -31,107 +19,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     }
 
     match command.as_deref() {
-        None => serve().await,
-        Some("migrate") => migrate().await,
+        None => platform_core::serve().await,
+        Some("migrate") => platform_core::migrate().await,
         Some(other) => Err(format!("unknown command '{other}'; {USAGE}").into()),
     }
-}
-
-async fn serve() -> Result<(), Box<dyn Error>> {
-    let addr = listen_addr()?;
-
-    let _pool = connect_database().await?;
-    println!("connected to the database");
-
-    let app = app();
-
-    let listener = TcpListener::bind(addr)
-        .await
-        .map_err(|err| format!("could not listen on {addr}: {err}"))?;
-    println!("listening on {}", listener.local_addr()?);
-
-    axum::serve(listener, app).await?;
-
-    Ok(())
-}
-// help function for serve
-fn listen_addr() -> Result<SocketAddr, Box<dyn Error>> {
-    let raw = env::var("CORE_LISTEN_ADDR").map_err(|err| format!("CORE_LISTEN_ADDR: {err}"))?;
-    let addr = raw
-        .parse::<SocketAddr>()
-        .map_err(|err| format!("CORE_LISTEN_ADDR='{raw}' is not an IP and port: {err}"))?;
-    Ok(addr)
-}
-
-// help function for serve
-fn app() -> Router {
-    Router::new().route("/", get(root))
-}
-
-// help function for serve
-async fn connect_database() -> Result<PgPool, Box<dyn Error>> {
-    let url =
-        env::var("CORE_APP_DATABASE_URL").map_err(|err| format!("CORE_APP_DATABASE_URL: {err}"))?;
-    let pool = PgPoolOptions::new()
-        .acquire_timeout(Duration::from_secs(5))
-        .connect(&url)
-        .await
-        .map_err(|err| format!("could not connect to the database: {err}"))?;
-
-    Ok(pool)
-}
-
-// core root endpoint
-async fn root() -> &'static str {
-    "platform core root endpoint"
-}
-
-// for migrate command
-async fn migrate() -> Result<(), Box<dyn Error>> {
-    let url = env::var("CORE_OWNER_DATABASE_URL")
-        .map_err(|err| format!("CORE_OWNER_DATABASE_URL: {err}"))?;
-    let mut conn = PgConnection::connect(&url)
-        .await
-        .map_err(|err| format!("could not connect to database as the owner: {err}"))?;
-
-    let pending = pending_migrations(&mut conn)
-        .await
-        .map_err(|err| format!("could not read applied migrations: {err}"))?;
-
-    // Always run, even with nothing pending: run also checks that applied
-    // migrations have not been edited or removed.
-    MIGRATOR
-        .run(&mut conn)
-        .await
-        .map_err(|err| format!("migration failed: {err}"))?;
-
-    if pending.is_empty() {
-        println!("nothing to do, every migration is applied");
-    }
-
-    for migration in &pending {
-        println!("applied {} {}", migration.version, migration.description);
-    }
-
-    Ok(())
-}
-
-// What run is about to apply, since run itself does not report it.
-async fn pending_migrations(
-    conn: &mut PgConnection,
-) -> Result<Vec<&'static Migration>, sqlx::migrate::MigrateError> {
-    conn.ensure_migrations_table(&MIGRATOR.table_name).await?;
-
-    let applied: HashSet<i64> = conn
-        .list_applied_migrations(&MIGRATOR.table_name)
-        .await?
-        .into_iter()
-        .map(|migration| migration.version)
-        .collect();
-
-    Ok(MIGRATOR
-        .iter()
-        .filter(|migration| !migration.migration_type.is_down_migration())
-        .filter(|migration| !applied.contains(&migration.version))
-        .collect())
 }
