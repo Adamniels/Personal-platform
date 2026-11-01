@@ -1,0 +1,152 @@
+//! The core's own HTML: askama templates in templates/, checked at compile
+//! time and escaped by default, through one base layout, and the one
+//! stylesheet the core serves. No build step, see "The core's frontend" in
+//! docs/core-architecture.md.
+
+use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
+use axum::response::{Html, IntoResponse, Response};
+use sha2::{Digest, Sha256};
+use std::sync::LazyLock;
+
+const STYLESHEET: &str = include_str!("../assets/core.css");
+
+// A strong validator from the stylesheet's contents, so a browser checking
+// back gets 304 until the file changes and the new one at once after.
+static STYLESHEET_ETAG: LazyLock<HeaderValue> = LazyLock::new(|| {
+    let digest = Sha256::digest(STYLESHEET.as_bytes());
+    let hex: String = digest[..16].iter().map(|b| format!("{b:02x}")).collect();
+    HeaderValue::from_str(&format!("\"{hex}\"")).expect("hex is a valid header value")
+});
+
+/// A template as a response.
+pub struct Page<T>(pub T);
+
+impl<T: askama::Template> IntoResponse for Page<T> {
+    fn into_response(self) -> Response {
+        match self.0.render() {
+            Ok(html) => Html(html).into_response(),
+            Err(err) => {
+                eprintln!("could not render a page: {err}");
+                (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error\n").into_response()
+            }
+        }
+    }
+}
+
+/// `GET /assets/core.css`.
+pub async fn stylesheet(headers: HeaderMap) -> Response {
+    let etag = STYLESHEET_ETAG.clone();
+    let validators = [
+        (header::ETAG, etag.clone()),
+        (header::CACHE_CONTROL, HeaderValue::from_static("no-cache")),
+    ];
+
+    if matches_etag(&headers, &etag) {
+        return (StatusCode::NOT_MODIFIED, validators).into_response();
+    }
+    (
+        validators,
+        [(
+            header::CONTENT_TYPE,
+            HeaderValue::from_static("text/css; charset=utf-8"),
+        )],
+        STYLESHEET,
+    )
+        .into_response()
+}
+
+// If-None-Match holds a list of tags, or `*`; a weak tag still names the
+// same contents for this purpose.
+fn matches_etag(headers: &HeaderMap, etag: &HeaderValue) -> bool {
+    let etag = etag.to_str().expect("the etag is ASCII");
+    headers
+        .get_all(header::IF_NONE_MATCH)
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .flat_map(|value| value.split(','))
+        .map(str::trim)
+        .any(|tag| tag == "*" || tag.trim_start_matches("W/") == etag)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use askama::Template;
+
+    #[derive(Template)]
+    #[template(
+        ext = "html",
+        source = "{% extends \"base.html\" %}{% block title %}Probe{% endblock %}{% block content %}<p>{{ value }}</p>{% endblock %}"
+    )]
+    struct Probe<'a> {
+        value: &'a str,
+    }
+
+    async fn body(response: Response) -> String {
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        String::from_utf8(bytes.to_vec()).unwrap()
+    }
+
+    #[tokio::test]
+    async fn a_page_renders_through_the_base_layout_with_the_stylesheet() {
+        let response = Page(Probe { value: "hello" }).into_response();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.headers()[header::CONTENT_TYPE],
+            "text/html; charset=utf-8"
+        );
+
+        let html = body(response).await;
+        assert!(html.starts_with("<!doctype html>"), "{html}");
+        assert!(html.contains("<title>Probe · Platform</title>"), "{html}");
+        assert!(
+            html.contains(r#"<link rel="stylesheet" href="/assets/core.css">"#),
+            "{html}"
+        );
+        assert!(html.contains("<p>hello</p>"), "{html}");
+    }
+
+    // An email echoed back into a form must not become markup.
+    #[tokio::test]
+    async fn values_are_escaped() {
+        let html = body(
+            Page(Probe {
+                value: r#"<script>"x"&</script>"#,
+            })
+            .into_response(),
+        )
+        .await;
+        assert!(!html.contains("<script>"), "{html}");
+        assert!(
+            html.contains("<p>&#60;script&#62;&#34;x&#34;&#38;&#60;/script&#62;</p>"),
+            "{html}"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_stylesheet_is_served_with_a_validator() {
+        let response = stylesheet(HeaderMap::new()).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.headers()[header::CONTENT_TYPE],
+            "text/css; charset=utf-8"
+        );
+        assert_eq!(response.headers()[header::CACHE_CONTROL], "no-cache");
+        let etag = response.headers()[header::ETAG].clone();
+        assert!(etag.to_str().unwrap().starts_with('"'));
+        assert!(!body(response).await.is_empty());
+
+        let mut headers = HeaderMap::new();
+        headers.insert(header::IF_NONE_MATCH, etag.clone());
+        let unchanged = stylesheet(headers).await;
+        assert_eq!(unchanged.status(), StatusCode::NOT_MODIFIED);
+        assert_eq!(unchanged.headers()[header::ETAG], etag);
+        assert!(body(unchanged).await.is_empty());
+
+        let mut headers = HeaderMap::new();
+        headers.insert(header::IF_NONE_MATCH, "\"stale\"".parse().unwrap());
+        assert_eq!(stylesheet(headers).await.status(), StatusCode::OK);
+    }
+}

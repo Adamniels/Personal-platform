@@ -3,6 +3,7 @@
 
 pub mod invite;
 pub mod origin;
+pub mod pages;
 pub mod password;
 pub mod secret_token;
 
@@ -52,7 +53,10 @@ fn listen_addr() -> Result<SocketAddr, Box<dyn Error>> {
 
 // help function for serve
 fn app(origin: PublicOrigin) -> Router {
-    origin::protect(Router::new().route("/", get(root)), origin)
+    let routes = Router::new()
+        .route("/", get(root))
+        .route("/assets/core.css", get(pages::stylesheet));
+    origin::protect(routes, origin)
 }
 
 // help function for serve
