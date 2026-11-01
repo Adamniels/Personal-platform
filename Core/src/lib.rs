@@ -1,6 +1,8 @@
 //! The core, as a library: the binary in main.rs parses the command and
 //! calls into it, and the tests in tests/ import what they test.
 
+pub mod secret_token;
+
 use axum::{Router, routing::get};
 use sqlx::Connection;
 use sqlx::migrate::{Migrate, Migration, Migrator};
