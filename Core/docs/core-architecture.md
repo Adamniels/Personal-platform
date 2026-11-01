@@ -372,6 +372,12 @@ subcommand reads the owner's connection string from a variable of its own, set i
 that one command. sqlx's query macros are pointed at the app's variable, so they check queries as
 the app role.
 
+The tests hold a third, the Postgres superuser's, in `CORE_TEST_ADMIN_DATABASE_URL`, used only to
+create a database per test from a migrated template. It follows the owner's rule: never in the
+environment file, set in the terminal or on the one CI step that runs the tests. Each test still
+connects to its database as the app role, so it tests what the running core is, see
+`Core/tests/common/mod.rs`.
+
 **The application role is granted no `DELETE`.** Nothing in the core deletes in normal operation,
 see the session above, and a `DELETE` that slipped into a session flow would turn a replay into an
 unknown token without raising anything. Without the grant it is a permission error instead.

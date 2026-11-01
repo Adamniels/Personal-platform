@@ -14,7 +14,7 @@ use tokio::net::TcpListener;
 
 // The SQL files in Core/migrations, embedded at compile time. build.rs makes
 // Cargo rebuild when one is added.
-static MIGRATOR: Migrator = sqlx::migrate!();
+pub static MIGRATOR: Migrator = sqlx::migrate!();
 
 pub async fn serve() -> Result<(), Box<dyn Error>> {
     let addr = listen_addr()?;

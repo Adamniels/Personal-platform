@@ -77,7 +77,11 @@ jobs:
       - name: Clippy
         run: cargo clippy --all-targets -- -D warnings
 
+      # The superuser, for the test harness to create a database per test.
+      # Only this step holds it, see Core/tests/common/mod.rs.
       - name: Test
+        env:
+          CORE_TEST_ADMIN_DATABASE_URL: postgres://postgres:ci-only-superuser@127.0.0.1:5432/postgres
         run: cargo test
 
       # The negative control: each app role check run as the owner, where it
