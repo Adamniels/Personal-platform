@@ -276,6 +276,11 @@ This is about reset only. Login is a public form, so it does the cheap thing: th
 unknown email and a wrong password, and an Argon2id verification against a dummy hash when the
 email is unknown, so the timing does not tell them apart either.
 
+Registration is a public form too, and it checks the invite code before the email. A bad, used or
+expired code all get the same answer, and only once the code has been consumed does a taken email
+get its own message, rolling the code back unused. So only someone holding a valid code can learn
+that an address has an account, and holding one is exactly the trust registration grants.
+
 ---
 
 ## The core's data
@@ -299,6 +304,17 @@ either way. And each of these is found by its hash, so the hash has to be determ
 where a salted slow hash would mean no index to look it up by.
 
 Passwords are hashed with Argon2id through a library, per the line above about primitives.
+
+**A password is 15 to 1024 characters, and nothing else is asked of it.** Fifteen is NIST SP
+800-63B's minimum for a password that is the only factor. The upper bound is far above its "allow
+at least 64" and exists only so the input is bounded. No composition rules, which NIST advises
+against, and a password is never trimmed or truncated. Three things are left out deliberately. No
+Unicode normalisation, which NIST recommends: it adds a dependency, and passwords here come from a
+password manager. No blocklist of breached passwords, which NIST requires: fifteen characters
+already excludes almost every entry on the common lists, the accounts are a handful of invited
+people, and the standard check is a call to a third party during registration. And no rehashing
+when the Argon2id parameters rise, since the stored string carries its own and old ones still
+verify. Each is worth revisiting if the platform ever has accounts it did not invite.
 
 Email is normalised to lowercase and unique on that. Treating two spellings of one address as two
 accounts is a bug that first appears on a phone keyboard that capitalises.

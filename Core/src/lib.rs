@@ -1,10 +1,12 @@
 //! The core, as a library: the binary in main.rs parses the command and
 //! calls into it, and the tests in tests/ import what they test.
 
+pub mod accounts;
 pub mod invite;
 pub mod origin;
 pub mod pages;
 pub mod password;
+pub mod registration;
 pub mod secret_token;
 
 use axum::{Router, routing::get};
@@ -28,10 +30,10 @@ pub async fn serve() -> Result<(), Box<dyn Error>> {
     let addr = listen_addr()?;
     let origin = public_origin()?;
 
-    let _pool = connect_database().await?;
+    let pool = connect_database().await?;
     println!("connected to the database");
 
-    let app = app(origin);
+    let app = app(pool, origin);
 
     let listener = TcpListener::bind(addr)
         .await
@@ -52,11 +54,12 @@ fn listen_addr() -> Result<SocketAddr, Box<dyn Error>> {
 }
 
 // help function for serve
-fn app(origin: PublicOrigin) -> Router {
+fn app(pool: PgPool, origin: PublicOrigin) -> Router {
     let routes = Router::new()
         .route("/", get(root))
-        .route("/assets/core.css", get(pages::stylesheet));
-    origin::protect(routes, origin)
+        .route("/assets/core.css", get(pages::stylesheet))
+        .merge(registration::routes());
+    origin::protect(routes, origin).with_state(pool)
 }
 
 // help function for serve

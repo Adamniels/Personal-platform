@@ -10,6 +10,7 @@ axum = "0.8.9"
 base64 = "0.23.1"
 dotenvy = "0.15.7"
 getrandom = "0.4.3"
+serde = { version = "1.0.229", features = ["derive"] }
 sha2 = "0.11.1"
 sqlx = { version = "0.9.0", default-features = false, features = ["macros", "migrate", "postgres", "runtime-tokio", "sqlx-toml", "time", "uuid"] }
 time = { version = "0.3.55", features = ["formatting"] }

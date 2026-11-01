@@ -988,6 +988,7 @@ dependencies = [
  "base64 0.23.1",
  "dotenvy",
  "getrandom",
+ "serde",
  "sha2 0.11.1",
  "sqlx",
  "time",
