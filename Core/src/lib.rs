@@ -2,10 +2,12 @@
 //! calls into it, and the tests in tests/ import what they test.
 
 pub mod invite;
+pub mod origin;
 pub mod password;
 pub mod secret_token;
 
 use axum::{Router, routing::get};
+use origin::PublicOrigin;
 use sqlx::Connection;
 use sqlx::migrate::{Migrate, Migration, Migrator};
 use sqlx::postgres::{PgConnection, PgPool, PgPoolOptions};
@@ -23,11 +25,12 @@ pub static MIGRATOR: Migrator = sqlx::migrate!();
 
 pub async fn serve() -> Result<(), Box<dyn Error>> {
     let addr = listen_addr()?;
+    let origin = public_origin()?;
 
     let _pool = connect_database().await?;
     println!("connected to the database");
 
-    let app = app();
+    let app = app(origin);
 
     let listener = TcpListener::bind(addr)
         .await
@@ -48,8 +51,14 @@ fn listen_addr() -> Result<SocketAddr, Box<dyn Error>> {
 }
 
 // help function for serve
-fn app() -> Router {
-    Router::new().route("/", get(root))
+fn app(origin: PublicOrigin) -> Router {
+    origin::protect(Router::new().route("/", get(root)), origin)
+}
+
+// help function for serve
+fn public_origin() -> Result<PublicOrigin, Box<dyn Error>> {
+    let raw = env::var("CORE_PUBLIC_ORIGIN").map_err(|err| format!("CORE_PUBLIC_ORIGIN: {err}"))?;
+    Ok(PublicOrigin::parse(&raw).map_err(|err| format!("CORE_PUBLIC_ORIGIN: {err}"))?)
 }
 
 // help function for serve
