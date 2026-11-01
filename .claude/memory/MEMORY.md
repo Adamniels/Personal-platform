@@ -6,3 +6,4 @@
 - [Read the plan first](read-the-plan-first.md) — before any recommendation or doc edit, grep every issue body and the docs, not just the current ticket
 - [Cross-feature calls](cross-feature-calls.md) — the ban on backends calling each other is a default; raise cases where a direct call would be better
 - [First-time teaching](first-time-teaching.md) — the first of a kind of code in a PR is taught as a lesson during review, concept first
+- [Long run over slice simplest](long-run-over-slice-simplest.md) — recommend the long run, professional option; test it against the next slices before proposing
