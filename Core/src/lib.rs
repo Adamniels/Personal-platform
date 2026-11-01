@@ -2,6 +2,7 @@
 //! calls into it, and the tests in tests/ import what they test.
 
 pub mod invite;
+pub mod password;
 pub mod secret_token;
 
 use axum::{Router, routing::get};
