@@ -10,6 +10,7 @@ pub mod origin;
 pub mod pages;
 pub mod password;
 pub mod registration;
+pub mod return_path;
 pub mod secret_token;
 pub mod signing_key;
 pub mod verifier;
