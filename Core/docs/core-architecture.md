@@ -584,6 +584,20 @@ tokio-postgres was the close alternative, nearer the protocol, but it needs a po
 runner added and checks nothing before runtime. Diesel puts a DSL where the SQL should be and is
 synchronous at its core, and SeaORM writes migrations in a DSL, which the platform rules out.
 
+**askama for the core's HTML.** Templates are compiled into Rust at build time, so a misspelt
+field or a missing variable is a build error, in the same spirit as sqlx's macros, and every value
+is HTML escaped unless a template says otherwise. They live in `Core/templates/`, with one base
+layout the pages extend. A page is returned through a small `Page` wrapper in `src/pages.rs`, which
+turns a render error into a 500. Tera and minijinja were the alternatives, both rendering at
+runtime, which buys reloading templates without a rebuild and loses the build time check; the core
+has a handful of pages, so the check is worth more.
+
+**RustCrypto's `argon2` for passwords**, with its defaults: Argon2id, 19 MiB, two passes, one lane,
+OWASP's minimum. Pure Rust, so nothing to link, and it stores PHC strings, which carry their own
+parameters, so raising them later leaves old hashes verifiable, which the password rules rely on
+to need no rehashing. Hashing and verifying are CPU bound for tens of milliseconds, so both run in
+`spawn_blocking`, off the threads serving requests.
+
 **Rust itself is pinned**, in `Core/rust-toolchain.toml`, so the laptop, the Mac mini and
 continuous integration build with the same compiler, and a new stable release cannot turn clippy
 red on a push that changed nothing. Moving to a newer Rust is a commit of its own.
