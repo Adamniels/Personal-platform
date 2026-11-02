@@ -15,6 +15,7 @@ pub mod refresh;
 pub mod registration;
 pub mod return_path;
 pub mod secret_token;
+pub mod session;
 pub mod sessions;
 pub mod signing_key;
 pub mod verifier;
@@ -80,6 +81,12 @@ pub const DEFAULT_ACCESS_TOKEN_LIFETIME: time::Duration = time::Duration::minute
 impl FromRef<AppState> for PgPool {
     fn from_ref(state: &AppState) -> PgPool {
         state.pool.clone()
+    }
+}
+
+impl FromRef<AppState> for Arc<Verifier> {
+    fn from_ref(state: &AppState) -> Arc<Verifier> {
+        state.verifier.clone()
     }
 }
 
@@ -168,9 +175,17 @@ async fn connect_database() -> Result<PgPool, Box<dyn Error>> {
     Ok(pool)
 }
 
-// core root endpoint
-async fn root() -> &'static str {
-    "platform core root endpoint"
+#[derive(askama::Template)]
+#[template(path = "front.html")]
+struct FrontPage {
+    account_id: uuid::Uuid,
+}
+
+// The front page, a stub showing who you are until the feature cards (#31).
+async fn root(session: session::Session) -> pages::Page<FrontPage> {
+    pages::Page(FrontPage {
+        account_id: session.account_id,
+    })
 }
 
 // for the invite command: stores a code as the app role, prints it once on
