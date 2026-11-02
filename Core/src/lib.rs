@@ -2,8 +2,10 @@
 //! calls into it, and the tests in tests/ import what they test.
 
 pub mod accounts;
+pub mod claims;
 pub mod duration;
 pub mod invite;
+pub mod issuer;
 pub mod origin;
 pub mod pages;
 pub mod password;
@@ -13,6 +15,7 @@ pub mod signing_key;
 
 use axum::extract::FromRef;
 use axum::{Router, routing::get};
+use issuer::Issuer;
 use origin::PublicOrigin;
 use signing_key::SigningKey;
 use sqlx::Connection;
@@ -36,13 +39,12 @@ pub static MIGRATOR: Migrator = sqlx::migrate!();
 #[derive(Clone)]
 pub struct AppState {
     pub pool: PgPool,
-    pub signing_key: Arc<SigningKey>,
-    /// How long an access token lasts, and so the revocation window, see "The
-    /// access token lasts thirty minutes" in docs/core-architecture.md.
-    pub access_token_lifetime: time::Duration,
+    pub issuer: Arc<Issuer>,
 }
 
-/// The access token lifetime when `CORE_ACCESS_TOKEN_LIFETIME` is unset.
+/// The access token lifetime when `CORE_ACCESS_TOKEN_LIFETIME` is unset: the
+/// revocation window, see "The access token lasts thirty minutes" in
+/// docs/core-architecture.md.
 pub const DEFAULT_ACCESS_TOKEN_LIFETIME: time::Duration = time::Duration::minutes(30);
 
 impl FromRef<AppState> for PgPool {
@@ -65,8 +67,7 @@ pub async fn serve() -> Result<(), Box<dyn Error>> {
     let app = app(
         AppState {
             pool,
-            signing_key: Arc::new(signing_key),
-            access_token_lifetime,
+            issuer: Arc::new(Issuer::new(signing_key, access_token_lifetime)),
         },
         origin,
     );

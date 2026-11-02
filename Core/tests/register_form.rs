@@ -6,6 +6,7 @@ mod common;
 
 use platform_core::AppState;
 use platform_core::invite;
+use platform_core::issuer::Issuer;
 use platform_core::origin::PublicOrigin;
 use platform_core::signing_key::SigningKey;
 use sqlx::PgPool;
@@ -21,8 +22,10 @@ const PASSWORD: &str = "correct-horse-battery";
 async fn serve(pool: PgPool) -> std::net::SocketAddr {
     let state = AppState {
         pool,
-        signing_key: Arc::new(SigningKey::generate().0),
-        access_token_lifetime: platform_core::DEFAULT_ACCESS_TOKEN_LIFETIME,
+        issuer: Arc::new(Issuer::new(
+            SigningKey::generate().0,
+            platform_core::DEFAULT_ACCESS_TOKEN_LIFETIME,
+        )),
     };
     let app = platform_core::app(state, PublicOrigin::parse(PLATFORM).unwrap());
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
