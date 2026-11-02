@@ -39,6 +39,21 @@ impl ReturnPath {
         &self.0
     }
 
+    /// The path as a `Location` header takes it. A header value is ASCII, so
+    /// each byte above it is percent encoded, which is how a browser sends it
+    /// anyway; everything else that could not appear was refused by `parse`.
+    pub fn location(&self) -> String {
+        let mut location = String::with_capacity(self.0.len());
+        for byte in self.0.bytes() {
+            if byte.is_ascii() {
+                location.push(byte as char);
+            } else {
+                location.push_str(&format!("%{byte:02X}"));
+            }
+        }
+        location
+    }
+
     /// `path?return_to=<this, encoded>`, for a redirect that carries it on.
     pub fn appended_to(&self, path: &str) -> String {
         let query = form_urlencoded::Serializer::new(String::new())
@@ -123,6 +138,14 @@ mod tests {
             let (_, value) = form_urlencoded::parse(query.as_bytes()).next().unwrap();
             assert_eq!(ReturnPath::parse(&value).as_str(), expected, "{query}");
         }
+    }
+
+    #[test]
+    fn its_location_is_ascii() {
+        assert_eq!(ReturnPath::parse("/x?a=1").location(), "/x?a=1");
+        assert_eq!(ReturnPath::parse("/café").location(), "/caf%C3%A9");
+        let header = axum::http::HeaderValue::try_from(ReturnPath::parse("/café").location());
+        assert!(header.is_ok());
     }
 
     #[test]
