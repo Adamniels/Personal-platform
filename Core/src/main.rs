@@ -1,4 +1,4 @@
-use platform_core::invite;
+use platform_core::{duration, invite};
 use std::env;
 use std::error::Error;
 
@@ -20,8 +20,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         ["migrate"] => platform_core::migrate().await,
         ["invite"] => platform_core::invite(invite::DEFAULT_EXPIRY).await,
         ["invite", "--expires-in", duration] => {
-            let expires_in =
-                invite::parse_duration(duration).map_err(|err| format!("{err}; {USAGE}"))?;
+            let expires_in = duration::parse(duration).map_err(|err| format!("{err}; {USAGE}"))?;
             platform_core::invite(expires_in).await
         }
         ["keygen"] => {

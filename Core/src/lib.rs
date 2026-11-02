@@ -2,6 +2,7 @@
 //! calls into it, and the tests in tests/ import what they test.
 
 pub mod accounts;
+pub mod duration;
 pub mod invite;
 pub mod origin;
 pub mod pages;
@@ -36,7 +37,13 @@ pub static MIGRATOR: Migrator = sqlx::migrate!();
 pub struct AppState {
     pub pool: PgPool,
     pub signing_key: Arc<SigningKey>,
+    /// How long an access token lasts, and so the revocation window, see "The
+    /// access token lasts thirty minutes" in docs/core-architecture.md.
+    pub access_token_lifetime: time::Duration,
 }
+
+/// The access token lifetime when `CORE_ACCESS_TOKEN_LIFETIME` is unset.
+pub const DEFAULT_ACCESS_TOKEN_LIFETIME: time::Duration = time::Duration::minutes(30);
 
 impl FromRef<AppState> for PgPool {
     fn from_ref(state: &AppState) -> PgPool {
@@ -49,6 +56,8 @@ pub async fn serve() -> Result<(), Box<dyn Error>> {
     let origin = public_origin()?;
     let signing_key = signing_key()?;
     println!("signing with key id {}", signing_key.key_id());
+    let access_token_lifetime = access_token_lifetime()?;
+    println!("access tokens last {access_token_lifetime}");
 
     let pool = connect_database().await?;
     println!("connected to the database");
@@ -57,6 +66,7 @@ pub async fn serve() -> Result<(), Box<dyn Error>> {
         AppState {
             pool,
             signing_key: Arc::new(signing_key),
+            access_token_lifetime,
         },
         origin,
     );
@@ -97,6 +107,18 @@ fn signing_key() -> Result<SigningKey, Box<dyn Error>> {
         format!("CORE_SIGNING_KEY: {err}; generate one with `platform_core keygen >> .env`")
     })?;
     Ok(SigningKey::parse(&raw).map_err(|err| format!("CORE_SIGNING_KEY: {err}"))?)
+}
+
+// help function for serve: unset is the default, and anything set must parse,
+// so a typo cannot quietly become thirty minutes.
+fn access_token_lifetime() -> Result<time::Duration, Box<dyn Error>> {
+    match env::var("CORE_ACCESS_TOKEN_LIFETIME") {
+        Err(env::VarError::NotPresent) => Ok(DEFAULT_ACCESS_TOKEN_LIFETIME),
+        Err(err) => Err(format!("CORE_ACCESS_TOKEN_LIFETIME: {err}").into()),
+        Ok(raw) => Ok(
+            duration::parse(&raw).map_err(|err| format!("CORE_ACCESS_TOKEN_LIFETIME: {err}"))?
+        ),
+    }
 }
 
 // help function for serve

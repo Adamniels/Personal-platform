@@ -22,6 +22,7 @@ async fn serve(pool: PgPool) -> std::net::SocketAddr {
     let state = AppState {
         pool,
         signing_key: Arc::new(SigningKey::generate().0),
+        access_token_lifetime: platform_core::DEFAULT_ACCESS_TOKEN_LIFETIME,
     };
     let app = platform_core::app(state, PublicOrigin::parse(PLATFORM).unwrap());
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
