@@ -53,8 +53,9 @@ fn listen_addr() -> Result<SocketAddr, Box<dyn Error>> {
     Ok(addr)
 }
 
-// help function for serve
-fn app(pool: PgPool, origin: PublicOrigin) -> Router {
+/// Every route the core serves, behind the Origin check. Public so the tests
+/// can serve the real router against a test database.
+pub fn app(pool: PgPool, origin: PublicOrigin) -> Router {
     let routes = Router::new()
         .route("/", get(root))
         .route("/assets/core.css", get(pages::stylesheet))
