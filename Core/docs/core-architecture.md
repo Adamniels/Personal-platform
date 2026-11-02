@@ -577,7 +577,9 @@ are meant to bite. Its migrations are plain numbered SQL files, as
 `High-level/docs/platform-architecture.md` requires, embedded in the core binary and applied by
 its `migrate` subcommand as the owner. Its documented habit of migrating at startup is not
 followed, because the app role cannot migrate. `sqlx-cli` is used only to write the macros'
-offline cache, `.sqlx/`, which is committed so the core builds without a running database.
+offline cache, `.sqlx/`, which is committed so the core builds without a running database. The
+`migrate` command is always built from that cache, with `SQLX_OFFLINE=true`, because the macros
+check against the tables it creates, which a fresh database does not have yet.
 tokio-postgres was the close alternative, nearer the protocol, but it needs a pool and a migration
 runner added and checks nothing before runtime. Diesel puts a DSL where the SQL should be and is
 synchronous at its core, and SeaORM writes migrations in a DSL, which the platform rules out.

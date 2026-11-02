@@ -69,9 +69,12 @@ jobs:
       - name: Format
         run: cargo fmt --check
 
+      # Built from the offline cache: the query macros check against the
+      # tables this step creates, so on a fresh database they cannot yet.
       - name: Migrate
         env:
           CORE_OWNER_DATABASE_URL: postgres://core_owner:ci-only-owner@127.0.0.1:5432/core
+          SQLX_OFFLINE: "true"
         run: cargo run -- migrate
 
       - name: Clippy

@@ -90,8 +90,9 @@ landed since contradicts the plan. Name the collision and propose a way through;
    Apply migrations with the core's `migrate` command as the owner role. The owner's connection
    string is never written to `Core/.env`, since the running core must not hold the owner's
    credentials (see `migrate` in `Core/docs/core-architecture.md`), so it is set for that one
-   command, from `Core/`, built from `infra/.env` without printing the password:
-   `CORE_OWNER_DATABASE_URL="postgres://core_owner:$(grep '^CORE_OWNER_PASSWORD=' ../infra/.env | cut -d= -f2-)@127.0.0.1:5432/core" cargo run -- migrate`
+   command, from `Core/`, built from `infra/.env` without printing the password, and built from the
+   offline query cache, since on a fresh database the tables the query macros check do not exist yet:
+   `SQLX_OFFLINE=true CORE_OWNER_DATABASE_URL="postgres://core_owner:$(grep '^CORE_OWNER_PASSWORD=' ../infra/.env | cut -d= -f2-)@127.0.0.1:5432/core" cargo run -- migrate`
 
 ## 4. Work the leaves
 
