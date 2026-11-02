@@ -2,7 +2,7 @@ use platform_core::invite;
 use std::env;
 use std::error::Error;
 
-const USAGE: &str = "usage: platform_core [migrate | invite [--expires-in <n><s|m|h|d>]]";
+const USAGE: &str = "usage: platform_core [migrate | invite [--expires-in <n><s|m|h|d>] | keygen]";
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -24,7 +24,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 invite::parse_duration(duration).map_err(|err| format!("{err}; {USAGE}"))?;
             platform_core::invite(expires_in).await
         }
-        [command @ ("migrate" | "invite"), ..] => {
+        ["keygen"] => {
+            platform_core::keygen();
+            Ok(())
+        }
+        [command @ ("migrate" | "invite" | "keygen"), ..] => {
             Err(format!("unexpected arguments after '{command}'; {USAGE}").into())
         }
         [other, ..] => Err(format!("unknown command '{other}'; {USAGE}").into()),

@@ -9,7 +9,9 @@ askama = "0.16.1"
 axum = "0.8.9"
 base64 = "0.23.1"
 dotenvy = "0.15.7"
+ed25519-dalek = { version = "2.2.0", features = ["pkcs8"] }
 getrandom = "0.4.3"
+jsonwebtoken = { version = "11.1.0", default-features = false, features = ["rust_crypto"] }
 serde = { version = "1.0.229", features = ["derive"] }
 sha2 = "0.11.1"
 sqlx = { version = "0.9.0", default-features = false, features = ["macros", "migrate", "postgres", "runtime-tokio", "sqlx-toml", "time", "uuid"] }

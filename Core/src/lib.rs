@@ -8,6 +8,7 @@ pub mod pages;
 pub mod password;
 pub mod registration;
 pub mod secret_token;
+pub mod signing_key;
 
 use axum::{Router, routing::get};
 use origin::PublicOrigin;
@@ -108,6 +109,16 @@ pub async fn invite(expires_in: time::Duration) -> Result<(), Box<dyn Error>> {
             .format(&time::format_description::well_known::Rfc3339)?
     );
     Ok(())
+}
+
+// for the keygen command: a new signing key as the env file line that holds
+// it, on stdout so it can be appended to .env, and its key id on stderr.
+// Every environment runs this once for its own key, see "The signing key" in
+// docs/core-architecture.md.
+pub fn keygen() {
+    let (key, seed) = signing_key::SigningKey::generate();
+    println!("CORE_SIGNING_KEY={seed}");
+    eprintln!("key id {}", key.key_id());
 }
 
 // for migrate command
