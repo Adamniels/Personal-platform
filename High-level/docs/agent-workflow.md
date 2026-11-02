@@ -2,7 +2,7 @@
 
 Status: exploratory. Piloted on #23, in use for the core sprint.
 
-Last updated: 2026 11 01
+Last updated: 2026 11 02
 
 How agents build this repository and what the owner does around them. How work is cut, slices,
 the walking skeleton and what gets tests, is in `how-we-build.md` and holds unchanged. This
@@ -184,7 +184,8 @@ visible once code exists, which the docs deciding things up front is meant to pr
    git config user.email "340709305+mac-mini-agent@users.noreply.github.com"
    ```
 6. **Environment.** Copy `infra/.env.example` to `infra/.env` and `Core/.env.example` to
-   `Core/.env`, and fill in the passwords. They are local to this machine and never leave it.
+   `Core/.env`, and fill in the passwords. Then give this machine its own signing key, from `Core/`:
+   `cargo run -q -- keygen >> .env`. They are local to this machine and never leave it.
 7. **Stack.** From `infra/`, `docker compose up -d --wait`, then the core's `migrate` command as
    the owner role, with the connection string set for that command only, as step 3 of
    `.claude/skills/pick-up-slice/SKILL.md` shows.

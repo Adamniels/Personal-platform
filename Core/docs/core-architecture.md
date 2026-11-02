@@ -2,7 +2,7 @@
 
 Status: exploratory. The walking skeleton is being built.
 
-Last updated: 2026 10 08
+Last updated: 2026 11 02
 
 The platform's infrastructure: the thing every feature is reached through, and where nothing
 interesting lives. The platform wide thinking that places it is in
@@ -117,7 +117,10 @@ the refresh cookie that could identify the current one never reaches that endpoi
 every feature. The refresh token on `Path=/auth`, which holds refresh and logout and nothing else,
 so it never reaches a feature at all. Logout is there rather than beside the other pages because it
 revokes the family the refresh token belongs to, and so has to receive it, whether or not the access
-token is still valid. Both `HttpOnly`, `Secure`, `SameSite=Lax`.
+token is still valid. Both `HttpOnly`, `Secure`, `SameSite=Lax`. They are `__Host-access` and
+`__Secure-refresh`, and the prefixes make the browser enforce the attributes rather than trusting
+whoever set them: `__Host-` requires `Secure`, `Path=/` and no `Domain`, and `__Secure-` requires
+`Secure`. `__Host-` cannot be used on `Path=/auth`, so the refresh cookie takes the weaker one.
 
 Cookies rather than a token held in JavaScript, because with everything on one origin the browser
 attaches the session by itself, so a feature frontend needs no code to be authenticated, and
@@ -172,7 +175,11 @@ defaults, the core and a feature disagree about when the same token died, and th
 window above is quietly thirty one. Every verifier, the core included, sets the leeway explicitly
 to the same value. Five seconds is small enough to leave the window meaning what it says and large
 enough that services on different machines one day do not reject a fresh token over a clock
-drifting by a second.
+drifting by a second. The core goes one step further and turns `jsonwebtoken`'s expiry check off
+altogether, since it reads the system clock and cannot be handed a time: the library checks the
+algorithm, the signature, the key id and that the claims are there, and the core checks
+`exp + 5 >= now` itself, with `now` a parameter, so the boundary is tested to the second and the
+sixty second default cannot apply even by accident.
 
 **The refresh token lasts fourteen days idle, and the session thirty days in total.** Each refresh
 issues a token expiring fourteen days out, or at the family's thirty day cap if that comes first,
@@ -206,7 +213,11 @@ a rule with one justified exception is how the next one arrives.
 
 **A return path is only ever a relative path**, starting with a single `/`. An absolute URL or one
 starting with `//` is dropped and replaced with the front page. Without that, the login page is an
-open redirect: a genuine login link that lands you on someone else's site afterwards.
+open redirect: a genuine login link that lands you on someone else's site afterwards. It travels as
+the query parameter `return_to`, in the core and in every feature, and is checked once, after
+decoding. A backslash, a control character or whitespace anywhere refuses it too, and so does more
+than 2048 bytes, since browsers read `\` as `/` and drop tabs and newlines, which turns `/\evil`
+and `/<tab>/evil` into `//evil`.
 
 ### The signing key
 
@@ -225,7 +236,12 @@ the core never loads a key from anywhere but the environment, and nothing it sig
 a real key set.
 
 **Every environment generates its own**, from a small command in the core that emits a keypair. A
-development key must never verify anything real.
+development key must never verify anything real. `platform_core keygen` prints
+`CORE_SIGNING_KEY=<seed>` for the untracked `.env`, the private key as its 32 byte Ed25519 seed in
+base64url without padding, the same encoding as the secret tokens, with the key id on stderr. The
+public key and the key id are derived from the seed at startup, never configured, and the core
+refuses to start without a valid key rather than generating one, which would log everyone out on
+every restart.
 
 **The token header carries a key id, and the endpoint serves a set rather than one key.** Both are
 unused while there is a single key. They are what makes rotation possible later without a flag
@@ -274,7 +290,9 @@ remembering the reason.
 
 This is about reset only. Login is a public form, so it does the cheap thing: the same answer for an
 unknown email and a wrong password, and an Argon2id verification against a dummy hash when the
-email is unknown, so the timing does not tell them apart either.
+email is unknown, so the timing does not tell them apart either. A disabled account gets the same
+answer too, after its real hash has been verified, so it costs the same. The dummy hash is made at
+startup with the same parameters as every real one, so the timing still matches if they change.
 
 Registration is a public form too, and it checks the invite code before the email. A bad, used or
 expired code all get the same answer, and only once the code has been consumed does a taken email
@@ -597,6 +615,14 @@ OWASP's minimum. Pure Rust, so nothing to link, and it stores PHC strings, which
 parameters, so raising them later leaves old hashes verifiable, which the password rules rely on
 to need no rehashing. Hashing and verifying are CPU bound for tens of milliseconds, so both run in
 `spawn_blocking`, off the threads serving requests.
+
+**jsonwebtoken for the tokens**, version 11 with only its `rust_crypto` backend, pure Rust like
+`argon2`, rather than `aws_lc_rs`, which is a C build on every machine. It signs and checks EdDSA
+and computes the key id as an RFC 7638 thumbprint, so neither is written by hand. Its `rsa`
+dependency carries an unfixed timing advisory and is compiled but never called, since only EdDSA is
+accepted. **ed25519-dalek** turns the seed into the PKCS#8 form `jsonwebtoken` takes; it is the
+copy `jsonwebtoken` already uses, so there is one. **axum-extra**, with only its `cookie` feature,
+builds and reads the session cookies, so their attributes are never formatted by hand.
 
 **Rust itself is pinned**, in `Core/rust-toolchain.toml`, so the laptop, the Mac mini and
 continuous integration build with the same compiler, and a new stable release cannot turn clippy
