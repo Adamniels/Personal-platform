@@ -179,7 +179,10 @@ drifting by a second. The core goes one step further and turns `jsonwebtoken`'s 
 altogether, since it reads the system clock and cannot be handed a time: the library checks the
 algorithm, the signature, the key id and that the claims are there, and the core checks
 `exp + 5 >= now` itself, with `now` a parameter, so the boundary is tested to the second and the
-sixty second default cannot apply even by accident.
+sixty second default cannot apply even by accident. The boundary is exact and part of the contract:
+`now` is whole seconds since the epoch, rounded down, and a token is still accepted at `exp + 5`.
+Libraries differ here too, PyJWT refusing at `exp + 5`, so a verifier in another language turns
+its library's expiry check off and makes the same integer comparison against a time passed in.
 
 **The refresh token lasts fourteen days idle, and the session thirty days in total.** Each refresh
 issues a token expiring fourteen days out, or at the family's thirty day cap if that comes first,
@@ -623,6 +626,8 @@ dependency carries an unfixed timing advisory and is compiled but never called, 
 accepted. **ed25519-dalek** turns the seed into the PKCS#8 form `jsonwebtoken` takes; it is the
 copy `jsonwebtoken` already uses, so there is one. **axum-extra**, with only its `cookie` feature,
 builds and reads the session cookies, so their attributes are never formatted by hand.
+**form_urlencoded**, already in the tree through axum, encodes a return path again when a redirect
+carries it on.
 
 **Rust itself is pinned**, in `Core/rust-toolchain.toml`, so the laptop, the Mac mini and
 continuous integration build with the same compiler, and a new stable release cannot turn clippy
