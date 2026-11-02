@@ -101,7 +101,7 @@ impl Verifier {
             .claims;
         let claims = Claims::try_from(wire).map_err(|_| Refused::Invalid)?;
 
-        if claims.expires_at + LEEWAY_SECONDS < now.unix_timestamp() {
+        if claims.expires_at.saturating_add(LEEWAY_SECONDS) < now.unix_timestamp() {
             return Err(Refused::Expired);
         }
         Ok(claims)
