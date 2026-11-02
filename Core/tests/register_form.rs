@@ -6,12 +6,9 @@ mod common;
 
 use platform_core::AppState;
 use platform_core::invite;
-use platform_core::issuer::Issuer;
 use platform_core::origin::PublicOrigin;
 use platform_core::signing_key::SigningKey;
-use platform_core::verifier::{KeySet, Verifier};
 use sqlx::PgPool;
-use std::sync::Arc;
 use time::OffsetDateTime;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -21,15 +18,13 @@ const PLATFORM: &str = "https://platform.test";
 const PASSWORD: &str = "correct-horse-battery";
 
 async fn serve(pool: PgPool) -> std::net::SocketAddr {
-    let key = SigningKey::generate().0;
-    let state = AppState {
+    let state = AppState::new(
         pool,
-        verifier: Arc::new(Verifier::new(KeySet::of(&key))),
-        issuer: Arc::new(Issuer::new(
-            key,
-            platform_core::DEFAULT_ACCESS_TOKEN_LIFETIME,
-        )),
-    };
+        SigningKey::generate().0,
+        platform_core::DEFAULT_ACCESS_TOKEN_LIFETIME,
+    )
+    .await
+    .unwrap();
     let app = platform_core::app(state, PublicOrigin::parse(PLATFORM).unwrap());
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();

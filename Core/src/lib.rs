@@ -3,9 +3,11 @@
 
 pub mod accounts;
 pub mod claims;
+pub mod cookies;
 pub mod duration;
 pub mod invite;
 pub mod issuer;
+pub mod login;
 pub mod origin;
 pub mod pages;
 pub mod password;
@@ -45,6 +47,28 @@ pub struct AppState {
     pub pool: PgPool,
     pub issuer: Arc<Issuer>,
     pub verifier: Arc<Verifier>,
+    /// A password hash nothing matches, verified against when a login names
+    /// an unknown email, so it takes as long as a wrong password. Made at
+    /// startup with the same parameters as every real hash, so the timing
+    /// still matches if they change.
+    pub dummy_hash: Arc<str>,
+}
+
+impl AppState {
+    /// The state for `signing_key`, its issuer and verifier derived from it.
+    pub async fn new(
+        pool: PgPool,
+        signing_key: SigningKey,
+        access_token_lifetime: time::Duration,
+    ) -> Result<AppState, password::Error> {
+        let dummy_hash = password::hash(&secret_token::generate().0).await?;
+        Ok(AppState {
+            pool,
+            verifier: Arc::new(Verifier::new(KeySet::of(&signing_key))),
+            issuer: Arc::new(Issuer::new(signing_key, access_token_lifetime)),
+            dummy_hash: dummy_hash.into(),
+        })
+    }
 }
 
 /// The access token lifetime when `CORE_ACCESS_TOKEN_LIFETIME` is unset: the
@@ -69,14 +93,8 @@ pub async fn serve() -> Result<(), Box<dyn Error>> {
     let pool = connect_database().await?;
     println!("connected to the database");
 
-    let app = app(
-        AppState {
-            pool,
-            verifier: Arc::new(Verifier::new(KeySet::of(&signing_key))),
-            issuer: Arc::new(Issuer::new(signing_key, access_token_lifetime)),
-        },
-        origin,
-    );
+    let state = AppState::new(pool, signing_key, access_token_lifetime).await?;
+    let app = app(state, origin);
 
     let listener = TcpListener::bind(addr)
         .await
@@ -102,7 +120,8 @@ pub fn app(state: AppState, origin: PublicOrigin) -> Router {
     let routes = Router::new()
         .route("/", get(root))
         .route("/assets/core.css", get(pages::stylesheet))
-        .merge(registration::routes());
+        .merge(registration::routes())
+        .merge(login::routes());
     origin::protect(routes, origin).with_state(state)
 }
 
