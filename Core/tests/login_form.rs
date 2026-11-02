@@ -355,3 +355,35 @@ async fn the_form_carries_the_return_path_it_was_given() {
 
     db.close().await;
 }
+
+// The dummy hash is what makes an unknown email cost as much as a wrong
+// password; without it every response still looks right and only the timing
+// tells. Deliberately coarse, half of one verification, so load cannot make
+// it flaky, while a login that skips the verification takes a few
+// milliseconds against tens.
+#[tokio::test]
+async fn an_unknown_email_costs_a_password_verification() {
+    let db = common::TestDb::new().await;
+    let (addr, _) = serve(db.pool.clone(), Duration::minutes(30)).await;
+    let stored = password::hash(PASSWORD).await.unwrap();
+
+    let started = std::time::Instant::now();
+    password::verify("not the password", &stored).await.unwrap();
+    let one_verification = started.elapsed();
+
+    let started = std::time::Instant::now();
+    let response = post(
+        addr,
+        &[("email", "nobody@example.com"), ("password", PASSWORD)],
+    )
+    .await;
+    let unknown_email = started.elapsed();
+
+    assert_eq!(response.status, 422);
+    assert!(
+        unknown_email >= one_verification / 2,
+        "an unknown email took {unknown_email:?}, one verification {one_verification:?}"
+    );
+
+    db.close().await;
+}
