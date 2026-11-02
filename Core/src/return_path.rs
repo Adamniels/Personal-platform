@@ -16,8 +16,11 @@ const MAX_BYTES: usize = 2048;
 pub struct ReturnPath(String);
 
 impl ReturnPath {
-    /// `text`, already decoded from the query or form it came in, if it is a
-    /// path on this origin, and the front page otherwise. Refused: anything not
+    /// `text`, a path and query as they appear in a URL, if it is a path on
+    /// this origin, and the front page otherwise. From a `return_to`
+    /// parameter it is the value once decoded; from a request's own URI it is
+    /// the URI as sent, still percent encoded, since decoding that would turn
+    /// `%2F` into `/` and `%3F` into `?` and change what it points at. Refused: anything not
     /// starting with a single `/`, and a backslash, control character or
     /// whitespace anywhere, since browsers read `\` as `/` and drop tabs and
     /// newlines, which turns `/\evil` and `/<tab>/evil` into `//evil`.

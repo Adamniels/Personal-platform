@@ -9,7 +9,7 @@ use crate::cookies;
 use crate::refresh;
 use crate::return_path::ReturnPath;
 use crate::verifier::Verifier;
-use axum::extract::{FromRef, FromRequestParts};
+use axum::extract::{FromRef, FromRequestParts, OriginalUri};
 use axum::http::request::Parts;
 use axum::response::Redirect;
 use axum_extra::extract::cookie::CookieJar;
@@ -47,7 +47,13 @@ where
             // Missing, expired and failing tokens alike: the deciding endpoint
             // works out whether this is a refresh or a login.
             None => {
-                let here = parts.uri.path_and_query().map_or("/", |path| path.as_str());
+                // The URI as the browser sent it: under a nested router,
+                // parts.uri has the prefix stripped.
+                let uri = parts
+                    .extensions
+                    .get::<OriginalUri>()
+                    .map_or(&parts.uri, |original| &original.0);
+                let here = uri.path_and_query().map_or("/", |path| path.as_str());
                 Err(Redirect::to(
                     &ReturnPath::parse(here).appended_to(refresh::PATH),
                 ))

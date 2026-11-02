@@ -6,7 +6,10 @@
 
 mod common;
 
+use axum::Router;
+use axum::routing::get as route_get;
 use platform_core::origin::PublicOrigin;
+use platform_core::session::Session;
 use platform_core::signing_key::SigningKey;
 use platform_core::{AppState, DEFAULT_ACCESS_TOKEN_LIFETIME};
 use sqlx::PgPool;
@@ -121,6 +124,54 @@ async fn a_valid_token_shows_the_page_with_who_you_are() {
 
     assert_eq!(status, 200, "{body}");
     assert!(body.contains(&account_id.to_string()), "{body}");
+
+    db.close().await;
+}
+
+// A query holding encoded text stays encoded in the way back, so it comes
+// back to the same URL rather than a decoded one.
+#[tokio::test]
+async fn the_way_back_is_the_url_as_sent() {
+    let db = common::TestDb::new().await;
+    let (addr, _) = serve(db.pool.clone()).await;
+
+    let (_, location, _) = get(addr, "/?q=%2F%C3%A9", None).await;
+    assert_eq!(
+        location.as_deref(),
+        Some("/auth/refresh?return_to=%2F%3Fq%3D%252F%25C3%25A9")
+    );
+
+    db.close().await;
+}
+
+// Under a nested router the handler sees the URI without its prefix; the
+// way back must still be the whole path.
+#[tokio::test]
+async fn a_nested_page_comes_back_to_its_whole_path() {
+    let db = common::TestDb::new().await;
+    let state = AppState::new(
+        db.pool.clone(),
+        SigningKey::generate().0,
+        DEFAULT_ACCESS_TOKEN_LIFETIME,
+    )
+    .await
+    .unwrap();
+    let app = Router::new()
+        .nest(
+            "/settings",
+            Router::new().route("/x", route_get(|_: Session| async { "ok" })),
+        )
+        .with_state(state);
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+    let (status, location, _) = get(addr, "/settings/x?a=1", None).await;
+    assert_eq!(status, 303);
+    assert_eq!(
+        location.as_deref(),
+        Some("/auth/refresh?return_to=%2Fsettings%2Fx%3Fa%3D1")
+    );
 
     db.close().await;
 }
