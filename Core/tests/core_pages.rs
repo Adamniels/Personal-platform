@@ -175,3 +175,31 @@ async fn a_nested_page_comes_back_to_its_whole_path() {
 
     db.close().await;
 }
+
+// Until refresh exists, the deciding endpoint always sends to login,
+// carrying the way back only if it is a path on this origin.
+#[tokio::test]
+async fn the_deciding_endpoint_sends_to_login_with_the_way_back() {
+    let db = common::TestDb::new().await;
+    let (addr, _) = serve(db.pool.clone()).await;
+
+    for (target, expected) in [
+        ("/auth/refresh?return_to=/x", "/login?return_to=%2Fx"),
+        (
+            "/auth/refresh?return_to=%2Fx%3Fa%3D1",
+            "/login?return_to=%2Fx%3Fa%3D1",
+        ),
+        ("/auth/refresh?return_to=//evil", "/login?return_to=%2F"),
+        (
+            "/auth/refresh?return_to=https://evil",
+            "/login?return_to=%2F",
+        ),
+        ("/auth/refresh", "/login?return_to=%2F"),
+    ] {
+        let (status, location, _) = get(addr, target, None).await;
+        assert_eq!(status, 303, "{target}");
+        assert_eq!(location.as_deref(), Some(expected), "{target}");
+    }
+
+    db.close().await;
+}
