@@ -11,6 +11,7 @@ pub mod login;
 pub mod origin;
 pub mod pages;
 pub mod password;
+pub mod refresh;
 pub mod registration;
 pub mod return_path;
 pub mod secret_token;
@@ -121,7 +122,8 @@ pub fn app(state: AppState, origin: PublicOrigin) -> Router {
         .route("/", get(root))
         .route("/assets/core.css", get(pages::stylesheet))
         .merge(registration::routes())
-        .merge(login::routes());
+        .merge(login::routes())
+        .merge(refresh::routes());
     origin::protect(routes, origin).with_state(state)
 }
 
