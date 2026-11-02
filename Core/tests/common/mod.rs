@@ -5,7 +5,7 @@
 //! infra/postgres/initdb/core.sh gives the core's database, and migrated as
 //! core_owner. Each test then gets a copy of it and connects as core_app, so
 //! it tests what the running core is. A test that passes drops its copy; one
-//! that fails leaves it to look at, and the next run sweeps it away.
+//! that fails leaves it to look at, and a later run sweeps it away.
 //!
 //! Creating databases needs the Postgres superuser, read from
 //! CORE_TEST_ADMIN_DATABASE_URL. Only tests hold it, never the running core,
@@ -19,7 +19,7 @@ use sqlx::{AssertSqlSafe, Connection, PgConnection};
 use std::str::FromStr;
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::OnceCell;
 
 pub struct TestDb {
@@ -59,7 +59,7 @@ impl TestDb {
     }
 
     /// Called at the end of a test that passed. A test that panics never gets
-    /// here, and its database stays until the next run's sweep.
+    /// here, and its database stays until a later run's sweep.
     pub async fn close(self) {
         self.pool.close().await;
         let mut admin = admin_connection("postgres").await;
@@ -112,8 +112,10 @@ async fn grant_like_core(admin: &mut PgConnection, name: &str) {
 }
 
 // Drops what earlier runs left: databases of failed tests, and templates.
-// Only names stamped before this process started, and a database still in
-// use refuses to drop, so another run's databases are never touched.
+// Only names stamped SWEEP_AFTER before this process started. A template sits
+// idle between copies, so being in use does not protect it; the age is what
+// keeps a run going at the same time, on this machine or another, from
+// losing its template mid run.
 async fn sweep(admin: &mut PgConnection) {
     let names: Vec<String> = sqlx::query_scalar(
         r"SELECT datname::text FROM pg_database WHERE datname ~ '^core_(test|tpl)_\d+_'",
@@ -128,7 +130,7 @@ async fn sweep(admin: &mut PgConnection) {
             .nth(2)
             .and_then(|stamp| stamp.parse().ok())
             .unwrap_or(u128::MAX);
-        if stamped < process_started() {
+        if stamped.saturating_add(SWEEP_AFTER.as_millis()) < process_started() {
             sqlx::query(AssertSqlSafe(format!("DROP DATABASE {name}")))
                 .execute(&mut *admin)
                 .await
@@ -136,6 +138,8 @@ async fn sweep(admin: &mut PgConnection) {
         }
     }
 }
+
+const SWEEP_AFTER: Duration = Duration::from_secs(10 * 60);
 
 // core_<kind>_<milliseconds at process start>_<pid>_<counter>, unique within
 // and across runs, and safe as an unquoted identifier.
