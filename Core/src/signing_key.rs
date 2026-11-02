@@ -27,6 +27,18 @@ impl SigningKey {
         (SigningKey::from_seed(seed), URL_SAFE_NO_PAD.encode(seed))
     }
 
+    /// The key in `CORE_SIGNING_KEY`. The error never repeats the value, since
+    /// it is the private key, and it may be a real one with a typo in it.
+    pub fn parse(text: &str) -> Result<SigningKey, &'static str> {
+        let seed = URL_SAFE_NO_PAD
+            .decode(text)
+            .map_err(|_| "not base64url without padding")?;
+        let seed: [u8; 32] = seed
+            .try_into()
+            .map_err(|_| "does not decode to exactly 32 bytes")?;
+        Ok(SigningKey::from_seed(seed))
+    }
+
     pub fn from_seed(seed: [u8; 32]) -> SigningKey {
         let public = ed25519_dalek::SigningKey::from_bytes(&seed)
             .verifying_key()
@@ -95,5 +107,24 @@ mod tests {
             SigningKey::from_seed(URL_SAFE_NO_PAD.decode(&seed).unwrap().try_into().unwrap());
         assert_eq!(again.key_id(), key.key_id());
         assert_ne!(SigningKey::generate().0.key_id(), key.key_id());
+    }
+
+    #[test]
+    fn the_env_value_is_parsed_as_its_seed() {
+        assert_eq!(SigningKey::parse(RFC_SEED).unwrap().key_id(), RFC_KEY_ID);
+    }
+
+    #[test]
+    fn anything_but_a_32_byte_seed_is_refused() {
+        for input in [
+            "",
+            &RFC_SEED[..42],
+            &format!("{RFC_SEED}A"),
+            &format!("{RFC_SEED}="),
+            &RFC_SEED.replace('_', "/"),
+            &URL_SAFE_NO_PAD.encode([0u8; 64]),
+        ] {
+            assert!(SigningKey::parse(input).is_err(), "accepted {input:?}");
+        }
     }
 }

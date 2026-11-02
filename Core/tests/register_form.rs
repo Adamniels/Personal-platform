@@ -4,9 +4,12 @@
 
 mod common;
 
+use platform_core::AppState;
 use platform_core::invite;
 use platform_core::origin::PublicOrigin;
+use platform_core::signing_key::SigningKey;
 use sqlx::PgPool;
+use std::sync::Arc;
 use time::OffsetDateTime;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -16,7 +19,11 @@ const PLATFORM: &str = "https://platform.test";
 const PASSWORD: &str = "correct-horse-battery";
 
 async fn serve(pool: PgPool) -> std::net::SocketAddr {
-    let app = platform_core::app(pool, PublicOrigin::parse(PLATFORM).unwrap());
+    let state = AppState {
+        pool,
+        signing_key: Arc::new(SigningKey::generate().0),
+    };
+    let app = platform_core::app(state, PublicOrigin::parse(PLATFORM).unwrap());
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });

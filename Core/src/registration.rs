@@ -7,7 +7,7 @@
 
 use crate::pages::Page;
 use crate::secret_token::{self, TokenHash};
-use crate::{accounts, invite, password};
+use crate::{AppState, accounts, invite, password};
 use askama::Template;
 use axum::Router;
 use axum::extract::{DefaultBodyLimit, Form, State};
@@ -97,7 +97,7 @@ pub async fn register(
     Ok(Outcome::Registered)
 }
 
-pub fn routes() -> Router<PgPool> {
+pub fn routes() -> Router<AppState> {
     Router::new()
         .route(
             "/register",

@@ -10,8 +10,10 @@ pub mod registration;
 pub mod secret_token;
 pub mod signing_key;
 
+use axum::extract::FromRef;
 use axum::{Router, routing::get};
 use origin::PublicOrigin;
+use signing_key::SigningKey;
 use sqlx::Connection;
 use sqlx::migrate::{Migrate, Migration, Migrator};
 use sqlx::postgres::{PgConnection, PgPool, PgPoolOptions};
@@ -19,6 +21,7 @@ use std::collections::HashSet;
 use std::env;
 use std::error::Error;
 use std::net::SocketAddr;
+use std::sync::Arc;
 use std::time::Duration;
 use time::OffsetDateTime;
 use tokio::net::TcpListener;
@@ -27,14 +30,36 @@ use tokio::net::TcpListener;
 // Cargo rebuild when one is added.
 pub static MIGRATOR: Migrator = sqlx::migrate!();
 
+/// What every handler can reach: built once at startup and shared. A handler
+/// asks for the part it needs, `State<PgPool>` for instance, through `FromRef`.
+#[derive(Clone)]
+pub struct AppState {
+    pub pool: PgPool,
+    pub signing_key: Arc<SigningKey>,
+}
+
+impl FromRef<AppState> for PgPool {
+    fn from_ref(state: &AppState) -> PgPool {
+        state.pool.clone()
+    }
+}
+
 pub async fn serve() -> Result<(), Box<dyn Error>> {
     let addr = listen_addr()?;
     let origin = public_origin()?;
+    let signing_key = signing_key()?;
+    println!("signing with key id {}", signing_key.key_id());
 
     let pool = connect_database().await?;
     println!("connected to the database");
 
-    let app = app(pool, origin);
+    let app = app(
+        AppState {
+            pool,
+            signing_key: Arc::new(signing_key),
+        },
+        origin,
+    );
 
     let listener = TcpListener::bind(addr)
         .await
@@ -56,12 +81,22 @@ fn listen_addr() -> Result<SocketAddr, Box<dyn Error>> {
 
 /// Every route the core serves, behind the Origin check. Public so the tests
 /// can serve the real router against a test database.
-pub fn app(pool: PgPool, origin: PublicOrigin) -> Router {
+pub fn app(state: AppState, origin: PublicOrigin) -> Router {
     let routes = Router::new()
         .route("/", get(root))
         .route("/assets/core.css", get(pages::stylesheet))
         .merge(registration::routes());
-    origin::protect(routes, origin).with_state(pool)
+    origin::protect(routes, origin).with_state(state)
+}
+
+// help function for serve: the key from the environment, never one generated
+// here. A key made at startup would work until the first restart and then
+// silently log everyone out, see "The signing key" in docs/core-architecture.md.
+fn signing_key() -> Result<SigningKey, Box<dyn Error>> {
+    let raw = env::var("CORE_SIGNING_KEY").map_err(|err| {
+        format!("CORE_SIGNING_KEY: {err}; generate one with `platform_core keygen >> .env`")
+    })?;
+    Ok(SigningKey::parse(&raw).map_err(|err| format!("CORE_SIGNING_KEY: {err}"))?)
 }
 
 // help function for serve
