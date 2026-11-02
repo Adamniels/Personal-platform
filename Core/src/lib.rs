@@ -12,6 +12,7 @@ pub mod password;
 pub mod registration;
 pub mod return_path;
 pub mod secret_token;
+pub mod sessions;
 pub mod signing_key;
 pub mod verifier;
 
