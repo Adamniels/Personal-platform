@@ -276,6 +276,11 @@ This is about reset only. Login is a public form, so it does the cheap thing: th
 unknown email and a wrong password, and an Argon2id verification against a dummy hash when the
 email is unknown, so the timing does not tell them apart either.
 
+Registration is a public form too, and it checks the invite code before the email. A bad, used or
+expired code all get the same answer, and only once the code has been consumed does a taken email
+get its own message, rolling the code back unused. So only someone holding a valid code can learn
+that an address has an account, and holding one is exactly the trust registration grants.
+
 ---
 
 ## The core's data
@@ -299,6 +304,17 @@ either way. And each of these is found by its hash, so the hash has to be determ
 where a salted slow hash would mean no index to look it up by.
 
 Passwords are hashed with Argon2id through a library, per the line above about primitives.
+
+**A password is 15 to 1024 characters, and nothing else is asked of it.** Fifteen is NIST SP
+800-63B's minimum for a password that is the only factor. The upper bound is far above its "allow
+at least 64" and exists only so the input is bounded. No composition rules, which NIST advises
+against, and a password is never trimmed or truncated. Three things are left out deliberately. No
+Unicode normalisation, which NIST recommends: it adds a dependency, and passwords here come from a
+password manager. No blocklist of breached passwords, which NIST requires: fifteen characters
+already excludes almost every entry on the common lists, the accounts are a handful of invited
+people, and the standard check is a call to a third party during registration. And no rehashing
+when the Argon2id parameters rise, since the stored string carries its own and old ones still
+verify. Each is worth revisiting if the platform ever has accounts it did not invite.
 
 Email is normalised to lowercase and unique on that. Treating two spellings of one address as two
 accounts is a bug that first appears on a phone keyboard that capitalises.
@@ -371,6 +387,12 @@ and a core holding the owner's credentials has the role split only on paper. The
 subcommand reads the owner's connection string from a variable of its own, set in the terminal for
 that one command. sqlx's query macros are pointed at the app's variable, so they check queries as
 the app role.
+
+The tests hold a third, the Postgres superuser's, in `CORE_TEST_ADMIN_DATABASE_URL`, used only to
+create a database per test from a migrated template. It follows the owner's rule: never in the
+environment file, set in the terminal or on the one CI step that runs the tests. Each test still
+connects to its database as the app role, so it tests what the running core is, see
+`Core/tests/common/mod.rs`.
 
 **The application role is granted no `DELETE`.** Nothing in the core deletes in normal operation,
 see the session above, and a `DELETE` that slipped into a session flow would turn a replay into an
@@ -555,10 +577,26 @@ are meant to bite. Its migrations are plain numbered SQL files, as
 `High-level/docs/platform-architecture.md` requires, embedded in the core binary and applied by
 its `migrate` subcommand as the owner. Its documented habit of migrating at startup is not
 followed, because the app role cannot migrate. `sqlx-cli` is used only to write the macros'
-offline cache, `.sqlx/`, which is committed so the core builds without a running database.
+offline cache, `.sqlx/`, which is committed so the core builds without a running database. The
+`migrate` command is always built from that cache, with `SQLX_OFFLINE=true`, because the macros
+check against the tables it creates, which a fresh database does not have yet.
 tokio-postgres was the close alternative, nearer the protocol, but it needs a pool and a migration
 runner added and checks nothing before runtime. Diesel puts a DSL where the SQL should be and is
 synchronous at its core, and SeaORM writes migrations in a DSL, which the platform rules out.
+
+**askama for the core's HTML.** Templates are compiled into Rust at build time, so a misspelt
+field or a missing variable is a build error, in the same spirit as sqlx's macros, and every value
+is HTML escaped unless a template says otherwise. They live in `Core/templates/`, with one base
+layout the pages extend. A page is returned through a small `Page` wrapper in `src/pages.rs`, which
+turns a render error into a 500. Tera and minijinja were the alternatives, both rendering at
+runtime, which buys reloading templates without a rebuild and loses the build time check; the core
+has a handful of pages, so the check is worth more.
+
+**RustCrypto's `argon2` for passwords**, with its defaults: Argon2id, 19 MiB, two passes, one lane,
+OWASP's minimum. Pure Rust, so nothing to link, and it stores PHC strings, which carry their own
+parameters, so raising them later leaves old hashes verifiable, which the password rules rely on
+to need no rehashing. Hashing and verifying are CPU bound for tens of milliseconds, so both run in
+`spawn_blocking`, off the threads serving requests.
 
 **Rust itself is pinned**, in `Core/rust-toolchain.toml`, so the laptop, the Mac mini and
 continuous integration build with the same compiler, and a new stable release cannot turn clippy
