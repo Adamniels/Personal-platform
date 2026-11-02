@@ -9,6 +9,7 @@ use platform_core::invite;
 use platform_core::issuer::Issuer;
 use platform_core::origin::PublicOrigin;
 use platform_core::signing_key::SigningKey;
+use platform_core::verifier::{KeySet, Verifier};
 use sqlx::PgPool;
 use std::sync::Arc;
 use time::OffsetDateTime;
@@ -20,10 +21,12 @@ const PLATFORM: &str = "https://platform.test";
 const PASSWORD: &str = "correct-horse-battery";
 
 async fn serve(pool: PgPool) -> std::net::SocketAddr {
+    let key = SigningKey::generate().0;
     let state = AppState {
         pool,
+        verifier: Arc::new(Verifier::new(KeySet::of(&key))),
         issuer: Arc::new(Issuer::new(
-            SigningKey::generate().0,
+            key,
             platform_core::DEFAULT_ACCESS_TOKEN_LIFETIME,
         )),
     };

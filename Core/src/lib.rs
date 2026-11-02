@@ -12,6 +12,7 @@ pub mod password;
 pub mod registration;
 pub mod secret_token;
 pub mod signing_key;
+pub mod verifier;
 
 use axum::extract::FromRef;
 use axum::{Router, routing::get};
@@ -29,6 +30,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use time::OffsetDateTime;
 use tokio::net::TcpListener;
+use verifier::{KeySet, Verifier};
 
 // The SQL files in Core/migrations, embedded at compile time. build.rs makes
 // Cargo rebuild when one is added.
@@ -40,6 +42,7 @@ pub static MIGRATOR: Migrator = sqlx::migrate!();
 pub struct AppState {
     pub pool: PgPool,
     pub issuer: Arc<Issuer>,
+    pub verifier: Arc<Verifier>,
 }
 
 /// The access token lifetime when `CORE_ACCESS_TOKEN_LIFETIME` is unset: the
@@ -67,6 +70,7 @@ pub async fn serve() -> Result<(), Box<dyn Error>> {
     let app = app(
         AppState {
             pool,
+            verifier: Arc::new(Verifier::new(KeySet::of(&signing_key))),
             issuer: Arc::new(Issuer::new(signing_key, access_token_lifetime)),
         },
         origin,
