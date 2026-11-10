@@ -39,3 +39,30 @@ pub async fn create(
         Err(err) => Err(err),
     }
 }
+
+/// What login needs to know about an account.
+pub struct Account {
+    pub id: Uuid,
+    pub password_hash: String,
+    pub status: String,
+}
+
+impl Account {
+    pub fn is_active(&self) -> bool {
+        self.status == "active"
+    }
+}
+
+/// The account registered with `email`, which is already lowercased.
+pub async fn find_by_email(
+    executor: impl PgExecutor<'_>,
+    email: &str,
+) -> Result<Option<Account>, sqlx::Error> {
+    sqlx::query_as!(
+        Account,
+        "SELECT id, password_hash, status FROM accounts WHERE email = $1",
+        email,
+    )
+    .fetch_optional(executor)
+    .await
+}

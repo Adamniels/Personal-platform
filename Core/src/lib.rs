@@ -2,15 +2,29 @@
 //! calls into it, and the tests in tests/ import what they test.
 
 pub mod accounts;
+pub mod claims;
+pub mod cookies;
+pub mod duration;
 pub mod invite;
+pub mod issuer;
+pub mod login;
 pub mod origin;
 pub mod pages;
 pub mod password;
+pub mod refresh;
 pub mod registration;
+pub mod return_path;
 pub mod secret_token;
+pub mod session;
+pub mod sessions;
+pub mod signing_key;
+pub mod verifier;
 
+use axum::extract::FromRef;
 use axum::{Router, routing::get};
+use issuer::Issuer;
 use origin::PublicOrigin;
+use signing_key::SigningKey;
 use sqlx::Connection;
 use sqlx::migrate::{Migrate, Migration, Migrator};
 use sqlx::postgres::{PgConnection, PgPool, PgPoolOptions};
@@ -18,22 +32,77 @@ use std::collections::HashSet;
 use std::env;
 use std::error::Error;
 use std::net::SocketAddr;
+use std::sync::Arc;
 use std::time::Duration;
 use time::OffsetDateTime;
 use tokio::net::TcpListener;
+use verifier::{KeySet, Verifier};
 
 // The SQL files in Core/migrations, embedded at compile time. build.rs makes
 // Cargo rebuild when one is added.
 pub static MIGRATOR: Migrator = sqlx::migrate!();
 
+/// What every handler can reach: built once at startup and shared. A handler
+/// asks for the part it needs, `State<PgPool>` for instance, through `FromRef`.
+#[derive(Clone)]
+pub struct AppState {
+    pub pool: PgPool,
+    pub issuer: Arc<Issuer>,
+    pub verifier: Arc<Verifier>,
+    /// A password hash nothing matches, verified against when a login names
+    /// an unknown email, so it takes as long as a wrong password. Made at
+    /// startup with the same parameters as every real hash, so the timing
+    /// still matches if they change.
+    pub dummy_hash: Arc<str>,
+}
+
+impl AppState {
+    /// The state for `signing_key`, its issuer and verifier derived from it.
+    pub async fn new(
+        pool: PgPool,
+        signing_key: SigningKey,
+        access_token_lifetime: time::Duration,
+    ) -> Result<AppState, password::Error> {
+        let dummy_hash = password::hash(&secret_token::generate().0).await?;
+        Ok(AppState {
+            pool,
+            verifier: Arc::new(Verifier::new(KeySet::of(&signing_key))),
+            issuer: Arc::new(Issuer::new(signing_key, access_token_lifetime)),
+            dummy_hash: dummy_hash.into(),
+        })
+    }
+}
+
+/// The access token lifetime when `CORE_ACCESS_TOKEN_LIFETIME` is unset: the
+/// revocation window, see "The access token lasts thirty minutes" in
+/// docs/core-architecture.md.
+pub const DEFAULT_ACCESS_TOKEN_LIFETIME: time::Duration = time::Duration::minutes(30);
+
+impl FromRef<AppState> for PgPool {
+    fn from_ref(state: &AppState) -> PgPool {
+        state.pool.clone()
+    }
+}
+
+impl FromRef<AppState> for Arc<Verifier> {
+    fn from_ref(state: &AppState) -> Arc<Verifier> {
+        state.verifier.clone()
+    }
+}
+
 pub async fn serve() -> Result<(), Box<dyn Error>> {
     let addr = listen_addr()?;
     let origin = public_origin()?;
+    let signing_key = signing_key()?;
+    println!("signing with key id {}", signing_key.key_id());
+    let access_token_lifetime = access_token_lifetime()?;
+    println!("access tokens last {access_token_lifetime}");
 
     let pool = connect_database().await?;
     println!("connected to the database");
 
-    let app = app(pool, origin);
+    let state = AppState::new(pool, signing_key, access_token_lifetime).await?;
+    let app = app(state, origin);
 
     let listener = TcpListener::bind(addr)
         .await
@@ -55,12 +124,36 @@ fn listen_addr() -> Result<SocketAddr, Box<dyn Error>> {
 
 /// Every route the core serves, behind the Origin check. Public so the tests
 /// can serve the real router against a test database.
-pub fn app(pool: PgPool, origin: PublicOrigin) -> Router {
+pub fn app(state: AppState, origin: PublicOrigin) -> Router {
     let routes = Router::new()
         .route("/", get(root))
         .route("/assets/core.css", get(pages::stylesheet))
-        .merge(registration::routes());
-    origin::protect(routes, origin).with_state(pool)
+        .merge(registration::routes())
+        .merge(login::routes())
+        .merge(refresh::routes());
+    origin::protect(routes, origin).with_state(state)
+}
+
+// help function for serve: the key from the environment, never one generated
+// here. A key made at startup would work until the first restart and then
+// silently log everyone out, see "The signing key" in docs/core-architecture.md.
+fn signing_key() -> Result<SigningKey, Box<dyn Error>> {
+    let raw = env::var("CORE_SIGNING_KEY").map_err(|err| {
+        format!("CORE_SIGNING_KEY: {err}; generate one with `platform_core keygen >> .env`")
+    })?;
+    Ok(SigningKey::parse(&raw).map_err(|err| format!("CORE_SIGNING_KEY: {err}"))?)
+}
+
+// help function for serve: unset is the default, and anything set must parse,
+// so a typo cannot quietly become thirty minutes.
+fn access_token_lifetime() -> Result<time::Duration, Box<dyn Error>> {
+    match env::var("CORE_ACCESS_TOKEN_LIFETIME") {
+        Err(env::VarError::NotPresent) => Ok(DEFAULT_ACCESS_TOKEN_LIFETIME),
+        Err(err) => Err(format!("CORE_ACCESS_TOKEN_LIFETIME: {err}").into()),
+        Ok(raw) => Ok(
+            duration::parse(&raw).map_err(|err| format!("CORE_ACCESS_TOKEN_LIFETIME: {err}"))?
+        ),
+    }
 }
 
 // help function for serve
@@ -82,9 +175,17 @@ async fn connect_database() -> Result<PgPool, Box<dyn Error>> {
     Ok(pool)
 }
 
-// core root endpoint
-async fn root() -> &'static str {
-    "platform core root endpoint"
+#[derive(askama::Template)]
+#[template(path = "front.html")]
+struct FrontPage {
+    account_id: uuid::Uuid,
+}
+
+// The front page, a stub showing who you are until the feature cards (#31).
+async fn root(session: session::Session) -> pages::Page<FrontPage> {
+    pages::Page(FrontPage {
+        account_id: session.account_id,
+    })
 }
 
 // for the invite command: stores a code as the app role, prints it once on
@@ -108,6 +209,16 @@ pub async fn invite(expires_in: time::Duration) -> Result<(), Box<dyn Error>> {
             .format(&time::format_description::well_known::Rfc3339)?
     );
     Ok(())
+}
+
+// for the keygen command: a new signing key as the env file line that holds
+// it, on stdout so it can be appended to .env, and its key id on stderr.
+// Every environment runs this once for its own key, see "The signing key" in
+// docs/core-architecture.md.
+pub fn keygen() {
+    let (key, seed) = signing_key::SigningKey::generate();
+    println!("CORE_SIGNING_KEY={seed}");
+    eprintln!("key id {}", key.key_id());
 }
 
 // for migrate command

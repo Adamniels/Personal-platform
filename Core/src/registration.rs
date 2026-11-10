@@ -7,7 +7,7 @@
 
 use crate::pages::Page;
 use crate::secret_token::{self, TokenHash};
-use crate::{accounts, invite, password};
+use crate::{AppState, accounts, invite, password};
 use askama::Template;
 use axum::Router;
 use axum::extract::{DefaultBodyLimit, Form, State};
@@ -97,15 +97,13 @@ pub async fn register(
     Ok(Outcome::Registered)
 }
 
-pub fn routes() -> Router<PgPool> {
-    Router::new()
-        .route(
-            "/register",
-            get(show)
-                .post(submit)
-                .layer(DefaultBodyLimit::max(16 * 1024)),
-        )
-        .route("/login", get(login_stub))
+pub fn routes() -> Router<AppState> {
+    Router::new().route(
+        "/register",
+        get(show)
+            .post(submit)
+            .layer(DefaultBodyLimit::max(16 * 1024)),
+    )
 }
 
 #[derive(Template)]
@@ -115,10 +113,6 @@ struct RegisterPage<'a> {
     code: &'a str,
     email: &'a str,
 }
-
-#[derive(Template)]
-#[template(path = "login.html")]
-struct LoginStub;
 
 #[derive(Deserialize)]
 struct RegisterForm {
@@ -160,11 +154,6 @@ async fn submit(State(pool): State<PgPool>, Form(form): Form<RegisterForm>) -> R
             (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error\n").into_response()
         }
     }
-}
-
-// Until the login slice (#57) replaces it.
-async fn login_stub() -> Response {
-    Page(LoginStub).into_response()
 }
 
 #[cfg(test)]
