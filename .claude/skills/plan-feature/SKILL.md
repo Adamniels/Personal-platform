@@ -40,7 +40,10 @@ Before the first recommendation, as the `read-the-plan-first` memory says:
   `gh api repos/Adamniels/Personal-platform/issues/<n>/sub_issues --jq '.[] | "#\(.number) \(.state) \(.title)"'`,
   each slice's state with `bash scripts/agent/board.sh get <slice>`, and its blockers with
   `gh api graphql -f query='query{repository(owner:"Adamniels",name:"Personal-platform"){issue(number:<n>){blockedBy(first:50){nodes{number state title}}}}}'`.
-  A slice that is In progress, In review or closed is not replanned.
+  Replanning may add slices and edit slices that are not yet In progress, with
+  `gh issue edit <n> --repo Adamniels/Personal-platform --body-file <file>` run as `Adamniels`; the gate
+  accepts the owner's own edits. Never edit a slice that is In progress or later: In review, Done,
+  closed, or Blocked once an agent has started it.
 
 Then say back, in a few sentences, what you understood the owner to want and what the feature
 touches, so he can correct it before the questions start.
@@ -66,8 +69,12 @@ before the next. For each proposal:
 - Settle up front what the agent would otherwise stop for: a new dependency, with its version and
   why; a deletion; anything touching the architecture.
 
+Trivial points the owner need not weigh, such as a name, a file location or a default that follows
+an existing pattern, are not asked one by one. Show them together as "assumptions I will record in
+Settled unless you object", and record them once the owner has seen the list.
+
 Keep going until nothing is open. If something cannot be decided now, the slice that needs it is
-not Ready.
+still created, but stays in Backlog and is not set Ready, see step 5.
 
 ## 3. Cut the feature into slices
 
@@ -80,7 +87,7 @@ request. Propose the whole cut at once: each slice's title, goal, tasks, risk an
 **Tests.** Every acceptance criterion is a named test the agent writes first: a cargo test, a
 pytest test, or a Playwright test in `e2e/`. UI acceptance also names the screenshots to capture,
 at desktop and at 390px phone width. A slice whose acceptance cannot be written as named tests is
-not Ready: cut it differently or settle what is missing.
+not Ready: cut it differently or settle what is missing, and otherwise leave it in Backlog.
 
 **Risk.** Each slice is `low` or `high`. High means:
 
@@ -105,7 +112,8 @@ Show the cut and let the owner change it. When he agrees, write the bodies.
 
 Every slice body uses exactly these headings, in this order, and nothing else at that level. The
 merge gate reads `## Risk`: its first non-empty line must start with exactly `low` or `high`,
-lowercase.
+lowercase. The body holds no other `## ` heading outside these seven, and never a second
+`## Risk`. Quoted doc text goes in a fenced block, and any subheading uses `###`.
 
 ```markdown
 ## Goal
@@ -160,20 +168,28 @@ failure gets a resume step, never a rerun.
    `gh api -X PATCH repos/Adamniels/Personal-platform/issues/<parent>/sub_issues/priority -F sub_issue_id=<id> -F after_id=<id>`.
 4. **Blocked-by links** between slices:
    `gh api -X POST repos/Adamniels/Personal-platform/issues/<n>/dependencies/blocked_by -F issue_id=<id>`.
-5. **Board fields** as the `github-board` memory says. The feature parent replaces the Sprint field.
+5. **Board fields.** Auto-add puts every new issue on the board, so nothing is added by hand.
+   Slices are grouped by their parent issue instead of a Sprint field. The feature parent gets no
+   Status and no field set by hand beyond Area, as the `github-board` memory says; `next.sh` only
+   proposes Ready slices, so a parent without a status is never picked. Slices get their fields
+   as that memory says.
 
 Then verify with reads: each slice's body and author
 (`gh issue view <n> --repo Adamniels/Personal-platform --json author,body`), the parent's
 sub-issues in order, and each slice's blockers. Fix anything that differs from the plan before
-going on.
+going on. A body fix is only ever
+`gh issue edit <n> --repo Adamniels/Personal-platform --body-file <file>` run as `Adamniels`.
 
-6. **Ready**, only after every change above is verified: `bash scripts/agent/board.sh status <n> Ready`
-   for each slice. The feature parent is never set Ready, since it is not work an agent picks up.
+6. **Ready**, only after every change above is verified, and only for a complete slice, one with
+   nothing undecided and every acceptance criterion a named test:
+   `bash scripts/agent/board.sh status <n> Ready`. A slice with something still undecided stays in
+   Backlog. The feature parent is never set Ready, since it is not work an agent picks up.
 
 ## 6. Finish
 
 Say what is now Ready, in order, which slices are high risk and will wait for the owner, and what
-`bash scripts/agent/next.sh` proposes first.
+`bash scripts/agent/next.sh` proposes first. List every slice left in Backlog as not Ready, with
+what is still missing for it.
 
 Tell the owner that any later edit to a slice body should be his own: an edit by any other account,
 an agent's included, makes the merge gate refuse the slice for good.
@@ -182,6 +198,8 @@ an agent's included, makes the merge gate refuse the slice for good.
 
 - Write or change code. Planning ends at Ready slices.
 - Create or edit issues from any account but `Adamniels`.
-- Leave a question for the agent "to decide at pickup". If it cannot be decided now, the slice is
-  not Ready.
-- Set a slice Ready before every GitHub change is verified, or set the feature parent Ready.
+- Leave a question for the agent "to decide at pickup". If it cannot be decided now, the slice
+  stays in Backlog.
+- Set a slice Ready before every GitHub change is verified, set an incomplete slice Ready, or set
+  the feature parent Ready.
+- Edit a slice that is In progress or later.
