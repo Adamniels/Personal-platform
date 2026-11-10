@@ -13,9 +13,11 @@
 #   merge <pr> <slice>   an approve verdict for the head commit
 #   resume <slice>       status In progress and no open PR
 #   new <slice>          the slice next.sh --number proposes
+#   owner <pr> <slice>   an approve verdict for the head of a PR labelled needs-owner: the owner merges it. Lowest
+#                        priority, so it never starves other work
 # Owner input is any issue comment, inline review comment or submitted review (not pending) by the owner.
-# Only open PRs by the bot are considered. A PR labelled needs-owner is left to the owner: it yields nothing
-# unless the owner has commented since, which is fix. Within a priority, the lowest PR number first. The slice
+# Only open PRs by the bot are considered. needs-owner blocks merging only (R42): such a PR gets fix, cap and
+# review like any other, and an approve for its head gives owner instead of merge. Within a priority, the lowest PR number first. The slice
 # is the PR's first closing issue reference, else the number its head branch name starts with (`<n>-`); a PR
 # with neither is skipped with a warning on stderr.
 # Verdicts come from verdict.sh (`<approve|changes|none> <sha|0> <changes count> <created_at|->`) and the board
@@ -84,8 +86,6 @@ while IFS=$'\t' read -r pr sha slice labelled committed; do
 
   if [ "$owner_new" -gt 0 ]; then
     echo "1 $pr fix $slice" >> "$tmp/candidates"
-  elif [ "$labelled" = true ]; then
-    :
   elif [ "$vsha" != "$sha" ] || [ "$kind" = none ]; then
     echo "3 $pr review $slice" >> "$tmp/candidates"
   elif [ "$kind" = changes ] && [ "$count" -le "$MAX_CHANGES" ] && [ "$reply_after" = 1 ]; then
@@ -94,6 +94,8 @@ while IFS=$'\t' read -r pr sha slice labelled committed; do
     echo "1 $pr fix $slice" >> "$tmp/candidates"
   elif [ "$kind" = changes ]; then
     echo "2 $pr cap $slice" >> "$tmp/candidates"
+  elif [ "$kind" = approve ] && [ "$labelled" = true ]; then
+    echo "7 $pr owner $slice" >> "$tmp/candidates"
   elif [ "$kind" = approve ]; then
     echo "4 $pr merge $slice" >> "$tmp/candidates"
   fi

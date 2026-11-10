@@ -207,37 +207,55 @@ verdict 1 changes 1
 run; [ "$out" = "review 1 11" ]
 check "an owner comment older than a bot reply on a changes verdict gives review, not fix" $?
 setprs 5; verdict 5 approve 0; reply 5 Adamniels "$late" mac-mini-agent "$later"
-run; [ "$code" = 0 ] && [ -z "$out" ]
-check "a needs-owner PR whose owner comment is older than the bot reply yields nothing" $?
+run; [ "$code" = 0 ] && [ "$out" = "owner 5 15" ]
+check "a needs-owner PR whose owner comment is older than the bot reply is not fixed (owner item)" $?
 reply 5 mac-mini-agent "$mid" Adamniels "$late"
 run; [ "$out" = "fix 5 15" ]
 check "a needs-owner PR whose owner comment is newer than the bot reply gives fix" $?
 comment_inline() { jq -n -c --arg t "$2" '[{user: {login: "Adamniels"}, created_at: $t}]' > "$FAKE_DATA/inline-$1.json"; }
 reply 5 mac-mini-agent "$later"; comment_inline 5 "$late"
-run; [ -z "$out" ]
+run; [ "$out" = "owner 5 15" ]
 check "an owner inline comment older than the bot reply gives no fix" $?
 setprs 1; verdict 1 approve 0
 
 # needs-owner.
 pr 5 15 needs-owner
 setprs 5; verdict 5 approve 0
-run; [ "$code" = 0 ] && [ -z "$out" ]
-check "a needs-owner PR without a new owner comment yields nothing (approve)" $?
+run; [ "$code" = 0 ] && [ "$out" = "owner 5 15" ]
+check "R42: a needs-owner PR with an approve verdict gives owner, not merge" $?
 verdict 5 changes 1
-run; [ -z "$out" ]
-check "a needs-owner PR yields nothing (changes)" $?
+run; [ "$out" = "fix 5 15" ]
+check "R42: a needs-owner PR with a changes verdict (<= 3) gives fix" $?
+verdict 5 changes 4
+run; [ "$out" = "cap 5 15" ]
+check "R42: a needs-owner PR at the round cap still gives cap" $?
 echo "none 0 0 -" > "$FAKE_DATA/verdict-5"
-run; [ -z "$out" ]
-check "a needs-owner PR yields nothing (no verdict)" $?
+run; [ "$out" = "review 5 15" ]
+check "R42: a needs-owner PR with no verdict gives review" $?
+verdict 5 approve 0 oldsha
+run; [ "$out" = "review 5 15" ]
+check "R42: a needs-owner PR with a verdict for an older commit gives review" $?
 verdict 5 approve 0; comment 5 Adamniels "$late"
 run; [ "$out" = "fix 5 15" ]
 check "a needs-owner PR with a new owner comment gives fix" $?
 setprs 5 1; verdict 5 approve 0; verdict 1 approve 0; echo 16 > "$FAKE_DATA/next"
 run; [ "$out" = "merge 1 11" ]
-check "a skipped needs-owner PR does not hide lower work" $?
+check "R42: merge for a plain PR beats owner for a needs-owner PR" $?
+setprs 5; verdict 5 approve 0; echo 16 > "$FAKE_DATA/next"
+run; [ "$out" = "new 16" ]
+check "R42: owner loses to new" $?
+echo 17 > "$FAKE_DATA/inflight"
+run; [ "$out" = "resume 17" ]
+check "R42: owner loses to resume" $?
+setprs 1; verdict 1 approve 0
+run; [ "$out" = "merge 1 11" ]
+check "R42: a plain PR with an approve verdict still gives merge" $?
+setprs 5 1; verdict 5 approve 0; verdict 1 changes 1
+run; [ "$out" = "fix 1 11" ]
+check "R42: fix for a plain PR beats owner" $?
 
 # Resume only for In progress slices without an open PR.
-pr 1 11; setprs 1; verdict 1 approve 0; echo 11 > "$FAKE_DATA/inflight"
+rm -f "$FAKE_DATA/next"; pr 1 11; setprs 1; verdict 1 approve 0; echo 11 > "$FAKE_DATA/inflight"
 run; [ "$out" = "merge 1 11" ]
 check "an In progress slice with an open PR is not resumed" $?
 
