@@ -16,6 +16,10 @@ jobs:
     # string is set only on the migrate step, as in core.yml.
     env:
       CORE_APP_DATABASE_URL: postgres://core_app:ci-only-app@127.0.0.1:5432/core
+      # Every compile reads the checked in Core/.sqlx cache. Keygen builds the
+      # core before Postgres is up, and one setting for every build avoids a
+      # rebuild when it changes.
+      SQLX_OFFLINE: "true"
 
     steps:
       - uses: actions/checkout@v7
@@ -58,13 +62,28 @@ jobs:
         working-directory: infra
         run: docker compose up -d --wait
 
-      # Built from the offline cache: the query macros check against tables
-      # this step creates, so on a fresh database they cannot yet.
+      # --wait only waits for the container to run, and the image has no
+      # healthcheck. Its init time server listens on the unix socket only, so
+      # a login over TCP succeeds only once the real server is up with the
+      # roles created.
+      - name: Wait for Postgres
+        working-directory: infra
+        env:
+          PGPASSWORD: ci-only-owner
+        run: |
+          for _ in $(seq 1 30); do
+            if docker compose exec -T -e PGPASSWORD postgres psql -h 127.0.0.1 -U core_owner -d core -c 'select 1' > /dev/null 2>&1; then
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "postgres never accepted core_owner over TCP" >&2
+          exit 1
+
       - name: Migrate
         working-directory: Core
         env:
           CORE_OWNER_DATABASE_URL: postgres://core_owner:ci-only-owner@127.0.0.1:5432/core
-          SQLX_OFFLINE: "true"
         run: cargo run -- migrate
 
       # The core reads Core/.env from its working directory.
@@ -104,6 +123,14 @@ jobs:
       - name: Run the suite
         working-directory: e2e
         run: uv run pytest
+
+      - name: Show the server logs
+        if: failure()
+        run: |
+          echo "--- core log"
+          tail -n 100 "$RUNNER_TEMP/core.log" || true
+          echo "--- canary log"
+          tail -n 100 "$RUNNER_TEMP/canary.log" || true
 
       - name: Upload the screenshots
         if: always()
