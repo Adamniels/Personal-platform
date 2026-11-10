@@ -16,7 +16,7 @@ handler tests commit. The owner asked what is best in the long run and most prof
 what we are always going for", and the plan changed to a per-test database cloned from a migrated
 template (#111). Asked the same of the stylesheet, it gained cache headers.
 
-**How to apply:** in `/plan-slice`, for each question, look at which later slices touch the same
+**How to apply:** in `/plan-feature`, for each question, look at which later slices touch the same
 thing (the issue grep from [[read-the-plan-first]] already finds them) and test the proposal
 against them before recommending it. Cheap to reverse still beats complex: long run does not mean
 building for slices that do not exist yet. Related: [[docs-are-tripwires]].

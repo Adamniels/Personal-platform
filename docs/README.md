@@ -2,7 +2,7 @@
 
 Status: exploratory. The walking skeleton is being built.
 
-Last updated: 2026 10 08
+Last updated: 2026 11 10
 
 These are planning notes, not specifications. Everything here is the current best idea with the
 reasoning attached, and it is expected to change as building teaches things planning could not.
@@ -28,10 +28,10 @@ goes stale and then quietly lies. Documents point at each other instead, in both
 Each document describes the current state of its area, including the parts deliberately left
 open and what would settle them. There is no separate list of loose ends.
 
-**Sprint scope is not in these docs.** What a sprint must prove and the tickets that get it there
-live on the GitHub Project, in issues, and nowhere else: each item has a state, matters for one
-sprint, and then is history. These docs keep only what outlasts a sprint, which includes decisions
-about how the work gets done as well as the architecture.
+**Feature scope is not in these docs.** What a feature must deliver and the slices that get it
+there live on the GitHub Project, in issues, and nowhere else: each item has a state, matters for
+one feature, and then is history. These docs keep only what outlasts a feature, which includes
+decisions about how the work gets done as well as the architecture.
 
 ---
 
@@ -43,16 +43,20 @@ about how the work gets done as well as the architecture.
 
 ## Layout
 
-| Folder             | Holds                                                                       |
-| ------------------ | --------------------------------------------------------------------------- |
-| `High-level/docs/` | The platform, the services that exist, and anything shaping more than one   |
-| `Core/`            | The core's code, a Rust crate, with its docs in `Core/docs/`                |
-| `Core/docs/`       | The core: auth, accounts, routing, the registry, and its own frontend       |
-| `Brain/docs/`      | The brain: memory, the trust model, events, retrieval                       |
-| `canary/`          | Canary, the Python feature proving another language can verify the token    |
-| `desk/docs/`       | Desk, the feature for working through the day, described but not yet built  |
-| `infra/`           | The Caddyfile and the compose file, and later the feature registry          |
-| `docs/`            | This index, and anything that fits nowhere else                             |
+| Folder              | Holds                                                                        |
+| ------------------- | ---------------------------------------------------------------------------- |
+| `High-level/docs/`  | The platform, the services that exist, and anything shaping more than one    |
+| `Core/`             | The core's code, a Rust crate, with its docs in `Core/docs/`                 |
+| `Core/docs/`        | The core: auth, accounts, routing, the registry, and its own frontend        |
+| `Brain/docs/`       | The brain: memory, the trust model, events, retrieval                        |
+| `canary/`           | Canary, the Python feature proving another language can verify the token     |
+| `desk/docs/`        | Desk, the feature for working through the day, described but not yet built   |
+| `infra/`            | The Caddyfile and the compose file, and later the feature registry           |
+| `e2e/`              | The acceptance suite, Playwright against the running stack                   |
+| `scripts/agent/`    | The runner, the merge gate and the other scripts the agents' workflow runs   |
+| `scripts/ci/`       | The change detection and the `ci-ok` judgement that `ci.yml` runs            |
+| `docs/`             | This index, and anything that fits nowhere else                              |
+| `docs/superpowers/` | Design specs and implementation plans, each frozen on the day it was agreed  |
 
 ## The files
 
@@ -64,10 +68,11 @@ about how the work gets done as well as the architecture.
   what is deliberately not being done
 - `feature-contract.md` — what a feature is, what it owns, what it may depend on, how it
   authenticates a request, the two contracts, and where reminders sit
-- `how-we-build.md` — how work is cut and ordered: a walking skeleton, then vertical slices
-  ordered by risk, with a sprint's checks as acceptance criteria
-- `agent-workflow.md` — who does what: the owner plans slices ahead and reviews, agents implement
-  on the Mac mini; the life of a slice, self review, the pull request, safety, and the runbook
+- `how-we-build.md` — how work is cut and ordered: a walking skeleton, then features cut into
+  vertical slices ordered by risk, with acceptance criteria as automated tests written first
+- `agent-workflow.md` — who does what: the owner plans features, agents implement, review and
+  merge them on the Mac mini; planning, building a slice, the review loop, the merge gate, what
+  waits for the owner, the runner, safety, and the runbook
 
 **Core**
 
@@ -88,6 +93,15 @@ about how the work gets done as well as the architecture.
 **Infra**
 
 - `infra/README.md` — the local hostname, running Caddy and what its data volume holds, and trusting its root
+
+**E2E**
+
+- `e2e/README.md` — running the acceptance suite, its fixtures, and the libraries it is built on
+
+**Design records**
+
+- `docs/superpowers/specs/` and `docs/superpowers/plans/` — each one records a design as agreed
+  and the plan that built it, and is never updated. The living description is the doc it names
 
 **Brain**
 
