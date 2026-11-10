@@ -51,16 +51,16 @@ merging its slices, is in `High-level/docs/agent-workflow.md`.
 
 ## Working agreement
 
-- **Git:** read freely. Commit and push only on a slice's branch, through the workflow skills or when
-  the owner asks. Never push to `main`, never force push, and never rewrite a pushed commit. Commits
-  follow the owner's convention: a subject and a short body saying what and why, one commit per
-  task.
+- **Git:** read freely. Commit and push only on a slice's branch, through the workflow skills or
+  when the owner asks. Never push to `main`, never force push, and never rewrite a pushed commit.
+  Commits follow the owner's convention: a subject and a short body saying what and why, one commit
+  per task.
 - **GitHub:** read freely. The workflow skills may move a board status, comment on an issue or pull
   request, add `needs-owner`, and open or update a pull request, as their steps say. Slices are
   created and edited only from the owner's account, through `/plan-feature`; an agent on the Mac
   mini never edits a slice's body, title or labels, since the merge gate trusts a slice's Risk only
-  while the owner is its only editor. Anything else, creating, editing or closing an issue among them, only when asked for that
-  specific action, with the command shown first.
+  while the owner is its only editor. Anything else, creating, editing or closing an issue among
+  them, only when asked for that specific action, with the command shown first.
 - **Paths that steer the agents**, `.github/`, `scripts/`, `.claude/`, `AGENTS.md` and `CLAUDE.md`,
   change in an unattended run only when the slice names them, and the merge gate leaves every pull
   request touching them to the owner.
@@ -74,5 +74,4 @@ merging its slices, is in `High-level/docs/agent-workflow.md`.
   to the next. A run on the Mac mini never waits, and ends early only where its skill says.
 - **When a doc and a plan disagree**, weigh it by the cost of undoing it: the docs are tripwires,
   not law, see `docs/README.md`. In an interactive session, say so rather than picking one. In an
-  unattended run, decide, change the doc in the same pull request when it is cheap to reverse, and
-  record it.
+  unattended run, follow step 8 of `.claude/skills/pick-up-slice/SKILL.md`.

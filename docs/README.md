@@ -94,15 +94,6 @@ decisions about how the work gets done as well as the architecture.
 
 - `infra/README.md` — the local hostname, running Caddy and what its data volume holds, and trusting its root
 
-**E2E**
-
-- `e2e/README.md` — running the acceptance suite, its fixtures, and the libraries it is built on
-
-**Design records**
-
-- `docs/superpowers/specs/` and `docs/superpowers/plans/` — each one records a design as agreed
-  and the plan that built it, and is never updated. The living description is the doc it names
-
 **Brain**
 
 - `brain-architecture.md` — per feature modules, retrieval, evaluation, consolidation, and the
@@ -112,3 +103,12 @@ decisions about how the work gets done as well as the architecture.
 - `knowledge-model.md` — what the brain is trying to know about a person, and the filter for
   what gets in at all
 - `event-model.md` — the event shape, verbs, relations, and what consolidation does
+
+**E2E**
+
+- `e2e/README.md` — running the acceptance suite, its fixtures, and the libraries it is built on
+
+**Design records**
+
+- `docs/superpowers/specs/` and `docs/superpowers/plans/` — each one records a design as agreed
+  and the plan that built it, and is never updated. The living description is the doc it names

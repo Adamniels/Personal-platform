@@ -93,9 +93,8 @@ the bot as author already says who wrote it.
 **The agent decides rather than asks.** Where the slice's Settled section and the docs leave
 something open, the agent decides it the way the docs lean and records it in the pull request under
 "Decisions the agent made", with the alternative and why. A decision on high risk ground also gets
-the label `needs-owner`, which keeps the pull request from merging until the owner has read it. A
-doc that disagrees with the plan is weighed by the cost of undoing it, as `docs/README.md` says,
-and a doc change goes in the same pull request.
+the label `needs-owner`, which keeps the pull request from merging until the owner has read it.
+How a doc that disagrees with the plan is handled is step 8 of `pick-up-slice`.
 
 **The gate is what CI runs**, decided from the branch's diff by `scripts/ci/changed-areas.sh`, so
 `ci-ok` passes on the first push. When the e2e area is touched, the Playwright suite runs against
@@ -140,19 +139,26 @@ mention.
 
 ## The merge gate
 
-`scripts/agent/merge-gate.sh` is the only way code reaches `main` unattended, and the merge
-decision is deterministic code, never a language model. It merges only when `ci-ok` is green on the
-head commit, the latest verdict is `approve` for that commit, the slice is the open issue the
-branch is named for, written and only edited by the owner, its Risk is `low`, `needs-owner` is
-absent, the pull request is the bot's, targets `main` and is not a draft, and no changed file is
-under a protected path. Its header lists each condition with the reason line it prints, which the
-runner reads. It fails closed: anything it cannot read is not a merge.
+`scripts/agent/merge-gate.sh` is the only way code reaches `main` unattended, and the merge decision
+is deterministic code, never a language model. It merges only when `ci-ok` is green on the head
+commit, the latest verdict is `approve` for that commit, the slice is the open issue the branch is
+named for, written and only edited by the owner, its Risk is `low`, `needs-owner` is absent, the
+pull request is the bot's, comes from this repository rather than a fork, targets `main` and is not
+a draft, and no changed file is under a protected path. Its header lists each condition with the
+reason line it prints, which the runner reads. It fails closed: anything it cannot read is not a
+merge.
 
 **Protected paths** are `.github/`, `scripts/` and `.claude/`, and the root `AGENTS.md` and
 `CLAUDE.md`. They steer CI, the gate, the runner and the agents themselves, so a pull request
 touching them could weaken its own checks and then merge itself. Service code and `infra/` are not
 protected, since that would send ordinary slices to the owner, and the reviewer guards against a
 weakened test.
+
+**The rules come from `main`, never from the branch under judgement.** The runner never runs a
+repository script from the working tree, where a slice's branch is checked out. It re-executes
+itself from a copy, runs the gate, the picker and `verdict.sh` from a snapshot of `origin/main`
+taken each loop, and returns to an up to date `main` after each item. So a pull request cannot
+change the rules it is judged by until the owner has merged that change.
 
 `main` takes merge commits only, so `git log --first-parent main` reads one entry per slice. The
 gate merges with `--match-head-commit`, so a commit pushed after the checks cannot slip in, and then
@@ -161,34 +167,39 @@ sets the slice Done.
 ## What waits for the owner
 
 A pull request waits for him when its slice is high risk, when it touches a protected path, when
-its review rounds ran out, or when it carries `needs-owner`. The first two go through the whole
-build and review loop until the reviewer approves, and the gate then labels them `needs-owner`, so
-what he reads has already been through the reviewer. A pull request the implementer labels
-`needs-owner` itself, for a decision on high risk ground, waits as soon as it is opened. Once
-labelled, the runner leaves a pull request alone. The owner merges it on GitHub, or comments, and a
-comment newer than the pull request's last handling starts a fix run that answers it.
+it carries `needs-owner`, or when its review rounds ran out. `needs-owner` blocks merging and
+nothing else: every waiting pull request, one the implementer labelled for a decision on high risk
+ground included, goes through review and the fix rounds first, so what he reads has already been
+through the reviewer. The label is added by the runner, or by the implementer for its own
+decision, never by the gate, which only reads it.
 
-The owner is mentioned on the slice when the gate leaves a pull request to him, when a slice goes
-Blocked, when the review rounds run out, when an interruption has lasted over 30 minutes, and once
-when the queue empties. A pull request the implementer labelled gets no mention: it reaches him
-only through GitHub's notification of a new pull request, while he watches the repository.
+Once the reviewer approves a pull request that waits for him, the runner announces it to the owner
+once per head commit. A pull request whose review rounds ran out is handed over once. He merges it
+on GitHub, or comments, and a comment newer than the pull request's last handling starts a fix run
+that answers it, followed by a new review.
+
+The owner is mentioned on the slice when an approved pull request waits for him, once per head
+commit, when a pull request's review rounds run out, when the gate refuses for any other reason,
+when a slice goes Blocked, when an interruption has lasted over 30 minutes, and once when the queue
+empties.
 
 ## The runner
 
 `scripts/agent/run.sh` runs in tmux on the Mac mini and loops. Each turn it asks `pending.sh` for
 the most important item: a pull request to fix, one whose rounds ran out, one to review, one to
-merge, a slice to resume, then the next Ready slice from `next.sh`. Implementer and reviewer each
-run in a fresh `claude -p` session under a timeout of 90 minutes, so no run carries another's
-context. With nothing to do it waits 10 minutes and looks again. The script's header is the exact
-behaviour.
+merge, a slice to resume, the next Ready slice from `next.sh`, and last, an approved pull request to
+announce to the owner. A slice blocked by a slice still waiting for the owner is not picked; the
+runner takes other work. Implementer and reviewer each run in a fresh `claude -p` session under a
+timeout of 90 minutes, so no run carries another's context. With nothing to do it waits 10 minutes
+and looks again. The script's header is the exact behaviour.
 
 **Interruptions pause, they never count against a slice.** A usage limit, a network or API outage,
 or an `ENVIRONMENT:` ending pauses the runner and retries the same item, sleeping until a usage
-limit resets or backing off between tries, and changes nothing on the board. Before
-every run it probes GitHub, Docker and free disk, so a broken environment costs no usage. Only a
-failure about the slice counts: a run of at least two minutes that fails, a `Blocked:` or
-`Stopped:` ending, or the same item coming back with no progress. Two in a row set the slice
-Blocked with a mention. A slice failing for reasons outside itself should not need the owner.
+limit resets or backing off between tries, and changes nothing on the board. Before every run it
+probes GitHub, Docker and free disk, so a broken environment costs no usage. Only a failure about
+the slice counts: a run of at least two minutes that fails, a `Blocked:` or `Stopped:` ending, or
+the same item coming back with no progress. Two in a row set the slice Blocked with a mention. A
+slice failing for reasons outside itself should not need the owner.
 
 **Interrupted work is kept.** Before resuming or fixing, a dirty tree on the slice's branch is
 committed locally as "Checkpoint: interrupted run", and the next run inspects, finishes and gates
@@ -210,9 +221,8 @@ waits is enough until that changes.
   with Write on Project 5. It cannot change the ruleset or bypass it.
 - **The ruleset** "Protect main" requires a pull request and the one status check `ci-ok`, requires
   no approval, allows merge commits only, forbids force pushing or deleting `main`, and gives the
-  bot no bypass. `ci-ok` is a job in `.github/workflows/ci.yml` that always runs and passes only
-  when every job the diff called for passed, so one required check covers every area without
-  blocking pull requests that skip some of them.
+  bot no bypass. Why one aggregating check is the required one is in "What it costs, and how it
+  is paid" in `platform-architecture.md`.
 - **One bot identity.** Implementer and reviewer both post as `mac-mini-agent`, so an implementer
   could in principle post its own approval. Three layers stop that: the runner starts implementer
   runs with `--disallowedTools` patterns refusing the marker text, comment edits and merges; it puts
@@ -281,15 +291,25 @@ runner clears between planning sessions.
 9. **Caddy's root.** Not trusted in the keychain here, since an SSH session cannot change trust. The
    agent copies the root out of the volume and passes it to `curl` with `--cacert`, see "Trusting
    Caddy's root" in `infra/README.md`, and the browser in `e2e/` ignores TLS errors.
+10. **Claude Code.** Log in once as the bot's macOS user, at the machine or over `ssh -t`. Claude
+    Code keeps its credentials in the login keychain, so over SSH unlock it in the tmux session the
+    runner will use, as for Docker: `security unlock-keychain ~/Library/Keychains/login.keychain-db`.
+    Then check that `claude -p "say ok" --permission-mode auto` answers over SSH before starting
+    the runner.
+11. **Automatic login** of the bot's macOS user, in System Settings, since Docker Desktop only
+    starts at a sign in.
 
 ### Check
 
-In the clone, each of these holds, and a run ends with `ENVIRONMENT: not the bot` if one does not:
+In the clone, each of these holds. Every run checks the first three itself and ends with
+`ENVIRONMENT: not the bot` if one fails:
 
 - `gh api user --jq .login` prints `mac-mini-agent`
 - `git config user.email` ends with `+mac-mini-agent@users.noreply.github.com`
 - `git config --get-all credential.https://github.com.helper` includes `gh auth git-credential`
-- `gh project view 5 --owner Adamniels --format json --jq .title` prints the board's title
+
+The board access is checked by hand once, since no run checks it before its first board change:
+`gh project view 5 --owner Adamniels --format json --jq .title` prints the board's title.
 
 ### Planning, on the laptop
 
@@ -299,20 +319,26 @@ Any later change to a slice body is made from that account too, or the gate refu
 ### Running
 
 ```zsh
-ssh <mac-mini>
+ssh -t <mac-mini>
 tmux new -s runner
-cd ~/dev/Personal-platform && git switch main && git pull
+security unlock-keychain ~/Library/Keychains/login.keychain-db
+cd ~/dev/Personal-platform
 caffeinate -is bash scripts/agent/run.sh
 ```
 
-Detach with `Ctrl-b d`; the runner keeps going. `caffeinate` keeps the machine awake while it runs.
+Start `run.sh` as the clone is. It checkpoints any interrupted work and returns to an up to date
+`main` by itself, so never `git switch main` over a dirty tree first. Only on the first start in a
+fresh clone, switch to `main` before it. Detach with `Ctrl-b d`; the runner keeps going.
+`caffeinate` keeps the machine awake while it runs.
 
 - **Stop:** `touch ~/.agent-stop`, and the runner ends after its current step. Remove the file
   before starting it again, or it stops at once.
 - **Logs:** `~/agent-logs/runner.log` for what the runner decided, and one
   `<slice>-<timestamp>.log` per agent run.
-- **After a reboot:** nothing starts by itself. Start the runner again as above; it resumes what was
-  In progress and keeps checkpointed work.
+- **After a reboot:** nothing starts the runner by itself. First the bot's macOS user must be signed
+  in again, by automatic login, so Docker Desktop starts; then unlock the login keychain in the
+  tmux session; then start `run.sh` in tmux as above. It resumes what was In progress and keeps
+  checkpointed work.
 - **Already running:** a second `run.sh` exits with "already running" while the first holds the
   lock.
 
@@ -323,6 +349,7 @@ Detach with `Ctrl-b d`; the runner keeps going. `caffeinate` keeps the machine a
 | A run ends with `ENVIRONMENT: not the bot` | Redo steps 4 and 5 in the clone |
 | A board change fails with a scope error | `gh auth refresh -s project` |
 | A board change fails with "Could not resolve to a ProjectV2" | The bot has no access to the board, GitHub step 2 |
+| Runs fail at once asking to log in, over SSH | Unlock the login keychain in the runner's tmux session, step 10 |
 | `curl` reports an expired certificate after the Mac mini was off | "After Caddy has been stopped for a while" in `infra/README.md` |
 | The runner pauses and mentions an environment problem | Read the last agent log in `~/agent-logs/`; fix what it names, and the runner carries on |
 | A slice was set Blocked | Read its Blocked comment, fix the slice from the owner's account or the cause, and set it Ready |

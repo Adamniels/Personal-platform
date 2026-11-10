@@ -42,8 +42,9 @@ test, a pytest test or a Playwright test in `e2e/`, that the agent writes before
 watches fail. A slice is done when they pass. Because they are tests, they keep running: the
 Playwright suite runs in continuous integration on every pull request that touches service code, so
 a later slice breaking an earlier one fails its own pull request instead of waiting to be noticed.
-At the end of a feature, the full suite runs once more on a fresh start of the whole stack, as the
-feature being done. A criterion that cannot be written as a test is a sign the slice is not
+CI's e2e job starts the whole stack fresh each time, on every pull request that touches service code
+and on `main` after each merge. A feature is done when its last slice merges, and the owner then
+closes its parent issue. A criterion that cannot be written as a test is a sign the slice is not
 understood yet, and it is not Ready until it can be.
 
 **On the board, work is a feature, then slices, then a task checklist.** A feature is a parent
