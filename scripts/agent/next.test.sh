@@ -111,5 +111,28 @@ FAKE_PAGES="$tmp/allblocked.json" run
 [ "$code" = 0 ] && [ "$(section 'In flight')" = "  #26 Blocked: Issue 26" ]
 check "in flight also lists Blocked" $?
 
+page "$tmp/machine.json" \
+  "$(item 23 'In progress' OPEN 5 23)" \
+  "$(item 31 'In review' OPEN 4 31)" \
+  "$(item 21 'In progress' OPEN 4 21)" \
+  "$(item 22 Ready OPEN 4 21,22,26)" \
+  "$(item 26 Ready OPEN 4 21,22,26)"
+FAKE_PAGES="$tmp/machine.json" run --machine
+[ "$code" = 0 ] && [ "$out" = "$(printf 'inprogress 21\ninprogress 23\nnext 22')" ] && [ "$(wc -l < "$FAKE_GH_LOG")" -eq 1 ]
+check "--machine prints inprogress lines and the proposal from one read" $?
+
+FAKE_PAGES="$tmp/allblocked.json" run --machine
+[ "$code" = 0 ] && [ -z "$out" ]
+check "--machine prints no next line when there is no proposal" $?
+
+jq -c '.data.user.projectV2.items.nodes[0].content.title = "In progress: x"' "$tmp/order.json" > "$tmp/title.json"
+FAKE_PAGES="$tmp/title.json" run --machine
+[ "$code" = 0 ] && [ "$out" = "next 26" ]
+check "--machine ignores an issue title that looks like a status" $?
+
+run --bogus
+[ "$code" = 2 ]
+check "an unknown flag is a usage error" $?
+
 echo "$pass passed, $fail failed"
 [ "$fail" = 0 ]

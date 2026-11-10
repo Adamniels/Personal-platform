@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Proposes the next slice for `/pick-up-slice` without a number, from Project 5.
 #
-#   bash scripts/agent/next.sh [--number]
+#   bash scripts/agent/next.sh [--number | --machine]
 #
 # Prints four sections: "In flight" (In progress, In review or Blocked), "Proposal" (one slice),
 # "Alternatives" (up to two) and "Blocked" (Ready slices waiting for an open blocker, with the
@@ -11,6 +11,8 @@
 # sub-issues, which is the order the sprint was cut in, by risk, then by issue number; one
 # without a parent comes after every one with a parent. Nothing is written.
 # With --number, prints only the proposed slice's number, or nothing when there is none; for scripts.
+# With --machine, one board read printing `inprogress <n>` for every open issue with status In progress and
+# `next <n>` for the proposal (absent when there is none); pending.sh relies on this format.
 # Exit codes: 0 ok, non-zero when the GitHub read fails (nothing is proposed then), 2 usage error.
 set -euo pipefail
 
@@ -18,12 +20,14 @@ OWNER="Adamniels"
 REPO_NAME="Personal-platform"
 PROJECT_NUMBER=5
 
-number_only=0
+mode=human
 case "${1:-}" in
   "") ;;
-  --number) [ $# -eq 1 ] && number_only=1 || { echo "usage: next.sh [--number]" >&2; exit 2; } ;;
-  *) echo "usage: next.sh [--number]" >&2; exit 2 ;;
+  --number) mode=number ;;
+  --machine) mode=machine ;;
+  *) echo "usage: next.sh [--number | --machine]" >&2; exit 2 ;;
 esac
+[ $# -le 1 ] || { echo "usage: next.sh [--number | --machine]" >&2; exit 2; }
 
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
@@ -33,7 +37,7 @@ gh api graphql --paginate \
   -f query="query(\$endCursor:String){user(login:\"$OWNER\"){projectV2(number:$PROJECT_NUMBER){items(first:100,after:\$endCursor){pageInfo{hasNextPage endCursor} nodes{fieldValueByName(name:\"Status\"){... on ProjectV2ItemFieldSingleSelectValue{name}} content{... on Issue{number title state repository{nameWithOwner} parent{number subIssues(first:100){nodes{number}}} blockedBy(first:50){nodes{number state}}}}}}}}}" \
   > "$tmp/board.json"
 
-jq -r --slurp --argjson number_only "$number_only" --arg repo "$OWNER/$REPO_NAME" '
+jq -r --slurp --arg mode "$mode" --arg repo "$OWNER/$REPO_NAME" '
   [.[] | .data.user.projectV2.items.nodes[]
     | select(.content.repository.nameWithOwner? == $repo and .content.state == "OPEN")
     | .content + {status: (.fieldValueByName.name // "none")}] as $open
@@ -52,7 +56,9 @@ jq -r --slurp --argjson number_only "$number_only" --arg repo "$OWNER/$REPO_NAME
   | [$ready[] | select(blockers == [])] as $free
   | [$ready[] | select(blockers != [])] as $blocked
 
-  | if $number_only == 1 then ($free[0:1][] | .number)
+  | if $mode == "number" then ($free[0:1][] | .number)
+    elif $mode == "machine" then
+      ($open | sort_by(.number)[] | select(.status == "In progress") | "inprogress \(.number)"), ($free[0:1][] | "next \(.number)")
     else
     "In flight:", ($inflight | sort_by(.number) | map("  #\(.number) \(.status): \(.title)") | lines),
     "Proposal:", ($free[0:1] | map(line) | lines),
