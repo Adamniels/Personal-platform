@@ -17,6 +17,8 @@
 #   api on a `pulls/<n>/merge` path, with any method
 #   api graphql whose query contains `<!--` or the mutations mergePullRequest, enablePullRequestAutoMerge,
 #     updateIssueComment or deleteIssueComment
+# The command and subcommand are the first two words that are not flags or flag values: `gh pr -R x merge` and
+# `gh -R x pr merge` are pr merge. `-b=<v>`, `-F=<v>`, `-f=<v>` and `-X=<v>` are read as `-b <v>` and so on.
 # Everything else execs the real gh with the same arguments and stdin (stdin is replayed when it was read).
 # The real gh is the first `gh` on PATH that is not this wrapper: its own directory and any file that is the same
 # file as this one are skipped.
@@ -63,17 +65,17 @@ check_text() { marker_shaped "$2" && refuse "$1 starts with <!--"; return 0; }
 
 # Bodies of pr/issue comment and edit.
 check_body_flags() {
-  local a
+  local a v
   while [ $# -gt 0 ]; do
     a="$1"; shift
     case "$a" in
       --edit-last|--delete-last) refuse "$a: comments are never edited or deleted" ;;
       -b|--body) [ $# -gt 0 ] && { check_text body "$1"; shift; } ;;
       --body=*) check_text body "${a#--body=}" ;;
-      -b?*) check_text body "${a#-b}" ;;
+      -b?*) v="${a#-b}"; check_text body "${v#=}" ;;
       -F|--body-file) [ $# -gt 0 ] && { check_source "body file" "$1"; shift; } ;;
       --body-file=*) check_source "body file" "${a#--body-file=}" ;;
-      -F?*) check_source "body file" "${a#-F}" ;;
+      -F?*) v="${a#-F}"; check_source "body file" "${v#=}" ;;
     esac
   done
 }
@@ -114,17 +116,17 @@ check_input() {
 }
 
 check_api() {
-  local a method="" all=" $* "
+  local a v method="" all=" $* "
   while [ $# -gt 0 ]; do
     a="$1"; shift
     case "$a" in
       -X|--method) [ $# -gt 0 ] && { method="$1"; shift; } ;;
       --method=*) method="${a#--method=}" ;;
-      -X?*) method="${a#-X}" ;;
+      -X?*) method="${a#-X}"; method="${method#=}" ;;
       -f|-F|--raw-field|--field) [ $# -gt 0 ] && { check_field "$a" "$1"; shift; } ;;
       --raw-field=*) check_field --raw-field "${a#--raw-field=}" ;;
       --field=*) check_field --field "${a#--field=}" ;;
-      -f?*|-F?*) check_field "${a:0:2}" "${a:2}" ;;
+      -f?*|-F?*) v="${a:2}"; check_field "${a:0:2}" "${v#=}" ;;
       --input) [ $# -gt 0 ] && { check_input "$1"; shift; } ;;
       --input=*) check_input "${a#--input=}" ;;
     esac
@@ -150,14 +152,27 @@ real_gh() {
   return 1
 }
 
-case "${1:-}" in
+# Flags that take a value as the next argument, wherever they stand; any other `-x` is treated as a switch.
+VALUE_FLAGS=" -R --repo --hostname -X --method -H --header -f --raw-field -F --field -q --jq -t --template --cache -p --preview --input -b --body --body-file "
+cmd="" sub="" skip=0
+for a in "$@"; do
+  if [ "$skip" = 1 ]; then skip=0; continue; fi
+  case "$a" in
+    --*=*) ;;
+    -*) case "$VALUE_FLAGS" in *" $a "*) skip=1 ;; esac ;;
+    *) if [ -z "$cmd" ]; then cmd="$a"; else sub="$a"; break; fi ;;
+  esac
+done
+
+# Bodies, fields and methods are checked across every argument, so their position does not matter.
+case "$cmd" in
   pr|issue)
-    case "${2:-}" in
-      merge) [ "$1" = pr ] && refuse "pr merge: only the merge gate merges" ;;
-      comment|edit) check_body_flags "${@:3}" ;;
+    case "$sub" in
+      merge) [ "$cmd" = pr ] && refuse "pr merge: only the merge gate merges" ;;
+      comment|edit) check_body_flags "$@" ;;
     esac ;;
-  api) check_api "${@:2}" ;;
-  alias|extension|extensions|ext) refuse "$1 commands" ;;
+  api) check_api "$@" ;;
+  alias|extension|extensions|ext) refuse "$cmd commands" ;;
 esac
 
 real="$(real_gh)" || { echo "gh-guard: no real gh on PATH" >&2; exit 127; }

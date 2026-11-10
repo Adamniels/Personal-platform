@@ -14,13 +14,15 @@ mkdir "$tmp/bin" "$tmp/scripts"
 S=1800000000   # the fake clock's start: 2027-01-15 08:00:00 UTC
 
 # --- Fakes -----------------------------------------------------------------------------------------------------
-# claude: logs its arguments ("|" after each) to claude.log and which gh it would run to claude-gh.log, then plays
+# claude: logs its arguments ("|" after each) to claude.log and which gh it would run to claude-gh.log, runs
+# $D/claude-hook when there is one (to dirty the tree, or move the PR head), then plays
 # the next line of claude.queue, "<exit> <seconds> <output>" (output through printf %b), or "0 300 done" when the
 # queue is empty. <seconds> advances the clock. An exit of "hang" advances the clock and then really sleeps.
 cat > "$tmp/bin/claude" <<'FAKE'
 #!/usr/bin/env bash
 for a in "$@"; do printf '%s|' "$a"; done >> "$D/claude.log"; echo >> "$D/claude.log"
 g="$(command -v gh)"; if grep -q 'gh-guard' "$g" 2>/dev/null; then echo guard >> "$D/claude-gh.log"; else echo plain >> "$D/claude-gh.log"; fi
+if [ -x "$D/claude-hook" ]; then "$D/claude-hook"; fi
 line="0 300 done"
 if [ -s "$D/claude.queue" ]; then line="$(head -n1 "$D/claude.queue")"; sed -i.bak 1d "$D/claude.queue"; fi
 code="${line%% *}"; rest="${line#* }"; secs="${rest%% *}"; out="${rest#* }"
@@ -40,14 +42,14 @@ case "$*" in
     issue="$3" body=""; while [ $# -gt 0 ]; do [ "$1" = --body ] && body="$2"; shift; done
     echo "$(cat "$D/clock") $issue $(printf '%s' "$body" | tr '\n' ' ')" >> "$D/comments.log" ;;
   "pr edit "*"--add-label"*) [ "${FAKE_LABEL_EXIT:-0}" = 0 ] || exit 1; echo "$3 needs-owner" >> "$D/labels.log" ;;
-  "pr view "*) echo "${FAKE_HEAD:-aaaa}" ;;
+  "pr view "*) if [ -f "$D/head" ]; then cat "$D/head"; else echo "${FAKE_HEAD:-aaaa}"; fi ;;
   "pr list "*) if [ -f "$D/merged.json" ]; then cat "$D/merged.json"; else echo '[]'; fi ;;
   *) echo "unexpected gh call: $*" >&2; exit 9 ;;
 esac
 FAKE
 cat > "$tmp/bin/docker" <<'FAKE'
 #!/usr/bin/env bash
-echo "docker $*" >> "$D/probe.log"; exit "${FAKE_DOCKER_EXIT:-0}"
+echo "docker $*" >> "$D/probe.log"; if [ "${FAKE_DOCKER_HANG:-0}" = 1 ]; then sleep 30; fi; exit "${FAKE_DOCKER_EXIT:-0}"
 FAKE
 cat > "$tmp/bin/df" <<'FAKE'
 #!/usr/bin/env bash
@@ -71,7 +73,8 @@ echo "$1" >> "$D/sleep.log"
 c=$(( $(cat "$D/clock") + $1 )); echo "$c" > "$D/clock"
 if [ -n "${FAKE_STOP_AT:-}" ] && [ "$c" -ge "$FAKE_STOP_AT" ]; then : > "$AGENT_HOME/.agent-stop"; fi
 FAKE
-# pending.sh: prints the next line of pending.queue. EXIT1 fails like a GitHub error, IDLE prints nothing, STOP
+# pending.sh: prints the next line of pending.queue. EXIT1 fails like a GitHub error, IDLE prints nothing, HOOK
+# runs $D/pending-hook and prints nothing, STOP
 # creates the stop file and prints nothing, "REPEAT <line>" prints <line> without consuming it. An empty queue, or
 # the 400th call, stops the loop, so no test can spin forever.
 cat > "$tmp/scripts/pending.sh" <<'FAKE'
@@ -86,6 +89,7 @@ case "$line" in
     case "$line" in
       EXIT1) echo "HTTP 502: Bad Gateway" >&2; exit 1 ;;
       IDLE) ;;
+      HOOK) "$D/pending-hook" ;;
       STOP) : > "$AGENT_HOME/.agent-stop" ;;
       *) echo "$line" ;;
     esac ;;
@@ -110,10 +114,15 @@ for c in claude gh docker df date; do
   [ "$(command -v "$c")" = "$tmp/bin/$c" ] || { echo "the fake $c is not first on PATH" >&2; exit 1; }
 done
 
+# Git sees only this config, never the machine's (a signing key, hooks, another default branch).
+printf '[init]\n\tdefaultBranch = main\n[user]\n\tname = t\n\temail = t@example.com\n[commit]\n\tgpgsign = false\n[advice]\n\tdetachedHead = false\n' > "$tmp/gitconfig"
+export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL="$tmp/gitconfig"
+
 pass=0 fail=0
 check() { if [ "$2" = 0 ]; then pass=$((pass + 1)); echo "ok   $1"; else fail=$((fail + 1)); echo "FAIL $1"; fi; }
 t=0
-# setup: a fresh home, data dir, clock and repository (main and branch 41-x, both pushed to a bare origin), and
+# setup: a fresh home, data dir, clock and repository (main holding this run.sh at scripts/agent/run.sh, so the
+# runner can start from main's copy, and branch 41-x, both pushed to a bare origin that AGENT_REMOTE names), and
 # every fake knob back to its default.
 setup() {
   t=$((t + 1))
@@ -121,20 +130,22 @@ setup() {
   mkdir -p "$D" "$AGENT_HOME"
   echo "$S" > "$D/clock"
   : > "$D/claude.queue"; : > "$D/pending.queue"
-  git init -q --bare "$tmp/t$t/origin.git"
+  git init -q --bare -b main "$tmp/t$t/origin.git"
   git init -q -b main "$AGENT_REPO"
-  git -C "$AGENT_REPO" config user.email t@example.com; git -C "$AGENT_REPO" config user.name t
-  echo base > "$AGENT_REPO/file"; git -C "$AGENT_REPO" add file; git -C "$AGENT_REPO" commit -q -m base
+  mkdir -p "$AGENT_REPO/scripts/agent"; cp "$here/run.sh" "$AGENT_REPO/scripts/agent/run.sh"
+  echo base > "$AGENT_REPO/file"; git -C "$AGENT_REPO" add file scripts; git -C "$AGENT_REPO" commit -q -m base
   git -C "$AGENT_REPO" remote add origin "$tmp/t$t/origin.git"
   git -C "$AGENT_REPO" branch 41-x
   git -C "$AGENT_REPO" push -q origin main 41-x 2>/dev/null
-  export D AGENT_HOME AGENT_REPO AGENT_POLL_SECONDS=0 AGENT_TIMEOUT_SECONDS=5400
+  export D AGENT_HOME AGENT_REPO AGENT_POLL_SECONDS=0 AGENT_TIMEOUT_SECONDS=5400 AGENT_REMOTE="$tmp/t$t/origin.git"
   unset FAKE_STOP_AT FAKE_RATE_EXIT FAKE_COMMENT_EXIT FAKE_LABEL_EXIT FAKE_HEAD FAKE_DOCKER_EXIT FAKE_DF_KB \
-        FAKE_GATE_OUT FAKE_GATE_EXIT FAKE_BOARD_EXIT FAKE_VERDICT
+        FAKE_GATE_OUT FAKE_GATE_EXIT FAKE_BOARD_EXIT FAKE_VERDICT FAKE_DOCKER_HANG AGENT_CALL_TIMEOUT_SECONDS
 }
 pending() { printf '%s\n' "$@" > "$D/pending.queue"; }
 claude_plays() { printf '%s\n' "$@" > "$D/claude.queue"; }
 runner() { bash "$here/run.sh" > "$D/out" 2>&1; rc=$?; }
+again() { rm -f "$AGENT_HOME/.agent-stop" "$D/pending.count"; }   # before a second runner on the same home
+hook() { printf '#!/usr/bin/env bash\n%s\n' "$2" > "$D/$1"; chmod +x "$D/$1"; }
 lines() { if [ -f "$1" ]; then grep -c '' "$1"; else echo 0; fi; }
 sleeps() { if [ -f "$D/sleep.log" ]; then awk '{ s += $1 } END { print s + 0 }' "$D/sleep.log"; else echo 0; fi; }
 no_file() { [ ! -e "$1" ]; }
@@ -266,7 +277,7 @@ check "a usage limit never counts, never sets Blocked, never mentions" \
 setup; pending "new 41" "new 41"; claude_plays "1 5 You have hit your limit · resets 3pm (Europe/Stockholm)" "0 300 done"; runner
 check "a reset clock time (3pm, clock at 08:00:05) sleeps until 15:01" $([ "$(sleeps)" = 25255 ]; echo $?)
 
-setup; pending "new 41" "new 41"; claude_plays "1 5 rate limit exceeded" "0 300 done"; runner
+setup; pending "new 41" "new 41"; claude_plays "1 5 Error: rate_limit_error" "0 300 done"; runner
 check "a usage limit without a reset time sleeps 15 min" $([ "$(sleeps)" = 900 ]; echo $?)
 
 setup; export FAKE_STOP_AT=$((S + 4 * 3600)); pending "REPEAT new 41"; for i in 1 2 3 4 5 6 7 8; do echo "1 5 usage limit reached"; done > "$D/claude.queue"; runner
@@ -336,12 +347,21 @@ setup; pending "new 41"; runner
 check "the runner runs from its copy in AGENT_HOME/runner" \
   $(cmp -s "$here/run.sh" "$AGENT_HOME/runner/run.sh" && grep -q "from $AGENT_HOME/runner/run.sh" "$AGENT_HOME/agent-logs/runner.log"; echo $?)
 
-setup; git -C "$AGENT_REPO" remote set-url origin "$tmp/t$t/missing.git"; export FAKE_STOP_AT=$((S + 60)); pending "new 41"; runner
+setup; hook pending-hook "mv '$tmp/t$t/origin.git' '$tmp/t$t/moved.git'"; export FAKE_STOP_AT=$((S + 60)); pending HOOK "new 41"; runner
 check "a failed fetch is a transient pause with no pending.sh and no claude call" \
-  $(no_file "$D/claude.log" && no_file "$D/pending.count" && [ "$(waits transient)" = 60 ]; echo $?)
+  $(no_file "$D/claude.log" && [ "$(cat "$D/pending.count")" = 1 ] && [ "$(waits transient)" = 60 ]; echo $?)
+
+setup; export AGENT_REMOTE="$tmp/t$t/missing.git"; pending "new 41"; runner
+check "the runner refuses to start when main cannot be fetched (R48)" $([ "$rc" = 1 ] && no_file "$D/pending.count"; echo $?)
+
+setup; hook pending-hook "cd '$tmp/t$t/repo' && git switch -q main && echo '# v2' >> scripts/agent/run.sh && git commit -q -am v2 && git push -q origin main 2>/dev/null"
+pending HOOK "new 41"; runner
+check "a new run.sh on main restarts the runner from it (R48)" \
+  $(grep -q 'restarting from it' "$AGENT_HOME/agent-logs/runner.log" && [ "$(tail -n1 "$AGENT_HOME/runner/run.sh")" = '# v2' ] \
+    && [ "$(grep -c 'runner started' "$AGENT_HOME/agent-logs/runner.log")" = 2 ] && [ "$(lines "$D/claude.log")" = 1 ]; echo $?)
 
 setup; git clone -q "$tmp/t$t/origin.git" "$tmp/t$t/other" 2>/dev/null
-git -C "$tmp/t$t/other" -c user.email=o@x -c user.name=o commit -q --allow-empty -m ahead; git -C "$tmp/t$t/other" push -q origin main 2>/dev/null
+git -C "$tmp/t$t/other" commit -q --allow-empty -m ahead; git -C "$tmp/t$t/other" push -q origin main 2>/dev/null
 git -C "$AGENT_REPO" switch -q 41-x; pending "merge 50 41"; runner
 check "after an item a clean tree is switched to main and fast-forwarded to origin/main" \
   $([ "$(git -C "$AGENT_REPO" branch --show-current)" = main ] && [ "$(git -C "$AGENT_REPO" log -1 --format=%s)" = ahead ]; echo $?)
@@ -354,15 +374,87 @@ setup; export AGENT_POLL_SECONDS=5; pending "cap 50 41" "cap 50 41" "cap 50 41";
 check "a repeated cap for the same pr and sha mentions once and waits the poll interval each time (R43b)" \
   $([ "$(lines "$D/comments.log")" = 1 ] && [ "$(tr '\n' ' ' < "$D/sleep.log")" = "5 5 " ]; echo $?)
 
+# --- Review round 1 ----------------------------------------------------------------------------------------------
+setup; pending "new 41"; claude_plays "0 300 opened https://github.com/Adamniels/Personal-platform/pull/429"; runner
+check "an ok run whose last line holds 429 is ok, not a limit (I3)" $(no_file "$D/sleep.log" && [ "$(fails 41)" = 0 ]; echo $?)
+
+setup; pending "new 41"; claude_plays "1 300 test_rate_limiting failed: expected 429 got 200"; runner
+check "a slow failure that mentions rate limiting in code output is a task failure (I3)" $([ "$(fails 41)" = 1 ]; echo $?)
+
+setup; pending "REPEAT new 41"; for i in 1 2 3 4 5 6 7 8 9 10 11 12; do echo "1 5 Claude AI usage limit reached|$S"; done > "$D/claude.queue"
+export FAKE_STOP_AT=$((S + 700)); runner
+check "ten limits in a row on the same item mention the owner once (I3 backstop)" \
+  $([ "$(lines "$D/comments.log")" = 1 ] && grep -q ' 41 @Adamniels .*usage limit' "$D/comments.log" && no_file "$D/board.log"; echo $?)
+
+setup; export FAKE_STOP_AT=$((S + 7 * 3600)); pending "REPEAT new 41"; for i in 1 2 3 4 5 6 7 8 9; do echo "1 5 usage limit reached"; done > "$D/claude.queue"; runner
+check "a limit episode past 6 h mentions the owner once, after 6 h (I3 backstop)" \
+  $([ "$(lines "$D/comments.log")" = 1 ] && [ $(( $(cut -d' ' -f1 "$D/comments.log") - S )) -gt 21600 ]; echo $?)
+
+setup; export FAKE_DOCKER_HANG=1 AGENT_CALL_TIMEOUT_SECONDS=1 FAKE_STOP_AT=$((S + 60)); pending "REPEAT new 41"
+began=$(/bin/date +%s); runner; took=$(( $(/bin/date +%s) - began ))
+check "a hanging docker info times out into an environment pause with no claude call (I4)" \
+  $(no_file "$D/claude.log" && [ "$(waits environment)" = 60 ] && [ "$took" -lt 20 ]; echo $?)
+
+setup; hook claude-hook "git -C '$tmp/t$t/repo' switch -q 41-x; echo work > '$tmp/t$t/repo/file'"; pending "new 41"; runner
+check "a slice's own run that leaves its branch dirty is checkpointed there, then the tree goes to main (I6)" \
+  $([ "$(git -C "$AGENT_REPO" log -1 --format=%s 41-x)" = "Checkpoint: interrupted run" ] \
+    && [ "$(git -C "$AGENT_REPO" branch --show-current)" = main ] && [ -z "$(git -C "$AGENT_REPO" status --porcelain)" ] \
+    && no_file "$D/comments.log"; echo $?)
+
+setup; hook claude-hook "echo stray > '$tmp/t$t/repo/file'"; pending "new 41"; runner
+check "dirt left on another branch after a run is stashed with a mention, never committed (I6)" \
+  $(git -C "$AGENT_REPO" stash list | grep -q 'runner: interrupted 41' && [ "$(lines "$D/comments.log")" = 1 ] \
+    && [ "$(git -C "$AGENT_REPO" log -1 --format=%s main)" = base ]; echo $?)
+
+setup; printf '#!/bin/sh\nexit 1\n' > "$AGENT_REPO/.git/hooks/pre-commit"; printf '#!/bin/sh\ntouch "%s"\n' "$D/hook-ran" > "$AGENT_REPO/.git/hooks/post-checkout"
+chmod +x "$AGENT_REPO/.git/hooks/"*; git -C "$AGENT_REPO" -c core.hooksPath=/dev/null switch -q 41-x; echo half > "$AGENT_REPO/file"
+pending "resume 41"; runner
+check "the runner's git ignores repository hooks: a failing pre-commit does not stop the checkpoint (R49)" \
+  $([ "$(git -C "$AGENT_REPO" log -1 --format=%s 41-x)" = "Checkpoint: interrupted run" ] && no_file "$D/hook-ran"; echo $?)
+
+setup; export AGENT_POLL_SECONDS=7 FAKE_GATE_EXIT=3 FAKE_GATE_OUT='ci-ok is pending\nrisk is not low\n'; pending "merge 50 41"; runner
+check "ci-ok pending among other reasons waits: no label, no mention (R45)" \
+  $([ "$(sleeps)" = 7 ] && no_file "$D/labels.log" && no_file "$D/comments.log"; echo $?)
+
+setup; export AGENT_POLL_SECONDS=600 FAKE_GATE_EXIT=3 FAKE_GATE_OUT='ci-ok is pending\n' FAKE_STOP_AT=$((S + 3 * 3600)); pending "REPEAT merge 50 41"; runner
+check "ci-ok pending for the same head for 2 h mentions once, after 2 h (R50)" \
+  $([ "$(lines "$D/comments.log")" = 1 ] && [ $(( $(cut -d' ' -f1 "$D/comments.log") - S )) -ge 7200 ] \
+    && grep -q '@Adamniels ci-ok has been pending on PR #50' "$D/comments.log" && no_file "$D/labels.log"; echo $?)
+
+setup; export AGENT_POLL_SECONDS=5 FAKE_GATE_EXIT=3 FAKE_GATE_OUT='ci-ok failed\n'; pending "merge 50 41" "owner 50 41"; runner
+check "a refused merge, then an owner item for the same sha, mentions once, never as ready to merge (R42)" \
+  $([ "$(lines "$D/comments.log")" = 1 ] && ! grep -q 'ready' "$D/comments.log"; echo $?)
+
+setup; export FAKE_VERDICT="none 0 0 -" AGENT_POLL_SECONDS=5; pending "review 50 41" "review 50 41" "review 50 41" "review 50 41" "fix 50 41"
+claude_plays "0 300 SECRET-LOG-TEXT"; runner
+check "a Blocked PR item at the same sha runs no more claude and mentions once (R47)" \
+  $([ "$(lines "$D/claude.log")" = 2 ] && [ "$(lines "$D/comments.log")" = 1 ] && [ "$(grep -c 'status 41 Blocked' "$D/board.log")" = 1 ] \
+    && [ "$(tr '\n' ' ' < "$D/sleep.log")" = "5 5 5 " ]; echo $?)
+check "the Blocked mention points at the log instead of quoting it (M3)" \
+  $(grep -q 'See .*/agent-logs/41-' "$D/comments.log" && ! grep -q 'SECRET-LOG-TEXT' "$D/comments.log"; echo $?)
+again; echo bbbb > "$D/head"; pending "review 50 41"; runner
+check "a new head sha clears the Blocked PR (R47)" $([ "$(lines "$D/claude.log")" = 3 ]; echo $?)
+
+setup; pending "new 41"; runner; again; pending "new 41"; runner; again; pending "new 41"; runner
+check "the no-progress guard survives a restart (M4)" $(grep -q 'status 41 Blocked' "$D/board.log"; echo $?)
+
+setup; hook claude-hook "n=\$(( \$(cat '$D/n' 2>/dev/null || echo 0) + 1 )); echo \$n > '$D/n'; echo a\$n > '$D/head'"
+pending "fix 50 41" "fix 50 41" "fix 50 41"; runner
+check "the same fix item at a new head each time is progress, not counted (M4)" $([ "$(fails 41)" = 0 ] && no_file "$D/board.log"; echo $?)
+
 # --- Lock and idle (R18) ----------------------------------------------------------------------------------------
-setup; mkdir -p "$AGENT_HOME/agent-logs"; echo $$ > "$AGENT_HOME/agent-logs/run.lock"; pending "new 41"; runner
-check "a live lock exits 2, already running, without asking pending.sh" \
+lockwith() { mkdir -p "$AGENT_HOME/agent-logs/run.lock"; echo "$1" > "$AGENT_HOME/agent-logs/run.lock/pid"; }
+setup; mkdir "$tmp/t$t/other-runner"; printf 'sleep 30\n' > "$tmp/t$t/other-runner/run.sh"
+bash "$tmp/t$t/other-runner/run.sh" & live=$!; lockwith "$live"; pending "new 41"; runner; kill "$live" 2>/dev/null
+check "a live lock held by a run.sh exits 2, already running, without asking pending.sh" \
   $([ "$rc" = 2 ] && grep -q 'already running' "$D/out" && no_file "$D/pending.count"; echo $?)
 
-setup; mkdir -p "$AGENT_HOME/agent-logs"; sh -c 'exit 0' & dead=$!; wait "$dead"; echo "$dead" > "$AGENT_HOME/agent-logs/run.lock"
-pending "new 41"; runner
+setup; sh -c 'exit 0' & dead=$!; wait "$dead"; lockwith "$dead"; pending "new 41"; runner
 check "a stale lock is taken over, and released at exit" \
   $([ "$rc" = 0 ] && [ "$(lines "$D/claude.log")" = 1 ] && no_file "$AGENT_HOME/agent-logs/run.lock"; echo $?)
+
+setup; sleep 30 & other=$!; lockwith "$other"; pending "new 41"; runner; kill "$other" 2>/dev/null
+check "a lock whose PID is alive but not a run.sh is taken over (M1)" $([ "$rc" = 0 ] && [ "$(lines "$D/claude.log")" = 1 ]; echo $?)
 
 setup; touch "$AGENT_HOME/.agent-stop"; runner
 check "an existing stop file exits 0 before any work" $([ "$rc" = 0 ] && no_file "$D/pending.count"; echo $?)

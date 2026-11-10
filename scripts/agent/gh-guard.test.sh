@@ -96,6 +96,21 @@ refused "api --input with a marker" api repos/o/r/issues/5/comments --input inpu
 echo 'not json' > bad.json
 refused "api --input that is not JSON" api repos/o/r/issues/5/comments --input bad.json
 refused "pr merge" pr merge 5 --merge
+# C1: the subcommand is found past persistent flags and their values, and `-x=<v>` forms are normalised.
+refused "pr -R x merge" pr -R x merge 50
+refused "-R x pr merge" -R x pr merge 50
+refused "pr --repo=x merge" pr --repo=x merge 50
+refused "pr --repo x merge" pr --repo o/r merge 50
+refused "pr -R x comment with a marker" pr -R x comment 5 -b "$marker"
+refused "pr comment -b=marker" pr comment 5 "-b=$marker"
+refused "pr comment -F=file" pr comment 5 -F=marker.md
+refused "issue --repo=x edit --body=marker" issue --repo=o/r edit 41 "--body=$marker"
+refused "api -X=PATCH a comment" api -X=PATCH repos/o/r/issues/comments/1
+refused "api --method=DELETE a comment" api --method=DELETE repos/o/r/issues/comments/1
+refused "api -f=body=marker" api repos/o/r/issues/5/comments "-f=body=$marker"
+refused "api graphql -f=query= mergePullRequest" api graphql '-f=query=mutation{mergePullRequest(input:{pullRequestId:"x"}){clientMutationId}}'
+refused "api --hostname h graphql mergePullRequest" api --hostname github.com graphql -f 'query=mutation{mergePullRequest(input:{pullRequestId:"x"}){clientMutationId}}'
+passed "pr -R x view" pr -R o/r view 5
 refused "alias set" alias set m 'pr merge'
 refused "extension install" extension install someone/gh-x
 
@@ -115,7 +130,10 @@ check "the real gh's exit code is returned" $([ $? = 4 ]; echo $?)
 rm -f "$FAKE_REAL_LOG"
 PATH="$tmp/guard:$tmp/guard:$tmp/real:/usr/bin:/bin" gh pr view 5 < /dev/null > /dev/null 2>&1
 [ "$(cat "$FAKE_REAL_LOG" 2>/dev/null)" = "pr view 5" ]; check "skips its own directory however often it is listed" $?
-PATH="$tmp/guard:/usr/bin:/bin" gh pr view 5 < /dev/null > /dev/null 2> err
+# A PATH holding only the tools the guard needs, so a gh installed on the machine (as on CI runners) is not found.
+mkdir "$tmp/tools"
+for c in bash env cat grep tr mktemp jq dirname rm; do ln -s "$(command -v "$c")" "$tmp/tools/$c"; done
+PATH="$tmp/guard:$tmp/tools" gh pr view 5 < /dev/null > /dev/null 2> err
 check "no real gh on PATH exits 127" $([ $? = 127 ] && grep -q 'no real gh' err; echo $?)
 
 echo "$pass passed, $fail failed"
