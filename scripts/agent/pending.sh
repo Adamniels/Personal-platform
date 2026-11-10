@@ -5,23 +5,26 @@
 #
 # One line, highest priority first:
 #   fix <pr> <slice>     the reviewer asked for changes on the head commit (at most 3 changes verdicts so far)
-#                        and the bot has not answered since, or the owner commented after the PR was last handled
-#                        (the latest of head commit, verdict and bot reply, a non-verdict comment by the bot)
-#   cap <pr> <slice>     the reviewer asked for changes a fourth time or more: the round cap is reached
-#   review <pr> <slice>  no verdict for the head commit, or a bot reply newer than a changes verdict (the fix run
-#                        answered without a commit; the reviewer reads the reply and issues a new verdict)
+#                        and the bot has not answered since, or the owner commented after the PR was last
+#                        handled (the latest of head commit, verdict and bot reply, a non-verdict comment by
+#                        the bot)
+#   cap <pr> <slice>     the reviewer asked for changes a fourth time or more: the round cap is reached. Not
+#                        offered for a PR already labelled needs-owner, which has been handed over
+#   review <pr> <slice>  no verdict for the head commit, or a bot reply newer than a changes verdict (the fix
+#                        run answered without a commit; the reviewer reads the reply and issues a new verdict)
 #   merge <pr> <slice>   an approve verdict for the head commit
 #   resume <slice>       status In progress and no open PR
 #   new <slice>          the slice next.sh --number proposes
-#   owner <pr> <slice>   an approve verdict for the head of a PR labelled needs-owner: the owner merges it. Lowest
-#                        priority, so it never starves other work
+#   owner <pr> <slice>   an approve verdict for the head of a PR labelled needs-owner: the owner merges it.
+#                        Lowest priority, so it never starves other work
 # Owner input is any issue comment, inline review comment or submitted review (not pending) by the owner.
-# Only open PRs by the bot are considered. needs-owner blocks merging only (R42): such a PR gets fix, cap and
-# review like any other, and an approve for its head gives owner instead of merge. Within a priority, the lowest PR number first. The slice
-# is the PR's first closing issue reference, else the number its head branch name starts with (`<n>-`); a PR
-# with neither is skipped with a warning on stderr.
-# Verdicts come from verdict.sh (`<approve|changes|none> <sha|0> <changes count> <created_at|->`) and the board
-# from `next.sh --machine`, both looked up in $AGENT_SCRIPTS (default: this script's directory) so tests can fake them.
+# Only open PRs by the bot are considered. needs-owner blocks merging only (R42): such a PR gets fix and review
+# like any other, and an approve for its head gives owner instead of merge. Within a priority, the lowest PR
+# number first. The slice is the PR's first closing issue reference, else the number its head branch name
+# starts with (`<n>-`); a PR with neither is skipped with a warning on stderr.
+# Verdicts come from verdict.sh (`<approve|changes|none> <sha|0> <changes count> <created_at|->`) and the
+# board from `next.sh --machine`, both looked up in $AGENT_SCRIPTS (default: this script's directory) so tests
+# can fake them.
 # Exit codes: 0 ok (no output means idle), 1 when a GitHub read or verdict.sh fails (nothing is printed; the
 # runner retries later).
 set -euo pipefail
@@ -92,6 +95,8 @@ while IFS=$'\t' read -r pr sha slice labelled committed; do
     echo "3 $pr review $slice" >> "$tmp/candidates"
   elif [ "$kind" = changes ] && [ "$count" -le "$MAX_CHANGES" ]; then
     echo "1 $pr fix $slice" >> "$tmp/candidates"
+  elif [ "$kind" = changes ] && [ "$labelled" = true ]; then
+    :   # at the cap and already handed to the owner: nothing to offer, or the runner would loop on it
   elif [ "$kind" = changes ]; then
     echo "2 $pr cap $slice" >> "$tmp/candidates"
   elif [ "$kind" = approve ] && [ "$labelled" = true ]; then

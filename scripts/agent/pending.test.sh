@@ -227,8 +227,20 @@ verdict 5 changes 1
 run; [ "$out" = "fix 5 15" ]
 check "R42: a needs-owner PR with a changes verdict (<= 3) gives fix" $?
 verdict 5 changes 4
-run; [ "$out" = "cap 5 15" ]
-check "R42: a needs-owner PR at the round cap still gives cap" $?
+run; [ -z "$out" ]
+check "R43b: a needs-owner PR at the round cap yields no line (already handed over)" $?
+echo 16 > "$FAKE_DATA/next"
+run; [ "$out" = "new 16" ]
+check "R43b: lower items win over a handed-over capped PR" $?
+rm -f "$FAKE_DATA/next"
+verdict 5 changes 4; comment 5 Adamniels "$late"
+run; [ "$out" = "fix 5 15" ]
+check "R43b: a capped needs-owner PR with newer owner input gives fix" $?
+rm -f "$FAKE_DATA/comments-5.json"
+pr 8 18; setprs 8; verdict 8 changes 4
+run; [ "$out" = "cap 8 18" ]
+check "R43b: an unlabelled PR at the round cap gives cap" $?
+setprs 5
 echo "none 0 0 -" > "$FAKE_DATA/verdict-5"
 run; [ "$out" = "review 5 15" ]
 check "R42: a needs-owner PR with no verdict gives review" $?
