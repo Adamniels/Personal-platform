@@ -10,7 +10,7 @@ trap 'rm -rf "$tmp"' EXIT
 mkdir "$tmp/bin" "$tmp/scripts" "$tmp/data"
 
 # prs.json is what `gh pr list` prints; comments-, inline- and reviews-<pr>.json are the three owner-input
-# endpoints (default []); FAKE_FAILS_ON=<text> fails any call containing it. Old note: prs.json is what `gh pr list` prints; comments-<pr>.json is what the comments endpoint prints (default []);
+# endpoints (default []); FAKE_FAILS_ON=<text> fails any call containing it.
 # FAKE_FAILS=1 makes the fake fail.
 cat > "$tmp/bin/gh" <<'FAKE'
 #!/usr/bin/env bash
@@ -219,11 +219,12 @@ check "a PR without a closing issue is skipped with a warning" $?
 setprs 1; verdict 1 approve 0
 grep -q -- '--author mac-mini-agent' "$FAKE_GH_LOG"
 check "the PR list is limited to the bot's PRs" $?
-for bad in "approve sha1 x $vtime" "maybe sha1 0 $vtime" "approve sha1" "" "approve sha1 -1 $vtime"; do
+for bad in "approve sha1 x $vtime" "maybe sha1 0 $vtime" "approve sha1" "" "approve sha1 -1 $vtime" \
+           "approve sha1 0 yesterday" "approve sha1 0 2026-11-01T11:00:00+01:00" "approve sha1 0 2026-13-45T99:00:00Z"; do
   echo "$bad" > "$FAKE_DATA/verdict-1"
-  run; [ "$code" = 1 ] && [ -z "$out" ] && [ -n "$err" ] || break
+  run; [ "$code" = 1 ] && [ -z "$out" ] && [ -n "$err" ]
+  check "a garbled verdict line exits 1 and prints nothing: [$bad]" $?
 done
-check "a garbled verdict line exits 1 and prints nothing" $?
 verdict 1 approve 0
 echo 11 > "$FAKE_DATA/inflight"; : > "$FAKE_DATA/nextfail"
 run; [ "$code" = 1 ] && [ -z "$out" ] && [ -n "$err" ]
@@ -232,9 +233,19 @@ rm "$FAKE_DATA/nextfail"
 run; [ "$(grep -c '^--machine$' "$FAKE_GH_LOG")" = 1 ]
 check "the board is read once, by machine" $?
 for ep in issues/1/comments pulls/1/comments pulls/1/reviews; do
-  FAKE_FAILS_ON="$ep" run; [ "$code" = 1 ] && [ -z "$out" ] && [ -n "$err" ] || break
+  FAKE_FAILS_ON="$ep" run; [ "$code" = 1 ] && [ -z "$out" ] && [ -n "$err" ]
+  check "a failing read of $ep exits 1 and prints nothing" $?
 done
-check "a failing comments, inline comments or reviews read exits 1" $?
+echo "approve sha1 0 $vtime" > "$FAKE_DATA/verdict-1"
+setprs 1; verdict 1 approve 0
+jq -c '.[0].commits = []' "$FAKE_DATA/prs.json" > "$FAKE_DATA/p" && mv "$FAKE_DATA/p" "$FAKE_DATA/prs.json"
+run; [ "$code" = 1 ] && [ -z "$out" ] && [ -n "$err" ]
+check "a PR without commits exits 1 and prints nothing" $?
+setprs 1; verdict 1 approve 0
+jq -c '.[0].commits[-1].committedDate = "garbled"' "$FAKE_DATA/prs.json" > "$FAKE_DATA/p" && mv "$FAKE_DATA/p" "$FAKE_DATA/prs.json"
+run; [ "$code" = 1 ] && [ -z "$out" ] && [ -n "$err" ]
+check "a malformed commit date exits 1 and prints nothing" $?
+setprs 1; verdict 1 approve 0
 echo '{not json' > "$FAKE_DATA/prs.json"
 run; [ "$code" = 1 ] && [ -z "$out" ]
 check "unreadable PR JSON exits 1 and prints nothing" $?

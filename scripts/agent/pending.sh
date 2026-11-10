@@ -41,7 +41,7 @@ open_slices=" "
 jq -r '.[] | [.number, .headRefOid,
       ([(.closingIssuesReferences[0].number // empty | tostring),
         ((.headRefName // "") | capture("^(?<n>[0-9]+)-").n)?] | .[0] // "-"),
-      (any(.labels[]; .name == "needs-owner")), (.commits[-1].committedDate)] | @tsv' "$tmp/prs.json" > "$tmp/prs.tsv" \
+      (any(.labels[]; .name == "needs-owner")), (.commits[-1].committedDate // error("pull request #\(.number) has no commits"))] | @tsv' "$tmp/prs.json" > "$tmp/prs.tsv" \
   || { echo "could not read the pull request list" >&2; exit 1; }
 
 while IFS=$'\t' read -r pr sha slice labelled committed; do
@@ -52,7 +52,7 @@ while IFS=$'\t' read -r pr sha slice labelled committed; do
   line="$("$scripts/verdict.sh" "$pr")"
   read -r kind vsha count vtime <<<"$line"
   case "$kind" in approve|changes|none) ;; *) echo "pr #$pr: unreadable verdict line: $line" >&2; exit 1 ;; esac
-  [[ "$count" =~ ^[0-9]+$ ]] || { echo "pr #$pr: unreadable verdict line: $line" >&2; exit 1; }
+  [[ "$count" =~ ^[0-9]+$ ]] && [[ "$vtime" =~ ^(-|[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z)$ ]] || { echo "pr #$pr: unreadable verdict line: $line" >&2; exit 1; }
 
   : > "$tmp/comments.json"
   for endpoint in "issues/$pr/comments" "pulls/$pr/comments" "pulls/$pr/reviews"; do
@@ -63,7 +63,8 @@ while IFS=$'\t' read -r pr sha slice labelled committed; do
         | (.submitted_at // .created_at) | select(. != null) | fromdateiso8601] as $times
     | ($committed | fromdateiso8601) as $c
     | (if $vtime == "-" then $c else ([$c, ($vtime | fromdateiso8601)] | max) end) as $since
-    | [$times[] | select(. > $since)] | length' "$tmp/comments.json")"
+    | [$times[] | select(. > $since)] | length' "$tmp/comments.json")" \
+    || { echo "pr #$pr: could not compare timestamps" >&2; exit 1; }
 
   if [ "$owner_new" -gt 0 ]; then
     echo "1 $pr fix $slice" >> "$tmp/candidates"
