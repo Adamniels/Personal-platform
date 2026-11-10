@@ -75,10 +75,15 @@ jobs:
           done
           exit "$status"
 
+  e2e:
+    needs: changes
+    if: needs.changes.outputs.e2e == 'true'
+    uses: ./.github/workflows/e2e.yml
+
   # Fails unless every job above succeeded or was skipped. Runs even when one of them failed
   # or was cancelled, which is what `always()` is for.
   ci-ok:
-    needs: [changes, core, canary, scripts]
+    needs: [changes, core, canary, scripts, e2e]
     if: always()
     runs-on: ubuntu-latest
     steps:
