@@ -37,13 +37,15 @@ id=0
 
 # reset: no comments at all.
 reset() { rm -f "$FAKE_DATA"/page-*; id=0; }
-# comment <author> <created_at> <body> [page]: appends a comment to page 1 (or the page given).
+# comment <author> <created_at> <body> [page] [updated_at]: appends a comment to page 1 (or the page given),
+# never edited unless updated_at is given.
 comment() {
   local page="$FAKE_DATA/page-${4:-1}"
   id=$((id + 1))
   [ -f "$page" ] || echo '[]' > "$page"
-  jq -c --arg u "$1" --arg t "$2" --arg b "$3" --argjson id "$id" \
-    '. + [{id: $id, user: {login: $u}, created_at: $t, body: $b}]' "$page" > "$page.new" && mv "$page.new" "$page"
+  jq -c --arg u "$1" --arg t "$2" --arg b "$3" --argjson id "$id" --arg up "${5:-$2}" \
+    '. + [{id: $id, user: {login: $u}, created_at: $t, updated_at: $up, body: $b}]' "$page" > "$page.new" \
+    && mv "$page.new" "$page"
 }
 marker() { printf '<!-- verdict: %s sha=%s -->' "$1" "$2"; }
 run() { : > "$FAKE_GH_LOG"; out="$(bash "$here/verdict.sh" "$@" 2>"$tmp/err")"; code=$?; err="$(cat "$tmp/err")"; }
@@ -146,6 +148,23 @@ comment $BOT "$t3" "<!-- verdict: changes sha=short -->"
 comment $BOT "$t4" "$(marker approve $C)"
 run 7; [ "$out" = "approve $C 3 $t4" ]
 check "the changes count counts all valid changes markers" $?
+
+# An edited marker comment never counts, neither as the verdict nor in the changes count.
+reset
+comment $BOT "$t1" "$(marker changes $B)"
+comment $BOT "$t2" "$(marker approve $A)" 1 "$t3"
+run 7; [ "$out" = "changes $B 1 $t1" ]
+check "an edited approve marker is ignored" $?
+reset
+comment $BOT "$t1" "$(marker changes $B)" 1 "$t2"
+comment $BOT "$t2" "$(marker approve $A)"
+run 7; [ "$out" = "approve $A 0 $t2" ]
+check "an edited changes marker is not counted" $?
+reset
+jq -n -c --arg b "$(marker approve $A)" '[{id: 1, user: {login: "mac-mini-agent"}, created_at: "2026-11-01T10:00:00Z", body: $b}]' \
+  > "$FAKE_DATA/page-1"
+run 7; [ "$out" = "none 0 0 -" ]
+check "a marker comment without updated_at is ignored" $?
 
 # Pages from --paginate are joined.
 reset

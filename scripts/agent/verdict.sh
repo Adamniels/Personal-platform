@@ -8,8 +8,9 @@
 #   <!-- verdict: approve sha=<40 lowercase hex> -->   or   <!-- verdict: changes sha=<40 lowercase hex> -->
 # and the newest such comment (by created_at) is the verdict, printed with its sha and its created_at exactly as
 # GitHub returns it. Anything else is ignored: other authors, a marker on a later line (a quoting reply), a
-# different word, a malformed sha, extra spaces or text, a trailing carriage return. With no verdict it prints
-# `none 0 <count> -`. The count is every valid changes marker by mac-mini-agent, whatever its sha.
+# different word, a malformed sha, extra spaces or text, a trailing carriage return, and any comment that was
+# edited (updated_at differs from created_at), since an edited verdict is not the one the reviewer wrote for
+# that commit. With no verdict it prints `none 0 <count> -`. The count is every valid changes marker by mac-mini-agent, whatever its sha.
 # This line is what lets merge-gate.sh merge, so it fails closed: anything unreadable is an error, never a verdict.
 # Exit codes: 0 ok, 1 GitHub error or unreadable response (nothing on stdout), 2 usage error.
 set -euo pipefail
@@ -31,7 +32,7 @@ gh api "repos/$OWNER/$REPO_NAME/issues/$pr/comments" --paginate > "$tmp/comments
 # Captured before printing, so a jq failure prints nothing on stdout.
 line="$(jq -s -r --arg bot "$BOT" '
   [ .[][]
-    | select(.user.login == $bot)
+    | select(.user.login == $bot and .updated_at != null and .updated_at == .created_at)
     | ((.body // "") | split("\n")[0]) as $first
     | ($first | capture("\\A<!-- verdict: (?<kind>approve|changes) sha=(?<sha>[0-9a-f]{40}) -->\\z")?) as $m
     | select($m != null)
