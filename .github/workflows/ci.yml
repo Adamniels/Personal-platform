@@ -31,12 +31,21 @@ jobs:
           BASE_REF: ${{ github.base_ref }}
           BEFORE: ${{ github.event.before }}
         run: |
+          set -euo pipefail
+          base=""
           if [ "$EVENT" = pull_request ]; then
-            git diff --name-only "origin/$BASE_REF...HEAD" | bash scripts/ci/changed-areas.sh >> "$GITHUB_OUTPUT"
+            base="origin/$BASE_REF"
           elif [ "$EVENT" = push ] && ! printf '%s' "$BEFORE" | grep -qE '^0+$'; then
-            git diff --name-only "$BEFORE...HEAD" | bash scripts/ci/changed-areas.sh >> "$GITHUB_OUTPUT"
-          else
+            base="$BEFORE"
+          fi
+
+          if [ -z "$base" ]; then
             printf '%s\n' core=true canary=true scripts=true e2e=true >> "$GITHUB_OUTPUT"
+          else
+            # Captured first, so a failing git fails this job instead of feeding changed-areas.sh
+            # empty input, which would read as "nothing changed" and pass.
+            files="$(git -c core.quotepath=false diff --name-only --no-renames "$base...HEAD")"
+            printf '%s\n' "$files" | bash scripts/ci/changed-areas.sh >> "$GITHUB_OUTPUT"
           fi
           cat "$GITHUB_OUTPUT"
 

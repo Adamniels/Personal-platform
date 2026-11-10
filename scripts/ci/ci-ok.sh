@@ -7,7 +7,13 @@ set -uo pipefail
 
 needs="$(cat)"
 
-bad="$(printf '%s' "$needs" | jq -r 'to_entries[] | select(.value.result != "success" and .value.result != "skipped") | "\(.key): \(.value.result)"' 2>/dev/null)" || {
+# Fail closed: no input at all must not read as "nothing failed".
+if [ -z "$needs" ]; then
+  echo "ci-ok: could not read the needs context" >&2
+  exit 1
+fi
+
+bad="$(printf '%s' "$needs" | jq -r 'if type == "object" then . else error("not an object") end | to_entries[] | select(.value.result != "success" and .value.result != "skipped") | "\(.key): \(.value.result)"' 2>/dev/null)" || {
   echo "ci-ok: could not read the needs context" >&2
   exit 1
 }

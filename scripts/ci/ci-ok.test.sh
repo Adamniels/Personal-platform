@@ -23,6 +23,9 @@ check "cancelled fails" 1 "core: cancelled" '{"core":{"result":"cancelled"}}'
 check "failure named, success not" 1 "e2e: failure" '{"e2e":{"result":"failure"},"core":{"result":"success"}}'
 check "empty needs" 0 "" '{}'
 check "malformed json fails" 1 "ci-ok: could not read the needs context" 'not json'
+check "empty stdin fails" 1 "ci-ok: could not read the needs context" ''
+check "array fails" 1 "ci-ok: could not read the needs context" '[]'
+check "string fails" 1 "ci-ok: could not read the needs context" '"x"'
 
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]
