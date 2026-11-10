@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Moves an issue on the "Personal-platform-project" board (Project 5), or reads its status.
 #
-#   bash scripts/agent/board.sh status <issue-number> <Backlog|Ready|In progress|In review|Done>
+#   bash scripts/agent/board.sh status <issue-number> <Backlog|Ready|In progress|In review|Blocked|Done>
 #   bash scripts/agent/board.sh get <issue-number>        # the status, "no status", "archived" or "none"
 #
 # Project, field and option IDs are looked up by name on every run, so renamed or added
@@ -13,7 +13,7 @@ set -euo pipefail
 OWNER="Adamniels"
 REPO_NAME="Personal-platform"
 PROJECT_NUMBER=5
-STATUSES=("Backlog" "Ready" "In progress" "In review" "Done")
+STATUSES=("Backlog" "Ready" "In progress" "In review" "Blocked" "Done")
 
 usage() {
   echo "usage: board.sh status <issue-number> <status> | board.sh get <issue-number>" >&2

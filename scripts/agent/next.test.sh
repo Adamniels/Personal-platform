@@ -42,7 +42,7 @@ pass=0 fail=0
 check() { # name, condition result
   if [ "$2" = 0 ]; then pass=$((pass + 1)); echo "ok   $1"; else fail=$((fail + 1)); echo "FAIL $1"; fi
 }
-run() { : > "$FAKE_GH_LOG"; out="$(bash "$here/next.sh" 2>&1)"; code=$?; }
+run() { : > "$FAKE_GH_LOG"; out="$(bash "$here/next.sh" "$@" 2>&1)"; code=$?; }
 section() { # the lines under a heading, up to the next one
   awk -v h="$1:" '$0 == h { on = 1; next } /^[A-Z][a-z ]*:$/ { on = 0 } on' <<<"$out"
 }
@@ -95,6 +95,21 @@ check "reads every page of the board" $?
 FAKE_FAILS=1 FAKE_PAGES="" run
 [ "$code" != 0 ] && ! grep -q '^Proposal:' <<<"$out"
 check "a failing read exits non-zero and proposes nothing" $?
+
+FAKE_PAGES="$tmp/order.json" run --number
+[ "$code" = 0 ] && [ "$out" = "26" ]
+check "--number prints only the proposed slice's number" $?
+
+page "$tmp/allblocked.json" \
+  "$(item 27 Ready OPEN 4 26,27 '26:OPEN')" \
+  "$(item 26 Blocked OPEN 4 26,27)"
+FAKE_PAGES="$tmp/allblocked.json" run --number
+[ "$code" = 0 ] && [ -z "$out" ]
+check "--number prints nothing when every candidate is blocked" $?
+
+FAKE_PAGES="$tmp/allblocked.json" run
+[ "$code" = 0 ] && [ "$(section 'In flight')" = "  #26 Blocked: Issue 26" ]
+check "in flight also lists Blocked" $?
 
 echo "$pass passed, $fail failed"
 [ "$fail" = 0 ]
