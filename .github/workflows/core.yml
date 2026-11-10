@@ -4,11 +4,8 @@
 name: Core
 
 on:
-  push:
-    paths:
-      - "Core/**"
-      - "infra/postgres/**"
-      - ".github/workflows/core.yml"
+  # Called by ci.yml, which decides from the diff whether it runs.
+  workflow_call:
   workflow_dispatch:
 
 jobs:

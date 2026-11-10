@@ -3,10 +3,8 @@
 name: Canary
 
 on:
-  push:
-    paths:
-      - "canary/**"
-      - ".github/workflows/canary.yml"
+  # Called by ci.yml, which decides from the diff whether it runs.
+  workflow_call:
   workflow_dispatch:
 
 jobs:
