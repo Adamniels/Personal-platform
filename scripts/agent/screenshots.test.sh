@@ -74,6 +74,23 @@ check "no files exits 2" $?
 bash "$here/screenshots.sh" 12 "$tmp/missing.png" >/dev/null 2>&1; [ $? = 2 ]
 check "a missing file exits 2" $?
 
+bash "$here/screenshots.sh" 0 "$tmp/a.png" >/dev/null 2>&1; [ $? = 2 ]
+check "PR number 0 exits 2" $?
+bash "$here/screenshots.sh" 007 "$tmp/a.png" >/dev/null 2>&1; [ $? = 2 ]
+check "PR number 007 exits 2" $?
+printf x > "$tmp/c.txt"
+bash "$here/screenshots.sh" 12 "$tmp/c.txt" >/dev/null 2>&1; [ $? = 2 ]
+check "a file not ending in .png exits 2" $?
+
+[ -z "$(git branch --list pr-screenshots)" ] && [ -z "$(git for-each-ref refs/heads/pr-screenshots)" ]
+check "no local pr-screenshots branch is left behind" $?
+
+git --git-dir="$tmp/origin.git" branch -q -D pr-screenshots
+bash "$here/screenshots.sh" 15 "$tmp/a.png" >/dev/null 2>&1; code=$?
+[ "$code" = 0 ] && git --git-dir="$tmp/origin.git" cat-file -e pr-screenshots:15/a.png \
+  && [ -z "$(git branch --list pr-screenshots)" ]
+check "a second orphan run after the remote branch is deleted succeeds" $?
+
 git remote set-url origin "$tmp/nowhere.git"
 bash "$here/screenshots.sh" 14 "$tmp/a.png" >/dev/null 2>&1; code=$?
 [ "$code" = 1 ] && [ "$(git rev-parse HEAD)" = "$head_before" ] && [ "$(git worktree list | wc -l | tr -d ' ')" = 1 ]
