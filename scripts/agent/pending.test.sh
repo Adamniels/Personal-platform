@@ -60,7 +60,11 @@ committed=2026-11-01T10:00:00Z   # every head commit
 vtime=2026-11-01T11:00:00Z       # every verdict
 late=2026-11-01T12:00:00Z        # after both
 between=2026-11-01T10:30:00Z     # after the commit, before the verdict
+later=2026-11-01T13:00:00Z       # after late
+mid=2026-11-01T11:30:00Z         # after the verdict, before late
 early=2026-11-01T09:00:00Z       # before both
+mid=2026-11-01T11:30:00Z         # after the verdict, before late
+later=2026-11-01T13:00:00Z       # after late
 
 # pr <number> <slice> [needs-owner]: writes the fragment for an open bot PR with head sha "sha<number>".
 pr() {
@@ -156,6 +160,63 @@ verdict 1 approve 0; comment 1 Adamniels "$between"
 jq -c '.[0].commits[-1].committedDate = "2026-11-01T10:45:00Z"' "$FAKE_DATA/prs.json" > "$FAKE_DATA/p" && mv "$FAKE_DATA/p" "$FAKE_DATA/prs.json"
 run; [ "$out" = "merge 1 11" ]
 check "an owner comment before the head commit does not, even with a verdict" $?
+
+# R30: a bot reply (an implementer answering without a commit) counts as handling. `reply` writes the
+# issue comments of a PR from "<author> <created_at> [marker]" triples, a marker being a valid verdict marker.
+sha40=0123456789abcdef0123456789abcdef01234567
+pr 5 15 needs-owner
+reply() { # reply <pr> <author> <created_at> [marker] ...
+  local pr="$1"; shift; local args=()
+  while [ $# -ge 2 ]; do
+    if [ "${3:-}" = marker ]; then
+      args+=("$(jq -n -c --arg u "$1" --arg t "$2" --arg b "<!-- verdict: changes sha=$sha40 -->"$'\n'"text" \
+        '{user: {login: $u}, created_at: $t, updated_at: $t, body: $b}')"); shift 3
+    else
+      args+=("$(jq -n -c --arg u "$1" --arg t "$2" '{user: {login: $u}, created_at: $t, updated_at: $t, body: "Answered every finding."}')"); shift 2
+    fi
+  done
+  printf '%s\n' "${args[@]}" | jq -s -c . > "$FAKE_DATA/comments-$pr.json"
+}
+setprs 1; verdict 1 changes 1
+reply 1 mac-mini-agent "$late"
+run; [ "$out" = "review 1 11" ]
+check "a changes verdict with a newer bot reply on the same head gives review" $?
+verdict 1 changes 4
+run; [ "$out" = "cap 1 11" ]
+check "a bot reply does not lift the cap" $?
+verdict 1 changes 1; reply 1 mac-mini-agent "$between"
+run; [ "$out" = "fix 1 11" ]
+check "a bot reply older than the changes verdict still gives fix" $?
+reply 1 mac-mini-agent "$late" mac-mini-agent "$later" marker
+run; [ "$out" = "review 1 11" ]
+check "a verdict marker comment is not a reply (the reply before it still counts)" $?
+reply 1 mac-mini-agent "$later" marker
+run; [ "$out" = "fix 1 11" ]
+check "a verdict marker comment by the bot is not a reply" $?
+reply 1 someone-else "$late"
+run; [ "$out" = "fix 1 11" ]
+check "a reply by anyone else is not a bot reply" $?
+verdict 1 approve 0; reply 1 Adamniels "$late" mac-mini-agent "$later"
+run; [ "$out" = "merge 1 11" ]
+check "an owner comment older than a bot reply gives no fix" $?
+reply 1 mac-mini-agent "$mid" Adamniels "$late"
+run; [ "$out" = "fix 1 11" ]
+check "an owner comment newer than the bot reply gives fix" $?
+reply 1 Adamniels "$late" mac-mini-agent "$later"
+verdict 1 changes 1
+run; [ "$out" = "review 1 11" ]
+check "an owner comment older than a bot reply on a changes verdict gives review, not fix" $?
+setprs 5; verdict 5 approve 0; reply 5 Adamniels "$late" mac-mini-agent "$later"
+run; [ "$code" = 0 ] && [ -z "$out" ]
+check "a needs-owner PR whose owner comment is older than the bot reply yields nothing" $?
+reply 5 mac-mini-agent "$mid" Adamniels "$late"
+run; [ "$out" = "fix 5 15" ]
+check "a needs-owner PR whose owner comment is newer than the bot reply gives fix" $?
+comment_inline() { jq -n -c --arg t "$2" '[{user: {login: "Adamniels"}, created_at: $t}]' > "$FAKE_DATA/inline-$1.json"; }
+reply 5 mac-mini-agent "$later"; comment_inline 5 "$late"
+run; [ -z "$out" ]
+check "an owner inline comment older than the bot reply gives no fix" $?
+setprs 1; verdict 1 approve 0
 
 # needs-owner.
 pr 5 15 needs-owner

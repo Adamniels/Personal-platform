@@ -4,10 +4,12 @@
 #   bash scripts/agent/pending.sh
 #
 # One line, highest priority first:
-#   fix <pr> <slice>     the reviewer asked for changes on the head commit (at most 3 changes verdicts so far),
-#                        or the owner commented after both the latest verdict and the head commit
+#   fix <pr> <slice>     the reviewer asked for changes on the head commit (at most 3 changes verdicts so far)
+#                        and the bot has not answered since, or the owner commented after the PR was last handled
+#                        (the latest of head commit, verdict and bot reply, a non-verdict comment by the bot)
 #   cap <pr> <slice>     the reviewer asked for changes a fourth time or more: the round cap is reached
-#   review <pr> <slice>  no verdict for the head commit
+#   review <pr> <slice>  no verdict for the head commit, or a bot reply newer than a changes verdict (the fix run
+#                        answered without a commit; the reviewer reads the reply and issues a new verdict)
 #   merge <pr> <slice>   an approve verdict for the head commit
 #   resume <slice>       status In progress and no open PR
 #   new <slice>          the slice next.sh --number proposes
@@ -54,23 +56,39 @@ while IFS=$'\t' read -r pr sha slice labelled committed; do
   case "$kind" in approve|changes|none) ;; *) echo "pr #$pr: unreadable verdict line: $line" >&2; exit 1 ;; esac
   [[ "$count" =~ ^[0-9]+$ ]] && [[ "$vtime" =~ ^(-|[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z)$ ]] || { echo "pr #$pr: unreadable verdict line: $line" >&2; exit 1; }
 
-  : > "$tmp/comments.json"
-  for endpoint in "issues/$pr/comments" "pulls/$pr/comments" "pulls/$pr/reviews"; do
-    gh api "repos/$OWNER/$REPO_NAME/$endpoint" --paginate >> "$tmp/comments.json"
+  # Issue comments (which hold the bot's replies and the owner's comments) apart from inline comments and reviews.
+  gh api "repos/$OWNER/$REPO_NAME/issues/$pr/comments" --paginate > "$tmp/issue.json"
+  : > "$tmp/other.json"
+  for endpoint in "pulls/$pr/comments" "pulls/$pr/reviews"; do
+    gh api "repos/$OWNER/$REPO_NAME/$endpoint" --paginate >> "$tmp/other.json"
   done
-  owner_new="$(jq -s -r --arg owner "$OWNER" --arg vtime "$vtime" --arg committed "$committed" '
-    [.[][] | select(.user.login == $owner and (.state // "") != "PENDING")
-        | (.submitted_at // .created_at) | select(. != null) | fromdateiso8601] as $times
-    | ($committed | fromdateiso8601) as $c
-    | (if $vtime == "-" then $c else ([$c, ($vtime | fromdateiso8601)] | max) end) as $since
-    | [$times[] | select(. > $since)] | length' "$tmp/comments.json")" \
+  # R30: the PR was last handled at the latest of the head commit, the latest verdict and the latest bot reply (a
+  # comment by the bot that is not a verdict, by verdict.sh's rule). Prints "<owner input newer than that>
+  # <1 if a bot reply is newer than the verdict>".
+  handled="$(jq -n -r --slurpfile issue "$tmp/issue.json" --slurpfile other "$tmp/other.json" \
+    --arg owner "$OWNER" --arg bot "$BOT" --arg vtime "$vtime" --arg committed "$committed" '
+    def secs: fromdateiso8601;
+    [$issue[][] | select(.user.login == $bot)
+      | select(((.updated_at != null and .updated_at == .created_at)
+                and (((.body // "") | split("\n")[0])
+                     | test("\\A<!-- verdict: (approve|changes) sha=[0-9a-f]{40} -->\\z"))) | not)
+      | .created_at | secs] as $replies
+    | ($committed | secs) as $c
+    | (if $vtime == "-" then null else ($vtime | secs) end) as $v
+    | ([$c, $v] | map(select(. != null)) + $replies | max) as $handled
+    | [($issue[][], $other[][]) | select(.user.login == $owner and (.state // "") != "PENDING")
+        | (.submitted_at // .created_at) | select(. != null) | secs | select(. > $handled)] as $new
+    | "\($new | length) \([$replies[] | select($v != null and . > $v)] | length | if . > 0 then 1 else 0 end)"')" \
     || { echo "pr #$pr: could not compare timestamps" >&2; exit 1; }
+  read -r owner_new reply_after <<<"$handled"
 
   if [ "$owner_new" -gt 0 ]; then
     echo "1 $pr fix $slice" >> "$tmp/candidates"
   elif [ "$labelled" = true ]; then
     :
   elif [ "$vsha" != "$sha" ] || [ "$kind" = none ]; then
+    echo "3 $pr review $slice" >> "$tmp/candidates"
+  elif [ "$kind" = changes ] && [ "$count" -le "$MAX_CHANGES" ] && [ "$reply_after" = 1 ]; then
     echo "3 $pr review $slice" >> "$tmp/candidates"
   elif [ "$kind" = changes ] && [ "$count" -le "$MAX_CHANGES" ]; then
     echo "1 $pr fix $slice" >> "$tmp/candidates"
