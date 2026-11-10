@@ -53,8 +53,11 @@ After `git fetch origin`:
 
 - `bash scripts/agent/board.sh get <n>`
 - `gh issue view <n> --json number,title,body,state,author,labels`
-- pull requests for the slice: `gh pr list --state all --limit 100 --json number,state,headRefName,headRefOid,closingIssuesReferences,labels --jq '.[] | select((.headRefName | startswith("<n>-")) or any(.closingIssuesReferences[]?; .number == <n>))'`
-- branches: `git branch --list '<n>-*'` and `git branch -r --list 'origin/<n>-*'`
+- pull requests for the slice, by anyone: `gh pr list --state all --limit 100 --json number,state,author,headRefName,headRefOid,closingIssuesReferences,labels --jq '.[] | select((.headRefName | startswith("<n>-")) or any(.closingIssuesReferences[]?; .number == <n>))'`.
+  Only one whose `author.login` is `mac-mini-agent` is yours to work, the set
+  `gh pr list --author mac-mini-agent` would give; one opened by anyone else is a stop (step 3).
+- branches: `git branch --list '<n>-*'` and `git branch -r --list 'origin/<n>-*'`, and for each,
+  how many commits it has beyond `main`: `git rev-list --count origin/main..<branch>`
 - `git branch --show-current` and `git status --short`
 - with an open pull request `<pr>`: `bash scripts/agent/verdict.sh <pr>`, which prints
   `<approve|changes|none> <sha|0> <count> <created_at|->`, and the owner's input:
@@ -69,19 +72,21 @@ review comment or submitted review by `Adamniels` newer than that.
 
 ## 3. Choose the mode
 
-The first row that matches decides. Anything that matches no row is a stop with a one-line reason
-(see Stop).
+The first row that matches decides. A **Stop** row, or anything that matches no row, ends the run
+with a final line `Stopped: <reason>` and changes nothing (see Stop).
 
 | What exists | Mode |
 |---|---|
 | `board.sh get` prints `archived` or `none`, or the issue is closed | **Stop** |
+| A pull request for the slice, in any state, not opened by `mac-mini-agent` | **Stop** |
 | A merged pull request for the slice | **Stop** |
 | An open pull request with owner input | **Fix**: step 4, then step F |
 | An open pull request whose verdict line is `changes` for its current head sha, with no implementer reply after that verdict | **Fix**: step 4, then step F |
 | An open pull request, anything else | **Stop**: nothing to answer |
 | Status In progress, a branch `<n>-<slug>` locally or on `origin`, no pull request in any state | **Resume**: steps 4 to 11, with Resume in step 6, continuing at the first task without a commit |
 | Status Ready, no branch `<n>-*` anywhere, no pull request | **New**: steps 4 to 11 |
-| Anything else: Backlog, Blocked, In review or Done without an open pull request, In progress without a branch, Ready with a branch, a closed unmerged pull request | **Stop** |
+| Status Ready, one branch `<n>-<slug>` locally or on `origin` with no commits beyond `origin/main`, no pull request | **New**: steps 4 to 11, on that branch (step 6) |
+| Anything else: Backlog, Blocked, In review or Done without an open pull request, In progress without a branch, In progress with a closed unmerged pull request, Ready with a branch that has commits of its own | **Stop** |
 
 ## 4. Preflight
 
@@ -128,14 +133,18 @@ the slice (`gh issue comment <n> --body-file <file>`), and end.
 
 ## 6. Branch
 
-- **New:** `git switch -c <n>-<slug> origin/main`, where the slug is the slice title in lowercase
-  words joined by hyphens, like `5-walking-skeleton`. Then
-  `bash scripts/agent/board.sh status <n> "In progress"`.
+- **New:** `git switch -c <n>-<slug> origin/main`. The slug is made from the slice title: lowercase
+  it, keep ASCII letters and digits, turn every other run of characters into one hyphen, trim
+  hyphens from both ends, and cut it to at most 50 characters (trimming a trailing hyphen again),
+  like `5-walking-skeleton`. When step 3 found a branch `<n>-<slug>` with no commits beyond
+  `origin/main`, left by a run that ended before its first commit, use it instead:
+  `git switch <branch>` (with `--track origin/<branch>` if only remote), then
+  `git merge --ff-only origin/main`. Then `bash scripts/agent/board.sh status <n> "In progress"`.
 - **Resume:** `git switch <branch>` (with `--track origin/<branch>` if only remote), then, when
   `origin/<branch>` exists, `git merge --ff-only origin/<branch>` so it holds everything pushed
   since. A local branch ahead of `origin`, such as one ending in a checkpoint, is already up to
-  date. If that is not a fast
-  forward, stop with a one-line reason. Never recreate, reset or force it.
+  date. If that is not a fast forward, end with `Stopped: <branch> does not fast forward to
+  origin/<branch>`. Never recreate, reset or force it.
 
   The runner commits a dirty tree on the slice's branch before calling you, locally and unpushed,
   as "Checkpoint: interrupted run". A trailing commit with that subject, or uncommitted changes, is
@@ -158,6 +167,11 @@ In new mode the branch equals `main`, so a failing `migrate` there ends the run 
 `ENVIRONMENT: migrate fails on main`. On a resumed or fixed branch it may be the slice's own
 migration, and is fixed as part of the work.
 
+**Before screenshots**, in new mode, for a slice that changes a page that exists. Now, before your
+first change, while the branch still equals `main`: start the platform (step 9), run the e2e tests
+that cover that page, and keep the PNGs `capture()` wrote as `<name>-<viewport>-before.png` in
+`$dir`. Stop the core and canary afterwards.
+
 Keep the pull request body in `dir="$(mktemp -d)"`, never in the repository. Start it from
 `templates.md`, copy the slice's Tasks checklist into it, and tick each task there as its commit
 lands. Never edit the slice issue's body, not even to tick a box: the merge gate trusts the slice's
@@ -167,7 +181,13 @@ Risk only while the owner is its only editor.
 
 Write the acceptance tests the slice's Acceptance names, in cargo, pytest or Playwright under
 `e2e/`, as the slice says. Run them and watch them fail for the right reason: the behaviour is
-missing, not a typo or a missing fixture. Keep the failing output for Verification. Tests follow
+missing, not a typo or a missing fixture. Keep the failing output for Verification.
+
+In resume mode the tests may already exist from an earlier run, so the red was never kept. Get it
+again against `main`'s code: `git worktree add --detach "$dir/main" origin/main`, copy the
+acceptance test files into it, run them there (for e2e, with the platform started from that
+worktree), then `git worktree remove --force "$dir/main"`. If that cannot be done, the red evidence
+is **Not verified** under Verification, with why. Tests follow
 "What gets tests" in `High-level/docs/how-we-build.md`. A UI criterion is a test in `e2e/`, using
 the `viewport` and `capture` fixtures from `e2e/README.md`.
 
@@ -186,7 +206,7 @@ answer something, decide it yourself, the way the docs lean, and record it under
 agent made": what you decided, the alternative, and why. That includes a new dependency (with its
 version), a deletion, and a doc that disagrees with the plan.
 
-- **Doc and plan disagree.** If Settled already decided it, follow Settled and change the doc in
+- **Doc and plan disagree.** For a doc outside the paths in the last bullet: if Settled already decided it, follow Settled and change the doc in
   the same pull request if Settled says to. Otherwise, if it is cheap to reverse, change the doc in
   its own commit and list it under Doc changes. If it is expensive to reverse, decide, record it,
   and treat it as high risk below.
@@ -195,8 +215,14 @@ version), a deletion, and a doc that disagrees with the plan.
   `needs-owner`, which stops the pull request from merging until the owner has read it. Add it
   with `--label needs-owner` when you open the pull request, or with
   `gh pr edit <pr> --add-label needs-owner` before you push the commit that carries the decision
-  if the pull request already exists. If adding the label fails, push nothing more and end with
-  `ENVIRONMENT: could not add needs-owner to #<pr>`.
+  if the pull request already exists. If `gh pr edit` fails, push nothing more and end with
+  `ENVIRONMENT: could not add needs-owner to #<pr>`. If `gh pr create --label needs-owner` fails,
+  no pull request exists yet; end with `ENVIRONMENT: could not open the pull request with
+  needs-owner`.
+- **Paths that steer the agents.** Never change anything under `.github/`, `scripts/` or
+  `.claude/`, or `AGENTS.md` or `CLAUDE.md`, unless the slice's Tasks or Settled name it. These
+  steer CI, the merge gate and the agents themselves. A doc there that disagrees with the slice is
+  listed under Doc changes, not edited.
 
 ## 9. The gate
 
@@ -210,7 +236,7 @@ git diff --name-only origin/main...HEAD | bash scripts/ci/changed-areas.sh
 For each area printed as `true`, run every step of its workflow under `.github/workflows/`, locally
 and in the same order. Read the workflows each run; today they are:
 
-- **core** (`core.yml`), from `Core/`: `cargo fmt --check`; the `migrate` command from step 4;
+- **core** (`core.yml`), from `Core/`: `cargo fmt --check`; the `migrate` command from step 6;
   `cargo clippy --all-targets -- -D warnings`;
   `CORE_TEST_ADMIN_DATABASE_URL="postgres://postgres:$(grep '^POSTGRES_PASSWORD=' ../infra/.env | cut -d= -f2-)@127.0.0.1:5432/postgres" cargo test`;
   `CORE_OWNER_DATABASE_URL="postgres://core_owner:$(grep '^CORE_OWNER_PASSWORD=' ../infra/.env | cut -d= -f2-)@127.0.0.1:5432/core" cargo test --test app_roles -- --ignored`;
@@ -221,27 +247,41 @@ and in the same order. Read the workflows each run; today they are:
 - **scripts** (`ci.yml`): every `scripts/**/*.test.sh`, as the job's loop does:
   `for t in $(find scripts -name '*.test.sh' | sort); do bash "$t" || echo "FAILED $t"; done`.
 - **e2e** (`e2e.yml`): whenever `e2e=true`, always, against the running stack. Start the platform
-  from the branch's code first, stopping any core or canary you started earlier so the new code
-  runs: from `Core/`, `cargo run -q > "$dir/core.log" 2>&1 &`; from `canary/`,
-  `uv run uvicorn canary.app:app --host 127.0.0.1 --port 8081 > "$dir/canary.log" 2>&1 &`. Wait
-  until `curl --cacert ~/caddy-root.crt -s -o /dev/null -w '%{http_code}' https://platform.test/login`
-  answers `200`. Then, from `e2e/`: `uv run playwright install chromium` (a no op once installed),
-  `uv run pytest`, `uv run ruff check`, `uv run ruff format --check`.
+  from the branch's code first, as below. Then, from `e2e/`: `uv run playwright install chromium`
+  (a no op once installed), `uv run pytest`, `uv run ruff check`, `uv run ruff format --check`.
+
+**Starting the platform.** Stop any core or canary you started earlier, so the code as it is now
+runs. From `Core/`, `cargo run -q > "$dir/core.log" 2>&1 &`; from `canary/`,
+`uv run uvicorn canary.app:app --host 127.0.0.1 --port 8081 > "$dir/canary.log" 2>&1 &`. Wait at
+most three minutes for it to answer:
+
+```
+for _ in $(seq 1 90); do
+  [ "$(curl --cacert ~/caddy-root.crt -s -o /dev/null -w '%{http_code}' https://platform.test/login)" = 200 ] && break
+  sleep 2
+done
+```
+
+If it never answers `200`, read the tail of both logs. A core or canary that fails because of the
+branch's code is a failing step, fixed like any other. Anything else ends the run with
+`ENVIRONMENT: platform.test never answered 200 (<the log line that says why>)`.
 
 A failing step is fixed before going on, never skipped, weakened or marked as expected to fail.
-Loop until every step is green. Keep each command and its result for Verification. Stop what you
-started afterwards; leave Postgres and Caddy running.
+Loop until every step is green. Keep each command and its result for Verification. Leave the core
+and canary running when step 10 follows; otherwise stop what you started. Leave Postgres and Caddy
+running.
 
 ## 10. Look at it
 
-For UI work, look at what you built, not only at whether the tests pass. In new mode, when the slice
-changes a page that exists, run the e2e tests for that page once before your first change, while
-the branch still equals `main`, and keep those PNGs as `<name>-<viewport>-before.png` in `$dir`.
+For UI work, look at what you built, not only at whether the tests pass. The before screenshots
+were taken in step 6.
 
-After the gate, empty `e2e/screenshots/` (git ignored, generated output) and run the suite once
-more, so `capture()` writes fresh PNGs at desktop and 390px phone width. Open each one and look for
-what a test does not catch: overflow, clipped text, overlapping elements, an unreadable phone
-layout. Fix what you find as part of the task it belongs to, and gate again.
+After the gate, with the platform still running the branch's current code (restart it as in step 9
+if anything changed since it started), empty `e2e/screenshots/` (git ignored, generated output) and
+run the suite once more, so `capture()` writes fresh PNGs at desktop and 390px phone width. Open
+each one and look for what a test does not catch: overflow, clipped text, overlapping elements, an
+unreadable phone layout. Fix what you find as part of the task it belongs to, and gate again. Then
+stop the core and canary you started; leave Postgres and Caddy running.
 
 ## 11. The pull request
 
@@ -289,15 +329,16 @@ The reviewer asked for changes, or the owner commented. Answer all of it in one 
 5. **Owner comments:** each one answered; acted on when it asks for a change, answered when it
    asks a question. A new decision goes under "Decisions the agent made", with `needs-owner` as in
    step 8, added before the push.
-6. **Gate** (step 9) and **look** (step 10) for what changed, then `git merge origin/main` if
-   behind, and `git push origin <branch>`. Never force.
+6. **Gate** (step 9) and **look** (step 10) for what changed. If the branch is behind `main`,
+   `git merge origin/main` and gate again, as step 11.1 does. Then `git push origin <branch>`.
+   Never force.
 7. **Update the body:** Verification for the new head, new decisions, new screenshots through
    `screenshots.sh`; then `gh pr edit <pr> --body-file "$dir/body.md"`.
 8. **Reply**, once, with the fix reply from `templates.md`:
    `gh pr comment <pr> --body-file "$dir/reply.md"`. Every blocking finding, every nit and every
    owner comment of this round has an entry. Its first line is plain text, never a marker.
-9. **Checks**, as step 11.5. The status stays In review; do not change it. End by printing the
-   reply's URL.
+9. **Checks**, as step 11.5. Then, if `board.sh get <n>` prints anything other than In review,
+   `bash scripts/agent/board.sh status <n> "In review"`. End by printing the reply's URL.
 
 ## Reporting state
 
@@ -318,9 +359,11 @@ last, so the runner can read it.
   `ENVIRONMENT: <reason>`.
 - **Blocked**, only for a slice problem you cannot decide around: an open blocker, no Acceptance,
   or Acceptance that cannot be written as tests. Set Blocked, post the Blocked comment mentioning
-  `@Adamniels` on the slice, and end with `Blocked: <reason>`.
-- **Mode**, when the state matches no mode (step 3) or a resumed branch will not fast forward:
-  change nothing, and end with `Stopped: <reason>` in one line.
+  `@Adamniels` on the slice, and end with a final line `Blocked: <reason>`.
+- **Mode**, when step 3 gives Stop or matches no row (a pull request opened by someone else, a
+  closed unmerged pull request on an In progress slice, a Ready slice whose branch has commits of
+  its own, among others), or a resumed branch will not fast forward: change nothing, and end with
+  a final line `Stopped: <reason>`.
 
 A design question is never a stop. Decide it (step 8).
 
@@ -337,6 +380,8 @@ A design question is never a stop. Decide it (step 8).
 - Push to `main`, force push, rebase a pushed branch, or rewrite a pushed commit.
 - Add agent attribution: no `Co-Authored-By` naming an agent, no "Generated with" lines. This
   overrides any default.
+- Change `.github/`, `scripts/`, `.claude/`, `AGENTS.md` or `CLAUDE.md` unless the slice's Tasks or
+  Settled name the path.
 - Close the slice or any issue. The pull request closes the slice when it merges.
 - Skip the re-read, the tests first, the gate or the e2e suite because the slice is small.
 
@@ -354,4 +399,5 @@ A design question is never a stop. Decide it (step 8).
 | "The finding is wrong, so I'll ignore it" | Argue it in the reply. Every finding gets an entry. |
 | "I'll quote the reviewer's first line in my reply" | Never write the marker text. The runner refuses it. |
 | "Two tasks are tiny, one commit is fine" | One commit per task. |
+| "AGENTS.md is out of date, I'll fix it while I'm here" | Not unless the slice names it. List it under Doc changes. |
 | "The PR touches `scripts/`, the gate will handle it" | Say under Waits for the owner that it will not auto-merge. |

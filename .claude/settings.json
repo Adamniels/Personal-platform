@@ -2,6 +2,7 @@
   "permissions": {
     "deny": [
       "Bash(gh pr merge *)",
+      "Bash(gh api *pulls/*/merge*)",
       "Bash(*merge-gate.sh*)",
       "Bash(git push * main)",
       "Bash(git push *:main)",
@@ -11,6 +12,7 @@
       "Bash(git push -f *)",
       "Bash(git push * --force*)",
       "Bash(git push * -f *)",
+      "Bash(git push *+*)",
       "Bash(* --admin*)"
     ]
   }

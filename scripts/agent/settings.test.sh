@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Offline tests for the deny rules in .claude/settings.json, the last line of defence for an
-# unattended agent: it must never merge, never run the merge gate itself, never push to main,
-# never force push and never use an admin bypass.
+# unattended agent: it must never merge (by gh pr merge or the API), never run the merge gate
+# itself, never push to main, never force push (by flag or a + refspec) and never use an admin bypass.
 # Run: bash scripts/agent/settings.test.sh
 set -uo pipefail
 
@@ -17,7 +17,9 @@ bad() { echo "FAIL $1"; [ -n "${2:-}" ] && echo "     $2"; fail=$((fail + 1)); }
 # to it without being added here both fail, so the list cannot drift silently.
 expected='Bash(* --admin*)
 Bash(*merge-gate.sh*)
+Bash(gh api *pulls/*/merge*)
 Bash(gh pr merge *)
+Bash(git push *+*)
 Bash(git push * --force*)
 Bash(git push * -f *)
 Bash(git push * HEAD:main)
