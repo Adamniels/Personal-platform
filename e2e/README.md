@@ -1,0 +1,45 @@
+# e2e
+
+The platform's acceptance suite. Every planned acceptance criterion that has a UI is a test here,
+written with Playwright (Python) and run against `https://platform.test`, the way a person would use
+the platform. A slice is not done until its criteria pass here.
+
+## Running it
+
+The stack must be up, as step 3 of `.claude/skills/pick-up-slice/SKILL.md` describes: from `infra/`,
+`docker compose up -d --wait`; `migrate` as the owner role from `Core/`; and the core with
+`cargo run` from `Core/`. Then, from this directory:
+
+```zsh
+uv run playwright install chromium   # once
+uv run pytest
+uv run ruff check
+uv run ruff format --check
+```
+
+With the stack down the tests fail with a connection error, which is the expected red.
+Screenshots land in `screenshots/`, which is git ignored.
+
+## Fixtures
+
+- `base_url` is `https://platform.test` (set in `pyproject.toml`), and the browser context ignores
+  HTTPS errors, so the suite does not depend on the laptop's keychain trusting Caddy's local CA.
+- `invite_code` runs `cargo run -q -- invite` in `Core/` and returns the code. Each test gets its own.
+- `viewport` runs the test twice, `[desktop]` (1280x800) and `[phone]` (390x844), and sizes the page.
+- `capture(page, name)` writes a full page screenshot to `screenshots/<name>-<viewport>.png` and
+  returns the path. It needs the page to be sized by the `viewport` fixture.
+
+`/register` does not prefill the code from a query string, so tests fill the `code` field.
+
+## Libraries
+
+**uv for the toolchain**, as in `canary/`: a locked `uv.lock` and the Python pinned in
+`.python-version`.
+
+**pytest with pytest-playwright (0.10.0, playwright 1.65.0).** Chosen because the plugin supplies
+the `page` fixture, browser lifecycle and `base_url`, so tests are plain functions like canary's.
+Playwright's own Node test runner was the alternative, but it would add a second language to a
+repository that already has Rust and Python. Playwright over Selenium for auto-waiting assertions
+(`expect`), which removes most sleeps and flakiness.
+
+**pytest 9.2.0** and **ruff 0.17.4** with default rules, as in `canary/`.

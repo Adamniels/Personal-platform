@@ -1,0 +1,16 @@
+[project]
+name = "e2e"
+version = "0.1.0"
+requires-python = ">=3.14"
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "pytest>=9.2.0",
+    "pytest-playwright>=0.10.0",
+    "ruff>=0.17.4",
+]
+
+[tool.pytest.ini_options]
+base_url = "https://platform.test"
+testpaths = ["tests"]
