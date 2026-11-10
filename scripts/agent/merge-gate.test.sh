@@ -11,8 +11,8 @@ trap 'rm -rf "$tmp"' EXIT
 mkdir "$tmp/bin" "$tmp/scripts" "$tmp/data"
 
 # Fixtures in $FAKE_DATA: pr.json (gh pr view), files.json (the PR's changed files), checks-<sha>.json (check
-# runs of that commit, default none), comments.json (PR comments), issue-<n>.json (the GraphQL issue read; a
-# missing file is a GraphQL error). FAKE_FAIL=<pattern> makes any call whose
+# runs of that commit, default none), comments.json (PR comments), issue-<n>.json (page 1 of the GraphQL issue
+# read; a missing file is a GraphQL error) and issue-<n>-2.json (page 2, served only with --paginate). FAKE_FAIL=<pattern> makes any call whose
 # arguments match the shell pattern fail; FAKE_MERGE_FAILS=1 makes the merge fail.
 cat > "$tmp/bin/gh" <<'FAKE'
 #!/usr/bin/env bash
@@ -36,7 +36,8 @@ case "$*" in
     n="$(printf '%s' "$*" | sed -n 's/.*issue(number:\([0-9]*\)).*/\1/p')"
     f="$FAKE_DATA/issue-$n.json"
     [ -f "$f" ] || { echo "GraphQL: Could not resolve to an issue with the number of $n." >&2; exit 1; }
-    serve "$f" ;;
+    serve "$f"
+    case " $* " in *" --paginate "*) [ ! -f "$FAKE_DATA/issue-$n-2.json" ] || serve "$FAKE_DATA/issue-$n-2.json" ;; esac ;;
   "pr merge "*)
     if [ "${FAKE_MERGE_FAILS:-0}" = 1 ]; then echo "Pull request is not mergeable" >&2; exit 1; fi ;;
   *) echo "unexpected gh call: $*" >&2; exit 9 ;;
@@ -103,10 +104,20 @@ verdict() {
 Review text." '[{id: 1, user: {login: "mac-mini-agent"}, created_at: "2026-11-01T10:00:00Z",
                  updated_at: "2026-11-01T10:00:00Z", body: $b}]' > "$FAKE_DATA/comments.json"
 }
-# risk <body of the slice issue>: an issue written by the owner and never edited.
+# risk <body of the slice issue>: an open issue written by the owner and never edited.
 risk() {
-  jq -n -c --arg b "$1" '{data: {repository: {issue: {body: $b, author: {login: "Adamniels"}, editor: null,
-    lastEditedAt: null}}}}' > "$FAKE_DATA/issue-$SLICE.json"
+  jq -n -c --arg b "$1" '{data: {repository: {issue: {state: "OPEN", body: $b, author: {login: "Adamniels"},
+    userContentEdits: {pageInfo: {hasNextPage: false, endCursor: null}, nodes: []}}}}}' > "$FAKE_DATA/issue-$SLICE.json"
+}
+# history <page 1 editors> [page 2 editors]: the slice's edit history, editors comma separated, `ghost` for a
+# null editor. With a second page, page 1 says there is a next page.
+history() {
+  local more=false; [ $# -ge 2 ] && more=true
+  local set='.data.repository.issue.userContentEdits = {pageInfo: {hasNextPage: $more, endCursor: "c"},
+    nodes: [$e | split(",")[] | select(. != "") | {editor: (if . == "ghost" then null else {login: .} end)}]}'
+  jq -c --arg e "$1" --argjson more "$more" "$set" "$FAKE_DATA/issue-$SLICE.json" > "$FAKE_DATA/h.tmp" \
+    && mv "$FAKE_DATA/h.tmp" "$FAKE_DATA/issue-$SLICE.json"
+  [ $# -lt 2 ] || jq -c --arg e "$2" --argjson more false "$set" "$FAKE_DATA/issue-$SLICE.json" > "$FAKE_DATA/issue-$SLICE-2.json"
 }
 body_low="## What
 
@@ -283,6 +294,29 @@ low
 "
 run 7; [ "$code" = 0 ] && merged
 check "headings inside a fenced block neither end nor repeat the Risk section" $?
+# A fence closes only on its own character with at least its opening length, and nothing after it.
+fenced_ok=(
+  "$(printf '## Risk\n\nlow\n\n```\n~~~\n## Risk\nhigh\n```\n')"
+  "$(printf '## Risk\n\nlow\n\n````\n```\n## Risk\nhigh\n````\n')"
+  "$(printf '## What\n\n~~~\n```\n~~~\n\n## Risk\n\nlow\n')"
+  "$(printf '## What\n\n```\nx\n```   \n\n## Risk\n\nlow\n')"
+)
+for b in "${fenced_ok[@]}"; do
+  good; risk "$b"
+  run 7; [ "$code" = 0 ] && merged; r=$?
+  check "fences close only on a matching fence (low): $(printf '%s' "$b" | tr '\n' '|')" $r
+done
+fenced_bad=(
+  "$(printf '## What\n\n```\n~~~\n## Risk\n\nlow\n```\n')"
+  "$(printf '## What\n\n````\n```\n## Risk\n\nlow\n````\n')"
+  "$(printf '## What\n\n```\n``` not a close\n## Risk\n\nlow\n```\n')"
+  "$(printf '## What\n\n~~~~\n~~~\n## Risk\n\nlow\n')"
+)
+for b in "${fenced_bad[@]}"; do
+  good; risk "$b"
+  run 7; not_eligible "risk is not low"; r=$?
+  check "a Risk heading inside an unclosed or mismatched fence is no section: $(printf '%s' "$b" | tr '\n' '|')" $r
+done
 
 # The slice is the one closing issue in this repository whose number starts the head branch name.
 good; pr "" ""
@@ -308,31 +342,56 @@ good; edit pr.json '.closingIssuesReferences[0].repository.owner.login = "someon
 run 7; not_eligible "slice is not the branch's planned issue" "risk is not low"
 check "a closing issue under another owner is refused" $?
 
-# The risk record must be the owner's: written by the owner and, if edited, last edited by the owner.
+# The risk record must be the owner's: written by the owner and only ever edited by the owner.
 good; edit "issue-$SLICE.json" '.data.repository.issue.author.login = "mac-mini-agent"'
 run 7; not_eligible "risk record is not the owner's"
 check "a slice written by someone else: risk record is not the owner's" $?
 good; edit "issue-$SLICE.json" '.data.repository.issue.author = null'
 run 7; not_eligible "risk record is not the owner's"
 check "a slice with no author: risk record is not the owner's" $?
-good; edit "issue-$SLICE.json" '.data.repository.issue.editor = {login: "mac-mini-agent"} | .data.repository.issue.lastEditedAt = "2026-11-02T10:00:00Z"'
+good; history "mac-mini-agent"
 run 7; not_eligible "risk record is not the owner's"
-check "a slice last edited by someone else: risk record is not the owner's" $?
-good; edit "issue-$SLICE.json" '.data.repository.issue.editor = {login: "Adamniels"} | .data.repository.issue.lastEditedAt = "2026-11-02T10:00:00Z"'
+check "a slice edited by someone else: risk record is not the owner's" $?
+good; history "mac-mini-agent,Adamniels"
+run 7; not_eligible "risk record is not the owner's"
+check "a bot edit followed by an owner edit: risk record is not the owner's" $?
+good; history "Adamniels,ghost"
+run 7; not_eligible "risk record is not the owner's"
+check "an edit by a ghost (null) editor: risk record is not the owner's" $?
+good; history "Adamniels,Adamniels"
 run 7; [ "$code" = 0 ] && merged
-check "a slice last edited by the owner passes" $?
-good; edit "issue-$SLICE.json" '.data.repository.issue.editor = null | .data.repository.issue.lastEditedAt = "2026-11-02T10:00:00Z"'
+check "a slice edited only by the owner passes" $?
+good; history "Adamniels" "Adamniels,Adamniels"
+run 7; [ "$code" = 0 ] && merged && grep -q 'api graphql.*--paginate' "$FAKE_GH_LOG"
+check "owner-only edits across two pages pass" $?
+good; history "Adamniels" "Adamniels,mac-mini-agent"
 run 7; not_eligible "risk record is not the owner's"
-check "an edited slice whose editor is unknown: risk record is not the owner's" $?
+check "a non-owner edit on the second page: risk record is not the owner's" $?
+good; edit "issue-$SLICE.json" '.data.repository.issue.userContentEdits.pageInfo.hasNextPage = true'
+run 7; [ "$code" = 1 ] && [ -z "$out" ] && ! merged
+check "an edit history that claims more pages than were read exits 1 without merging" $?
+good; edit "issue-$SLICE.json" 'del(.data.repository.issue.userContentEdits)'
+run 7; [ "$code" = 1 ] && ! merged
+check "a missing edit history exits 1 without merging" $?
+
+# The slice must be open.
+good; edit "issue-$SLICE.json" '.data.repository.issue.state = "CLOSED"'
+run 7; not_eligible "slice is not open"
+check "a closed slice: slice is not open" $?
+good; edit "issue-$SLICE.json" 'del(.data.repository.issue.state)'
+run 7; not_eligible "slice is not open"
+check "a slice without a state: slice is not open" $?
 
 # Protected paths.
 for f in .github/workflows/ci.yml scripts/agent/merge-gate.sh scripts/ci/ci-ok.sh .claude/skills/x/SKILL.md \
-  ".github/x=>docs/x" "docs/x=>scripts/x"; do
+  ".github/x=>docs/x" "docs/x=>scripts/x" Scripts/x .Claude/y .GITHUB/z "docs/x=>SCRIPTS/x" AGENTS.md CLAUDE.md \
+  claude.md Agents.Md "AGENTS.md=>docs/agents.md"; do
   good; files docs/README.md "$f"
   run 7; not_eligible "touches protected paths"; r=$?
   check "touches protected paths: $f" $r
 done
-for f in docs/scripts/x.md core/.github.md src/claude/x github/x; do
+for f in docs/scripts/x.md core/.github.md src/claude/x github/x agithub/x xscripts/x a.claude/x docs/AGENTS.md \
+  docs/CLAUDE.md CLAUDE.md.bak AGENTSXmd; do
   good; files "$f"
   run 7; [ "$code" = 0 ] && merged; r=$?
   check "not a protected path: $f" $r
@@ -409,10 +468,11 @@ pr needs-owner; files .github/x; checks "$HEAD" ci-ok completed failure; verdict
 
 high"
 edit pr.json '.author.login = "x" | .baseRefName = "dev" | .isDraft = true | .isCrossRepository = true'
-edit "issue-$SLICE.json" '.data.repository.issue.author.login = "x"'
+edit "issue-$SLICE.json" '.data.repository.issue.author.login = "x" | .data.repository.issue.state = "CLOSED"'
 run 7; not_eligible "author is not the bot" "base is not main" "pull request is a draft" \
   "head is from another repository" "touches protected paths" "ci-ok failed" "verdict is not approve" \
-  "verdict is not for the head commit" "risk is not low" "risk record is not the owner's" "needs-owner label is set"
+  "verdict is not for the head commit" "slice is not open" "risk is not low" "risk record is not the owner's" \
+  "needs-owner label is set"
 check "every unmet condition is reported" $?
 good; edit pr.json '.headRefName = "x"'; checks "$HEAD" ci-ok in_progress null
 run 7; not_eligible "ci-ok is pending" "slice is not the branch's planned issue" "risk is not low"
