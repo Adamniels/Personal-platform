@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Offline tests for the deny rules in .claude/settings.json, the last line of defence for an
-# unattended agent: it must never merge (by gh pr merge or the API), never run the merge gate
+# unattended agent: it must never merge (by gh pr merge, the REST API, or a GraphQL merge or auto merge), never run the merge gate
 # itself, never push to main, never force push (by flag or a + refspec) and never use an admin bypass.
 # Run: bash scripts/agent/settings.test.sh
 set -uo pipefail
@@ -18,6 +18,8 @@ bad() { echo "FAIL $1"; [ -n "${2:-}" ] && echo "     $2"; fail=$((fail + 1)); }
 expected='Bash(* --admin*)
 Bash(*merge-gate.sh*)
 Bash(gh api *pulls/*/merge*)
+Bash(gh api graphql*enablePullRequestAutoMerge*)
+Bash(gh api graphql*mergePullRequest*)
 Bash(gh pr merge *)
 Bash(git push *+*)
 Bash(git push * --force*)
