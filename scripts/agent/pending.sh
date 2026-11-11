@@ -40,7 +40,23 @@ tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
 gh pr list --repo "$OWNER/$REPO_NAME" --state open --author "$BOT" --limit 100 \
-  --json number,headRefOid,headRefName,labels,closingIssuesReferences,commits > "$tmp/prs.json"
+  --json number,headRefOid,headRefName,labels,closingIssuesReferences > "$tmp/prs-list.json"
+
+# The head commit's date, one small read per pull request. Asking the list for `commits` instead pulls
+# every commit's authors for every pull request, which exceeds GitHub's GraphQL node limit.
+# A file, not `for sha in $(jq ...)`: a failing command there yields an empty list instead of stopping.
+jq -r '.[].headRefOid' "$tmp/prs-list.json" > "$tmp/shas" \
+  || { echo "could not read the pull request list" >&2; exit 1; }
+echo '{}' > "$tmp/dates.json"
+while read -r sha; do
+  date="$(gh api "repos/$OWNER/$REPO_NAME/commits/$sha" --jq .commit.committer.date)"
+  jq --arg s "$sha" --arg d "$date" '.[$s] = $d' "$tmp/dates.json" > "$tmp/dates.next"
+  mv "$tmp/dates.next" "$tmp/dates.json"
+done < "$tmp/shas"
+jq --slurpfile d "$tmp/dates.json" \
+  'map(. + {commits: (($d[0][.headRefOid] // "") as $c | if $c == "" then [] else [{committedDate: $c}] end)})' \
+  "$tmp/prs-list.json" > "$tmp/prs.json" \
+  || { echo "could not read the pull request list" >&2; exit 1; }
 
 # One candidate per line: "<priority> <pr> <kind> <slice>"; the smallest sorts first.
 : > "$tmp/candidates"
