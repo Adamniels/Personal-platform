@@ -9,6 +9,9 @@ platform.test {
 	# ask Let's Encrypt and fail. Caddy's own CA signs instead.
 	tls internal
 
+	# Each feature's route here has its entry in features.toml beside this
+	# file, and the two change in the same commit.
+	#
 	# /canary and everything under it, but not /canaryfoo. handle rather
 	# than handle_path, so canary receives the prefix.
 	@canary path /canary /canary/*

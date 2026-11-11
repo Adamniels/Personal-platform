@@ -1,0 +1,20 @@
+# The feature registry: every feature the core knows about, read once when the
+# core starts, so a change here needs a restart. Change it in the same commit
+# as the Caddyfile beside it, which routes each prefix to the same upstream.
+# See "The feature registry" in Core/docs/core-architecture.md, and
+# features.toml in infra/README.md.
+#
+# One [[feature]] table per feature, in the order they should appear:
+#   name      the display name, not empty
+#   prefix    / and one segment of lowercase letters, digits and hyphens,
+#             the path Caddy routes to the feature, prefix kept
+#   upstream  http:// or https://, a host and an optional port, nothing
+#             after it: where the core calls the feature directly, never
+#             through Caddy
+#   display   optional, the feature's display endpoint for the front page,
+#             under its own prefix
+
+[[feature]]
+name = "Canary"
+prefix = "/canary"
+upstream = "http://127.0.0.1:8081"
