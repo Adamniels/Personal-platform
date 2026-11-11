@@ -6,9 +6,9 @@ the platform. A slice is not done until its criteria pass here.
 
 ## Running it
 
-The stack must be up, as step 3 of `.claude/skills/pick-up-slice/SKILL.md` describes: from `infra/`,
-`docker compose up -d --wait`; `migrate` as the owner role from `Core/`; and the core with
-`cargo run` from `Core/`. Then, from this directory:
+The stack must be up, as `.claude/skills/pick-up-slice/SKILL.md` describes: from `infra/`,
+`docker compose up -d --wait` (step 4, Preflight); `migrate` as the owner role from `Core/` (step
+6, Branch); and the core with `cargo run` from `Core/`. Then, from this directory:
 
 ```zsh
 uv run playwright install chromium   # once

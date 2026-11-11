@@ -176,12 +176,14 @@ decision, never by the gate, which only reads it.
 Once the reviewer approves a pull request that waits for him, the runner announces it to the owner
 once per head commit. A pull request whose review rounds ran out is handed over once. He merges it
 on GitHub, or comments, and a comment newer than the pull request's last handling starts a fix run
-that answers it, followed by a new review.
+that answers it, followed by a new review. On a pull request whose review rounds ran out, a fix run
+that only replies, with no new commit, gets no new review, and the pull request waits for him again.
 
 The owner is mentioned on the slice when an approved pull request waits for him, once per head
 commit, when a pull request's review rounds run out, when the gate refuses for any other reason,
 when a slice goes Blocked, when an interruption has lasted over 30 minutes, and once when the queue
-empties.
+empties. A Blocked notice for a pull request's item goes on that pull request instead, and a usage
+limit pause mentions him only once it has lasted 6 hours or hit 10 limits in a row on one item.
 
 ## The runner
 
@@ -301,8 +303,8 @@ runner clears between planning sessions.
 
 ### Check
 
-In the clone, each of these holds. Every run checks the first three itself and ends with
-`ENVIRONMENT: not the bot` if one fails:
+In the clone, each of these holds. Every implementer run checks the first three itself and ends
+with `ENVIRONMENT: not the bot` if one fails; the reviewer checks none of them:
 
 - `gh api user --jq .login` prints `mac-mini-agent`
 - `git config user.email` ends with `+mac-mini-agent@users.noreply.github.com`
@@ -352,5 +354,5 @@ fresh clone, switch to `main` before it. Detach with `Ctrl-b d`; the runner keep
 | Runs fail at once asking to log in, over SSH | Unlock the login keychain in the runner's tmux session, step 10 |
 | `curl` reports an expired certificate after the Mac mini was off | "After Caddy has been stopped for a while" in `infra/README.md` |
 | The runner pauses and mentions an environment problem | Read the last agent log in `~/agent-logs/`; fix what it names, and the runner carries on |
-| A slice was set Blocked | Read its Blocked comment, fix the slice from the owner's account or the cause, and set it Ready |
+| A slice was set Blocked | Read its Blocked notice and fix the slice from the owner's account, or the cause. Then, by what exists: with an open pull request, comment on it, and the runner moves the slice to In review; with a branch that has commits but no pull request, set the slice In progress; with neither, set it Ready. `needs-owner` stays on the pull request after unblocking, so it waits for the owner until he removes the label |
 | Every pull request waits with "risk record is not the owner's" | The slices were created or edited from another account; recreate them as `Adamniels` |
