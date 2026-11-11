@@ -24,6 +24,7 @@ check "failure named, success not" 1 "e2e: failure" '{"e2e":{"result":"failure"}
 check "empty needs" 0 "" '{}'
 check "malformed json fails" 1 "ci-ok: could not read the needs context" 'not json'
 check "empty stdin fails" 1 "ci-ok: could not read the needs context" ''
+check "whitespace only stdin fails" 1 "ci-ok: could not read the needs context" $' \n\t\n'
 check "array fails" 1 "ci-ok: could not read the needs context" '[]'
 check "string fails" 1 "ci-ok: could not read the needs context" '"x"'
 

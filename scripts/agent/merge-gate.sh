@@ -25,8 +25,9 @@
 #   risk record is not the owner's          the slice issue was not written by the owner, or any edit in its
 #                                           whole history was made by someone else (or by an unnamed editor)
 #   needs-owner label is set                the PR carries the needs-owner label
-# The runner reads these lines: it waits on `ci-ok is pending` alone, asks the owner on `risk is not low`
-# alone, and escalates otherwise, so they are an interface.
+# The runner reads these lines: it waits whenever `ci-ok is pending` is among them, hands the PR to the owner as
+# ready when the only ones are `risk is not low` and `touches protected paths`, and escalates otherwise, so they
+# are an interface.
 #
 # Risk is low when the first non-empty line of the slice body's first and only `## Risk` section (up to the
 # next `## ` heading) has `low` as its first word, case-sensitive, allowing one trailing comma or period:

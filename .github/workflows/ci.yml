@@ -10,6 +10,10 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# Read only: no job here writes to the repository or to GitHub.
+permissions:
+  contents: read
+
 jobs:
   changes:
     runs-on: ubuntu-latest

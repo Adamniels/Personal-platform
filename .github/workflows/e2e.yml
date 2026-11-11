@@ -7,6 +7,10 @@ on:
   workflow_call:
   workflow_dispatch:
 
+# Read only: no job here writes to the repository or to GitHub.
+permissions:
+  contents: read
+
 jobs:
   acceptance:
     runs-on: ubuntu-latest
@@ -123,6 +127,14 @@ jobs:
       - name: Run the suite
         working-directory: e2e
         run: uv run pytest
+
+      - name: Lint
+        working-directory: e2e
+        run: uv run ruff check
+
+      - name: Format
+        working-directory: e2e
+        run: uv run ruff format --check
 
       - name: Show the server logs
         if: failure()

@@ -7,8 +7,8 @@ set -uo pipefail
 
 needs="$(cat)"
 
-# Fail closed: no input at all must not read as "nothing failed".
-if [ -z "$needs" ]; then
+# Fail closed: no input, or only whitespace, must not read as "nothing failed".
+if [ -z "${needs//[[:space:]]/}" ]; then
   echo "ci-ok: could not read the needs context" >&2
   exit 1
 fi

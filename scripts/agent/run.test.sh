@@ -22,6 +22,7 @@ cat > "$tmp/bin/claude" <<'FAKE'
 #!/usr/bin/env bash
 for a in "$@"; do printf '%s|' "$a"; done >> "$D/claude.log"; echo >> "$D/claude.log"
 g="$(command -v gh)"; if grep -q 'gh-guard' "$g" 2>/dev/null; then echo guard >> "$D/claude-gh.log"; else echo plain >> "$D/claude-gh.log"; fi
+if [ -z "${AGENT_GH_GUARD+x}" ]; then echo unset >> "$D/claude-env.log"; elif [ "$AGENT_GH_GUARD" = "$g" ]; then echo first >> "$D/claude-env.log"; else echo other >> "$D/claude-env.log"; fi
 if [ -x "$D/claude-hook" ]; then "$D/claude-hook"; fi
 line="0 300 done"
 if [ -s "$D/claude.queue" ]; then line="$(head -n1 "$D/claude.queue")"; sed -i.bak 1d "$D/claude.queue"; fi
@@ -120,6 +121,7 @@ echo "${FAKE_VERDICT:-approve aaaa 0 2027-01-15T08:00:00Z}"
 FAKE
 cp "$here/gh-guard.sh" "$tmp/scripts/gh-guard.sh"
 chmod +x "$tmp/bin/"* "$tmp/scripts/"*
+unset AGENT_GH_GUARD
 export PATH="$tmp/bin:$PATH" AGENT_SCRIPTS="$tmp/scripts" AGENT_SLEEP="$tmp/bin/fakesleep" TZ=UTC
 for c in claude gh docker df date; do
   [ "$(command -v "$c")" = "$tmp/bin/$c" ] || { echo "the fake $c is not first on PATH" >&2; exit 1; }
@@ -168,11 +170,14 @@ fails() { cat "$AGENT_HOME/agent-logs/failures/$1" 2>/dev/null || echo 0; }
 setup; pending "new 41"; runner
 check "new 41 runs claude -p /pick-up-slice 41 in auto mode" \
   $(grep -q '^-p|/pick-up-slice 41|--permission-mode|auto|--disallowedTools|' "$D/claude.log"; echo $?)
-check "an implementer run blocks Bash commands with verdict:" $(grep -qF '|Bash(*verdict:*)|' "$D/claude.log"; echo $?)
+check "an implementer run blocks Bash commands with the marker text" \
+  $(grep -qF '|Bash(*verdict: *)|' "$D/claude.log" && grep -qF '|Bash(*<!--*)|' "$D/claude.log" \
+    && ! grep -qF '|Bash(*verdict:*)|' "$D/claude.log"; echo $?)
 check "an implementer run blocks PATCH and DELETE through gh api" \
   $(grep -qF '|Bash(*gh api *-X PATCH*)|' "$D/claude.log" && grep -qF '|Bash(*gh api *--method DELETE*)|' "$D/claude.log"; echo $?)
 check "an implementer run blocks the merge gate" $(grep -qF '|Bash(*merge-gate.sh*)|' "$D/claude.log"; echo $?)
 check "an implementer run sees the gh guard first on PATH (R36)" $([ "$(cat "$D/claude-gh.log")" = guard ]; echo $?)
+check "an implementer run gets AGENT_GH_GUARD naming the gh first on its PATH" $([ "$(cat "$D/claude-env.log")" = first ]; echo $?)
 check "the stop file ends the loop with exit 0" $([ "$rc" = 0 ]; echo $?)
 check "each claude call logs to agent-logs/<slice>-<timestamp>.log" \
   $(ls "$AGENT_HOME/agent-logs/" | grep -Eq '^41-[0-9]{8}-[0-9]{6}\.log$' && grep -q done "$AGENT_HOME"/agent-logs/41-*.log; echo $?)
@@ -187,7 +192,7 @@ check "resume and fix run /pick-up-slice <slice> with the guard" \
 setup; pending "review 50 41"; runner
 check "review runs the reviewer agent on the PR, without the implementer restrictions or the guard" \
   $([ "$(cat "$D/claude.log")" = "-p|Use the reviewer agent on pull request 50|--permission-mode|auto|" ] \
-    && [ "$(cat "$D/claude-gh.log")" = plain ]; echo $?)
+    && [ "$(cat "$D/claude-gh.log")" = plain ] && [ "$(cat "$D/claude-env.log")" = unset ]; echo $?)
 
 setup; pending "merge 50 41"; runner
 check "merge 50 41 calls the merge gate with 50, and no claude" \

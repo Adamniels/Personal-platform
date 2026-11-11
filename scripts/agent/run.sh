@@ -14,9 +14,10 @@
 # Work items (one line from pending.sh) and what the runner does with each:
 #   new <slice>, resume <slice>, fix <pr> <slice>
 #                        claude -p "/pick-up-slice <slice>" --permission-mode auto --disallowedTools <patterns>,
-#                        with a copy of gh-guard.sh first on PATH as `gh` (R25, R36). Before the run a dirty tree on
-#                        the slice's branch is committed locally as "Checkpoint: interrupted run" (resume and fix;
-#                        never pushed), and a dirty tree anywhere else is stashed, mentioned, and paused on (R16).
+#                        with a copy of gh-guard.sh first on PATH as `gh` and its path in AGENT_GH_GUARD (R25, R36).
+#                        Before the run a dirty tree on the slice's branch is committed locally as "Checkpoint:
+#                        interrupted run" (resume and fix; never pushed), and a dirty tree anywhere else is stashed,
+#                        mentioned, and paused on (R16).
 #   review <pr> <slice>  claude -p "Use the reviewer agent on pull request <pr>" --permission-mode auto, only from a
 #                        clean tree on main (else an environment pause, R53). A review that leaves no verdict for the
 #                        PR's head is a failed run (R32).
@@ -37,10 +38,11 @@
 # Every claude run is classified (R13, R35) as ok, limit, transient, environment or task, and only task counts
 # against the slice. A last line starting `ENVIRONMENT:` is environment; `Stopped:` or `Blocked:` is task; any other
 # exit 0 is ok. A failed run is limit when its last 20 lines carry a usage limit message (`usage limit reached`,
-# `limit reached|<epoch>`, `hit your limit`, `rate_limit_error`, `HTTP 429`, `status 429`), transient on a network or
-# API error, and otherwise task when it lasted at least 120 s, transient when faster. The same item at the same PR
-# head coming back after an ok run is task too (no progress; agent-logs/last-ok). Two task failures in a row set the
-# slice Blocked, add needs-owner to its PR and record "<pr> <sha>" in agent-logs/blocked-prs, with one mention: on
+# `limit reached|<epoch>`, `limit reached … resets`, `hit your limit`, `rate_limit_error`, `HTTP 429`, `status 429`),
+# transient on a network or API error, and otherwise task when it lasted at least 120 s, transient when faster. The
+# same item at the same PR head coming back after an ok run is task too (no progress; agent-logs/last-ok). Two task
+# failures in a row set the slice Blocked, add needs-owner to its PR and record "<pr> <sha>" in
+# agent-logs/blocked-prs, with one mention: on
 # the PR for a PR item (R54; that bot comment also advances the PR's last handled time, so pending.sh's owner-input
 # rule does not fire again on an old comment), on the slice issue otherwise. A new head does not unblock it: pending.sh
 # skips a Blocked slice's PR unless the owner commented since (R51), and the runner waits on any PR item of a
@@ -128,7 +130,8 @@ fi
 unset AGENT_RUNNER_COPY
 
 # Implementer runs refuse these Bash commands (R25, I5); settings.json and the gh guard cover the same ground.
-DENY=("Bash(*verdict:*)" "Bash(*verdict: *)" "Bash(*<!--*)" "Bash(*merge-gate.sh*)"
+# Review runs deliberately get no --disallowedTools: the reviewer writes the `<!-- verdict:` marker itself.
+DENY=("Bash(*verdict: *)" "Bash(*<!--*)" "Bash(*merge-gate.sh*)"
       "Bash(*gh pr merge*)" "Bash(*gh pr *merge*)" "Bash(*gh * pr *merge*)" "Bash(*pulls/*/merge*)"
       "Bash(*mergePullRequest*)" "Bash(*enablePullRequestAutoMerge*)" "Bash(*--edit-last*)" "Bash(*--delete-last*)")
 for m in PATCH DELETE patch delete; do
@@ -438,7 +441,7 @@ claude_item() { # kind pr slice; the PR's head is $cur_sha
   if [ "$kind" = review ]; then
     with_timeout "$timeout_secs" "$logf" "" claude -p "Use the reviewer agent on pull request $pr" --permission-mode auto
   else
-    with_timeout "$timeout_secs" "$logf" "" env PATH="$guard_dir:$PATH" \
+    with_timeout "$timeout_secs" "$logf" "" env PATH="$guard_dir:$PATH" AGENT_GH_GUARD="$guard_dir/gh" \
       claude -p "/pick-up-slice $slice" --permission-mode auto --disallowedTools "${DENY[@]}"
   fi
   rc=$?

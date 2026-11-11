@@ -8,8 +8,8 @@
 # blocker). Only open issues with status Ready are candidates: Ready means planned and free for an
 # agent, see High-level/docs/agent-workflow.md. A candidate is blocked while any issue in its
 # GitHub "blocked by" list is open. Candidates are ranked by their position among their parent's
-# sub-issues, which is the order the sprint was cut in, by risk, then by issue number; one
-# without a parent comes after every one with a parent. Nothing is written.
+# sub-issues, then by issue number; one without a parent comes after every one with a
+# parent. Nothing is written.
 # With --number, prints only the proposed slice's number, or nothing when there is none; for scripts.
 # With --machine, one board read printing `inprogress <n>` for every open issue with status In progress and
 # `next <n>` for the proposal (absent when there is none); pending.sh relies on this format.

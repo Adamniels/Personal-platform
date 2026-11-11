@@ -8,8 +8,9 @@
 # blob/...?raw=true URL, which renders for signed-in viewers of this private repository. The branch
 # is created, without a parent, when `origin` has none. Work happens in a temporary git worktree
 # of the repository around the current directory; the commit is built with commit-tree and pushed to
-# `origin` by object name, with the identity already configured there, so no local branch is created; the current branch, HEAD, index and working tree are never touched,
-# and the worktree is removed on exit, also on failure. Pushing an identical file again is fine.
+# `origin` by object name, with the identity already configured there, so no local branch is created.
+# The current branch, HEAD, index and working tree are never touched, and the worktree is removed on
+# exit, also on failure. Pushing an identical file again is fine.
 # Prints one line per file: ![<name without .png>](<url>)
 # Exit codes: 0 ok, 1 git error, 2 usage error.
 set -euo pipefail

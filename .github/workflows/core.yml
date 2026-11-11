@@ -8,6 +8,10 @@ on:
   workflow_call:
   workflow_dispatch:
 
+# Read only: no job here writes to the repository or to GitHub.
+permissions:
+  contents: read
+
 jobs:
   check:
     runs-on: ubuntu-latest
