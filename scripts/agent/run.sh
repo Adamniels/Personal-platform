@@ -40,11 +40,13 @@
 # `limit reached|<epoch>`, `hit your limit`, `rate_limit_error`, `HTTP 429`, `status 429`), transient on a network or
 # API error, and otherwise task when it lasted at least 120 s, transient when faster. The same item at the same PR
 # head coming back after an ok run is task too (no progress; agent-logs/last-ok). Two task failures in a row set the
-# slice Blocked, add needs-owner to its PR and record "<pr> <sha>" in agent-logs/blocked-prs, with one mention; a PR
-# item at a recorded pr and sha afterwards waits the poll interval and runs nothing, until the head moves (R47).
-# pending.sh skips a Blocked slice's PR unless the owner commented (R51): that fix item sets the slice back to In
-# review and clears the record before its run, and a slice the owner moved off Blocked has its record cleared. An ok
-# run resets the count.
+# slice Blocked, add needs-owner to its PR and record "<pr> <sha>" in agent-logs/blocked-prs, with one mention: on
+# the PR for a PR item (R54; that bot comment also advances the PR's last handled time, so pending.sh's owner-input
+# rule does not fire again on an old comment), on the slice issue otherwise. A new head does not unblock it: pending.sh
+# skips a Blocked slice's PR unless the owner commented since (R51), and the runner waits on any PR item of a
+# recorded PR whose slice is Blocked (R47). The owner unblocks by commenting on the PR, whose fix item sets the slice
+# back to In review and clears the record before its run, or by moving the slice off Blocked, which clears the record.
+# An ok run resets the count.
 # limit, transient and environment pause and then ask pending.sh again, changing nothing on the board (R14, R46):
 # limit sleeps until the reset in the output plus 60 s (an epoch after `|`, or a `resets 3pm` style time), else
 # 15 min doubling to 60 min, and mentions only once its episode passes 6 h or 10 limits in a row on one item;
@@ -255,11 +257,14 @@ do_block() { # slice pr sha
   add_label "$2" || return 1
   blocked_pr "$2" "$3" || echo "$2 $3" >> "$blocked_prs"
 }
+# block_slice: the mention goes on the PR for a PR item (R54), so it counts as the bot's reply there; runner-made text
+# and the log path only, first line never a marker.
 block_slice() { # slice pr sha item short logfile
-  local n see=""
+  local n see="" where="$1"
   n="$(failures "$1")"
   [ -n "$6" ] && see=" See $6 on the Mac mini."
-  if escalate "blocked-$1" "$1" "@$OWNER slice #$1 is Blocked: $n runs in a row failed on it, the last one $4 ($5).$see" do_block "$1" "$2" "$3"; then
+  [ "$2" = - ] || where="$2"
+  if escalate "blocked-$1" "$where" "@$OWNER slice #$1 is Blocked: $n runs in a row failed on it, the last one $4 ($5).$see" do_block "$1" "$2" "$3"; then
     log "slice $1 set Blocked after $n failures"
     reset_failures "$1"
   else
@@ -466,14 +471,15 @@ claude_item() { # kind pr slice; the PR's head is $cur_sha
   esac
 }
 
-# pr_gate <kind> <pr> <slice>: R47 and R51 on a PR item. The board decides: a fix item (owner input) for a Blocked
-# slice sets it back to In review and clears the PR's record; any other item for a Blocked slice whose PR is recorded
-# at this head waits; a record whose slice is no longer Blocked (the owner moved it) is cleared. Returns 1 when the
-# item is not to run (it napped or paused).
+# pr_gate <kind> <pr> <slice>: R47, R51 and R54 on a PR item. The board decides: a fix item (owner input) for a
+# Blocked slice sets it back to In review and clears the PR's record; any other item for a Blocked slice whose PR is
+# recorded, at any head, waits; a record whose slice is no longer Blocked (the owner moved it) is cleared. Returns 1
+# when the item is not to run (it napped or paused).
+pr_recorded() { grep -q "^$1 " "$blocked_prs" 2> /dev/null; }
 clear_blocked() { [ -f "$blocked_prs" ] && { grep -v "^$1 " "$blocked_prs" > "$blocked_prs.new"; mv -f "$blocked_prs.new" "$blocked_prs"; }; return 0; }
 pr_gate() {
   local kind="$1" pr="$2" slice="$3"
-  [ "$kind" = fix ] || blocked_pr "$pr" "$cur_sha" || return 0
+  [ "$kind" = fix ] || pr_recorded "$pr" || return 0
   call 120 bash "$scripts/board.sh" get "$slice" || { pause transient "could not read the status of slice $slice" "$slice"; return 1; }
   if [ "$call_out" = Blocked ]; then
     if [ "$kind" = fix ]; then
@@ -482,9 +488,9 @@ pr_gate() {
       log "owner input on #$pr: slice $slice is In review again"
       return 0
     fi
-    log "#$pr is Blocked at $cur_sha; waiting for the owner"; end_episode; nap "$poll"; return 1
+    log "#$pr is Blocked; waiting for the owner"; end_episode; nap "$poll"; return 1
   fi
-  if blocked_pr "$pr" "$cur_sha"; then clear_blocked "$pr"; log "slice $slice is no longer Blocked; cleared #$pr's record"; fi
+  if pr_recorded "$pr"; then clear_blocked "$pr"; log "slice $slice is no longer Blocked; cleared #$pr's record"; fi
   return 0
 }
 

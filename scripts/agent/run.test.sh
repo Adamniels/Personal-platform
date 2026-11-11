@@ -436,8 +436,9 @@ check "a refused merge, then an owner item for the same sha, mentions once, neve
 
 setup; export FAKE_VERDICT="none 0 0 -" AGENT_POLL_SECONDS=5; pending "review 50 41" "review 50 41" "review 50 41" "review 50 41" "cap 50 41"
 claude_plays "0 300 SECRET-LOG-TEXT"; runner
-check "a Blocked PR item at the same sha runs no more claude and mentions once (R47)" \
+check "a Blocked PR item runs no more claude and mentions once, on the PR itself (R47, R54)" \
   $([ "$(lines "$D/claude.log")" = 2 ] && [ "$(lines "$D/comments.log")" = 1 ] && [ "$(grep -c 'status 41 Blocked' "$D/board.log")" = 1 ] \
+    && [ "$(cut -d' ' -f2-3 "$D/comments.log")" = "50 @Adamniels" ] \
     && [ "$(tr '\n' ' ' < "$D/sleep.log")" = "5 5 5 " ]; echo $?)
 check "the Blocked mention points at the log instead of quoting it (M3)" \
   $(grep -q 'See .*/agent-logs/41-' "$D/comments.log" && ! grep -q 'SECRET-LOG-TEXT' "$D/comments.log"; echo $?)
@@ -451,9 +452,36 @@ again; echo "In review" > "$D/status-41"; export FAKE_VERDICT="approve aaaa 0 20
 check "a slice the owner moved off Blocked runs again at the same head, and its record is cleared (R51)" \
   $([ "$(lines "$D/claude.log")" = 3 ] && ! grep -q '^50 ' "$AGENT_HOME/agent-logs/blocked-prs"; echo $?)
 
-setup; export FAKE_VERDICT="none 0 0 -"; pending "review 50 41" "review 50 41"; runner
-again; echo bbbb > "$D/head"; echo "In review" > "$D/status-41"; pending "review 50 41"; runner
-check "a new head sha clears the Blocked PR (R47)" $([ "$(lines "$D/claude.log")" = 3 ]; echo $?)
+setup; export FAKE_VERDICT="none 0 0 -" AGENT_POLL_SECONDS=5; pending "review 50 41" "review 50 41"; runner
+again; echo bbbb > "$D/head"; pending "review 50 41"; runner
+check "a new head alone does not unblock: the slice stays Blocked until the owner acts (R51, R54)" \
+  $([ "$(lines "$D/claude.log")" = 2 ] && [ "$(tail -n1 "$D/sleep.log")" = 5 ]; echo $?)
+
+# R54 as an interaction: pending.sh's handled-time rule over the comments the runner posts. The fake below offers
+# `fix 50 41` only while the owner's last comment (owner-t) is newer than the PR's last handling, which is the newest
+# bot comment on PR 50; on the slice it skips a Blocked slice unless that holds (R51). Each owner comment must wake
+# the PR exactly once, and each Block must mention exactly once, however many loops run.
+mkdir -p "$tmp/scripts-handled"; cp "$tmp/scripts/"* "$tmp/scripts-handled/"
+cat > "$tmp/scripts-handled/pending.sh" <<'FAKE'
+#!/usr/bin/env bash
+n=$(( $(cat "$D/pending.count" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$D/pending.count"
+[ "$n" -ge "${FAKE_LOOPS:-30}" ] && { : > "$AGENT_HOME/.agent-stop"; exit 0; }
+owner=$(cat "$D/owner-t" 2>/dev/null || echo 0)
+handled=$(awk '$2 == 50 { t = $1 } END { print t + 0 }' "$D/comments.log" 2>/dev/null || echo 0)
+[ "$owner" -gt "$handled" ] && echo "fix 50 41"
+exit 0
+FAKE
+chmod +x "$tmp/scripts-handled/pending.sh"
+setup; export AGENT_SCRIPTS="$tmp/scripts-handled"; echo $((S + 1)) > "$D/owner-t"
+for i in 1 2 3 4 5 6; do echo "1 300 tests fail"; done > "$D/claude.queue"; runner
+check "R54: an owner comment wakes a failing PR once; the Block on the PR ends the cycle with one mention" \
+  $([ "$(lines "$D/claude.log")" = 2 ] && [ "$(lines "$D/comments.log")" = 1 ] && [ "$(grep -c 'status 41 Blocked' "$D/board.log")" = 1 ] \
+    && [ "$(cut -d' ' -f2 "$D/comments.log")" = 50 ] && ! grep -q 'In review' "$D/board.log"; echo $?)
+again; echo $(( $(cat "$D/clock") + 1 )) > "$D/owner-t"; runner
+check "R54: a second owner comment wakes it exactly once more (In review once, two more runs, one more mention)" \
+  $([ "$(lines "$D/claude.log")" = 4 ] && [ "$(lines "$D/comments.log")" = 2 ] && [ "$(grep -c 'status 41 In review' "$D/board.log")" = 1 ] \
+    && [ "$(grep -c 'status 41 Blocked' "$D/board.log")" = 2 ]; echo $?)
+export AGENT_SCRIPTS="$tmp/scripts"
 
 setup; export AGENT_POLL_SECONDS=600 FAKE_GATE_EXIT=3 FAKE_GATE_OUT='ci-ok is pending\n' FAKE_STOP_AT=$((S + 3 * 3600)); pending "REPEAT merge 50 41"; runner
 again; export FAKE_GATE_OUT='risk is not low\n'; unset FAKE_STOP_AT; pending "merge 50 41"; runner
