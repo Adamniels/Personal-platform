@@ -18,14 +18,15 @@
 #   owner <pr> <slice>   an approve verdict for the head of a PR labelled needs-owner: the owner merges it.
 #                        Lowest priority, so it never starves other work
 # Owner input is any issue comment, inline review comment or submitted review (not pending) by the owner.
-# Only open PRs by the bot are considered. needs-owner blocks merging only (R42): such a PR gets fix and review
+# Only open PRs by the bot are considered. A PR whose slice is Blocked on the board (board.sh get) yields nothing,
+# unless there is owner input, which is fix (R51). needs-owner blocks merging only (R42): such a PR gets fix and review
 # like any other, and an approve for its head gives owner instead of merge. Within a priority, the lowest PR
 # number first. The slice is the PR's first closing issue reference, else the number its head branch name
 # starts with (`<n>-`); a PR with neither is skipped with a warning on stderr.
-# Verdicts come from verdict.sh (`<approve|changes|none> <sha|0> <changes count> <created_at|->`) and the
-# board from `next.sh --machine`, both looked up in $AGENT_SCRIPTS (default: this script's directory) so tests
+# Verdicts come from verdict.sh (`<approve|changes|none> <sha|0> <changes count> <created_at|->`), each PR's slice
+# status from `board.sh get`, and the board from `next.sh --machine`, all looked up in $AGENT_SCRIPTS (default: this script's directory) so tests
 # can fake them.
-# Exit codes: 0 ok (no output means idle), 1 when a GitHub read or verdict.sh fails (nothing is printed; the
+# Exit codes: 0 ok (no output means idle), 1 when a GitHub read, board.sh or verdict.sh fails (nothing is printed; the
 # runner retries later).
 set -euo pipefail
 
@@ -86,6 +87,14 @@ while IFS=$'\t' read -r pr sha slice labelled committed; do
     | "\($new | length) \([$replies[] | select($v != null and . > $v)] | length | if . > 0 then 1 else 0 end)"')" \
     || { echo "pr #$pr: could not compare timestamps" >&2; exit 1; }
   read -r owner_new reply_after <<<"$handled"
+
+  # R51: a PR whose slice is Blocked waits for the owner, so the queue moves past it; owner input newer than the
+  # last handling is how the owner wakes it (fix). Not `$(...)` inside an `if`: a failed board read stops the run.
+  status="$(bash "$scripts/board.sh" get "$slice")"
+  if [ "$status" = Blocked ]; then
+    [ "$owner_new" -gt 0 ] && echo "1 $pr fix $slice" >> "$tmp/candidates"
+    continue
+  fi
 
   if [ "$owner_new" -gt 0 ]; then
     echo "1 $pr fix $slice" >> "$tmp/candidates"

@@ -46,7 +46,14 @@ if [ -f "$FAKE_DATA/nextfail" ]; then echo "HTTP 502: Bad Gateway" >&2; exit 1; 
 if [ -f "$FAKE_DATA/inflight" ]; then while read -r n; do echo "inprogress $n"; done < "$FAKE_DATA/inflight"; fi
 if [ -f "$FAKE_DATA/next" ]; then echo "next $(cat "$FAKE_DATA/next")"; fi
 FAKE
-chmod +x "$tmp/bin/gh" "$tmp/scripts/verdict.sh" "$tmp/scripts/next.sh"
+# board.sh get <slice> prints the status in status-<slice> (default "In review"); "boardfail" makes it fail.
+cat > "$tmp/scripts/board.sh" <<'FAKE'
+#!/usr/bin/env bash
+[ "${1:-}" = get ] && [ $# -eq 2 ] || { echo "unexpected board.sh call: $*" >&2; exit 9; }
+if [ -f "$FAKE_DATA/boardfail" ]; then echo "HTTP 502: Bad Gateway" >&2; exit 1; fi
+if [ -f "$FAKE_DATA/status-$2" ]; then cat "$FAKE_DATA/status-$2"; else echo "In review"; fi
+FAKE
+chmod +x "$tmp/bin/gh" "$tmp/scripts/verdict.sh" "$tmp/scripts/next.sh" "$tmp/scripts/board.sh"
 export PATH="$tmp/bin:$PATH" FAKE_GH_LOG="$tmp/log" FAKE_DATA="$tmp/data" AGENT_SCRIPTS="$tmp/scripts"
 # Never reach the real, logged-in gh: if the fake is not first on PATH, stop before any test runs.
 [ "$(command -v gh)" = "$tmp/bin/gh" ] || { echo "the fake gh is not first on PATH" >&2; exit 1; }
@@ -75,7 +82,8 @@ pr() {
 }
 # setprs <number>...: the PRs gh lists, in the order given.
 setprs() {
-  rm -f "$FAKE_DATA"/verdict-* "$FAKE_DATA"/comments-* "$FAKE_DATA"/inline-* "$FAKE_DATA"/reviews-* "$FAKE_DATA"/nextfail "$FAKE_DATA"/inflight "$FAKE_DATA"/next
+  rm -f "$FAKE_DATA"/verdict-* "$FAKE_DATA"/comments-* "$FAKE_DATA"/inline-* "$FAKE_DATA"/reviews-* "$FAKE_DATA"/nextfail "$FAKE_DATA"/inflight "$FAKE_DATA"/next \
+        "$FAKE_DATA"/status-* "$FAKE_DATA"/boardfail
   local files=() n
   for n in "$@"; do files+=("$FAKE_DATA/pr-$n.json"); done
   if [ ${#files[@]} -eq 0 ]; then echo '[]' > "$FAKE_DATA/prs.json"; else jq -s -c . "${files[@]}" > "$FAKE_DATA/prs.json"; fi
@@ -118,6 +126,20 @@ check "new when nothing else is pending" $?
 rm -f "$FAKE_DATA/next"
 run; [ "$code" = 0 ] && [ -z "$out" ] && [ -z "$err" ]
 check "idle prints nothing and exits 0" $?
+
+# R51: a PR whose slice is Blocked waits for the owner; owner input newer than its last handling gives fix.
+setprs 1 2; verdict 1 changes 1; verdict 2 approve 0; echo Blocked > "$FAKE_DATA/status-11"
+run; [ "$code" = 0 ] && [ "$out" = "merge 2 12" ]
+check "R51: a Blocked slice's PR with a changes verdict yields nothing, and lower items win" $?
+comment 1 Adamniels "$late"
+run; [ "$code" = 0 ] && [ "$out" = "fix 1 11" ]
+check "R51: owner input newer than the last handling gives fix for a Blocked slice's PR" $?
+setprs 1; verdict 1 approve 0; echo Blocked > "$FAKE_DATA/status-11"; echo 16 > "$FAKE_DATA/next"
+run; [ "$code" = 0 ] && [ "$out" = "new 16" ]
+check "R51: an approved PR of a Blocked slice yields nothing either" $?
+setprs 1; verdict 1 changes 1; : > "$FAKE_DATA/boardfail"
+run; [ "$code" = 1 ] && [ -z "$out" ]
+check "R51: a failing board read exits 1 and prints nothing" $?
 
 # Round cap boundary.
 setprs 1; verdict 1 changes 3

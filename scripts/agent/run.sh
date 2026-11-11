@@ -17,8 +17,9 @@
 #                        with a copy of gh-guard.sh first on PATH as `gh` (R25, R36). Before the run a dirty tree on
 #                        the slice's branch is committed locally as "Checkpoint: interrupted run" (resume and fix;
 #                        never pushed), and a dirty tree anywhere else is stashed, mentioned, and paused on (R16).
-#   review <pr> <slice>  claude -p "Use the reviewer agent on pull request <pr>" --permission-mode auto. A review
-#                        that leaves no verdict for the PR's head is a failed run (R32).
+#   review <pr> <slice>  claude -p "Use the reviewer agent on pull request <pr>" --permission-mode auto, only from a
+#                        clean tree on main (else an environment pause, R53). A review that leaves no verdict for the
+#                        PR's head is a failed run (R32).
 #   merge <pr> <slice>   merge-gate.sh <pr>. Exit 3 with `ci-ok is pending` among the reasons: wait the poll
 #                        interval (R45), with one mention once the same head has waited 2 h (R50). Otherwise, only
 #                        `risk is not low` and `touches protected paths`: "ready for you" and needs-owner; any other
@@ -28,7 +29,7 @@
 #   (nothing)            idle: one mention per empty queue, on the most recently merged slice (without one, a log
 #                        line), then the poll interval.
 # Mentions go on the slice issue. Every mention about a PR (ready, refused, cap, owner, ci-ok waiting) is made once per
-# PR and head sha: agent-logs/owner-told holds "<pr> <sha>" lines (R42), and an item whose mention was already made
+# PR and head sha: agent-logs/owner-told holds "<pr> <sha>" lines (R42; the ci-ok wait uses "<pr> <sha>:ci", R52), and an item whose mention was already made
 # waits the poll interval instead of looping (R43b). After every item a dirty tree on the slice's own branch left by
 # its implementer run is checkpointed, dirt anywhere else after a claude run is stashed with a mention, and a clean
 # tree is switched to main and fast-forwarded to refs/runner/main (a failure is an environment pause).
@@ -40,7 +41,9 @@
 # API error, and otherwise task when it lasted at least 120 s, transient when faster. The same item at the same PR
 # head coming back after an ok run is task too (no progress; agent-logs/last-ok). Two task failures in a row set the
 # slice Blocked, add needs-owner to its PR and record "<pr> <sha>" in agent-logs/blocked-prs, with one mention; a PR
-# item at a recorded pr and sha afterwards waits the poll interval and runs nothing, until the head moves (R47). An ok
+# item at a recorded pr and sha afterwards waits the poll interval and runs nothing, until the head moves (R47).
+# pending.sh skips a Blocked slice's PR unless the owner commented (R51): that fix item sets the slice back to In
+# review and clears the record before its run, and a slice the owner moved off Blocked has its record cleared. An ok
 # run resets the count.
 # limit, transient and environment pause and then ask pending.sh again, changing nothing on the board (R14, R46):
 # limit sleeps until the reset in the output plus 60 s (an epoch after `|`, or a `resets 3pm` style time), else
@@ -108,8 +111,8 @@ last_ok_file="$logs/last-ok"
 # Git without the repository's hooks (R49): a branch can carry a hook, and the runner must not run it.
 g() { git -c core.hooksPath=/dev/null -C "$repo" "$@"; }
 
-# Start from main's run.sh, copied out of the working tree. The copy is moved into place, so a runner already
-# reading an older copy keeps its own file. AGENT_RUNNER_COPY marks the copy and is not passed on to children.
+# Start from main's run.sh as fetched into refs/runner/main, never the working tree's. The copy is moved into place,
+# so a runner already reading an older copy keeps its own file. AGENT_RUNNER_COPY marks the copy and is not passed on to children.
 if [ -z "${AGENT_RUNNER_COPY:-}" ]; then
   mkdir -p "$home/runner" || { echo "run.sh: cannot create $home/runner" >&2; exit 1; }
   g fetch -q "$remote" "+refs/heads/main:$SNAP" || { echo "run.sh: cannot fetch main from $remote; not starting" >&2; exit 1; }
@@ -175,19 +178,21 @@ with_timeout() {
 # call <seconds> <command...>: a bounded external call (I4). Its stdout is in $call_out, its stderr goes to
 # runner.log, and a timeout is logged and returns 124.
 call_out=""
+call_name=""      # set by cgit, so a git call is logged by its verb
 call() {
   local t="$1" name rc
   shift
   [ -n "$call_override" ] && t="$call_override"
-  name="$1"; [ "$1" = bash ] || [ "$1" = git ] && name="$1 ${2:-}"
-  [ "$1" = git ] && name="git ${4:-}"   # git -c <x> -C <repo> <verb>
+  name="$1"; [ "$1" = bash ] && name="$(basename "${2:-bash}")"
+  [ -n "$call_name" ] && name="$call_name"
+  call_name=""
   with_timeout "$t" "$logs/.call.out" "$logs/.call.err" "$@"; rc=$?
   call_out="$(cat "$logs/.call.out" 2> /dev/null)"
-  log_lines "$(basename "$name")" "$logs/.call.err"
+  log_lines "$name" "$logs/.call.err"
   [ "$rc" = 124 ] && log "$name timed out after $t s"
   return "$rc"
 }
-cgit() { local t="$1"; shift; call "$t" git -c core.hooksPath=/dev/null -C "$repo" "$@"; }
+cgit() { local t="$1"; shift; call_name="git $1"; call "$t" git -c core.hooksPath=/dev/null -C "$repo" "$@"; }
 
 # --- GitHub --------------------------------------------------------------------------------------------------------
 comment() { call 120 gh issue comment "$1" --repo "$REPO_SLUG" --body "$2"; }
@@ -407,7 +412,13 @@ claude_item() { # kind pr slice; the PR's head is $cur_sha
   item="$kind $slice"; [ "$pr" = - ] || item="$kind $pr $slice"
   if [ "$(failures "$slice")" -ge 2 ]; then block_slice "$slice" "$pr" "$sha" "$item" "the earlier Blocked did not go through" ""; return; fi
   probe || { pause environment "$probe_reason" "$slice"; return; }
-  if [ "$kind" != review ]; then
+  if [ "$kind" = review ]; then
+    # R53: the reviewer reads main's agent and settings from a clean tree on main.
+    cgit 60 status --porcelain || { pause environment "git status failed" "$slice"; return; }
+    [ -z "$call_out" ] || { pause environment "the tree is dirty before a review" "$slice"; return; }
+    current_branch
+    [ "$br" = main ] || { pause environment "the tree is on $br, not main, before a review" "$slice"; return; }
+  else
     cp "$scripts/gh-guard.sh" "$guard_dir/gh" 2>> "$logs/runner.log" && chmod +x "$guard_dir/gh" \
       || { pause environment "no gh-guard.sh in $scripts" "$slice"; return; }
     prepare_tree "$kind" "$slice" || return
@@ -455,8 +466,31 @@ claude_item() { # kind pr slice; the PR's head is $cur_sha
   esac
 }
 
+# pr_gate <kind> <pr> <slice>: R47 and R51 on a PR item. The board decides: a fix item (owner input) for a Blocked
+# slice sets it back to In review and clears the PR's record; any other item for a Blocked slice whose PR is recorded
+# at this head waits; a record whose slice is no longer Blocked (the owner moved it) is cleared. Returns 1 when the
+# item is not to run (it napped or paused).
+clear_blocked() { [ -f "$blocked_prs" ] && { grep -v "^$1 " "$blocked_prs" > "$blocked_prs.new"; mv -f "$blocked_prs.new" "$blocked_prs"; }; return 0; }
+pr_gate() {
+  local kind="$1" pr="$2" slice="$3"
+  [ "$kind" = fix ] || blocked_pr "$pr" "$cur_sha" || return 0
+  call 120 bash "$scripts/board.sh" get "$slice" || { pause transient "could not read the status of slice $slice" "$slice"; return 1; }
+  if [ "$call_out" = Blocked ]; then
+    if [ "$kind" = fix ]; then
+      call 120 bash "$scripts/board.sh" status "$slice" "In review" || { pause transient "could not move slice $slice to In review" "$slice"; return 1; }
+      clear_blocked "$pr"; reset_failures "$slice"
+      log "owner input on #$pr: slice $slice is In review again"
+      return 0
+    fi
+    log "#$pr is Blocked at $cur_sha; waiting for the owner"; end_episode; nap "$poll"; return 1
+  fi
+  if blocked_pr "$pr" "$cur_sha"; then clear_blocked "$pr"; log "slice $slice is no longer Blocked; cleared #$pr's record"; fi
+  return 0
+}
+
 # --- Merge, cap, owner, idle -------------------------------------------------------------------------------------
-# ci_wait <pr> <sha> <slice>: notes when ci-ok was first seen pending on this head; once 2 h ago, one mention (R50).
+# ci_wait <pr> <sha> <slice>: notes when ci-ok was first seen pending on this head; once 2 h ago, one mention (R50),
+# told under its own key `<sha>:ci`, so it never suppresses the later ready or refused mention (R52).
 ci_wait() {
   local first t
   t="$(now)"
@@ -465,8 +499,8 @@ ci_wait() {
     { grep -v "^$1 " "$ci_pending" 2> /dev/null; echo "$1 $2 $t"; } > "$ci_pending.new" && mv -f "$ci_pending.new" "$ci_pending"
     first="$t"
   fi
-  if [ $((t - first)) -ge "$CI_MENTION_AFTER" ] && ! told "$1" "$2"; then
-    tell_owner "$1" "$2" "$3" "@$OWNER ci-ok has been pending on PR #$1 for $(( (t - first) / 60 )) min at head $2. The runner keeps waiting for it." \
+  if [ $((t - first)) -ge "$CI_MENTION_AFTER" ] && ! told "$1" "$2:ci"; then
+    tell_owner "$1" "$2:ci" "$3" "@$OWNER ci-ok has been pending on PR #$1 for $(( (t - first) / 60 )) min at head $2. The runner keeps waiting for it." \
       || log "could not mention the ci-ok wait on #$3"
   fi
 }
@@ -586,20 +620,28 @@ trap on_signal INT TERM HUP
 cd "$repo" || { log "cannot enter $repo"; exit 1; }
 log "runner started (pid $$, from $0)"
 
+failed_copy_sha=""
 # load_scripts: fetches main, restarts on a new run.sh, and points $scripts at main's scripts/agent (or the
 # override); pauses and fails when any of it fails.
 load_scripts() {
   cgit 300 fetch -q "$remote" "+refs/heads/main:$SNAP" || { pause transient "fetching main from $remote failed" ""; return 1; }
-  if g show "$SNAP:scripts/agent/run.sh" > "$home/runner/run.sh.new" 2>> "$logs/runner.log"; then
-    if ! cmp -s "$home/runner/run.sh.new" "$0"; then
-      mv -f "$home/runner/run.sh.new" "$home/runner/run.sh"
-      log "main has a new run.sh; restarting from it"
-      rm -rf "$guard_dir"; drop_scripts
-      AGENT_RUNNER_COPY=1 AGENT_REPO="$repo" exec bash "$home/runner/run.sh"
+  snap_sha="$(g rev-parse "$SNAP" 2> /dev/null)"
+  if [ "$snap_sha" != "$failed_copy_sha" ]; then
+    if g show "$SNAP:scripts/agent/run.sh" > "$logs/.run.sh.new" 2>> "$logs/runner.log"; then
+      if ! cmp -s "$logs/.run.sh.new" "$0"; then
+        if mv -f "$logs/.run.sh.new" "$home/runner/run.sh" 2>> "$logs/runner.log"; then
+          log "main has a new run.sh; restarting from it"
+          rm -rf "$guard_dir"; drop_scripts
+          AGENT_RUNNER_COPY=1 AGENT_REPO="$repo" exec bash "$home/runner/run.sh"
+        fi
+        # Not retried until main moves again, so a failing move cannot loop.
+        failed_copy_sha="$snap_sha"
+        log "could not install main's new run.sh ($snap_sha); keeping the running copy"
+      fi
+    else
+      failed_copy_sha="$snap_sha"; log "main has no readable scripts/agent/run.sh ($snap_sha); keeping the running copy"
     fi
-    rm -f "$home/runner/run.sh.new"
-  else
-    rm -f "$home/runner/run.sh.new"; log "main has no scripts/agent/run.sh; keeping the running copy"
+    rm -f "$logs/.run.sh.new"
   fi
   if [ -n "$scripts_override" ]; then scripts="$scripts_override"; return 0; fi
   iter_dir="$(mktemp -d)" || { pause transient "cannot make a temp dir" ""; return 1; }
@@ -638,9 +680,7 @@ while :; do
   if [ "$pr" != - ]; then
     head_of "$pr" || { pause transient "could not read the head of #$pr" "$slice"; continue; }
     cur_sha="$head_sha"
-    if blocked_pr "$pr" "$cur_sha"; then
-      log "#$pr is Blocked at $cur_sha; waiting for a new head"; end_episode; nap "$poll"; continue
-    fi
+    pr_gate "$kind" "$pr" "$slice" || continue
   fi
   case "$kind" in
     new|resume|fix|review) claude_item "$kind" "$pr" "$slice" ;;

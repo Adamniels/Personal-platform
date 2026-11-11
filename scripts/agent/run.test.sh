@@ -55,6 +55,13 @@ cat > "$tmp/bin/df" <<'FAKE'
 #!/usr/bin/env bash
 echo "Filesystem 1024-blocks Used Available Capacity Mounted"; echo "/dev/x 999999999 1 ${FAKE_DF_KB:-100000000} 1% /"
 FAKE
+# git: the real git, except that fetch hangs while $D/git-hang exists.
+real_git="$(command -v git)"
+cat > "$tmp/bin/git" <<FAKE
+#!/usr/bin/env bash
+case " \$* " in *" fetch "*) if [ -e "\$D/git-hang" ]; then sleep 30; fi ;; esac
+exec "$real_git" "\$@"
+FAKE
 # date: "+%s" and "+%s %H %M %S" come from the clock (UTC); any other format is the real date.
 cat > "$tmp/bin/date" <<'FAKE'
 #!/usr/bin/env bash
@@ -99,9 +106,11 @@ cat > "$tmp/scripts/merge-gate.sh" <<'FAKE'
 #!/usr/bin/env bash
 echo "$*" >> "$D/gate.log"; printf '%b' "${FAKE_GATE_OUT:-merged #$1\n}"; exit "${FAKE_GATE_EXIT:-0}"
 FAKE
+# board.sh: `get <n>` prints status-<n> (default "In review"); `status <n> <s>` logs to board.log and records <s>.
 cat > "$tmp/scripts/board.sh" <<'FAKE'
 #!/usr/bin/env bash
-echo "$*" >> "$D/board.log"; exit "${FAKE_BOARD_EXIT:-0}"
+if [ "$1" = get ]; then if [ -f "$D/status-$2" ]; then cat "$D/status-$2"; else echo "In review"; fi; exit 0; fi
+echo "$*" >> "$D/board.log"; [ "${FAKE_BOARD_EXIT:-0}" = 0 ] || exit "$FAKE_BOARD_EXIT"; echo "$3" > "$D/status-$2"
 FAKE
 cat > "$tmp/scripts/verdict.sh" <<'FAKE'
 #!/usr/bin/env bash
@@ -425,15 +434,48 @@ setup; export AGENT_POLL_SECONDS=5 FAKE_GATE_EXIT=3 FAKE_GATE_OUT='ci-ok failed\
 check "a refused merge, then an owner item for the same sha, mentions once, never as ready to merge (R42)" \
   $([ "$(lines "$D/comments.log")" = 1 ] && ! grep -q 'ready' "$D/comments.log"; echo $?)
 
-setup; export FAKE_VERDICT="none 0 0 -" AGENT_POLL_SECONDS=5; pending "review 50 41" "review 50 41" "review 50 41" "review 50 41" "fix 50 41"
+setup; export FAKE_VERDICT="none 0 0 -" AGENT_POLL_SECONDS=5; pending "review 50 41" "review 50 41" "review 50 41" "review 50 41" "cap 50 41"
 claude_plays "0 300 SECRET-LOG-TEXT"; runner
 check "a Blocked PR item at the same sha runs no more claude and mentions once (R47)" \
   $([ "$(lines "$D/claude.log")" = 2 ] && [ "$(lines "$D/comments.log")" = 1 ] && [ "$(grep -c 'status 41 Blocked' "$D/board.log")" = 1 ] \
     && [ "$(tr '\n' ' ' < "$D/sleep.log")" = "5 5 5 " ]; echo $?)
 check "the Blocked mention points at the log instead of quoting it (M3)" \
   $(grep -q 'See .*/agent-logs/41-' "$D/comments.log" && ! grep -q 'SECRET-LOG-TEXT' "$D/comments.log"; echo $?)
-again; echo bbbb > "$D/head"; pending "review 50 41"; runner
+again; pending "fix 50 41"; runner
+check "a fix (owner input) on a Blocked slice sets it In review, clears the record and runs (R51)" \
+  $(grep -q 'status 41 In review' "$D/board.log" && [ "$(lines "$D/claude.log")" = 3 ] \
+    && ! grep -q '^50 ' "$AGENT_HOME/agent-logs/blocked-prs"; echo $?)
+
+setup; export FAKE_VERDICT="none 0 0 -" AGENT_POLL_SECONDS=5; pending "review 50 41" "review 50 41"; runner
+again; echo "In review" > "$D/status-41"; export FAKE_VERDICT="approve aaaa 0 2027-01-15T08:00:00Z"; pending "review 50 41"; runner
+check "a slice the owner moved off Blocked runs again at the same head, and its record is cleared (R51)" \
+  $([ "$(lines "$D/claude.log")" = 3 ] && ! grep -q '^50 ' "$AGENT_HOME/agent-logs/blocked-prs"; echo $?)
+
+setup; export FAKE_VERDICT="none 0 0 -"; pending "review 50 41" "review 50 41"; runner
+again; echo bbbb > "$D/head"; echo "In review" > "$D/status-41"; pending "review 50 41"; runner
 check "a new head sha clears the Blocked PR (R47)" $([ "$(lines "$D/claude.log")" = 3 ]; echo $?)
+
+setup; export AGENT_POLL_SECONDS=600 FAKE_GATE_EXIT=3 FAKE_GATE_OUT='ci-ok is pending\n' FAKE_STOP_AT=$((S + 3 * 3600)); pending "REPEAT merge 50 41"; runner
+again; export FAKE_GATE_OUT='risk is not low\n'; unset FAKE_STOP_AT; pending "merge 50 41"; runner
+check "a ci-ok wait mention does not suppress the later ready mention for the same head (R52)" \
+  $([ "$(lines "$D/comments.log")" = 2 ] && grep -q 'PR #50 is ready for you' "$D/comments.log" && grep -qx '50 aaaa:ci' "$AGENT_HOME/agent-logs/owner-told"; echo $?)
+
+setup; git -C "$AGENT_REPO" switch -q 41-x; pending "review 50 41"; runner
+check "a review needs a clean tree on main: on another branch it is an environment pause with no claude (R53)" \
+  $(no_file "$D/claude.log" && [ "$(waits environment)" = 60 ]; echo $?)
+
+setup; echo stray > "$AGENT_REPO/file"; pending "review 50 41"; runner
+check "a review on a dirty main is an environment pause with no claude (R53)" $(no_file "$D/claude.log" && [ "$(waits environment)" = 60 ]; echo $?)
+
+setup; hook pending-hook "cd '$tmp/t$t/repo' && git switch -q main && echo '# v2' >> scripts/agent/run.sh && git commit -q -am v2 && git push -q origin main 2>/dev/null; chmod 555 '$AGENT_HOME/runner'"
+pending HOOK IDLE "new 41"; runner; chmod 755 "$AGENT_HOME/runner"
+check "a re-exec whose copy cannot be moved logs once and keeps running the old copy" \
+  $([ "$(grep -c 'could not install' "$AGENT_HOME/agent-logs/runner.log")" = 1 ] && [ "$(grep -c 'runner started' "$AGENT_HOME/agent-logs/runner.log")" = 1 ] \
+    && [ "$(lines "$D/claude.log")" = 1 ]; echo $?)
+
+setup; export AGENT_CALL_TIMEOUT_SECONDS=1 FAKE_STOP_AT=$((S + 60)); hook pending-hook ": > '$D/git-hang'"; pending HOOK "new 41"; runner
+check "a hanging fetch times out into a transient pause, logged with the git verb" \
+  $(grep -q 'git fetch timed out after 1 s' "$AGENT_HOME/agent-logs/runner.log" && [ "$(waits transient)" = 60 ] && no_file "$D/claude.log"; echo $?)
 
 setup; pending "new 41"; runner; again; pending "new 41"; runner; again; pending "new 41"; runner
 check "the no-progress guard survives a restart (M4)" $(grep -q 'status 41 Blocked' "$D/board.log"; echo $?)
