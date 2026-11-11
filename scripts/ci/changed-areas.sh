@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Reads changed paths on stdin, one per line, and prints which CI areas they touch as four
 # `area=true|false` lines, ready for $GITHUB_OUTPUT. A change under .github/workflows/ sets every
-# area, since a workflow edit can break any of them. Used by the `changes` job in ci.yml.
+# area, since a workflow edit can break any of them, and a change under contracts/ sets every area
+# that tests against its fixtures. Used by the `changes` job in ci.yml.
 set -uo pipefail
 
 core=false canary=false scripts=false e2e=false
@@ -11,6 +12,7 @@ while IFS= read -r path || [ -n "$path" ]; do
     .github/workflows/*) core=true; canary=true; scripts=true; e2e=true ;;
     Core/* | infra/postgres/*) core=true; e2e=true ;;
     canary/*) canary=true; e2e=true ;;
+    contracts/*) core=true; canary=true; e2e=true ;;
     scripts/* | .claude/settings.json) scripts=true ;;
   esac
   case "$path" in
