@@ -253,6 +253,13 @@ with it has expired, then drop it. Without them, rotating means every live token
 at once and every verifier being restarted in the right order. This is the same trade as the token
 id above, free now and expensive to retrofit.
 
+**The set is served at `GET /.well-known/jwks.json`**, public and without a session, as a JWK set
+(RFC 7517, with the Ed25519 key type of RFC 8037): `{"keys":[...]}`, one entry per key the
+verifier trusts, each with `kty` `OKP`, `crv` `Ed25519`, `alg` `EdDSA`, `use` `sig`, the key id
+as `kid`, and the public key as `x`, in base64url without padding. It carries no cache headers: a
+feature caches the set in its own process, by the rule in `High-level/docs/feature-contract.md`.
+`contracts/token/jwks.json` holds the body as it is served for the contract fixture's key.
+
 **No pepper on the password hash.** It adds a second secret to protect in exchange for very little
 on top of Argon2id.
 
@@ -639,7 +646,8 @@ builds and reads the session cookies, so their attributes are never formatted by
 carries it on.
 
 **toml** parses the feature registry with serde, at 0.8, the copy sqlx already brings in, so
-nothing new is compiled; the 1.x line would be a second copy.
+nothing new is compiled; the 1.x line would be a second copy. **serde_json** writes the key set's
+body and reads the contract fixture in tests, at 1.0, the copy axum already brings in.
 
 **Rust itself is pinned**, in `Core/rust-toolchain.toml`, so the laptop, the Mac mini and
 continuous integration build with the same compiler, and a new stable release cannot turn clippy
