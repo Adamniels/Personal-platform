@@ -58,6 +58,15 @@ docker compose run --rm caddy caddy validate --config /etc/caddy/Caddyfile --ada
 docker compose up -d --force-recreate caddy
 ```
 
+## The feature registry
+
+`features.toml` lists every feature the core knows about: its name, the path prefix the Caddyfile
+routes to it, the upstream the core calls it at directly, and its display endpoint if it has one.
+The core reads it once at startup, so a change needs a restart, and refuses to start if the file
+is broken. Adding, moving or removing a feature changes `features.toml` and the Caddyfile in the
+same commit, since the two describe the same routes and nothing checks that they agree. Why it is
+a file and not a table is in "The feature registry" in `Core/docs/core-architecture.md`.
+
 ## Trusting Caddy's root
 
 The browser accepts Caddy's certificates once the laptop trusts the root of Caddy's local

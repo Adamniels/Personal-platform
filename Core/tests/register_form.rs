@@ -7,6 +7,7 @@ mod common;
 use platform_core::AppState;
 use platform_core::invite;
 use platform_core::origin::PublicOrigin;
+use platform_core::registry::Registry;
 use platform_core::signing_key::SigningKey;
 use sqlx::PgPool;
 use time::OffsetDateTime;
@@ -22,6 +23,7 @@ async fn serve(pool: PgPool) -> std::net::SocketAddr {
         pool,
         SigningKey::generate().0,
         platform_core::DEFAULT_ACCESS_TOKEN_LIFETIME,
+        Registry::default(),
     )
     .await
     .unwrap();

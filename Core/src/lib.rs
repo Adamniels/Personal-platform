@@ -13,6 +13,7 @@ pub mod pages;
 pub mod password;
 pub mod refresh;
 pub mod registration;
+pub mod registry;
 pub mod return_path;
 pub mod secret_token;
 pub mod session;
@@ -24,6 +25,7 @@ use axum::extract::FromRef;
 use axum::{Router, routing::get};
 use issuer::Issuer;
 use origin::PublicOrigin;
+use registry::Registry;
 use signing_key::SigningKey;
 use sqlx::Connection;
 use sqlx::migrate::{Migrate, Migration, Migrator};
@@ -54,6 +56,9 @@ pub struct AppState {
     /// startup with the same parameters as every real hash, so the timing
     /// still matches if they change.
     pub dummy_hash: Arc<str>,
+    /// The features the platform has, read from the registry file at
+    /// startup. See "The feature registry" in docs/core-architecture.md.
+    pub registry: Arc<Registry>,
 }
 
 impl AppState {
@@ -62,6 +67,7 @@ impl AppState {
         pool: PgPool,
         signing_key: SigningKey,
         access_token_lifetime: time::Duration,
+        registry: Registry,
     ) -> Result<AppState, password::Error> {
         let dummy_hash = password::hash(&secret_token::generate().0).await?;
         Ok(AppState {
@@ -69,6 +75,7 @@ impl AppState {
             verifier: Arc::new(Verifier::new(KeySet::of(&signing_key))),
             issuer: Arc::new(Issuer::new(signing_key, access_token_lifetime)),
             dummy_hash: dummy_hash.into(),
+            registry: Arc::new(registry),
         })
     }
 }
@@ -97,11 +104,19 @@ pub async fn serve() -> Result<(), Box<dyn Error>> {
     println!("signing with key id {}", signing_key.key_id());
     let access_token_lifetime = access_token_lifetime()?;
     println!("access tokens last {access_token_lifetime}");
+    let registry_path = registry::path(env::var_os("CORE_FEATURE_REGISTRY"));
+    let registry = Registry::load(&registry_path)
+        .map_err(|err| format!("could not load the feature registry: {err}"))?;
+    println!(
+        "registry {}: {}",
+        registry_path.display(),
+        registry.summary()
+    );
 
     let pool = connect_database().await?;
     println!("connected to the database");
 
-    let state = AppState::new(pool, signing_key, access_token_lifetime).await?;
+    let state = AppState::new(pool, signing_key, access_token_lifetime, registry).await?;
     let app = app(state, origin);
 
     let listener = TcpListener::bind(addr)
