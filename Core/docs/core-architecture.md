@@ -473,6 +473,15 @@ and the display endpoint if it has one. The fuller manifest, a read API version,
 a feature exposes, the scopes it requests, has no consumer yet. It belongs to the brain and to a
 platform with several features, and writing it before either exists would be guessing.
 
+The file is `infra/features.toml`, one `[[feature]]` table per feature in the order they appear,
+with the keys `name`, `prefix`, `upstream` and the optional `display`. The comment at its top
+gives the rule for each; the core checks them, along with unique names and prefixes, and refuses
+an unknown key, so a typo cannot silently drop a setting. The core reads the file from
+`CORE_FEATURE_REGISTRY`, which is unset everywhere today and then means `../infra/features.toml`,
+relative to `Core/`, where the core runs. A file it cannot read or parse stops it at startup with
+the path and the reason rather than starting without its features, and it prints the features it
+found. The rules and the loading are in `src/registry.rs`.
+
 The cost is that adding or disabling a feature needs a restart, which is consistent with the core
 changing as features arrive being the workflow rather than a smell.
 
@@ -628,6 +637,9 @@ copy `jsonwebtoken` already uses, so there is one. **axum-extra**, with only its
 builds and reads the session cookies, so their attributes are never formatted by hand.
 **form_urlencoded**, already in the tree through axum, encodes a return path again when a redirect
 carries it on.
+
+**toml** parses the feature registry with serde, at 0.8, the copy sqlx already brings in, so
+nothing new is compiled; the 1.x line would be a second copy.
 
 **Rust itself is pinned**, in `Core/rust-toolchain.toml`, so the laptop, the Mac mini and
 continuous integration build with the same compiler, and a new stable release cannot turn clippy

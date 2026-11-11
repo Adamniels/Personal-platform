@@ -51,7 +51,7 @@ decisions about how the work gets done as well as the architecture.
 | `Brain/docs/`       | The brain: memory, the trust model, events, retrieval                        |
 | `canary/`           | Canary, the Python feature proving another language can verify the token     |
 | `desk/docs/`        | Desk, the feature for working through the day, described but not yet built   |
-| `infra/`            | The Caddyfile and the compose file, and later the feature registry           |
+| `infra/`            | The Caddyfile, the compose file and the feature registry                     |
 | `e2e/`              | The acceptance suite, Playwright against the running stack                   |
 | `scripts/agent/`    | The runner, the merge gate and the other scripts the agents' workflow runs   |
 | `scripts/ci/`       | The change detection and the `ci-ok` judgement that `ci.yml` runs            |
@@ -92,7 +92,8 @@ decisions about how the work gets done as well as the architecture.
 
 **Infra**
 
-- `infra/README.md` — the local hostname, running Caddy and what its data volume holds, and trusting its root
+- `infra/README.md` — the local hostname, running Caddy and what its data volume holds, the
+  feature registry, and trusting Caddy's root
 
 **Brain**
 
