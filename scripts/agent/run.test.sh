@@ -110,7 +110,9 @@ FAKE
 cat > "$tmp/scripts/board.sh" <<'FAKE'
 #!/usr/bin/env bash
 if [ "$1" = get ]; then if [ -f "$D/status-$2" ]; then cat "$D/status-$2"; else echo "In review"; fi; exit 0; fi
-echo "$*" >> "$D/board.log"; [ "${FAKE_BOARD_EXIT:-0}" = 0 ] || exit "$FAKE_BOARD_EXIT"; echo "$3" > "$D/status-$2"
+echo "$*" >> "$D/board.log"; [ "${FAKE_BOARD_EXIT:-0}" = 0 ] || exit "$FAKE_BOARD_EXIT"
+if [ -e "$D/board-fail-once" ]; then rm -f "$D/board-fail-once"; exit 1; fi
+echo "$3" > "$D/status-$2"
 FAKE
 cat > "$tmp/scripts/verdict.sh" <<'FAKE'
 #!/usr/bin/env bash
@@ -399,7 +401,7 @@ setup; export FAKE_STOP_AT=$((S + 7 * 3600)); pending "REPEAT new 41"; for i in 
 check "a limit episode past 6 h mentions the owner once, after 6 h (I3 backstop)" \
   $([ "$(lines "$D/comments.log")" = 1 ] && [ $(( $(cut -d' ' -f1 "$D/comments.log") - S )) -gt 21600 ]; echo $?)
 
-setup; export FAKE_DOCKER_HANG=1 AGENT_CALL_TIMEOUT_SECONDS=1 FAKE_STOP_AT=$((S + 60)); pending "REPEAT new 41"
+setup; export FAKE_DOCKER_HANG=1 AGENT_CALL_TIMEOUT_SECONDS=3 FAKE_STOP_AT=$((S + 60)); pending "REPEAT new 41"
 began=$(/bin/date +%s); runner; took=$(( $(/bin/date +%s) - began ))
 check "a hanging docker info times out into an environment pause with no claude call (I4)" \
   $(no_file "$D/claude.log" && [ "$(waits environment)" = 60 ] && [ "$took" -lt 20 ]; echo $?)
@@ -457,6 +459,20 @@ again; echo bbbb > "$D/head"; pending "review 50 41"; runner
 check "a new head alone does not unblock: the slice stays Blocked until the owner acts (R51, R54)" \
   $([ "$(lines "$D/claude.log")" = 2 ] && [ "$(tail -n1 "$D/sleep.log")" = 5 ]; echo $?)
 
+# R55: a half-done Block (mention made, board write failed) is finished before any other item of the slice.
+setup; : > "$D/board-fail-once"; pending "fix 50 41" "fix 50 41" "merge 50 41"; claude_plays "1 300 tests fail" "1 300 tests fail"; runner
+check "R55: after a failed Blocked write the next item (merge) does not merge; the Block completes, mentioned once" \
+  $(no_file "$D/gate.log" && [ "$(lines "$D/comments.log")" = 1 ] && [ "$(cat "$D/status-41")" = Blocked ] \
+    && grep -q '^50 ' "$AGENT_HOME/agent-logs/blocked-prs" && grep -q '50 needs-owner' "$D/labels.log"; echo $?)
+check "R55: the Blocked notice says how to run it again" \
+  $(grep -q 'Comment on this PR or move the slice off Blocked to run it again\.$' "$D/comments.log"; echo $?)
+
+setup; export FAKE_VERDICT="none 0 0 -"; pending "review 50 41" "review 50 41"; runner
+again; echo "In review" > "$D/status-41"; : > "$AGENT_HOME/agent-logs/mentioned/blocked-41"; echo 1 > "$AGENT_HOME/agent-logs/failures/41"
+pending "review 50 41" "review 50 41"; runner
+check "R55: an owner unblock clears the slice's marker and count, so a later Block runs twice and mentions again" \
+  $([ "$(lines "$D/claude.log")" = 4 ] && [ "$(lines "$D/comments.log")" = 2 ] && [ "$(grep -c 'status 41 Blocked' "$D/board.log")" = 2 ]; echo $?)
+
 # R54 as an interaction: pending.sh's handled-time rule over the comments the runner posts. The fake below offers
 # `fix 50 41` only while the owner's last comment (owner-t) is newer than the PR's last handling, which is the newest
 # bot comment on PR 50; on the slice it skips a Blocked slice unless that holds (R51). Each owner comment must wake
@@ -501,9 +517,9 @@ check "a re-exec whose copy cannot be moved logs once and keeps running the old 
   $([ "$(grep -c 'could not install' "$AGENT_HOME/agent-logs/runner.log")" = 1 ] && [ "$(grep -c 'runner started' "$AGENT_HOME/agent-logs/runner.log")" = 1 ] \
     && [ "$(lines "$D/claude.log")" = 1 ]; echo $?)
 
-setup; export AGENT_CALL_TIMEOUT_SECONDS=1 FAKE_STOP_AT=$((S + 60)); hook pending-hook ": > '$D/git-hang'"; pending HOOK "new 41"; runner
+setup; export AGENT_CALL_TIMEOUT_SECONDS=3 FAKE_STOP_AT=$((S + 60)); hook pending-hook ": > '$D/git-hang'"; pending HOOK "new 41"; runner
 check "a hanging fetch times out into a transient pause, logged with the git verb" \
-  $(grep -q 'git fetch timed out after 1 s' "$AGENT_HOME/agent-logs/runner.log" && [ "$(waits transient)" = 60 ] && no_file "$D/claude.log"; echo $?)
+  $(grep -q 'git fetch timed out after 3 s' "$AGENT_HOME/agent-logs/runner.log" && [ "$(waits transient)" = 60 ] && no_file "$D/claude.log"; echo $?)
 
 setup; pending "new 41"; runner; again; pending "new 41"; runner; again; pending "new 41"; runner
 check "the no-progress guard survives a restart (M4)" $(grep -q 'status 41 Blocked' "$D/board.log"; echo $?)

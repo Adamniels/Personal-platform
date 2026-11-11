@@ -46,7 +46,10 @@
 # skips a Blocked slice's PR unless the owner commented since (R51), and the runner waits on any PR item of a
 # recorded PR whose slice is Blocked (R47). The owner unblocks by commenting on the PR, whose fix item sets the slice
 # back to In review and clears the record before its run, or by moving the slice off Blocked, which clears the record.
-# An ok run resets the count.
+# A Block whose mention went out but whose board, label or record write failed is finished before any other item of
+# that slice, so a merge, cap or owner item cannot slip past it (R55). Moving a slice off Blocked without commenting
+# yields one extra review run, since pending.sh reads the Blocked notice as a bot reply (intended). An ok run resets
+# the count.
 # limit, transient and environment pause and then ask pending.sh again, changing nothing on the board (R14, R46):
 # limit sleeps until the reset in the output plus 60 s (an epoch after `|`, or a `resets 3pm` style time), else
 # 15 min doubling to 60 min, and mentions only once its episode passes 6 h or 10 limits in a row on one item;
@@ -264,7 +267,7 @@ block_slice() { # slice pr sha item short logfile
   n="$(failures "$1")"
   [ -n "$6" ] && see=" See $6 on the Mac mini."
   [ "$2" = - ] || where="$2"
-  if escalate "blocked-$1" "$where" "@$OWNER slice #$1 is Blocked: $n runs in a row failed on it, the last one $4 ($5).$see" do_block "$1" "$2" "$3"; then
+  if escalate "blocked-$1" "$where" "@$OWNER slice #$1 is Blocked: $n runs in a row failed on it, the last one $4 ($5).$see Comment on this PR or move the slice off Blocked to run it again." do_block "$1" "$2" "$3"; then
     log "slice $1 set Blocked after $n failures"
     reset_failures "$1"
   else
@@ -415,7 +418,6 @@ prepare_tree() {
 claude_item() { # kind pr slice; the PR's head is $cur_sha
   local kind="$1" pr="$2" slice="$3" sha="$cur_sha" item logf n start rc secs cls short last key vk vs
   item="$kind $slice"; [ "$pr" = - ] || item="$kind $pr $slice"
-  if [ "$(failures "$slice")" -ge 2 ]; then block_slice "$slice" "$pr" "$sha" "$item" "the earlier Blocked did not go through" ""; return; fi
   probe || { pause environment "$probe_reason" "$slice"; return; }
   if [ "$kind" = review ]; then
     # R53: the reviewer reads main's agent and settings from a clean tree on main.
@@ -490,7 +492,10 @@ pr_gate() {
     fi
     log "#$pr is Blocked; waiting for the owner"; end_episode; nap "$poll"; return 1
   fi
-  if pr_recorded "$pr"; then clear_blocked "$pr"; log "slice $slice is no longer Blocked; cleared #$pr's record"; fi
+  if pr_recorded "$pr"; then
+    clear_blocked "$pr"; rm -f "$logs/mentioned/blocked-$slice"; reset_failures "$slice"
+    log "slice $slice is no longer Blocked; cleared #$pr's record, mention marker and failure count"
+  fi
   return 0
 }
 
@@ -686,8 +691,14 @@ while :; do
   if [ "$pr" != - ]; then
     head_of "$pr" || { pause transient "could not read the head of #$pr" "$slice"; continue; }
     cur_sha="$head_sha"
-    pr_gate "$kind" "$pr" "$slice" || continue
   fi
+  # R55: a Block left half done is finished before anything else runs for this slice.
+  if [ "$(failures "$slice")" -ge 2 ]; then
+    item="$kind $slice"; [ "$pr" = - ] || item="$kind $pr $slice"
+    block_slice "$slice" "$pr" "$cur_sha" "$item" "the earlier Blocked did not go through" ""
+    continue
+  fi
+  if [ "$pr" != - ]; then pr_gate "$kind" "$pr" "$slice" || continue; fi
   case "$kind" in
     new|resume|fix|review) claude_item "$kind" "$pr" "$slice" ;;
     merge) merge_item "$pr" "$slice" ;;
