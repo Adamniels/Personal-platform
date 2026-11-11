@@ -7,6 +7,7 @@
 mod common;
 
 use platform_core::origin::PublicOrigin;
+use platform_core::registry::Registry;
 use platform_core::signing_key::SigningKey;
 use platform_core::{AppState, password, secret_token};
 use sqlx::PgPool;
@@ -20,9 +21,14 @@ const PLATFORM: &str = "https://platform.test";
 const PASSWORD: &str = "correct-horse-battery";
 
 async fn serve(pool: PgPool, lifetime: Duration) -> (std::net::SocketAddr, AppState) {
-    let state = AppState::new(pool, SigningKey::generate().0, lifetime)
-        .await
-        .unwrap();
+    let state = AppState::new(
+        pool,
+        SigningKey::generate().0,
+        lifetime,
+        Registry::default(),
+    )
+    .await
+    .unwrap();
     let app = platform_core::app(state.clone(), PublicOrigin::parse(PLATFORM).unwrap());
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();

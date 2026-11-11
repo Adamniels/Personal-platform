@@ -9,6 +9,7 @@ mod common;
 use axum::Router;
 use axum::routing::get as route_get;
 use platform_core::origin::PublicOrigin;
+use platform_core::registry::Registry;
 use platform_core::session::Session;
 use platform_core::signing_key::SigningKey;
 use platform_core::{AppState, DEFAULT_ACCESS_TOKEN_LIFETIME};
@@ -25,6 +26,7 @@ async fn serve(pool: PgPool) -> (std::net::SocketAddr, AppState) {
         pool,
         SigningKey::generate().0,
         DEFAULT_ACCESS_TOKEN_LIFETIME,
+        Registry::default(),
     )
     .await
     .unwrap();
@@ -76,6 +78,7 @@ async fn without_a_valid_token_a_page_goes_to_the_deciding_endpoint() {
         db.pool.clone(),
         SigningKey::generate().0,
         DEFAULT_ACCESS_TOKEN_LIFETIME,
+        Registry::default(),
     )
     .await
     .unwrap()
@@ -153,6 +156,7 @@ async fn a_nested_page_comes_back_to_its_whole_path() {
         db.pool.clone(),
         SigningKey::generate().0,
         DEFAULT_ACCESS_TOKEN_LIFETIME,
+        Registry::default(),
     )
     .await
     .unwrap();
