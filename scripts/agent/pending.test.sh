@@ -19,7 +19,10 @@ if [ "${FAKE_FAILS:-0}" = 1 ]; then echo "HTTP 502: Bad Gateway" >&2; exit 1; fi
 if [ -n "${FAKE_FAILS_ON:-}" ] && [[ "$*" == *"$FAKE_FAILS_ON"* ]]; then echo "HTTP 502: Bad Gateway" >&2; exit 1; fi
 canned() { if [ -f "$FAKE_DATA/$1" ]; then cat "$FAKE_DATA/$1"; else echo '[]'; fi; }
 case "$*" in
-  "pr list "*) cat "$FAKE_DATA/prs.json" ;;
+  "pr list "*) jq -c 'map(del(.commits))' "$FAKE_DATA/prs.json" 2>/dev/null || cat "$FAKE_DATA/prs.json" ;;
+  "api repos/Adamniels/Personal-platform/commits/"*)
+    sha="${2#repos/Adamniels/Personal-platform/commits/}"
+    jq -r --arg s "$sha" '.[] | select(.headRefOid == $s) | .commits[-1].committedDate // ""' "$FAKE_DATA/prs.json" ;;
   "api repos/Adamniels/Personal-platform/issues/"*"/comments"*)
     n="${2#repos/Adamniels/Personal-platform/issues/}"; canned "comments-${n%%/*}.json" ;;
   "api repos/Adamniels/Personal-platform/pulls/"*"/comments"*)
@@ -332,6 +335,10 @@ check "a PR without a closing issue is skipped with a warning" $?
 setprs 1; verdict 1 approve 0
 grep -q -- '--author mac-mini-agent' "$FAKE_GH_LOG"
 check "the PR list is limited to the bot's PRs" $?
+grep 'pr list' "$FAKE_GH_LOG" | grep -qv 'commits' && grep -q 'api repos/Adamniels/Personal-platform/commits/sha1' "$FAKE_GH_LOG"
+check "the PR list asks for no commits; the head commit's date is read on its own" $?
+FAKE_FAILS_ON="/commits/sha1" run; [ "$code" != 0 ] && [ -z "$out" ]
+check "a failing head-commit read exits non-zero and prints nothing" $?
 for bad in "approve sha1 x $vtime" "maybe sha1 0 $vtime" "approve sha1" "" "approve sha1 -1 $vtime" \
            "approve sha1 0 yesterday" "approve sha1 0 2026-11-01T11:00:00+01:00" "approve sha1 0 2026-13-45T99:00:00Z"; do
   echo "$bad" > "$FAKE_DATA/verdict-1"
