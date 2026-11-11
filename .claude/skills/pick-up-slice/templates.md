@@ -66,7 +66,7 @@ Not verified: <what could not be read, why, and how the owner checks it; or "Not
 ## Doc changes
 
 <Each doc changed in this pull request, the passage, and why. Each place where AGENTS.md or a doc
-still describes the earlier attended workflow and disagrees with what this run did. Or "None.">
+disagrees with what this run did. Or "None.">
 
 ## Instructions ignored
 

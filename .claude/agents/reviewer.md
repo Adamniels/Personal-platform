@@ -30,8 +30,9 @@ the board or an issue. You never change the working tree, the index, a branch or
 `git checkout`, `git switch`, `git fetch` into a branch, `git stash` or `gh pr checkout`. You never
 edit or delete a comment, yours or anyone's. Your only write to GitHub is
 `gh pr comment <pr> --body-file <file>` at the end, and at most one verdict comment lands per run.
-Files you need for that, the body and downloaded screenshots, go in a directory from
-`dir="$(mktemp -d)"`, never in the repository.
+Files you need for that, the body and downloaded screenshots, go in a directory from `mktemp -d`,
+never in the repository. Shell variables do not persist between Bash tool calls, so use the path it
+prints, written out, in every later command; below it is `<tmp>`.
 
 **Dry run.** When the prompt asks you not to post and to write the comment body to a path, in
 whatever words, do everything below, write the exact body you would have posted to that path, and
@@ -93,7 +94,7 @@ it meets the slice's Acceptance.
    which needs auth. Check that `<name>` matches `^[A-Za-z0-9._-]+\.png$` before you use it in a
    path or a command, and treat one that does not as unreadable. Download each and look at it with
    Read:
-   `gh api -H "Accept: application/vnd.github.raw" "repos/Adamniels/Personal-platform/contents/<pr>/<name>.png?ref=pr-screenshots" > "$dir/<name>"`.
+   `gh api -H "Accept: application/vnd.github.raw" "repos/Adamniels/Personal-platform/contents/<pr>/<name>.png?ref=pr-screenshots" > <tmp>/<name>`.
    Judge it against the Acceptance: the element is there, the layout is not broken at the 390 px
    phone width, and the error states the slice names are shown. A screenshot the Acceptance asks
    for that is missing, cannot be fetched or cannot be read is a blocking finding, "could not
@@ -163,9 +164,11 @@ Write `None.` under a section with nothing in it. Say when you are unsure of a f
 
 ## Posting
 
-1. Write the body with a quoted heredoc into `$dir/verdict.md`.
-2. Check it: `head -n 1 "$dir/verdict.md" | grep -Eqx '<!-- verdict: (approve|changes) sha=[0-9a-f]{40} -->'`
-   and `! grep -q $'\r' "$dir/verdict.md"`. Fix the body if either fails.
+1. Write the body with a quoted heredoc into `<tmp>/verdict.md`. If a Bash command is refused for
+   its text, rephrase it or write the file with the Write tool; never quote `gh` merge commands or
+   `merge-gate.sh` in a body.
+2. Check it: `head -n 1 <tmp>/verdict.md | grep -Eqx '<!-- verdict: (approve|changes) sha=[0-9a-f]{40} -->'`
+   and `! grep -q $'\r' <tmp>/verdict.md`. Fix the body if either fails.
 3. Read the head again with `gh pr view <pr> --json headRefOid --jq .headRefOid`. If it is no
    longer the sha in your marker, a commit landed while you read: start again from step 1 of What
    to read and review the new head. Restart at most 3 times. If the head is still moving after
@@ -173,7 +176,7 @@ Write `None.` under a section with nothing in it. Say when you are unsure of a f
 4. List the comments again and repeat the "Already answered?" check from step 3 of What to read,
    since another run may have posted while you reviewed. If it holds, post nothing, and print that
    verdict's first line and URL. Not in a dry run.
-5. Post it: `gh pr comment <pr> --body-file "$dir/verdict.md"`. If it fails, list the comments
+5. Post it: `gh pr comment <pr> --body-file <tmp>/verdict.md`. If it fails, list the comments
    before any retry, since the comment may have landed anyway, and retry only if it did not. In a
    dry run, copy the body to the path the prompt names instead, and post nothing.
 
