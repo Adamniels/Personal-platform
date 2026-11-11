@@ -2,12 +2,12 @@
 
 Status: exploratory. The walking skeleton is being built.
 
-Last updated: 2026 10 01
+Last updated: 2026 11 10
 
-How work gets cut up and ordered, as opposed to what gets built. What a particular sprint must
-prove, and the tickets that get it there, live on the GitHub Project rather than here, see
-`docs/README.md`. Who does each part, the owner planning and reviewing and agents implementing, is
-in `agent-workflow.md`.
+How work gets cut up and ordered, as opposed to what gets built. What a particular feature must
+deliver, and the slices that get it there, live on the GitHub Project rather than here, see
+`docs/README.md`. Who does each part, the owner planning and agents implementing, reviewing and
+merging, is in `agent-workflow.md`.
 
 Everything below was decided while planning the core sprint and argued against that sprint's
 checks. It is written as platform wide because nothing in it is specific to the core, but it has
@@ -20,7 +20,7 @@ second copy in `Brain/docs/`.
 ## A walking skeleton, then vertical slices
 
 **Work is cut vertically.** A slice goes through every tier it touches, storage, logic, HTTP and
-the page, and ends in something that can be used and checked by hand. It is not cut by layer,
+the page, and ends in something that can be used and tested end to end. It is not cut by layer,
 building the schema, then the logic, then the endpoints, then the pages.
 
 **When the pieces have never been connected, the first piece of work is a walking skeleton**: the
@@ -28,23 +28,29 @@ thinnest path through every moving part, end to end, with no behaviour in it. Th
 hostname with real HTTPS, each service reachable through it, the database with its roles and the
 migrations command working. It holds no authentication and no domain code.
 
-**Slices are ordered by risk, not by the order a sprint's checks happen to be listed in.** The
-claim most likely to be wrong gets tested first, while little is built on top of it.
+**Slices are ordered by risk, not by the order a feature's behaviours happen to be listed in.**
+The claim most likely to be wrong gets tested first, while little is built on top of it. Within
+that, the slices the owner can try soonest come first.
 
-**A sprint's checks are acceptance criteria attached to slices, not a list of tickets.** Most
-checks are a behaviour one slice delivers. Some are properties that fall out of the design, such as
-staying logged in across a restart, and those get attached to the slice that makes them true
+**What a feature must do is written as acceptance criteria on its slices, not as tickets.** Most
+criteria are a behaviour one slice delivers. Some are properties that fall out of the design, such
+as staying logged in across a restart, and those get attached to the slice that makes them true
 rather than becoming work of their own.
 
-**Checks are walked by hand, and never turned into automated tests.** Each one is walked when its
-slice lands, as part of that slice being done, and then all of them are walked again together at
-the end of the sprint, on a fresh start of the whole stack, as the sprint being done. The final
-walk exists to catch a later slice breaking an earlier one. Walking them only at the end would
-find a problem from the first week in the last one.
+**Acceptance criteria are automated tests, written first.** Each criterion is a named test, a cargo
+test, a pytest test or a Playwright test in `e2e/`, that the agent writes before the code and
+watches fail. A slice is done when they pass. Because they are tests, they keep running: the
+Playwright suite runs in continuous integration on every pull request that touches service code, so
+a later slice breaking an earlier one fails its own pull request instead of waiting to be noticed.
+CI's e2e job starts the whole stack fresh each time, on every pull request that touches service code
+and on `main` after each merge. A feature is done when its last slice merges, and the owner then
+closes its parent issue. A criterion that cannot be written as a test is a sign the slice is not
+understood yet, and it is not Ready until it can be.
 
-**On the board, a slice is a parent issue, and it closes when its check is walked.** How finely it
-is broken down beneath that, and into what shape, is up to whoever does the work and changes with
-use. Only the slice has to end in something checkable.
+**On the board, work is a feature, then slices, then a task checklist.** A feature is a parent
+issue. Each slice is a sub-issue of it, one branch and one pull request, sized so an agent finishes
+it in one run and a reviewer judges it in one read. Its tasks are a checklist in the slice, one
+commit each, not issues of their own. Only the slice has to end in something testable.
 
 ### Why not layers
 
@@ -82,8 +88,8 @@ tests, see what gets tests below.
 
 ### What it costs
 
-The skeleton is the one piece of work that no check stands behind, so its done condition has to be
-written as concretely as a check would be, or it has no finish line.
+The skeleton is the one piece of work that no behaviour stands behind, so its done condition has to
+be written as concretely as an acceptance test would be, or it has no finish line.
 
 Security logic lands across several slices rather than in one piece reviewed as a whole. That is
 acceptable while each slice implements behaviour already written down in a design document, and
@@ -96,17 +102,18 @@ the core, which serves the keys, and `canary`, which checks them, in one piece o
 
 Layers would win if the data model were genuinely uncertain and had to settle before anything
 could stand on it, or if several people were dividing the work by tier. The skeleton can be dropped
-when the stack is already proven end to end, such as a later sprint on the same pieces, and slices
+when the stack is already proven end to end, such as a later feature on the same pieces, and slices
 alone are enough.
 
 ---
 
 ## What gets tests
 
-**Tests exist to make the thing good, not to prove a sprint is done.** A sprint's checks answer
-whether it is finished, once, on the real stack. Tests answer whether something is still true after
-a change months later, and whether it holds in cases nobody can produce by clicking. They are chosen
-per ticket, for the sake of the code, and never written to mirror a check.
+**Acceptance tests prove a slice does what was planned. The rest exist to make the thing good.**
+The acceptance tests answer whether a slice is finished, and keep answering it on every later pull
+request. The tests below answer whether something holds in cases nobody can produce by clicking,
+and whether it is still true after a change months later. They are chosen per slice, for the sake
+of the code, and are more than the acceptance tests whenever the code meets a criterion below.
 
 **Anything meeting one of three criteria gets tests:**
 
@@ -117,9 +124,9 @@ per ticket, for the sake of the code, and never written to mirror a check.
 - **It is a contract between two languages.** Drift there is otherwise only caught at runtime, and
   a test is the cheapest runtime there is.
 
-Anything meeting none of them is checked by hand when it is built, and that is enough.
+Anything meeting none of them is covered by its slice's acceptance tests, and that is enough.
 
-**A ticket whose work meets a criterion names its tests in its own definition of done.** Without
+**A slice whose work meets a criterion names those tests in its Acceptance.** Without
 that floor, the tests that matter most are the ones skipped, because they are also the awkward
 ones, a clock to inject, a database to run, a stub to stand up, and the feature already works when
 it is clicked.
@@ -141,7 +148,8 @@ an expired token, a bad signature, an unknown key id, and a token naming an algo
 `none`, or a symmetric one keyed with the public key. `canary` carries these, along with a test
 verifying a token the core actually produced, and every feature after it starts from them.
 
-**No automated browser tests yet.** They would need a new dependency and the proxy's local
-certificate authority trusted inside continuous integration, to automate what is walked by hand
-once per slice. Worth revisiting when walking by hand becomes frequent, or when regressions start
-appearing only in the browser.
+**Browser tests drive the real stack.** The suite in `e2e/` is Playwright, run through Caddy on
+`https://platform.test` the way a person would use the platform, in continuous integration as well
+as on the Mac mini. The browser ignores TLS errors rather than trusting Caddy's local certificate
+authority, since TLS is covered by `curl --cacert`; how to run it and its fixtures are in
+`e2e/README.md`.

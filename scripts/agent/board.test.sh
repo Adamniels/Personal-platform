@@ -15,7 +15,7 @@ echo "$*" >> "$FAKE_GH_LOG"
 case "$*" in
   *"projectV2(number"*)
     printf 'PVT_project\tPVTSSF_status\n'
-    printf 'opt_backlog\tBacklog\nopt_ready\tReady\nopt_prog\tIn progress\nopt_review\tIn review\nopt_done\tDone\n' ;;
+    printf 'opt_backlog\tBacklog\nopt_ready\tReady\nopt_prog\tIn progress\nopt_review\tIn review\nopt_blocked\tBlocked\nopt_done\tDone\n' ;;
   *fieldValueByName*)
     echo "I_issue"
     case "${FAKE_ON_BOARD:-1}" in
@@ -44,8 +44,8 @@ check() { # name, condition result
 }
 run() { : > "$FAKE_GH_LOG"; out="$(bash "$here/board.sh" "$@" 2>&1)"; code=$?; }
 
-run status 7 Blocked
-[ "$code" = 2 ] && grep -q 'Backlog' <<<"$out" && grep -q 'Ready' <<<"$out" && grep -q 'In progress' <<<"$out" && grep -q 'In review' <<<"$out" && grep -q 'Done' <<<"$out" && [ ! -s "$FAKE_GH_LOG" ]
+run status 7 Frozen
+[ "$code" = 2 ] && grep -q 'Blocked' <<<"$out" && grep -q 'Backlog' <<<"$out" && grep -q 'Ready' <<<"$out" && grep -q 'In progress' <<<"$out" && grep -q 'In review' <<<"$out" && grep -q 'Done' <<<"$out" && [ ! -s "$FAKE_GH_LOG" ]
 check "rejects unknown status" $?
 
 run status abc Ready
@@ -59,6 +59,10 @@ check "rejects an issue number with a leading zero" $?
 FAKE_ON_BOARD=1 run status 7 "In review"
 [ "$code" = 0 ] && [ "$out" = "#7: In review" ] && grep -q 'updateProjectV2ItemFieldValue' "$FAKE_GH_LOG" && grep 'updateProjectV2ItemFieldValue' "$FAKE_GH_LOG" | grep -q 'opt_review' && ! grep -q addProjectV2ItemById "$FAKE_GH_LOG"
 check "sets status by option name" $?
+
+FAKE_ON_BOARD=1 run status 7 Blocked
+[ "$code" = 0 ] && [ "$out" = "#7: Blocked" ] && grep 'updateProjectV2ItemFieldValue' "$FAKE_GH_LOG" | grep -q 'opt_blocked'
+check "accepts the Blocked status" $?
 
 FAKE_ON_BOARD=0 run status 7 Ready
 add_line=$(grep -n addProjectV2ItemById "$FAKE_GH_LOG" | cut -d: -f1)

@@ -1,0 +1,153 @@
+# The acceptance suite: the whole stack up, driven by a browser through
+# https://platform.test the way a person would use it. See e2e/README.md.
+name: E2E
+
+on:
+  # Called by ci.yml, which decides from the diff whether it runs.
+  workflow_call:
+  workflow_dispatch:
+
+# Read only: no job here writes to the repository or to GitHub.
+permissions:
+  contents: read
+
+jobs:
+  acceptance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    # Throwaway values for a stack that lives as long as the job. The owner's
+    # string is set only on the migrate step, as in core.yml.
+    env:
+      CORE_APP_DATABASE_URL: postgres://core_app:ci-only-app@127.0.0.1:5432/core
+      # Every compile reads the checked in Core/.sqlx cache. Keygen builds the
+      # core before Postgres is up, and one setting for every build avoids a
+      # rebuild when it changes.
+      SQLX_OFFLINE: "true"
+
+    steps:
+      - uses: actions/checkout@v7
+
+      # Unlike core.yml's service container, compose creates the database and
+      # roles itself from these three passwords.
+      - name: Write infra/.env
+        run: |
+          {
+            echo POSTGRES_PASSWORD=ci-only-superuser
+            echo CORE_OWNER_PASSWORD=ci-only-owner
+            echo CORE_APP_PASSWORD=ci-only-app
+          } > infra/.env
+
+      - name: Install Rust
+        working-directory: Core
+        run: rustup toolchain install
+
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: Core
+
+      # 0.0.0.0 because Caddy runs in a container, so its traffic arrives on
+      # the Docker bridge and not on loopback. The runner is thrown away
+      # afterwards, so binding on every interface is safe here.
+      - name: Write Core/.env
+        working-directory: Core
+        run: |
+          {
+            echo CORE_LISTEN_ADDR=0.0.0.0:8080
+            echo CORE_PUBLIC_ORIGIN=https://platform.test
+            echo "CORE_APP_DATABASE_URL=$CORE_APP_DATABASE_URL"
+          } > .env
+          cargo run -q -- keygen >> .env
+
+      - name: Point platform.test at this machine
+        run: echo "127.0.0.1 platform.test" | sudo tee -a /etc/hosts
+
+      - name: Start Postgres and Caddy
+        working-directory: infra
+        run: docker compose up -d --wait
+
+      # --wait only waits for the container to run, and the image has no
+      # healthcheck. Its init time server listens on the unix socket only, so
+      # a login over TCP succeeds only once the real server is up with the
+      # roles created.
+      - name: Wait for Postgres
+        working-directory: infra
+        env:
+          PGPASSWORD: ci-only-owner
+        run: |
+          for _ in $(seq 1 30); do
+            if docker compose exec -T -e PGPASSWORD postgres psql -h 127.0.0.1 -U core_owner -d core -c 'select 1' > /dev/null 2>&1; then
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "postgres never accepted core_owner over TCP" >&2
+          exit 1
+
+      - name: Migrate
+        working-directory: Core
+        env:
+          CORE_OWNER_DATABASE_URL: postgres://core_owner:ci-only-owner@127.0.0.1:5432/core
+        run: cargo run -- migrate
+
+      # The core reads Core/.env from its working directory.
+      - name: Start the core
+        working-directory: Core
+        run: nohup cargo run -q > "$RUNNER_TEMP/core.log" 2>&1 &
+
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.12.19"
+
+      - name: Start canary
+        working-directory: canary
+        run: nohup uv run uvicorn canary.app:app --host 0.0.0.0 --port 8081 > "$RUNNER_TEMP/canary.log" 2>&1 &
+
+      # /login rather than /, which answers 303 while signed out. -k because
+      # Caddy's local CA is not trusted here.
+      - name: Wait for the platform
+        run: |
+          for _ in $(seq 1 180); do
+            if [ "$(curl -ks -o /dev/null -w '%{http_code}' https://platform.test/login)" = 200 ]; then
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "platform.test/login never answered 200" >&2
+          echo "--- core log" >&2
+          tail -n 50 "$RUNNER_TEMP/core.log" >&2 || true
+          echo "--- canary log" >&2
+          tail -n 50 "$RUNNER_TEMP/canary.log" >&2 || true
+          exit 1
+
+      - name: Install the browser
+        working-directory: e2e
+        run: uv run playwright install --with-deps chromium
+
+      - name: Run the suite
+        working-directory: e2e
+        run: uv run pytest
+
+      - name: Lint
+        working-directory: e2e
+        run: uv run ruff check
+
+      - name: Format
+        working-directory: e2e
+        run: uv run ruff format --check
+
+      - name: Show the server logs
+        if: failure()
+        run: |
+          echo "--- core log"
+          tail -n 100 "$RUNNER_TEMP/core.log" || true
+          echo "--- canary log"
+          tail -n 100 "$RUNNER_TEMP/canary.log" || true
+
+      - name: Upload the screenshots
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: screenshots
+          path: e2e/screenshots/
+          if-no-files-found: warn

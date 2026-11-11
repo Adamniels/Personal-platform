@@ -2,7 +2,7 @@
 
 Status: exploratory. The walking skeleton is being built.
 
-Last updated: 2026 10 08
+Last updated: 2026 11 10
 
 The top of the documentation. What the platform is, what services exist, and the thinking that
 shapes more than one of them. Anything you only need when you sit down to write a particular
@@ -400,13 +400,17 @@ the instructions and configuration for coding agents, since those govern work on
 languages is tested by both sides against the same bytes, and those bytes belong to neither side's
 directory. The first is the token: the core's tests assert that it still produces the committed
 token exactly, and each feature's tests verify that token against the committed public keys. It
-holds public material only. Every workflow that tests against a fixture includes its directory in
-its path filter.
+holds public material only. Continuous integration's change detection,
+`scripts/ci/changed-areas.sh`, maps a fixture's directory to every area that tests against it.
 
 **What it costs, and how it is paid.** Every push would build and test every service, so
-continuous integration is filtered by path from its first workflow, and a change to one service
-runs that service's checks. The number of languages is not itself a cost, since each directory
-keeps its own toolchain and lockfile and nothing tries to build them as one graph.
+continuous integration runs only what a change touches. `.github/workflows/ci.yml` is the single
+entry point: it works out from the diff which areas changed, with `scripts/ci/changed-areas.sh`,
+runs each changed area's workflow, and ends in `ci-ok`, a job that always runs and passes only when
+every job it judged passed or was skipped. That one check is what branch protection requires, since
+a required check that only runs on some paths would block every pull request outside them. The
+number of languages is not itself a cost, since each directory keeps its own toolchain and lockfile
+and nothing tries to build them as one graph.
 
 **What would split a service out**, none of which is size: a feature that should be public while
 the rest stays private, a feature becoming a product with its own releases or contributors, or someone who should work on

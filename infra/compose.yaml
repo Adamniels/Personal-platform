@@ -15,6 +15,10 @@ services:
       - ./postgres/initdb:/docker-entrypoint-initdb.d:ro
   caddy:
     image: caddy:2
+    # Docker Desktop defines host.docker.internal already, Linux does not, and
+    # the Caddyfile proxies to it.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "127.0.0.1:80:80"
       - "127.0.0.1:443:443"

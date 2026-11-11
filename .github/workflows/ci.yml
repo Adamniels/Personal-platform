@@ -1,0 +1,99 @@
+# The single entry point for CI. It works out from the diff which areas changed, runs the checks
+# for those, and ends in `ci-ok`, the one always present check that branch protection requires.
+# A required check that only runs on some paths would block every other pull request, and a job
+# skipped by `if:` reports as skipped, so the gate is a job that runs every time and judges the rest.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Read only: no job here writes to the repository or to GitHub.
+permissions:
+  contents: read
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      core: ${{ steps.areas.outputs.core }}
+      canary: ${{ steps.areas.outputs.canary }}
+      scripts: ${{ steps.areas.outputs.scripts }}
+      e2e: ${{ steps.areas.outputs.e2e }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      # A new branch has no previous commit to diff against (before is all zeros), and a manual run
+      # has no diff at all, so both run every area.
+      - id: areas
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          base=""
+          if [ "$EVENT" = pull_request ]; then
+            base="origin/$BASE_REF"
+          elif [ "$EVENT" = push ] && ! printf '%s' "$BEFORE" | grep -qE '^0+$'; then
+            base="$BEFORE"
+          fi
+
+          if [ -z "$base" ]; then
+            printf '%s\n' core=true canary=true scripts=true e2e=true >> "$GITHUB_OUTPUT"
+          else
+            # Captured first, so a failing git fails this job instead of feeding changed-areas.sh
+            # empty input, which would read as "nothing changed" and pass.
+            files="$(git -c core.quotepath=false diff --name-only --no-renames "$base...HEAD")"
+            printf '%s\n' "$files" | bash scripts/ci/changed-areas.sh >> "$GITHUB_OUTPUT"
+          fi
+          cat "$GITHUB_OUTPUT"
+
+  core:
+    needs: changes
+    if: needs.changes.outputs.core == 'true'
+    uses: ./.github/workflows/core.yml
+
+  canary:
+    needs: changes
+    if: needs.changes.outputs.canary == 'true'
+    uses: ./.github/workflows/canary.yml
+
+  scripts:
+    needs: changes
+    if: needs.changes.outputs.scripts == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Run the script tests
+        run: |
+          status=0
+          for t in $(find scripts -name '*.test.sh' | sort); do
+            echo "== $t"
+            bash "$t" || status=1
+          done
+          exit "$status"
+
+  e2e:
+    needs: changes
+    if: needs.changes.outputs.e2e == 'true'
+    uses: ./.github/workflows/e2e.yml
+
+  # Fails unless every job above succeeded or was skipped. Runs even when one of them failed
+  # or was cancelled, which is what `always()` is for.
+  ci-ok:
+    needs: [changes, core, canary, scripts, e2e]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Judge the other jobs
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: printf '%s' "$NEEDS" | bash scripts/ci/ci-ok.sh
