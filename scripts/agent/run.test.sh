@@ -50,7 +50,17 @@ esac
 FAKE
 cat > "$tmp/bin/docker" <<'FAKE'
 #!/usr/bin/env bash
-echo "docker $*" >> "$D/probe.log"; if [ "${FAKE_DOCKER_HANG:-0}" = 1 ]; then sleep 30; fi; exit "${FAKE_DOCKER_EXIT:-0}"
+echo "docker $*" >> "$D/probe.log"; if [ "${FAKE_DOCKER_HANG:-0}" = 1 ]; then sleep 30; fi
+[ -f "$D/docker-up" ] && exit 0; exit "${FAKE_DOCKER_EXIT:-0}"
+FAKE
+# Stand-ins for `open -a Docker`: one brings the fake docker up, the other starts nothing.
+cat > "$tmp/bin/fake-docker-start" <<'FAKE'
+#!/usr/bin/env bash
+echo "start $*" >> "$D/start.log"; : > "$D/docker-up"
+FAKE
+cat > "$tmp/bin/fake-docker-start-dud" <<'FAKE'
+#!/usr/bin/env bash
+echo "start $*" >> "$D/start.log"
 FAKE
 cat > "$tmp/bin/df" <<'FAKE'
 #!/usr/bin/env bash
@@ -123,6 +133,8 @@ cp "$here/gh-guard.sh" "$tmp/scripts/gh-guard.sh"
 chmod +x "$tmp/bin/"* "$tmp/scripts/"*
 unset AGENT_GH_GUARD
 export PATH="$tmp/bin:$PATH" AGENT_SCRIPTS="$tmp/scripts" AGENT_SLEEP="$tmp/bin/fakesleep" TZ=UTC
+# Never start Docker unless a test asks for it.
+export AGENT_DOCKER_START=""
 for c in claude gh docker df date; do
   [ "$(command -v "$c")" = "$tmp/bin/$c" ] || { echo "the fake $c is not first on PATH" >&2; exit 1; }
 done
@@ -152,7 +164,9 @@ setup() {
   git -C "$AGENT_REPO" push -q origin main 41-x 2>/dev/null
   export D AGENT_HOME AGENT_REPO AGENT_POLL_SECONDS=0 AGENT_TIMEOUT_SECONDS=5400 AGENT_REMOTE="$tmp/t$t/origin.git"
   unset FAKE_STOP_AT FAKE_RATE_EXIT FAKE_COMMENT_EXIT FAKE_LABEL_EXIT FAKE_HEAD FAKE_DOCKER_EXIT FAKE_DF_KB \
-        FAKE_GATE_OUT FAKE_GATE_EXIT FAKE_BOARD_EXIT FAKE_VERDICT FAKE_DOCKER_HANG AGENT_CALL_TIMEOUT_SECONDS
+        FAKE_GATE_OUT FAKE_GATE_EXIT FAKE_BOARD_EXIT FAKE_VERDICT FAKE_DOCKER_HANG AGENT_CALL_TIMEOUT_SECONDS \
+        AGENT_DOCKER_START_WAIT
+  export AGENT_DOCKER_START=""
 }
 pending() { printf '%s\n' "$@" > "$D/pending.queue"; }
 claude_plays() { printf '%s\n' "$@" > "$D/claude.queue"; }
@@ -312,6 +326,21 @@ check "an environment episode mentions the owner once, only after 30 min" \
     && grep -q ' 41 @Adamniels' "$D/comments.log"; echo $?)
 check "environment backoff is 1 min doubling to 30 min" \
   $([ "$(waits environment | cut -d' ' -f1-8)" = "60 120 240 480 960 1800 1800 1800" ]; echo $?)
+
+# Docker Desktop quits to update and may not come back: the runner starts it once and waits for it.
+setup; export FAKE_DOCKER_EXIT=1 AGENT_DOCKER_START="$tmp/bin/fake-docker-start"; pending "new 41" "STOP"; runner
+check "a down Docker is started once, answers, and the run goes ahead with no pause" \
+  $([ "$(lines "$D/start.log")" = 1 ] && [ -s "$D/claude.log" ] && [ "$(sleeps)" = 10 ] \
+    && grep -q 'docker is back after 10 s' "$AGENT_HOME/agent-logs/runner.log"; echo $?)
+setup; export FAKE_DOCKER_EXIT=1 AGENT_DOCKER_START="$tmp/bin/fake-docker-start-dud" AGENT_DOCKER_START_WAIT=30
+pending "new 41" "STOP"; runner
+check "a Docker that does not answer after its start is an environment pause with no claude call" \
+  $([ "$(lines "$D/start.log")" = 1 ] && no_file "$D/claude.log" && no_file "$D/board.log" \
+    && grep -q 'docker did not answer within 30 s' "$AGENT_HOME/agent-logs/runner.log" \
+    && grep -q 'pausing (environment: docker info failed)' "$AGENT_HOME/agent-logs/runner.log"; echo $?)
+setup; export FAKE_DOCKER_EXIT=1; pending "new 41" "STOP"; runner
+check "with AGENT_DOCKER_START empty the runner never starts Docker" \
+  $(no_file "$D/start.log" && no_file "$D/claude.log"; echo $?)
 
 setup; export FAKE_RATE_EXIT=1; pending "new 41" "STOP"; runner
 check "a failed gh probe pauses with no claude call" $(no_file "$D/claude.log" && [ "$(sleeps)" = 60 ]; echo $?)

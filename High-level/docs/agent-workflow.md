@@ -267,7 +267,9 @@ runner clears between planning sessions.
 
 ### Once, on the Mac mini
 
-1. **Tools.** rustup with the stable toolchain, uv, Docker Desktop started at sign in, `gh`, `jq`,
+1. **Tools.** rustup with the stable toolchain, uv, Docker Desktop started at sign in with its
+   automatic updates off and its memory at 2 to 4 GB (an update quits Docker Desktop, and it does
+   not always start again; the runner starts it itself when its probe fails), `gh`, `jq`,
    tmux and Claude Code, with `~/.docker/bin` and `. "$HOME/.cargo/env"` in `~/.zprofile`. Docker
    Desktop's credential helper needs the login keychain, which a plain SSH session cannot unlock,
    so a new image is pulled by hand once, over `ssh -t` so the unlock can ask for the password,
