@@ -18,8 +18,9 @@
 <body>
   {#- A page with someone logged in puts <platform-nav> here; the login pages leave it empty. #}
   {% block nav %}{% endblock %}
-  {#- A page wider than the forms fills main_class with ` class="wide"`. #}
-  <main{% block main_class %}{% endblock %}>
+  {#- The page container from /design/page.css. A page with a class of its
+      own fills main_class with it, after a space. #}
+  <main class="page{% block main_class %}{% endblock %}">
     {% block content %}{% endblock %}
   </main>
 </body>

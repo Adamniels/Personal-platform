@@ -133,6 +133,19 @@ mod tests {
             assert!(html.contains(line), "{line} missing from {html}");
         }
         assert!(!html.contains(r#"src="/nav.js""#), "{html}");
+        // The shared values first and the core's own stylesheet last, so it
+        // builds on them; the content sits in the page container.
+        let order: Vec<usize> = [
+            "/design/tokens.css",
+            "/design/fonts.css",
+            "/design/page.css",
+            "/assets/core.css",
+        ]
+        .iter()
+        .map(|href| html.find(href).expect(href))
+        .collect();
+        assert!(order.is_sorted(), "{html}");
+        assert!(html.contains(r#"<main class="page">"#), "{html}");
         assert!(!html.contains("<platform-nav"), "{html}");
         assert!(html.contains("<p>hello</p>"), "{html}");
     }
@@ -177,5 +190,35 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert(header::IF_NONE_MATCH, "\"stale\"".parse().unwrap());
         assert_eq!(stylesheet(headers).await.status(), StatusCode::OK);
+    }
+
+    // Every colour comes from /design/tokens.css, so the served stylesheet
+    // writes none of its own: no hex value, no rgb() or hsl(), in any of
+    // their spellings. Comments are left out, so prose may name a colour.
+    #[tokio::test]
+    async fn test_the_core_stylesheet_holds_no_raw_colour() {
+        let css = body(stylesheet(HeaderMap::new()).await).await;
+        let mut code = String::new();
+        let mut rest = css.as_str();
+        while let Some(start) = rest.find("/*") {
+            code.push_str(&rest[..start]);
+            let end = rest[start..].find("*/").expect("a comment is closed");
+            rest = &rest[start + end + 2..];
+        }
+        code.push_str(rest);
+        let code = code.to_lowercase();
+
+        for function in ["rgb(", "rgba(", "hsl(", "hsla("] {
+            assert!(!code.contains(function), "{function} in {code}");
+        }
+        let hex = code.match_indices('#').find(|(at, _)| {
+            let digits = code[at + 1..]
+                .chars()
+                .take_while(char::is_ascii_hexdigit)
+                .count();
+            matches!(digits, 3 | 4 | 6 | 8)
+        });
+        assert!(hex.is_none(), "a hex colour at {hex:?} in {code}");
+        assert!(code.contains("var(--"), "{code}");
     }
 }
