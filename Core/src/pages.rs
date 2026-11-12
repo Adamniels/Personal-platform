@@ -105,6 +105,13 @@ mod tests {
             html.contains(r#"<link rel="stylesheet" href="/assets/core.css">"#),
             "{html}"
         );
+        // Every core page loads the nav script the way a feature does; only
+        // a page that fills the nav block shows the bar.
+        assert!(
+            html.contains(r#"<script src="/nav.js" defer></script>"#),
+            "{html}"
+        );
+        assert!(!html.contains("<platform-nav"), "{html}");
         assert!(html.contains("<p>hello</p>"), "{html}");
     }
 
@@ -148,5 +155,27 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert(header::IF_NONE_MATCH, "\"stale\"".parse().unwrap());
         assert_eq!(stylesheet(headers).await.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn nav_js_is_served_with_a_validator() {
+        let response = nav_script(HeaderMap::new()).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.headers()[header::CONTENT_TYPE],
+            "text/javascript; charset=utf-8"
+        );
+        assert_eq!(response.headers()[header::CACHE_CONTROL], "no-cache");
+        let etag = response.headers()[header::ETAG].clone();
+        assert!(etag.to_str().unwrap().starts_with('"'));
+        assert_ne!(etag, stylesheet(HeaderMap::new()).await.headers()[header::ETAG]);
+        assert!(body(response).await.contains("customElements.define"));
+
+        let mut headers = HeaderMap::new();
+        headers.insert(header::IF_NONE_MATCH, etag.clone());
+        let unchanged = nav_script(headers).await;
+        assert_eq!(unchanged.status(), StatusCode::NOT_MODIFIED);
+        assert_eq!(unchanged.headers()[header::ETAG], etag);
+        assert!(body(unchanged).await.is_empty());
     }
 }
