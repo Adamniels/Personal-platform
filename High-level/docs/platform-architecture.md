@@ -434,7 +434,10 @@ runs each changed area's workflow, and ends in `ci-ok`, a job that always runs a
 every job it judged passed or was skipped. That one check is what branch protection requires, since
 a required check that only runs on some paths would block every pull request outside them. The
 number of languages is not itself a cost, since each directory keeps its own toolchain and lockfile
-and nothing tries to build them as one graph.
+and nothing tries to build them as one graph. Continuous integration runs cargo with `--locked` and
+uv with `UV_LOCKED=1`, so the lockfile is what gets tested, and a manifest changed without its
+lockfile fails instead of resolving again, which `scripts/ci/workflows-locked.test.sh` holds the
+workflows to.
 
 **What would split a service out**, none of which is size: a feature that should be public while
 the rest stays private, a feature becoming a product with its own releases or contributors, or someone who should work on

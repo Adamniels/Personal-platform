@@ -15,6 +15,11 @@ jobs:
   check:
     runs-on: ubuntu-latest
 
+    # Every uv run fails on a uv.lock that does not match pyproject.toml,
+    # instead of updating it, so the lockfile is what gets tested.
+    env:
+      UV_LOCKED: "1"
+
     defaults:
       run:
         working-directory: canary

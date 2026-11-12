@@ -256,26 +256,28 @@ git diff --name-only origin/main...HEAD | bash scripts/ci/changed-areas.sh
 For each area printed as `true`, run every step of its workflow under `.github/workflows/`, locally
 and in the same order. Read the workflows each run; today they are:
 
-- **core** (`core.yml`), from `Core/`: `cargo fmt --check`; the `migrate` command from step 6;
-  `cargo clippy --all-targets -- -D warnings`;
-  `CORE_TEST_ADMIN_DATABASE_URL="postgres://postgres:$(grep '^POSTGRES_PASSWORD=' ../infra/.env | cut -d= -f2-)@127.0.0.1:5432/postgres" cargo test`;
-  `CORE_OWNER_DATABASE_URL="postgres://core_owner:$(grep '^CORE_OWNER_PASSWORD=' ../infra/.env | cut -d= -f2-)@127.0.0.1:5432/core" cargo test --test app_roles -- --ignored`;
-  and `cargo sqlx prepare --check -- --all-targets`, with sqlx-cli at the version `core.yml`
-  installs.
-- **canary** (`canary.yml`), from `canary/`: `uv run ruff check`, `uv run ruff format --check`,
-  `uv run pytest`.
+- **core** (`core.yml`), from `Core/`: `cargo fmt --check`; the `migrate` command from step 6,
+  as `cargo run --locked -- migrate`; `cargo clippy --locked --all-targets -- -D warnings`;
+  `CORE_TEST_ADMIN_DATABASE_URL="postgres://postgres:$(grep '^POSTGRES_PASSWORD=' ../infra/.env | cut -d= -f2-)@127.0.0.1:5432/postgres" cargo test --locked`;
+  `CORE_OWNER_DATABASE_URL="postgres://core_owner:$(grep '^CORE_OWNER_PASSWORD=' ../infra/.env | cut -d= -f2-)@127.0.0.1:5432/core" cargo test --locked --test app_roles -- --ignored`;
+  and `cargo sqlx prepare --check -- --all-targets --locked`, with sqlx-cli at the version
+  `core.yml` installs.
+- **canary** (`canary.yml`), from `canary/`: `UV_LOCKED=1 uv run ruff check`,
+  `UV_LOCKED=1 uv run ruff format --check`, `UV_LOCKED=1 uv run pytest`.
 - **scripts** (`ci.yml`): every `scripts/**/*.test.sh`, as the job's loop does:
   `for t in $(find scripts -name '*.test.sh' | sort); do bash "$t" || echo "FAILED $t"; done`.
 - **e2e** (`e2e.yml`): whenever `e2e=true`, always, against the running stack. Start the platform
-  from the branch's code first, as below. Then, from `e2e/`: `uv run playwright install chromium`
-  (a no op once installed), `uv run pytest`, `uv run ruff check`, `uv run ruff format --check`.
+  from the branch's code first, as below. Then, from `e2e/`:
+  `UV_LOCKED=1 uv run playwright install chromium` (a no op once installed),
+  `UV_LOCKED=1 uv run pytest`, `UV_LOCKED=1 uv run ruff check`,
+  `UV_LOCKED=1 uv run ruff format --check`.
 
 **Starting the platform.** Stop any core or canary you started earlier, so the code as it is now
 runs. Stopping one is always done the way step 4 finds it: the listener on its port, from `lsof`
 with `-sTCP:LISTEN`, and only when its command is the core or canary. From `Core/`,
-`cargo run -q > <tmp>/core.log 2>&1 &`; from `canary/`,
-`uv run uvicorn canary.app:app --host 127.0.0.1 --port 8081 > <tmp>/canary.log 2>&1 &`. Wait at
-most three minutes for it to answer:
+`cargo run --locked -q > <tmp>/core.log 2>&1 &`; from `canary/`,
+`UV_LOCKED=1 uv run uvicorn canary.app:app --host 127.0.0.1 --port 8081 > <tmp>/canary.log 2>&1 &`.
+Wait at most three minutes for it to answer:
 
 ```
 for _ in $(seq 1 90); do
