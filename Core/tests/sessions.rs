@@ -127,3 +127,97 @@ async fn a_login_stores_a_new_family_with_both_expiries() {
 
     db.close().await;
 }
+
+// The revoked time of every row of `family_id`, oldest row first.
+async fn revoked_in(pool: &PgPool, family_id: Uuid) -> Vec<Option<OffsetDateTime>> {
+    sqlx::query_scalar("SELECT revoked_at FROM sessions WHERE family_id = $1 ORDER BY id")
+        .bind(family_id)
+        .fetch_all(pool)
+        .await
+        .unwrap()
+}
+
+// A family of two rows, the first used and the second live.
+async fn rotated_family(pool: &PgPool, account_id: Uuid) -> Uuid {
+    let started = sessions::start(pool, account_id, now()).await.unwrap();
+    let hash = secret_token::hash(&started.refresh_token).unwrap();
+    let first = sessions::find(pool, &hash).await.unwrap().unwrap();
+    sessions::rotate(pool, first.id, now())
+        .await
+        .unwrap()
+        .expect("a live token did not rotate");
+    started.family_id
+}
+
+// What a reset revokes, and what changing a password while logged in will:
+// every family of the account, or every one but the family it is sitting in.
+// A row already revoked keeps the time it was first revoked, as revoke_family
+// does, and another account's sessions are never touched.
+#[tokio::test]
+async fn revoking_an_account_spares_only_the_named_family() {
+    let db = common::TestDb::new().await;
+    let account_id = account(&db.pool).await;
+    let other_account = account(&db.pool).await;
+    let rotated = rotated_family(&db.pool, account_id).await;
+    let kept = sessions::start(&db.pool, account_id, now())
+        .await
+        .unwrap()
+        .family_id;
+    let third = sessions::start(&db.pool, account_id, now())
+        .await
+        .unwrap()
+        .family_id;
+    let earlier = sessions::start(&db.pool, account_id, now())
+        .await
+        .unwrap()
+        .family_id;
+    sessions::revoke_family(&db.pool, earlier, now() + Duration::seconds(5))
+        .await
+        .unwrap();
+    let others = sessions::start(&db.pool, other_account, now())
+        .await
+        .unwrap()
+        .family_id;
+    let first = now() + Duration::seconds(100);
+    let second = now() + Duration::seconds(200);
+
+    let mut connection = db.pool.acquire().await.unwrap();
+    let revoked = sessions::revoke_account(&mut connection, account_id, Some(kept), first)
+        .await
+        .unwrap();
+
+    assert_eq!(revoked, 3, "rows revoked sparing {kept}");
+    assert_eq!(revoked_in(&db.pool, rotated).await, vec![Some(first); 2]);
+    assert_eq!(revoked_in(&db.pool, third).await, vec![Some(first)]);
+    assert_eq!(
+        revoked_in(&db.pool, kept).await,
+        vec![None],
+        "the named family was revoked"
+    );
+    assert_eq!(
+        revoked_in(&db.pool, earlier).await,
+        vec![Some(now() + Duration::seconds(5))],
+        "an already revoked row lost its first time"
+    );
+
+    let revoked = sessions::revoke_account(&mut connection, account_id, None, second)
+        .await
+        .unwrap();
+
+    assert_eq!(revoked, 1, "rows revoked with no exception");
+    assert_eq!(revoked_in(&db.pool, kept).await, vec![Some(second)]);
+    assert_eq!(revoked_in(&db.pool, rotated).await, vec![Some(first); 2]);
+    assert_eq!(revoked_in(&db.pool, third).await, vec![Some(first)]);
+    assert_eq!(
+        revoked_in(&db.pool, earlier).await,
+        vec![Some(now() + Duration::seconds(5))]
+    );
+    assert_eq!(
+        revoked_in(&db.pool, others).await,
+        vec![None],
+        "another account's session was revoked"
+    );
+
+    drop(connection);
+    db.close().await;
+}
