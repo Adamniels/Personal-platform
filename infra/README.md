@@ -1,7 +1,7 @@
 # infra
 
 What the platform runs on locally: Postgres and Caddy in `compose.yaml`, and the Caddyfile that
-routes the hostname to the core and the features. Why it runs under a real hostname with real
+routes the hostname to the core, the brain and the features. Why it runs under a real hostname with real
 HTTPS from the first day is in "Databases, migrations, and running it" in
 `High-level/docs/platform-architecture.md`.
 
@@ -31,11 +31,12 @@ and never reads the hosts file, so it reports `NXDOMAIN`, which is expected.
 
 ## Caddy
 
-Caddy serves `https://platform.test`, routing `/canary` and everything under it to canary, prefix
-kept, serving a few files of the design folder itself under `/design/` (see "The design folder"
-below), and routing the rest to the core. Why Caddy, rather than Traefik or nginx, is in "Routing" in
-`Core/docs/core-architecture.md`. The core and canary run natively, on 8080 and 8081, and Caddy
-runs in compose. From this directory:
+Caddy serves `https://platform.test`, routing `/canary` and everything under it to canary and
+`/brain` and everything under it to the brain, prefix kept in both, serving a few files of the
+design folder itself under `/design/` (see "The design folder" below), and routing the rest to the
+core. Why Caddy, rather than Traefik or nginx, is in "Routing" in
+`Core/docs/core-architecture.md`. The core, canary and the brain run natively, on 8080, 8081 and
+8082, and Caddy runs in compose. From this directory:
 
 ```zsh
 docker compose up -d caddy
@@ -91,6 +92,9 @@ is broken. Adding, moving or removing a feature changes `features.toml` and the 
 same commit, since the two describe the same routes and nothing checks that they agree. Why it is
 a file and not a table is in "The feature registry" in `Core/docs/core-architecture.md`.
 
+The brain's route has no entry, since the brain is a service and not a feature: the core neither
+lists it in the nav nor asks it for front page data, see `Brain/README.md`.
+
 ## Trusting Caddy's root
 
 The browser accepts Caddy's certificates once the laptop trusts the root of Caddy's local
@@ -131,11 +135,13 @@ security find-certificate -a -c "Caddy Local Authority" -Z ~/Library/Keychains/l
 security dump-trust-settings | grep -A4 "Caddy Local Authority"
 curl -sS -o /dev/null -w '%{http_code}\n' https://platform.test/
 curl -sS -o /dev/null -w '%{http_code}\n' https://platform.test/canary/api/whoami
+curl -sS -o /dev/null -w '%{http_code}\n' https://platform.test/brain/api/health
 ```
 
 Without a session the first answers `303` to the core's refresh endpoint, which sends a request
 with no session on to log in, and the second `401` from canary itself, an API route without a
-token; either code shows the request crossed Caddy over a trusted chain, to the core and to canary.
+token, and the third `200` from the brain, whose health needs no token; each code shows the
+request crossed Caddy over a trusted chain, to the core, to canary and to the brain.
 The browser shows a padlock on `https://platform.test/` and on `https://platform.test/canary`,
 which sends a browser that is not logged in to the login page.
 

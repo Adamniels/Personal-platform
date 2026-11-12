@@ -440,7 +440,7 @@ signatures are deterministic, so a change to the bytes fails the core's test, an
 regenerated on purpose, with `UPDATE_CONTRACTS=1 cargo test --test token_contract` from `Core/`,
 and the diff reviewed; `contracts/README.md` says more. Continuous integration's change detection,
 `scripts/ci/changed-areas.sh`, maps `contracts/` to every area that tests against it: the core,
-canary and the acceptance suite.
+canary, the brain and the acceptance suite.
 
 **What it costs, and how it is paid.** Every push would build and test every service, so
 continuous integration runs only what a change touches. `.github/workflows/ci.yml` is the single

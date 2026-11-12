@@ -1,0 +1,46 @@
+# The brain's checks: lint, format, types and tests. Runs only when the brain
+# changes, see "One repository" in High-level/docs/platform-architecture.md.
+name: Brain
+
+on:
+  # Called by ci.yml, which decides from the diff whether it runs.
+  workflow_call:
+  workflow_dispatch:
+
+# Read only: no job here writes to the repository or to GitHub.
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+
+    # Every uv run fails on a uv.lock that does not match pyproject.toml,
+    # instead of updating it, so the lockfile is what gets tested.
+    env:
+      UV_LOCKED: "1"
+
+    defaults:
+      run:
+        working-directory: Brain
+
+    steps:
+      - uses: actions/checkout@v7
+
+      # uv then finds a Python matching Brain/.python-version, the runner's
+      # own if it has one, or downloads it.
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.12.19"
+
+      - name: Lint
+        run: uv run ruff check
+
+      - name: Format
+        run: uv run ruff format --check
+
+      - name: Types
+        run: uv run mypy
+
+      - name: Test
+        run: uv run pytest

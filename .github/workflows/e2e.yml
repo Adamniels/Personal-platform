@@ -24,8 +24,8 @@ jobs:
       # core before Postgres is up, and one setting for every build avoids a
       # rebuild when it changes.
       SQLX_OFFLINE: "true"
-      # Every uv run, in canary/ and in e2e/, fails on a uv.lock that does
-      # not match its pyproject.toml instead of updating it.
+      # Every uv run, in canary/, Brain/ and e2e/, fails on a uv.lock that
+      # does not match its pyproject.toml instead of updating it.
       UV_LOCKED: "1"
 
     steps:
@@ -120,21 +120,29 @@ jobs:
         working-directory: canary
         run: nohup uv run uvicorn canary.app:app --host 0.0.0.0 --port 8081 > "$RUNNER_TEMP/canary.log" 2>&1 &
 
-      # /login rather than /, which answers 303 while signed out. -k because
+      - name: Start the brain
+        working-directory: Brain
+        run: nohup uv run uvicorn brain.app:app --host 0.0.0.0 --port 8082 > "$RUNNER_TEMP/brain.log" 2>&1 &
+
+      # /login rather than /, which answers 303 while signed out, and the
+      # brain's health, since nothing else waits for the brain. -k because
       # Caddy's local CA is not trusted here.
       - name: Wait for the platform
         run: |
           for _ in $(seq 1 180); do
-            if [ "$(curl -ks -o /dev/null -w '%{http_code}' https://platform.test/login)" = 200 ]; then
+            if [ "$(curl -ks -o /dev/null -w '%{http_code}' https://platform.test/login)" = 200 ] &&
+              [ "$(curl -ks -o /dev/null -w '%{http_code}' https://platform.test/brain/api/health)" = 200 ]; then
               exit 0
             fi
             sleep 2
           done
-          echo "platform.test/login never answered 200" >&2
+          echo "platform.test/login or /brain/api/health never answered 200" >&2
           echo "--- core log" >&2
           tail -n 50 "$RUNNER_TEMP/core.log" >&2 || true
           echo "--- canary log" >&2
           tail -n 50 "$RUNNER_TEMP/canary.log" >&2 || true
+          echo "--- brain log" >&2
+          tail -n 50 "$RUNNER_TEMP/brain.log" >&2 || true
           exit 1
 
       - name: Install the browser
@@ -160,6 +168,8 @@ jobs:
           tail -n 100 "$RUNNER_TEMP/core.log" || true
           echo "--- canary log"
           tail -n 100 "$RUNNER_TEMP/canary.log" || true
+          echo "--- brain log"
+          tail -n 100 "$RUNNER_TEMP/brain.log" || true
 
       - name: Upload the screenshots
         if: always()
