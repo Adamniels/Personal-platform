@@ -106,10 +106,14 @@ routes answer without `-k`:
 security find-certificate -a -c "Caddy Local Authority" -Z ~/Library/Keychains/login.keychain-db | grep SHA-256
 security dump-trust-settings | grep -A4 "Caddy Local Authority"
 curl -sS -o /dev/null -w '%{http_code}\n' https://platform.test/
-curl -sS https://platform.test/canary/anything
+curl -sS -o /dev/null -w '%{http_code}\n' https://platform.test/canary/api/whoami
 ```
 
-The browser shows a padlock on `https://platform.test/` and `https://platform.test/canary/anything`.
+Without a session the first answers `303`, the core sending the request on to log in, and the
+second `401` from canary itself, an API route without a token; either code shows the request
+crossed Caddy over a trusted chain, to the core and to canary. The browser shows a
+padlock on `https://platform.test/` and on `https://platform.test/canary`, which sends a browser
+that is not logged in to the login page.
 
 To remove a root, after `down -v` or for good, delete it by its SHA-1 from the `find-certificate`
 output above:
