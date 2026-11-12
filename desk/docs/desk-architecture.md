@@ -40,10 +40,10 @@ Two things follow, and they are the test to hold any later design against:
 **One feature.** Projects, sessions, the calendar view and review reference each other's records
 constantly: a session belongs to a project, a project lists its sessions, a kanban card links to
 the sessions spent on it, and review reads questions written inside sessions. Split across
-features, every one of those links would cross a feature boundary, and across features
-`High-level/docs/feature-contract.md` allows only an address plus a snapshot: no queries across
-the boundary and nothing kept consistent. That is enough for an occasional link and far too weak
-for relations used constantly. Kept together they are joins inside one domain.
+features, every one of those links would cross a feature boundary, and
+`High-level/docs/feature-contract.md` puts a boundary where things reach each other now and then,
+not where they need each other to draw every page: each link would be a call that can fail, with
+nothing kept consistent across two stores. Kept together they are joins inside one domain.
 
 **What joins desk is decided by data coupling, not by theme.** Something belongs here when it has
 to reference projects or sessions. Habits, books and the RSVP reader do not, so they are not desk

@@ -2,7 +2,7 @@
 
 Status: exploratory. Nothing is built.
 
-Last updated: 2026 10 08
+Last updated: 2026 11 12
 
 Isolation of implementation, coupling through contracts. This is what someone building a feature
 needs to know. The brain's own internals are in `Brain/docs/`, and the platform wide thinking
@@ -57,7 +57,7 @@ The brain owns what that data means about the person, and that is the whole divi
 
 ## How features reach each other
 
-Three different needs cross a feature boundary, and each has a path of its own. They used to be
+Four different needs cross a feature boundary, and each has a path of its own. They used to be
 one rule, all cross feature access goes through the brain, and that was too broad. Routing a
 lookup of one specific record through the brain removes no coupling. The asking feature still
 depends on the shape of what comes back, the brain now depends on it too, and the brain has
@@ -84,21 +84,41 @@ about self contained evidence, applied between features. How the holding feature
 address in the first place, pasted by the owner, picked from a list the browser fetches, or
 handed over by a link from the other feature, is decided with the first real case.
 
-**Backends do not call each other.** This part stays the default, and the reason is not mainly the
-number of couplings, which at this size, with one owner, one repository and contract tests,
-would be manageable. It is two things at run time. A backend that calls another while serving a
-request fails when that one fails, so an experimental feature could take down desk, which is
-used every day. And calls grow cycles, desk asking learning for its sessions while learning asks
-desk for free time, after which services start, deploy and fail together as a distributed
-monolith. The brain and the browser cover every case found so far without either.
+**A backend may call another feature's backend, under four conditions.** This used to be a ban
+with exceptions argued one at a time. It was turned around on 2026 11 12, when the features after
+the core were laid out and several of them plainly needed each other: review takes cards from
+sessions, learning and news, and a code project shows what the development flow knows. What the
+ban protected is kept by the conditions instead.
 
-**This is a default, not a wall.** The clearest case for an exception is a backend that needs
-another feature's records to decide something, with no browser involved, such as a nightly job
-that plans the week from learning's sessions. It is not the only one. Whenever a direct call
-would make the platform work better than the brain or the browser can, that is worth raising and
-discussing rather than designing around. What an allowed call probably looks like is read only,
-in one declared direction so no cycle forms, and with a timeout so a failure stays local. Each
-one is written down here with the case that justified it.
+1. **Through a published contract.** The callee describes the API in a schema, and the caller
+   uses a client generated from it, with a fixture under `contracts/` that both sides test
+   against, as `contracts/README.md` describes for the token. A feature never calls an endpoint
+   the other has not published for it.
+2. **In a declared direction, and never in a circle.** If A calls B, B does not call A, directly
+   or through others. Calls that form a cycle are how services end up starting, deploying and
+   failing together, a distributed monolith. Every allowed direction is listed under "Declared
+   calls" below, and adding one is a decision made in planning.
+3. **The caller keeps working when the callee is down.** Every call has a timeout, and the part of
+   the page or job that needed the answer says it is unavailable while the rest goes on. An
+   experimental feature must not be able to take down one that is used every day.
+4. **Each feature still owns its data.** Nobody reads another feature's database, and what one
+   feature keeps about another's record is still an address plus a snapshot, as above.
+
+**Being allowed to call is not a reason to split.** A boundary costs a network call that can fail
+and data that has to be kept consistent across two stores, so it belongs where two things change
+independently and reach each other now and then. Things that need each other to draw every page
+are one feature, with modules inside it. A session cannot be shown without its project, so
+sessions and projects are one feature; a review card only needs a link back to where it came
+from, so review can be its own.
+
+The brain and the browser remain the first choice where they fit: knowledge about the owner goes
+through the brain, and showing another feature's data beside your own is often simplest in the
+browser. A backend call is for when the backend itself needs the answer.
+
+### Declared calls
+
+None yet, since no feature that calls another is built. Each one is added here when its feature is
+planned, as caller, callee, what is asked for, and what the caller does without an answer.
 
 Nothing enforces any of this cryptographically today. The session is one cookie valid at every
 feature, so a feature backend receives a credential it could replay against any other one. Per
@@ -239,8 +259,9 @@ has how per feature calls work instead.
 - the events it emits
 
 Only the brain calls a feature's read API, which is a different thing from the API a feature's
-own frontend uses. The browser may call the second from another feature's page, and no other
-backend calls either. That is a topology rule rather than a security one.
+own frontend uses. The browser may call the second from another feature's page. Another feature's
+backend calls neither: it calls what the feature has published for it, under the conditions in
+"How features reach each other". That is a topology rule rather than a security one.
 
 **Both directions carry a verified user identity, taken from the token rather than from a
 parameter.** This one is firm, and what goes wrong without it is not a wrong answer but one

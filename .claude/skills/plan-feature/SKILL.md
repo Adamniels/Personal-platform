@@ -71,8 +71,9 @@ before the next. For each proposal:
 - A collision with a doc is weighed by the cost of undoing it, see `docs/README.md` and the
   `docs-are-tripwires` memory: either the doc changes, which the slice then does in its own pull
   request, or the plan does.
-- Where one feature's backend would be better calling another directly, raise it, as the
-  `cross-feature-calls` memory says.
+- Where a feature needs another feature, settle how it reaches it, as the `cross-feature-calls`
+  memory says. A backend call in a new direction is a decision for the owner, and a slice then
+  records it under "Declared calls" in `High-level/docs/feature-contract.md`.
 - Settle up front what the agent would otherwise stop for: a new dependency, with its version and
   why; a deletion; anything touching the architecture.
 
