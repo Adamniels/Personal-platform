@@ -1,0 +1,54 @@
+# The shared libraries' checks: lint, format, types and tests, in every Python
+# library under libs/python/. Runs only when libs/ changes. Why shared
+# libraries exist, and what may go in one, is in "One repository" in
+# High-level/docs/platform-architecture.md.
+name: Libs
+
+on:
+  # Called by ci.yml, which decides from the diff whether it runs.
+  workflow_call:
+  workflow_dispatch:
+
+# Read only: no job here writes to the repository or to GitHub.
+permissions:
+  contents: read
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+
+    # Every uv run fails on a uv.lock that does not match pyproject.toml,
+    # instead of updating it, so the lockfile is what gets tested.
+    env:
+      UV_LOCKED: "1"
+
+    steps:
+      - uses: actions/checkout@v7
+
+      # uv then finds a Python matching each library's .python-version, the
+      # runner's own if it has one, or downloads it.
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.12.19"
+
+      # Every library is checked, and the job fails if any one fails. With no
+      # library yet there is nothing to check, and that passes.
+      - name: Lint, format, types and tests
+        run: |
+          set -uo pipefail
+          status=0
+          found=0
+          for dir in libs/python/*/; do
+            [ -f "$dir/pyproject.toml" ] || continue
+            found=1
+            echo "== $dir"
+            (
+              cd "$dir" &&
+                uv run ruff check &&
+                uv run ruff format --check &&
+                uv run mypy &&
+                uv run pytest
+            ) || status=1
+          done
+          [ "$found" = 1 ] || echo "no library under libs/python/, nothing to check"
+          exit "$status"

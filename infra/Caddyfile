@@ -10,13 +10,20 @@ platform.test {
 	tls internal
 
 	# Each feature's route here has its entry in features.toml beside this
-	# file, and the two change in the same commit.
+	# file, and the two change in the same commit. The brain is a service,
+	# not a feature, and has none.
 	#
 	# /canary and everything under it, but not /canaryfoo. handle rather
 	# than handle_path, so canary receives the prefix.
 	@canary path /canary /canary/*
 	handle @canary {
 		reverse_proxy host.docker.internal:8081
+	}
+
+	# The brain, the same way.
+	@brain path /brain /brain/*
+	handle @brain {
+		reverse_proxy host.docker.internal:8082
 	}
 
 	# The design folder, mounted at /srv/design, serves exactly these paths

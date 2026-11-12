@@ -53,6 +53,7 @@ features" in `High-level/docs/platform-architecture.md`.
 | `High-level/docs/`  | The platform, the services that exist, and anything shaping more than one    |
 | `Core/`             | The core's code, a Rust crate, with its docs in `Core/docs/`                 |
 | `Core/docs/`        | The core: auth, accounts, routing, the registry, and its own frontend        |
+| `Brain/`            | The brain's code, a Python service, with its docs in `Brain/docs/`           |
 | `Brain/docs/`       | The brain: memory, the trust model, events, retrieval, and its tables        |
 | `libs/`             | Shared libraries owned by no service, token verification first, not yet built |
 | `design/`           | The platform's visual style, its fonts and sprites, served at `/design/`     |
@@ -98,7 +99,7 @@ features" in `High-level/docs/platform-architecture.md`.
 **Contracts**
 
 - `contracts/README.md` — what a contract fixture is, the token fixture's three files, that they
-  hold public material only, and how they are regenerated
+  hold public material only, canary's display data, the brain's schema, and how each is regenerated
 
 **Desk**
 
@@ -123,6 +124,8 @@ features" in `High-level/docs/platform-architecture.md`.
 
 **Brain**
 
+- `Brain/README.md` — what the brain serves, how to run it and its tests, its settings, and the
+  libraries it is built on
 - `brain-architecture.md` — per feature modules, retrieval, evaluation, consolidation, and the
   brain's own surface
 - `trust-model.md` — which store holds what, who can change it, scope, confidence and currency,

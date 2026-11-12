@@ -20,6 +20,8 @@ jobs:
     outputs:
       core: ${{ steps.areas.outputs.core }}
       canary: ${{ steps.areas.outputs.canary }}
+      brain: ${{ steps.areas.outputs.brain }}
+      libs: ${{ steps.areas.outputs.libs }}
       scripts: ${{ steps.areas.outputs.scripts }}
       e2e: ${{ steps.areas.outputs.e2e }}
     steps:
@@ -44,7 +46,7 @@ jobs:
           fi
 
           if [ -z "$base" ]; then
-            printf '%s\n' core=true canary=true scripts=true e2e=true >> "$GITHUB_OUTPUT"
+            printf '%s\n' core=true canary=true brain=true libs=true scripts=true e2e=true >> "$GITHUB_OUTPUT"
           else
             # Captured first, so a failing git fails this job instead of feeding changed-areas.sh
             # empty input, which would read as "nothing changed" and pass.
@@ -62,6 +64,16 @@ jobs:
     needs: changes
     if: needs.changes.outputs.canary == 'true'
     uses: ./.github/workflows/canary.yml
+
+  brain:
+    needs: changes
+    if: needs.changes.outputs.brain == 'true'
+    uses: ./.github/workflows/brain.yml
+
+  libs:
+    needs: changes
+    if: needs.changes.outputs.libs == 'true'
+    uses: ./.github/workflows/libs.yml
 
   scripts:
     needs: changes
@@ -87,7 +99,7 @@ jobs:
   # Fails unless every job above succeeded or was skipped. Runs even when one of them failed
   # or was cancelled, which is what `always()` is for.
   ci-ok:
-    needs: [changes, core, canary, scripts, e2e]
+    needs: [changes, core, canary, brain, libs, scripts, e2e]
     if: always()
     runs-on: ubuntu-latest
     steps:

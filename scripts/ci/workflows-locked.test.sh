@@ -87,7 +87,7 @@ check() {
 # moved out of reach of the check, by a rewrite it does not recognise, fails here too.
 real=("$workflows"/*.yml)
 check "cargo steps pass --locked" "checked 8" cargo_unlocked "${real[@]}"
-check "uv jobs set UV_LOCKED" "checked 2" uv_unlocked "${real[@]}"
+check "uv jobs set UV_LOCKED" "checked 4" uv_unlocked "${real[@]}"
 
 # Sample workflows, so each check is seen to fail.
 tmp="$(mktemp -d)"
