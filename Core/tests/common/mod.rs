@@ -14,6 +14,8 @@
 
 #![allow(dead_code)]
 
+pub mod stubs;
+
 use sqlx::postgres::{PgConnectOptions, PgPool, PgPoolOptions};
 use sqlx::{AssertSqlSafe, Connection, PgConnection};
 use std::str::FromStr;

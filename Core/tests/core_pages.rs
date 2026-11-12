@@ -112,12 +112,11 @@ async fn without_a_valid_token_a_page_goes_to_the_deciding_endpoint() {
 }
 
 #[tokio::test]
-async fn a_valid_token_shows_the_page_with_who_you_are() {
+async fn a_valid_token_shows_the_page() {
     let db = common::TestDb::new().await;
     let (addr, state) = serve(db.pool.clone()).await;
-    let account_id = Uuid::now_v7();
     let token = state.issuer.issue(
-        account_id,
+        Uuid::now_v7(),
         Uuid::now_v7(),
         Uuid::now_v7(),
         OffsetDateTime::now_utc(),
@@ -126,7 +125,7 @@ async fn a_valid_token_shows_the_page_with_who_you_are() {
     let (status, _, body) = get(addr, "/", Some(&token)).await;
 
     assert_eq!(status, 200, "{body}");
-    assert!(body.contains(&account_id.to_string()), "{body}");
+    assert!(body.contains("<h1>Platform</h1>"), "{body}");
 
     db.close().await;
 }

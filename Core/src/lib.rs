@@ -2,6 +2,7 @@
 //! calls into it, and the tests in tests/ import what they test.
 
 pub mod accounts;
+pub mod cards;
 pub mod claims;
 pub mod cookies;
 pub mod display;
@@ -27,8 +28,9 @@ pub mod sessions;
 pub mod signing_key;
 pub mod verifier;
 
-use axum::extract::FromRef;
+use axum::extract::{FromRef, State};
 use axum::{Router, routing::get};
+use cards::Card;
 use issuer::Issuer;
 use origin::PublicOrigin;
 use registry::Registry;
@@ -68,6 +70,10 @@ pub struct AppState {
     /// The client for calls to other services, built once so its
     /// connections are pooled. See src/http.rs.
     pub http: reqwest::Client,
+    /// How long the front page waits for each feature's display data:
+    /// `display::DISPLAY_DEADLINE`, and shorter in tests, which set it after
+    /// `new`. See src/display.rs.
+    pub display_deadline: Duration,
 }
 
 impl AppState {
@@ -88,6 +94,7 @@ impl AppState {
             dummy_hash: dummy_hash.into(),
             registry: Arc::new(registry),
             http,
+            display_deadline: display::DISPLAY_DEADLINE,
         })
     }
 }
@@ -209,13 +216,23 @@ async fn connect_database() -> Result<PgPool, Box<dyn Error>> {
 #[derive(askama::Template)]
 #[template(path = "front.html")]
 struct FrontPage {
-    account_id: uuid::Uuid,
+    cards: Vec<Card>,
 }
 
-// The front page, a stub showing who you are until the feature cards (#31).
-async fn root(session: session::Session) -> pages::Page<FrontPage> {
+// The front page, composed here in one response: every feature with display
+// data is asked for it with the user's token, all at once, and each becomes
+// its card or a placeholder. A feature that is down or slow costs at most the
+// display deadline, and all of them together about one, see src/display.rs.
+async fn root(State(state): State<AppState>, session: session::Session) -> pages::Page<FrontPage> {
+    let fetched = display::fetch_all(
+        &state.http,
+        &state.registry,
+        &session.access_token,
+        state.display_deadline,
+    )
+    .await;
     pages::Page(FrontPage {
-        account_id: session.account_id,
+        cards: fetched.into_iter().map(Card::from_fetched).collect(),
     })
 }
 

@@ -44,8 +44,9 @@ exposes for the front page" in `Core/docs/core-architecture.md`.
 
 - `canary.json`: canary's data, an example response, pretty printed, with a trailing newline.
   Canary's `tests/test_display.py` checks that its real response has the same keys, each with the
-  same JSON type; the values differ per request, so they are not compared. The core's test of the
-  type the card renders reads it too, once the front page has canary's card.
+  same JSON type; the values differ per request, so they are not compared. The core reads it into
+  the type canary's card renders, `CanaryCard`, in `the_committed_canary_fixture_reads_into_the_card`
+  in `Core/src/cards.rs`.
 
 The file is written by hand and changed together with the feature that serves it.
 

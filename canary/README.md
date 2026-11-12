@@ -81,7 +81,8 @@ CANARY_DISPLAY_MODE=hang uv run uvicorn canary.app:app --host 127.0.0.1 --port 8
 
 and load the front page: the core's display fetch gives up at its deadline, and canary's card
 shows the placeholder saying it could not be reached. `error` shows the same placeholder at once.
-Restart without the variable to go back to `normal`. The card itself comes with the front page.
+Restart without the variable to go back to `normal`. What the card shows is the core's, in
+`Core/src/cards.rs` and `Core/templates/front.html`.
 
 ## How canary authenticates a request
 
