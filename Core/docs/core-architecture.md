@@ -138,41 +138,50 @@ same hole a second time and costs nothing. The core's own pages are the exceptio
 registration and the refresh page post plain forms, see the core's frontend below, and rely on
 `SameSite` and the `Origin` check alone, which behave the same for a form as for a `fetch`.
 
-**The refresh token is opaque rather than a JWT.** A random string, stored hashed, usable once.
-Each refresh mints a new one and marks the old one used. Presenting an already used token means a
-copy exists somewhere, so the whole session family is revoked and that person logs in again. This
-is also what makes logout mean something and what lets sessions survive a restart, since the truth
-is a row rather than a signature.
+**The refresh token is opaque rather than a JWT.** A random string, stored hashed, usable once. Each
+refresh mints a new one and marks the old one used. Presenting an already used token means a copy
+exists somewhere, so the whole session family is revoked and that person logs in again. The answer
+is the one a dead token gets, both cookies cleared and a redirect to login, and the core logs one
+warning naming the account and the family, never the token, which is the only trace a possible theft
+leaves. A used token of a family already revoked is a plain login, since there is nothing left to
+revoke and the theft was reported once already. This is also what makes logout mean something and
+what lets sessions survive a restart, since the truth is a row rather than a signature.
 
 Nothing about a session is deleted in normal operation. Rotation marks a row used, and logout,
 reuse detection, a password change and a reset mark it revoked. The used row is what makes reuse
 detectable, so a `DELETE` anywhere in these flows quietly turns a replay into an unknown token.
 
 **Marking a token used is one conditional update**, setting the used time only where it is still
-empty and returning the row. Read first and write second, and two concurrent refreshes both find
-the token unused and both rotate it, so the family forks and nothing ever notices. Invite codes and
-reset tokens are consumed the same way, for the same reason: two registrations racing on one code
-would otherwise both succeed, and a single use code would make two accounts.
+empty and returning the row. Read first and write second, and two concurrent refreshes both find the
+token unused and both rotate it, so the family forks and nothing ever notices. The request whose
+update changes nothing has lost that race, so it reads the row again and decides again, which gives
+it the grace below, or a login if the family was revoked while it waited. Invite codes and reset
+tokens are consumed the same way, for the same reason: two registrations racing on one code would
+otherwise both succeed, and a single use code would make two accounts.
 
 **Rotating and revoking take the family's lock first**, a transaction scoped advisory lock keyed by
-the family id, since there is no row per family to lock. The conditional update keeps two
-rotations apart, but not a rotation and a revoke: under READ COMMITTED a revoke that waits on the
-row a refresh is marking then sees that row and not the one the refresh inserts, so a logout would
-report success while the other tab's new token stays live. With the lock, whichever comes second
-waits; a revoke then sees the new row, and a rotation then finds its token revoked. The key space
-is shared with sqlx's migrator, which holds a session advisory lock keyed from the database name
-while `migrate` runs, so a family whose key collides with it would wait out a migration, nothing
-worse.
+the family id, since there is no row per family to lock. The conditional update keeps two rotations
+apart, but not a rotation and a revoke: under READ COMMITTED a revoke that waits on the row a
+refresh is marking then sees that row and not the one the refresh inserts, so a logout would report
+success while the other tab's new token stays live. With the lock, whichever comes second waits, and
+reuse detection revokes under it exactly as logout does; a revoke then sees the new row, and a
+rotation then finds its token revoked. The key space is shared with sqlx's migrator, which holds a
+session advisory lock keyed from the database name while `migrate` runs, so a family whose key
+collides with it would wait out a migration, nothing worse.
 
-**A token used within the last thirty seconds is not reuse.** Normal browsing presents the same
-refresh token twice: two tabs reloaded after a break, or one page whose API calls all get a 401 at
-once. Without a grace window the second of them revokes the family, and using the platform logs you
-out. Inside the window the late request gets a fresh access token and nothing else, no rotation and
-no new refresh cookie, because tabs share one cookie jar and whichever request won has already set
-it. That keeps the outcome independent of which response arrives first. The cost is that a stolen
-copy presented within thirty seconds of the owner's own use earns one access token without being
-caught then. It cannot mint anything further, and if the thief got there first, the owner's next
-refresh falls outside the window and revokes the family, so detection is delayed rather than lost.
+**A token used within the last thirty seconds is not reuse.** The window is inclusive: a token used
+at most thirty seconds before the request is grace, one second later is reuse, and the used check
+comes before the expiry checks, so a replay is caught however old the token is. Normal browsing
+presents the same refresh token twice: two tabs reloaded after a break, or one page whose API calls
+all get a 401 at once. Without a grace window the second of them revokes the family, and using the
+platform logs you out. Inside the window the late request gets a fresh access token and nothing
+else, no rotation and no new refresh cookie, because tabs share one cookie jar and whichever request
+won has already set it. That keeps the outcome independent of which response arrives first. The cost
+is that a stolen copy presented within thirty seconds of the owner's own use earns one access token
+without being caught then. It cannot mint anything further, and if the thief got there first, the
+owner's next refresh falls outside the window and revokes the family, so detection is delayed rather
+than lost. An inactive account gets no grace, since grace issues an access token, but a replay
+outside the window still revokes and is logged whatever the account's state.
 
 **The access token lasts thirty minutes, and that number is the revocation window.** A locally
 verified token cannot be called back on, so a logout or a stolen laptop stays live until it
@@ -213,13 +222,14 @@ feature holds signature verification and one redirect, which is little but is no
 
 **The refresh endpoint is the one place that decides between refreshing and logging in.** A feature
 sends every request without a valid access token there, whatever the reason, see
-`High-level/docs/feature-contract.md`. A valid refresh cookie gets a rotation, both cookies set,
-and a redirect back. Anything else goes to the login page carrying the same return path, and login
-sends you there afterwards. A refresh also checks that the account is still active, so disabling an
-account ends its sessions at their next refresh rather than up to thirty days later. That check
-comes last, after the checks on the token itself, so that reuse detection sees a replayed token
-whatever the account's state. The access cookie's lifetime matches its token, thirty minutes, and
-logout clears both cookies as well as revoking the family.
+`High-level/docs/feature-contract.md`. A valid refresh cookie gets a rotation, both cookies set, and
+a redirect back, and one used within the grace window gets the access cookie alone. Anything else
+goes to the login page carrying the same return path, and login sends you there afterwards. A
+refresh also checks that the account is still active, so disabling an account ends its sessions at
+their next refresh rather than up to thirty days later. That check comes last, after the checks on
+the token itself, so that reuse detection sees a replayed token whatever the account's state. The
+access cookie's lifetime matches its token, thirty minutes, and logout clears both cookies as well
+as revoking the family.
 
 **Refresh is always a POST.** A redirect arrives as a GET, and state never changes on a GET, since
 that rule is what makes `SameSite=Lax` enough. So the GET on the refresh endpoint only renders a
@@ -227,13 +237,13 @@ small page whose form posts to the same path at once, with one line of inline sc
 button if scripts are off. A GET without a refresh cookie has nothing to refresh, so it goes
 straight to the login page with the return path, and an anonymous visitor never sees the refresh
 page. The POST passes the same `Origin` check as everything else, and it is the same request a
-frontend's `fetch` makes after a 401, so refresh has one behaviour however it is reached. It
-answers 303, back with both cookies set or to login with both cleared, and a server error is the
-one other answer: 500, with the cookies left alone, since an outage is not a dead session and
-clearing them would log everyone out over a blip. It costs a round trip at most once every thirty
-minutes. Keeping refresh as a GET would have been defensible, since a forced refresh only rotates
-your tokens inside your own browser, but a rule with one justified exception is how the next one
-arrives.
+frontend's `fetch` makes after a 401, so refresh has one behaviour however it is reached. It answers
+303, back with both cookies set, back with the access cookie alone inside the grace window, or to
+login with both cleared, and a server error is the one other answer: 500, with the cookies left
+alone, since an outage is not a dead session and clearing them would log everyone out over a blip.
+It costs a round trip at most once every thirty minutes. Keeping refresh as a GET would have been
+defensible, since a forced refresh only rotates your tokens inside your own browser, but a rule with
+one justified exception is how the next one arrives.
 
 **A return path is only ever a relative path**, starting with a single `/`. An absolute URL or one
 starting with `//` is dropped and replaced with the front page. Without that, the login page is an
