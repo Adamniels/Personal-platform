@@ -1,3 +1,4 @@
+import platform
 from contextlib import asynccontextmanager
 from html import escape
 
@@ -58,6 +59,22 @@ async def whoami(request: Request, claims: Claims) -> JSONResponse:
     return JSONResponse({"account_id": str(claims.account_id)})
 
 
+@auth.api
+async def display(request: Request, claims: Claims) -> JSONResponse:
+    """Canary's data for the front page: what it knows, which is that it
+    verified this person's token. Data only, never presentation; the core
+    decides how it looks. Its shape is pinned by
+    `contracts/display/canary.json`."""
+    return JSONResponse(
+        {
+            "account_id": str(claims.account_id),
+            "token_expires_at": claims.expires_at,
+            "key_id": claims.key_id,
+            "python_version": platform.python_version(),
+        }
+    )
+
+
 def create_app(settings: Settings, keys: KeyCache | None = None) -> Starlette:
     """Canary as an ASGI app. Without `keys`, it creates one HTTP client and
     one key cache over it when it starts and closes the client when it stops;
@@ -76,6 +93,7 @@ def create_app(settings: Settings, keys: KeyCache | None = None) -> Starlette:
     app = Starlette(
         routes=[
             Route("/canary/api/whoami", whoami, methods=["GET"]),
+            Route("/canary/api/display", display, methods=["GET"]),
             Route("/canary", canary_page, methods=["GET"]),
         ],
         # In front of everything, routing included.
