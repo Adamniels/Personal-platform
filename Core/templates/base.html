@@ -5,9 +5,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}{% endblock %} · Platform</title>
   <link rel="stylesheet" href="/assets/core.css">
-  {#- The nav script (#61) goes here, included the way a feature includes it. #}
+  {#- Included the way a feature includes it, so the bar has one implementation. #}
+  <script src="/nav.js" defer></script>
 </head>
 <body>
+  {#- A page with someone logged in puts <platform-nav> here; the login pages leave it empty. #}
+  {% block nav %}{% endblock %}
   <main>
     {% block content %}{% endblock %}
   </main>
