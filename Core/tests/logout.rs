@@ -10,8 +10,8 @@ use platform_core::origin::PublicOrigin;
 use platform_core::refresh::{self, Outcome};
 use platform_core::registry::Registry;
 use platform_core::signing_key::SigningKey;
-use platform_core::{AppState, DEFAULT_ACCESS_TOKEN_LIFETIME, secret_token, sessions};
-use sqlx::PgPool;
+use platform_core::{AppState, DEFAULT_ACCESS_TOKEN_LIFETIME, logout, secret_token, sessions};
+use sqlx::{Connection, PgPool};
 use std::collections::BTreeSet;
 use time::OffsetDateTime;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -112,6 +112,122 @@ async fn revoking_a_family_marks_every_row_and_keeps_the_first_time() {
 
     // Nothing is deleted.
     assert_eq!(snapshot(&db.pool).await.len(), 3);
+
+    db.close().await;
+}
+
+// Returns once another connection to this test's database waits for a lock,
+// so a test knows the statement it started has reached the lock before it
+// lets the holder go. Panics with `what` after about five seconds.
+async fn until_one_waits_on_a_lock(db: &common::TestDb, what: &str) {
+    let mut admin = db.admin().await;
+    for _ in 0..250 {
+        let waiting: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM pg_stat_activity
+             WHERE datname = current_database() AND wait_event_type = 'Lock'",
+        )
+        .fetch_one(&mut admin)
+        .await
+        .unwrap();
+        if waiting > 0 {
+            admin.close().await.ok();
+            return;
+        }
+        sqlx::query("SELECT pg_sleep(0.02)")
+            .execute(&mut admin)
+            .await
+            .unwrap();
+    }
+    panic!("{what}");
+}
+
+// A refresh that commits while a logout of its family runs. Under READ
+// COMMITTED the revoke's snapshot predates the refresh's new row, so unless
+// the two serialize on the family, that row stays live and another tab keeps
+// a session after a logout that reported success.
+#[tokio::test]
+async fn a_refresh_committing_during_a_logout_is_revoked_too() {
+    let db = common::TestDb::new().await;
+    let account_id = account(&db.pool).await;
+    let (_, live) = rotated_family(&db.pool, account_id, at(0)).await;
+    let live_row = row_of(&db.pool, &live).await;
+
+    // A rotation of the live token part way through, as sessions::rotate
+    // does it: the token marked used and its successor stored, uncommitted.
+    let mut rotation = db.pool.begin().await.unwrap();
+    sessions::lock_family(&mut *rotation, live_row.id)
+        .await
+        .unwrap();
+    let marked = sessions::mark_used(&mut *rotation, live_row.id, at(10))
+        .await
+        .unwrap()
+        .expect("the live token did not mark");
+    let (_, next_hash) = secret_token::generate();
+    sqlx::query(
+        "INSERT INTO sessions
+             (id, account_id, family_id, token_hash, issued_at, expires_at, family_expires_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)",
+    )
+    .bind(Uuid::now_v7())
+    .bind(marked.account_id)
+    .bind(marked.family_id)
+    .bind(&next_hash[..])
+    .bind(at(10))
+    .bind(sessions::token_expiry(at(10), marked.family_expires_at))
+    .bind(marked.family_expires_at)
+    .execute(&mut *rotation)
+    .await
+    .unwrap();
+
+    let pool = db.pool.clone();
+    let presented = live.clone();
+    let logging_out =
+        tokio::spawn(async move { logout::logout(&pool, Some(&presented), at(20)).await });
+    until_one_waits_on_a_lock(&db, "the logout did not wait for the rotation").await;
+    rotation.commit().await.unwrap();
+    logging_out.await.unwrap().unwrap();
+
+    let revoked = revoked_in(&db.pool, live_row.family_id).await;
+    assert_eq!(revoked.len(), 3);
+    assert!(
+        revoked.iter().all(Option::is_some),
+        "the row the refresh stored during the logout was left live: {revoked:?}"
+    );
+
+    db.close().await;
+}
+
+// The other order: a logout holding its family when a refresh arrives. The
+// rotation waits, then finds its token revoked and stores nothing.
+#[tokio::test]
+async fn a_rotation_waiting_on_a_logout_stores_nothing() {
+    let db = common::TestDb::new().await;
+    let account_id = account(&db.pool).await;
+    let (_, live) = rotated_family(&db.pool, account_id, at(0)).await;
+    let live_row = row_of(&db.pool, &live).await;
+
+    let mut revoking = db.pool.begin().await.unwrap();
+    sessions::lock_family(&mut *revoking, live_row.id)
+        .await
+        .unwrap();
+
+    let pool = db.pool.clone();
+    let rotating = tokio::spawn(async move { sessions::rotate(&pool, live_row.id, at(10)).await });
+    until_one_waits_on_a_lock(&db, "the rotation did not wait for the family's lock").await;
+    sessions::revoke_family(&mut *revoking, live_row.family_id, at(20))
+        .await
+        .unwrap();
+    revoking.commit().await.unwrap();
+
+    assert!(
+        rotating.await.unwrap().unwrap().is_none(),
+        "a token revoked while its rotation waited still rotated"
+    );
+    assert_eq!(
+        revoked_in(&db.pool, live_row.family_id).await.len(),
+        2,
+        "the rotation stored a row"
+    );
 
     db.close().await;
 }

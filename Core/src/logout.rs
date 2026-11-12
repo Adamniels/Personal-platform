@@ -25,7 +25,9 @@ pub const PATH: &str = "/auth/logout";
 /// one, at `now`: revokes the family of the token it names, whatever state
 /// that token's row is in, since a used or expired row still names its
 /// family. Returns the family revoked, or `None` when the text is not a
-/// token or matches nothing, and then changes nothing.
+/// token or matches nothing, and then changes nothing. The revoke holds the
+/// family's lock, so a refresh of the family that was part way through has
+/// committed by then and its new row is revoked too.
 pub async fn logout(
     pool: &PgPool,
     presented: Option<&str>,
@@ -37,7 +39,10 @@ pub async fn logout(
     let Some(row) = sessions::find(pool, &hash).await? else {
         return Ok(None);
     };
-    sessions::revoke_family(pool, row.family_id, now).await?;
+    let mut transaction = pool.begin().await?;
+    sessions::lock_family(&mut *transaction, row.id).await?;
+    sessions::revoke_family(&mut *transaction, row.family_id, now).await?;
+    transaction.commit().await?;
     Ok(Some(row.family_id))
 }
 

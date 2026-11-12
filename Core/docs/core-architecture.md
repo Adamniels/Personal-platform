@@ -153,6 +153,13 @@ the token unused and both rotate it, so the family forks and nothing ever notice
 reset tokens are consumed the same way, for the same reason: two registrations racing on one code
 would otherwise both succeed, and a single use code would make two accounts.
 
+**Rotating and revoking take the family's lock first**, a transaction scoped advisory lock keyed by
+the family id, since there is no row per family to lock. The conditional update keeps two
+rotations apart, but not a rotation and a revoke: under READ COMMITTED a revoke that waits on the
+row a refresh is marking then sees that row and not the one the refresh inserts, so a logout would
+report success while the other tab's new token stays live. With the lock, whichever comes second
+waits; a revoke then sees the new row, and a rotation then finds its token revoked.
+
 **A token used within the last thirty seconds is not reuse.** Normal browsing presents the same
 refresh token twice: two tabs reloaded after a break, or one page whose API calls all get a 401 at
 once. Without a grace window the second of them revokes the family, and using the platform logs you
