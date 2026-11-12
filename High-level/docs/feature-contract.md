@@ -232,10 +232,20 @@ feature holds verification, an origin check, and one redirect. Everything else, 
 refreshing, rotation, the cookies and the key, belongs to the core and is described in
 `Core/docs/core-architecture.md`.
 
-A feature starts from canary's implementation of all three: `canary/src/canary/auth.py` for where
-the token is read and what a request without a valid one gets, `verify.py` for the verification and
-`keys.py` for the key cache, with `origin.py` for the `Origin` check, all described in
-`canary/README.md`.
+A Python feature installs all three rather than writing them: `platform-auth`, the library in
+`libs/python/platform-auth/`, holds where the token is read and what a request without a valid one
+gets, the verification, the key cache and the `Origin` check, and its README says how a service
+installs it. A feature no longer copies canary's files; canary and the brain install the library
+too.
+
+**One implementation per language**, not a copy per feature, because this is the platform's security
+code and its flaws are silent: a hole found and fixed in one copy stays open in every other, and
+nothing shows it. The cost is that a change to the library reaches every service in that language
+at once, which is right only while the library holds exactly these three things and nothing else,
+the exception and its limit written in "One repository" in
+`High-level/docs/platform-architecture.md`. A feature in another language gets that language's own
+library when the first such feature arrives, tested against the same token fixture in
+`contracts/token/`, so the implementations agree with the core and with each other.
 
 ## The two contracts
 
