@@ -23,10 +23,17 @@
 #                        PR's head is a failed run (R32).
 #   merge <pr> <slice>   merge-gate.sh <pr>. Exit 3 with `ci-ok is pending` among the reasons: wait the poll
 #                        interval (R45), with one mention once the same head has waited 2 h (R50). Otherwise, only
-#                        `risk is not low` and `touches protected paths`: "ready for you" and needs-owner; any other
-#                        reasons: a mention with them and needs-owner. Exit 1 or another code: a transient pause.
-#   cap <pr> <slice>     a mention that the review rounds ran out, and needs-owner.
-#   owner <pr> <slice>   a needs-owner PR approved for its head: a mention that it is ready to read and merge.
+#                        `risk is not low`, `touches protected paths` and `an owner label is set`: the PR is ready,
+#                        and gets "ready to read and merge" and owner-merge, or, when it carries owner-decision,
+#                        "waits for your decision" and no other label; any other reasons: a mention with them and
+#                        owner-blocked. Exit 1 or another code: a transient pause.
+#   cap <pr> <slice>     a mention that the review rounds ran out, and owner-blocked.
+#   owner <pr> <slice>   a PR with an owner label approved for its head: handled as merge is. The gate cannot merge
+#                        it, and its reasons say whether it is ready or stuck.
+# The owner labels say what the owner does: owner-merge, read and merge; owner-decision, answer the decisions the
+# implementer flagged, by merging or by a comment; owner-blocked, do not merge, unblock it. The runner keeps
+# owner-merge and owner-blocked true (one replaces the other), and never touches owner-decision, which the
+# implementer sets. needs-owner, the one label older pull requests carry, is read like owner-decision.
 #   (nothing)            idle: one mention per empty queue, on the most recently merged slice (without one, a log
 #                        line), then the poll interval.
 # Mentions go on the slice issue. Every mention about a PR (ready, refused, cap, owner, ci-ok waiting) is made once per
@@ -41,7 +48,7 @@
 # `limit reached|<epoch>`, `limit reached … resets`, `hit your limit`, `rate_limit_error`, `HTTP 429`, `status 429`),
 # transient on a network or API error, and otherwise task when it lasted at least 120 s, transient when faster. The
 # same item at the same PR head coming back after an ok run is task too (no progress; agent-logs/last-ok). Two task
-# failures in a row set the slice Blocked, add needs-owner to its PR and record "<pr> <sha>" in
+# failures in a row set the slice Blocked, add owner-blocked to its PR and record "<pr> <sha>" in
 # agent-logs/blocked-prs, with one mention: on
 # the PR for a PR item (R54; that bot comment also advances the PR's last handled time, so pending.sh's owner-input
 # rule does not fire again on an old comment), on the slice issue otherwise. A new head does not unblock it: pending.sh
@@ -83,7 +90,10 @@ set -uo pipefail
 OWNER="Adamniels"
 REPO_SLUG="Adamniels/Personal-platform"
 BOT="mac-mini-agent"
-LABEL="needs-owner"
+LABEL_MERGE="owner-merge"         # approved, nothing open: the owner reads and merges
+LABEL_DECISION="owner-decision"   # the implementer's: a decision on high risk ground waits for the owner's answer
+LABEL_BLOCKED="owner-blocked"     # not mergeable as it is: the owner has to unblock it
+LABEL_LEGACY="needs-owner"        # the one label older pull requests carry; read like owner-decision, never added
 SNAP="refs/runner/main"           # main as last fetched by the runner; everything it runs comes from here
 MIN_TASK_SECONDS=120              # a failure faster than this is not the slice's fault (R13)
 MIN_FREE_KB=$((5 * 1024 * 1024))
@@ -209,14 +219,44 @@ cgit() { local t="$1"; shift; call_name="git $1"; call "$t" git -c core.hooksPat
 
 # --- GitHub --------------------------------------------------------------------------------------------------------
 comment() { call 120 gh issue comment "$1" --repo "$REPO_SLUG" --body "$2"; }
-add_label() { call 120 gh pr edit "$1" --repo "$REPO_SLUG" --add-label "$LABEL"; }
-# head_of <pr>: sets $head_sha, or fails.
-head_sha=""
+# head_of <pr>: sets $head_sha and $head_labels (the PR's label names, comma separated), or fails.
+head_sha="" head_labels=""
 head_of() {
-  head_sha=""
-  call 120 gh pr view "$1" --repo "$REPO_SLUG" --json headRefOid --jq .headRefOid || return 1
-  [[ "$call_out" =~ ^[0-9a-f]+$ ]] || { log "unreadable head of #$1: $call_out"; return 1; }
-  head_sha="$call_out"
+  local sha
+  head_sha="" head_labels=""
+  call 120 gh pr view "$1" --repo "$REPO_SLUG" --json headRefOid,labels \
+    --jq '.headRefOid, ([.labels[].name] | join(","))' || return 1
+  sha="${call_out%%$'\n'*}"
+  [[ "$sha" =~ ^[0-9a-f]+$ ]] || { log "unreadable head of #$1: $call_out"; return 1; }
+  head_sha="$sha"
+  [ "$sha" = "$call_out" ] || head_labels="${call_out#*$'\n'}"
+}
+# The owner labels. $cur_labels is what the item's PR carried when its head was read. Exactly one of them is the
+# one to act on, the most severe: owner-blocked, then owner-decision, then owner-merge. owner-blocked and
+# owner-merge are the runner's and it keeps them true; owner-decision is the implementer's and the runner never
+# touches it, so a PR can carry it together with owner-blocked.
+cur_labels=""
+has_label() { case ",$cur_labels," in *",$1,"*) return 0 ;; esac; return 1; }
+# relabel <pr> <label to add, or ""> <label to remove>...: one `gh pr edit`, skipped when nothing would change.
+relabel() {
+  local pr="$1" add="$2" l args=()
+  shift 2
+  [ -z "$add" ] || has_label "$add" || args+=(--add-label "$add")
+  for l in "$@"; do has_label "$l" && args+=(--remove-label "$l"); done
+  [ "${#args[@]}" -gt 0 ] || return 0
+  call 120 gh pr edit "$pr" --repo "$REPO_SLUG" "${args[@]}"
+}
+# label_blocked <pr>: the PR cannot be merged as it is.
+label_blocked() { relabel "$1" "$LABEL_BLOCKED" "$LABEL_MERGE"; }
+# decision_label: prints the label that says a decision waits for the owner, when the PR carries one.
+decision_label() {
+  if has_label "$LABEL_DECISION"; then echo "$LABEL_DECISION"; elif has_label "$LABEL_LEGACY"; then echo "$LABEL_LEGACY"; fi
+}
+# label_ready <pr>: approved, and nothing but the owner stands between the PR and main. A PR with a decision
+# waiting keeps that label as its only one; any other gets owner-merge.
+label_ready() {
+  if [ -n "$(decision_label)" ]; then relabel "$1" "" "$LABEL_BLOCKED" "$LABEL_MERGE"
+  else relabel "$1" "$LABEL_MERGE" "$LABEL_BLOCKED"; fi
 }
 # escalate <key> <issue> <body> <action...>: mentions once, then runs the action; the marker in agent-logs/mentioned
 # keeps a retried action from mentioning again. Returns 1 when the mention or the action failed.
@@ -239,10 +279,10 @@ tell_owner() {
   comment "$3" "$4" || { log "could not comment on #$3"; return 1; }
   echo "$1 $2" >> "$owner_told"
 }
-# hand_over <pr> <sha> <slice> <body>: tells the owner once for this head, then adds needs-owner; when the mention was
-# made before, waits the poll interval, so a repeated item cannot spin (R43b).
+# hand_over <pr> <sha> <slice> <body> <label_ready|label_blocked>: tells the owner once for this head, then sets the
+# label; when the mention was made before, waits the poll interval, so a repeated item cannot spin (R43b).
 hand_over() {
-  tell_owner "$1" "$2" "$3" "$4" && add_label "$1" || return 1
+  tell_owner "$1" "$2" "$3" "$4" && "$5" "$1" || return 1
   [ "$already_told" = 1 ] && nap "$poll"
   return 0
 }
@@ -265,7 +305,7 @@ blocked_pr() { grep -qxF "$1 $2" "$blocked_prs" 2> /dev/null; }
 do_block() { # slice pr sha
   call 120 bash "$scripts/board.sh" status "$1" Blocked || return 1
   [ "$2" = - ] && return 0
-  add_label "$2" || return 1
+  label_blocked "$2" || return 1
   blocked_pr "$2" "$3" || echo "$2 $3" >> "$blocked_prs"
 }
 # block_slice: the mention goes on the PR for a PR item (R54), so it counts as the bot's reply there; runner-made text
@@ -543,8 +583,11 @@ ci_wait() {
 }
 ci_clear() { [ -f "$ci_pending" ] && { grep -v "^$1 " "$ci_pending" > "$ci_pending.new"; mv -f "$ci_pending.new" "$ci_pending"; }; return 0; }
 
-merge_item() { # pr slice; head $cur_sha
-  local pr="$1" slice="$2" out rc reasons joined r owner_only=1
+# merge_item <pr> <slice>: a merge item and an owner item alike. For an owner item the gate cannot merge, since the
+# PR carries an owner label, but its reasons say whether the PR is ready for the owner or stuck, which the label
+# alone does not: an approved PR whose ci-ok failed is not "ready to read and merge".
+merge_item() { # pr slice; head $cur_sha, labels $cur_labels
+  local pr="$1" slice="$2" out rc reasons joined r owner_only=1 decision
   call 300 bash "$scripts/merge-gate.sh" "$pr"; rc=$?
   out="$call_out"
   case "$rc" in
@@ -557,15 +600,19 @@ merge_item() { # pr slice; head $cur_sha
       ci_clear "$pr"
       [ -n "$reasons" ] || owner_only=0
       while IFS= read -r r; do
-        case "$r" in "risk is not low"|"touches protected paths") ;; *) owner_only=0 ;; esac
+        case "$r" in "risk is not low"|"touches protected paths"|"an owner label is set") ;; *) owner_only=0 ;; esac
       done <<<"$reasons"
       joined="$(awk 'NR > 1 { printf ", " } { printf "%s", $0 }' <<<"${reasons:-no reasons printed}")"
       log "the merge gate refused #$pr: $joined"
-      if [ "$owner_only" = 1 ]; then
-        hand_over "$pr" "$cur_sha" "$slice" "@$OWNER PR #$pr is ready for you: the merge gate leaves it to the owner ($joined)." \
+      decision="$(decision_label)"
+      if [ "$owner_only" = 1 ] && [ -n "$decision" ]; then
+        hand_over "$pr" "$cur_sha" "$slice" "@$OWNER PR #$pr is approved and waits for your decision: it carries $decision, so read \"Decisions the agent made\" in its body, then merge it or comment on it to change something ($joined)." label_ready \
+          || pause transient "could not hand #$pr to the owner" "$slice"
+      elif [ "$owner_only" = 1 ]; then
+        hand_over "$pr" "$cur_sha" "$slice" "@$OWNER PR #$pr is ready for you to read and merge: the merge gate leaves it to the owner ($joined)." label_ready \
           || pause transient "could not hand #$pr to the owner" "$slice"
       else
-        hand_over "$pr" "$cur_sha" "$slice" "@$OWNER PR #$pr needs you: the merge gate refused it ($joined)." \
+        hand_over "$pr" "$cur_sha" "$slice" "@$OWNER PR #$pr needs you, do not merge it as it is: the merge gate refused it ($joined)." label_blocked \
           || pause transient "could not hand #$pr to the owner" "$slice"
       fi ;;
     *) pause transient "merge-gate.sh exited $rc for #$pr" "$slice" ;;
@@ -573,14 +620,8 @@ merge_item() { # pr slice; head $cur_sha
 }
 
 cap_item() { # pr slice
-  hand_over "$1" "$cur_sha" "$2" "@$OWNER PR #$1 has used up its review rounds: the reviewer asked for changes a fourth time, so it waits for you." \
+  hand_over "$1" "$cur_sha" "$2" "@$OWNER PR #$1 has used up its review rounds, do not merge it as it is: the reviewer asked for changes a fourth time, so it waits for you." label_blocked \
     || pause transient "could not hand #$1 to the owner" "$2"
-}
-
-owner_item() { # pr slice
-  if told "$1" "$cur_sha"; then log "#$1 still waits for the owner at $cur_sha"; nap "$poll"; return; fi
-  tell_owner "$1" "$cur_sha" "$2" "@$OWNER the reviewed PR #$1 is ready for you to read and merge (head $cur_sha)." \
-    || pause transient "could not tell the owner about #$1" "$2"
 }
 
 idle() {
@@ -713,10 +754,10 @@ while :; do
   cur_item="$kind-$pr-$slice"
   log "next: $line"
 
-  cur_sha=-
+  cur_sha=- cur_labels=""
   if [ "$pr" != - ]; then
     head_of "$pr" || { pause transient "could not read the head of #$pr" "$slice"; continue; }
-    cur_sha="$head_sha"
+    cur_sha="$head_sha" cur_labels="$head_labels"
   fi
   # R55: a Block left half done is finished before anything else runs for this slice.
   if [ "$(failures "$slice")" -ge 2 ]; then
@@ -727,9 +768,8 @@ while :; do
   if [ "$pr" != - ]; then pr_gate "$kind" "$pr" "$slice" || continue; fi
   case "$kind" in
     new|resume|fix|review) claude_item "$kind" "$pr" "$slice" ;;
-    merge) merge_item "$pr" "$slice" ;;
+    merge|owner) merge_item "$pr" "$slice" ;;
     cap) cap_item "$pr" "$slice" ;;
-    owner) owner_item "$pr" "$slice" ;;
   esac
   stopped || back_to_main "$kind" "$slice"
   [ "$paused" = 0 ] && end_episode
