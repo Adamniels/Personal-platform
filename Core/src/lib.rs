@@ -2,6 +2,7 @@
 //! calls into it, and the tests in tests/ import what they test.
 
 pub mod accounts;
+pub mod cards;
 pub mod claims;
 pub mod cookies;
 pub mod display;
