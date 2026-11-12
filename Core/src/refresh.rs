@@ -16,44 +16,63 @@ use axum::routing::get;
 use axum_extra::extract::cookie::CookieJar;
 use serde::Deserialize;
 use std::error::Error;
-use time::OffsetDateTime;
+use time::{Duration, OffsetDateTime};
 use uuid::Uuid;
 
 /// Where a request without a valid access token is sent.
 pub const PATH: &str = "/auth/refresh";
+
+/// How long after a token's use presenting it again is still not reuse: a
+/// token whose `used_at` is at most this long before `now` is grace, one
+/// second more is reuse. See "A token used within the last thirty seconds is
+/// not reuse" in docs/core-architecture.md.
+pub const GRACE_WINDOW: Duration = Duration::seconds(30);
 
 /// What a presented refresh token comes to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Decision {
     /// Mark it used and issue the next token of its family.
     Rotate,
+    /// A token used moments ago, by another tab or another request of the
+    /// same page: a new access token for its family, and no rotation.
+    Grace,
+    /// A token used longer ago than the grace window: a copy of it exists, so
+    /// the family is revoked.
+    Reuse,
     /// Send the browser to the login page.
     LogIn,
 }
 
 /// Decides on `row`, the stored token a refresh presented, or `None` when
 /// nothing matched it, at `now`. One check per line, in order, each ending
-/// the decision, so the grace window and reuse detection arrive as new
-/// outcomes of the used check without touching the others.
+/// the decision.
 pub fn decide(row: Option<&sessions::Row>, now: OffsetDateTime) -> Decision {
     let Some(row) = row else {
         return Decision::LogIn;
     };
+    // A revoked family has nothing left to revoke, so a replay of one of its
+    // tokens is not reported again.
     if row.revoked_at.is_some() {
         return Decision::LogIn;
     }
-    // Until the grace window and reuse detection: two tabs refreshing at once
-    // can send one of them to login, which is known and temporary.
-    if row.used_at.is_some() {
-        return Decision::LogIn;
+    // Before the expiry checks, so a replay is caught however old the token.
+    if let Some(used_at) = row.used_at {
+        if now - used_at > GRACE_WINDOW {
+            return Decision::Reuse;
+        }
+        // Grace issues an access token, which an inactive account never gets.
+        return if row.account_active {
+            Decision::Grace
+        } else {
+            Decision::LogIn
+        };
     }
     if now >= row.expires_at || now >= row.family_expires_at {
         return Decision::LogIn;
     }
     // A disabled account ends its sessions here, at their next refresh,
     // rather than when the family's cap runs out. Last, after the checks on
-    // the token itself, so that reuse detection, when it arrives in the used
-    // check, sees a replayed token whatever the account's state.
+    // the token itself, so that reuse is decided whatever the account's state.
     if !row.account_active {
         return Decision::LogIn;
     }
@@ -74,8 +93,8 @@ pub enum Outcome {
 }
 
 /// Refreshes with `presented`, the refresh cookie's value if the request had
-/// one, at `now`. Text that is not a token finds nothing. A rotation another
-/// request won first is a login for now, as a used token is.
+/// one, at `now`. Text that is not a token finds nothing. Grace and reuse
+/// are a login until they are applied.
 pub async fn refresh(
     state: &AppState,
     presented: Option<&str>,
@@ -188,7 +207,6 @@ async fn submit(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use time::Duration;
     use uuid::Uuid;
 
     fn at(seconds: i64) -> OffsetDateTime {
@@ -216,24 +234,89 @@ mod tests {
     }
 
     #[test]
-    fn an_unknown_revoked_or_used_token_goes_to_login() {
+    fn an_unknown_or_revoked_token_goes_to_login() {
         let revoked = sessions::Row {
             revoked_at: Some(at(5)),
             ..live()
         };
-        let used = sessions::Row {
-            used_at: Some(at(5)),
-            ..live()
-        };
-        let both = sessions::Row {
-            used_at: Some(at(5)),
-            revoked_at: Some(at(6)),
-            ..live()
-        };
         assert_eq!(decide(None, at(10)), Decision::LogIn, "unknown");
         assert_eq!(decide(Some(&revoked), at(10)), Decision::LogIn, "revoked");
-        assert_eq!(decide(Some(&used), at(10)), Decision::LogIn, "used");
-        assert_eq!(decide(Some(&both), at(10)), Decision::LogIn, "both");
+    }
+
+    // Used at 100: up to and including thirty seconds later is grace, the
+    // second after that is reuse.
+    #[test]
+    fn used_29_and_30_seconds_ago_is_grace_and_31_is_reuse() {
+        let used = sessions::Row {
+            used_at: Some(at(100)),
+            ..live()
+        };
+        assert_eq!(decide(Some(&used), at(100)), Decision::Grace, "0");
+        assert_eq!(decide(Some(&used), at(129)), Decision::Grace, "29");
+        assert_eq!(decide(Some(&used), at(130)), Decision::Grace, "30");
+        assert_eq!(decide(Some(&used), at(131)), Decision::Reuse, "31");
+        assert_eq!(
+            decide(Some(&used), at(100) + GRACE_WINDOW),
+            Decision::Grace,
+            "the window itself"
+        );
+    }
+
+    // A revoked family has nothing left to revoke, and its theft, if it was
+    // one, was reported when it was revoked.
+    #[test]
+    fn a_used_token_from_a_revoked_family_goes_to_login() {
+        let row = sessions::Row {
+            used_at: Some(at(100)),
+            revoked_at: Some(at(200)),
+            ..live()
+        };
+        assert_eq!(
+            decide(Some(&row), at(110)),
+            Decision::LogIn,
+            "in the window"
+        );
+        assert_eq!(decide(Some(&row), at(500)), Decision::LogIn, "outside it");
+    }
+
+    // The used check comes before the expiry checks, so a replay of an old
+    // token is still caught after the token itself would have expired.
+    #[test]
+    fn a_used_token_is_judged_as_used_whatever_its_expiry() {
+        let used = sessions::Row {
+            used_at: Some(at(100)),
+            ..live()
+        };
+        let expired = used.expires_at + Duration::seconds(1);
+        let capped = used.family_expires_at + Duration::seconds(1);
+        assert_eq!(decide(Some(&used), expired), Decision::Reuse, "expired");
+        assert_eq!(decide(Some(&used), capped), Decision::Reuse, "past the cap");
+        let used_late = sessions::Row {
+            used_at: Some(used.expires_at - Duration::seconds(31)),
+            ..live()
+        };
+        assert_eq!(
+            decide(Some(&used_late), used_late.expires_at),
+            Decision::Reuse,
+            "31 seconds after use, at the expiry"
+        );
+    }
+
+    // Grace issues an access token, which an inactive account never gets;
+    // reuse revokes and logs whatever the account's state.
+    #[test]
+    fn an_inactive_account_gets_no_grace_but_reuse_still_revokes() {
+        let used = sessions::Row {
+            used_at: Some(at(100)),
+            account_active: false,
+            ..live()
+        };
+        assert_eq!(
+            decide(Some(&used), at(130)),
+            Decision::LogIn,
+            "in the window"
+        );
+        assert_eq!(decide(Some(&used), at(131)), Decision::Reuse, "outside it");
     }
 
     // Disabling an account ends its sessions at their next refresh, not when
