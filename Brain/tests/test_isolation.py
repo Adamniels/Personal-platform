@@ -172,10 +172,30 @@ def test_only_the_door_takes_a_connection_from_the_pool() -> None:
     assert found == [], "only brain.db may take a connection from the pool"
 
 
+def door_policy(conn: psycopg.Connection[tuple[object, ...]]) -> str:
+    """The one policy, `user_id = db.CURRENT_USER_SQL`, as Postgres deparses
+    it into pg_policies, so a table's policy is compared with it exactly. It is
+    read from a temporary table whose transaction is rolled back."""
+    with conn.transaction(force_rollback=True):
+        conn.execute("CREATE TEMP TABLE door_shape (user_id uuid)")
+        conn.execute(
+            f"CREATE POLICY door_shape ON door_shape USING (user_id = {db.CURRENT_USER_SQL})"
+        )
+        row = conn.execute(
+            "SELECT qual FROM pg_policies WHERE tablename = 'door_shape'"
+            " AND schemaname LIKE 'pg_temp%'"
+        ).fetchone()
+    assert row is not None
+    return str(row[0])
+
+
 def unguarded_tables(database: str) -> list[str]:
     """Each scoped table in public, and why it is not guarded: row level
-    security not enabled, not forced, or no policy reading the user's id."""
+    security not enabled, not forced, or no policy for every command that is
+    exactly the door's. A near copy, such as the bare cast that errors outside
+    the door instead of returning nothing, does not count."""
     with admin_connection(database) as conn:
+        expected = door_policy(conn)
         rows = conn.execute(
             """
             SELECT c.relname, c.relrowsecurity, c.relforcerowsecurity,
@@ -204,8 +224,8 @@ def unguarded_tables(database: str) -> list[str]:
         if not has_user_id:
             found.append(f"{name}: no user_id uuid NOT NULL")
         quals = cast(list[str], policies)
-        if not any("user_id" in q and db.USER_SETTING in q for q in quals):
-            found.append(f"{name}: no policy for all commands on user_id")
+        if expected not in quals:
+            found.append(f"{name}: no policy for all commands that is the door's")
     return found
 
 
@@ -224,12 +244,21 @@ def test_the_guard_finds_a_table_left_unguarded(database: str) -> None:
             "CREATE TABLE half_guarded (id uuid PRIMARY KEY, user_id uuid NOT NULL)"
         )
         conn.execute("ALTER TABLE half_guarded ENABLE ROW LEVEL SECURITY")
+        # The bare cast errors outside the door instead of returning nothing.
+        conn.execute(
+            "CREATE TABLE bare_cast (id uuid PRIMARY KEY, user_id uuid NOT NULL);"
+            " ALTER TABLE bare_cast ENABLE ROW LEVEL SECURITY;"
+            " ALTER TABLE bare_cast FORCE ROW LEVEL SECURITY;"
+            " CREATE POLICY bare_cast_user ON bare_cast"
+            f" USING (user_id = current_setting('{db.USER_SETTING}')::uuid)"
+        )
 
     assert unguarded_tables(database) == [
+        "bare_cast: no policy for all commands that is the door's",
         "half_guarded: row level security is not forced",
-        "half_guarded: no policy for all commands on user_id",
+        "half_guarded: no policy for all commands that is the door's",
         "open_table: row level security is not enabled",
         "open_table: row level security is not forced",
         "open_table: no user_id uuid NOT NULL",
-        "open_table: no policy for all commands on user_id",
+        "open_table: no policy for all commands that is the door's",
     ]
