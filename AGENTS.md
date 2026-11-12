@@ -37,7 +37,7 @@ merging its slices, is in `High-level/docs/agent-workflow.md`.
   the owner merges on GitHub.
 - **Unattended runs decide and record, they do not ask.** Nobody answers a question on the Mac mini.
   Where the slice and the docs leave something open, decide it the way the docs lean and record it
-  in the pull request under "Decisions the agent made", with `needs-owner` on high risk ground, as
+  in the pull request under "Decisions the agent made", with `owner-decision` on high risk ground, as
   `.claude/skills/pick-up-slice/SKILL.md` says.
 - **A pull request explains itself.** It says what changed, in the order to read it, and why, as
   the template in `.claude/skills/pick-up-slice/templates.md` lays out, so the reviewer and the
@@ -56,7 +56,7 @@ merging its slices, is in `High-level/docs/agent-workflow.md`.
   Commits follow the owner's convention: a subject and a short body saying what and why, one commit
   per task.
 - **GitHub:** read freely. The workflow skills may move a board status, comment on an issue or pull
-  request, add `needs-owner`, and open or update a pull request, as their steps say. Slices are
+  request, add `owner-decision`, and open or update a pull request, as their steps say. Slices are
   created and edited only from the owner's account, through `/plan-feature`; an agent on the Mac
   mini never edits a slice's body, title or labels, since the merge gate trusts a slice's Risk only
   while the owner is its only editor. Anything else, creating, editing or closing an issue among
