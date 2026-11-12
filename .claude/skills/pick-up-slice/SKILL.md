@@ -101,10 +101,13 @@ with a final line `Stopped: <reason>` and changes nothing (see Stop).
    survive branch switches. If one is missing, end with `ENVIRONMENT: missing <file>`; never create
    secrets yourself, and never print or read them out.
 4. **Ports.** An interrupted run can leave the core on 8080 or canary on 8081. For each port,
-   `lsof -ti tcp:8080` (and `tcp:8081`) lists what holds it, and `ps -o command= -p <pid>` says what
-   it is. A process from this clone, the core's `target/debug/platform_core` or canary's `uvicorn`, is
-   stale: `kill <pid>`, and check the port is free. The Mac mini is dedicated, so nothing else
-   should hold these ports; if something else does, or the port stays held, end with
+   `lsof -ti tcp:8080 -sTCP:LISTEN` (and `tcp:8081`) lists what listens on it, and
+   `ps -o command= -p <pid>` says what it is. Always with `-sTCP:LISTEN`: without it `lsof` also
+   lists every process with a connection to the port, Docker Desktop's `com.docker.backend` among
+   them, and killing those stops Docker. A process from this clone, the core's
+   `target/debug/platform_core` or canary's `uvicorn`, is stale: `kill <pid>`, and check the port is
+   free. Never kill a process whose command you have not read. The Mac mini is dedicated, so nothing
+   else should listen on these ports; if something else does, or the port stays held, end with
    `ENVIRONMENT: port <port> held by <command>`.
 5. **Stack.** From `infra/`: `docker compose up -d --wait`. If the stack was down for a while, check
    for the expired chain in "After Caddy has been stopped for a while" in `infra/README.md`. Copy
@@ -186,7 +189,7 @@ run `bash scripts/agent/reset-db.sh` again before `migrate`.
 **Before screenshots**, in new mode, for a slice that changes a page that exists. Now, before your
 first change, while the branch still equals `main`: start the platform (step 9), run the e2e tests
 that cover that page, and keep the PNGs `capture()` wrote as `<name>-<viewport>-before.png` in
-`<tmp>`. Stop the core and canary afterwards.
+`<tmp>`. Stop the core and canary afterwards, as step 9 says to stop them.
 
 Keep the pull request body in `<tmp>/body.md`. Start it from
 `templates.md`, copy the slice's Tasks checklist into it, and tick each task there as its commit
@@ -265,7 +268,9 @@ and in the same order. Read the workflows each run; today they are:
   (a no op once installed), `uv run pytest`, `uv run ruff check`, `uv run ruff format --check`.
 
 **Starting the platform.** Stop any core or canary you started earlier, so the code as it is now
-runs. From `Core/`, `cargo run -q > <tmp>/core.log 2>&1 &`; from `canary/`,
+runs. Stopping one is always done the way step 4 finds it: the listener on its port, from `lsof`
+with `-sTCP:LISTEN`, and only when its command is the core or canary. From `Core/`,
+`cargo run -q > <tmp>/core.log 2>&1 &`; from `canary/`,
 `uv run uvicorn canary.app:app --host 127.0.0.1 --port 8081 > <tmp>/canary.log 2>&1 &`. Wait at
 most three minutes for it to answer:
 
@@ -282,8 +287,8 @@ branch's code is a failing step, fixed like any other. Anything else ends the ru
 
 A failing step is fixed before going on, never skipped, weakened or marked as expected to fail.
 Loop until every step is green. Keep each command and its result for Verification. Leave the core
-and canary running when step 10 follows; otherwise stop what you started. Leave Postgres and Caddy
-running.
+and canary running when step 10 follows; otherwise stop what you started, the same way. Leave
+Postgres, Caddy and Docker running.
 
 ## 10. Look at it
 
@@ -295,7 +300,8 @@ if anything changed since it started), empty `e2e/screenshots/` (git ignored, ge
 run the suite once more, so `capture()` writes fresh PNGs at desktop and 390px phone width. Open
 each one and look for what a test does not catch: overflow, clipped text, overlapping elements, an
 unreadable phone layout. Fix what you find as part of the task it belongs to, and gate again. Then
-stop the core and canary you started; leave Postgres and Caddy running.
+stop the core and canary you started, as step 9 says to stop them; leave Postgres, Caddy and Docker
+running.
 
 ## 11. The pull request
 
