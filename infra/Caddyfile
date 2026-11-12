@@ -30,7 +30,7 @@ platform.test {
 	# and nothing else under /design/: not DESIGN.md, not reference/. A slice
 	# that needs another path adds it here. no-cache so a browser revalidates
 	# and a change to the look is seen on the next load. See README.md.
-	@design path /design/tokens.css /design/fonts.css /design/fonts/* /design/sprites/*
+	@design path /design/tokens.css /design/fonts.css /design/fonts/* /design/sprites/* /design/page.css /design/theme.js /design/nav.js
 	handle @design {
 		root * /srv
 		header Cache-Control no-cache
