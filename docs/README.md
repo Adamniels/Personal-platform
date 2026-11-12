@@ -2,7 +2,7 @@
 
 Status: exploratory. The walking skeleton is being built.
 
-Last updated: 2026 11 12
+Last updated: 2026 11 13
 
 These are planning notes, not specifications. Everything here is the current best idea with the
 reasoning attached, and it is expected to change as building teaches things planning could not.
@@ -124,7 +124,7 @@ features" in `High-level/docs/platform-architecture.md`.
 - `design/sprites/` — the agent avatars
 - `design/nav.js`, `design/theme.js` and `design/page.css` — the shared nav bar, `<platform-nav>`,
   the script that applies a remembered theme before the page paints, and the page shell around
-  the bar. What the bar holds and how a page includes it is "Navigation" in
+  the bar with the page container a page opts into. What the bar holds and how a page includes it is "Navigation" in
   `platform-architecture.md`
 - `design/reference/` — designed screens as examples of the style, their content illustrative only
 - `design/ui/README.md` — the component package: what may go in it, how a frontend installs it, how

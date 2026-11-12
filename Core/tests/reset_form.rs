@@ -195,6 +195,7 @@ async fn a_bad_used_or_expired_token_all_get_the_same_answer_and_change_nothing(
         let response = post(addr, token, NEW).await;
         assert_eq!(response.status, 422, "{case}: {}", response.body);
         assert!(response.body.contains(INVALID_TOKEN), "{case}");
+        common::forms::assert_refused_on(&response.body, "token", INVALID_TOKEN);
         // The form keeps what was pasted, so the bodies differ only there.
         bodies.push((case, response.body.replace(token, "<token>")));
     }
@@ -228,6 +229,7 @@ async fn a_password_outside_the_rule_is_refused_before_the_token_is_consumed() {
             "{}",
             response.body
         );
+        common::forms::assert_refused_on(&response.body, "password", INVALID_PASSWORD);
     }
     assert_eq!(
         snapshot(&db.pool).await,

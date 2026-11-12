@@ -97,30 +97,35 @@ async fn a_refused_form_keeps_the_email_and_never_echoes_the_password() {
             "other@example.com",
             PASSWORD,
             "This invite code is not valid.",
+            "code",
         ),
         (
             unused.as_str(),
             "walk@example.com",
             PASSWORD,
             "An account with this email already exists.",
+            "email",
         ),
         (
             unused.as_str(),
             "not-an-email",
             PASSWORD,
             "Enter a valid email address.",
+            "email",
         ),
         (
             unused.as_str(),
             "other@example.com",
             "short-password",
             "Choose a password of 15 to 1024 characters.",
+            "password",
         ),
     ];
-    for (code, email, password, error) in cases {
+    for (code, email, password, error, field) in cases {
         let response = post(addr, code, email, password).await;
         assert!(response.starts_with("HTTP/1.1 422 "), "{email}: {response}");
         assert!(response.contains(error), "{email}: {response}");
+        common::forms::assert_refused_on(&response, field, error);
         assert!(
             response.contains(&format!("value=\"{email}\"")),
             "{email}: {response}"

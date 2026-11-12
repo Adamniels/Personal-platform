@@ -150,6 +150,14 @@ async fn a_feature_that_is_refused_fails_hangs_or_sends_nonsense_gets_a_placehol
             body.contains("Canary could not be reached."),
             "{case}: {body}"
         );
+        // The markup e2e/tests/test_style.py adds to a real page to check
+        // the placeholder's look, so the two must not drift.
+        assert!(
+            body.contains(
+                r#"<article class="card unavailable"><h2>Canary</h2><p>Canary could not be reached.</p></article>"#
+            ),
+            "{case}: {body}"
+        );
         assert!(!body.contains("Verified your token"), "{case}: {body}");
         assert!(
             elapsed < DEADLINE + MARGIN,

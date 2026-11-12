@@ -142,6 +142,9 @@ def test_the_page_carries_the_nav_and_the_design_files_and_not_the_cores_stylesh
     assert text.index("/design/theme.js") < text.index("<body>")
     assert 'src="/nav.js"' not in text
     assert "core.css" not in text
+    # No style of its own: the page container comes from /design/page.css.
+    assert "<style" not in text
+    assert '<main class="page">' in text
 
 
 def test_paths_canary_does_not_serve_answer_404():

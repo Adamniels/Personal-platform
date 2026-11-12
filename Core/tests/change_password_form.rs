@@ -376,13 +376,20 @@ async fn the_form_never_echoes_a_password() {
     // Two fields and no third to repeat the new password.
     assert_eq!(body.matches("<input").count(), 2, "{body}");
 
-    for (case, current, new, error) in [
-        ("wrong current", WRONG, NEW, INCORRECT),
-        ("short new", OLD, TOO_SHORT, INVALID_PASSWORD),
+    for (case, current, new, error, field) in [
+        ("wrong current", WRONG, NEW, INCORRECT, "current_password"),
+        (
+            "short new",
+            OLD,
+            TOO_SHORT,
+            INVALID_PASSWORD,
+            "new_password",
+        ),
     ] {
         let response = post(addr, &token, current, new).await;
         assert_eq!(response.status, 422, "{case}: {}", response.body);
         assert!(response.body.contains(error), "{case}: {}", response.body);
+        common::forms::assert_refused_on(&response.body, field, error);
         assert!(
             !response.body.contains(current),
             "{case}: the current password came back"

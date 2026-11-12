@@ -4,7 +4,7 @@
 //! it takes. See "The session" and "No defence against user enumeration" in
 //! docs/core-architecture.md.
 
-use crate::pages::Page;
+use crate::pages::{FormError, Page};
 use crate::return_path::ReturnPath;
 use crate::{AppState, accounts, cookies, password, sessions};
 use askama::Template;
@@ -74,7 +74,7 @@ pub fn routes() -> Router<AppState> {
 #[derive(Template)]
 #[template(path = "login.html")]
 struct LoginPage<'a> {
-    error: Option<&'a str>,
+    error: Option<FormError<'a>>,
     email: &'a str,
     return_to: &'a str,
 }
@@ -119,7 +119,7 @@ async fn submit(State(state): State<AppState>, Form(form): Form<LoginForm>) -> R
         }
         Ok(Outcome::Refused) => {
             let page = LoginPage {
-                error: Some(REFUSED),
+                error: Some(FormError::on("password", REFUSED)),
                 email: form.email.trim(),
                 return_to: form.return_to.as_str(),
             };

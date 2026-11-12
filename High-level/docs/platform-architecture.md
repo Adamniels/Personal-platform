@@ -2,7 +2,7 @@
 
 Status: exploratory. The walking skeleton is being built.
 
-Last updated: 2026 11 12
+Last updated: 2026 11 13
 
 The top of the documentation. What the platform is, what services exist, and the thinking that
 shapes more than one of them. Anything you only need when you sit down to write a particular
@@ -291,7 +291,10 @@ A feature includes these lines and nothing else, in whatever it is written in:
 The bar's styles live in its shadow root and use the tokens, which the page's root defines and the
 shadow root inherits, so a page that includes the bar links `tokens.css` and `fonts.css`.
 `page.css` reserves the bar's height so the page does not jump while the script loads, and on
-phone pads the bottom of the page so the tab bar covers nothing. `theme.js` runs in the head,
+phone pads the bottom of the page so the tab bar covers nothing. It also holds the page container
+from section 2 of `design/DESIGN.md`, with its headings and the mono font for ids, which a page
+opts into with `<main class="page">`, so a page written without a stylesheet of its own still
+has the platform's layout. `theme.js` runs in the head,
 before the page paints, and applies the theme the person chose, if any.
 
 What the bar holds: on the left the mark and the name "Platform", linking to `/`, then Home and one

@@ -3,11 +3,8 @@
 {% block title %}Log in{% endblock %}
 
 {% block content %}
+<div class="form-card">
 <h1>Log in</h1>
-
-{% if let Some(error) = error %}
-<p class="error" role="alert">{{ error }}</p>
-{% endif %}
 
 <form method="post" action="/login">
   <input type="hidden" name="return_to" value="{{ return_to }}">
@@ -15,10 +12,19 @@
     Email
     <input name="email" type="email" value="{{ email }}" required autocomplete="email">
   </label>
-  <label>
-    Password
-    <input name="password" type="password" required autocomplete="current-password">
-  </label>
+  {#- The message is about the pair, and says neither was the wrong one; it
+      sits under the password, the field typed last. #}
+  <div class="field">
+    <label>
+      Password
+      <input name="password" type="password" required autocomplete="current-password"
+        {%- if crate::pages::error_on(error, "password").is_some() %} aria-invalid="true" aria-describedby="password-error"{% endif %}>
+    </label>
+    {%- if let Some(message) = crate::pages::error_on(error, "password") %}
+    <p class="error" id="password-error" role="alert">Error: {{ message }}</p>
+    {%- endif %}
+  </div>
   <button type="submit">Log in</button>
 </form>
+</div>
 {% endblock %}

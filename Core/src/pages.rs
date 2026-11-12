@@ -36,6 +36,30 @@ impl<T: askama::Template> IntoResponse for Page<T> {
     }
 }
 
+/// Why a form was refused, and the field it is about, named by the field's
+/// `name`. The template marks that field `aria-invalid` and shows the message
+/// under it, starting with the word "Error", as the text field rule in
+/// design/DESIGN.md says.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FormError<'a> {
+    pub field: &'static str,
+    pub message: &'a str,
+}
+
+impl<'a> FormError<'a> {
+    pub fn on(field: &'static str, message: &'a str) -> Self {
+        FormError { field, message }
+    }
+}
+
+/// The message for `field`, when a form's error is about it. Templates call
+/// it once per field, for the attributes and for the message.
+pub fn error_on<'a>(error: &Option<FormError<'a>>, field: &str) -> Option<&'a str> {
+    error
+        .filter(|error| error.field == field)
+        .map(|error| error.message)
+}
+
 /// `GET /assets/core.css`.
 pub async fn stylesheet(headers: HeaderMap) -> Response {
     asset(
@@ -133,6 +157,19 @@ mod tests {
             assert!(html.contains(line), "{line} missing from {html}");
         }
         assert!(!html.contains(r#"src="/nav.js""#), "{html}");
+        // The shared values first and the core's own stylesheet last, so it
+        // builds on them; the content sits in the page container.
+        let order: Vec<usize> = [
+            "/design/tokens.css",
+            "/design/fonts.css",
+            "/design/page.css",
+            "/assets/core.css",
+        ]
+        .iter()
+        .map(|href| html.find(href).expect(href))
+        .collect();
+        assert!(order.is_sorted(), "{html}");
+        assert!(html.contains(r#"<main class="page">"#), "{html}");
         assert!(!html.contains("<platform-nav"), "{html}");
         assert!(html.contains("<p>hello</p>"), "{html}");
     }
@@ -177,5 +214,46 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert(header::IF_NONE_MATCH, "\"stale\"".parse().unwrap());
         assert_eq!(stylesheet(headers).await.status(), StatusCode::OK);
+    }
+
+    #[test]
+    fn an_error_belongs_to_its_field_only() {
+        let error = Some(FormError::on("email", "Enter a valid email address."));
+        assert_eq!(
+            error_on(&error, "email"),
+            Some("Enter a valid email address.")
+        );
+        assert_eq!(error_on(&error, "password"), None);
+        assert_eq!(error_on(&None, "email"), None);
+    }
+
+    // Every colour comes from /design/tokens.css, so the served stylesheet
+    // writes none of its own: no hex value, no rgb() or hsl(), in any of
+    // their spellings. Comments are left out, so prose may name a colour.
+    #[tokio::test]
+    async fn test_the_core_stylesheet_holds_no_raw_colour() {
+        let css = body(stylesheet(HeaderMap::new()).await).await;
+        let mut code = String::new();
+        let mut rest = css.as_str();
+        while let Some(start) = rest.find("/*") {
+            code.push_str(&rest[..start]);
+            let end = rest[start..].find("*/").expect("a comment is closed");
+            rest = &rest[start + end + 2..];
+        }
+        code.push_str(rest);
+        let code = code.to_lowercase();
+
+        for function in ["rgb(", "rgba(", "hsl(", "hsla("] {
+            assert!(!code.contains(function), "{function} in {code}");
+        }
+        let hex = code.match_indices('#').find(|(at, _)| {
+            let digits = code[at + 1..]
+                .chars()
+                .take_while(char::is_ascii_hexdigit)
+                .count();
+            matches!(digits, 3 | 4 | 6 | 8)
+        });
+        assert!(hex.is_none(), "a hex colour at {hex:?} in {code}");
+        assert!(code.contains("var(--"), "{code}");
     }
 }
