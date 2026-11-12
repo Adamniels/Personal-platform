@@ -49,6 +49,8 @@ Binding here: the bar's height, fill and border, how a link and the active link 
 
 ## 4. Components
 
+The components are built as React in `ui/`, the `@platform/ui` package, and each is shown in every state in its gallery at `/design/gallery/`; how to use and add one is in `ui/README.md`.
+
 ### Button
 Height `--control-h`, padding 0 14px (ghost 0 10px), `--radius-md`, 14px label.
 

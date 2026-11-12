@@ -30,6 +30,18 @@ platform.test {
 		file_server
 	}
 
+	# The component gallery, built by `npm run build:gallery` in design/ui
+	# into design/ui/gallery/dist, which is git ignored. Without a build this
+	# answers 404. See design/ui/README.md.
+	@gallery path /design/gallery /design/gallery/*
+	handle @gallery {
+		redir /design/gallery /design/gallery/ 308
+		uri strip_prefix /design/gallery
+		root * /srv/design/ui/gallery/dist
+		header Cache-Control no-cache
+		file_server
+	}
+
 	@design_other path /design /design/*
 	handle @design_other {
 		respond 404

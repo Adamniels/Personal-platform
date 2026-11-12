@@ -69,6 +69,9 @@ from it, as plain files, and nothing else:
 - `/design/fonts.css` and `/design/fonts/*`, the fonts, hosted here so no page asks an outside host
   for one
 - `/design/sprites/*`, the agent avatars
+- `/design/gallery/*`, the component gallery, from `design/ui/gallery/dist`, which
+  `npm run build` in `design/ui` writes and git ignores; until it is built this answers `404`, and
+  `/design/gallery` redirects to `/design/gallery/`. See `design/ui/README.md`
 
 Every other path under `/design/` answers `404` from Caddy, `DESIGN.md` and `reference/` among
 them, since those are for the agents building pages and not for the browser. A slice that needs

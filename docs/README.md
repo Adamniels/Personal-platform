@@ -56,6 +56,7 @@ features" in `High-level/docs/platform-architecture.md`.
 | `Brain/docs/`       | The brain: memory, the trust model, events, retrieval, and its tables        |
 | `libs/`             | Shared libraries owned by no service, token verification first, not yet built |
 | `design/`           | The platform's visual style, its fonts and sprites, served at `/design/`     |
+| `design/ui/`        | `@platform/ui`, the React components every frontend installs, and their gallery |
 | `canary/`           | Canary, the Python feature proving another language can verify the token     |
 | `desk/docs/`        | Desk, the feature for working through the day, described but not yet built   |
 | `infra/`            | The Caddyfile, the compose file and the feature registry                     |
@@ -115,6 +116,8 @@ features" in `High-level/docs/platform-architecture.md`.
   where they came from
 - `design/sprites/` — the agent avatars
 - `design/reference/` — designed screens as examples of the style, their content illustrative only
+- `design/ui/README.md` — the component package: what may go in it, how a frontend installs it, how
+  to add a component and its gallery section, and the gate every frontend runs
 
 **Infra**
 

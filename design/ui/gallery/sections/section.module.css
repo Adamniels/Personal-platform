@@ -1,0 +1,48 @@
+/* "Card" in section 4 of design/DESIGN.md. */
+
+.card {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-3);
+	padding: var(--space-4);
+	background: var(--surface);
+	border: 1px solid var(--border);
+	border-radius: var(--radius-lg);
+}
+
+.title {
+	margin: 0;
+	font-family: var(--font-heading);
+	font-size: var(--text-h2-size);
+	line-height: var(--text-h2-line);
+	font-weight: 600;
+}
+
+.row {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-2);
+}
+
+.label,
+.note {
+	margin: 0;
+	font-size: var(--text-caption-size);
+	line-height: var(--text-caption-line);
+}
+
+.label {
+	color: var(--text-2);
+	font-weight: 500;
+}
+
+.note {
+	color: var(--text-3);
+}
+
+.items {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-2);
+}
