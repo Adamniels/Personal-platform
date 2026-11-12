@@ -5,7 +5,7 @@
 //! docs/core-architecture.md.
 
 use crate::secret_token;
-use sqlx::{PgExecutor, PgPool};
+use sqlx::{PgConnection, PgExecutor, PgPool};
 use time::{Duration, OffsetDateTime};
 use uuid::Uuid;
 
@@ -156,6 +156,47 @@ pub async fn revoke_family(
         now,
     )
     .execute(executor)
+    .await?;
+    Ok(result.rows_affected())
+}
+
+/// Revokes every token of every family of `account_id` at `now`, except the
+/// family `except_family` when it is given, and returns how many rows it
+/// marked. A reset passes no exception; changing a password while logged in
+/// will keep the family it is sitting in. Runs in the caller's transaction,
+/// which `connection` belongs to, as two statements. The first takes the
+/// lock of each family it will revoke, the key `lock_family` uses, in family
+/// id order so two of these cannot deadlock. The second revokes, and being a
+/// statement of its own, its snapshot is taken after any refresh it waited
+/// for has committed, so the row that refresh stored is revoked too. As in
+/// `revoke_family`, a row already revoked keeps its first time.
+pub async fn revoke_account(
+    connection: &mut PgConnection,
+    account_id: Uuid,
+    except_family: Option<Uuid>,
+    now: OffsetDateTime,
+) -> Result<u64, sqlx::Error> {
+    sqlx::query!(
+        r#"SELECT pg_advisory_xact_lock(hashtextextended(family_id::text, 0))::text AS "locked"
+           FROM (SELECT DISTINCT family_id FROM sessions
+                 WHERE account_id = $1 AND revoked_at IS NULL
+                   AND ($2::uuid IS NULL OR family_id <> $2)
+                 ORDER BY family_id) f"#,
+        account_id,
+        except_family,
+    )
+    .fetch_all(&mut *connection)
+    .await?;
+
+    let result = sqlx::query!(
+        "UPDATE sessions SET revoked_at = $3
+         WHERE account_id = $1 AND revoked_at IS NULL
+           AND ($2::uuid IS NULL OR family_id <> $2)",
+        account_id,
+        except_family,
+        now,
+    )
+    .execute(&mut *connection)
     .await?;
     Ok(result.rows_affected())
 }

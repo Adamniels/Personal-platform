@@ -77,3 +77,21 @@ pub async fn email_of(
         .fetch_optional(executor)
         .await
 }
+
+/// Sets the password hash of the account with `id`. A plain update, which
+/// leaves the account's status alone: a reset works for a disabled account
+/// and does not enable it.
+pub async fn set_password(
+    executor: impl PgExecutor<'_>,
+    id: Uuid,
+    password_hash: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query!(
+        "UPDATE accounts SET password_hash = $2 WHERE id = $1",
+        id,
+        password_hash,
+    )
+    .execute(executor)
+    .await?;
+    Ok(())
+}

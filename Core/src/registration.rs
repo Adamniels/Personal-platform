@@ -20,13 +20,11 @@ use std::error::Error;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-const PASSWORD_LENGTH: std::ops::RangeInclusive<usize> = 15..=1024;
 const EMAIL_MAX_LENGTH: usize = 254;
 
 const INVALID_CODE: &str = "This invite code is not valid.";
 const EMAIL_TAKEN: &str = "An account with this email already exists.";
 const INVALID_EMAIL: &str = "Enter a valid email address.";
-const INVALID_PASSWORD: &str = "Choose a password of 15 to 1024 characters.";
 
 /// What a registration came to.
 #[derive(Debug, PartialEq, Eq)]
@@ -57,9 +55,7 @@ pub fn validate(code: &str, email: &str, password: &str) -> Result<Input, &'stat
     if !well_formed || email.chars().count() > EMAIL_MAX_LENGTH {
         return Err(INVALID_EMAIL);
     }
-    if !PASSWORD_LENGTH.contains(&password.chars().count()) {
-        return Err(INVALID_PASSWORD);
-    }
+    password::check_new(password)?;
     Ok(Input {
         code_hash: secret_token::hash(code.trim()),
         email,
@@ -186,22 +182,6 @@ mod tests {
         }
         let long = format!("{}@example.com", "a".repeat(EMAIL_MAX_LENGTH));
         assert_eq!(validate("", &long, PASSWORD).err(), Some(INVALID_EMAIL));
-    }
-
-    #[test]
-    fn a_password_is_15_to_1024_characters_counted_as_characters() {
-        assert_eq!(PASSWORD.chars().count(), 15);
-        assert!(validate("", "a@b", PASSWORD).is_ok());
-        assert!(validate("", "a@b", &"x".repeat(1024)).is_ok());
-        // Fourteen characters but more than fifteen bytes is still too short.
-        assert_eq!(
-            validate("", "a@b", &"é".repeat(14)).err(),
-            Some(INVALID_PASSWORD)
-        );
-        assert_eq!(
-            validate("", "a@b", &"x".repeat(1025)).err(),
-            Some(INVALID_PASSWORD)
-        );
     }
 
     #[test]
