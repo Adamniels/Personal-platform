@@ -240,6 +240,30 @@ pub async fn invite(expires_in: time::Duration) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+// for the reset command: stores a reset token for the account with `email`,
+// prints it once on stdout and its expiry on stderr, as invite does. An email
+// with no account is an error: the owner runs this, so saying so plainly
+// gives nothing away, see "No defence against user enumeration" in
+// docs/core-architecture.md.
+pub async fn reset(email: &str) -> Result<(), Box<dyn Error>> {
+    let pool = connect_database().await?;
+    let now = OffsetDateTime::now_utc();
+
+    let token = reset_token::create_for_email(&pool, email, now)
+        .await
+        .map_err(|err| format!("could not store the reset token: {err}"))?
+        .ok_or("no account with that email")?;
+
+    println!("{token}");
+    eprintln!(
+        "expires {}",
+        (now + reset_token::LIFETIME)
+            .replace_nanosecond(0)?
+            .format(&time::format_description::well_known::Rfc3339)?
+    );
+    Ok(())
+}
+
 // for the keygen command: a new signing key as the env file line that holds
 // it, on stdout so it can be appended to .env, and its key id on stderr.
 // Every environment runs this once for its own key, see "The signing key" in
