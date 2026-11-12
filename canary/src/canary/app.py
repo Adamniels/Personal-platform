@@ -16,18 +16,13 @@ from starlette.routing import Route
 
 from canary.settings import SETTINGS, DisplayMode, Settings
 
-# Canary's own few lines of style. The page takes its ground, text, fonts and
-# theme from the design files the proxy serves, and page.css holds the nav
-# bar's height so the page does not jump when /design/nav.js renders it. It
-# takes nothing from the core but the nav's contents.
-STYLE = """
-main { max-width: 40rem; margin: 0 auto; padding: 3rem 1rem; }
-h1 { font-size: 1.5rem; margin: 0 0 1.5rem; }
-code { white-space: nowrap; }
-"""
-
 
 def render_page(account_id: str) -> str:
+    # No style of its own: the ground, text, fonts, theme, the page container
+    # and its headings all come from the design files the proxy serves, and
+    # page.css holds the nav bar's height so the page does not jump when
+    # /design/nav.js renders it. It takes nothing from the core but the nav's
+    # contents.
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -37,13 +32,12 @@ def render_page(account_id: str) -> str:
   <link rel="stylesheet" href="/design/tokens.css">
   <link rel="stylesheet" href="/design/fonts.css">
   <link rel="stylesheet" href="/design/page.css">
-  <style>{STYLE}</style>
   <script src="/design/theme.js"></script>
   <script src="/design/nav.js" defer></script>
 </head>
 <body>
   <platform-nav current="canary"></platform-nav>
-  <main>
+  <main class="page">
     <h1>Canary</h1>
     <p>Your token was verified in Python. It says you are account <code>{escape(account_id)}</code>.</p>
   </main>
