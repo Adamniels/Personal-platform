@@ -55,10 +55,15 @@
     .home {
       font-weight: 700;
     }
+    /* One line, cut short with an ellipsis rather than wrapped, so a long
+       email does not grow the bar past the height the page reserves. */
     .user {
-      margin-left: auto;
-      min-width: 0;
-      overflow-wrap: anywhere;
+      flex: 1 1 0;
+      min-width: 6rem;
+      text-align: right;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
       font-size: 0.875rem;
       color: color-mix(in srgb, currentColor 60%, transparent);
     }
@@ -143,6 +148,7 @@
         const user = document.createElement("span");
         user.className = "user";
         user.textContent = email;
+        user.title = email;
         nav.append(user);
       }
 

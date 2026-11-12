@@ -20,7 +20,10 @@ def test_nav_shows_home_features_and_user(page: Page, invite_code: str, viewport
     # The heading and the account line stay until the feature cards.
     expect(page.get_by_role("heading", name="Platform")).to_be_visible()
 
-    # The bar never makes the page scroll sideways, however long the email.
+    # The bar keeps the 3rem the page reserves for it, so nothing jumps when
+    # it renders, and never makes the page scroll sideways, however long the
+    # email.
+    assert page.locator("platform-nav").bounding_box()["height"] <= 48
     scroll_width = page.evaluate("document.documentElement.scrollWidth")
     assert scroll_width <= page.viewport_size["width"]
 
