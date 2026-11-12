@@ -97,18 +97,24 @@ pytest test, or a Playwright test in `e2e/`. UI acceptance also names the screen
 at desktop and at 390px phone width. A slice whose acceptance cannot be written as named tests is
 not Ready: cut it differently or settle what is missing, and otherwise leave it in Backlog.
 
-**Risk.** Each slice is `low` or `high`. High means:
+**Risk.** Each slice is `low` or `high`, and the tier is the owner's choice. High means he wants
+to read the pull request before it lands, and nothing else: it goes through the same build and
+review loop, then waits for him to merge it.
 
-- auth and token logic;
-- a migration (migrations are forward only);
-- a change to a contract between the core, the brain and features;
-- anything the docs call expensive to reverse;
-- a slice whose main change is under `.github/`, `scripts/`, `.claude/`, `AGENTS.md` or
-  `CLAUDE.md`. The merge gate never merges those paths, so marking them high up front says the
-  owner will merge them.
+- **The default is low**, including for auth and token logic, a migration, and a contract between
+  the core, the brain and features. The reviewer and the tests carry the checking there, and the
+  owner's read adds little to them. Ask him only where a slice is unusual enough that he might want
+  to see it, and recommend.
+- **A slice that touches `.github/`, `scripts/`, `.claude/`, `AGENTS.md` or `CLAUDE.md` waits for
+  him whatever its tier**, since the merge gate never merges those paths. Mark it high, so the
+  issue says what will happen, and gather such changes into as few slices as the work allows, early
+  in the order, so the rest of the feature merges unattended.
+- **A low tier makes thorough slices matter more.** A decision on auth, token, migration or contract
+  ground that Settled does not cover still gets `owner-decision` from the implementer and waits. So
+  settle those here.
 
-Everything else is low. A high risk slice goes through the same build and review loop, then waits
-for the owner to merge it.
+The default was high for all of that ground until 2026 11 12. It is worth going back to when the
+platform has users besides the owner, or holds data that cannot be entered again.
 
 **Order.** Slices run in their sub-issue order. Add a blocked-by link wherever one slice needs
 another to land first, so "not blocked" keeps meaning "can start". Put the slices the owner can try
@@ -196,7 +202,8 @@ going on. A body fix is only ever
 
 ## 6. Finish
 
-Say what is now Ready, in order, which slices are high risk and will wait for the owner, and what
+Say what is now Ready, in order, which slices will wait for the owner, those marked high and
+those touching a protected path, and what
 `bash scripts/agent/next.sh` proposes first. List every slice left in Backlog as not Ready, with
 what is still missing for it.
 
