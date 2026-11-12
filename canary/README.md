@@ -87,46 +87,25 @@ Restart without the variable to go back to `normal`. What the card shows is the 
 ## How canary authenticates a request
 
 The rules every feature follows are in "How a feature authenticates" in
-`High-level/docs/feature-contract.md`. Canary is the first to carry them, and is the reference
-implementation a later feature starts from: these four files, and their tests.
+`High-level/docs/feature-contract.md`. Canary was the first to carry them, and its code for them is
+now `platform-auth`, the library in `libs/python/platform-auth/` that every Python service
+installs; its README says what the library holds, how its tests cover the ways verification breaks,
+and what it must never grow into. Canary installs it as an editable path dependency and does three
+things with it:
 
-- `src/canary/auth.py` reads the token from `Authorization: Bearer <token>` when that header is
-  present, otherwise from the `__Host-access` cookie. A header that is present and invalid is a
-  refusal, even beside a valid cookie, and so are two of them. It resolves the key through the key
-  cache and verifies the token with the time read once, `int(time.time())`. A route takes one of
-  two requirements: `@auth.page` redirects to the core's refresh endpoint with the path and query
-  exactly as received, relative and never judged by canary, and `@auth.api` answers `401` with an
-  empty body. A missing token, an expired one, one that fails verification, and a core that cannot
-  be reached with no key cached are all the same to both. Canary never decides between refreshing
-  and logging in; the core does, see "The refresh endpoint is the one place that decides between
-  refreshing and logging in" in `Core/docs/core-architecture.md`.
-- `src/canary/origin.py` holds `OriginCheck`, ASGI middleware in front of the whole app, routing
-  included: any method other than GET, HEAD and OPTIONS needs exactly one `Origin` header equal,
-  byte for byte, to `CANARY_PUBLIC_ORIGIN`, or it gets `403`. It mirrors `Core/src/origin.rs`, and
-  `tests/test_origin.py` runs the same table as `Core/tests/origin.rs` over a stub route, since
-  canary has no route that changes state yet.
+- `canary_page` takes `@auth.page`, so without a valid token it answers `303` to the core's refresh
+  endpoint with the way back, and `whoami` and `display_data` take `@auth.api`, so without one they
+  answer `401` with an empty body.
+- `create_app` wraps the whole app, routing included, in `OriginCheck` with
+  `CANARY_PUBLIC_ORIGIN`. Canary has no route that changes state yet.
+- `create_app(settings, keys=None)` in `src/canary/app.py` builds the app. Without `keys` it
+  creates one HTTP client and one `KeyCache` over it when the app starts, sets it as
+  `app.state.keys`, where the wrappers find it, and closes the client when it stops; tests pass a
+  cache of their own, over a key set answered from memory.
 
-- `src/canary/verify.py` holds `verify(token, keys, now)`, a pure function of the token, the
-  public keys by key id and the time, which returns the claims or raises `Refused`. It accepts
-  only `EdDSA`, chooses the key by the `kid` in the header, and requires every claim the core
-  writes, ids as UUIDs. PyJWT's own expiry check is off, along with its other checks that read the
-  system clock, and canary compares `exp + 5 < now` itself, since PyJWT would refuse at `exp + 5`,
-  where the contract accepts. Why five seconds is in "The clock leeway on verification is chosen,
-  not inherited" in `Core/docs/core-architecture.md`. Every refusal looks the same to a caller;
-  its reason, invalid or expired, is for logs and tests.
-- `src/canary/keys.py` holds `KeyCache`, the key set fetched from the core's
-  `/.well-known/jwks.json` and kept in memory. A key id it does not know refetches the set once,
-  at most once every thirty seconds, and a failed fetch keeps the keys it had, so canary keeps
-  verifying while the core is down.
-
-The tests verify `contracts/token/token.jwt`, the token the core actually produces, against
-`contracts/token/jwks.json`, see `contracts/README.md`, and cover the ways verification is known to
-break, listed in "A feature's authentication tests are part of the feature template" in
-`High-level/docs/how-we-build.md`.
-
-`create_app(settings, keys=None)` in `src/canary/app.py` builds the app. Without `keys` it creates
-one HTTP client and one key cache over it when the app starts, and closes the client when it
-stops; tests pass a cache of their own, over a key set answered from memory.
+`tests/test_app.py` checks that canary gets these through its own routes: each way of having no
+valid token still gets `303` on the page and `401` on the API, the `Origin` check sits in front of
+paths canary does not serve, and the app owns its key cache.
 
 ## Libraries canary is built on
 
@@ -152,22 +131,20 @@ middleware written against Starlette.
 app needs one. Plain `uvicorn` rather than `uvicorn[standard]`, whose faster event loop and file
 watching do not matter here.
 
-**PyJWT for verifying tokens**, with its `crypto` extra, which brings `cryptography` for the
-Ed25519 signature and the key itself. Chosen because it is the most used JWT library in Python,
-supports EdDSA, and lets every check that reads the clock be turned off, which the contract needs:
-expiry is compared by canary against a time passed in. It is also what the core's `jsonwebtoken`
-is to Rust, a library that checks the algorithm and the signature and leaves policy to the caller.
-joserfc was the alternative, newer and covering all of JOSE, encryption included, which canary
-does not need.
+**platform-auth for who is asking**, a path dependency on `../libs/python/platform-auth`. It
+brings PyJWT, and why PyJWT was chosen is in its README.
 
-**httpx2 for HTTP calls**, a runtime dependency, used to fetch the core's key set. It has an async
-client, which canary's async handlers need, and its `MockTransport` lets tests answer the core's
-requests from memory and count them. Starlette's `TestClient` uses it too, to call the app in
-process, so it is the one HTTP client canary has. Plain `httpx` still works but is deprecated for
-the test client since Starlette 1.7.
+**PyJWT in the tests**, a dev dependency, since canary's own code no longer imports it but its
+tests mint tokens with it.
 
-**pytest for tests.** The key cache's tests are async and run with `asyncio.run` inside a plain
-test, rather than through a pytest plugin, since a handful of tests did not earn a dependency.
+**httpx2 for HTTP calls**, a runtime dependency, since canary creates the client the key cache
+fetches the core's key set with. Its `MockTransport` lets tests answer the core's requests from
+memory. Starlette's `TestClient` uses it too, to call the app in process, so it is the one HTTP
+client canary has. Plain `httpx` still works but is deprecated for the test client since Starlette
+1.7.
+
+**pytest for tests.** An async test runs with `asyncio.run` inside a plain test, rather than
+through a pytest plugin, since a handful of tests did not earn a dependency.
 
 **ruff for linting and formatting**, a dev dependency, with its default rules and no configuration.
 Chosen because one tool does both, the job flake8 and black would do as two, and it is fast enough

@@ -24,7 +24,12 @@ The access token as the core produces it for fixed inputs:
 
 The core's test, `Core/tests/token_contract.rs`, checks that the core still produces these bytes
 exactly, and that the token verifies at its `iat` and at `exp + 5` and is refused as expired at
-`exp + 6`. A feature's tests verify `token.jwt` against `jwks.json` with its own verifier.
+`exp + 6`. On the other side, `platform-auth`, the one verifier every Python service installs,
+verifies `token.jwt` against `jwks.json` at the same times in its `tests/test_verify.py`, and its
+key cache reads `jwks.json` as the core serves it in `tests/test_keys.py`, see
+`libs/python/platform-auth/README.md`. The brain's `tests/test_whoami.py` sends the token, and
+tokens made from it, through its own route. A feature in another language verifies them with that
+language's library.
 
 Ed25519 signatures are deterministic, so the same inputs give the same bytes every time. A change
 that alters them, a dependency reordering the header included, fails the core's test. That is the

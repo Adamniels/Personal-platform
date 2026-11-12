@@ -19,8 +19,9 @@ from pathlib import Path
 import httpx2
 import jwt
 import pytest
+from platform_auth.keys import KeyCache
 from starlette.testclient import TestClient
-from test_auth import (
+from test_app import (
     CORE_URL,
     KID,
     NO_VALID_TOKEN,
@@ -31,7 +32,6 @@ from test_auth import (
 )
 
 from canary.app import create_app
-from canary.keys import KeyCache
 from canary.settings import DisplayMode, SettingsError, load
 
 FIXTURE = Path(__file__).resolve().parents[2] / "contracts/display/canary.json"

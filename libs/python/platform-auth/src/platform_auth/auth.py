@@ -1,14 +1,16 @@
-"""Who is asking, at canary's edge: the token read from the request, verified
-against the core's keys, and what a request without a valid one gets. The
-rules are in "How a feature authenticates" in
-`High-level/docs/feature-contract.md`; this, `verify.py` and `keys.py` are
-what a later feature starts from.
+"""Who is asking, at a service's edge: the token read from the request,
+verified against the core's keys, and what a request without a valid one
+gets. The rules are in "How a feature authenticates" in
+`High-level/docs/feature-contract.md`.
 
 A route takes one of two requirements. `page` sends a request without a valid
 token to the core's refresh endpoint with the way back, and `api` answers it
 401 with an empty body, since a script cannot follow a redirect. A missing
 token, an expired one and one that fails verification are the same to both:
-canary never decides between refreshing and logging in, the core does.
+the service never decides between refreshing and logging in, the core does.
+
+Both find the key cache at `request.app.state.keys`, which the service sets
+when it starts.
 """
 
 import time
@@ -20,14 +22,15 @@ import jwt
 from starlette.requests import Request
 from starlette.responses import RedirectResponse, Response
 
-from canary.keys import KeyCache
-from canary.verify import Claims, Refused, verify
+from platform_auth.keys import KeyCache
+from platform_auth.verify import Claims, Refused, verify
 
 # Set by the core at login and refresh, see "The session" in
 # Core/docs/core-architecture.md.
 ACCESS_COOKIE = "__Host-access"
 
-# The core's deciding endpoint. Relative, since canary sits on the same origin.
+# The core's deciding endpoint. Relative, since every service sits on the
+# platform's one origin.
 REFRESH_PATH = "/auth/refresh"
 
 Endpoint = Callable[[Request, Claims], Awaitable[Response]]
@@ -74,8 +77,8 @@ async def authenticate(request: Request, keys: KeyCache, now: int) -> Claims | N
 
 def refresh_location(request: Request) -> str:
     """`/auth/refresh` with the path and query exactly as the browser sent
-    them, encoded once more as `return_to`. Canary does not judge the path;
-    the core checks it once, after decoding."""
+    them, encoded once more as `return_to`. The service does not judge the
+    path; the core checks it once, after decoding."""
     path = request.scope.get("raw_path") or request.scope["path"].encode()
     if query := request.scope["query_string"]:
         path += b"?" + query

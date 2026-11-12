@@ -55,7 +55,7 @@ features" in `High-level/docs/platform-architecture.md`.
 | `Core/docs/`        | The core: auth, accounts, routing, the registry, and its own frontend        |
 | `Brain/`            | The brain's code, a Python service, with its docs in `Brain/docs/`           |
 | `Brain/docs/`       | The brain: memory, the trust model, events, retrieval, and its tables        |
-| `libs/`             | Shared libraries owned by no service, token verification first, not yet built |
+| `libs/`             | Shared libraries owned by no service, token verification first              |
 | `design/`           | The platform's visual style, its fonts and sprites, served at `/design/`     |
 | `design/ui/`        | `@platform/ui`, the React components every frontend installs, and their gallery |
 | `canary/`           | Canary, the Python feature proving another language can verify the token     |
@@ -95,7 +95,13 @@ features" in `High-level/docs/platform-architecture.md`.
 **Canary**
 
 - `canary/README.md` — what canary serves, how to run canary and its tests, its settings, how it
-  authenticates a request, as the reference a feature starts from, and the libraries it is built on
+  authenticates a request with `platform-auth`, and the libraries it is built on
+
+**Libs**
+
+- `libs/python/platform-auth/README.md` — checking the core's token and the `Origin` header, the one
+  copy every Python service installs: what it holds, what it must never grow into, how to run its
+  tests and how a service installs it
 
 **Contracts**
 
@@ -127,8 +133,8 @@ features" in `High-level/docs/platform-architecture.md`.
 
 **Brain**
 
-- `Brain/README.md` — what the brain serves, how to run it and its tests, its settings, and the
-  libraries it is built on
+- `Brain/README.md` — what the brain serves, how it knows who is asking, how to run it and its
+  tests, its settings, and the libraries it is built on
 - `brain-architecture.md` — per feature modules, retrieval, evaluation, consolidation, and the
   brain's own surface
 - `trust-model.md` — which store holds what, who can change it, scope, confidence and currency,

@@ -15,16 +15,17 @@ REFUSAL = "Forbidden: this request did not come from the platform's own origin.\
 class OriginCheck:
     """ASGI middleware over the whole app, so a route added later is covered
     without anyone remembering to. It runs before routing, and so before a
-    body is read. `origin` is the platform's, already parsed by
-    `settings.parse_origin` into the form a browser sends."""
+    body is read. `origin` is the platform's, already parsed by the service's
+    settings into the form a browser sends."""
 
     def __init__(self, app: ASGIApp, origin: str):
         self.app = app
         self.origin = origin.encode()
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        # Lifespan passes, and so would a websocket: canary serves none, and
-        # one added later needs its own check on the handshake's Origin.
+        # Lifespan passes, and so would a websocket: no service serves one
+        # yet, and one added later needs its own check on the handshake's
+        # Origin.
         if scope["type"] != "http" or scope["method"] in SAFE_METHODS:
             await self.app(scope, receive, send)
             return

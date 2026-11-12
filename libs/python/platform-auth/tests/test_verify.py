@@ -3,6 +3,7 @@ import hashlib
 import hmac
 import json
 from pathlib import Path
+from typing import Any
 from uuid import UUID
 
 import jwt
@@ -13,10 +14,10 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import (
     Ed25519PublicKey,
 )
 
-from canary.verify import LEEWAY_SECONDS, Claims, Reason, Refused, verify
+from platform_auth.verify import LEEWAY_SECONDS, Claims, Reason, Refused, verify
 
 # The contract fixture the core's own test pins, at the repository root.
-CONTRACT = Path(__file__).resolve().parents[2] / "contracts" / "token"
+CONTRACT = Path(__file__).resolve().parents[4] / "contracts" / "token"
 
 # Long past, so anything consulting the system clock rather than the time
 # passed in would find every token here expired.
@@ -33,11 +34,14 @@ def unb64(text: str) -> bytes:
     return base64.urlsafe_b64decode(text + "=" * (-len(text) % 4))
 
 
-def segment(value: dict) -> str:
+Keys = dict[str, Ed25519PublicKey]
+
+
+def segment(value: dict[str, Any]) -> str:
     return b64(json.dumps(value).encode())
 
 
-def committed():
+def committed() -> tuple[str, dict[str, Any], Keys]:
     token = (CONTRACT / "token.jwt").read_text()
     claims = json.loads((CONTRACT / "claims.json").read_text())
     (jwk,) = json.loads((CONTRACT / "jwks.json").read_text())["keys"]
@@ -45,7 +49,7 @@ def committed():
     return token, claims, {jwk["kid"]: key}
 
 
-def wire(**changes) -> dict:
+def wire(**changes: object) -> dict[str, object]:
     claims = {
         "sub": "01900000-0000-7000-8000-00000000000a",
         "sid": "01900000-0000-7000-8000-00000000000b",
@@ -63,17 +67,21 @@ def signing_key() -> Ed25519PrivateKey:
 
 
 @pytest.fixture
-def keys(signing_key) -> dict:
+def keys(signing_key: Ed25519PrivateKey) -> Keys:
     return {KID: signing_key.public_key()}
 
 
-def signed(key: Ed25519PrivateKey, header: dict, payload: dict) -> str:
+def signed(
+    key: Ed25519PrivateKey, header: dict[str, Any], payload: dict[str, Any]
+) -> str:
     """A token built by hand, so a test controls every byte of it."""
     signing_input = f"{segment(header)}.{segment(payload)}"
     return f"{signing_input}.{b64(key.sign(signing_input.encode()))}"
 
 
-def mint(key: Ed25519PrivateKey, payload: dict | None = None, kid: str = KID) -> str:
+def mint(
+    key: Ed25519PrivateKey, payload: dict[str, Any] | None = None, kid: str = KID
+) -> str:
     return jwt.encode(
         wire() if payload is None else payload,
         key,
@@ -82,17 +90,17 @@ def mint(key: Ed25519PrivateKey, payload: dict | None = None, kid: str = KID) ->
     )
 
 
-def verify_raises(token: str, keys: dict, now: int) -> Refused:
+def verify_raises(token: str, keys: Keys, now: int) -> Refused:
     with pytest.raises(Refused) as caught:
         verify(token, keys, now)
     return caught.value
 
 
-def refused(token: str, keys: dict, now: int = NOW) -> Reason:
+def refused(token: str, keys: Keys, now: int = NOW) -> Reason:
     return verify_raises(token, keys, now).reason
 
 
-def test_the_committed_token_verifies_with_its_claims():
+def test_the_committed_token_verifies_with_its_claims() -> None:
     token, expected, keys = committed()
 
     assert verify(token, keys, expected["iat"]) == Claims(
@@ -105,7 +113,7 @@ def test_the_committed_token_verifies_with_its_claims():
     )
 
 
-def test_expiry_is_accepted_at_exp_plus_five_and_refused_at_six():
+def test_expiry_is_accepted_at_exp_plus_five_and_refused_at_six() -> None:
     token, expected, keys = committed()
     exp = expected["exp"]
 
@@ -115,7 +123,7 @@ def test_expiry_is_accepted_at_exp_plus_five_and_refused_at_six():
     assert refused(token, keys, exp + 6) == Reason.EXPIRED
 
 
-def test_a_bad_signature_is_refused(signing_key, keys):
+def test_a_bad_signature_is_refused(signing_key: Ed25519PrivateKey, keys: Keys) -> None:
     header, payload, signature = mint(signing_key).split(".")
 
     # The control: the token as minted verifies.
@@ -133,7 +141,7 @@ def test_a_bad_signature_is_refused(signing_key, keys):
     assert refused(other, keys) == Reason.INVALID
 
 
-def test_alg_none_is_refused(signing_key, keys):
+def test_alg_none_is_refused(signing_key: Ed25519PrivateKey, keys: Keys) -> None:
     _, payload, signature = mint(signing_key).split(".")
 
     for alg in ["none", "None", "NONE"]:
@@ -142,9 +150,11 @@ def test_alg_none_is_refused(signing_key, keys):
         assert refused(f"{header}.{payload}.", keys) == Reason.INVALID
 
 
-def test_every_algorithm_but_eddsa_is_refused(signing_key, keys):
+def test_every_algorithm_but_eddsa_is_refused(
+    signing_key: Ed25519PrivateKey, keys: Keys
+) -> None:
     # Signed with the real key, so the algorithm is the only thing wrong.
-    def with_alg(alg):
+    def with_alg(alg: str) -> str:
         return signed(signing_key, {"typ": "JWT", "alg": alg, "kid": KID}, wire())
 
     assert verify(with_alg("EdDSA"), keys, NOW)
@@ -155,7 +165,9 @@ def test_every_algorithm_but_eddsa_is_refused(signing_key, keys):
         assert refused(with_alg(alg), keys) == Reason.INVALID, alg
 
 
-def test_hs256_keyed_with_the_public_key_is_refused(signing_key, keys):
+def test_hs256_keyed_with_the_public_key_is_refused(
+    signing_key: Ed25519PrivateKey, keys: Keys
+) -> None:
     public = signing_key.public_key()
     raw = public.public_bytes(
         serialization.Encoding.Raw, serialization.PublicFormat.Raw
@@ -177,7 +189,9 @@ def test_hs256_keyed_with_the_public_key_is_refused(signing_key, keys):
         assert refused(forged, keys) == Reason.INVALID
 
 
-def test_an_unknown_or_missing_key_id_is_refused(signing_key, keys):
+def test_an_unknown_or_missing_key_id_is_refused(
+    signing_key: Ed25519PrivateKey, keys: Keys
+) -> None:
     payload = wire()
 
     assert refused(mint(signing_key, kid="unknown"), keys) == Reason.INVALID
@@ -190,7 +204,9 @@ def test_an_unknown_or_missing_key_id_is_refused(signing_key, keys):
     assert refused(mint(signing_key), {}) == Reason.INVALID
 
 
-def test_missing_or_malformed_claims_are_refused(signing_key, keys):
+def test_missing_or_malformed_claims_are_refused(
+    signing_key: Ed25519PrivateKey, keys: Keys
+) -> None:
     for payload in [
         wire(exp=None),
         wire(sub=None),
@@ -218,12 +234,14 @@ def test_missing_or_malformed_claims_are_refused(signing_key, keys):
         assert refused(token, keys) == Reason.INVALID, body
 
 
-def test_what_is_not_a_token_is_refused(keys):
+def test_what_is_not_a_token_is_refused(keys: Keys) -> None:
     for token in ["", "a", "a.b", "a.b.c", "..", "x.y.z.w", "é.é.é", " "]:
         assert refused(token, keys) == Reason.INVALID, token
 
 
-def test_every_refusal_looks_the_same_to_a_caller(signing_key, keys):
+def test_every_refusal_looks_the_same_to_a_caller(
+    signing_key: Ed25519PrivateKey, keys: Keys
+) -> None:
     expired = verify_raises(mint(signing_key), keys, NOW + LIFETIME + 6)
     invalid = verify_raises("a.b.c", keys, NOW)
 

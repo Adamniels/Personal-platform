@@ -14,6 +14,7 @@ from uuid import UUID
 
 import jwt
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+from jwt.types import Options
 
 # How long past its `exp` a token is still accepted, to absorb clock drift
 # between machines. The same five seconds in every verifier.
@@ -24,9 +25,9 @@ ALGORITHM = "EdDSA"
 # The library checks the algorithm, the signature and that `exp` and `sub` are
 # there. Every check of its own that reads the system clock is off, and so is
 # its leeway: PyJWT refuses at `exp + 5`, where the contract still accepts, and
-# would refuse an `iat` it thinks is in the future. Canary checks `exp` below,
-# against the time it is given. `aud` is not checked, as in the core.
-OPTIONS = {
+# would refuse an `iat` it thinks is in the future. `verify` checks `exp`
+# below, against the time it is given. `aud` is not checked, as in the core.
+OPTIONS: Options = {
     "verify_signature": True,
     "verify_exp": False,
     "verify_nbf": False,
@@ -72,8 +73,7 @@ def verify(token: str, keys: Mapping[str, Ed25519PublicKey], now: int) -> Claims
     no later than its `exp` plus the leeway. Raises `Refused` otherwise."""
     try:
         key_id = jwt.get_unverified_header(token).get("kid")
-        key = keys.get(key_id) if isinstance(key_id, str) else None
-        if key is None:
+        if not isinstance(key_id, str) or (key := keys.get(key_id)) is None:
             raise Refused(Reason.INVALID)
         payload = jwt.decode(token, key, algorithms=[ALGORITHM], options=OPTIONS)
     except jwt.PyJWTError:
@@ -92,13 +92,13 @@ def verify(token: str, keys: Mapping[str, Ed25519PublicKey], now: int) -> Claims
     return claims
 
 
-def _uuid(value) -> UUID:
+def _uuid(value: object) -> UUID:
     if not isinstance(value, str) or not UUID_FORM.fullmatch(value):
         raise Refused(Reason.INVALID)
     return UUID(value)
 
 
-def _seconds(value) -> int:
+def _seconds(value: object) -> int:
     # An integer, as the core writes it: not a float, a string, or a bool,
     # which Python counts as an int.
     if type(value) is not int:

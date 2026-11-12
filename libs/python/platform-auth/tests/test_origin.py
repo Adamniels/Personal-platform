@@ -5,28 +5,33 @@ state needs the platform's own origin, and a GET is never checked."""
 import pytest
 from starlette.applications import Starlette
 from starlette.middleware import Middleware
+from starlette.requests import Request
 from starlette.responses import PlainTextResponse
 from starlette.routing import Route
 from starlette.testclient import TestClient
 
-from canary.app import create_app
-from canary.origin import OriginCheck
-from canary.settings import load
+from platform_auth.origin import OriginCheck
 
 PLATFORM = "https://platform.test"
 METHODS = ["GET", "HEAD", "OPTIONS", "POST", "PUT", "PATCH", "DELETE"]
 
 
-async def reached(request):
+async def reached(request: Request) -> PlainTextResponse:
     return PlainTextResponse("reached")
 
 
-stub = TestClient(
-    Starlette(
-        routes=[Route("/", reached, methods=METHODS)],
-        middleware=[Middleware(OriginCheck, origin=PLATFORM)],
+def app_at(path: str, origin: str) -> TestClient:
+    """A service with one route at `path`, answering anything, behind the
+    check for `origin`."""
+    return TestClient(
+        Starlette(
+            routes=[Route(path, reached, methods=METHODS)],
+            middleware=[Middleware(OriginCheck, origin=origin)],
+        )
     )
-)
+
+
+stub = app_at("/", PLATFORM)
 
 CASES = [
     ("POST", [PLATFORM], 200),
@@ -54,7 +59,9 @@ CASES = [
     CASES,
     ids=[f"{method} {origins}" for method, origins, _ in CASES],
 )
-def test_only_the_platforms_own_origin_may_change_state(method, origins, expected):
+def test_only_the_platforms_own_origin_may_change_state(
+    method: str, origins: list[str], expected: int
+) -> None:
     headers = [("origin", origin) for origin in origins]
 
     response = stub.request(method, "/", headers=headers)
@@ -62,19 +69,19 @@ def test_only_the_platforms_own_origin_may_change_state(method, origins, expecte
     assert response.status_code == expected
 
 
-def test_a_refusal_is_plain_and_never_reaches_the_route():
+def test_a_refusal_is_plain_and_never_reaches_the_route() -> None:
     response = stub.post("/", headers={"origin": "https://evil.test"})
 
     assert response.status_code == 403
     assert "reached" not in response.text
 
 
-def test_the_check_sits_in_front_of_the_whole_app():
-    # A path canary does not serve is still refused before routing, so a
+def test_the_check_sits_in_front_of_the_whole_app() -> None:
+    # A path the service does not serve is still refused before routing, so a
     # route added later is covered without anyone remembering to.
-    app = TestClient(create_app(load({"CANARY_PUBLIC_ORIGIN": "https://other.test"})))
+    app = app_at("/feature", "https://other.test")
 
-    assert app.post("/canary", headers={"origin": PLATFORM}).status_code == 403
+    assert app.post("/feature", headers={"origin": PLATFORM}).status_code == 403
     assert app.post("/nowhere", headers={"origin": PLATFORM}).status_code == 403
     assert (
         app.post("/nowhere", headers={"origin": "https://other.test"}).status_code

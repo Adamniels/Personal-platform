@@ -1,28 +1,37 @@
 import asyncio
 import base64
+import inspect
 import json
+from collections.abc import Awaitable, Callable
 from pathlib import Path
+from typing import Any
 
 import httpx2
 import pytest
 from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from cryptography.hazmat.primitives.asymmetric.ed25519 import (
+    Ed25519PrivateKey,
+    Ed25519PublicKey,
+)
 
-from canary.keys import JWKS_PATH, REFETCH_COOLDOWN_SECONDS, KeyCache
+from platform_auth.keys import JWKS_PATH, REFETCH_COOLDOWN_SECONDS, KeyCache
 
 # The contract fixture: the key set exactly as the core serves it.
 JWKS = json.loads(
-    (Path(__file__).resolve().parents[2] / "contracts/token/jwks.json").read_text()
+    (Path(__file__).resolve().parents[4] / "contracts/token/jwks.json").read_text()
 )
 KID = JWKS["keys"][0]["kid"]
 CORE_URL = "http://127.0.0.1:8080"
 
 
-def raw(key) -> bytes:
+Answer = Callable[[httpx2.Request], httpx2.Response | Awaitable[httpx2.Response]]
+
+
+def raw(key: Ed25519PublicKey) -> bytes:
     return key.public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
 
 
-def jwk(kid: str, key=None) -> dict:
+def jwk(kid: str, key: Ed25519PublicKey | None = None) -> dict[str, Any]:
     key = key or Ed25519PrivateKey.generate().public_key()
     x = base64.urlsafe_b64encode(raw(key)).rstrip(b"=").decode()
     return {"kty": "OKP", "crv": "Ed25519", "alg": "EdDSA", "kid": kid, "x": x}
@@ -31,36 +40,39 @@ def jwk(kid: str, key=None) -> dict:
 class Core:
     """The core's key set endpoint, answered from memory, counting requests."""
 
-    def __init__(self, answer=None):
+    def __init__(self, answer: Answer | None = None) -> None:
         self.requests: list[httpx2.Request] = []
-        self.answer = answer or (lambda request: httpx2.Response(200, json=JWKS))
+        self.answer: Answer = answer or (
+            lambda request: httpx2.Response(200, json=JWKS)
+        )
 
-    def handle(self, request: httpx2.Request):
+    async def handle(self, request: httpx2.Request) -> httpx2.Response:
         self.requests.append(request)
-        return self.answer(request)
+        answer = self.answer(request)
+        return await answer if inspect.isawaitable(answer) else answer
 
     def cache(self) -> KeyCache:
         client = httpx2.AsyncClient(transport=httpx2.MockTransport(self.handle))
         return KeyCache(client, CORE_URL)
 
 
-def unreachable(request):
+def unreachable(request: httpx2.Request) -> httpx2.Response:
     raise httpx2.ConnectError("connection refused", request=request)
 
 
-def timed_out(request):
+def timed_out(request: httpx2.Request) -> httpx2.Response:
     raise httpx2.ReadTimeout("timed out", request=request)
 
 
-def run(scenario):
+def run(scenario: Callable[[], Awaitable[None]]) -> None:
     asyncio.run(scenario())
 
 
-def test_the_key_set_is_fetched_once_and_cached():
+def test_the_key_set_is_fetched_once_and_cached() -> None:
     core = Core()
     cache = core.cache()
 
-    async def scenario():
+    async def scenario() -> None:
         first = await cache.find(KID, 0)
         second = await cache.find(KID, 1)
 
@@ -76,11 +88,11 @@ def test_the_key_set_is_fetched_once_and_cached():
     assert request.extensions["timeout"]["read"] == 2
 
 
-def test_an_unknown_key_id_refetches_once_then_fails():
+def test_an_unknown_key_id_refetches_once_then_fails() -> None:
     core = Core()
     cache = core.cache()
 
-    async def scenario():
+    async def scenario() -> None:
         assert await cache.find(KID, 0) is not None
         assert len(core.requests) == 1
 
@@ -94,12 +106,12 @@ def test_an_unknown_key_id_refetches_once_then_fails():
     run(scenario)
 
 
-def test_a_key_the_core_starts_serving_is_found_by_the_refetch():
+def test_a_key_the_core_starts_serving_is_found_by_the_refetch() -> None:
     rotated = {"keys": [*JWKS["keys"], jwk("next")]}
     core = Core()
     cache = core.cache()
 
-    async def scenario():
+    async def scenario() -> None:
         assert await cache.find(KID, 0) is not None
         core.answer = lambda request: httpx2.Response(200, json=rotated)
 
@@ -110,11 +122,11 @@ def test_a_key_the_core_starts_serving_is_found_by_the_refetch():
     run(scenario)
 
 
-def test_a_second_unknown_key_id_inside_thirty_seconds_does_not_refetch():
+def test_a_second_unknown_key_id_inside_thirty_seconds_does_not_refetch() -> None:
     core = Core()
     cache = core.cache()
 
-    async def scenario():
+    async def scenario() -> None:
         assert REFETCH_COOLDOWN_SECONDS == 30
         await cache.find(KID, 0)
         await cache.find("first-unknown", 100)
@@ -129,11 +141,11 @@ def test_a_second_unknown_key_id_inside_thirty_seconds_does_not_refetch():
     run(scenario)
 
 
-def test_the_first_lookup_counts_for_the_cooldown():
+def test_the_first_lookup_counts_for_the_cooldown() -> None:
     core = Core()
     cache = core.cache()
 
-    async def scenario():
+    async def scenario() -> None:
         await cache.find(KID, 0)
         assert await cache.find("unknown", 29) is None
         assert len(core.requests) == 1
@@ -141,11 +153,11 @@ def test_the_first_lookup_counts_for_the_cooldown():
     run(scenario)
 
 
-def test_cached_keys_keep_verifying_when_the_core_is_unreachable():
+def test_cached_keys_keep_verifying_when_the_core_is_unreachable() -> None:
     core = Core()
     cache = core.cache()
 
-    async def scenario():
+    async def scenario() -> None:
         known = await cache.find(KID, 0)
         core.answer = unreachable
 
@@ -181,11 +193,13 @@ def test_cached_keys_keep_verifying_when_the_core_is_unreachable():
         "no keys",
     ],
 )
-def test_a_failed_fetch_finds_no_key_and_is_retried_after_the_cooldown(failure):
+def test_a_failed_fetch_finds_no_key_and_is_retried_after_the_cooldown(
+    failure: Answer,
+) -> None:
     core = Core(answer=failure)
     cache = core.cache()
 
-    async def scenario():
+    async def scenario() -> None:
         assert await cache.find(KID, 0) is None
         assert await cache.find(KID, 29) is None
         assert len(core.requests) == 1
@@ -197,7 +211,7 @@ def test_a_failed_fetch_finds_no_key_and_is_retried_after_the_cooldown(failure):
     run(scenario)
 
 
-def test_only_ed25519_keys_are_taken():
+def test_only_ed25519_keys_are_taken() -> None:
     good = jwk("good")
     served = {
         "keys": [
@@ -215,7 +229,7 @@ def test_only_ed25519_keys_are_taken():
     core = Core(answer=lambda request: httpx2.Response(200, json=served))
     cache = core.cache()
 
-    async def scenario():
+    async def scenario() -> None:
         assert await cache.find("good", 0) is not None
         for kid in ["rsa", "x25519", "ec", "short", "padded", "no-x"]:
             assert await cache.find(kid, 0) is None, kid
@@ -223,18 +237,18 @@ def test_only_ed25519_keys_are_taken():
     run(scenario)
 
 
-def test_one_fetch_runs_at_a_time():
+def test_one_fetch_runs_at_a_time() -> None:
     core = Core()
     cache = core.cache()
 
-    async def slow(request):
+    async def slow(request: httpx2.Request) -> httpx2.Response:
         # Yield mid fetch, so the other lookups run while this one waits.
         await asyncio.sleep(0.01)
         return httpx2.Response(200, json=JWKS)
 
     core.answer = slow
 
-    async def scenario():
+    async def scenario() -> None:
         found = await asyncio.gather(*(cache.find(KID, 0) for _ in range(5)))
         assert all(key is not None for key in found)
 

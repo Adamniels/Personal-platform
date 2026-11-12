@@ -70,13 +70,13 @@ class KeyCache:
             return None
 
 
-def parse_key_set(body) -> dict[str, Ed25519PublicKey] | None:
+def parse_key_set(body: object) -> dict[str, Ed25519PublicKey] | None:
     """The Ed25519 keys in a JWK set (RFC 7517 and RFC 8037), by key id, or
     None if `body` is not a set. Entries of any other kind, and entries that
     do not parse, are ignored."""
     if not isinstance(body, dict) or not isinstance(body.get("keys"), list):
         return None
-    keys = {}
+    keys: dict[str, Ed25519PublicKey] = {}
     for entry in body["keys"]:
         if not isinstance(entry, dict):
             continue
