@@ -66,3 +66,14 @@ pub async fn find_by_email(
     .fetch_optional(executor)
     .await
 }
+
+/// The email of the account with `id`, or `None` when there is no such
+/// account. What the nav shows as who is logged in.
+pub async fn email_of(
+    executor: impl PgExecutor<'_>,
+    id: Uuid,
+) -> Result<Option<String>, sqlx::Error> {
+    sqlx::query_scalar!("SELECT email FROM accounts WHERE id = $1", id)
+        .fetch_optional(executor)
+        .await
+}

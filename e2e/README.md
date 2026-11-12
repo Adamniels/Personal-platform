@@ -29,6 +29,9 @@ Screenshots land in `screenshots/`, which is git ignored.
 - `capture(page, name)` writes a full page screenshot to `screenshots/<name>-<viewport>.png` and
   returns the path. It needs the page to be sized by the `viewport` fixture.
 
+`register_and_log_in(page, invite_code)` registers a fresh account with the code, logs in and
+returns its email, ending on the front page, for a test that only needs to be logged in.
+
 `/register` does not prefill the code from a query string, so tests fill the `code` field.
 
 ## Libraries

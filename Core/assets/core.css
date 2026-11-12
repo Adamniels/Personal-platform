@@ -12,12 +12,19 @@
 
 body {
   margin: 0;
-  padding: 3rem 1rem;
+}
+
+/* The bar draws itself from /nav.js; its height is held here so the page
+   does not jump while the script loads. It matches the bar's own. */
+platform-nav {
+  display: block;
+  min-height: 3rem;
 }
 
 main {
   max-width: 26rem;
   margin: 0 auto;
+  padding: 3rem 1rem;
 }
 
 h1 {

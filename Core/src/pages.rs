@@ -1,7 +1,7 @@
 //! The core's own HTML: askama templates in templates/, checked at compile
-//! time and escaped by default, through one base layout, and the one
-//! stylesheet the core serves. No build step, see "The core's frontend" in
-//! docs/core-architecture.md.
+//! time and escaped by default, through one base layout, and the two assets
+//! the core serves, its stylesheet and the nav script. No build step, see
+//! "The core's frontend" in docs/core-architecture.md.
 
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{Html, IntoResponse, Response};
@@ -9,14 +9,18 @@ use sha2::{Digest, Sha256};
 use std::sync::LazyLock;
 
 const STYLESHEET: &str = include_str!("../assets/core.css");
+const NAV_SCRIPT: &str = include_str!("../assets/nav.js");
 
-// A strong validator from the stylesheet's contents, so a browser checking
-// back gets 304 until the file changes and the new one at once after.
-static STYLESHEET_ETAG: LazyLock<HeaderValue> = LazyLock::new(|| {
-    let digest = Sha256::digest(STYLESHEET.as_bytes());
+static STYLESHEET_ETAG: LazyLock<HeaderValue> = LazyLock::new(|| etag_of(STYLESHEET));
+static NAV_SCRIPT_ETAG: LazyLock<HeaderValue> = LazyLock::new(|| etag_of(NAV_SCRIPT));
+
+// A strong validator from an asset's contents, so a browser checking back
+// gets 304 until the file changes and the new one at once after.
+fn etag_of(contents: &str) -> HeaderValue {
+    let digest = Sha256::digest(contents.as_bytes());
     let hex: String = digest[..16].iter().map(|b| format!("{b:02x}")).collect();
     HeaderValue::from_str(&format!("\"{hex}\"")).expect("hex is a valid header value")
-});
+}
 
 /// A template as a response.
 pub struct Page<T>(pub T);
@@ -35,22 +39,45 @@ impl<T: askama::Template> IntoResponse for Page<T> {
 
 /// `GET /assets/core.css`.
 pub async fn stylesheet(headers: HeaderMap) -> Response {
-    let etag = STYLESHEET_ETAG.clone();
+    asset(
+        &headers,
+        STYLESHEET,
+        "text/css; charset=utf-8",
+        &STYLESHEET_ETAG,
+    )
+}
+
+/// `GET /nav.js`, the script defining `<platform-nav>`. It needs no session:
+/// it loads on the login pages and on every feature.
+pub async fn nav_script(headers: HeaderMap) -> Response {
+    asset(
+        &headers,
+        NAV_SCRIPT,
+        "text/javascript; charset=utf-8",
+        &NAV_SCRIPT_ETAG,
+    )
+}
+
+// An embedded asset, revalidated on every use: `no-cache` lets the browser
+// keep it but makes it ask, so a change reaches every page on its next load.
+fn asset(
+    headers: &HeaderMap,
+    contents: &'static str,
+    content_type: &'static str,
+    etag: &HeaderValue,
+) -> Response {
     let validators = [
         (header::ETAG, etag.clone()),
         (header::CACHE_CONTROL, HeaderValue::from_static("no-cache")),
     ];
 
-    if matches_etag(&headers, &etag) {
+    if matches_etag(headers, etag) {
         return (StatusCode::NOT_MODIFIED, validators).into_response();
     }
     (
         validators,
-        [(
-            header::CONTENT_TYPE,
-            HeaderValue::from_static("text/css; charset=utf-8"),
-        )],
-        STYLESHEET,
+        [(header::CONTENT_TYPE, HeaderValue::from_static(content_type))],
+        contents,
     )
         .into_response()
 }
@@ -105,6 +132,13 @@ mod tests {
             html.contains(r#"<link rel="stylesheet" href="/assets/core.css">"#),
             "{html}"
         );
+        // Every core page loads the nav script the way a feature does; only
+        // a page that fills the nav block shows the bar.
+        assert!(
+            html.contains(r#"<script src="/nav.js" defer></script>"#),
+            "{html}"
+        );
+        assert!(!html.contains("<platform-nav"), "{html}");
         assert!(html.contains("<p>hello</p>"), "{html}");
     }
 
@@ -148,5 +182,30 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert(header::IF_NONE_MATCH, "\"stale\"".parse().unwrap());
         assert_eq!(stylesheet(headers).await.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn nav_js_is_served_with_a_validator() {
+        let response = nav_script(HeaderMap::new()).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.headers()[header::CONTENT_TYPE],
+            "text/javascript; charset=utf-8"
+        );
+        assert_eq!(response.headers()[header::CACHE_CONTROL], "no-cache");
+        let etag = response.headers()[header::ETAG].clone();
+        assert!(etag.to_str().unwrap().starts_with('"'));
+        assert_ne!(
+            etag,
+            stylesheet(HeaderMap::new()).await.headers()[header::ETAG]
+        );
+        assert!(body(response).await.contains("customElements.define"));
+
+        let mut headers = HeaderMap::new();
+        headers.insert(header::IF_NONE_MATCH, etag.clone());
+        let unchanged = nav_script(headers).await;
+        assert_eq!(unchanged.status(), StatusCode::NOT_MODIFIED);
+        assert_eq!(unchanged.headers()[header::ETAG], etag);
+        assert!(body(unchanged).await.is_empty());
     }
 }

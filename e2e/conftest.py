@@ -1,9 +1,12 @@
 """Fixtures shared by the acceptance tests. See README.md."""
 
+import re
 import subprocess
+import uuid
 from pathlib import Path
 
 import pytest
+from playwright.sync_api import Page, expect
 
 ROOT = Path(__file__).parent
 CORE = ROOT.parent / "Core"
@@ -72,3 +75,24 @@ def capture(page, name: str) -> Path:
     path = SCREENSHOTS / f"{name}-{_viewport_name(page)}.png"
     page.screenshot(path=str(path), full_page=True)
     return path
+
+
+def register_and_log_in(page: Page, invite_code: str) -> str:
+    """Registers a fresh account with the code, logs in, and returns its email.
+
+    Ends on the front page. test_registration.py walks the same steps as the
+    thing under test; this is for tests that only need to be logged in.
+    """
+    email = f"e2e-{uuid.uuid4()}@example.com"
+    password = uuid.uuid4().hex[:20]
+    page.goto("/register")
+    page.fill("[name=code]", invite_code)
+    page.fill("[name=email]", email)
+    page.fill("[name=password]", password)
+    page.click("button[type=submit]")
+    expect(page).to_have_url(re.compile(r"/login$"))
+    page.fill("[name=email]", email)
+    page.fill("[name=password]", password)
+    page.click("button[type=submit]")
+    expect(page).to_have_url("https://platform.test/")
+    return email
