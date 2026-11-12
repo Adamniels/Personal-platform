@@ -6,6 +6,8 @@ readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
     "fastapi>=0.162.5",
+    "httpx2>=2.13.1",
+    "platform-auth",
     "uvicorn>=0.54.0",
 ]
 
@@ -15,11 +17,13 @@ build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
-    "httpx2>=2.13.1",
     "mypy>=2.4.1",
     "pytest>=9.2.0",
     "ruff>=0.17.5",
 ]
+
+[tool.uv.sources]
+platform-auth = { path = "../libs/python/platform-auth", editable = true }
 
 [tool.mypy]
 strict = true

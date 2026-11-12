@@ -5,13 +5,26 @@ feature. Why it is a separate service is in "The brain is its own service" in
 `High-level/docs/platform-architecture.md`; what it will hold is in `docs/`, starting at
 `docs/brain-architecture.md`, with the tables in `docs/data-model.md`.
 
-Today it serves a health endpoint and nothing else. The database and authentication arrive with
-the slices that need them.
+Today it serves a health endpoint and says who is asking, and nothing else. The database arrives
+with the slice that needs it.
 
 ## What it serves
 
 - `GET /brain/api/health`, `{"status": "ok"}`, without a token. It answers whenever the process
   serves, and says nothing about what the brain depends on.
+- `GET /brain/api/whoami`, `{"account_id": "<sub>"}`, the account the request's token names.
+  Without a valid token it answers `401` with an empty body.
+
+**Who is asking.** Every route under `/brain/api/` except `health` needs a valid access token, and
+the brain checks it with `platform-auth`, the library in `libs/python/platform-auth/`, as every
+Python service does: the token from the `Authorization` header or the `__Host-access` cookie,
+verified against the core's key set, and a request without a valid one answered `401` with an
+empty body, never a redirect, since nothing loads a brain page in a browser. The user id in the
+brain is always the verified token's `Claims.account_id`, never a header, a parameter or a body
+field. `authenticated` in `src/brain/app.py` puts the library's `api` wrapper on a FastAPI route,
+so FastAPI sees a handler that takes only the request. In front of the whole app, routing
+included, the library's `OriginCheck` refuses with `403` any request other than GET, HEAD and
+OPTIONS whose `Origin` is not exactly `BRAIN_PUBLIC_ORIGIN`.
 
 Every route sits under `/brain/api/`, which the Caddyfile sends here with the prefix kept, so the
 brain's routes are written with it. Everything else is `404`, FastAPI's own `/docs`, `/redoc` and
@@ -49,17 +62,18 @@ and a value that is set must parse, or the brain refuses to start rather than qu
 default. The rules are canary's, written out again rather than imported, since no service imports
 from another's directory.
 
-- `BRAIN_CORE_URL`, default `http://127.0.0.1:8080`: the core's own address, never the proxy's. A
-  scheme, a host and an optional port, with nothing after it.
+- `BRAIN_CORE_URL`, default `http://127.0.0.1:8080`: the core's own address, never the proxy's,
+  where the key set is fetched. A scheme, a host and an optional port, with nothing after it.
 - `BRAIN_PUBLIC_ORIGIN`, default `https://platform.test`: the platform's origin exactly as a
   browser sends it, by the same rule as `PublicOrigin::parse` in `Core/src/origin.rs`.
 
-Neither is used by a route yet. Both are what verifying a token and checking the `Origin` of a
-request that changes state need, and they arrive with authentication. The defaults are right on
-the Mac mini and in CI, so neither sets them.
+The defaults are right on the Mac mini and in CI, so neither sets them.
 
-`create_app(settings)` in `src/brain/app.py` builds the app, so tests build one from settings of
-their own.
+`create_app(settings, keys=None)` in `src/brain/app.py` builds the app, so tests build one from
+settings of their own. Without `keys` it creates one HTTP client and one key cache over it when the
+app starts, and closes the client when it stops; tests pass a cache of their own, over the
+committed key set answered from memory, and verify the committed token, see `contracts/README.md`.
+That token expires at a fixed time, so `tests/test_whoami.py` pins the clock the library reads.
 
 ## Libraries the brain is built on
 
@@ -77,5 +91,9 @@ models are its contract, so the types are checked rather than decorative. pyrigh
 alternative, faster, but its Python package downloads Node when it runs, which does not suit an
 unattended machine.
 
-**httpx2 for the test client**, a dev dependency, since FastAPI's `TestClient` is Starlette's and
-uses it.
+**platform-auth for who is asking**, a path dependency on `../libs/python/platform-auth`, the
+one copy of token verification and the `Origin` check every Python service installs. What it holds
+and why it is shared is in its README.
+
+**httpx2 for HTTP calls**, a runtime dependency, since the brain creates the client the key cache
+fetches the core's key set with. FastAPI's `TestClient` is Starlette's and uses it too.
