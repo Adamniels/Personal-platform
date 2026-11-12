@@ -57,6 +57,22 @@ pub async fn start(
     })
 }
 
+/// A stored refresh token, found by its hash, with what a refresh decides on:
+/// its own state, its family's cap, and whether its account is still active.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Row {
+    pub id: Uuid,
+    pub account_id: Uuid,
+    pub family_id: Uuid,
+    /// The first instant the token no longer works.
+    pub expires_at: OffsetDateTime,
+    /// The first instant no token of the family works.
+    pub family_expires_at: OffsetDateTime,
+    pub used_at: Option<OffsetDateTime>,
+    pub revoked_at: Option<OffsetDateTime>,
+    pub account_active: bool,
+}
+
 /// When a token issued at `now` expires: fourteen days out, or at its family's
 /// cap if that comes first.
 pub fn token_expiry(now: OffsetDateTime, family_expires_at: OffsetDateTime) -> OffsetDateTime {
