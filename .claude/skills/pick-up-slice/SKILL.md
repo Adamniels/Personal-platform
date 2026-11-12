@@ -100,15 +100,15 @@ with a final line `Stopped: <reason>` and changes nothing (see Stop).
 3. **Environment.** `infra/.env` and `Core/.env` exist in the clone; they are git ignored, so they
    survive branch switches. If one is missing, end with `ENVIRONMENT: missing <file>`; never create
    secrets yourself, and never print or read them out.
-4. **Ports.** An interrupted run can leave the core on 8080 or canary on 8081. For each port,
-   `lsof -ti tcp:8080 -sTCP:LISTEN` (and `tcp:8081`) lists what listens on it, and
-   `ps -o command= -p <pid>` says what it is. Always with `-sTCP:LISTEN`: without it `lsof` also
-   lists every process with a connection to the port, Docker Desktop's `com.docker.backend` among
-   them, and killing those stops Docker. A process from this clone, the core's
-   `target/debug/platform_core` or canary's `uvicorn`, is stale: `kill <pid>`, and check the port is
-   free. Never kill a process whose command you have not read. The Mac mini is dedicated, so nothing
-   else should listen on these ports; if something else does, or the port stays held, end with
-   `ENVIRONMENT: port <port> held by <command>`.
+4. **Ports.** An interrupted run can leave the core on 8080, canary on 8081 or the brain on 8082.
+   For each port, `lsof -ti tcp:8080 -sTCP:LISTEN` (and `tcp:8081`, `tcp:8082`) lists what listens
+   on it, and `ps -o command= -p <pid>` says what it is. Always with `-sTCP:LISTEN`: without it
+   `lsof` also lists every process with a connection to the port, Docker Desktop's
+   `com.docker.backend` among them, and killing those stops Docker. A process from this clone, the
+   core's `target/debug/platform_core` or the `uvicorn` of canary or the brain, is stale:
+   `kill <pid>`, and check the port is free. Never kill a process whose command you have not read.
+   The Mac mini is dedicated, so nothing else should listen on these ports; if something else does,
+   or the port stays held, end with `ENVIRONMENT: port <port> held by <command>`.
 5. **Stack.** From `infra/`: `docker compose up -d --wait`. If the stack was down for a while, check
    for the expired chain in "After Caddy has been stopped for a while" in `infra/README.md`. Copy
    Caddy's root for `curl`: `docker compose cp caddy:/data/caddy/pki/authorities/local/root.crt ~/caddy-root.crt`.
@@ -189,7 +189,7 @@ run `bash scripts/agent/reset-db.sh` again before `migrate`.
 **Before screenshots**, in new mode, for a slice that changes a page that exists. Now, before your
 first change, while the branch still equals `main`: start the platform (step 9), run the e2e tests
 that cover that page, and keep the PNGs `capture()` wrote as `<name>-<viewport>-before.png` in
-`<tmp>`. Stop the core and canary afterwards, as step 9 says to stop them.
+`<tmp>`. Stop the core, canary and the brain afterwards, as step 9 says to stop them.
 
 Keep the pull request body in `<tmp>/body.md`. Start it from
 `templates.md`, copy the slice's Tasks checklist into it, and tick each task there as its commit
@@ -264,6 +264,11 @@ and in the same order. Read the workflows each run; today they are:
   `core.yml` installs.
 - **canary** (`canary.yml`), from `canary/`: `UV_LOCKED=1 uv run ruff check`,
   `UV_LOCKED=1 uv run ruff format --check`, `UV_LOCKED=1 uv run pytest`.
+- **brain** (`brain.yml`), from `Brain/`: `UV_LOCKED=1 uv run ruff check`,
+  `UV_LOCKED=1 uv run ruff format --check`, `UV_LOCKED=1 uv run mypy`, `UV_LOCKED=1 uv run pytest`.
+- **libs** (`libs.yml`): in every directory matching `libs/python/*/` that holds a
+  `pyproject.toml`, the brain's four commands, in the same order. With no such directory there is
+  nothing to run, and the step passes.
 - **scripts** (`ci.yml`): every `scripts/**/*.test.sh`, as the job's loop does:
   `for t in $(find scripts -name '*.test.sh' | sort); do bash "$t" || echo "FAILED $t"; done`.
 - **e2e** (`e2e.yml`): whenever `e2e=true`, always, against the running stack. Start the platform
@@ -272,28 +277,31 @@ and in the same order. Read the workflows each run; today they are:
   `UV_LOCKED=1 uv run pytest`, `UV_LOCKED=1 uv run ruff check`,
   `UV_LOCKED=1 uv run ruff format --check`.
 
-**Starting the platform.** Stop any core or canary you started earlier, so the code as it is now
-runs. Stopping one is always done the way step 4 finds it: the listener on its port, from `lsof`
-with `-sTCP:LISTEN`, and only when its command is the core or canary. From `Core/`,
-`cargo run --locked -q > <tmp>/core.log 2>&1 &`; from `canary/`,
-`UV_LOCKED=1 uv run uvicorn canary.app:app --host 127.0.0.1 --port 8081 > <tmp>/canary.log 2>&1 &`.
-Wait at most three minutes for it to answer:
+**Starting the platform.** Stop any core, canary or brain you started earlier, so the code as it
+is now runs. Stopping one is always done the way step 4 finds it: the listener on its port, from
+`lsof` with `-sTCP:LISTEN`, and only when its command is the core, canary or the brain. From
+`Core/`, `cargo run --locked -q > <tmp>/core.log 2>&1 &`; from `canary/`,
+`UV_LOCKED=1 uv run uvicorn canary.app:app --host 127.0.0.1 --port 8081 > <tmp>/canary.log 2>&1 &`;
+from `Brain/`,
+`UV_LOCKED=1 uv run uvicorn brain.app:app --host 127.0.0.1 --port 8082 > <tmp>/brain.log 2>&1 &`.
+Wait at most three minutes for the core and the brain to answer:
 
 ```
 for _ in $(seq 1 90); do
-  [ "$(curl --cacert ~/caddy-root.crt -s -o /dev/null -w '%{http_code}' https://platform.test/login)" = 200 ] && break
+  [ "$(curl --cacert ~/caddy-root.crt -s -o /dev/null -w '%{http_code}' https://platform.test/login)" = 200 ] &&
+    [ "$(curl --cacert ~/caddy-root.crt -s -o /dev/null -w '%{http_code}' https://platform.test/brain/api/health)" = 200 ] && break
   sleep 2
 done
 ```
 
-If it never answers `200`, read the tail of both logs. A core or canary that fails because of the
-branch's code is a failing step, fixed like any other. Anything else ends the run with
-`ENVIRONMENT: platform.test never answered 200 (<the log line that says why>)`.
+If either never answers `200`, read the tail of the three logs. A core, canary or brain that fails
+because of the branch's code is a failing step, fixed like any other. Anything else ends the run
+with `ENVIRONMENT: platform.test never answered 200 (<the log line that says why>)`.
 
 A failing step is fixed before going on, never skipped, weakened or marked as expected to fail.
-Loop until every step is green. Keep each command and its result for Verification. Leave the core
-and canary running when step 10 follows; otherwise stop what you started, the same way. Leave
-Postgres, Caddy and Docker running.
+Loop until every step is green. Keep each command and its result for Verification. Leave the core,
+canary and the brain running when step 10 follows; otherwise stop what you started, the same way.
+Leave Postgres, Caddy and Docker running.
 
 ## 10. Look at it
 
@@ -305,8 +313,8 @@ if anything changed since it started), empty `e2e/screenshots/` (git ignored, ge
 run the suite once more, so `capture()` writes fresh PNGs at desktop and 390px phone width. Open
 each one and look for what a test does not catch: overflow, clipped text, overlapping elements, an
 unreadable phone layout. Fix what you find as part of the task it belongs to, and gate again. Then
-stop the core and canary you started, as step 9 says to stop them; leave Postgres, Caddy and Docker
-running.
+stop the core, canary and the brain you started, as step 9 says to stop them; leave Postgres, Caddy
+and Docker running.
 
 ## 11. The pull request
 
@@ -381,9 +389,10 @@ last, so the runner can read it.
 
 - **Environment**, never Blocked, and no board status changes: Docker down, a stack that will not
   start, `gh` auth or a network failure, the gh guard not first on PATH, a missing `.env`, port
-  8080 or 8081 held by a process you cannot free, a dirty tree on a branch other than the slice's,
-  not the bot, `migrate` failing on `main`, a database reset that fails, `owner-decision` that cannot
-  be added, CI failing outside the branch. The last line is exactly `ENVIRONMENT: <reason>`.
+  8080, 8081 or 8082 held by a process you cannot free, a dirty tree on a branch other than the
+  slice's, not the bot, `migrate` failing on `main`, a database reset that fails, `owner-decision`
+  that cannot be added, CI failing outside the branch. The last line is exactly
+  `ENVIRONMENT: <reason>`.
 - **Blocked**, only for a slice problem you cannot decide around: an open blocker, no Acceptance,
   or Acceptance that cannot be written as tests. Set Blocked, post the Blocked comment mentioning
   `@Adamniels` on the slice, and end with a final line `Blocked: <reason>`.

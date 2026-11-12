@@ -241,7 +241,8 @@ it was.
 ## One agent at a time
 
 Slices are worked one at a time. The gate needs the whole stack, Caddy on 80 and 443, the core on
-8080, canary on 8081 and Postgres on 5432, and two runs would collide on every one of them. Running
+8080, canary on 8081, the brain on 8082 and Postgres on 5432, and two runs would collide on every
+one of them. Running
 several at once would need a stack per run, separate ports and compose projects, and a git worktree
 each with its own copy of the git ignored `.env` files. A serial runner that never idles while work
 waits is enough until that changes.
