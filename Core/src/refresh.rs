@@ -91,6 +91,11 @@ pub enum Outcome {
     /// token for its family, and no refresh token, since the request that
     /// used it has already set the next one.
     Grace { access_token: String },
+    /// The presented token was used before the grace window, so a copy of
+    /// it exists: the family is revoked, and the browser goes to login as it
+    /// would with a dead token. The ids are for the warning, which is the one
+    /// trace a possible theft leaves.
+    Reused { account_id: Uuid, family_id: Uuid },
     /// Anything else: no token, one that is not a token, unknown, revoked or
     /// expired, or an account no longer active.
     LogIn,
@@ -146,8 +151,40 @@ async fn settle(
                 .issuer
                 .issue(row.account_id, row.family_id, Uuid::now_v7(), now),
         }),
+        (Decision::Reuse, Some(row)) => revoke_for_reuse(state, row, now).await,
         _ => Ok(Outcome::LogIn),
     }
+}
+
+// Revokes the family of `row`, a token presented after its grace window, as
+// logout does: in one transaction holding the family's lock, so a rotation of
+// the family's newest token that was part way through has committed first and
+// the token it stored is revoked too. That token is the thief's in the case
+// reuse detection exists for. A revoke that marks nothing found the family
+// already revoked, by a logout or another replay since the row was read, and
+// is a login, so one theft is reported once.
+async fn revoke_for_reuse(
+    state: &AppState,
+    row: &sessions::Row,
+    now: OffsetDateTime,
+) -> Result<Outcome, Box<dyn Error + Send + Sync>> {
+    let mut transaction = state.pool.begin().await?;
+    sessions::lock_family(&mut *transaction, row.id).await?;
+    let revoked = sessions::revoke_family(&mut *transaction, row.family_id, now).await?;
+    transaction.commit().await?;
+    if revoked == 0 {
+        return Ok(Outcome::LogIn);
+    }
+    Ok(Outcome::Reused {
+        account_id: row.account_id,
+        family_id: row.family_id,
+    })
+}
+
+/// The line logged when a family is revoked for reuse. It takes the ids and
+/// nothing else, so the token can never end up in the log.
+pub fn reuse_warning(account_id: Uuid, family_id: Uuid) -> String {
+    format!("warning: refresh token reuse, account {account_id}, family {family_id} revoked")
 }
 
 pub fn routes() -> Router<AppState> {
@@ -198,8 +235,9 @@ struct RefreshForm {
 }
 
 // 303, for a form and a fetch alike: back to the return path with both cookies
-// set, or to login with both cleared, so a dead cookie is not sent again on the
-// way back. A server error is the one other answer, 500 with the cookies left
+// set, or with the access cookie alone inside the grace window, or to login
+// with both cleared, so a dead cookie is not sent again on the way back. A
+// server error is the one other answer, 500 with the cookies left
 // alone, since an outage is not a dead session and clearing them would log
 // everyone out over a blip.
 async fn submit(
@@ -229,17 +267,30 @@ async fn submit(
             let jar = CookieJar::new().add(cookies::access(access_token, state.issuer.lifetime()));
             (jar, Redirect::to(&form.return_to.location())).into_response()
         }
-        Ok(Outcome::LogIn) => {
-            let jar = CookieJar::new()
-                .add(cookies::clear_access())
-                .add(cookies::clear_refresh());
-            (jar, Redirect::to(&form.return_to.appended_to("/login"))).into_response()
+        // Reuse answers exactly as a dead token does; the warning is the
+        // only difference, and it never holds the token.
+        Ok(Outcome::Reused {
+            account_id,
+            family_id,
+        }) => {
+            eprintln!("{}", reuse_warning(account_id, family_id));
+            to_login(&form.return_to)
         }
+        Ok(Outcome::LogIn) => to_login(&form.return_to),
         Err(err) => {
             eprintln!("refresh failed: {err}");
             (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error\n").into_response()
         }
     }
+}
+
+// Both cookies cleared, so a dead cookie is not sent again on the way back,
+// and to login with the return path.
+fn to_login(return_to: &ReturnPath) -> Response {
+    let jar = CookieJar::new()
+        .add(cookies::clear_access())
+        .add(cookies::clear_refresh());
+    (jar, Redirect::to(&return_to.appended_to("/login"))).into_response()
 }
 
 #[cfg(test)]
@@ -355,6 +406,15 @@ mod tests {
             "in the window"
         );
         assert_eq!(decide(Some(&used), at(131)), Decision::Reuse, "outside it");
+    }
+
+    #[test]
+    fn the_reuse_warning_names_the_account_and_the_family() {
+        let (account_id, family_id) = (Uuid::now_v7(), Uuid::now_v7());
+        let line = reuse_warning(account_id, family_id);
+        assert!(line.starts_with("warning: refresh token reuse"), "{line}");
+        assert!(line.contains(&format!("account {account_id}")), "{line}");
+        assert!(line.contains(&format!("family {family_id}")), "{line}");
     }
 
     // Disabling an account ends its sessions at their next refresh, not when

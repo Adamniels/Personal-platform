@@ -400,6 +400,95 @@ async fn a_refresh_that_waits_on_a_revoke_goes_to_login() {
     db.close().await;
 }
 
+async fn revoked_in(pool: &PgPool, family_id: Uuid) -> Vec<Option<OffsetDateTime>> {
+    sqlx::query_scalar("SELECT revoked_at FROM sessions WHERE family_id = $1 ORDER BY id")
+        .bind(family_id)
+        .fetch_all(pool)
+        .await
+        .unwrap()
+}
+
+// Check 7 of the feature: a copy of a used token presented later revokes the
+// whole family, so the thief and the owner both log in again.
+#[tokio::test]
+async fn a_replay_outside_the_grace_window_revokes_the_family() {
+    let db = common::TestDb::new().await;
+    let state = state(db.pool.clone()).await;
+    let (started, next) = rotated_at(&db.pool, at(100)).await;
+    let account_id = row_of(&db.pool, &started.refresh_token).await.account_id;
+    let other = sessions::start(&db.pool, account_id, at(0)).await.unwrap();
+
+    let outcome = refresh::refresh(&state, Some(&started.refresh_token), at(131))
+        .await
+        .unwrap();
+
+    let Outcome::Reused {
+        account_id: reported_account,
+        family_id: reported_family,
+    } = outcome
+    else {
+        panic!("a replay outside the window was not reuse");
+    };
+    assert_eq!(
+        (reported_account, reported_family),
+        (account_id, started.family_id)
+    );
+    assert_eq!(
+        revoked_in(&db.pool, started.family_id).await,
+        vec![Some(at(131)), Some(at(131))]
+    );
+    assert_eq!(
+        revoked_in(&db.pool, other.family_id).await,
+        vec![None],
+        "another session of the account was revoked"
+    );
+    let outcome = refresh::refresh(&state, Some(&next.refresh_token), at(140))
+        .await
+        .unwrap();
+    assert!(
+        matches!(outcome, Outcome::LogIn),
+        "the newest token still refreshed"
+    );
+    // Presented again, the replayed token finds a revoked family and is not
+    // reported a second time.
+    let outcome = refresh::refresh(&state, Some(&started.refresh_token), at(150))
+        .await
+        .unwrap();
+    assert!(matches!(outcome, Outcome::LogIn));
+
+    db.close().await;
+}
+
+// The case reuse detection exists for: the thief holds the newest token and
+// is part way through rotating it when the owner's old copy arrives. Unless
+// the revoke waits on the family's lock, the token that rotation stores stays
+// live, and the thief keeps the session.
+#[tokio::test]
+async fn a_refresh_committing_during_a_reuse_revoke_is_revoked_too() {
+    let db = common::TestDb::new().await;
+    let state = state(db.pool.clone()).await;
+    let (started, next) = rotated_at(&db.pool, at(100)).await;
+    let newest = row_of(&db.pool, &next.refresh_token).await;
+    let rotation = rotation_in_progress(&db.pool, newest.id, at(200)).await;
+
+    let (pool_state, presented) = (state.clone(), started.refresh_token.clone());
+    let replaying =
+        tokio::spawn(async move { refresh::refresh(&pool_state, Some(&presented), at(200)).await });
+    common::until_one_waits_on_a_lock(&db, "the reuse revoke did not wait for the rotation").await;
+    rotation.commit().await.unwrap();
+    let outcome = replaying.await.unwrap().unwrap();
+
+    assert!(matches!(outcome, Outcome::Reused { .. }));
+    let revoked = revoked_in(&db.pool, started.family_id).await;
+    assert_eq!(revoked.len(), 3);
+    assert!(
+        revoked.iter().all(Option::is_some),
+        "the row the rotation stored during the revoke was left live: {revoked:?}"
+    );
+
+    db.close().await;
+}
+
 // Over HTTP. The handler reads the clock, so the sessions here start at the
 // real time, or far enough before it to have expired.
 
@@ -695,6 +784,57 @@ async fn anything_else_clears_both_cookies_and_goes_to_login_with_the_way_back()
         count(&db.pool).await,
         2,
         "a refresh that failed stored a row"
+    );
+
+    db.close().await;
+}
+
+// The same answer a dead token gets, so a replay tells whoever sent it
+// nothing more than that the session is over.
+#[tokio::test]
+async fn a_reuse_response_clears_both_cookies_and_goes_to_login() {
+    let db = common::TestDb::new().await;
+    let (addr, _) = serve(db.pool.clone()).await;
+    let account_id = account(&db.pool, "active").await;
+    let a_minute_ago = OffsetDateTime::now_utc() - Duration::minutes(1);
+    let started = sessions::start(&db.pool, account_id, a_minute_ago)
+        .await
+        .unwrap();
+    let first = row_of(&db.pool, &started.refresh_token).await;
+    sessions::rotate(&db.pool, first.id, a_minute_ago)
+        .await
+        .unwrap()
+        .expect("a live token did not rotate");
+
+    let response = post(addr, Some(&started.refresh_token), Some(PLATFORM), "/x?a=1").await;
+
+    assert_eq!(response.status, 303, "{}", response.body);
+    assert_eq!(
+        response.header("location"),
+        Some("/login?return_to=%2Fx%3Fa%3D1")
+    );
+    assert_eq!(response.all("set-cookie").len(), 2);
+    for (name, path) in [("__Host-access", "/"), ("__Secure-refresh", "/auth")] {
+        let (_, value, attrs) = cookie(named(&response, name));
+        assert_eq!(value, "", "{name}");
+        assert_eq!(
+            attrs,
+            attributes(&[
+                "HttpOnly",
+                "SameSite=Lax",
+                "Secure",
+                &format!("Path={path}"),
+                "Max-Age=0"
+            ]),
+            "{name}"
+        );
+    }
+    assert!(
+        revoked_in(&db.pool, started.family_id)
+            .await
+            .iter()
+            .all(Option::is_some),
+        "the family was not revoked"
     );
 
     db.close().await;
