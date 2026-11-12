@@ -84,11 +84,12 @@ button {
   background: color-mix(in srgb, var(--error) 12%, transparent);
 }
 
-/* The front page's cards: as many columns of at least 18rem as fit, one at
-   phone width, and never wider than the screen. */
+/* The front page's cards: as many columns of at least 22rem as fit, wide
+   enough for an id on one line, one at phone width, and never wider than
+   the screen. */
 .cards {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 18rem), 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 22rem), 1fr));
   gap: 1rem;
 }
 
