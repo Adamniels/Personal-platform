@@ -451,20 +451,25 @@ good; checks "$HEAD" ci-ok completed success ci-ok in_progress null
 run 7; not_eligible "ci-ok is pending"
 check "any unfinished ci-ok run on the head commit is pending" $?
 
-# needs-owner.
-good; pr needs-owner
-run 7; not_eligible "needs-owner label is set"
-check "needs-owner exits 3" $?
-good; pr "ready,needs-owner"
-run 7; not_eligible "needs-owner label is set"
-check "needs-owner among other labels exits 3" $?
-good; pr "needs-owner-later"
+# The owner labels: each of the three, and needs-owner, the label older pull requests carry.
+for label in owner-merge owner-decision owner-blocked needs-owner; do
+  good; pr "$label"
+  run 7; not_eligible "an owner label is set"
+  check "$label exits 3" $?
+done
+good; pr "ready,owner-decision"
+run 7; not_eligible "an owner label is set"
+check "an owner label among other labels exits 3" $?
+good; pr "owner-decision,owner-blocked"
+run 7; not_eligible "an owner label is set"
+check "two owner labels give the reason once" $?
+good; pr "owner-merge-later,owner,needs-owner-later"
 run 7; [ "$code" = 0 ] && merged
-check "a label that only starts with needs-owner is not needs-owner" $?
+check "a label that only starts with an owner label is not one" $?
 
 # Every unmet condition is reported, in a stable order.
 rm -f "$FAKE_DATA"/*.json
-pr needs-owner; files .github/x; checks "$HEAD" ci-ok completed failure; verdict changes "$OLD"; risk "## Risk
+pr owner-decision; files .github/x; checks "$HEAD" ci-ok completed failure; verdict changes "$OLD"; risk "## Risk
 
 high"
 edit pr.json '.author.login = "x" | .baseRefName = "dev" | .isDraft = true | .isCrossRepository = true'
@@ -472,7 +477,7 @@ edit "issue-$SLICE.json" '.data.repository.issue.author.login = "x" | .data.repo
 run 7; not_eligible "author is not the bot" "base is not main" "pull request is a draft" \
   "head is from another repository" "touches protected paths" "ci-ok failed" "verdict is not approve" \
   "verdict is not for the head commit" "slice is not open" "risk is not low" "risk record is not the owner's" \
-  "needs-owner label is set"
+  "an owner label is set"
 check "every unmet condition is reported" $?
 good; edit pr.json '.headRefName = "x"'; checks "$HEAD" ci-ok in_progress null
 run 7; not_eligible "ci-ok is pending" "slice is not the branch's planned issue" "risk is not low"

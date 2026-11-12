@@ -76,7 +76,7 @@ early=2026-11-01T09:00:00Z       # before both
 mid=2026-11-01T11:30:00Z         # after the verdict, before late
 later=2026-11-01T13:00:00Z       # after late
 
-# pr <number> <slice> [needs-owner]: writes the fragment for an open bot PR with head sha "sha<number>".
+# pr <number> <slice> [label]: writes the fragment for an open bot PR with head sha "sha<number>".
 pr() {
   jq -n -c --argjson n "$1" --argjson s "$2" --arg label "${3:-}" --arg d "$committed" \
     '{number: $n, headRefOid: "sha\($n)", headRefName: "branch-\($n)", labels: [$label | select(. != "") | {name: .}],
@@ -243,24 +243,39 @@ run; [ "$out" = "owner 5 15" ]
 check "an owner inline comment older than the bot reply gives no fix" $?
 setprs 1; verdict 1 approve 0
 
-# needs-owner.
-pr 5 15 needs-owner
+# The owner labels. Any of them keeps an approved PR for the owner; only owner-blocked says the round cap was
+# already handed over, since owner-decision (and the older needs-owner) is set by the implementer long before.
+for label in owner-merge owner-decision owner-blocked needs-owner; do
+  pr 5 15 "$label"
+  setprs 5; verdict 5 approve 0
+  run; [ "$code" = 0 ] && [ "$out" = "owner 5 15" ]
+  check "R42: a PR labelled $label with an approve verdict gives owner, not merge" $?
+done
+pr 5 15 owner-merge-later
 setprs 5; verdict 5 approve 0
-run; [ "$code" = 0 ] && [ "$out" = "owner 5 15" ]
-check "R42: a needs-owner PR with an approve verdict gives owner, not merge" $?
+run; [ "$out" = "merge 5 15" ]
+check "a label that only starts with an owner label is not one" $?
+for label in owner-merge owner-decision needs-owner; do
+  pr 5 15 "$label"
+  setprs 5; verdict 5 changes 4
+  run; [ "$out" = "cap 5 15" ]
+  check "a PR labelled $label at the round cap still gives cap: nobody was told yet" $?
+done
+pr 5 15 owner-blocked
+setprs 5; verdict 5 approve 0
 verdict 5 changes 1
 run; [ "$out" = "fix 5 15" ]
-check "R42: a needs-owner PR with a changes verdict (<= 3) gives fix" $?
+check "R42: an owner-blocked PR with a changes verdict (<= 3) gives fix" $?
 verdict 5 changes 4
 run; [ -z "$out" ]
-check "R43b: a needs-owner PR at the round cap yields no line (already handed over)" $?
+check "R43b: an owner-blocked PR at the round cap yields no line (already handed over)" $?
 echo 16 > "$FAKE_DATA/next"
 run; [ "$out" = "new 16" ]
 check "R43b: lower items win over a handed-over capped PR" $?
 rm -f "$FAKE_DATA/next"
 verdict 5 changes 4; comment 5 Adamniels "$late"
 run; [ "$out" = "fix 5 15" ]
-check "R43b: a capped needs-owner PR with newer owner input gives fix" $?
+check "R43b: a capped owner-blocked PR with newer owner input gives fix" $?
 rm -f "$FAKE_DATA/comments-5.json"
 pr 8 18; setprs 8; verdict 8 changes 4
 run; [ "$out" = "cap 8 18" ]
@@ -268,16 +283,16 @@ check "R43b: an unlabelled PR at the round cap gives cap" $?
 setprs 5
 echo "none 0 0 -" > "$FAKE_DATA/verdict-5"
 run; [ "$out" = "review 5 15" ]
-check "R42: a needs-owner PR with no verdict gives review" $?
+check "R42: a owner-blocked PR with no verdict gives review" $?
 verdict 5 approve 0 oldsha
 run; [ "$out" = "review 5 15" ]
-check "R42: a needs-owner PR with a verdict for an older commit gives review" $?
+check "R42: a owner-blocked PR with a verdict for an older commit gives review" $?
 verdict 5 approve 0; comment 5 Adamniels "$late"
 run; [ "$out" = "fix 5 15" ]
-check "a needs-owner PR with a new owner comment gives fix" $?
+check "a owner-blocked PR with a new owner comment gives fix" $?
 setprs 5 1; verdict 5 approve 0; verdict 1 approve 0; echo 16 > "$FAKE_DATA/next"
 run; [ "$out" = "merge 1 11" ]
-check "R42: merge for a plain PR beats owner for a needs-owner PR" $?
+check "R42: merge for a plain PR beats owner for a owner-blocked PR" $?
 setprs 5; verdict 5 approve 0; echo 16 > "$FAKE_DATA/next"
 run; [ "$out" = "new 16" ]
 check "R42: owner loses to new" $?
@@ -317,7 +332,7 @@ run; [ "$out" = "merge 1 11" ]
 check "an owner inline comment older than the verdict is ignored" $?
 setprs 5; verdict 5 approve 0; comment_inline 5 "$late"
 run; [ "$out" = "fix 5 15" ]
-check "an owner inline comment on a needs-owner PR gives fix" $?
+check "an owner inline comment on a owner-blocked PR gives fix" $?
 
 # The slice falls back to the branch name.
 pr 6 0; jq -c '.closingIssuesReferences = [] | .headRefName = "12-some-slice"' "$FAKE_DATA/pr-6.json" > "$FAKE_DATA/p" && mv "$FAKE_DATA/p" "$FAKE_DATA/pr-6.json"

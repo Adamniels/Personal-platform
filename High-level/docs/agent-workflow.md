@@ -2,7 +2,7 @@
 
 Status: exploratory. Built, and not yet run end to end on a real feature.
 
-Last updated: 2026 11 10
+Last updated: 2026 11 12
 
 How agents build this repository and what the owner does around them. How work is cut, features,
 slices, the walking skeleton and what gets tests, is in `how-we-build.md`. This document says who
@@ -93,7 +93,9 @@ the bot as author already says who wrote it.
 **The agent decides rather than asks.** Where the slice's Settled section and the docs leave
 something open, the agent decides it the way the docs lean and records it in the pull request under
 "Decisions the agent made", with the alternative and why. A decision on high risk ground also gets
-the label `needs-owner`, which keeps the pull request from merging until the owner has read it.
+the label `owner-decision`, which keeps the pull request from merging until the owner has answered
+it. The reviewer does not block on such a decision for being unconfirmed, since no fix round can
+confirm it: it lists it for the owner with its own view, and blocks only when the label is missing.
 How a doc that disagrees with the plan is handled is step 8 of `pick-up-slice`.
 
 **The gate is what CI runs**, decided from the branch's diff by `scripts/ci/changed-areas.sh`, so
@@ -134,7 +136,7 @@ nobody watching.
 finding, test first where behaviour changes, or argues it in its reply when it thinks the finding
 is wrong. Nits are fixed when cheap. A fresh reviewer then reads the whole diff again with the
 earlier findings and the replies. Only blocking findings start another round. After 3 fix rounds,
-a fourth `changes` verdict ends the loop: the pull request gets `needs-owner` and the owner a
+a fourth `changes` verdict ends the loop: the pull request gets `owner-blocked` and the owner a
 mention.
 
 ## The merge gate
@@ -142,7 +144,7 @@ mention.
 `scripts/agent/merge-gate.sh` is the only way code reaches `main` unattended, and the merge decision
 is deterministic code, never a language model. It merges only when `ci-ok` is green on the head
 commit, the latest verdict is `approve` for that commit, the slice is the open issue the branch is
-named for, written and only edited by the owner, its Risk is `low`, `needs-owner` is absent, the
+named for, written and only edited by the owner, its Risk is `low`, it carries no owner label, the
 pull request is the bot's, comes from this repository rather than a fork, targets `main` and is not
 a draft, and no changed file is under a protected path. Its header lists each condition with the
 reason line it prints, which the runner reads. It fails closed: anything it cannot read is not a
@@ -167,11 +169,28 @@ sets the slice Done.
 ## What waits for the owner
 
 A pull request waits for him when its slice is high risk, when it touches a protected path, when
-it carries `needs-owner`, or when its review rounds ran out. `needs-owner` blocks merging and
-nothing else: every waiting pull request, one the implementer labelled for a decision on high risk
-ground included, goes through review and the fix rounds first, so what he reads has already been
-through the reviewer. The label is added by the runner, or by the implementer for its own
-decision, never by the gate, which only reads it.
+the implementer flagged a decision on high risk ground, or when it is stuck. Its label says which,
+and so what he does:
+
+| Label | What it means | What the owner does |
+|---|---|---|
+| `owner-merge` | Approved, CI green, nothing open | Reads it and merges |
+| `owner-decision` | The implementer decided something on high risk ground that Settled does not cover | Reads "Decisions the agent made" and the reviewer's "For the owner". Merging confirms the decisions, and a comment asking for a change starts a fix round |
+| `owner-blocked` | Not mergeable as it is: the review rounds ran out, the slice was set Blocked, or the gate refused it for a reason such as a failed `ci-ok` | Does not merge. Reads the runner's mention for the reason, fixes the slice or the cause, and comments on the pull request to run it again |
+
+When a pull request carries more than one, the most severe is the one to act on: `owner-blocked`,
+then `owner-decision`, then `owner-merge`. `owner-decision` is the implementer's, set when it makes
+the decision, and nothing removes it. `owner-merge` and `owner-blocked` are the runner's, and it
+keeps them true: one replaces the other, and a pull request with `owner-decision` never gets
+`owner-merge`. So an `owner-decision` pull request the reviewer has not approved yet is still in
+the loop, and the runner's mention on the slice, "approved and waits for your decision", is the
+signal that it is ready for him.
+
+An owner label blocks merging and nothing else: every waiting pull request goes through review and
+the fix rounds first, so what he reads has already been through the reviewer. The gate treats the
+three alike and only reads them. It also refuses on `needs-owner`, the one label that pull requests
+opened before 2026-11-12 carry instead, which the runner reads like `owner-decision`; that can go
+once no open pull request carries it.
 
 Once the reviewer approves a pull request that waits for him, the runner announces it to the owner
 once per head commit. A pull request whose review rounds ran out is handed over once. He merges it
@@ -261,7 +280,7 @@ runner clears between planning sessions.
 3. The "Protect main" ruleset, as described under Safety, in the settings UI. The bot cannot read
    rulesets, so check it from the owner's account with
    `gh api repos/Adamniels/Personal-platform/rulesets`.
-4. The label `needs-owner`, the Blocked status on the board, and "Automatically delete head
+4. The labels `owner-merge`, `owner-decision` and `owner-blocked`, the Blocked status on the board, and "Automatically delete head
    branches" in the repository settings.
 5. GitHub notifications on for mentions, since that is how the runner reaches the owner.
 
@@ -356,5 +375,5 @@ fresh clone, switch to `main` before it. Detach with `Ctrl-b d`; the runner keep
 | Runs fail at once asking to log in, over SSH | Unlock the login keychain in the runner's tmux session, step 10 |
 | `curl` reports an expired certificate after the Mac mini was off | "After Caddy has been stopped for a while" in `infra/README.md` |
 | The runner pauses and mentions an environment problem | Read the last agent log in `~/agent-logs/`; fix what it names, and the runner carries on |
-| A slice was set Blocked | Read its Blocked notice and fix the slice from the owner's account, or the cause. Then, by what exists: with an open pull request, comment on it, and the runner moves the slice to In review; with a branch that has commits but no pull request, set the slice In progress; with neither, set it Ready. `needs-owner` stays on the pull request after unblocking, so it waits for the owner until he removes the label |
+| A slice was set Blocked | Read its Blocked notice and fix the slice from the owner's account, or the cause. Then, by what exists: with an open pull request, comment on it, and the runner moves the slice to In review; with a branch that has commits but no pull request, set the slice In progress; with neither, set it Ready. `owner-blocked` stays on the pull request until the reviewer approves it again, when the runner replaces it with `owner-merge`, or drops it where `owner-decision` is set. The pull request waits for the owner's merge either way |
 | Every pull request waits with "risk record is not the owner's" | The slices were created or edited from another account; recreate them as `Adamniels` |
