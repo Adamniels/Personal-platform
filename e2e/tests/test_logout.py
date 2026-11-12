@@ -1,4 +1,4 @@
-"""Logging out from the nav: a link to a page whose button posts the logout,
+"""Logging out from the nav's user menu: a link to a page whose button posts the logout,
 which revokes the session family and clears both cookies. See "The session
 lives in two cookies" in Core/docs/core-architecture.md and "Navigation" in
 High-level/docs/platform-architecture.md."""
@@ -18,10 +18,11 @@ def _cookie_names(context: BrowserContext) -> set[str]:
 
 
 def test_log_out_from_the_nav(page: Page, invite_code: str, viewport: str):
-    register_and_log_in(page, invite_code)
+    email = register_and_log_in(page, invite_code)
     assert {ACCESS, REFRESH} <= _cookie_names(page.context)
 
     nav = page.get_by_role("navigation")
+    nav.get_by_role("button", name=email, exact=True).click()
     nav.get_by_role("link", name="Log out", exact=True).click()
 
     expect(page).to_have_url("https://platform.test/auth/logout")

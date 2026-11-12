@@ -259,60 +259,84 @@ drifting into interpretation and the brain into rendering.
 
 ### Navigation
 
-Navigation is shared, and it lives in the core so it can improve everywhere at once.
+Navigation is shared, so it can improve everywhere at once. Its look lives in the design folder and
+its contents in the core.
 
-The core serves a small script and an endpoint:
+The proxy serves the script with the rest of `design/`, and the core serves the endpoint it reads:
 
 ```
-GET /api/nav   ->  { "features": [ {"name": "Wiki", "path": "/wiki"} ], "user": {"email": "..."} }
-GET /nav.js    ->  defines <platform-nav>, which fetches /api/nav and renders
+GET /design/nav.js  ->  defines <platform-nav>, which fetches /api/nav and renders
+GET /api/nav        ->  { "features": [ {"name": "Wiki", "path": "/wiki"} ], "user": {"email": "..."} }
 ```
 
 `/api/nav` lists the features in registry order, each by its display name and its prefix, and the
 logged in account's email; the account id is not in it. It needs a valid access token and answers
 anything else with 401 and an empty body, never a redirect, since a script cannot follow one.
-`/nav.js` needs no session and is served like the core's stylesheet, revalidated on every load.
+`/design/nav.js`, with `theme.js` and `page.css` beside it, is a plain file the proxy serves like
+the rest of the design folder, revalidated on every load, see "The design folder" in
+`infra/README.md`. The core serves no shared asset.
 
-A feature includes two lines and nothing else, in whatever it is written in:
+A feature includes these lines and nothing else, in whatever it is written in:
 
 ```html
-<script src="/nav.js" defer></script>
+<link rel="stylesheet" href="/design/tokens.css">
+<link rel="stylesheet" href="/design/fonts.css">
+<link rel="stylesheet" href="/design/page.css">
+<script src="/design/theme.js"></script>
+<script src="/design/nav.js" defer></script>
+...
 <platform-nav current="wiki"></platform-nav>
 ```
 
+The bar's styles live in its shadow root and use the tokens, which the page's root defines and the
+shadow root inherits, so a page that includes the bar links `tokens.css` and `fonts.css`.
+`page.css` reserves the bar's height so the page does not jump while the script loads, and on
+phone pads the bottom of the page so the tab bar covers nothing. `theme.js` runs in the head,
+before the page paints, and applies the theme the person chose, if any.
+
+What the bar holds: on the left the mark and the name "Platform", linking to `/`, then Home and one
+link per feature in the order `/api/nav` gives. On the right, a theme toggle and the email as a
+button opening a menu with "Change password", to the core's `/settings/password`, and "Log out",
+to its logout page `/auth/logout`: links rather than forms, so the bar still only renders and
+links, and both work from every feature's page without any of them changing. On phone the links
+move to a tab bar at the bottom, and past five the first four show and More holds the rest. A
+link whose entry carries `attention: true` gets the dot that marks something needing the person;
+the core sends no such field yet. How each of these looks is section 3 of `design/DESIGN.md`.
+
 `current` names what the page is: `home` on the core's front page, otherwise the feature's prefix
 without the slash. The matching link is marked `aria-current="page"`, and changing the attribute
-re-renders the bar. With someone logged in, the bar ends with a "Password" link to the core's
-change password page, `/settings/password`, and a "Log out" link to its logout page,
-`/auth/logout`: links rather than forms, so the bar still only renders and links, and both work
-from every feature's page without any of them changing. The element carries
-its own styles in a shadow root, so it looks the same on a feature that shares no stylesheet with
-the core, and it writes every name and the email as text.
-When `/api/nav` fails, a 401 or a network error, it shows the home link alone: it never redirects
-and never refreshes the session. The core's own pages use it too, see "The core's frontend" in
-`Core/docs/core-architecture.md`, and leave it off the login and registration pages, where nobody
-is logged in.
+re-renders the bar. It writes every name and the email as text, and links only to a path that
+starts with `/` and not `//`. When `/api/nav` fails, a 401 or a network error, it shows the mark
+and Home alone: it never redirects and never refreshes the session. The core's own pages use it
+too, see "The core's frontend" in `Core/docs/core-architecture.md`, and leave it off the login and
+registration pages, where nobody is logged in.
+
+The theme is the one piece of state the bar keeps, and it is the person's, not the platform's: the
+toggle writes `light` or `dark` to `localStorage["platform-theme"]` and sets `data-theme` on the
+root, which `tokens.css` reads. With nothing stored, the system setting applies.
 
 **Why this rather than a shared component package.** A package would force every feature frontend
 to be React, which is a freedom deliberately left open, and changing the nav would mean bumping a
 version and redeploying every feature, so the nav would only ever be as current as the least
-recently touched one. A script served by the core is framework agnostic and updates everywhere on
-the next page load. A new feature appears in every other feature's nav without any of them being
-touched, because the list comes from the core.
+recently touched one. A script served from one place is framework agnostic and updates everywhere
+on the next page load. A new feature appears in every other feature's nav without any of them
+being touched, because the list comes from the core. The script lives in `design/` rather than in
+the core because it is the platform's look, which belongs with the tokens it is drawn from, while
+what it lists is the core's.
 
-**Start it as nothing.** On day one `<platform-nav>` can render a single home link, which is the
-same work as hardcoding one, except the mechanism is now in place. Listing features, showing
-where you are, and anything later all land by editing the core once.
+**Start it as nothing.** On day one `<platform-nav>` could render a single home link, which is the
+same work as hardcoding one, except the mechanism is in place. Listing features, showing where you
+are, and anything later all land by editing one script, or the core's endpoint, once.
 
 **The rule that keeps it cheap: the nav renders and links, and does nothing else.** No shared
-state, no auth helpers, no component library riding along. That is what makes pulling a feature
+state beyond the theme a person picked, no auth helpers, no component library riding along. That is what makes pulling a feature
 out later mean deleting two lines rather than unpicking a design system, and it is the failure
 mode a shared package tends toward on its own.
 
-**The tradeoff.** The nav becomes a runtime dependency on the core, so if the core is down it
-does not render. Little is lost: you could not have logged in either, a session already issued
-keeps working since verification is local, and the feature itself is unaffected. Reserve its
-height in CSS so the page does not jump while it loads.
+**The tradeoff.** The nav's contents are a runtime dependency on the core, so if the core is down
+it shows the mark and Home alone. Little is lost: you could not have logged in either, a session already issued
+keeps working since verification is local, and the feature itself is unaffected. `page.css`
+reserves its height so the page does not jump while it loads.
 
 **How rich the front page should be is genuinely open.** A short list of links, a page with real
 content on it, or one unified product where every feature shares a design system. That is
@@ -479,7 +503,7 @@ away afterwards. It stays as the thing to point at when the platform needs check
 template for the first real feature.
 
 Python rather than Rust, deliberately. The least tested claim in the architecture is that a feature
-can be written in any language and the coupling is two nav lines and verifying a token. A stub in
+can be written in any language and the coupling is the nav's few lines and verifying a token. A stub in
 Rust would share libraries with the core and prove almost nothing, and if verifying the token turns
 out to be awkward elsewhere, that is better found on two hundred lines than halfway through
 designing a domain.

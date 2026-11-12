@@ -1,7 +1,8 @@
 //! `GET /api/nav`, what the shared nav bar renders: the registered features
 //! and who is logged in, for a request with a valid access token, and 401
 //! with nothing else for any other, since the script fetching it must never
-//! be redirected. `/nav.js` itself needs no session. See "Navigation" in
+//! be redirected. The script that renders the bar is in design/, served by
+//! the proxy, not by the core. See "Navigation" in
 //! High-level/docs/platform-architecture.md. Raw HTTP/1.1, as in
 //! core_pages.rs.
 
@@ -197,21 +198,17 @@ async fn api_nav_answers_401_without_a_valid_token() {
     db.close().await;
 }
 
-// The script loads on pages nobody is logged in to, and on every feature, so
-// the route serving it asks for nothing.
+// The bar's script moved to the design folder, served by the proxy at
+// /design/nav.js, so the core serves no shared asset and the old path is
+// gone rather than left as a second copy.
 #[tokio::test]
-async fn nav_js_is_served_without_a_session() {
+async fn the_core_no_longer_serves_nav_js() {
     let db = common::TestDb::new().await;
     let (addr, _) = serve(db.pool.clone(), CANARY).await;
 
     let answer = get(addr, "/nav.js", None).await;
 
-    assert_eq!(answer.status, 200);
-    assert_eq!(
-        answer.header("content-type"),
-        Some("text/javascript; charset=utf-8")
-    );
-    assert!(answer.body.contains("platform-nav"), "{}", answer.body);
+    assert_eq!(answer.status, 404);
 
     db.close().await;
 }

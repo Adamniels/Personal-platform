@@ -1,0 +1,20 @@
+/*
+ * The page shell around <platform-nav>, which every page with the bar links
+ * after tokens.css. The bar draws itself from /design/nav.js; this keeps the
+ * page from jumping while the script loads and from hiding under the bar.
+ * The bar's own look is in nav.js. See section 3 of DESIGN.md.
+ */
+
+/* The top bar's height, held before the script renders it. */
+platform-nav {
+  display: block;
+  min-height: var(--nav-h);
+}
+
+/* On phone the links are a tab bar fixed to the bottom, so the page ends
+   that far above the bottom edge and the bar covers nothing. */
+@media (max-width: 639.98px) {
+  body:has(> platform-nav) {
+    padding-bottom: calc(var(--nav-h) + env(safe-area-inset-bottom, 0px));
+  }
+}

@@ -126,11 +126,21 @@ def test_the_page_escapes_what_it_shows():
     assert "&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt;" in html
 
 
-def test_the_page_carries_the_two_nav_lines_and_not_the_cores_stylesheet():
+def test_the_page_carries_the_nav_and_the_design_files_and_not_the_cores_stylesheet():
     text = client().get("/canary", headers=cookie(mint())).text
 
-    assert '<script src="/nav.js" defer></script>' in text
-    assert '<platform-nav current="canary"></platform-nav>' in text
+    for line in [
+        '<link rel="stylesheet" href="/design/tokens.css">',
+        '<link rel="stylesheet" href="/design/fonts.css">',
+        '<link rel="stylesheet" href="/design/page.css">',
+        '<script src="/design/theme.js"></script>',
+        '<script src="/design/nav.js" defer></script>',
+        '<platform-nav current="canary"></platform-nav>',
+    ]:
+        assert line in text, line
+    # The theme is applied in the head, before the body is parsed.
+    assert text.index("/design/theme.js") < text.index("<body>")
+    assert 'src="/nav.js"' not in text
     assert "core.css" not in text
 
 

@@ -1,6 +1,7 @@
 //! The core's own HTML: askama templates in templates/, checked at compile
-//! time and escaped by default, through one base layout, and the two assets
-//! the core serves, its stylesheet and the nav script. No build step, see
+//! time and escaped by default, through one base layout, and the one asset
+//! the core serves, its stylesheet. The nav bar and the design files every
+//! page links are served by the proxy from design/. No build step, see
 //! "The core's frontend" in docs/core-architecture.md.
 
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
@@ -9,10 +10,8 @@ use sha2::{Digest, Sha256};
 use std::sync::LazyLock;
 
 const STYLESHEET: &str = include_str!("../assets/core.css");
-const NAV_SCRIPT: &str = include_str!("../assets/nav.js");
 
 static STYLESHEET_ETAG: LazyLock<HeaderValue> = LazyLock::new(|| etag_of(STYLESHEET));
-static NAV_SCRIPT_ETAG: LazyLock<HeaderValue> = LazyLock::new(|| etag_of(NAV_SCRIPT));
 
 // A strong validator from an asset's contents, so a browser checking back
 // gets 304 until the file changes and the new one at once after.
@@ -44,17 +43,6 @@ pub async fn stylesheet(headers: HeaderMap) -> Response {
         STYLESHEET,
         "text/css; charset=utf-8",
         &STYLESHEET_ETAG,
-    )
-}
-
-/// `GET /nav.js`, the script defining `<platform-nav>`. It needs no session:
-/// it loads on the login pages and on every feature.
-pub async fn nav_script(headers: HeaderMap) -> Response {
-    asset(
-        &headers,
-        NAV_SCRIPT,
-        "text/javascript; charset=utf-8",
-        &NAV_SCRIPT_ETAG,
     )
 }
 
@@ -132,12 +120,19 @@ mod tests {
             html.contains(r#"<link rel="stylesheet" href="/assets/core.css">"#),
             "{html}"
         );
-        // Every core page loads the nav script the way a feature does; only
-        // a page that fills the nav block shows the bar.
-        assert!(
-            html.contains(r#"<script src="/nav.js" defer></script>"#),
-            "{html}"
-        );
+        // Every core page loads the design files and the nav script the way
+        // a feature does, the theme before the body; only a page that fills
+        // the nav block shows the bar.
+        for line in [
+            r#"<link rel="stylesheet" href="/design/tokens.css">"#,
+            r#"<link rel="stylesheet" href="/design/fonts.css">"#,
+            r#"<link rel="stylesheet" href="/design/page.css">"#,
+            r#"<script src="/design/theme.js"></script>"#,
+            r#"<script src="/design/nav.js" defer></script>"#,
+        ] {
+            assert!(html.contains(line), "{line} missing from {html}");
+        }
+        assert!(!html.contains(r#"src="/nav.js""#), "{html}");
         assert!(!html.contains("<platform-nav"), "{html}");
         assert!(html.contains("<p>hello</p>"), "{html}");
     }
@@ -182,30 +177,5 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert(header::IF_NONE_MATCH, "\"stale\"".parse().unwrap());
         assert_eq!(stylesheet(headers).await.status(), StatusCode::OK);
-    }
-
-    #[tokio::test]
-    async fn nav_js_is_served_with_a_validator() {
-        let response = nav_script(HeaderMap::new()).await;
-        assert_eq!(response.status(), StatusCode::OK);
-        assert_eq!(
-            response.headers()[header::CONTENT_TYPE],
-            "text/javascript; charset=utf-8"
-        );
-        assert_eq!(response.headers()[header::CACHE_CONTROL], "no-cache");
-        let etag = response.headers()[header::ETAG].clone();
-        assert!(etag.to_str().unwrap().starts_with('"'));
-        assert_ne!(
-            etag,
-            stylesheet(HeaderMap::new()).await.headers()[header::ETAG]
-        );
-        assert!(body(response).await.contains("customElements.define"));
-
-        let mut headers = HeaderMap::new();
-        headers.insert(header::IF_NONE_MATCH, etag.clone());
-        let unchanged = nav_script(headers).await;
-        assert_eq!(unchanged.status(), StatusCode::NOT_MODIFIED);
-        assert_eq!(unchanged.headers()[header::ETAG], etag);
-        assert!(body(unchanged).await.is_empty());
     }
 }

@@ -24,7 +24,9 @@ list.
   core and features simple. See routing below.
 - **The feature registry**, meaning the list of what features exist, where they live, and what
   they offer.
-- **Its own frontend**, meaning the login pages, the front page, and shared navigation.
+- **Its own frontend**, meaning the login pages and the front page, and what the shared navigation
+  lists, through `GET /api/nav`. The bar itself is not the core's: it lives in `design/` and the
+  proxy serves it, see "Navigation" in `High-level/docs/platform-architecture.md`.
 - **Composing the front page**, meaning calling the display endpoints of whichever features you
   chose and assembling the result.
 - **The public keys** that everything else verifies tokens with, served as a set at an
@@ -328,7 +330,7 @@ one.
 
 **Changing a password while logged in is a separate flow.** It requires the current password, and
 it revokes your other sessions but not the one you are sitting in. It is also the one you will
-actually use. It is the page `/settings/password`, reached from "Password" in the nav, and like any
+actually use. It is the page `/settings/password`, reached from "Change password" in the nav's user menu, and like any
 core page it needs a valid access token. The family it keeps is the one named by that token's `sid`
 claim, since the refresh cookie lives on `Path=/auth` and never reaches the page. The current
 password is verified and the new one checked and hashed before a transaction that sets the password
@@ -563,9 +565,15 @@ post and a fetch, so there is one mechanism rather than two.
 
 **The nav script is used on the core's own pages too**, rather than the nav being rendered into
 the templates. The core has the feature list in hand and could render it directly, but then the
-bar exists in two implementations and they drift.
+bar exists in two implementations and they drift. The base template includes it the way a feature
+does, from `/design/nav.js`, with the design files beside it.
 
-**Styling has no build step either**, just a stylesheet the core serves. If a design system ever
+**The core serves no shared asset.** What every page shares, the tokens, the fonts, the page shell
+and the nav bar, is in `design/` and served by the proxy, see "The design folder" in
+`infra/README.md`. The core serves only its own stylesheet, `/assets/core.css`, which every core
+page links after the design files, with its own variables prefixed so none overrides a token.
+
+**Styling has no build step either**, just that stylesheet and the design files. If a design system ever
 arrives it should arrive because that cost was chosen deliberately, and
 `High-level/docs/platform-architecture.md` names it as the largest permanent cost in the plan.
 

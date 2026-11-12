@@ -33,10 +33,11 @@ shape is a contract with the core, pinned by `contracts/display/canary.json`:
 `tests/test_display.py` checks that the real response has its keys, each with the same JSON type,
 see `contracts/README.md`.
 
-Everything else is `404`. The page includes the nav's two lines from "Navigation" in
-`High-level/docs/platform-architecture.md` and a few lines of inline CSS of its own, the nav's
-reserved height among them, and takes nothing else from the core: it does not link the core's
-stylesheet.
+Everything else is `404`. The page includes the nav's lines from "Navigation" in
+`High-level/docs/platform-architecture.md`: the design files `tokens.css`, `fonts.css` and
+`page.css`, `theme.js` in the head and `nav.js` deferred, all served by the proxy from `design/`,
+and the `<platform-nav>` element. Beside them it has a few lines of inline CSS of its own, and it
+takes nothing from the core but the nav's contents: it does not link the core's stylesheet.
 
 ## Running it
 

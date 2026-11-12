@@ -16,13 +16,11 @@ from starlette.routing import Route
 
 from canary.settings import SETTINGS, DisplayMode, Settings
 
-# Canary's own few lines of style. It takes nothing from the core but the nav,
-# so it reserves the bar's height itself, as the core's stylesheet does, and
-# the page does not jump when /nav.js renders it.
+# Canary's own few lines of style. The page takes its ground, text, fonts and
+# theme from the design files the proxy serves, and page.css holds the nav
+# bar's height so the page does not jump when /design/nav.js renders it. It
+# takes nothing from the core but the nav's contents.
 STYLE = """
-:root { color-scheme: light dark; font-family: system-ui, sans-serif; line-height: 1.5; }
-body { margin: 0; }
-platform-nav { display: block; min-height: 3rem; }
 main { max-width: 40rem; margin: 0 auto; padding: 3rem 1rem; }
 h1 { font-size: 1.5rem; margin: 0 0 1.5rem; }
 code { white-space: nowrap; }
@@ -36,8 +34,12 @@ def render_page(account_id: str) -> str:
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Canary · Platform</title>
+  <link rel="stylesheet" href="/design/tokens.css">
+  <link rel="stylesheet" href="/design/fonts.css">
+  <link rel="stylesheet" href="/design/page.css">
   <style>{STYLE}</style>
-  <script src="/nav.js" defer></script>
+  <script src="/design/theme.js"></script>
+  <script src="/design/nav.js" defer></script>
 </head>
 <body>
   <platform-nav current="canary"></platform-nav>

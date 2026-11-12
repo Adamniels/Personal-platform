@@ -56,7 +56,7 @@ features" in `High-level/docs/platform-architecture.md`.
 | `Brain/`            | The brain's code, a Python service, with its docs in `Brain/docs/`           |
 | `Brain/docs/`       | The brain: memory, the trust model, events, retrieval, and its tables        |
 | `libs/`             | Shared libraries owned by no service, token verification first              |
-| `design/`           | The platform's visual style, its fonts and sprites, served at `/design/`     |
+| `design/`           | The platform's visual style, its fonts and sprites, and the shared nav bar, served at `/design/` |
 | `design/ui/`        | `@platform/ui`, the React components every frontend installs, and their gallery |
 | `canary/`           | Canary, the Python feature proving another language can verify the token     |
 | `desk/docs/`        | Desk, the feature for working through the day, described but not yet built   |
@@ -122,6 +122,10 @@ features" in `High-level/docs/platform-architecture.md`.
 - `design/fonts.css` and `design/fonts/` — the three fonts, hosted here with their licences, and
   where they came from
 - `design/sprites/` — the agent avatars
+- `design/nav.js`, `design/theme.js` and `design/page.css` — the shared nav bar, `<platform-nav>`,
+  the script that applies a remembered theme before the page paints, and the page shell around
+  the bar. What the bar holds and how a page includes it is "Navigation" in
+  `platform-architecture.md`
 - `design/reference/` — designed screens as examples of the style, their content illustrative only
 - `design/ui/README.md` — the component package: what may go in it, how a frontend installs it, how
   to add a component and its gallery section, and the gate every frontend runs

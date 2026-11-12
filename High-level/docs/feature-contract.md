@@ -19,9 +19,9 @@ What sits inside it is its own business, whether that is one thing or several sm
 bundled under a general name. Either shape looks identical from the core's and the brain's side,
 so there is nothing to standardise and nothing to declare.
 
-A feature may also expose an endpoint with display data for the front page, and may include the
-core's navigation script. Both are optional, neither is a contract, and both are described in
-`Core/docs/core-architecture.md`.
+A feature may also expose an endpoint with display data for the front page, described in
+`Core/docs/core-architecture.md`, and may include the shared nav bar, described in "Navigation" in
+`High-level/docs/platform-architecture.md`. Both are optional and neither is a contract.
 
 ## Features own their data
 
