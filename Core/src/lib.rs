@@ -4,7 +4,9 @@
 pub mod accounts;
 pub mod claims;
 pub mod cookies;
+pub mod display;
 pub mod duration;
+pub mod http;
 pub mod invite;
 pub mod issuer;
 pub mod jwks;
@@ -61,6 +63,9 @@ pub struct AppState {
     /// The features the platform has, read from the registry file at
     /// startup. See "The feature registry" in docs/core-architecture.md.
     pub registry: Arc<Registry>,
+    /// The client for calls to other services, built once so its
+    /// connections are pooled. See src/http.rs.
+    pub http: reqwest::Client,
 }
 
 impl AppState {
@@ -70,14 +75,17 @@ impl AppState {
         signing_key: SigningKey,
         access_token_lifetime: time::Duration,
         registry: Registry,
-    ) -> Result<AppState, password::Error> {
+    ) -> Result<AppState, Box<dyn Error>> {
         let dummy_hash = password::hash(&secret_token::generate().0).await?;
+        let http =
+            http::client().map_err(|err| format!("could not build the HTTP client: {err}"))?;
         Ok(AppState {
             pool,
             verifier: Arc::new(Verifier::new(KeySet::of(&signing_key))),
             issuer: Arc::new(Issuer::new(signing_key, access_token_lifetime)),
             dummy_hash: dummy_hash.into(),
             registry: Arc::new(registry),
+            http,
         })
     }
 }
