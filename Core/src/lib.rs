@@ -11,6 +11,7 @@ pub mod invite;
 pub mod issuer;
 pub mod jwks;
 pub mod login;
+pub mod logout;
 pub mod nav;
 pub mod origin;
 pub mod pages;
@@ -158,7 +159,8 @@ pub fn app(state: AppState, origin: PublicOrigin) -> Router {
         .merge(nav::routes())
         .merge(registration::routes())
         .merge(login::routes())
-        .merge(refresh::routes());
+        .merge(refresh::routes())
+        .merge(logout::routes());
     origin::protect(routes, origin).with_state(state)
 }
 
