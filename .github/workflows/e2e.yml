@@ -24,6 +24,9 @@ jobs:
       # core before Postgres is up, and one setting for every build avoids a
       # rebuild when it changes.
       SQLX_OFFLINE: "true"
+      # Every uv run, in canary/ and in e2e/, fails on a uv.lock that does
+      # not match its pyproject.toml instead of updating it.
+      UV_LOCKED: "1"
 
     steps:
       - uses: actions/checkout@v7
@@ -57,7 +60,7 @@ jobs:
             echo CORE_PUBLIC_ORIGIN=https://platform.test
             echo "CORE_APP_DATABASE_URL=$CORE_APP_DATABASE_URL"
           } > .env
-          cargo run -q -- keygen >> .env
+          cargo run --locked -q -- keygen >> .env
 
       - name: Point platform.test at this machine
         run: echo "127.0.0.1 platform.test" | sudo tee -a /etc/hosts
@@ -88,12 +91,12 @@ jobs:
         working-directory: Core
         env:
           CORE_OWNER_DATABASE_URL: postgres://core_owner:ci-only-owner@127.0.0.1:5432/core
-        run: cargo run -- migrate
+        run: cargo run --locked -- migrate
 
       # The core reads Core/.env from its working directory.
       - name: Start the core
         working-directory: Core
-        run: nohup cargo run -q > "$RUNNER_TEMP/core.log" 2>&1 &
+        run: nohup cargo run --locked -q > "$RUNNER_TEMP/core.log" 2>&1 &
 
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
