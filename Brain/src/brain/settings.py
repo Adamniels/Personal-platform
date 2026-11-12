@@ -1,7 +1,8 @@
 """The brain's settings, read from the process environment once, at import.
 
 Unset is the default, and anything set must parse, so a typo stops the brain
-at startup instead of quietly becoming the default. The brain loads no `.env`
+at startup instead of quietly becoming the default. The database's
+connection string has no default and must be set. The brain loads no `.env`
 file; `Brain/.env.example` lists the names for whoever exports them.
 
 The parsing rules are canary's, in `canary/src/canary/settings.py`, written
@@ -11,7 +12,7 @@ directory.
 
 import os
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from urllib.parse import SplitResult, urlsplit
 
 DEFAULT_CORE_URL = "http://127.0.0.1:8080"
@@ -21,7 +22,8 @@ DEFAULT_PORTS = {"http": 80, "https": 443}
 
 
 class SettingsError(ValueError):
-    """A setting that is set but does not parse. The brain refuses to start."""
+    """A setting that is set but does not parse, or a required one that is not
+    set. The brain refuses to start."""
 
 
 @dataclass(frozen=True)
@@ -30,6 +32,9 @@ class Settings:
     core_url: str
     # The platform's origin as a browser sends it, for the Origin check.
     public_origin: str
+    # The brain's database, as brain_app. It holds a password, so it is left
+    # out of the repr and never repeated in an error.
+    app_database_url: str = field(repr=False)
 
 
 def load(environ: Mapping[str, str]) -> Settings:
@@ -38,7 +43,16 @@ def load(environ: Mapping[str, str]) -> Settings:
         public_origin=_setting(
             environ, "BRAIN_PUBLIC_ORIGIN", DEFAULT_PUBLIC_ORIGIN, parse_origin
         ),
+        app_database_url=_required(
+            environ, "BRAIN_APP_DATABASE_URL", parse_database_url
+        ),
     )
+
+
+def _required[T](environ: Mapping[str, str], name: str, parse: Callable[[str], T]) -> T:
+    if name not in environ:
+        raise SettingsError(f"{name} is not set, see Brain/README.md")
+    return _parse(name, environ[name], parse)
 
 
 def _setting[T](
@@ -46,8 +60,12 @@ def _setting[T](
 ) -> T:
     if name not in environ:
         return default
+    return _parse(name, environ[name], parse)
+
+
+def _parse[T](name: str, text: str, parse: Callable[[str], T]) -> T:
     try:
-        return parse(environ[name])
+        return parse(text)
     except ValueError as err:
         raise SettingsError(f"{name}: {err}") from None
 
@@ -75,6 +93,28 @@ def parse_origin(text: str) -> str:
     ):
         raise ValueError(
             f"{text!r} is not an origin like https://platform.test: scheme and host, lowercase, no path, no default port"
+        )
+    return text
+
+
+def parse_database_url(text: str) -> str:
+    """A Postgres URL naming a host and a database, such as
+    `postgres://brain_app:<password>@127.0.0.1:5432/brain`. Checked only for
+    its shape, since connecting is the pool's job, and never repeated in the
+    error, since it holds the password."""
+    try:
+        parts = urlsplit(text)
+        parts.port  # noqa: B018, raises on a port that is not a number
+    except ValueError:
+        parts = None
+    if (
+        parts is None
+        or parts.scheme not in ("postgres", "postgresql")
+        or not parts.hostname
+        or not parts.path.removeprefix("/")
+    ):
+        raise ValueError(
+            "not a connection string like postgres://brain_app:<password>@127.0.0.1:5432/brain"
         )
     return text
 

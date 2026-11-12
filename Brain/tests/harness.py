@@ -28,6 +28,7 @@ import os
 import re
 import time
 from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
 
 import psycopg
 from psycopg import sql
@@ -45,14 +46,16 @@ _counter = itertools.count()
 
 def admin_url() -> str:
     url = os.environ.get("BRAIN_TEST_ADMIN_DATABASE_URL")
-    assert url, "BRAIN_TEST_ADMIN_DATABASE_URL is not set, see Brain/tests/conftest.py"
+    assert url, "BRAIN_TEST_ADMIN_DATABASE_URL is not set, see Brain/tests/harness.py"
     return url
 
 
 def app_url(database: str) -> str:
+    """The app role's URL, pointed at `database`: a URL like the setting
+    requires, not psycopg's key=value form."""
     url = os.environ.get("BRAIN_APP_DATABASE_URL")
-    assert url, "BRAIN_APP_DATABASE_URL is not set, see Brain/tests/conftest.py"
-    return make_conninfo(url, dbname=database)
+    assert url, "BRAIN_APP_DATABASE_URL is not set, see Brain/tests/harness.py"
+    return urlunsplit(urlsplit(url)._replace(path=f"/{database}"))
 
 
 def admin_connection(
