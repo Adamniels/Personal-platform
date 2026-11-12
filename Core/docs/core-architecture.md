@@ -287,7 +287,9 @@ on top of Argon2id.
 ### Password reset, and changing a password
 
 Reset works like registration: a command generates a single use token and no email is involved.
-It prints the token, you paste it into the reset page, you set a new password. Delivery is the
+`platform_core reset <email>` trims and lowercases the email, prints the token alone on stdout and
+its expiry on stderr, as `invite` does, and fails with `no account with that email` when there is
+none. You paste the token into the reset page and set a new password. Delivery is the
 only missing piece, and delivery is exactly the piece that belongs to the notification service, so
 when that exists the flow does not change. The core sends a delivery request instead of printing.
 
@@ -340,8 +342,10 @@ Four tables, and nothing else.
 `invite_codes` holds the code hashed, when it was created, when it expires, when it was used and
 by which account. `sessions` is the refresh side of the token model: id, account id, family id,
 token hash, issued at, expires at, family expires at, used at, revoked at. The family expiry is set
-at login and copied forward on each rotation, so a refresh can respect the cap by reading one row. `password_reset_tokens` has the same shape
-as invite codes, since reset is the invite code machinery again, see password reset above.
+at login and copied forward on each rotation, so a refresh can respect the cap by reading one row.
+`password_reset_tokens` has the invite code shape with the account id in place of `used_by`: token
+hash, account id, created at, expires at, used at. A reset token belongs to an account from the
+start, since reset is the invite code machinery again, see password reset above.
 
 Invite codes, reset tokens and refresh tokens are stored hashed. Each of them is a credential, and
 a database backup should not be a working set of them. All three are plain random bytes rather
