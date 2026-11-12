@@ -205,9 +205,12 @@ an agent's included, makes the merge gate refuse the slice for good.
 **Then update his planning notes**, when the session has the Notion connector. Show the change
 first, like any other, and make it on his yes:
 
-- Set the feature's page to Status `Planned` and its Issue to the feature parent's URL. If the
-  feature had no page, create one with those two values and its Area, so the board in Notion shows
-  every planned feature.
+- If the feature has a page, set it to Status `Planned` and its Issue to the feature parent's URL.
+  Where the feature is one more part of an area that already has a page, as password reset is of
+  the core, add the issue's link to that page instead.
+- If it has no page, do not create one. The notes hold what the owner wants the platform to do,
+  not every piece of work: something that turned up while building, such as a fix or a CI check,
+  is an issue and nothing more.
 - Add nothing else to the page. From here on the feature's scope lives on GitHub.
 - An idea that came up while planning and was left out of scope goes to the Inbox on the
   "Personal Platform" page, one line, if the owner wants it kept.
