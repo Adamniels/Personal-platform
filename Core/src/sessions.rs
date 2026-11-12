@@ -116,6 +116,27 @@ pub async fn rotate(
     Ok(Some(issued))
 }
 
+/// Revokes every token of family `family_id` at `now`, and returns how many
+/// rows it marked. A row already revoked keeps the time it was first revoked,
+/// and nothing is deleted, so a used row still makes reuse detectable. Takes
+/// an executor, so a flow that revokes as one step of several can call it
+/// inside its transaction. See "Nothing about a session is deleted in normal
+/// operation" in docs/core-architecture.md.
+pub async fn revoke_family(
+    executor: impl PgExecutor<'_>,
+    family_id: Uuid,
+    now: OffsetDateTime,
+) -> Result<u64, sqlx::Error> {
+    let result = sqlx::query!(
+        "UPDATE sessions SET revoked_at = $2 WHERE family_id = $1 AND revoked_at IS NULL",
+        family_id,
+        now,
+    )
+    .execute(executor)
+    .await?;
+    Ok(result.rows_affected())
+}
+
 // Stores a new token of family `family_id`, issued at `now`, hashed.
 async fn insert(
     executor: impl PgExecutor<'_>,
