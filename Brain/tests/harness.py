@@ -36,6 +36,12 @@ from psycopg.conninfo import make_conninfo
 
 MIGRATIONS = Path(__file__).resolve().parents[1] / "migrations"
 
+# The smallest environment the settings load from, for a test that builds the
+# app without a database: the one required string, which nothing connects to.
+MINIMAL_ENV = {
+    "BRAIN_APP_DATABASE_URL": "postgres://brain_app:secret-a1b2@127.0.0.1:5432/brain"
+}
+
 # Older than this, a leftover test database or template belongs to a run that
 # has finished, here or on another machine, and is swept.
 SWEEP_AFTER_SECONDS = 10 * 60

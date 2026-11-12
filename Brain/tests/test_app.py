@@ -5,12 +5,11 @@ from fastapi.testclient import TestClient
 from brain import db
 from brain.app import create_app
 from brain.settings import load
-from tests.harness import app_url
-from tests.test_settings import DATABASE
+from tests.harness import MINIMAL_ENV, app_url
 
 
 def test_health_answers_ok() -> None:
-    client = TestClient(create_app(load(DATABASE)))
+    client = TestClient(create_app(load(MINIMAL_ENV)))
 
     # No token, no cookie: the health endpoint is public.
     response = client.get("/brain/api/health")
@@ -22,7 +21,7 @@ def test_health_answers_ok() -> None:
 def test_only_the_brains_own_prefix_is_served() -> None:
     # FastAPI's documentation pages and schema route sit outside /brain/api/
     # and are switched off, so every route is the brain's own.
-    client = TestClient(create_app(load(DATABASE)))
+    client = TestClient(create_app(load(MINIMAL_ENV)))
 
     for path in ["/docs", "/redoc", "/openapi.json", "/brain/api/openapi.json"]:
         assert client.get(path).status_code == 404, path

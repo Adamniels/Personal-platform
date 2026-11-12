@@ -5,15 +5,11 @@ import sys
 import pytest
 
 from brain.settings import Settings, SettingsError, load
-
-# What the database setting needs to parse; no test here connects with it.
-DATABASE = {
-    "BRAIN_APP_DATABASE_URL": "postgres://brain_app:secret-a1b2@127.0.0.1:5432/brain"
-}
+from tests.harness import MINIMAL_ENV
 
 
 def test_settings_default_and_refuse_a_malformed_value() -> None:
-    assert load(DATABASE) == Settings(
+    assert load(MINIMAL_ENV) == Settings(
         core_url="http://127.0.0.1:8080",
         public_origin="https://platform.test",
         app_database_url="postgres://brain_app:secret-a1b2@127.0.0.1:5432/brain",
@@ -49,7 +45,7 @@ def test_settings_default_and_refuse_a_malformed_value() -> None:
         ("BRAIN_PUBLIC_ORIGIN", " https://platform.test"),
     ]:
         with pytest.raises(SettingsError, match=name):
-            load({**DATABASE, name: value})
+            load({**MINIMAL_ENV, name: value})
 
     # A malformed value stops the service at import, before uvicorn serves.
     environ = {**os.environ, "BRAIN_CORE_URL": "http://127.0.0.1:8080/"}
@@ -72,14 +68,16 @@ def test_a_well_formed_value_is_taken_as_it_is() -> None:
         "https://core.internal",
         "http://[::1]:8080",
     ]:
-        assert load({**DATABASE, "BRAIN_CORE_URL": core_url}).core_url == core_url
+        assert load({**MINIMAL_ENV, "BRAIN_CORE_URL": core_url}).core_url == core_url
 
     for origin in [
         "https://platform.test",
         "https://platform.test:8443",
         "http://localhost:8080",
     ]:
-        assert load({**DATABASE, "BRAIN_PUBLIC_ORIGIN": origin}).public_origin == origin
+        assert (
+            load({**MINIMAL_ENV, "BRAIN_PUBLIC_ORIGIN": origin}).public_origin == origin
+        )
 
 
 def test_the_database_setting_is_required_and_never_shown() -> None:

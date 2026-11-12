@@ -8,7 +8,7 @@ from pathlib import Path
 
 from brain.app import create_app
 from brain.settings import load
-from tests.test_settings import DATABASE
+from tests.harness import MINIMAL_ENV
 
 SCHEMA = Path(__file__).resolve().parents[2] / "contracts/brain/openapi.json"
 
@@ -19,7 +19,7 @@ def canonical(document: object) -> str:
 
 
 def test_the_committed_schema_matches_the_app() -> None:
-    generated = canonical(create_app(load(DATABASE)).openapi())
+    generated = canonical(create_app(load(MINIMAL_ENV)).openapi())
 
     # Regenerated on purpose, and its diff reviewed, like the token fixture.
     if os.environ.get("UPDATE_CONTRACTS") == "1":
