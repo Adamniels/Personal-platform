@@ -2,7 +2,7 @@
 
 Status: exploratory. The walking skeleton is being built.
 
-Last updated: 2026 11 10
+Last updated: 2026 11 12
 
 How work gets cut up and ordered, as opposed to what gets built. What a particular feature must
 deliver, and the slices that get it there, live on the GitHub Project rather than here, see
@@ -104,6 +104,31 @@ Layers would win if the data model were genuinely uncertain and had to settle be
 could stand on it, or if several people were dividing the work by tier. The skeleton can be dropped
 when the stack is already proven end to end, such as a later feature on the same pieces, and slices
 alone are enough.
+
+---
+
+## What is built now
+
+**A part is built now when it passes three tests: it is not waiting on anything, its design is
+settled, and it can be checked now**, by a test or by the owner using it. A part that fails one of
+the three waits, and the plan says which test it failed.
+
+This replaced sizing a first version by how little could be built. That made sense while the owner
+wrote the code by hand, and the brain's first milestone was drawn that way: profile, events,
+deliberately dumb retrieval and ten evaluation cases, nothing else. With agents building, effort
+stopped being the constraint, and a small first version only postponed work whose design was
+already written down.
+
+**The third test is what keeps it honest.** Agents make building cheap. They do not make being
+wrong cheap. A part that waits on nothing and has a settled design, but cannot be checked, would be
+built, merged and trusted with nobody knowing whether it is right. Consolidation is the standing
+example: its rules are written, and it still waits, because nothing can tell whether it concluded
+the right thing until features have sent it real events.
+
+**What it costs:** more is decided in planning, since a larger first version raises more questions
+up front, and the open points a doc left "until the schema is written" have to be settled before
+the first slice. And the temptation runs the other way now: a part that fails the third test must
+not ride along because it is cheap to build.
 
 ---
 

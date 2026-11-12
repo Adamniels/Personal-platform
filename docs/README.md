@@ -53,7 +53,8 @@ features" in `High-level/docs/platform-architecture.md`.
 | `High-level/docs/`  | The platform, the services that exist, and anything shaping more than one    |
 | `Core/`             | The core's code, a Rust crate, with its docs in `Core/docs/`                 |
 | `Core/docs/`        | The core: auth, accounts, routing, the registry, and its own frontend        |
-| `Brain/docs/`       | The brain: memory, the trust model, events, retrieval                        |
+| `Brain/docs/`       | The brain: memory, the trust model, events, retrieval, and its tables        |
+| `libs/`             | Shared libraries owned by no service, token verification first, not yet built |
 | `canary/`           | Canary, the Python feature proving another language can verify the token     |
 | `desk/docs/`        | Desk, the feature for working through the day, described but not yet built   |
 | `infra/`            | The Caddyfile, the compose file and the feature registry                     |
@@ -75,7 +76,8 @@ features" in `High-level/docs/platform-architecture.md`.
 - `feature-contract.md` — what a feature is, what it owns, what it may depend on, how it
   authenticates a request, the two contracts, and where reminders sit
 - `how-we-build.md` — how work is cut and ordered: a walking skeleton, then features cut into
-  vertical slices ordered by risk, with acceptance criteria as automated tests written first
+  vertical slices ordered by risk, with acceptance criteria as automated tests written first,
+  and the three tests for what is built now
 - `agent-workflow.md` — who does what: the owner plans features, agents implement, review and
   merge them on the Mac mini; planning, building a slice, the review loop, the merge gate, what
   waits for the owner, the runner, safety, and the runbook
@@ -116,6 +118,8 @@ features" in `High-level/docs/platform-architecture.md`.
 - `knowledge-model.md` — what the brain is trying to know about a person, and the filter for
   what gets in at all
 - `event-model.md` — the event shape, verbs, relations, and what consolidation does
+- `data-model.md` — the tables in their final shape, which kind goes in which store, the verb
+  list, and what is computed and never stored
 
 **E2E**
 

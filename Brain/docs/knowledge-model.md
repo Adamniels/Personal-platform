@@ -3,7 +3,7 @@
 Working document. Covers what the brain is trying to know about a user. Deriving concrete event
 shapes from this is the companion job, and it is in `event-model.md`.
 
-Last updated: 2026 09 03
+Last updated: 2026 11 12
 
 **Read this as multi user.** The platform is multi user and every user has their own
 isolated brain. The six categories, the filter and the claim versus record distinction are
@@ -83,8 +83,8 @@ than generic.
 
 What he knows and how well. Topics he is solid on, actively learning, touched shallowly,
 deliberately not pursuing. Also misconceptions that have been corrected, which is underused
-elsewhere. Whether a corrected misconception is a memory type of its own or simply a note is
-settled when the schema is written.
+elsewhere. A corrected misconception is a history entry on its topic, what was believed and what
+is right, and not a kind of its own. Learning can read those without a seventh kind existing.
 
 Highest priority because one investment improves several outputs at once (learning sessions
 stop repeating known material, news ranking stops surfacing basics, explanations start at
@@ -249,13 +249,31 @@ well before the hard parts work.
 
 ## How level is represented
 
-Level is the knowledge model's core value: solid, actively learning, touched shallowly,
-deliberately not pursuing. How it is stored is chosen when the schema is written, and that is
-the next thing this document needs, because the first milestone seeds the knowledge model by
-hand and cannot do that without a shape to seed into.
+Settled on 2026 11 12 as two fields, because the four states this document started from, solid,
+actively learning, touched shallowly and deliberately not pursuing, mix two different things.
 
-The candidates are discrete bands, a number, or something else. Whatever is chosen has to work
-with seeding above, where the owner's self assessment is a prior that evidence may move, so it
-needs to support a value that shifts in small steps. It also has to avoid claiming a precision
-nobody can justify, which is the argument that already killed the weighted relevance formula and
-the decay curves in `trust-model.md`.
+**Level is how well the owner knows a topic**, in four ordered bands:
+
+- **shallow**, knows the vocabulary
+- **working**, can use it with help
+- **solid**, can use it unaided and explain it
+- **deep**, knows the internals and could teach it
+
+**Focus is what the owner is doing about it**: learning, steady, or not pursuing.
+
+They are two fields because they belong to two stores, which "Seeding the knowledge model" above
+already says. Which topics matter is profile, so focus is the owner's alone and evidence gets no
+vote. How well he knows them is the knowledge model, so level is a starting value that evidence may
+move. They also change for different reasons: a quiz result can move a level, and only the owner
+decides to stop pursuing something.
+
+**Bands and not a number.** A number would claim a precision nobody can justify, which is the
+argument that already killed the weighted relevance formula and the decay curves in
+`trust-model.md`. A band is something the owner can actually judge when seeding.
+
+**How it shifts in small steps.** The band moves rarely. What accumulates between moves is the
+evidence attached to it, and consolidation later proposes moving the band when the evidence
+supports it. Until consolidation exists, only the owner moves it.
+
+What it costs: four bands will sometimes be too coarse, most likely between working and solid.
+Adding one is a small migration. The shape is in `data-model.md`.

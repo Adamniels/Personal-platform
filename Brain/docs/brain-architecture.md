@@ -1,8 +1,8 @@
 # The brain
 
-Status: exploratory. Nothing is built.
+Status: decided for the first version, which is being built.
 
-Last updated: 2026 09 03
+Last updated: 2026 11 12
 
 How the brain is built. Everything here is internal: you need it to write the brain and you do
 not need it to understand the platform.
@@ -17,6 +17,7 @@ one user with isolation enforced by the datastore.
 - `trust-model.md` — authority, application, and how belief is corrected
 - `knowledge-model.md` — what the brain is trying to know about a user
 - `event-model.md` — how evidence gets recorded, and the event shape
+- `data-model.md` — the tables, in their final shape
 
 ---
 
@@ -124,7 +125,10 @@ instead.
 
 The memory centre is the brain's own UI over its own data. It is not a feature and does not use
 the feature contract. It holds the profile editor, the general item browser that being able to
-edit anything turns it into, the timeline, the standing rules list, and the review queue.
+edit anything turns it into, the timeline, the standing rules list, and later the review queue. It
+also holds an Ask page, where the owner asks one of the brain's questions and sees exactly what a
+feature asking the same thing would get, so retrieval can be checked by using it before any
+feature exists to do the asking.
 
 Why it is not a feature: a feature owns domain data and exposes a narrow read API the brain
 calls. These own no domain data at all. They read and write the brain's own stores, so there is
@@ -140,7 +144,9 @@ What follows:
   caller. Outside the feature contract is not outside the platform.
 - Edits made here still record judgment events, see `trust-model.md`.
 
-Not first milestone work, but a meaningful share of the real build.
+Part of the first version, except the review queue, which waits for consolidation. It was first
+left for later, when the first milestone was drawn small, see "What is built now" in
+`High-level/docs/how-we-build.md`. Its frontend waits for the platform's design system.
 
 ---
 

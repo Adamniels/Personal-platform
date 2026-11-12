@@ -415,7 +415,15 @@ untangling. The root of the repository holds only what is genuinely platform wid
 configuration and the registry, the compose file, continuous integration, contract fixtures, and
 the instructions and configuration for coding agents, since those govern work on every service.
 
-**Contract fixtures are the one thing two services read from the same place.** A contract between
+**Two things are shared on purpose, and each is written down as an exception.** Contract fixtures,
+below, and shared libraries under `libs/`: code that must be identical in every service using it,
+owned by no service. Token verification is the first, `libs/python/platform-auth/`, because it is
+the platform's security code and a flaw fixed in one copy and missed in another is a hole nobody
+sees. A library holds one narrow thing and never grows into a place for anything else, which is
+what keeps the drift above from coming back through it. A design system for the feature frontends
+will be the second, and is not built yet.
+
+**Contract fixtures are read by more than one service from the same place.** A contract between
 languages is tested by both sides against the same bytes, and those bytes belong to neither side's
 directory. The first is the token: the core's tests assert that it still produces the committed
 token exactly, and each feature's tests verify that token against the committed public keys. It
@@ -470,8 +478,12 @@ Rust would share libraries with the core and prove almost nothing, and if verify
 out to be awkward elsewhere, that is better found on two hundred lines than halfway through
 designing a domain.
 
-**Brain track.** Profile, plus events, plus deliberately dumb retrieval, plus roughly ten
-evaluation cases. Nothing else. Small, but it makes everything after it measurable.
+**Brain track.** Everything that waits on nothing, by the three tests in "What is built now" in
+`High-level/docs/how-we-build.md`: the service with its own database and row level security, the
+memory the owner enters by hand in all its kinds, events in their final shape, retrieval, about
+thirty evaluation cases, export and import, and the memory centre. It was first drawn much smaller,
+profile, events, deliberately dumb retrieval and ten cases, when the owner was going to write it by
+hand.
 
 **The only seam between them is the user id.** The brain takes it as an opaque parameter from
 day one and never resolves it itself. The core issues the token, the brain trusts the verified
@@ -486,17 +498,17 @@ instead of a stub to remove later.
 The cost of that order, worth stating so it is not discovered later: the original reasoning put
 the brain first deliberately, since that is where the design risk lives and reaching measurable
 ground early is what makes the hard part tractable. Core first defers that. Acceptable, because
-the delay is short at this scale and because the ten evaluation cases need no code at all and
-can be written on paper while the core is in progress. Their seed is in
-`Brain/docs/knowledge-model.md` under "Concrete claims, first pass".
+the delay is short at this scale and because the evaluation cases need no code at all and can be
+written on paper while the core is in progress.
 
-Two things this milestone does not include, and both are easy to assume it does. The memory
-centre is a general item browser rather than a profile page, and a meaningful share of the real
-build sits there, but it comes later. And there are no features yet, so there are no per feature
-context calls to write: this builds the shared retrieval primitives, and the evaluation harness
-is their first caller. Everything retrievable at that point is manually entered, since
-consolidation does not exist yet, so events accumulate without being retrieved. That is correct
-rather than a gap.
+What this milestone does not include, each with the test it fails. Consolidation and the review
+queue wait, because nothing can check a conclusion until features have sent real events. Calls
+shaped for one feature, and the brain reading from features, wait for each feature. Search by
+meaning waits, because a few dozen hand entered items give nothing to judge it against, and with it
+any relevance score. So there are no per feature context calls to write: this builds the shared
+retrieval building blocks, and the evaluation cases and the memory centre's own Ask page are their
+first callers. Everything retrievable at this point is entered by hand, and events that features
+send later accumulate without being concluded from. That is correct rather than a gap.
 
 ---
 
