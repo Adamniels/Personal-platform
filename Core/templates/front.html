@@ -8,10 +8,11 @@
 
 {% block content %}
 <h1>Platform</h1>
-{#- One card per feature with display data, in registry order. What each one
-    shows is decided here from the feature's data, see src/cards.rs. #}
+{#- One card per feature with display data, in registry order, in the card
+    grid of /assets/core.css. What each one shows is decided here from the
+    feature's data, see src/cards.rs. #}
 {%- if cards.is_empty() %}
-<p class="hint">No feature has anything for the front page yet.</p>
+<p class="empty">No feature has anything for the front page yet.</p>
 {%- else %}
 <div class="cards">
 {%- for card in cards %}
@@ -25,10 +26,9 @@
     <p>Key <code>{{ canary.key_id_prefix() }}</code></p>
   </article>
 {%- when Card::Unavailable { name } %}
-  <article class="card unavailable">
-    <h2>{{ name }}</h2>
-    <p>{{ name }} could not be reached.</p>
-  </article>
+  {#- The empty state rule, on one line: e2e/tests/test_style.py adds the
+      same markup to a real page, and tests/front_page.rs pins it. #}
+  <article class="card unavailable"><h2>{{ name }}</h2><p>{{ name }} could not be reached.</p></article>
 {%- endmatch %}
 {%- endfor %}
 </div>
