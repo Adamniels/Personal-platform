@@ -11,6 +11,7 @@ use platform_core::refresh::{self, Outcome};
 use platform_core::registry::Registry;
 use platform_core::signing_key::SigningKey;
 use platform_core::{AppState, DEFAULT_ACCESS_TOKEN_LIFETIME, logout, secret_token, sessions};
+use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use sqlx::{Connection, PgPool};
 use std::collections::BTreeSet;
 use time::OffsetDateTime;
@@ -483,6 +484,28 @@ async fn after_logout_the_refresh_token_goes_to_login() {
     );
 
     db.close().await;
+}
+
+// A logout that could not revoke the family must not look like one that did,
+// so a database error is a 500 that leaves both cookies set, and the person
+// can retry. As the refresh endpoint does with an outage.
+#[tokio::test]
+async fn a_logout_that_cannot_reach_the_database_answers_500_and_keeps_the_cookies() {
+    // Nothing listens on port 1, so every query fails to connect.
+    let unreachable = PgPoolOptions::new()
+        .acquire_timeout(std::time::Duration::from_secs(2))
+        .connect_lazy_with(PgConnectOptions::new().host("127.0.0.1").port(1));
+    let (addr, _) = serve(unreachable).await;
+    let (token, _) = secret_token::generate();
+
+    let response = post(addr, Some(&token), Some(PLATFORM)).await;
+
+    assert_eq!(response.status, 500, "{}", response.body);
+    assert!(
+        response.all("set-cookie").is_empty(),
+        "a failed logout cleared a cookie: {:?}",
+        response.headers
+    );
 }
 
 #[tokio::test]
