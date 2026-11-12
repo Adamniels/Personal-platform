@@ -180,10 +180,12 @@ async fn a_nested_page_comes_back_to_its_whole_path() {
     db.close().await;
 }
 
-// Until refresh exists, the deciding endpoint always sends to login,
-// carrying the way back only if it is a path on this origin.
+// Without a refresh cookie there is nothing to refresh, so the deciding
+// endpoint sends straight to login, carrying the way back only if it is a
+// path on this origin. With one, it renders the refresh page, see
+// tests/refresh.rs.
 #[tokio::test]
-async fn the_deciding_endpoint_sends_to_login_with_the_way_back() {
+async fn without_a_refresh_cookie_the_deciding_endpoint_sends_to_login_with_the_way_back() {
     let db = common::TestDb::new().await;
     let (addr, _) = serve(db.pool.clone()).await;
 

@@ -25,7 +25,7 @@ const REFUSED: &str = "Email or password is incorrect.";
 pub enum Outcome {
     LoggedIn {
         access_token: String,
-        session: sessions::Started,
+        session: sessions::Issued,
     },
     /// Unknown email, wrong password or a disabled account, never told apart.
     Refused,

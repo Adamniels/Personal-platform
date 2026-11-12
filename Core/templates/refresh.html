@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+
+{% block title %}Continue{% endblock %}
+
+{#- No nav: the access token is gone, so the bar could not say who is logged in. #}
+
+{% block content %}
+<h1>Continue where you were</h1>
+
+<p>Your session needs renewing before you go on.</p>
+
+{#- A GET never changes state, so the refresh is this POST; the script sends it
+    at once and the button is there when scripts are off. #}
+<form method="post" action="/auth/refresh" name="refresh">
+  <input type="hidden" name="return_to" value="{{ return_to }}">
+  <button type="submit">Continue</button>
+</form>
+<script>document.forms.refresh.submit();</script>
+{% endblock %}
