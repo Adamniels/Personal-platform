@@ -421,7 +421,8 @@ owned by no service. Token verification is the first, `libs/python/platform-auth
 the platform's security code and a flaw fixed in one copy and missed in another is a hole nobody
 sees. A library holds one narrow thing and never grows into a place for anything else, which is
 what keeps the drift above from coming back through it. A design system for the feature frontends
-will be the second, and is not built yet.
+will be the second. Its style is decided and lives in `design/`, as values and written rules, and
+the components built from it are not built yet.
 
 **Contract fixtures are read by more than one service from the same place.** A contract between
 languages is tested by both sides against the same bytes, and those bytes belong to neither side's
