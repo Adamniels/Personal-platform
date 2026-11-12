@@ -9,6 +9,7 @@ pub mod invite;
 pub mod issuer;
 pub mod jwks;
 pub mod login;
+pub mod nav;
 pub mod origin;
 pub mod pages;
 pub mod password;
@@ -145,6 +146,7 @@ pub fn app(state: AppState, origin: PublicOrigin) -> Router {
         .route("/", get(root))
         .route("/assets/core.css", get(pages::stylesheet))
         .merge(jwks::routes())
+        .merge(nav::routes())
         .merge(registration::routes())
         .merge(login::routes())
         .merge(refresh::routes());
