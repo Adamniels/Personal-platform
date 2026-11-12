@@ -117,7 +117,9 @@ the refresh cookie that could identify the current one never reaches that endpoi
 every feature. The refresh token on `Path=/auth`, which holds refresh and logout and nothing else,
 so it never reaches a feature at all. Logout is there rather than beside the other pages because it
 revokes the family the refresh token belongs to, and so has to receive it, whether or not the access
-token is still valid. Both `HttpOnly`, `Secure`, `SameSite=Lax`. They are `__Host-access` and
+token is still valid. It finds the family by the hash of that token whatever state its row is in,
+since a used or expired row still names its family, and its GET is a page with a button that posts
+it, since state never changes on a GET. Both `HttpOnly`, `Secure`, `SameSite=Lax`. They are `__Host-access` and
 `__Secure-refresh`, and the prefixes make the browser enforce the attributes rather than trusting
 whoever set them: `__Host-` requires `Secure`, `Path=/` and no `Domain`, and `__Secure-` requires
 `Secure`. `__Host-` cannot be used on `Path=/auth`, so the refresh cookie takes the weaker one.
