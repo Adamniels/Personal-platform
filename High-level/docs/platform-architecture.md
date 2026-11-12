@@ -282,9 +282,10 @@ A feature includes two lines and nothing else, in whatever it is written in:
 
 `current` names what the page is: `home` on the core's front page, otherwise the feature's prefix
 without the slash. The matching link is marked `aria-current="page"`, and changing the attribute
-re-renders the bar. With someone logged in, the bar ends with a "Log out" link to the core's logout
-page, `/auth/logout`: a link rather than a form, so the bar still only renders and links, and
-logging out works from every feature's page without any of them changing. The element carries
+re-renders the bar. With someone logged in, the bar ends with a "Password" link to the core's
+change password page, `/settings/password`, and a "Log out" link to its logout page,
+`/auth/logout`: links rather than forms, so the bar still only renders and links, and both work
+from every feature's page without any of them changing. The element carries
 its own styles in a shadow root, so it looks the same on a feature that shares no stylesheet with
 the core, and it writes every name and the email as text.
 When `/api/nav` fails, a 401 or a network error, it shows the home link alone: it never redirects
