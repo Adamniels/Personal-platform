@@ -5,12 +5,14 @@
 //! access token has expired. See "The session lives in two cookies" in
 //! docs/core-architecture.md.
 
+use crate::pages::Page;
 use crate::{AppState, cookies, secret_token, sessions};
+use askama::Template;
 use axum::Router;
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Redirect, Response};
-use axum::routing::post;
+use axum::routing::get;
 use axum_extra::extract::cookie::CookieJar;
 use sqlx::PgPool;
 use time::OffsetDateTime;
@@ -41,7 +43,18 @@ pub async fn logout(
 
 pub fn routes() -> Router<AppState> {
     // The form has no fields, so no extractor reads the body.
-    Router::new().route(PATH, post(submit))
+    Router::new().route(PATH, get(show).post(submit))
+}
+
+#[derive(Template)]
+#[template(path = "logout.html")]
+struct LogoutPage;
+
+// Changes nothing, since a GET never does: the page whose button posts the
+// logout. It needs no session, so an expired access token does not bounce
+// through refresh on the way to logging out.
+async fn show() -> Page<LogoutPage> {
+    Page(LogoutPage)
 }
 
 // 303 to the login page with both cookies cleared, whether or not the refresh

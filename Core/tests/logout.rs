@@ -401,3 +401,62 @@ async fn a_logout_post_needs_the_platforms_origin() {
 
     db.close().await;
 }
+
+// A link arrives as a GET, and a GET never changes state, so the page only
+// hands the browser a form that posts the logout. It needs no session, so an
+// expired access token does not bounce through refresh on the way.
+#[tokio::test]
+async fn the_logout_page_changes_nothing() {
+    let db = common::TestDb::new().await;
+    let (addr, state) = serve(db.pool.clone()).await;
+    let account_id = account(&db.pool).await;
+    let now = OffsetDateTime::now_utc();
+    let started = sessions::start(&db.pool, account_id, now).await.unwrap();
+    let access = state
+        .issuer
+        .issue(account_id, started.family_id, Uuid::now_v7(), now);
+    let before = snapshot(&db.pool).await;
+
+    let with_session = format!(
+        "Cookie: __Host-access={access}; __Secure-refresh={}\r\n",
+        started.refresh_token
+    );
+    for (case, cookies) in [
+        ("with a session", with_session.as_str()),
+        ("without one", ""),
+    ] {
+        let response = send(
+            addr,
+            format!(
+                "GET /auth/logout HTTP/1.1\r\nHost: platform.test\r\nConnection: close\r\n{cookies}\r\n"
+            ),
+        )
+        .await;
+
+        assert_eq!(response.status, 200, "{case}: {}", response.body);
+        assert!(response.all("set-cookie").is_empty(), "{case}");
+        let body = &response.body;
+        assert!(
+            body.contains(r#"<form method="post" action="/auth/logout">"#),
+            "{case}: {body}"
+        );
+        assert!(
+            body.contains(r#"<button type="submit">Log out</button>"#),
+            "{case}: {body}"
+        );
+        assert!(body.contains(r#"<a href="/">Cancel</a>"#), "{case}: {body}");
+        assert!(body.contains("<h1>Log out</h1>"), "{case}: {body}");
+        assert!(
+            body.contains("<platform-nav"),
+            "{case}: the page has no nav"
+        );
+    }
+
+    assert_eq!(snapshot(&db.pool).await, before, "the page changed a row");
+    assert_eq!(
+        row_of(&db.pool, &started.refresh_token).await.revoked_at,
+        None
+    );
+
+    db.close().await;
+}
