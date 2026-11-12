@@ -72,7 +72,14 @@ async fn get(addr: std::net::SocketAddr, target: &str, token: Option<&str>) -> A
 
     let (head, body) = raw.split_once("\r\n\r\n").unwrap();
     let mut lines = head.split("\r\n");
-    let status = lines.next().unwrap().split(' ').nth(1).unwrap().parse().unwrap();
+    let status = lines
+        .next()
+        .unwrap()
+        .split(' ')
+        .nth(1)
+        .unwrap()
+        .parse()
+        .unwrap();
     let headers = lines
         .filter_map(|line| line.split_once(": "))
         .map(|(name, value)| (name.to_owned(), value.to_owned()))
