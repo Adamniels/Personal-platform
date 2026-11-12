@@ -623,6 +623,19 @@ logged once with the feature's name and the reason, never the token, and the use
 placeholder whatever the reason. The fetching is `display::fetch_all` in `src/display.rs`, with
 the deadline, `DISPLAY_DEADLINE`, as a parameter so the tests can pass a short one.
 
+**Canary is the first feature on the page.** A feature's card is two pieces of the core: a type in
+`src/cards.rs` that its display data deserialises into, and its branch of `templates/front.html`
+that renders it. `Card::from_fetched` picks the type by the feature's registry prefix, which is
+unique, rather than by its name. A type refuses any other shape, an unknown field included, and
+only a JSON object reads at all, since serde would otherwise fill a struct from an array by
+position. Every value goes through askama's escaping; nothing a feature sends is marked safe.
+
+**A feature without a card gets the placeholder too.** Data that does not fit its type, and a
+feature with a display endpoint the core has no card for, show the same muted card as a feature
+that could not be reached, with the registry's name and "could not be reached". Visible beats
+vanished in all three, for the reason above, and the log says which it was. The page asks again on
+every load and caches nothing.
+
 
 ---
 
