@@ -1,5 +1,5 @@
-//! Secrets the core hands out once and stores only hashed: invite codes now,
-//! refresh and reset tokens later. Thirty two random bytes, encoded to paste,
+//! Secrets the core hands out once and stores only hashed: invite codes,
+//! refresh tokens and reset tokens. Thirty two random bytes, encoded to paste,
 //! and found again by their SHA-256. Why SHA-256 rather than Argon2id is in
 //! "The core's data" in docs/core-architecture.md.
 

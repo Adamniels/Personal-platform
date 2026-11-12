@@ -18,6 +18,7 @@ pub mod password;
 pub mod refresh;
 pub mod registration;
 pub mod registry;
+pub mod reset_token;
 pub mod return_path;
 pub mod secret_token;
 pub mod session;
