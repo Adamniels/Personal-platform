@@ -40,7 +40,7 @@ pub async fn create(
     }
 }
 
-/// What login needs to know about an account.
+/// What login and changing a password need to know about an account.
 pub struct Account {
     pub id: Uuid,
     pub password_hash: String,
@@ -62,6 +62,21 @@ pub async fn find_by_email(
         Account,
         "SELECT id, password_hash, status FROM accounts WHERE email = $1",
         email,
+    )
+    .fetch_optional(executor)
+    .await
+}
+
+/// The account with `id`, or `None` when there is no such account. What
+/// changing a password checks the current one against.
+pub async fn find_by_id(
+    executor: impl PgExecutor<'_>,
+    id: Uuid,
+) -> Result<Option<Account>, sqlx::Error> {
+    sqlx::query_as!(
+        Account,
+        "SELECT id, password_hash, status FROM accounts WHERE id = $1",
+        id,
     )
     .fetch_optional(executor)
     .await

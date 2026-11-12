@@ -3,6 +3,7 @@
 
 pub mod accounts;
 pub mod cards;
+pub mod change_password;
 pub mod claims;
 pub mod cookies;
 pub mod display;
