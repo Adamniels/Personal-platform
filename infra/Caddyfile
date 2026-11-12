@@ -19,6 +19,22 @@ platform.test {
 		reverse_proxy host.docker.internal:8081
 	}
 
+	# The design folder, mounted at /srv/design, serves exactly these paths
+	# and nothing else under /design/: not DESIGN.md, not reference/. A slice
+	# that needs another path adds it here. no-cache so a browser revalidates
+	# and a change to the look is seen on the next load. See README.md.
+	@design path /design/tokens.css /design/fonts.css /design/fonts/* /design/sprites/*
+	handle @design {
+		root * /srv
+		header Cache-Control no-cache
+		file_server
+	}
+
+	@design_other path /design /design/*
+	handle @design_other {
+		respond 404
+	}
+
 	handle {
 		reverse_proxy host.docker.internal:8080
 	}
