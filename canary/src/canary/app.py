@@ -3,12 +3,14 @@ from html import escape
 
 import httpx2
 from starlette.applications import Starlette
+from starlette.middleware import Middleware
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, JSONResponse
 from starlette.routing import Route
 
 from canary import auth
 from canary.keys import KeyCache
+from canary.origin import OriginCheck
 from canary.settings import SETTINGS, Settings
 from canary.verify import Claims
 
@@ -46,6 +48,8 @@ def create_app(settings: Settings, keys: KeyCache | None = None) -> Starlette:
             Route("/canary", echo_path),
             Route("/canary/{rest:path}", echo_path),
         ],
+        # In front of everything, routing included.
+        middleware=[Middleware(OriginCheck, origin=settings.public_origin)],
         lifespan=lifespan,
     )
     app.state.settings = settings
