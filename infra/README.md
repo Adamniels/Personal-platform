@@ -110,11 +110,10 @@ curl -sS -o /dev/null -w '%{http_code}\n' https://platform.test/canary/api/whoam
 ```
 
 Without a session the first answers `303` to the core's refresh endpoint, which sends a request
-with no session on to log in, and the
-second `401` from canary itself, an API route without a token; either code shows the request
-crossed Caddy over a trusted chain, to the core and to canary. The browser shows a
-padlock on `https://platform.test/` and on `https://platform.test/canary`, which sends a browser
-that is not logged in to the login page.
+with no session on to log in, and the second `401` from canary itself, an API route without a
+token; either code shows the request crossed Caddy over a trusted chain, to the core and to canary.
+The browser shows a padlock on `https://platform.test/` and on `https://platform.test/canary`,
+which sends a browser that is not logged in to the login page.
 
 To remove a root, after `down -v` or for good, delete it by its SHA-1 from the `find-certificate`
 output above:
