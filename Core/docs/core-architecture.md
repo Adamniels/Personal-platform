@@ -2,7 +2,7 @@
 
 Status: exploratory. The walking skeleton is being built.
 
-Last updated: 2026 11 02
+Last updated: 2026 11 12
 
 The platform's infrastructure: the thing every feature is reached through, and where nothing
 interesting lives. The platform wide thinking that places it is in
@@ -590,6 +590,14 @@ without being noticed.
 of its own. The same endpoint receives it in a cookie when a browser asks. A feature accepts
 either, see `High-level/docs/feature-contract.md`.
 
+**A redirect is never followed, and an answer is capped at 64 KiB.** The request carries the
+user's token, so following a redirect would carry it to an address the registry did not name; a
+redirect, like any status other than 200, makes the feature unavailable. Display data is a handful
+of fields, so an answer over 64 KiB, or one that is not JSON, is unavailable too. Each failure is
+logged once with the feature's name and the reason, never the token, and the user sees the same
+placeholder whatever the reason. The fetching is `display::fetch_all` in `src/display.rs`, with
+the deadline, `DISPLAY_DEADLINE`, as a parameter so the tests can pass a short one.
+
 
 ---
 
@@ -645,9 +653,18 @@ builds and reads the session cookies, so their attributes are never formatted by
 **form_urlencoded**, already in the tree through axum, encodes a return path again when a redirect
 carries it on.
 
+**reqwest for calls to other services**, at 0.13 with its default features off, so there is no
+TLS and no `aws-lc-rs` C build, which the core already avoided for `jsonwebtoken`; upstream calls
+are plain HTTP by the rule in "Routing". One client is built in `AppState::new`, from
+`src/http.rs`, so its connections are pooled and every call shares its policy: redirects are never
+followed and the system's proxy settings are ignored. The alternative was the `hyper-util` legacy
+client already in the tree, lower level and more code to own for a pool, a timeout and a body
+limit that reqwest already has.
+
 **toml** parses the feature registry with serde, at 0.8, the copy sqlx already brings in, so
 nothing new is compiled; the 1.x line would be a second copy. **serde_json** writes the key set's
-body and reads the contract fixture in tests, at 1.0, the copy axum already brings in.
+body, reads features' display data and reads the contract fixture in tests, at 1.0, the copy axum
+already brings in.
 
 **Rust itself is pinned**, in `Core/rust-toolchain.toml`, so the laptop, the Mac mini and
 continuous integration build with the same compiler, and a new stable release cannot turn clippy
