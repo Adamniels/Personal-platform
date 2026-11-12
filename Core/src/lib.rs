@@ -3,6 +3,7 @@
 
 pub mod accounts;
 pub mod cards;
+pub mod change_password;
 pub mod claims;
 pub mod cookies;
 pub mod display;
@@ -168,6 +169,7 @@ pub fn app(state: AppState, origin: PublicOrigin) -> Router {
         .merge(nav::routes())
         .merge(registration::routes())
         .merge(reset::routes())
+        .merge(change_password::routes())
         .merge(login::routes())
         .merge(refresh::routes())
         .merge(logout::routes());

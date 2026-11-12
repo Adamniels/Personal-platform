@@ -102,16 +102,16 @@ hand, and rotation stays a core only operation. RS256 is the fallback if a langu
 for some later feature has no Ed25519. PASETO was the alternative and lost on library coverage,
 since most of the safety it adds is already bought by never hand writing primitives.
 
-**The token carries a token id and a session id, and nothing reads them.** They are there so a
-revocation mechanism can be added later without changing the format. Adding a claim afterwards
-means updating every verifier and reissuing every live session; a claim that has always been there
-simply starts being read one day.
+**The token carries a token id and a session id, and only changing a password reads one.** They
+are there so a revocation mechanism can be added later without changing the format. Adding a claim
+afterwards means updating every verifier and reissuing every live session; a claim that has always
+been there simply starts being read one day.
 
 **The session id is the family id**, not the id of the refresh token row. Rotation writes a new row
 every thirty minutes, while the family lasts the whole session, and a family is what gets revoked:
-by logout, reuse detection, a reset, or a password change. Changing a password is also likely the
-first thing to read the claim, since it revokes every other session but keeps the current one, and
-the refresh cookie that could identify the current one never reaches that endpoint.
+by logout, reuse detection, a reset, or a password change. Changing a password is the first thing
+to read the claim, since it revokes every other session but keeps the current one, and the refresh
+cookie that could identify the current one never reaches that page.
 
 **The session lives in two cookies.** The access token on `Path=/`, so it reaches the core and
 every feature. The refresh token on `Path=/auth`, which holds refresh and logout and nothing else,
@@ -328,7 +328,16 @@ one.
 
 **Changing a password while logged in is a separate flow.** It requires the current password, and
 it revokes your other sessions but not the one you are sitting in. It is also the one you will
-actually use.
+actually use. It is the page `/settings/password`, reached from "Password" in the nav, and like any
+core page it needs a valid access token. The family it keeps is the one named by that token's `sid`
+claim, since the refresh cookie lives on `Path=/auth` and never reaches the page. The current
+password is verified and the new one checked and hashed before a transaction that sets the password
+and revokes every other family of the account, so one never happens without the other. A wrong
+current password and an account that is not active get the same answer, after the hash has been
+verified, as at login, and the form never renders a password back. Success lands on
+`/settings/password?changed=1`, which says so, so a reload cannot post the form again. The other
+sessions' access tokens keep working until they expire, at most thirty minutes; what ends at once
+is their ability to refresh.
 
 **No defence against user enumeration, deliberately.** A public forgot password form has to answer
 identically whether or not an address exists, or it becomes a way to find out who has an account.

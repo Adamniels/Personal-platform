@@ -6,10 +6,11 @@
 //
 // `current` is `home` or a feature's prefix without the slash; the matching
 // link gets aria-current="page". The bar fetches /api/nav and renders a home
-// link, one link per feature, who is logged in and a link to log out. It
-// renders and links and does nothing else: when /api/nav fails it shows the
-// home link alone, and it never redirects or refreshes the session. See
-// "Navigation" in High-level/docs/platform-architecture.md.
+// link, one link per feature, who is logged in, and links to change the
+// password and to log out. It renders and links and does nothing else: when
+// /api/nav fails it shows the home link alone, and it never redirects or
+// refreshes the session. See "Navigation" in
+// High-level/docs/platform-architecture.md.
 //
 // Plain JavaScript with no build step and no dependency. Its styles live in
 // its shadow root, so it looks the same on a page that shares no stylesheet
@@ -66,6 +67,17 @@
       text-overflow: ellipsis;
       font-size: 0.875rem;
       color: color-mix(in srgb, currentColor 60%, transparent);
+    }
+    /* At phone width the links and a glimpse of the email still fit on one
+       line, with less room between them and the email cut shorter. */
+    @media (max-width: 30rem) {
+      nav {
+        column-gap: 0.75rem;
+        padding: 0.5rem 0.75rem;
+      }
+      .user {
+        min-width: 3rem;
+      }
     }
   `;
 
@@ -149,10 +161,14 @@
         user.className = "user";
         user.textContent = email;
         user.title = email;
-        // A link to the core's logout page rather than a form, so the bar
-        // still only renders and links, and logging out works from every
-        // feature's page without any of them changing.
-        nav.append(user, link("Log out", "/auth/logout", false));
+        // Links to the core's pages rather than forms, so the bar still only
+        // renders and links, and changing the password and logging out work
+        // from every feature's page without any of them changing.
+        nav.append(
+          user,
+          link("Password", "/settings/password", false),
+          link("Log out", "/auth/logout", false),
+        );
       }
 
       const style = document.createElement("style");
