@@ -39,11 +39,6 @@ pub fn decide(row: Option<&sessions::Row>, now: OffsetDateTime) -> Decision {
     let Some(row) = row else {
         return Decision::LogIn;
     };
-    // A disabled account ends its sessions here, at their next refresh,
-    // rather than when the family's cap runs out.
-    if !row.account_active {
-        return Decision::LogIn;
-    }
     if row.revoked_at.is_some() {
         return Decision::LogIn;
     }
@@ -53,6 +48,13 @@ pub fn decide(row: Option<&sessions::Row>, now: OffsetDateTime) -> Decision {
         return Decision::LogIn;
     }
     if now >= row.expires_at || now >= row.family_expires_at {
+        return Decision::LogIn;
+    }
+    // A disabled account ends its sessions here, at their next refresh,
+    // rather than when the family's cap runs out. Last, after the checks on
+    // the token itself, so that reuse detection, when it arrives in the used
+    // check, sees a replayed token whatever the account's state.
+    if !row.account_active {
         return Decision::LogIn;
     }
     Decision::Rotate

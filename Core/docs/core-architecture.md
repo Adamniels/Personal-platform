@@ -203,9 +203,10 @@ sends every request without a valid access token there, whatever the reason, see
 `High-level/docs/feature-contract.md`. A valid refresh cookie gets a rotation, both cookies set,
 and a redirect back. Anything else goes to the login page carrying the same return path, and login
 sends you there afterwards. A refresh also checks that the account is still active, so disabling an
-account ends its sessions at their next refresh rather than up to thirty days later. The access
-cookie's lifetime matches its token, thirty minutes, and logout clears both cookies as well as
-revoking the family.
+account ends its sessions at their next refresh rather than up to thirty days later. That check
+comes last, after the checks on the token itself, so that reuse detection sees a replayed token
+whatever the account's state. The access cookie's lifetime matches its token, thirty minutes, and
+logout clears both cookies as well as revoking the family.
 
 **Refresh is always a POST.** A redirect arrives as a GET, and state never changes on a GET, since
 that rule is what makes `SameSite=Lax` enough. So the GET on the refresh endpoint only renders a
