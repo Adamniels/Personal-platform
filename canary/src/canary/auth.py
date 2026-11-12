@@ -56,6 +56,9 @@ async def authenticate(request: Request, keys: KeyCache, now: int) -> Claims | N
     token = bearer_token(request)
     if token is None:
         return None
+    # Reading the `kid` here only picks which key to fetch, so a token with no
+    # usable one costs no key set request. It is not a second rule: `verify`
+    # makes the same check and is the one that decides.
     try:
         key_id = jwt.get_unverified_header(token).get("kid")
     except jwt.PyJWTError:
