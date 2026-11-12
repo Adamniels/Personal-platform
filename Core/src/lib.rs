@@ -167,6 +167,7 @@ pub fn app(state: AppState, origin: PublicOrigin) -> Router {
         .merge(jwks::routes())
         .merge(nav::routes())
         .merge(registration::routes())
+        .merge(reset::routes())
         .merge(login::routes())
         .merge(refresh::routes())
         .merge(logout::routes());

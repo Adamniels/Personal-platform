@@ -5,7 +5,15 @@
 //! keeping one path by which something becomes a session. See "Password
 //! reset, and changing a password" in docs/core-architecture.md.
 
-use crate::{accounts, password, reset_token, secret_token, sessions};
+use crate::pages::Page;
+use crate::{AppState, accounts, password, reset_token, secret_token, sessions};
+use askama::Template;
+use axum::Router;
+use axum::extract::{DefaultBodyLimit, Form, State};
+use axum::http::StatusCode;
+use axum::response::{IntoResponse, Redirect, Response};
+use axum::routing::get;
+use serde::Deserialize;
 use sqlx::PgPool;
 use std::error::Error;
 use time::OffsetDateTime;
@@ -55,4 +63,64 @@ pub async fn reset(
     sessions::revoke_account(&mut transaction, account_id, None, now).await?;
     transaction.commit().await?;
     Ok(Outcome::Reset)
+}
+
+pub fn routes() -> Router<AppState> {
+    Router::new().route(
+        "/reset",
+        get(show)
+            .post(submit)
+            .layer(DefaultBodyLimit::max(16 * 1024)),
+    )
+}
+
+#[derive(Template)]
+#[template(path = "reset.html")]
+struct ResetPage<'a> {
+    error: Option<&'a str>,
+    token: &'a str,
+}
+
+#[derive(Deserialize)]
+struct ResetForm {
+    token: String,
+    password: String,
+}
+
+async fn show() -> Response {
+    Page(ResetPage {
+        error: None,
+        token: "",
+    })
+    .into_response()
+}
+
+// 303 to the login page on success, with no cookie set: a reset does not log
+// you in. A refusal is 422 and the form again, keeping the token and never
+// the password.
+async fn submit(State(pool): State<PgPool>, Form(form): Form<ResetForm>) -> Response {
+    let refused = |error| {
+        let page = ResetPage {
+            error: Some(error),
+            token: form.token.trim(),
+        };
+        (StatusCode::UNPROCESSABLE_ENTITY, Page(page)).into_response()
+    };
+
+    match reset(
+        &pool,
+        &form.token,
+        &form.password,
+        OffsetDateTime::now_utc(),
+    )
+    .await
+    {
+        Ok(Outcome::Reset) => Redirect::to("/login").into_response(),
+        Ok(Outcome::InvalidToken) => refused(INVALID_TOKEN),
+        Ok(Outcome::InvalidPassword(message)) => refused(message),
+        Err(err) => {
+            eprintln!("password reset failed: {err}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error\n").into_response()
+        }
+    }
 }
