@@ -6,7 +6,9 @@
 //! for the front page" in docs/core-architecture.md.
 
 use crate::display::Fetched;
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer};
+use serde_json::Value;
 use time::OffsetDateTime;
 
 /// One feature's place on the front page.
@@ -34,7 +36,7 @@ impl Card {
             return Card::Unavailable { name: feature.name };
         };
         match feature.prefix.as_str() {
-            CANARY_PREFIX => match serde_json::from_value(data) {
+            CANARY_PREFIX => match read(data) {
                 Ok(card) => Card::Canary(card),
                 Err(err) => {
                     eprintln!(
@@ -50,6 +52,16 @@ impl Card {
             }
         }
     }
+}
+
+// A feature's data as its card type. Only a JSON object reads: serde would
+// also fill a struct from an array by position, which is not a shape any
+// feature sends.
+fn read<T: DeserializeOwned>(data: Value) -> Result<T, String> {
+    if !data.is_object() {
+        return Err("not a JSON object".into());
+    }
+    serde_json::from_value(data).map_err(|err| err.to_string())
 }
 
 /// What canary sends, pinned by `contracts/display/canary.json`. Anything
@@ -180,7 +192,6 @@ mod tests {
             ("an unknown field", extra),
             ("a field of the wrong type", wrong_type),
             ("seconds out of range", out_of_range),
-            ("a list", json!([fixture()])),
         ] {
             assert!(
                 serde_json::from_value::<CanaryCard>(data).is_err(),
@@ -207,6 +218,20 @@ mod tests {
     #[test]
     fn data_that_does_not_fit_is_unavailable() {
         let card = Card::from_fetched(fetched("Canary", "/canary", Ok(json!({ "active": 4 }))));
+        assert_eq!(card, unavailable("Canary"));
+    }
+
+    // serde reads a struct from an array by position, so canary's values in
+    // order would otherwise make a card.
+    #[test]
+    fn canarys_values_as_a_list_are_unavailable() {
+        let values = json!([
+            "01900000-0000-7000-8000-000000000001",
+            1_800_001_800,
+            "kPrK_qmxVWaYVA9wwBF6Iuo3vVzz7TxHCTwXBygrS4k",
+            "3.14.0"
+        ]);
+        let card = Card::from_fetched(fetched("Canary", "/canary", Ok(values)));
         assert_eq!(card, unavailable("Canary"));
     }
 
