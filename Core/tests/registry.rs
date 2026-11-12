@@ -18,7 +18,7 @@ fn the_committed_registry_holds_canary() {
             name: "Canary".into(),
             prefix: "/canary".into(),
             upstream: "http://127.0.0.1:8081".into(),
-            display: None,
+            display: Some("/canary/api/display".into()),
         }]
     );
 }

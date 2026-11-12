@@ -18,3 +18,4 @@
 name = "Canary"
 prefix = "/canary"
 upstream = "http://127.0.0.1:8081"
+display = "/canary/api/display"

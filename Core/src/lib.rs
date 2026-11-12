@@ -68,6 +68,10 @@ pub struct AppState {
     /// The client for calls to other services, built once so its
     /// connections are pooled. See src/http.rs.
     pub http: reqwest::Client,
+    /// How long the front page waits for each feature's display data:
+    /// `display::DISPLAY_DEADLINE`, and shorter in tests, which set it after
+    /// `new`. See src/display.rs.
+    pub display_deadline: Duration,
 }
 
 impl AppState {
@@ -88,6 +92,7 @@ impl AppState {
             dummy_hash: dummy_hash.into(),
             registry: Arc::new(registry),
             http,
+            display_deadline: display::DISPLAY_DEADLINE,
         })
     }
 }
