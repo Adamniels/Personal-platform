@@ -17,6 +17,8 @@ def test_nav_shows_home_features_and_user(page: Page, invite_code: str, viewport
     expect(canary).to_have_attribute("href", "/canary")
     expect(canary).not_to_have_attribute("aria-current", "page")
     expect(nav.get_by_text(email, exact=True)).to_be_visible()
+    log_out = nav.get_by_role("link", name="Log out", exact=True)
+    expect(log_out).to_have_attribute("href", "/auth/logout")
     # The heading and the account line stay until the feature cards.
     expect(page.get_by_role("heading", name="Platform")).to_be_visible()
 
@@ -100,6 +102,7 @@ def test_nav_writes_names_and_the_email_as_text(page: Page, invite_code: str):
     expect(nav.get_by_text("<b>someone</b>@example.com", exact=True)).to_be_visible()
     expect(page.locator("platform-nav img")).to_have_count(0)
     expect(page.locator("platform-nav b")).to_have_count(0)
-    # A path that is not on this origin is not linked at all.
-    expect(nav.get_by_role("link")).to_have_count(2)
+    # A path that is not on this origin is not linked at all: the home link,
+    # the one feature and the logout link.
+    expect(nav.get_by_role("link")).to_have_count(3)
     assert page.evaluate("window.injected") is None

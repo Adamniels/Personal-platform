@@ -77,12 +77,9 @@ def capture(page, name: str) -> Path:
     return path
 
 
-def register_and_log_in(page: Page, invite_code: str) -> str:
-    """Registers a fresh account with the code, logs in, and returns its email.
-
-    Ends on the front page. test_registration.py walks the same steps as the
-    thing under test; this is for tests that only need to be logged in.
-    """
+def register(page: Page, invite_code: str) -> tuple[str, str]:
+    """Registers a fresh account with the code and returns its email and
+    password. Ends on the login page, not logged in."""
     email = f"e2e-{uuid.uuid4()}@example.com"
     password = uuid.uuid4().hex[:20]
     page.goto("/register")
@@ -91,8 +88,24 @@ def register_and_log_in(page: Page, invite_code: str) -> str:
     page.fill("[name=password]", password)
     page.click("button[type=submit]")
     expect(page).to_have_url(re.compile(r"/login$"))
+    return email, password
+
+
+def log_in(page: Page, email: str, password: str) -> None:
+    """Fills and submits the login form the page is on. Where it ends depends
+    on the return path the login page carries."""
     page.fill("[name=email]", email)
     page.fill("[name=password]", password)
     page.click("button[type=submit]")
+
+
+def register_and_log_in(page: Page, invite_code: str) -> str:
+    """Registers a fresh account with the code, logs in, and returns its email.
+
+    Ends on the front page. test_registration.py walks the same steps as the
+    thing under test; this is for tests that only need to be logged in.
+    """
+    email, password = register(page, invite_code)
+    log_in(page, email, password)
     expect(page).to_have_url("https://platform.test/")
     return email

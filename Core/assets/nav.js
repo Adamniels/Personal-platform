@@ -6,10 +6,10 @@
 //
 // `current` is `home` or a feature's prefix without the slash; the matching
 // link gets aria-current="page". The bar fetches /api/nav and renders a home
-// link, one link per feature and who is logged in. It renders and links and
-// does nothing else: when /api/nav fails it shows the home link alone, and it
-// never redirects or refreshes the session. See "Navigation" in
-// High-level/docs/platform-architecture.md.
+// link, one link per feature, who is logged in and a link to log out. It
+// renders and links and does nothing else: when /api/nav fails it shows the
+// home link alone, and it never redirects or refreshes the session. See
+// "Navigation" in High-level/docs/platform-architecture.md.
 //
 // Plain JavaScript with no build step and no dependency. Its styles live in
 // its shadow root, so it looks the same on a page that shares no stylesheet
@@ -149,7 +149,10 @@
         user.className = "user";
         user.textContent = email;
         user.title = email;
-        nav.append(user);
+        // A link to the core's logout page rather than a form, so the bar
+        // still only renders and links, and logging out works from every
+        // feature's page without any of them changing.
+        nav.append(user, link("Log out", "/auth/logout", false));
       }
 
       const style = document.createElement("style");

@@ -117,10 +117,13 @@ the refresh cookie that could identify the current one never reaches that endpoi
 every feature. The refresh token on `Path=/auth`, which holds refresh and logout and nothing else,
 so it never reaches a feature at all. Logout is there rather than beside the other pages because it
 revokes the family the refresh token belongs to, and so has to receive it, whether or not the access
-token is still valid. Both `HttpOnly`, `Secure`, `SameSite=Lax`. They are `__Host-access` and
-`__Secure-refresh`, and the prefixes make the browser enforce the attributes rather than trusting
-whoever set them: `__Host-` requires `Secure`, `Path=/` and no `Domain`, and `__Secure-` requires
-`Secure`. `__Host-` cannot be used on `Path=/auth`, so the refresh cookie takes the weaker one.
+token is still valid. It finds the family by the hash of that token whatever state its row is in,
+since a used or expired row still names its family, and its GET is a page with a button that posts
+it, since state never changes on a GET. Both `HttpOnly`, `Secure`, `SameSite=Lax`. They are
+`__Host-access` and `__Secure-refresh`, and the prefixes make the browser enforce the attributes
+rather than trusting whoever set them: `__Host-` requires `Secure`, `Path=/` and no `Domain`, and
+`__Secure-` requires `Secure`. `__Host-` cannot be used on `Path=/auth`, so the refresh cookie
+takes the weaker one.
 
 Cookies rather than a token held in JavaScript, because with everything on one origin the browser
 attaches the session by itself, so a feature frontend needs no code to be authenticated, and
@@ -150,6 +153,16 @@ empty and returning the row. Read first and write second, and two concurrent ref
 the token unused and both rotate it, so the family forks and nothing ever notices. Invite codes and
 reset tokens are consumed the same way, for the same reason: two registrations racing on one code
 would otherwise both succeed, and a single use code would make two accounts.
+
+**Rotating and revoking take the family's lock first**, a transaction scoped advisory lock keyed by
+the family id, since there is no row per family to lock. The conditional update keeps two
+rotations apart, but not a rotation and a revoke: under READ COMMITTED a revoke that waits on the
+row a refresh is marking then sees that row and not the one the refresh inserts, so a logout would
+report success while the other tab's new token stays live. With the lock, whichever comes second
+waits; a revoke then sees the new row, and a rotation then finds its token revoked. The key space
+is shared with sqlx's migrator, which holds a session advisory lock keyed from the database name
+while `migrate` runs, so a family whose key collides with it would wait out a migration, nothing
+worse.
 
 **A token used within the last thirty seconds is not reuse.** Normal browsing presents the same
 refresh token twice: two tabs reloaded after a break, or one page whose API calls all get a 401 at
