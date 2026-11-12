@@ -42,6 +42,8 @@ Sections 3, 5 and 6 mix the two, and each says where its line runs.
 
 Binding here: the bar's height, fill and border, how a link and the active link look, the dot that marks something needing the user, and how the bar becomes a bottom tab bar on phone. Illustrative: which links exist, their names and order, and whether the bar holds a search button, a theme toggle or an avatar. Those follow what the platform actually has, as its slices say.
 
+The bar is `nav.js` in this folder, `<platform-nav>`, with `theme.js` and `page.css` beside it; what it holds and how a page includes it is "Navigation" in `High-level/docs/platform-architecture.md`.
+
 * Desktop: a top bar, height `--nav-h`, `--surface` fill, 1px bottom border. Left: a small amber square mark and the wordmark in the heading font, 16px, weight 600. Then the links: Home, Memory, Review, Workbench, Agents, Learning, News. Right: a search button showing "Search" and the shortcut, a theme toggle, and a round avatar link to settings.
 * Nav link: height 36px, padding 0 12px, `--radius-md`, 14px, weight 500, colour `--text-2`, transparent border. The active link has `--text` colour, `--surface-2` fill and a 1px `--accent-border` outline, and carries `aria-current="page"`.
 * The Agents link shows a 6px `--accent-text` dot after its label when any agent needs the user.
