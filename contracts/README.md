@@ -50,4 +50,22 @@ exposes for the front page" in `Core/docs/core-architecture.md`.
 
 The file is written by hand and changed together with the feature that serves it.
 
+## brain/
+
+The brain's HTTP schema, what every caller of the brain is written against.
+
+- `openapi.json`: the OpenAPI document the brain's app generates, `app.openapi()`, with keys
+  sorted, a two space indent and a trailing newline.
+
+The brain's `tests/test_contract.py` checks that the app still generates exactly these bytes, so a
+change to a route, a model or a route's docstring, which becomes its `description`, fails the test
+until the file is regenerated on purpose and its diff reviewed. From `Brain/`:
+
+```zsh
+UPDATE_CONTRACTS=1 uv run pytest tests/test_contract.py
+```
+
+Without the variable the test only compares, and a missing or different file fails it. No caller
+tests against it yet; the first feature that calls the brain will.
+
 `scripts/ci/changed-areas.sh` maps a change here to every area that tests against it.

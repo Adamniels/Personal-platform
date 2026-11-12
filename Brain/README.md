@@ -19,6 +19,12 @@ brain's routes are written with it. Everything else is `404`, FastAPI's own `/do
 reach the brain anyway. The brain has no entry in `infra/features.toml`, since it is not a feature:
 it is not in the nav and has nothing for the front page.
 
+The schema FastAPI generates from the routes and their models is committed as
+`contracts/brain/openapi.json`, and `tests/test_contract.py` fails when the app no longer generates
+it byte for byte. Changing what the brain serves means regenerating it, with
+`UPDATE_CONTRACTS=1 uv run pytest tests/test_contract.py`, and reviewing the diff, see
+`contracts/README.md`.
+
 ## Running it
 
 From this directory, with uv installed:
