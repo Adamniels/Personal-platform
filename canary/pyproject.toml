@@ -5,6 +5,8 @@ description = "The platform's first feature, proving another language can verify
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
+    "httpx2>=2.13.1",
+    "pyjwt[crypto]>=2.15.1",
     "starlette>=1.7.0",
     "uvicorn>=0.54.0",
 ]
@@ -15,7 +17,6 @@ build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
-    "httpx2>=2.13.1",
     "pytest>=9.1.1",
     "ruff>=0.17.3",
 ]
