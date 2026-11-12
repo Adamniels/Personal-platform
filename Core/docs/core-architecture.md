@@ -159,7 +159,10 @@ the family id, since there is no row per family to lock. The conditional update 
 rotations apart, but not a rotation and a revoke: under READ COMMITTED a revoke that waits on the
 row a refresh is marking then sees that row and not the one the refresh inserts, so a logout would
 report success while the other tab's new token stays live. With the lock, whichever comes second
-waits; a revoke then sees the new row, and a rotation then finds its token revoked.
+waits; a revoke then sees the new row, and a rotation then finds its token revoked. The key space
+is shared with sqlx's migrator, which holds a session advisory lock keyed from the database name
+while `migrate` runs, so a family whose key collides with it would wait out a migration, nothing
+worse.
 
 **A token used within the last thirty seconds is not reuse.** Normal browsing presents the same
 refresh token twice: two tabs reloaded after a break, or one page whose API calls all get a 401 at
