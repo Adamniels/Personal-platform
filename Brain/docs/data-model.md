@@ -20,8 +20,11 @@ isolation is enforced" in `High-level/docs/platform-architecture.md`.
 - **Scoped to a user.** Every table has `user_id uuid NOT NULL`, the account id the core minted,
   taken from the verified token. The exceptions are named global below.
 - **Row level security, enabled and forced**, with one policy for all commands:
-  `user_id = current_setting('brain.user_id')::uuid`. Forced, so owning the table is not a way
-  around it. A query with no user set returns nothing.
+  `user_id = nullif(current_setting('brain.user_id', true), '')::uuid`. Forced, so owning the
+  table is not a way around it. A query with no user set returns nothing: the setting is missing on
+  a connection that never had it and reverts to `''` after a transaction that set it, and a bare
+  `current_setting('brain.user_id')::uuid` raises in both cases, where this is null and matches no
+  row. `brain.db.CURRENT_USER_SQL` holds the expression, see "The door" in `Brain/README.md`.
 - **One door.** The service reaches the database only through a function that opens a transaction
   and sets `brain.user_id` for that transaction alone. Nothing else may take a connection.
 - **Two roles.** `brain_owner` owns the tables and runs migrations. `brain_app` is what the running
