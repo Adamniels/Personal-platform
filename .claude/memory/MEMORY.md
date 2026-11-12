@@ -4,5 +4,5 @@
 - [GitHub changes](github-changes.md) — script bulk changes, dry-run, run on the owner's word, verify; bash 3.2 pitfalls
 - [GitHub board](github-board.md) — Project 5; auto-add starts every issue in Backlog; Blocked status; slices grouped by feature parent; Area and Size conventions
 - [Read the plan first](read-the-plan-first.md) — before any recommendation or doc edit, grep every issue body and the docs, not just the current ticket
-- [Cross-feature calls](cross-feature-calls.md) — the ban on backends calling each other is a default; raise cases where a direct call would be better
+- [Cross-feature calls](cross-feature-calls.md) — features may call each other's backends under four conditions; allowed to call is not a reason to split
 - [Long run over slice simplest](long-run-over-slice-simplest.md) — recommend the long run, professional option; test it against the next slices before proposing

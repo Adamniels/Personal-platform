@@ -1,12 +1,12 @@
 ---
 name: cross-feature-calls
-description: "The ban on backends calling each other is a default to challenge: raise any case where a direct call would make the platform better"
+description: "Features may call each other's backends under four conditions; being allowed to call is not a reason to split a feature"
 metadata:
   type: feedback
 ---
 
-When a design would work better with one feature's backend calling another directly, bring it up and discuss it, rather than routing around it through the brain or the browser. The rule itself, and the shape an allowed call probably takes, are in "How features reach each other" in `High-level/docs/feature-contract.md`; this memory is only about how firmly to hold it.
+A feature's backend may call another's, under the four conditions in "How features reach each other" in `High-level/docs/feature-contract.md`: a published contract, a declared direction with no circle, a caller that keeps working when the callee is down, and each feature owning its data. This memory is about how to use that when planning.
 
-**Why:** on 2026-10-08, while designing desk, the owner found the old rule, all cross feature access through the brain, too strict. Routing a record lookup through the brain removed no coupling, and extracting a feature later matters far less to the owner than the whole system working well. The rule was narrowed, and the owner asked for the remaining ban to be held loosely as well.
+**Why:** on 2026-10-08, while designing desk, the owner found the first rule, all cross feature access through the brain, too strict, and it was narrowed to a ban on backend calls held loosely. On 2026-11-12, laying out the features after the core, he turned the ban around: what matters most is that the platform is built in the best way and becomes what he wants, and features that would be better for knowing about each other should be allowed to, done properly.
 
-**How to apply:** when a feature needs another feature's data, check the three sanctioned paths first (brain for knowledge about the owner, browser composition for display, address plus snapshot for references). If a direct call would clearly be better, say so with the concrete case and the cost, and let the owner decide. Related: [[docs-are-tripwires]].
+**How to apply:** when a feature needs another feature's data, pick the path that fits: the brain for knowledge about the owner, the browser for showing another feature's data beside your own, a backend call when the backend itself needs the answer. A new call direction is a decision made with the owner in planning and recorded under "Declared calls" in that doc. Do not split things that need each other to draw every page just because a call would be allowed: that is one feature with modules. Related: [[docs-are-tripwires]].
