@@ -283,8 +283,8 @@ and in the same order. Read the workflows each run; today they are:
   `BRAIN_TEST_ADMIN_DATABASE_URL="postgres://postgres:$(grep '^POSTGRES_PASSWORD=' ../infra/.env | cut -d= -f2-)@127.0.0.1:5432/postgres" BRAIN_APP_DATABASE_URL="postgres://brain_app:$(grep '^BRAIN_APP_PASSWORD=' ../infra/.env | cut -d= -f2-)@127.0.0.1:5432/brain" UV_LOCKED=1 uv run pytest`.
 - **libs** (`libs.yml`): in every directory matching `libs/python/*/` that holds a
   `pyproject.toml`, `UV_LOCKED=1 uv run ruff check`, `UV_LOCKED=1 uv run ruff format --check`,
-  `UV_LOCKED=1 uv run mypy` and `UV_LOCKED=1 uv run pytest`, in that order. With no such directory there is
-  nothing to run, and the step passes.
+  `UV_LOCKED=1 uv run mypy` and `UV_LOCKED=1 uv run pytest`, in that order. With no such
+  directory there is nothing to run, and the step passes.
 - **scripts** (`ci.yml`): every `scripts/**/*.test.sh`, as the job's loop does:
   `for t in $(find scripts -name '*.test.sh' | sort); do bash "$t" || echo "FAILED $t"; done`.
 - **web** (`web.yml`): in every folder `bash scripts/ci/frontends.sh` prints, as the job's loop
