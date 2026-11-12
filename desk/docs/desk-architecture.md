@@ -2,16 +2,17 @@
 
 Status: idea. The shape is described, almost nothing is modelled, and nothing is built.
 
-Last updated: 2026 10 09
+Last updated: 2026 11 12
 
 Desk is where the owner sits down to work through the day: a calendar to plan time in, sessions to
 do the work in, projects to organise it, and a review space to make it stick. This document holds
 what has been decided, what has deliberately been left open, and the evidence the ideas came from.
 It is the starting point for when desk gets picked up, not a plan for building it.
 
-How firmly to read it is in `docs/README.md`. Why desk is the first feature after the core is in
-"Candidate features" in `High-level/docs/platform-architecture.md`. The original sketch is
-`sessions-make-it-stick.jpg` beside this file.
+How firmly to read it is in `docs/README.md`. Which feature is planned next, and why, is the
+owner's call and is kept in his planning notes, see "Candidate features" in
+`High-level/docs/platform-architecture.md`. The original sketch is `sessions-make-it-stick.jpg`
+beside this file.
 
 ---
 

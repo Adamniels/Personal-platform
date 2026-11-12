@@ -2,7 +2,7 @@
 
 Status: exploratory. The walking skeleton is being built.
 
-Last updated: 2026 11 10
+Last updated: 2026 11 12
 
 The top of the documentation. What the platform is, what services exist, and the thinking that
 shapes more than one of them. Anything you only need when you sit down to write a particular
@@ -22,7 +22,8 @@ How to read these documents, and how firmly, is in `docs/README.md`.
 whoever owns that data, and it holds for every account. Where an example says "Adam" it is an
 illustration from the first user's case, not a special role.
 
-Related Notion pages: "Northstar OS" (project entry), "Northstar OS, my personal platform",
+Related Notion pages: "Personal Platform" in Desk, the owner's planning notes, which hold the
+candidate features. Older: "Northstar OS" (project entry), "Northstar OS, my personal platform",
 "Wiki project". v1 material lives under "My Platform (1)" and "Implementing memory" and is
 reference only, see "Carried from v1" at the bottom of `Brain/docs/brain-architecture.md`.
 
@@ -518,36 +519,22 @@ worked out then.
 
 ## Candidate features
 
-Not a plan, and not a commitment. Things that might get built, written down so the platform is
-designed with them in mind rather than around them. Any of them may be dropped, and things not
-on this list will certainly appear. There is no point trying to write the complete list.
+The list of what might get built is not kept in this repository. It lives in the owner's planning
+notes in Notion, one page per candidate, at the level of what he wants and why, and it stops
+before design. A candidate arrives here when it is planned: its scope as a feature issue with its
+slices, and whatever design outlasts it in these docs. Agents never need the list, since a slice
+carries everything they build from.
 
-- **Desk.** The first feature after the core: the calendar, sessions, projects and review the
-  owner works through the day in. First because it gets used every day, and so gets evaluated
-  every day. It absorbed what was listed here as Projects. `desk/docs/desk-architecture.md`.
-- **Learning new topics.** The one the brain design leans on hardest. The worked example of a
-  per feature context call is a learning call end to end, the end of session quiz is what
-  replaced passive tracking, and how the knowledge model represents level gets answered against
-  what learning needs.
-- **Wiki.** Uncertain, and deliberately not first.
-- **Books.**
-- **An RSVP speed reader.**
-- **Controllers and monitors for other devices.**
-- **News.** An idea, with no design behind it yet.
+It moved out because the two have different readers. The owner drops and weighs ideas where he
+works through the day, and only agents work in the repository, so a list kept here was read by
+nobody who could act on it. What stays here is what the platform is designed around whichever
+features appear: a feature is whatever registers with the core and talks to the brain, as
+`High-level/docs/feature-contract.md` says. Design written ahead of the building, such as
+`desk/docs/desk-architecture.md` and `Brain/docs/`, stays here too, since agents build from it.
 
 **Two things named as features are not features.** Reminders is a delivery capability with its
 own service, above. A mobile application is a client surface over features that already exist,
 and mobile itself is deferred.
-
-**Books, the speed reader, learning and the wiki cluster around reading and learning.** Whether
-that is four features or one general one holding four parts gets decided when the first of them
-is planned. Either shape looks identical from the core's and the brain's side.
-
-**Devices is the only candidate that stresses anything structural**, and the design already
-absorbs it. Telemetry is high volume and almost none of it says anything about a person, so the
-feature keeps the readings and emits an event only when something meaningful happens. The filter
-in `Brain/docs/knowledge-model.md` is what decides which readings qualify. Worth confirming when
-that feature is planned rather than assuming.
 
 ---
 
