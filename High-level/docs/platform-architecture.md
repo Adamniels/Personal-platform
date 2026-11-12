@@ -263,9 +263,14 @@ Navigation is shared, and it lives in the core so it can improve everywhere at o
 The core serves a small script and an endpoint:
 
 ```
-GET /api/nav   ->  { features: [ {name: "Wiki", path: "/wiki"} ], user: {...} }
+GET /api/nav   ->  { "features": [ {"name": "Wiki", "path": "/wiki"} ], "user": {"email": "..."} }
 GET /nav.js    ->  defines <platform-nav>, which fetches /api/nav and renders
 ```
+
+`/api/nav` lists the features in registry order, each by its display name and its prefix, and the
+logged in account's email; the account id is not in it. It needs a valid access token and answers
+anything else with 401 and an empty body, never a redirect, since a script cannot follow one.
+`/nav.js` needs no session and is served like the core's stylesheet, revalidated on every load.
 
 A feature includes two lines and nothing else, in whatever it is written in:
 
@@ -273,6 +278,15 @@ A feature includes two lines and nothing else, in whatever it is written in:
 <script src="/nav.js" defer></script>
 <platform-nav current="wiki"></platform-nav>
 ```
+
+`current` names what the page is: `home` on the core's front page, otherwise the feature's prefix
+without the slash. The matching link is marked `aria-current="page"`, and changing the attribute
+re-renders the bar. The element carries its own styles in a shadow root, so it looks the same on a
+feature that shares no stylesheet with the core, and it writes every name and the email as text.
+When `/api/nav` fails, a 401 or a network error, it shows the home link alone: it never redirects
+and never refreshes the session. The core's own pages use it too, see "The core's frontend" in
+`Core/docs/core-architecture.md`, and leave it off the login and registration pages, where nobody
+is logged in.
 
 **Why this rather than a shared component package.** A package would force every feature frontend
 to be React, which is a freedom deliberately left open, and changing the nav would mean bumping a
