@@ -4,17 +4,17 @@ from contextlib import asynccontextmanager
 from html import escape
 
 import httpx2
+from platform_auth import auth
+from platform_auth.keys import KeyCache
+from platform_auth.origin import OriginCheck
+from platform_auth.verify import Claims
 from starlette.applications import Starlette
 from starlette.middleware import Middleware
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, JSONResponse, PlainTextResponse, Response
 from starlette.routing import Route
 
-from canary import auth
-from canary.keys import KeyCache
-from canary.origin import OriginCheck
 from canary.settings import SETTINGS, DisplayMode, Settings
-from canary.verify import Claims
 
 # Canary's own few lines of style. It takes nothing from the core but the nav,
 # so it reserves the bar's height itself, as the core's stylesheet does, and
