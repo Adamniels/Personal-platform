@@ -57,7 +57,8 @@
 # 15 min doubling to 60 min, and mentions only once its episode passes 6 h or 10 limits in a row on one item;
 # transient and environment sleep 1 min doubling to 30 min and mention once per episode past 30 min. Before every
 # claude run the runner probes `gh api rate_limit`, `docker info` and free disk over 5 GB; a failed probe is an
-# environment pause with no claude call (R15). pending.sh failing is a transient pause. Every external call runs
+# environment pause with no claude call (R15). When `docker info` fails, the runner first starts Docker once and
+# waits for it to answer. pending.sh failing is a transient pause. Every external call runs
 # under a timeout (claude AGENT_TIMEOUT_SECONDS, the others 60 to 300 s); a timed out call is a failed call.
 # Sleeps go through AGENT_SLEEP in chunks of at most 30 s, checking the stop file between them.
 #
@@ -72,6 +73,8 @@
 #   AGENT_TIMEOUT_SECONDS       [5400] a claude run is killed, with its process group, after this long
 #   AGENT_CALL_TIMEOUT_SECONDS  [per call, 60 to 300] one timeout for every other external call: a test override
 #   AGENT_SLEEP                 [sleep] the sleep command
+#   AGENT_DOCKER_START          [open -a Docker] starts Docker when its probe fails; empty never starts it
+#   AGENT_DOCKER_START_WAIT     [120] seconds to wait for a started Docker to answer
 # claude, gh, docker, git, df, date and jq come from PATH.
 # Exit codes: 0 stopped by the stop file, 1 cannot fetch main, copy the runner, or set up agent-logs or the
 # repository, 2 already running (run.lock holds the PID of a live run.sh) or a bad environment value, 130 a signal.
@@ -101,6 +104,8 @@ poll="${AGENT_POLL_SECONDS:-600}"
 timeout_secs="${AGENT_TIMEOUT_SECONDS:-5400}"
 call_override="${AGENT_CALL_TIMEOUT_SECONDS:-}"
 sleep_cmd="${AGENT_SLEEP:-sleep}"
+docker_start="${AGENT_DOCKER_START-open -a Docker}"
+docker_start_wait="${AGENT_DOCKER_START_WAIT:-120}"
 logs="$home/agent-logs"
 stop_file="$home/.agent-stop"
 lock="$logs/run.lock"             # a directory holding pid
@@ -373,11 +378,29 @@ classify_run() {
   if [ "$secs" -ge "$MIN_TASK_SECONDS" ]; then echo task; else echo transient; fi
 }
 
+# Docker Desktop quits itself to install an update, and on a Mac nobody is signed in at it does not always start
+# again. So the runner starts it once per failed probe and waits up to AGENT_DOCKER_START_WAIT s for it to answer.
+# AGENT_DOCKER_START is word-split on purpose (a command and its arguments); set it empty to never start Docker.
+start_docker() {
+  local waited=0
+  [ -n "$docker_start" ] || return 1
+  log "docker is down; starting it with: $docker_start"
+  # shellcheck disable=SC2086
+  call 30 $docker_start || { log "could not start docker"; return 1; }
+  while [ "$waited" -lt "$docker_start_wait" ]; do
+    nap 10 || return 1
+    waited=$((waited + 10))
+    if call 60 docker info; then log "docker is back after $waited s"; return 0; fi
+  done
+  log "docker did not answer within $docker_start_wait s"
+  return 1
+}
+
 probe_reason=""
 probe() {
   local free
   call 120 gh api rate_limit || { probe_reason="gh api rate_limit failed"; return 1; }
-  call 60 docker info || { probe_reason="docker info failed"; return 1; }
+  call 60 docker info || start_docker || { probe_reason="docker info failed"; return 1; }
   call 60 df -Pk "$repo" || { probe_reason="df failed"; return 1; }
   free="$(awk 'NR == 2 { print $4 }' <<<"$call_out")"
   if ! number "$free" || [ "$free" -le "$MIN_FREE_KB" ]; then probe_reason="free disk is ${free:-unknown} KB, under 5 GB"; return 1; fi
