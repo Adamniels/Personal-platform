@@ -422,7 +422,10 @@ the platform's security code and a flaw fixed in one copy and missed in another 
 sees. A library holds one narrow thing and never grows into a place for anything else, which is
 what keeps the drift above from coming back through it. A design system for the feature frontends
 will be the second. Its style is decided and lives in `design/`, as values and written rules, and
-the components built from it are not built yet.
+the components built from it are not built yet. Its files are shared at runtime rather than
+imported: the proxy serves its values, fonts and sprites at `/design/`, so a page from any service
+links them by URL and no service reads another's directory. "The design folder" in
+`infra/README.md` lists what is served.
 
 **Contract fixtures are read by more than one service from the same place.** A contract between
 languages is tested by both sides against the same bytes, and those bytes belong to neither side's

@@ -56,7 +56,7 @@ features" in `High-level/docs/platform-architecture.md`.
 | `Brain/`            | The brain's code, a Python service, with its docs in `Brain/docs/`           |
 | `Brain/docs/`       | The brain: memory, the trust model, events, retrieval, and its tables        |
 | `libs/`             | Shared libraries owned by no service, token verification first, not yet built |
-| `design/`           | The platform's visual style: its values, the rules for using them, examples   |
+| `design/`           | The platform's visual style, its fonts and sprites, served at `/design/`     |
 | `canary/`           | Canary, the Python feature proving another language can verify the token     |
 | `desk/docs/`        | Desk, the feature for working through the day, described but not yet built   |
 | `infra/`            | The Caddyfile, the compose file and the feature registry                     |
@@ -112,12 +112,15 @@ features" in `High-level/docs/platform-architecture.md`.
   avatars and the fonts. It decides style and never what a page contains, which comes from its
   slice; section 0 draws that line
 - `design/tokens.css` — every colour, size and type value as a named variable, light and dark
+- `design/fonts.css` and `design/fonts/` — the three fonts, hosted here with their licences, and
+  where they came from
+- `design/sprites/` — the agent avatars
 - `design/reference/` — designed screens as examples of the style, their content illustrative only
 
 **Infra**
 
 - `infra/README.md` — the local hostname, running Caddy and what its data volume holds, the
-  feature registry, and trusting Caddy's root
+  design folder and the paths Caddy serves from it, the feature registry, and trusting Caddy's root
 
 **Brain**
 

@@ -152,4 +152,4 @@ Every page, drawn here or not, is built from the same tokens and components, wit
 
 ## 7. Fonts
 
-Inter (400, 500, 600), Space Grotesk (500, 600) and JetBrains Mono (400, 500). Self host them or load them from Google Fonts. Fallbacks are in the `--font-*` tokens.
+Inter (400, 500, 600), Space Grotesk (500, 600) and JetBrains Mono (400, 500). They are hosted here, in `fonts/`, as variable woff2 in the latin and latin-ext subsets, and declared in `fonts.css`, which a page loads from `/design/fonts.css` beside `/design/tokens.css`. Never load a font or a stylesheet from an outside host, Google Fonts included. Fallbacks are in the `--font-*` tokens. Where the files came from, and how the proxy serves them, is in `fonts.css` and in "The design folder" in `infra/README.md`.
