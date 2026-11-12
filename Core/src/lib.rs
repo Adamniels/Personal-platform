@@ -164,7 +164,6 @@ pub fn app(state: AppState, origin: PublicOrigin) -> Router {
     let routes = Router::new()
         .route("/", get(root))
         .route("/assets/core.css", get(pages::stylesheet))
-        .route("/nav.js", get(pages::nav_script))
         .merge(jwks::routes())
         .merge(nav::routes())
         .merge(registration::routes())
