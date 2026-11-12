@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
     "fastapi>=0.162.5",
+    "psycopg[binary,pool]>=3.3.9",
     "uvicorn>=0.54.0",
 ]
 
@@ -18,9 +19,16 @@ dev = [
     "httpx2>=2.13.1",
     "mypy>=2.4.1",
     "pytest>=9.2.0",
+    "pytest-asyncio>=1.5.0",
     "ruff>=0.17.5",
 ]
 
 [tool.mypy]
 strict = true
 files = ["src", "tests"]
+
+[tool.pytest.ini_options]
+# Async tests and fixtures run without a marker each, on one event loop per
+# test, against the brain's async pool.
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"

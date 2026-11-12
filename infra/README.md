@@ -60,6 +60,34 @@ docker compose run --rm caddy caddy validate --config /etc/caddy/Caddyfile --ada
 docker compose up -d --force-recreate caddy
 ```
 
+## The databases
+
+One Postgres, a database per service, each with two roles: an owner that owns the tables and runs
+the service's migrations, and an app role the running service connects as. Why, and why the app
+role must not own its tables, is in "Databases, migrations, and running it" and "Multi user, and
+how isolation is enforced" in `High-level/docs/platform-architecture.md`.
+
+The scripts in `postgres/initdb/` create them, one per service, `core.sh` for `core` with
+`core_owner` and `core_app`, and `brain.sh` for `brain` with `brain_owner` and `brain_app`. Their
+passwords come from `.env`, see `.env.example`, through `compose.yaml`, which refuses to start
+without them. Postgres runs every script there once, when the volume is first created, and never
+again. Neither creates a table or grants on one: that is each service's migrations.
+
+`brain.sh` is safe to run again: it creates each role and the database only when missing, so it
+never changes a password, and applies the database's privileges every time. A volume created
+before the brain had a database, or one whose `brain` database was dropped, gets it by running the
+script by hand, from this directory, after adding the two passwords to `.env` and recreating the
+container so it has them:
+
+```zsh
+docker compose up -d --wait
+docker compose exec -T postgres bash /docker-entrypoint-initdb.d/brain.sh
+```
+
+It prints `CREATE ROLE`, `CREATE DATABASE` and the rest for what it created, and only `REVOKE` and
+`GRANT` when everything was there. `core.sh` is not safe to run twice; the core's database already
+exists wherever the volume does.
+
 ## The design folder
 
 Every page takes the platform's look from one place: `design/` at the repository root, which
