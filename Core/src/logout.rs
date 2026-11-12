@@ -16,7 +16,6 @@ use axum::routing::get;
 use axum_extra::extract::cookie::CookieJar;
 use sqlx::PgPool;
 use time::OffsetDateTime;
-use uuid::Uuid;
 
 /// The logout page and the form it posts.
 pub const PATH: &str = "/auth/logout";
@@ -24,26 +23,25 @@ pub const PATH: &str = "/auth/logout";
 /// Logs out with `presented`, the refresh cookie's value if the request had
 /// one, at `now`: revokes the family of the token it names, whatever state
 /// that token's row is in, since a used or expired row still names its
-/// family. Returns the family revoked, or `None` when the text is not a
-/// token or matches nothing, and then changes nothing. The revoke holds the
-/// family's lock, so a refresh of the family that was part way through has
-/// committed by then and its new row is revoked too.
+/// family. Text that is not a token, or matches nothing, changes nothing.
+/// The revoke holds the family's lock, so a refresh of the family that was
+/// part way through has committed by then and its new row is revoked too.
 pub async fn logout(
     pool: &PgPool,
     presented: Option<&str>,
     now: OffsetDateTime,
-) -> Result<Option<Uuid>, sqlx::Error> {
+) -> Result<(), sqlx::Error> {
     let Some(hash) = presented.and_then(secret_token::hash) else {
-        return Ok(None);
+        return Ok(());
     };
     let Some(row) = sessions::find(pool, &hash).await? else {
-        return Ok(None);
+        return Ok(());
     };
     let mut transaction = pool.begin().await?;
     sessions::lock_family(&mut *transaction, row.id).await?;
     sessions::revoke_family(&mut *transaction, row.family_id, now).await?;
     transaction.commit().await?;
-    Ok(Some(row.family_id))
+    Ok(())
 }
 
 pub fn routes() -> Router<AppState> {
@@ -69,7 +67,7 @@ async fn show() -> Page<LogoutPage> {
 async fn submit(State(state): State<AppState>, jar: CookieJar) -> Response {
     let presented = jar.get(cookies::REFRESH).map(|cookie| cookie.value());
     match logout(&state.pool, presented, OffsetDateTime::now_utc()).await {
-        Ok(_) => {
+        Ok(()) => {
             let jar = CookieJar::new()
                 .add(cookies::clear_access())
                 .add(cookies::clear_refresh());
