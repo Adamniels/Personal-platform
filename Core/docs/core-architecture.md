@@ -2,7 +2,7 @@
 
 Status: exploratory. The walking skeleton is being built.
 
-Last updated: 2026 11 12
+Last updated: 2026 11 13
 
 The platform's infrastructure: the thing every feature is reached through, and where nothing
 interesting lives. The platform wide thinking that places it is in
@@ -569,13 +569,24 @@ bar exists in two implementations and they drift. The base template includes it 
 does, from `/design/nav.js`, with the design files beside it.
 
 **The core serves no shared asset.** What every page shares, the tokens, the fonts, the page shell
-and the nav bar, is in `design/` and served by the proxy, see "The design folder" in
-`infra/README.md`. The core serves only its own stylesheet, `/assets/core.css`, which every core
-page links after the design files, with its own variables prefixed so none overrides a token.
+with its page container, and the nav bar, is in `design/` and served by the proxy, see "The design
+folder" in `infra/README.md`. Every core page links, in this order, `/design/tokens.css`,
+`/design/fonts.css`, `/design/page.css`, then the core's own stylesheet, `/assets/core.css`, and
+loads `/design/theme.js` in the head and `/design/nav.js` deferred. Its content sits in
+`<main class="page">`, the page container `page.css` holds, which canary's page uses as well.
 
-**Styling has no build step either**, just that stylesheet and the design files. If a design system ever
-arrives it should arrive because that cost was chosen deliberately, and
-`High-level/docs/platform-architecture.md` names it as the largest permanent cost in the plan.
+**The core's stylesheet builds on the shared values.** `/assets/core.css` holds only what is the
+core's own, its forms and the front page's cards, and every colour in it, and every size that has a
+token, is a `var(--…)` from `design/tokens.css`; it defines no variable of its own, so none can
+shadow a token, and a test keeps raw colours out of it. The pages are not React, so they do not
+use the component package in `design/ui/`: they follow the same written rules in section 4 of
+`design/DESIGN.md` with plain classes. A form sits in a card, centred and at most 26rem wide, its
+submit button is the primary button and any other button secondary. A refused form names the
+field it is about, which is marked `aria-invalid` and shows the message under it, starting with
+"Error". The front page uses the card grid, with a feature that could not be reached as the
+empty state.
+
+**Styling has no build step either**, just that stylesheet and the design files.
 
 **Where this stops being the right tool**, written down now so it is recognised rather than
 discovered. It holds while the front page is something you read and click through. The moment you

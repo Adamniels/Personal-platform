@@ -36,8 +36,10 @@ see `contracts/README.md`.
 Everything else is `404`. The page includes the nav's lines from "Navigation" in
 `High-level/docs/platform-architecture.md`: the design files `tokens.css`, `fonts.css` and
 `page.css`, `theme.js` in the head and `nav.js` deferred, all served by the proxy from `design/`,
-and the `<platform-nav>` element. Beside them it has a few lines of inline CSS of its own, and it
-takes nothing from the core but the nav's contents: it does not link the core's stylesheet.
+and the `<platform-nav>` element. It has no style of its own: its content sits in
+`<main class="page">`, the page container from `page.css`, which gives it the same width, padding
+and headings as the core's pages. It takes nothing from the core but the nav's contents: it does
+not link the core's stylesheet.
 
 ## Running it
 
