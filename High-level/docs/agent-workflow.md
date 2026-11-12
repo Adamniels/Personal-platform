@@ -27,7 +27,7 @@ pull request before deterministic code decides whether it merges.
 
 What it costs is that the owner does not read every line that lands. Understanding moves to
 planning, where every decision is his, to using the platform, and to reading a pull request when he
-chooses to. High risk work still waits for him. The bet is that a good plan and a strict gate catch
+chooses to. What he marks high risk still waits for him. The bet is that a good plan and a strict gate catch
 more than a tired read of every diff would.
 
 ## The life of a feature
@@ -72,10 +72,15 @@ owner wrote and nobody else ever edited. That is why planning runs on the laptop
 why no agent edits a slice body, not even to tick a task: the pull request body carries the Tasks
 checklist and ticks it as each commit lands. What it costs is that the issue never shows progress.
 
-**High risk** is ground where a mistake is silent or expensive to reverse: auth and token logic, a
-migration, a contract between the core, the brain and features, and any slice whose main change is
-in a path that steers the agents. The list is in step 3 of `plan-feature`. A high risk slice goes
-through the same build and review loop and then waits for the owner.
+**A slice's risk tier is the owner's choice**, made in planning. High means he wants to read the
+pull request before it lands, and it then waits for him after the same build and review loop. The
+default is low, also on ground where a mistake is silent or expensive to reverse: auth and token
+logic, a migration, a contract between the core, the brain and features. That ground was high by
+default until 2026 11 12. It changed because the reviewer and the tests were doing the checking
+and his read of every such pull request added little to them, while each one stopped the runner.
+What still waits for him regardless of tier is a pull request touching a path that steers the
+agents, see "The merge gate", and a decision on that same ground which the slice did not settle,
+see "Building a slice". The exact rule is in step 3 of `plan-feature`.
 
 ## Building a slice
 
@@ -267,7 +272,9 @@ Autonomy loses when merged slices keep needing rework the reviewer should have c
 the owner tries and finds broken in ways the acceptance tests and the review both passed. The sign
 is follow up slices that fix what an earlier one shipped, more than once a feature. The first answer
 is a better plan and a stricter reviewer; if that does not hold, high risk becomes the default tier,
-so every pull request waits for the owner while the gate stays the same.
+so every pull request waits for the owner while the gate stays the same. The low default for auth,
+migrations and contracts is the first thing to take back, and it should also be taken back when the
+platform has users besides the owner or holds data that cannot be entered again.
 
 A second reviewer identity would win over the guards if an implementer run ever posts a verdict.
 Running slices in parallel would win once the queue regularly holds more Ready slices than one
