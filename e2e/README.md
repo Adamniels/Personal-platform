@@ -34,6 +34,11 @@ returns its email, ending on the front page, for a test that only needs to be lo
 
 `/register` does not prefill the code from a query string, so tests fill the `code` field.
 
+A test simulates an expired access token by deleting the `__Host-access` cookie with
+`context.clear_cookies(name="__Host-access")`. The cookie's `Max-Age` matches the token's
+lifetime, so at expiry the browser drops it and makes exactly that request, without the thirty
+minute wait. `tests/test_refresh.py` does this.
+
 ## Libraries
 
 **uv for the toolchain**, as in `canary/`: a locked `uv.lock` and the Python pinned in
