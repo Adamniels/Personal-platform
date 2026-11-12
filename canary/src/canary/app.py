@@ -23,7 +23,7 @@ body { margin: 0; }
 platform-nav { display: block; min-height: 3rem; }
 main { max-width: 40rem; margin: 0 auto; padding: 3rem 1rem; }
 h1 { font-size: 1.5rem; margin: 0 0 1.5rem; }
-code { overflow-wrap: anywhere; }
+code { white-space: nowrap; }
 """
 
 
