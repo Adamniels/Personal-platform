@@ -30,7 +30,10 @@ Screenshots land in `screenshots/`, which is git ignored.
   returns the path. It needs the page to be sized by the `viewport` fixture.
 
 `register_and_log_in(page, invite_code)` registers a fresh account with the code, logs in and
-returns its email, ending on the front page, for a test that only needs to be logged in.
+returns its email, ending on the front page, for a test that only needs to be logged in. Its two
+halves are there for a test that logs in from somewhere else: `register(page, invite_code)` returns
+the email and password and ends on the login page, not logged in, and `log_in(page, email,
+password)` submits the login form the page is on, which ends wherever its return path says.
 
 `/register` does not prefill the code from a query string, so tests fill the `code` field.
 

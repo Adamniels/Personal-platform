@@ -212,6 +212,11 @@ feature holds verification, an origin check, and one redirect. Everything else, 
 refreshing, rotation, the cookies and the key, belongs to the core and is described in
 `Core/docs/core-architecture.md`.
 
+A feature starts from canary's implementation of all three: `canary/src/canary/auth.py` for where
+the token is read and what a request without a valid one gets, `verify.py` for the verification and
+`keys.py` for the key cache, with `origin.py` for the `Origin` check, all described in
+`canary/README.md`.
+
 ## The two contracts
 
 Both stay small. If either drifts large, something has gone wrong.

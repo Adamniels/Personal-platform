@@ -3,6 +3,19 @@
 The platform's first feature, written in Python on purpose. Why it exists, and why not in Rust, is
 in "The first milestone" in `High-level/docs/platform-architecture.md`.
 
+## What it serves
+
+- `GET /canary`, its page: a heading and a line saying the token was verified in Python, with the
+  account id from it, under the platform's nav. Without a valid token it answers `303` to
+  `/auth/refresh?return_to=<the path and query as received, URL encoded>`.
+- `GET /canary/api/whoami`, `{"account_id": "<sub>"}`. Without a valid token it answers `401` with
+  an empty body.
+
+Everything else is `404`. The page includes the nav's two lines from "Navigation" in
+`High-level/docs/platform-architecture.md` and a few lines of inline CSS of its own, the nav's
+reserved height among them, and takes nothing else from the core: it does not link the core's
+stylesheet.
+
 ## Running it
 
 From this directory, with uv installed:
@@ -32,11 +45,27 @@ default.
 
 The defaults are right on the Mac mini and in CI, so neither sets them.
 
-## How canary verifies a token
+## How canary authenticates a request
 
 The rules every feature follows are in "How a feature authenticates" in
-`High-level/docs/feature-contract.md`; canary is the first to carry them, and the one later
-features copy.
+`High-level/docs/feature-contract.md`. Canary is the first to carry them, and is the reference
+implementation a later feature starts from: these four files, and their tests.
+
+- `src/canary/auth.py` reads the token from `Authorization: Bearer <token>` when that header is
+  present, otherwise from the `__Host-access` cookie. A header that is present and invalid is a
+  refusal, even beside a valid cookie, and so are two of them. It resolves the key through the key
+  cache and verifies the token with the time read once, `int(time.time())`. A route takes one of
+  two requirements: `@auth.page` redirects to the core's refresh endpoint with the path and query
+  exactly as received, relative and never judged by canary, and `@auth.api` answers `401` with an
+  empty body. A missing token, an expired one, one that fails verification, and a core that cannot
+  be reached with no key cached are all the same to both. Canary never decides between refreshing
+  and logging in; the core does, see "The refresh endpoint is the one place that decides between
+  refreshing and logging in" in `Core/docs/core-architecture.md`.
+- `src/canary/origin.py` holds `OriginCheck`, ASGI middleware in front of the whole app, routing
+  included: any method other than GET, HEAD and OPTIONS needs exactly one `Origin` header equal,
+  byte for byte, to `CANARY_PUBLIC_ORIGIN`, or it gets `403`. It mirrors `Core/src/origin.rs`, and
+  `tests/test_origin.py` runs the same table as `Core/tests/origin.rs` over a stub route, since
+  canary has no route that changes state yet.
 
 - `src/canary/verify.py` holds `verify(token, keys, now)`, a pure function of the token, the
   public keys by key id and the time, which returns the claims or raises `Refused`. It accepts
@@ -55,6 +84,10 @@ The tests verify `contracts/token/token.jwt`, the token the core actually produc
 `contracts/token/jwks.json`, see `contracts/README.md`, and cover the ways verification is known to
 break, listed in "A feature's authentication tests are part of the feature template" in
 `High-level/docs/how-we-build.md`.
+
+`create_app(settings, keys=None)` in `src/canary/app.py` builds the app. Without `keys` it creates
+one HTTP client and one key cache over it when the app starts, and closes the client when it
+stops; tests pass a cache of their own, over a key set answered from memory.
 
 ## Libraries canary is built on
 
