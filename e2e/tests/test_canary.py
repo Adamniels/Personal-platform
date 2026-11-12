@@ -42,3 +42,10 @@ def test_canary_knows_who_i_am(page: Page, invite_code: str, viewport: str):
     assert scroll_width <= page.viewport_size["width"]
 
     capture(page, "canary-signed-in")
+
+    # The height is reserved before /nav.js renders the bar, so the page does
+    # not jump: with the script never arriving, the empty element is 3rem.
+    page.route("**/nav.js", lambda route: route.abort())
+    page.reload()
+    expect(page.get_by_role("heading", name="Canary", level=1)).to_be_visible()
+    assert page.locator("platform-nav").bounding_box()["height"] == 48
