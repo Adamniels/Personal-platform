@@ -400,8 +400,14 @@ the instructions and configuration for coding agents, since those govern work on
 languages is tested by both sides against the same bytes, and those bytes belong to neither side's
 directory. The first is the token: the core's tests assert that it still produces the committed
 token exactly, and each feature's tests verify that token against the committed public keys. It
-holds public material only. Continuous integration's change detection,
-`scripts/ci/changed-areas.sh`, maps a fixture's directory to every area that tests against it.
+holds public material only. It lives in `contracts/token/` as three files: `token.jwt`, the token
+minted from fixed inputs and the RFC 8037 test seed; `jwks.json`, the key set as the core serves
+it for that key; and `claims.json`, the claims and key id a verifier should expect. Ed25519
+signatures are deterministic, so a change to the bytes fails the core's test, and the files are
+regenerated on purpose, with `UPDATE_CONTRACTS=1 cargo test --test token_contract` from `Core/`,
+and the diff reviewed; `contracts/README.md` says more. Continuous integration's change detection,
+`scripts/ci/changed-areas.sh`, maps `contracts/` to every area that tests against it: the core,
+canary and the acceptance suite.
 
 **What it costs, and how it is paid.** Every push would build and test every service, so
 continuous integration runs only what a change touches. `.github/workflows/ci.yml` is the single

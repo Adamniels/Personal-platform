@@ -87,6 +87,11 @@ impl Verifier {
         Verifier { keys, validation }
     }
 
+    /// The keys this verifier trusts, which the core serves as its key set.
+    pub fn keys(&self) -> &KeySet {
+        &self.keys
+    }
+
     /// The claims of `token` if it is valid at `now`: signed with EdDSA by a
     /// key in the set, and `now` no later than its `exp` plus the leeway.
     pub fn verify(&self, token: &str, now: OffsetDateTime) -> Result<Claims, Refused> {

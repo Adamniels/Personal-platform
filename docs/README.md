@@ -2,7 +2,7 @@
 
 Status: exploratory. The walking skeleton is being built.
 
-Last updated: 2026 11 10
+Last updated: 2026 11 11
 
 These are planning notes, not specifications. Everything here is the current best idea with the
 reasoning attached, and it is expected to change as building teaches things planning could not.
@@ -52,6 +52,7 @@ decisions about how the work gets done as well as the architecture.
 | `canary/`           | Canary, the Python feature proving another language can verify the token     |
 | `desk/docs/`        | Desk, the feature for working through the day, described but not yet built   |
 | `infra/`            | The Caddyfile, the compose file and the feature registry                     |
+| `contracts/`        | Contract fixtures, the bytes services in two languages test against          |
 | `e2e/`              | The acceptance suite, Playwright against the running stack                   |
 | `scripts/agent/`    | The runner, the merge gate and the other scripts the agents' workflow runs   |
 | `scripts/ci/`       | The change detection and the `ci-ok` judgement that `ci.yml` runs            |
@@ -84,6 +85,11 @@ decisions about how the work gets done as well as the architecture.
 **Canary**
 
 - `canary/README.md` — how to run canary and its tests, and the libraries it is built on
+
+**Contracts**
+
+- `contracts/README.md` — what a contract fixture is, the token fixture's three files, that they
+  hold public material only, and how they are regenerated
 
 **Desk**
 
