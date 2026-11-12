@@ -449,8 +449,8 @@ runs each changed area's workflow, and ends in `ci-ok`, a job that always runs a
 every job it judged passed or was skipped. That one check is what branch protection requires, since
 a required check that only runs on some paths would block every pull request outside them. The
 number of languages is not itself a cost, since each directory keeps its own toolchain and lockfile
-and nothing tries to build them as one graph. Continuous integration runs cargo with `--locked` and
-uv with `UV_LOCKED=1`, so the lockfile is what gets tested, and a manifest changed without its
+and nothing tries to build them as one graph. Continuous integration runs cargo with `--locked`,
+uv with `UV_LOCKED=1` and npm only as `npm ci`, so the lockfile is what gets tested, and a manifest changed without its
 lockfile fails instead of resolving again, which `scripts/ci/workflows-locked.test.sh` holds the
 workflows to.
 

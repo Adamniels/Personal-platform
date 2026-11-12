@@ -21,6 +21,7 @@ jobs:
       core: ${{ steps.areas.outputs.core }}
       canary: ${{ steps.areas.outputs.canary }}
       scripts: ${{ steps.areas.outputs.scripts }}
+      web: ${{ steps.areas.outputs.web }}
       e2e: ${{ steps.areas.outputs.e2e }}
     steps:
       - uses: actions/checkout@v7
@@ -44,7 +45,7 @@ jobs:
           fi
 
           if [ -z "$base" ]; then
-            printf '%s\n' core=true canary=true scripts=true e2e=true >> "$GITHUB_OUTPUT"
+            printf '%s\n' core=true canary=true scripts=true web=true e2e=true >> "$GITHUB_OUTPUT"
           else
             # Captured first, so a failing git fails this job instead of feeding changed-areas.sh
             # empty input, which would read as "nothing changed" and pass.
@@ -79,6 +80,11 @@ jobs:
           done
           exit "$status"
 
+  web:
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
+    uses: ./.github/workflows/web.yml
+
   e2e:
     needs: changes
     if: needs.changes.outputs.e2e == 'true'
@@ -87,7 +93,7 @@ jobs:
   # Fails unless every job above succeeded or was skipped. Runs even when one of them failed
   # or was cancelled, which is what `always()` is for.
   ci-ok:
-    needs: [changes, core, canary, scripts, e2e]
+    needs: [changes, core, canary, scripts, web, e2e]
     if: always()
     runs-on: ubuntu-latest
     steps:

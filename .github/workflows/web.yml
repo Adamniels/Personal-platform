@@ -1,0 +1,44 @@
+# Every frontend's checks: lint and format, types, tests and build, in each folder
+# scripts/ci/frontends.sh lists, design/ui and any <service>/web. A frontend added
+# later needs no change here. See design/ui/README.md.
+name: Web
+
+on:
+  # Called by ci.yml, which decides from the diff whether it runs.
+  workflow_call:
+  workflow_dispatch:
+
+# Read only: no job here writes to the repository or to GitHub.
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "26"
+
+      # npm ci installs exactly the lock and fails when it does not match
+      # package.json. Every frontend runs, and the job fails if any did.
+      - name: Gate every frontend
+        run: |
+          frontends="$(bash scripts/ci/frontends.sh)"
+          status=0
+          for dir in $frontends; do
+            echo "== $dir"
+            (
+              set -e
+              cd "$dir"
+              npm ci
+              npx biome ci .
+              npx tsc --noEmit
+              npx vitest run
+              npm run build
+            ) || { echo "FAILED $dir"; status=1; }
+          done
+          exit "$status"
