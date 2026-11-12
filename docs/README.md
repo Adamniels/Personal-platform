@@ -84,7 +84,8 @@ decisions about how the work gets done as well as the architecture.
 
 **Canary**
 
-- `canary/README.md` — how to run canary and its tests, and the libraries it is built on
+- `canary/README.md` — how to run canary and its tests, its settings, how it verifies the core's
+  token, and the libraries it is built on
 
 **Contracts**
 
