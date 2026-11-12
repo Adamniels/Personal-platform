@@ -517,3 +517,93 @@ async fn a_refresh_post_needs_the_platforms_origin() {
 
     db.close().await;
 }
+
+async fn get(addr: std::net::SocketAddr, target: &str, refresh_token: Option<&str>) -> Response {
+    send(
+        addr,
+        format!(
+            "GET {target} HTTP/1.1\r\nHost: platform.test\r\nConnection: close\r\n{}\r\n",
+            cookie_header(refresh_token)
+        ),
+    )
+    .await
+}
+
+// A redirect arrives as a GET, and a GET never changes state, which is what
+// makes SameSite=Lax enough; so the page only hands the browser a form that
+// posts the refresh, by script or by its button.
+#[tokio::test]
+async fn the_refresh_page_changes_nothing_and_posts_to_itself() {
+    let db = common::TestDb::new().await;
+    let (addr, _) = serve(db.pool.clone()).await;
+    let account_id = account(&db.pool, "active").await;
+    let started = sessions::start(&db.pool, account_id, OffsetDateTime::now_utc())
+        .await
+        .unwrap();
+    let before = snapshot(&db.pool).await;
+
+    for (target, kept) in [
+        ("/auth/refresh?return_to=/x", "/x"),
+        ("/auth/refresh?return_to=%2Fx%3Fa%3D1", "/x?a=1"),
+        ("/auth/refresh?return_to=//evil", "/"),
+        ("/auth/refresh?return_to=https://evil", "/"),
+        ("/auth/refresh", "/"),
+    ] {
+        let response = get(addr, target, Some(&started.refresh_token)).await;
+
+        assert_eq!(response.status, 200, "{target}: {}", response.body);
+        assert_eq!(
+            response.header("cache-control"),
+            Some("no-store"),
+            "{target}"
+        );
+        assert!(response.all("set-cookie").is_empty(), "{target}");
+        let body = &response.body;
+        assert!(
+            body.contains(r#"<form method="post" action="/auth/refresh" name="refresh">"#),
+            "{target}: {body}"
+        );
+        assert!(
+            body.contains(&format!(
+                r#"<input type="hidden" name="return_to" value="{kept}">"#
+            )),
+            "{target}: {body}"
+        );
+        assert!(
+            body.contains(r#"<button type="submit">Continue</button>"#),
+            "{target}: {body}"
+        );
+        assert!(
+            body.contains("<script>document.forms.refresh.submit();</script>"),
+            "{target}: {body}"
+        );
+        assert!(
+            !body.contains("<platform-nav"),
+            "{target}: the page has the nav"
+        );
+    }
+
+    assert_eq!(snapshot(&db.pool).await, before, "the page changed a row");
+
+    db.close().await;
+}
+
+// No refresh cookie means there is nothing to refresh, so the page would only
+// post to be told to log in.
+#[tokio::test]
+async fn the_refresh_page_sends_a_visitor_without_a_refresh_cookie_to_login() {
+    let db = common::TestDb::new().await;
+    let (addr, _) = serve(db.pool.clone()).await;
+
+    for refresh_token in [None, Some("")] {
+        let response = get(addr, "/auth/refresh?return_to=/x", refresh_token).await;
+        assert_eq!(response.status, 303, "{refresh_token:?}");
+        assert_eq!(
+            response.header("location"),
+            Some("/login?return_to=%2Fx"),
+            "{refresh_token:?}"
+        );
+    }
+
+    db.close().await;
+}

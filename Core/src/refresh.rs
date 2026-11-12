@@ -4,11 +4,13 @@
 //! stored token and the time. See "The refresh endpoint is the one place that
 //! decides between refreshing and logging in" in docs/core-architecture.md.
 
+use crate::pages::Page;
 use crate::return_path::ReturnPath;
 use crate::{AppState, cookies, secret_token, sessions};
+use askama::Template;
 use axum::Router;
 use axum::extract::{DefaultBodyLimit, Form, Query, State};
-use axum::http::StatusCode;
+use axum::http::{HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::get;
 use axum_extra::extract::cookie::CookieJar;
@@ -105,14 +107,36 @@ pub fn routes() -> Router<AppState> {
     )
 }
 
+#[derive(Template)]
+#[template(path = "refresh.html")]
+struct RefreshPage<'a> {
+    return_to: &'a str,
+}
+
 #[derive(Deserialize)]
-struct DecideQuery {
+struct RefreshQuery {
     #[serde(default)]
     return_to: ReturnPath,
 }
 
-async fn show(Query(query): Query<DecideQuery>) -> Redirect {
-    Redirect::to(&query.return_to.appended_to("/login"))
+// Changes nothing, since a GET never does. With a refresh cookie, the page
+// whose form posts the refresh; without one there is nothing to refresh, so
+// straight to login. Never stored, since it is only ever a step on the way.
+async fn show(jar: CookieJar, Query(query): Query<RefreshQuery>) -> Response {
+    let has_refresh_cookie = jar
+        .get(cookies::REFRESH)
+        .is_some_and(|cookie| !cookie.value().is_empty());
+    if !has_refresh_cookie {
+        return Redirect::to(&query.return_to.appended_to("/login")).into_response();
+    }
+    let page = RefreshPage {
+        return_to: query.return_to.as_str(),
+    };
+    (
+        [(header::CACHE_CONTROL, HeaderValue::from_static("no-store"))],
+        Page(page),
+    )
+        .into_response()
 }
 
 #[derive(Deserialize)]
