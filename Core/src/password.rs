@@ -4,6 +4,9 @@
 //!
 //! Both directions take tens of milliseconds of CPU, so they run on tokio's
 //! blocking pool rather than holding up the request handlers sharing a worker.
+//!
+//! The rule for choosing one lives here too, so registration and reset ask
+//! the same thing of a password; logging in asks nothing of it.
 
 use argon2::Argon2;
 use argon2::password_hash::phc::PasswordHash;
@@ -20,6 +23,21 @@ impl fmt::Display for Error {
 }
 
 impl std::error::Error for Error {}
+
+const NEW_LENGTH: std::ops::RangeInclusive<usize> = 15..=1024;
+const INVALID_NEW: &str = "Choose a password of 15 to 1024 characters.";
+
+/// Whether `password` may be chosen as a new one: 15 to 1024 characters,
+/// counted as characters and taken exactly as typed, never trimmed. The error
+/// is the message the form shows. See "The core's data" in
+/// docs/core-architecture.md for why that is the whole rule.
+pub fn check_new(password: &str) -> Result<(), &'static str> {
+    if NEW_LENGTH.contains(&password.chars().count()) {
+        Ok(())
+    } else {
+        Err(INVALID_NEW)
+    }
+}
 
 /// The PHC string to store for `password`.
 pub async fn hash(password: &str) -> Result<String, Error> {
@@ -70,6 +88,24 @@ mod tests {
     use super::*;
 
     const PASSWORD: &str = "correct horse battery staple";
+
+    #[test]
+    fn a_new_password_must_be_15_to_1024_characters() {
+        let refused = Err("Choose a password of 15 to 1024 characters.");
+        assert_eq!(check_new(&"x".repeat(15)), Ok(()));
+        assert_eq!(check_new(&"x".repeat(1024)), Ok(()));
+        assert_eq!(check_new(&"x".repeat(14)), refused);
+        assert_eq!(check_new(&"x".repeat(1025)), refused);
+        assert_eq!(check_new(""), refused);
+        // Counted as characters, not bytes: fourteen characters of two bytes
+        // each is still too short, and 1024 of them is still allowed.
+        assert_eq!(check_new(&"é".repeat(14)), refused);
+        assert_eq!(check_new(&"é".repeat(1024)), Ok(()));
+        // Never trimmed: the spaces count, so thirteen characters padded with
+        // one space on each side is fifteen, and a password of spaces is one.
+        assert_eq!(check_new(" thirteen char "), Ok(()));
+        assert_eq!(check_new(&" ".repeat(15)), Ok(()));
+    }
 
     #[tokio::test]
     async fn the_right_password_verifies_and_a_wrong_one_does_not() {
