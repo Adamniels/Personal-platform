@@ -1,6 +1,6 @@
-"""Changing a password while logged in, from "Change password" in the nav: the
-password changes, every other session ends, and the one it was changed in
-keeps working. See "Password reset, and changing a password" in
+"""Changing a password while logged in, from "Change password" in the nav's
+user menu: the password changes, every other session ends, and the one it
+was changed in keeps working. See "Password reset, and changing a password" in
 Core/docs/core-architecture.md.
 
 The other session's access token keeps working until it expires, so the test
@@ -31,6 +31,7 @@ def test_change_password_keeps_this_session_and_ends_the_other(
     expect(elsewhere).to_have_url("https://platform.test/")
 
     nav = page.get_by_role("navigation")
+    nav.get_by_role("button", name=email, exact=True).click()
     nav.get_by_role("link", name="Change password", exact=True).click()
 
     expect(page).to_have_url("https://platform.test/settings/password")
