@@ -17,7 +17,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from starlette.testclient import TestClient
 
-from canary.app import create_app
+from canary.app import create_app, render_page
 from canary.keys import KeyCache
 from canary.settings import load
 
@@ -86,6 +86,16 @@ NO_VALID_TOKEN = {
 }
 
 
+def test_a_page_shows_the_account_from_a_cookie_token():
+    account_id = str(uuid.uuid7())
+
+    response = client().get("/canary", headers=cookie(mint(account_id)))
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/html")
+    assert account_id in response.text
+
+
 def test_an_api_call_accepts_the_token_in_an_authorization_header():
     account_id = str(uuid.uuid7())
 
@@ -101,6 +111,24 @@ def test_an_api_call_accepts_the_token_in_the_cookie():
     response = client().get("/canary/api/whoami", headers=cookie(mint(account_id)))
 
     assert response.json() == {"account_id": account_id}
+
+
+@pytest.mark.parametrize("headers", NO_VALID_TOKEN.values(), ids=NO_VALID_TOKEN)
+def test_a_page_without_a_valid_token_redirects_to_refresh_with_the_way_back(headers):
+    response = client().get("/canary?a=1", headers=headers())
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/auth/refresh?return_to=%2Fcanary%3Fa%3D1"
+
+
+def test_the_way_back_is_the_path_as_received():
+    # Already encoded bytes are encoded once more, so the core decodes back
+    # to exactly what the browser sent. Canary never judges the path itself.
+    response = client().get("/canary?q=%2F%3Cx%3E&b=")
+
+    assert response.headers["location"] == (
+        "/auth/refresh?return_to=%2Fcanary%3Fq%3D%252F%253Cx%253E%26b%3D"
+    )
 
 
 @pytest.mark.parametrize("headers", NO_VALID_TOKEN.values(), ids=NO_VALID_TOKEN)
@@ -128,6 +156,7 @@ def test_an_invalid_header_is_not_rescued_by_a_valid_cookie(authorization):
     headers = {**cookie(mint()), "authorization": authorization}
 
     assert client().get("/canary/api/whoami", headers=headers).status_code == 401
+    assert client().get("/canary", headers=headers).status_code == 303
 
 
 def test_two_authorization_headers_are_refused():
@@ -150,10 +179,36 @@ def test_an_unreachable_core_with_no_cached_key_counts_as_no_valid_token():
     unreached = client(core=unreachable)
     token = mint()
 
+    page = unreached.get("/canary", headers=cookie(token))
     api = unreached.get("/canary/api/whoami", headers=bearer(token))
 
+    assert page.status_code == 303
+    assert page.headers["location"] == "/auth/refresh?return_to=%2Fcanary"
     assert api.status_code == 401
     assert api.content == b""
+
+
+def test_the_page_escapes_what_it_shows():
+    # The account id is a UUID by the time it is shown, so nothing in it can
+    # be markup; the page escapes anyway, so the next value shown is safe too.
+    html = render_page('<script>alert("x")</script>')
+
+    assert "<script>alert" not in html
+    assert "&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt;" in html
+
+
+def test_the_page_carries_the_two_nav_lines_and_not_the_cores_stylesheet():
+    text = client().get("/canary", headers=cookie(mint())).text
+
+    assert '<script src="/nav.js" defer></script>' in text
+    assert '<platform-nav current="canary"></platform-nav>' in text
+    assert "core.css" not in text
+
+
+def test_paths_canary_does_not_serve_answer_404():
+    signed_in = cookie(mint())
+    for path in ["/canary/anything", "/canary/api", "/canary/api/nothing", "/"]:
+        assert client().get(path, headers=signed_in).status_code == 404, path
 
 
 def test_the_app_creates_and_closes_its_own_key_cache():
