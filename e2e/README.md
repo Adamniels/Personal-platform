@@ -8,8 +8,15 @@ the platform. A slice is not done until its criteria pass here.
 
 The stack must be up, as `.claude/skills/pick-up-slice/SKILL.md` describes: from `infra/`,
 `docker compose up -d --wait` (step 4, Preflight); `migrate` as the owner role from `Core/` (step
-6, Branch); and the core, canary and the brain, on 8080, 8081 and 8082, as "Starting the platform"
-in step 9 starts them. Then, from this directory:
+6, Branch); every frontend built, since Caddy serves the built pages and the gallery's
+accessibility check injects `design/ui/node_modules/axe-core/axe.min.js`, from the repository root:
+
+```zsh
+for dir in $(bash scripts/ci/frontends.sh); do (cd "$dir" && npm ci && npm run build); done
+```
+
+and the core, canary and the brain, on 8080, 8081 and 8082, as "Starting the platform" in step 9
+starts them. Then, from this directory:
 
 ```zsh
 uv run playwright install chromium   # once

@@ -301,7 +301,9 @@ runner clears between planning sessions.
 
 1. **Tools.** rustup with the stable toolchain, uv, Docker Desktop started at sign in with its
    automatic updates off and its memory at 2 to 4 GB (an update quits Docker Desktop, and it does
-   not always start again; the runner starts it itself when its probe fails), `gh`, `jq`,
+   not always start again; the runner starts it itself when its probe fails), Node 26 for the
+   frontends (`brew install node`, linked into `/opt/homebrew/bin`, with no other Node ahead of it on
+   `PATH`; every run checks `node --version`, see step 4 of `pick-up-slice`), `gh`, `jq`,
    tmux and Claude Code, with `~/.docker/bin` and `. "$HOME/.cargo/env"` in `~/.zprofile`. Docker
    Desktop's credential helper needs the login keychain, which a plain SSH session cannot unlock,
    so a new image is pulled by hand once, over `ssh -t` so the unlock can ask for the password,

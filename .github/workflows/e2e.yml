@@ -62,6 +62,20 @@ jobs:
           } > .env
           cargo run --locked -q -- keygen >> .env
 
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "26"
+
+      # Every frontend is built before the services start, so the pages they
+      # serve exist, and design/ui's install also provides the axe-core the
+      # accessibility check injects. See e2e/README.md.
+      - name: Build every frontend
+        run: |
+          for dir in $(bash scripts/ci/frontends.sh); do
+            echo "== $dir"
+            (cd "$dir" && npm ci && npm run build)
+          done
+
       - name: Point platform.test at this machine
         run: echo "127.0.0.1 platform.test" | sudo tee -a /etc/hosts
 

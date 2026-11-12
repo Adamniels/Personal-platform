@@ -117,6 +117,11 @@ with a final line `Stopped: <reason>` and changes nothing (see Stop).
 
    Docker not running, or a stack that will not come up healthy, ends the run with
    `ENVIRONMENT: <what failed>`. Neither is the slice's problem.
+6. **Node.** `node --version` prints `v26.` followed by the rest of the version, the Node every
+   frontend's `.node-version` names. A `node` that is missing, fails to start or is another major
+   version ends the run with `ENVIRONMENT: node 26 not on PATH (<what node --version printed>)`;
+   never install or switch it yourself. The runbook in `High-level/docs/agent-workflow.md` says how
+   it is installed.
 
 ## 5. Re-read the slice
 
@@ -271,6 +276,9 @@ and in the same order. Read the workflows each run; today they are:
   nothing to run, and the step passes.
 - **scripts** (`ci.yml`): every `scripts/**/*.test.sh`, as the job's loop does:
   `for t in $(find scripts -name '*.test.sh' | sort); do bash "$t" || echo "FAILED $t"; done`.
+- **web** (`web.yml`): in every folder `bash scripts/ci/frontends.sh` prints, as the job's loop
+  does, from that folder: `npm ci`, `npx biome ci .`, `npx tsc --noEmit`, `npx vitest run`,
+  `npm run build`.
 - **e2e** (`e2e.yml`): whenever `e2e=true`, always, against the running stack. Start the platform
   from the branch's code first, as below. Then, from `e2e/`:
   `UV_LOCKED=1 uv run playwright install chromium` (a no op once installed),
@@ -279,8 +287,13 @@ and in the same order. Read the workflows each run; today they are:
 
 **Starting the platform.** Stop any core, canary or brain you started earlier, so the code as it
 is now runs. Stopping one is always done the way step 4 finds it: the listener on its port, from
-`lsof` with `-sTCP:LISTEN`, and only when its command is the core, canary or the brain. From
-`Core/`, `cargo run --locked -q > <tmp>/core.log 2>&1 &`; from `canary/`,
+`lsof` with `-sTCP:LISTEN`, and only when its command is the core, canary or the brain. Build every
+frontend, as `e2e.yml` does, from the repository root:
+`for dir in $(bash scripts/ci/frontends.sh); do (cd "$dir" && npm ci && npm run build); done`;
+a build that fails is a failing step. Recreate Caddy, so it reads the Caddyfile as the branch has
+it, since a change to the mounted file does not reach a running container: from `infra/`,
+`docker compose up -d --wait --force-recreate caddy`. From `Core/`,
+`cargo run --locked -q > <tmp>/core.log 2>&1 &`; from `canary/`,
 `UV_LOCKED=1 uv run uvicorn canary.app:app --host 127.0.0.1 --port 8081 > <tmp>/canary.log 2>&1 &`;
 from `Brain/`,
 `UV_LOCKED=1 uv run uvicorn brain.app:app --host 127.0.0.1 --port 8082 > <tmp>/brain.log 2>&1 &`.
@@ -308,13 +321,13 @@ Leave Postgres, Caddy and Docker running.
 For UI work, look at what you built, not only at whether the tests pass. The before screenshots
 were taken in step 6.
 
-After the gate, with the platform still running the branch's current code (restart it as in step 9
-if anything changed since it started), empty `e2e/screenshots/` (git ignored, generated output) and
-run the suite once more, so `capture()` writes fresh PNGs at desktop and 390px phone width. Open
-each one and look for what a test does not catch: overflow, clipped text, overlapping elements, an
-unreadable phone layout. Fix what you find as part of the task it belongs to, and gate again. Then
-stop the core, canary and the brain you started, as step 9 says to stop them; leave Postgres, Caddy
-and Docker running.
+After the gate, with the platform still running the branch's current code (start it again as in step
+9, frontends built and Caddy recreated, if anything changed since it started), empty
+`e2e/screenshots/` (git ignored, generated output) and run the suite once more, so `capture()`
+writes fresh PNGs at desktop and 390px phone width. Open each one and look for what a test does not
+catch: overflow, clipped text, overlapping elements, an unreadable phone layout. Fix what you find
+as part of the task it belongs to, and gate again. Then stop the core, canary and the brain you
+started, as step 9 says to stop them; leave Postgres, Caddy and Docker running.
 
 ## 11. The pull request
 
@@ -388,10 +401,10 @@ These are the only ways a run ends without an open or updated pull request. Each
 last, so the runner can read it.
 
 - **Environment**, never Blocked, and no board status changes: Docker down, a stack that will not
-  start, `gh` auth or a network failure, the gh guard not first on PATH, a missing `.env`, port
-  8080, 8081 or 8082 held by a process you cannot free, a dirty tree on a branch other than the
-  slice's, not the bot, `migrate` failing on `main`, a database reset that fails, `owner-decision`
-  that cannot be added, CI failing outside the branch. The last line is exactly
+  start, `gh` auth or a network failure, the gh guard not first on PATH, a missing `.env`, no Node
+  26 on PATH, port 8080, 8081 or 8082 held by a process you cannot free, a dirty tree on a branch
+  other than the slice's, not the bot, `migrate` failing on `main`, a database reset that fails,
+  `owner-decision` that cannot be added, CI failing outside the branch. The last line is exactly
   `ENVIRONMENT: <reason>`.
 - **Blocked**, only for a slice problem you cannot decide around: an open blocker, no Acceptance,
   or Acceptance that cannot be written as tests. Set Blocked, post the Blocked comment mentioning

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Checks that CI tests the committed lockfiles: every cargo command in a workflow that resolves
-# dependencies passes --locked, and every job that runs `uv run` sets UV_LOCKED to 1. Without them
-# cargo and uv resolve again when a lockfile does not match its manifest, and the push goes green.
+# dependencies passes --locked, every job that runs `uv run` sets UV_LOCKED to 1, and npm installs
+# only with `npm ci`. Without them cargo, uv and npm resolve again when a lockfile does not match
+# its manifest, and the push goes green.
 # The same checks run on sample workflows, so they cannot pass by matching nothing.
 # Run: bash scripts/ci/workflows-locked.test.sh
 set -uo pipefail
@@ -71,6 +72,29 @@ uv_unlocked() {
   ' "$@"
 }
 
+# npm_unlocked <file>...: prints one line per npm command that installs other than `npm ci`, then
+# "checked <n>", the npm commands that install. `npm install` and its aliases resolve again when
+# package-lock.json does not match package.json, where `npm ci` fails. Comment lines are skipped.
+npm_unlocked() {
+  awk '
+    /^[ \t]*#/ { next }
+    {
+      n = split($0, t, /[ \t]+/)
+      for (i = 1; i <= n; i++) {
+        if (t[i] !~ /^\(?npm$/) continue
+        c = t[i + 1]
+        sub(/[;)&|]+$/, "", c)
+        if (c == "ci") { checked++; continue }
+        if (c ~ /^(install|i|in|add|update|up|upgrade)$/) {
+          checked++
+          printf "%s:%d: npm %s instead of npm ci: %s\n", FILENAME, FNR, c, $0
+        }
+      }
+    }
+    END { printf "checked %d\n", checked }
+  ' "$@"
+}
+
 # check <name> <expected output, exact> <command...>
 check() {
   local name="$1" want="$2" got
@@ -88,6 +112,7 @@ check() {
 real=("$workflows"/*.yml)
 check "cargo steps pass --locked" "checked 8" cargo_unlocked "${real[@]}"
 check "uv jobs set UV_LOCKED" "checked 4" uv_unlocked "${real[@]}"
+check "npm installs with npm ci" "checked 2" npm_unlocked "${real[@]}"
 
 # Sample workflows, so each check is seen to fail.
 tmp="$(mktemp -d)"
@@ -155,6 +180,21 @@ check "sample uv jobs" "$tmp/uv.yml: job unlocked runs uv run without UV_LOCKED:
 $tmp/uv.yml: job step_env_only runs uv run without UV_LOCKED: \"1\" in its env
 $tmp/uv.yml: job set_to_zero runs uv run without UV_LOCKED: \"1\" in its env
 checked 4" uv_unlocked "$tmp/uv.yml"
+
+cat > "$tmp/npm.yml" <<'EOF'
+jobs:
+  check:
+    steps:
+      # npm install in a comment is not a command
+      - run: npm ci
+      - run: npm install
+      - run: (cd design/ui && npm i)
+      - run: npm run build
+      - run: npx vitest run
+EOF
+check "sample npm lines" "$tmp/npm.yml:6: npm install instead of npm ci:       - run: npm install
+$tmp/npm.yml:7: npm i instead of npm ci:       - run: (cd design/ui && npm i)
+checked 3" npm_unlocked "$tmp/npm.yml"
 
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]

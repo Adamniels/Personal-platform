@@ -1,0 +1,40 @@
+/* The page container and type from sections 2 and 4 of design/DESIGN.md. */
+
+.page {
+	box-sizing: border-box;
+	max-width: var(--content-max);
+	margin: 0 auto;
+	padding: var(--space-5) var(--page-pad);
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-5);
+}
+
+.header {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: flex-end;
+	justify-content: space-between;
+	gap: var(--space-4);
+}
+
+.title {
+	margin: 0;
+	font-family: var(--font-heading);
+	font-size: var(--text-h1-size);
+	line-height: var(--text-h1-line);
+	font-weight: 600;
+}
+
+.lead {
+	margin: var(--space-1) 0 0;
+	color: var(--text-2);
+	font-size: var(--text-small-size);
+	line-height: var(--text-small-line);
+}
+
+.sections {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(min(340px, 100%), 1fr));
+	gap: var(--space-4);
+}

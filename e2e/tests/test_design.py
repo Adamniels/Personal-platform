@@ -118,6 +118,7 @@ def test_nothing_else_under_design_is_served(page: Page):
         "/design/DESIGN.md",
         "/design/reference/home-desktop-light.png",
         "/design/ui/package.json",
+        "/design/ui/gallery/dist/index.html",
     ]:
         assert page.request.get(path).status == 404, path
 
