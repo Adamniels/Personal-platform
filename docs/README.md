@@ -2,7 +2,7 @@
 
 Status: exploratory. The walking skeleton is being built.
 
-Last updated: 2026 11 11
+Last updated: 2026 11 12
 
 These are planning notes, not specifications. Everything here is the current best idea with the
 reasoning attached, and it is expected to change as building teaches things planning could not.
@@ -32,6 +32,11 @@ open and what would settle them. There is no separate list of loose ends.
 there live on the GitHub Project, in issues, and nowhere else: each item has a state, matters for
 one feature, and then is history. These docs keep only what outlasts a feature, which includes
 decisions about how the work gets done as well as the architecture.
+
+**Nor is the list of what might get built.** Ideas and candidate features live in the owner's
+planning notes in Notion, at the level of what he wants and why. They reach this repository when
+they are planned, as an issue and, where design outlasts the feature, as a doc. See "Candidate
+features" in `High-level/docs/platform-architecture.md`.
 
 ---
 
@@ -65,8 +70,8 @@ decisions about how the work gets done as well as the architecture.
 
 - `platform-architecture.md` — the brain as a service, dependency and extraction, languages,
   multi user and isolation, the user id, the core's frontend, notifications, databases and
-  migrations, the one repository, the first milestone, memory layers, candidate features, and
-  what is deliberately not being done
+  migrations, the one repository, the first milestone, memory layers, where candidate features
+  are kept, and what is deliberately not being done
 - `feature-contract.md` — what a feature is, what it owns, what it may depend on, how it
   authenticates a request, the two contracts, and where reminders sit
 - `how-we-build.md` — how work is cut and ordered: a walking skeleton, then features cut into
