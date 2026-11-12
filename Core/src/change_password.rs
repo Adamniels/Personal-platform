@@ -5,10 +5,25 @@
 //! reaches this page. See "Password reset, and changing a password" in
 //! docs/core-architecture.md.
 
+use crate::pages::Page;
 use crate::session::Session;
 use crate::{AppState, accounts, password, sessions};
+use askama::Template;
+use axum::Router;
+use axum::extract::{DefaultBodyLimit, Form, Query, State};
+use axum::http::StatusCode;
+use axum::response::{IntoResponse, Redirect, Response};
+use axum::routing::get;
+use serde::Deserialize;
 use std::error::Error;
 use time::OffsetDateTime;
+
+/// The page and the form it posts.
+pub const PATH: &str = "/settings/password";
+
+/// Where a change that succeeded lands, so a reload shows the confirmation
+/// rather than posting the form again.
+const CHANGED_PATH: &str = "/settings/password?changed=1";
 
 /// The one answer for a current password that does not check out, and for
 /// an account that may not change it.
@@ -61,4 +76,77 @@ pub async fn change(
     sessions::revoke_account(&mut transaction, account.id, Some(session.family_id), now).await?;
     transaction.commit().await?;
     Ok(Outcome::Changed)
+}
+
+pub fn routes() -> Router<AppState> {
+    Router::new().route(
+        PATH,
+        get(show)
+            .post(submit)
+            .layer(DefaultBodyLimit::max(16 * 1024)),
+    )
+}
+
+#[derive(Template)]
+#[template(path = "change_password.html")]
+struct ChangePasswordPage<'a> {
+    error: Option<&'a str>,
+    changed: bool,
+}
+
+#[derive(Deserialize)]
+struct Shown {
+    changed: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct ChangeForm {
+    current_password: String,
+    new_password: String,
+}
+
+// Takes `Session` only to require one: the page shows nothing of the
+// account, but without a valid access token it goes to the deciding
+// endpoint and comes back, like any core page.
+async fn show(_: Session, Query(shown): Query<Shown>) -> Page<ChangePasswordPage<'static>> {
+    Page(ChangePasswordPage {
+        error: None,
+        changed: shown.changed.is_some(),
+    })
+}
+
+// 303 to the confirmation on success, with the cookies left alone: this
+// session goes on. A refusal is 422 and the form again, never with a
+// password in it. `Session` comes before the form, so a request without one
+// is sent away before its body is read.
+async fn submit(
+    State(state): State<AppState>,
+    session: Session,
+    Form(form): Form<ChangeForm>,
+) -> Response {
+    let refused = |error| {
+        let page = ChangePasswordPage {
+            error: Some(error),
+            changed: false,
+        };
+        (StatusCode::UNPROCESSABLE_ENTITY, Page(page)).into_response()
+    };
+
+    match change(
+        &state,
+        &session,
+        &form.current_password,
+        &form.new_password,
+        OffsetDateTime::now_utc(),
+    )
+    .await
+    {
+        Ok(Outcome::Changed) => Redirect::to(CHANGED_PATH).into_response(),
+        Ok(Outcome::IncorrectCurrent) => refused(INCORRECT_CURRENT),
+        Ok(Outcome::InvalidPassword(message)) => refused(message),
+        Err(err) => {
+            eprintln!("changing a password failed: {err}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error\n").into_response()
+        }
+    }
 }

@@ -169,6 +169,7 @@ pub fn app(state: AppState, origin: PublicOrigin) -> Router {
         .merge(nav::routes())
         .merge(registration::routes())
         .merge(reset::routes())
+        .merge(change_password::routes())
         .merge(login::routes())
         .merge(refresh::routes())
         .merge(logout::routes());
