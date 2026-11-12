@@ -4,6 +4,7 @@
 pub mod accounts;
 pub mod claims;
 pub mod cookies;
+pub mod display;
 pub mod duration;
 pub mod http;
 pub mod invite;
