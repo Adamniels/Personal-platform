@@ -16,8 +16,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
-    # Throwaway values for a stack that lives as long as the job. The owner's
-    # string is set only on the migrate step, as in core.yml.
+    # Throwaway values for a stack that lives as long as the job. Each owner's
+    # string is set only on its migrate step, as in core.yml and brain.yml, and
+    # the brain's app string only on the step that starts it.
     env:
       CORE_APP_DATABASE_URL: postgres://core_app:ci-only-app@127.0.0.1:5432/core
       # Every compile reads the checked in Core/.sqlx cache. Keygen builds the
@@ -31,14 +32,16 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # Unlike core.yml's service container, compose creates the database and
-      # roles itself from these three passwords.
+      # Unlike the service containers in core.yml and brain.yml, compose
+      # creates the databases and roles itself from these five passwords.
       - name: Write infra/.env
         run: |
           {
             echo POSTGRES_PASSWORD=ci-only-superuser
             echo CORE_OWNER_PASSWORD=ci-only-owner
             echo CORE_APP_PASSWORD=ci-only-app
+            echo BRAIN_OWNER_PASSWORD=ci-only-brain-owner
+            echo BRAIN_APP_PASSWORD=ci-only-brain-app
           } > infra/.env
 
       - name: Install Rust
@@ -86,7 +89,8 @@ jobs:
       # --wait only waits for the container to run, and the image has no
       # healthcheck. Its init time server listens on the unix socket only, so
       # a login over TCP succeeds only once the real server is up with the
-      # roles created.
+      # roles created. brain.sh runs before core.sh, so core_owner logging in
+      # means both have run.
       - name: Wait for Postgres
         working-directory: infra
         env:
@@ -120,8 +124,18 @@ jobs:
         working-directory: canary
         run: nohup uv run uvicorn canary.app:app --host 0.0.0.0 --port 8081 > "$RUNNER_TEMP/canary.log" 2>&1 &
 
+      - name: Migrate the brain
+        working-directory: Brain
+        env:
+          BRAIN_OWNER_DATABASE_URL: postgres://brain_owner:ci-only-brain-owner@127.0.0.1:5432/brain
+        run: uv run brain migrate
+
+      # The brain opens its pool at startup, as brain_app, and refuses to
+      # start without it.
       - name: Start the brain
         working-directory: Brain
+        env:
+          BRAIN_APP_DATABASE_URL: postgres://brain_app:ci-only-brain-app@127.0.0.1:5432/brain
         run: nohup uv run uvicorn brain.app:app --host 0.0.0.0 --port 8082 > "$RUNNER_TEMP/brain.log" 2>&1 &
 
       # /login rather than /, which answers 303 while signed out, and the

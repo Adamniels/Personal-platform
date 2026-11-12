@@ -1,5 +1,6 @@
-# The brain's checks: lint, format, types and tests. Runs only when the brain
-# changes, see "One repository" in High-level/docs/platform-architecture.md.
+# The brain's checks: lint, format, types, migrations and tests against a real
+# Postgres. Runs only when the brain changes, see "One repository" in
+# High-level/docs/platform-architecture.md.
 name: Brain
 
 on:
@@ -15,10 +16,28 @@ jobs:
   check:
     runs-on: ubuntu-latest
 
-    # Every uv run fails on a uv.lock that does not match pyproject.toml,
-    # instead of updating it, so the lockfile is what gets tested.
+    services:
+      postgres:
+        # Must match the image in infra/compose.yaml.
+        image: postgres:18
+        env:
+          POSTGRES_PASSWORD: ci-only-superuser
+        ports:
+          - "5432:5432"
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 15
+
     env:
+      # Every uv run fails on a uv.lock that does not match pyproject.toml,
+      # instead of updating it, so the lockfile is what gets tested.
       UV_LOCKED: "1"
+      # Throwaway passwords for a database that lives as long as the job. The
+      # app role's string is what the brain and its tests connect as; the
+      # owner's and the superuser's are set only on the steps that need them.
+      BRAIN_APP_DATABASE_URL: postgres://brain_app:ci-only-app@127.0.0.1:5432/brain
 
     defaults:
       run:
@@ -26,6 +45,18 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7
+
+      # Service containers start before the checkout exists, so the init
+      # script compose mounts runs here instead, from the runner.
+      - name: Create the brain's database and roles
+        env:
+          PGHOST: 127.0.0.1
+          PGPASSWORD: ci-only-superuser
+          POSTGRES_USER: postgres
+          POSTGRES_DB: postgres
+          BRAIN_OWNER_PASSWORD: ci-only-owner
+          BRAIN_APP_PASSWORD: ci-only-app
+        run: bash ../infra/postgres/initdb/brain.sh
 
       # uv then finds a Python matching Brain/.python-version, the runner's
       # own if it has one, or downloads it.
@@ -42,5 +73,16 @@ jobs:
       - name: Types
         run: uv run mypy
 
+      # The command itself, on the job's real brain database, as the owner.
+      # The tests migrate databases of their own.
+      - name: Migrate
+        env:
+          BRAIN_OWNER_DATABASE_URL: postgres://brain_owner:ci-only-owner@127.0.0.1:5432/brain
+        run: uv run brain migrate
+
+      # The superuser, for the test harness to create a database per test.
+      # Only this step holds it, see Brain/tests/harness.py.
       - name: Test
+        env:
+          BRAIN_TEST_ADMIN_DATABASE_URL: postgres://postgres:ci-only-superuser@127.0.0.1:5432/postgres
         run: uv run pytest
