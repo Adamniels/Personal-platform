@@ -15,9 +15,11 @@ import jwt
 import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from starlette.requests import Request
 from starlette.testclient import TestClient
 
 from canary.app import create_app, render_page
+from canary.auth import bearer_token
 from canary.keys import KeyCache
 from canary.settings import load
 
@@ -160,13 +162,20 @@ def test_an_invalid_header_is_not_rescued_by_a_valid_cookie(authorization):
 
 
 def test_two_authorization_headers_are_refused():
+    # Two valid headers, so only the count can refuse them. The request is
+    # built from a raw scope first, with no client that could fold the two
+    # into one value, which the space in it would refuse for another reason.
     token = mint()
+    raw = [(b"authorization", f"Bearer {token}".encode())]
+    assert bearer_token(Request({"type": "http", "headers": raw})) == token
+    assert bearer_token(Request({"type": "http", "headers": raw * 2})) is None
+
     headers = [
         ("authorization", f"Bearer {token}"),
         ("authorization", f"Bearer {token}"),
     ]
-
     assert client().get("/canary/api/whoami", headers=headers).status_code == 401
+    assert client().get("/canary", headers=headers).status_code == 303
 
 
 def test_the_bearer_scheme_is_case_insensitive():
