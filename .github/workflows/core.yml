@@ -76,24 +76,24 @@ jobs:
         env:
           CORE_OWNER_DATABASE_URL: postgres://core_owner:ci-only-owner@127.0.0.1:5432/core
           SQLX_OFFLINE: "true"
-        run: cargo run -- migrate
+        run: cargo run --locked -- migrate
 
       - name: Clippy
-        run: cargo clippy --all-targets -- -D warnings
+        run: cargo clippy --locked --all-targets -- -D warnings
 
       # The superuser, for the test harness to create a database per test.
       # Only this step holds it, see Core/tests/common/mod.rs.
       - name: Test
         env:
           CORE_TEST_ADMIN_DATABASE_URL: postgres://postgres:ci-only-superuser@127.0.0.1:5432/postgres
-        run: cargo test
+        run: cargo test --locked
 
       # The negative control: each app role check run as the owner, where it
       # must fail. The only step besides Migrate holding the owner's string.
       - name: Test the app role checks fail for the owner
         env:
           CORE_OWNER_DATABASE_URL: postgres://core_owner:ci-only-owner@127.0.0.1:5432/core
-        run: cargo test --test app_roles -- --ignored
+        run: cargo test --locked --test app_roles -- --ignored
 
       # Must match the sqlx version in Cargo.toml. The cache keeps ~/.cargo/bin,
       # so this is close to a no op after the first run.
@@ -102,4 +102,4 @@ jobs:
 
       # Fails when a query changed without regenerating Core/.sqlx/.
       - name: Check the offline query cache
-        run: cargo sqlx prepare --check -- --all-targets
+        run: cargo sqlx prepare --check -- --all-targets --locked
