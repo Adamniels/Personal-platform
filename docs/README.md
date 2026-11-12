@@ -55,6 +55,7 @@ features" in `High-level/docs/platform-architecture.md`.
 | `Core/docs/`        | The core: auth, accounts, routing, the registry, and its own frontend        |
 | `Brain/docs/`       | The brain: memory, the trust model, events, retrieval, and its tables        |
 | `libs/`             | Shared libraries owned by no service, token verification first, not yet built |
+| `design/`           | The platform's visual style: its values, the rules for using them, examples   |
 | `canary/`           | Canary, the Python feature proving another language can verify the token     |
 | `desk/docs/`        | Desk, the feature for working through the day, described but not yet built   |
 | `infra/`            | The Caddyfile, the compose file and the feature registry                     |
@@ -103,6 +104,14 @@ features" in `High-level/docs/platform-architecture.md`.
 
 - `desk-architecture.md` — the problem and the Notion evidence behind it, why desk is one
   feature, projects, sessions, the calendar on top of Google, views, review, and what is open
+
+**Design**
+
+- `design/DESIGN.md` — how every page must look: the hard rules, layout, each component, the agent
+  avatars and the fonts. It decides style and never what a page contains, which comes from its
+  slice; section 0 draws that line
+- `design/tokens.css` — every colour, size and type value as a named variable, light and dark
+- `design/reference/` — designed screens as examples of the style, their content illustrative only
 
 **Infra**
 

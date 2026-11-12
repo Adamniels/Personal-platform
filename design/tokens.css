@@ -1,0 +1,174 @@
+/*
+ * Personal Platform design tokens, v1 (ink navy and amber).
+ * Source of truth for every colour, size and type value in the UI.
+ * Rules for using them are in DESIGN.md. Components must use these
+ * variables only: no raw hex values, no sizes outside the scales.
+ *
+ * Theming: light is the default. Dark applies when the root element has
+ * data-theme="dark", or when the system prefers dark and the root does
+ * not have data-theme="light". Components never contain theme conditions.
+ */
+
+:root {
+  color-scheme: light;
+
+  /* Colour: surfaces */
+  --bg: #F3F4F7;            /* app ground behind everything */
+  --surface: #FFFFFF;       /* cards, tables, nav bar, dialogs, fields */
+  --surface-2: #EBEDF2;     /* table header, hover row, inset areas, neutral badge */
+  --border: #D5D9E2;        /* dividers and panel outlines */
+  --border-strong: #8A91A3; /* outline of fields, checkboxes, secondary buttons (3:1) */
+
+  /* Colour: text. All three pass 4.5:1 on bg, surface and surface-2. */
+  --text: #171C2C;          /* primary text and headings */
+  --text-2: #4D556B;        /* secondary text, inactive nav */
+  --text-3: #5F677C;        /* captions, placeholders, meta. Faintest allowed */
+
+  /* Colour: accent (amber) */
+  --accent: #E5A23A;        /* primary button fill, progress */
+  --on-accent: #1A1505;     /* text on accent fill */
+  --accent-border: #8A5200; /* outline of primary button, selected tab, selected panel */
+  --accent-text: #8A5200;   /* amber as text: "needs you" status, work events */
+  --accent-soft: #FBEFD9;   /* attention badge and work event fill */
+
+  /* Colour: status */
+  --info: #2B55C7;          /* links, running status, study events */
+  --info-soft: #E3EAFB;     /* info badge fill, selected or editing row */
+  --ok: #1F6B45;            /* done and confirmed status */
+  --ok-soft: #DDF1E6;
+  --danger: #B3261E;        /* errors, failed status, destructive actions */
+  --danger-soft: #FBE4E1;
+  --focus: #2B55C7;         /* focus ring */
+
+  /* Elevation. Cards, tables and panels use a 1px border and no shadow. */
+  --shadow-1: 0 2px 8px rgba(23, 28, 44, 0.12);   /* menus, toasts */
+  --shadow-2: 0 12px 32px rgba(23, 28, 44, 0.20); /* dialogs */
+
+  /* Type families */
+  --font-ui: Inter, system-ui, sans-serif;
+  --font-heading: "Space Grotesk", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  /* Type scale: size / line height. Minimum text size is 12px. */
+  --text-display-size: 28px;  --text-display-line: 34px;  /* heading font, 600. Home page title only */
+  --text-h1-size: 22px;       --text-h1-line: 28px;       /* heading font, 600. One per page */
+  --text-h2-size: 17px;       --text-h2-line: 24px;       /* heading font, 600. Card and section titles */
+  --text-body-lg-size: 16px;  --text-body-lg-line: 24px;  /* ui font, 400. Notes, lessons */
+  --text-body-size: 14px;     --text-body-line: 20px;     /* ui font, 400 (600 for emphasis). Default */
+  --text-small-size: 13px;    --text-small-line: 18px;    /* ui font, 400. Secondary lines, help text */
+  --text-caption-size: 12px;  --text-caption-line: 16px;  /* ui font, 500. Labels, badges, table headers */
+  --text-mono-size: 12px;     --text-mono-line: 16px;     /* mono font, 400. Times, dates, ids, table numbers */
+
+  /* Spacing, 4px base */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+
+  /* Corner radius */
+  --radius-sm: 4px;     /* badges, checkboxes */
+  --radius-md: 6px;     /* buttons, fields, tabs, calendar events, kanban cards */
+  --radius-lg: 10px;    /* cards, dialogs, table wrappers */
+  --radius-full: 999px; /* avatars (round), dots, pills */
+
+  /* Sizes */
+  --control-h: 36px;     /* buttons, fields, selects, tabs */
+  --row-h: 36px;         /* table and list rows */
+  --nav-h: 56px;         /* top bar on desktop, bottom tab bar on phone */
+  --content-max: 1232px; /* centred page container */
+  --page-pad: 32px;      /* side padding of the page container */
+  --reading-max: 68ch;   /* notes, lessons, briefings */
+  --input-font-size: 14px;
+
+  /* Focus ring: outline: var(--focus-ring); outline-offset: var(--focus-offset); */
+  --focus-ring: 2px solid var(--focus);
+  --focus-offset: 2px;
+}
+
+/* Dark values. Keep this block and the media query block below identical. */
+[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0D1220;
+  --surface: #141A2B;
+  --surface-2: #1B2236;
+  --border: #283149;
+  --border-strong: #66739A;
+  --text: #E6E9F2;
+  --text-2: #A3ACC2;
+  --text-3: #8791AA;
+  --accent: #E5A23A;
+  --on-accent: #1A1505;
+  --accent-border: #E5A23A;
+  --accent-text: #F0B85C;
+  --accent-soft: #33280F;
+  --info: #8FB0FF;
+  --info-soft: #1A2748;
+  --ok: #6FCF9A;
+  --ok-soft: #12301F;
+  --danger: #FF8F85;
+  --danger-soft: #3A1614;
+  --focus: #8FB0FF;
+  --shadow-1: 0 2px 8px rgba(0, 0, 0, 0.5);
+  --shadow-2: 0 12px 32px rgba(0, 0, 0, 0.6);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #0D1220;
+    --surface: #141A2B;
+    --surface-2: #1B2236;
+    --border: #283149;
+    --border-strong: #66739A;
+    --text: #E6E9F2;
+    --text-2: #A3ACC2;
+    --text-3: #8791AA;
+    --accent: #E5A23A;
+    --on-accent: #1A1505;
+    --accent-border: #E5A23A;
+    --accent-text: #F0B85C;
+    --accent-soft: #33280F;
+    --info: #8FB0FF;
+    --info-soft: #1A2748;
+    --ok: #6FCF9A;
+    --ok-soft: #12301F;
+    --danger: #FF8F85;
+    --danger-soft: #3A1614;
+    --focus: #8FB0FF;
+    --shadow-1: 0 2px 8px rgba(0, 0, 0, 0.5);
+    --shadow-2: 0 12px 32px rgba(0, 0, 0, 0.6);
+  }
+}
+
+/* Phone layout: the single breakpoint. Touch targets grow to 44px. */
+@media (max-width: 639.98px) {
+  :root {
+    --control-h: 44px;
+    --row-h: 44px;
+    --page-pad: 16px;
+    --input-font-size: 16px;
+  }
+}
+
+/* Base rules every page gets. */
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: var(--text-body-size);
+  line-height: var(--text-body-line);
+}
+
+a { color: var(--info); }
+a:hover { color: var(--text); }
+
+button, input, select, textarea { font: inherit; }
+
+:is(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: var(--focus-offset);
+}
