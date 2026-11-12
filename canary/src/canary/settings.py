@@ -8,12 +8,26 @@ startup instead of quietly becoming the default. Canary loads no `.env` file;
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass
+from enum import StrEnum
 from urllib.parse import SplitResult, urlsplit
 
 DEFAULT_CORE_URL = "http://127.0.0.1:8080"
 DEFAULT_PUBLIC_ORIGIN = "https://platform.test"
 
 DEFAULT_PORTS = {"http": 80, "https": 443}
+
+
+class DisplayMode(StrEnum):
+    """How the display endpoint behaves, so the front page can be watched
+    rendering without canary. Changed by restarting canary, never at runtime,
+    since a toggle would be a state changing endpoint of its own."""
+
+    NORMAL = "normal"
+    # Every display request answers 500.
+    ERROR = "error"
+    # Every display request sleeps far past any deadline, until the client
+    # gives up.
+    HANG = "hang"
 
 
 class SettingsError(ValueError):
@@ -26,6 +40,8 @@ class Settings:
     core_url: str
     # The platform's origin as a browser sends it, for the Origin check.
     public_origin: str
+    # What the display endpoint does, see `DisplayMode`.
+    display_mode: DisplayMode
 
 
 def load(environ: Mapping[str, str]) -> Settings:
@@ -33,6 +49,9 @@ def load(environ: Mapping[str, str]) -> Settings:
         core_url=_setting(environ, "CANARY_CORE_URL", DEFAULT_CORE_URL, parse_core_url),
         public_origin=_setting(
             environ, "CANARY_PUBLIC_ORIGIN", DEFAULT_PUBLIC_ORIGIN, parse_origin
+        ),
+        display_mode=_setting(
+            environ, "CANARY_DISPLAY_MODE", DisplayMode.NORMAL, parse_display_mode
         ),
     )
 
@@ -54,6 +73,15 @@ def parse_core_url(text: str) -> str:
             f"{text!r} is not a URL like http://127.0.0.1:8080: scheme, host and optional port, nothing after it"
         )
     return text
+
+
+def parse_display_mode(text: str) -> DisplayMode:
+    """One of the mode names exactly, lowercase and with nothing around it."""
+    try:
+        return DisplayMode(text)
+    except ValueError:
+        names = ", ".join(mode.value for mode in DisplayMode)
+        raise ValueError(f"{text!r} is not a display mode: one of {names}") from None
 
 
 def parse_origin(text: str) -> str:
