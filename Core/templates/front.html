@@ -2,10 +2,35 @@
 
 {% block title %}Home{% endblock %}
 
+{% block main_class %} class="wide"{% endblock %}
+
 {% block nav %}<platform-nav current="home"></platform-nav>{% endblock %}
 
 {% block content %}
 <h1>Platform</h1>
-<p>Logged in as account <code>{{ account_id }}</code>.</p>
-{#- The feature cards (#31) replace this. #}
+{#- One card per feature with display data, in registry order. What each one
+    shows is decided here from the feature's data, see src/cards.rs. #}
+{%- if cards.is_empty() %}
+<p class="hint">No feature has anything for the front page yet.</p>
+{%- else %}
+<div class="cards">
+{%- for card in cards %}
+{%- match card %}
+{%- when Card::Canary(canary) %}
+  <article class="card">
+    <h2><a href="/canary">Canary</a></h2>
+    <p>Verified your token in Python {{ canary.python_version }}</p>
+    <p>Account <code>{{ canary.account_id }}</code></p>
+    <p>Token valid until {{ canary.valid_until() }} UTC</p>
+    <p>Key <code>{{ canary.key_id_prefix() }}</code></p>
+  </article>
+{%- when Card::Unavailable { name } %}
+  <article class="card unavailable">
+    <h2>{{ name }}</h2>
+    <p>{{ name }} could not be reached.</p>
+  </article>
+{%- endmatch %}
+{%- endfor %}
+</div>
+{%- endif %}
 {% endblock %}
