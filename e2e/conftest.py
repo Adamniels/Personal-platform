@@ -3,6 +3,7 @@
 import re
 import subprocess
 import uuid
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -11,7 +12,7 @@ from playwright.sync_api import Page, expect
 ROOT = Path(__file__).parent
 CORE = ROOT.parent / "Core"
 SCREENSHOTS = ROOT / "screenshots"
-INVITE_TIMEOUT_SECONDS = 600
+COMMAND_TIMEOUT_SECONDS = 600
 
 VIEWPORTS = {
     "desktop": {"width": 1280, "height": 800},
@@ -26,32 +27,47 @@ def browser_context_args(browser_context_args):
     return {**browser_context_args, "ignore_https_errors": True}
 
 
-@pytest.fixture
-def invite_code() -> str:
-    """A fresh single use invite code, minted by the core's own command."""
+def _core_command(*args: str) -> str:
+    """Runs one of the core's commands in Core/ and returns its stdout,
+    stripped. A failure or a hang fails the test, not the whole run."""
+    command = " ".join(args)
     # The first call may compile the core, so the timeout is generous. It is
     # there so a hung build fails the test instead of the whole CI job.
     try:
         result = subprocess.run(
-            ["cargo", "run", "-q", "--", "invite"],
+            ["cargo", "run", "-q", "--", *args],
             cwd=CORE,
             capture_output=True,
             text=True,
             check=False,
-            timeout=INVITE_TIMEOUT_SECONDS,
+            timeout=COMMAND_TIMEOUT_SECONDS,
         )
     except subprocess.TimeoutExpired:
         pytest.fail(
-            f"cargo run -- invite did not finish in {INVITE_TIMEOUT_SECONDS}s",
+            f"cargo run -- {command} did not finish in {COMMAND_TIMEOUT_SECONDS}s",
             pytrace=False,
         )
     if result.returncode != 0:
         tail = "\n".join(result.stderr.splitlines()[-20:])
         pytest.fail(
-            f"cargo run -- invite failed, last 20 lines of stderr:\n{tail}",
+            f"cargo run -- {command} failed, last 20 lines of stderr:\n{tail}",
             pytrace=False,
         )
     return result.stdout.strip()
+
+
+@pytest.fixture
+def invite_code() -> str:
+    """A fresh single use invite code, minted by the core's own command."""
+    return _core_command("invite")
+
+
+@pytest.fixture
+def reset_token() -> Callable[[str], str]:
+    """A function that mints a reset token for the account with an email, by
+    the core's own command, as the owner would. A function, since the account
+    usually exists only once the test has registered it."""
+    return lambda email: _core_command("reset", email)
 
 
 @pytest.fixture(params=list(VIEWPORTS), ids=lambda name: name)
