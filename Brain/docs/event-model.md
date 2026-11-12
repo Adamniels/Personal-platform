@@ -3,7 +3,7 @@
 Working document. Covers the shape of memory events. Companion to `knowledge-model.md`, which
 covers what the brain is trying to know. This one covers how evidence gets in.
 
-Last updated: 2026 10 08
+Last updated: 2026 11 12
 
 **Read this as multi user.** The platform is multi user and every user has their own
 isolated brain. The event kinds, the shape, the verbs and the consolidation rules are generic.
@@ -86,6 +86,12 @@ evidence:  "Decided the brain is its own service, because splitting memory acros
 payload:   { decision: "brain is its own service",
              rejected: ["memory inside core backend"] }
 ```
+
+**Two things the examples leave out, both in the table.** An event's subject may also be a memory
+item, for what the owner did to it: an edit, a retirement, a confirmation that it still holds. And
+`occurred` carries a precision, an instant, a day, a month or a year, because "I took that course
+in 2021" is true to the year and should not be shown as if it were known to the minute. The table
+is in `data-model.md`.
 
 **Context says where the event came from.** The origin is the feature that emitted it, or the
 brain itself when the entry was made directly in the memory centre. A run groups the events from

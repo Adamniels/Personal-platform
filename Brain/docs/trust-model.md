@@ -1,8 +1,8 @@
 # The trust model
 
-Status: exploratory. Nothing is built.
+Status: decided for the first version, which is being built.
 
-Last updated: 2026 09 03
+Last updated: 2026 11 12
 
 Who is allowed to change what, when a written thing takes effect, and how belief is scored and
 corrected. This is the densest part of the design and the pieces below only make sense together.
@@ -31,9 +31,15 @@ The owner can retire or edit anything in their own brain, not only rules. That m
 is what makes the rest of this safe: whatever the system concludes, there is a place to go and
 correct it. Related: consolidation proposes, it never silently rewrites.
 
-comment to remove after we gone through this: really have to think what a session means and how we keep track of that, it might be up to each
-feature to keep track of it, like learning sessions, it should hold every time I work with that
-session even if I opened a new chat in it.
+**Purging is the one way anything is destroyed, and it is not part of the service.** Something that
+truly must be gone, a password pasted into a field by mistake, cannot be answered by retiring it,
+since a retired item stays readable. A command run from a terminal as the owning role removes one
+entry for good: every version of it, what hangs on it, and the events that supported nothing else.
+It shows what it will remove and asks before doing it. It is the named, deliberate bypass path
+that "Multi user, and how isolation is enforced" in `High-level/docs/platform-architecture.md` asks
+for, in place of an ad hoc superuser connection. Row level security still applies to it, so it is
+told which account it acts for. There is no button for it anywhere: a button would make destroying
+memory an everyday action, and everything above rests on it not being one.
 
 ## Authority follows the store, not the source
 
@@ -221,3 +227,9 @@ example, and it cannot be reconstructed later, so the lifecycle has to preserve 
 
 The rest, what a proposal looks like while it waits and what happens to one nobody ever answers,
 gets written when the queue is built.
+
+## Open: what a session is
+
+What a session means across the platform, and who keeps track of it, is not settled. It may be up
+to each feature: a learning session should hold every time the owner works with it, even across
+several conversations. It is decided when the first feature with sessions is planned.
