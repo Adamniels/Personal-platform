@@ -32,7 +32,8 @@ and never reads the hosts file, so it reports `NXDOMAIN`, which is expected.
 ## Caddy
 
 Caddy serves `https://platform.test`, routing `/canary` and everything under it to canary, prefix
-kept, and the rest to the core. Why Caddy, rather than Traefik or nginx, is in "Routing" in
+kept, serving a few files of the design folder itself under `/design/` (see "The design folder"
+below), and routing the rest to the core. Why Caddy, rather than Traefik or nginx, is in "Routing" in
 `Core/docs/core-architecture.md`. The core and canary run natively, on 8080 and 8081, and Caddy
 runs in compose. From this directory:
 
@@ -57,6 +58,26 @@ container reading the old one. After editing it, recreate the container rather t
 docker compose run --rm caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
 docker compose up -d --force-recreate caddy
 ```
+
+## The design folder
+
+Every page takes the platform's look from one place: `design/` at the repository root, which
+compose mounts read only at `/srv/design` in the Caddy container. Caddy serves exactly these paths
+from it, as plain files, and nothing else:
+
+- `/design/tokens.css`, the values
+- `/design/fonts.css` and `/design/fonts/*`, the fonts, hosted here so no page asks an outside host
+  for one
+- `/design/sprites/*`, the agent avatars
+
+Every other path under `/design/` answers `404` from Caddy, `DESIGN.md` and `reference/` among
+them, since those are for the agents building pages and not for the browser. A slice that needs
+another file served adds its path to the `@design` matcher in the Caddyfile. Each response carries
+`Cache-Control: no-cache` with an `ETag`, so a browser revalidates on every load and sees a change
+to the look at once, while an unchanged file costs a `304`.
+
+A change to a file under `design/` is served at once, since the folder is mounted. A change to the
+Caddyfile, a new path for instance, needs Caddy recreated, as above.
 
 ## The feature registry
 
