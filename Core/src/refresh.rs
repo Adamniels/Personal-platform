@@ -147,9 +147,11 @@ struct RefreshForm {
     return_to: ReturnPath,
 }
 
-// Always 303, for a form and a fetch alike: back to the return path with both
-// cookies set, or to login with both cleared, so a dead cookie is not sent
-// again on the way back.
+// 303, for a form and a fetch alike: back to the return path with both cookies
+// set, or to login with both cleared, so a dead cookie is not sent again on the
+// way back. A server error is the one other answer, 500 with the cookies left
+// alone, since an outage is not a dead session and clearing them would log
+// everyone out over a blip.
 async fn submit(
     State(state): State<AppState>,
     jar: CookieJar,

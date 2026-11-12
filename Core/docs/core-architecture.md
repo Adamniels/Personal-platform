@@ -214,10 +214,13 @@ small page whose form posts to the same path at once, with one line of inline sc
 button if scripts are off. A GET without a refresh cookie has nothing to refresh, so it goes
 straight to the login page with the return path, and an anonymous visitor never sees the refresh
 page. The POST passes the same `Origin` check as everything else, and it is the same request a
-frontend's `fetch` makes after a 401, so refresh has one behaviour however it is reached. It costs
-a round trip at most once every thirty minutes. Keeping refresh as a GET would have been
-defensible, since a forced refresh only rotates your tokens inside your own browser, but a rule
-with one justified exception is how the next one arrives.
+frontend's `fetch` makes after a 401, so refresh has one behaviour however it is reached. It
+answers 303, back with both cookies set or to login with both cleared, and a server error is the
+one other answer: 500, with the cookies left alone, since an outage is not a dead session and
+clearing them would log everyone out over a blip. It costs a round trip at most once every thirty
+minutes. Keeping refresh as a GET would have been defensible, since a forced refresh only rotates
+your tokens inside your own browser, but a rule with one justified exception is how the next one
+arrives.
 
 **A return path is only ever a relative path**, starting with a single `/`. An absolute URL or one
 starting with `//` is dropped and replaced with the front page. Without that, the login page is an
