@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+
+{% block title %}Log out{% endblock %}
+
+{#- No `current`: the page is neither home nor a feature. With the access token
+    already expired, the bar shows the home link alone. #}
+{% block nav %}<platform-nav></platform-nav>{% endblock %}
+
+{% block content %}
+<h1>Log out</h1>
+
+<p>This ends your session in this browser.</p>
+
+{#- A GET never changes state, so the logout is this POST. #}
+<form method="post" action="/auth/logout">
+  <button type="submit">Log out</button>
+</form>
+
+<p><a href="/">Cancel</a></p>
+{% endblock %}

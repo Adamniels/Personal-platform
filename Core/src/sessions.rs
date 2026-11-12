@@ -61,6 +61,27 @@ pub async fn find(
     .await
 }
 
+/// Locks the family of the token `id` until the end of the transaction
+/// `executor` belongs to; outside one it is released at once and protects
+/// nothing. Rotating and revoking both take it first, so neither runs while
+/// the other is part way through: a revoke that waited on a rotation then
+/// sees the row it stored, and a rotation that waited on a revoke finds its
+/// token revoked. Without it, a refresh committing during a logout leaves its
+/// new row live, since under READ COMMITTED the revoke's snapshot predates
+/// the insert. A transaction scoped advisory lock keyed by the family id,
+/// since there is no row per family to lock; two families whose keys
+/// collide only wait for each other. Nothing to lock when nothing matches.
+pub async fn lock_family(executor: impl PgExecutor<'_>, id: Uuid) -> Result<(), sqlx::Error> {
+    sqlx::query!(
+        r#"SELECT pg_advisory_xact_lock(hashtextextended(family_id::text, 0))::text AS "locked"
+           FROM sessions WHERE id = $1"#,
+        id,
+    )
+    .fetch_optional(executor)
+    .await?;
+    Ok(())
+}
+
 /// What marking a token used returns: what its successor copies.
 pub struct Marked {
     pub account_id: Uuid,
@@ -91,8 +112,9 @@ pub async fn mark_used(
 
 /// Rotates the token `id` at `now`: marks it used and stores the next token of
 /// its family, for the same account, expiring fourteen days out or at the
-/// family's unchanged cap. One transaction, so a token is never used without
-/// a successor. `None` when the mark changed nothing, because another request
+/// family's unchanged cap. One transaction, holding the family's lock, so a
+/// token is never used without a successor and a revoke never misses the
+/// successor. `None` when the mark changed nothing, because another request
 /// rotated it first or it was revoked; nothing is stored then. Nothing is
 /// ever deleted, the used row is what will make reuse detectable.
 pub async fn rotate(
@@ -101,6 +123,7 @@ pub async fn rotate(
     now: OffsetDateTime,
 ) -> Result<Option<Issued>, sqlx::Error> {
     let mut transaction = pool.begin().await?;
+    lock_family(&mut *transaction, id).await?;
     let Some(marked) = mark_used(&mut *transaction, id, now).await? else {
         return Ok(None);
     };
@@ -114,6 +137,27 @@ pub async fn rotate(
     .await?;
     transaction.commit().await?;
     Ok(Some(issued))
+}
+
+/// Revokes every token of family `family_id` at `now`, and returns how many
+/// rows it marked. A row already revoked keeps the time it was first revoked,
+/// and nothing is deleted, so a used row still makes reuse detectable. Takes
+/// an executor, so a flow that revokes as one step of several can call it
+/// inside its transaction. See "Nothing about a session is deleted in normal
+/// operation" in docs/core-architecture.md.
+pub async fn revoke_family(
+    executor: impl PgExecutor<'_>,
+    family_id: Uuid,
+    now: OffsetDateTime,
+) -> Result<u64, sqlx::Error> {
+    let result = sqlx::query!(
+        "UPDATE sessions SET revoked_at = $2 WHERE family_id = $1 AND revoked_at IS NULL",
+        family_id,
+        now,
+    )
+    .execute(executor)
+    .await?;
+    Ok(result.rows_affected())
 }
 
 // Stores a new token of family `family_id`, issued at `now`, hashed.
