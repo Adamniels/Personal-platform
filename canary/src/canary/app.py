@@ -5,6 +5,8 @@ from starlette.requests import Request
 from starlette.responses import HTMLResponse
 from starlette.routing import Route
 
+from canary.settings import SETTINGS
+
 
 async def echo_path(request: Request) -> HTMLResponse:
     path = escape(request.url.path)
@@ -19,3 +21,6 @@ app = Starlette(
         Route("/canary/{rest:path}", echo_path),
     ]
 )
+
+# Loaded at import, so a malformed setting stops uvicorn before it serves.
+app.state.settings = SETTINGS
