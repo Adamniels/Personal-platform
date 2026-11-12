@@ -8,8 +8,8 @@
 // link gets aria-current="page". The bar fetches /api/nav and renders a home
 // link, one link per feature, who is logged in and a link to log out. It
 // renders and links and does nothing else: when /api/nav fails it shows the
-// home link alone, and it never redirects or refreshes the session. See "Navigation" in
-// High-level/docs/platform-architecture.md.
+// home link alone, and it never redirects or refreshes the session. See
+// "Navigation" in High-level/docs/platform-architecture.md.
 //
 // Plain JavaScript with no build step and no dependency. Its styles live in
 // its shadow root, so it looks the same on a page that shares no stylesheet
