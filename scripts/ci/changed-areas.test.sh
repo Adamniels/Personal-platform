@@ -26,6 +26,7 @@ check "canary source" "core=false canary=true scripts=false e2e=true" "canary/ap
 check "scripts" "core=false canary=false scripts=true e2e=false" "scripts/ci/ci-ok.sh"
 check "claude settings" "core=false canary=false scripts=true e2e=false" ".claude/settings.json"
 check "e2e dir" "core=false canary=false scripts=false e2e=true" "e2e/run.sh"
+check "contract fixture" "core=true canary=true scripts=false e2e=true" "contracts/token/token.jwt"
 check "workflow sets all" "core=true canary=true scripts=true e2e=true" ".github/workflows/core.yml"
 check "mixed paths" "core=true canary=false scripts=true e2e=true" "docs/a.md
 Core/Cargo.toml

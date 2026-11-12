@@ -7,6 +7,7 @@ pub mod cookies;
 pub mod duration;
 pub mod invite;
 pub mod issuer;
+pub mod jwks;
 pub mod login;
 pub mod origin;
 pub mod pages;
@@ -143,6 +144,7 @@ pub fn app(state: AppState, origin: PublicOrigin) -> Router {
     let routes = Router::new()
         .route("/", get(root))
         .route("/assets/core.css", get(pages::stylesheet))
+        .merge(jwks::routes())
         .merge(registration::routes())
         .merge(login::routes())
         .merge(refresh::routes());
