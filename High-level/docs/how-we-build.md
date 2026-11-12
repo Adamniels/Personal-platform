@@ -170,8 +170,10 @@ bad interleaving passes whether or not the code is right.
 **A feature's authentication tests are part of the feature template.** Verifying the core's token
 is the one piece of security logic every feature carries, and the ways it gets broken are known:
 an expired token, a bad signature, an unknown key id, and a token naming an algorithm it should not,
-`none`, or a symmetric one keyed with the public key. `canary` carries these, along with a test
-verifying a token the core actually produced, and every feature after it starts from them.
+`none`, or a symmetric one keyed with the public key. `platform-auth`, the library every Python
+service verifies with, carries these, along with a test verifying a token the core actually
+produced. A feature that installs it still sends them through its own routes, as the brain's
+`tests/test_whoami.py` does, since the library cannot tell whether a route is behind it.
 
 **Browser tests drive the real stack.** The suite in `e2e/` is Playwright, run through Caddy on
 `https://platform.test` the way a person would use the platform, in continuous integration as well
