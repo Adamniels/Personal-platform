@@ -117,8 +117,11 @@ button {
   margin: 0.25rem 0;
 }
 
-/* An id is one word, so it may break anywhere rather than overflow. */
+/* An explicit stack, since the bare `monospace` default shrinks the text.
+   An id is one word, so it may break anywhere rather than overflow. */
 .card code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.875em;
   overflow-wrap: anywhere;
 }
 
