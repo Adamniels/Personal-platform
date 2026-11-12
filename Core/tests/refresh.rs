@@ -3,8 +3,9 @@
 //! raw HTTP/1.1 as in login_form.rs. See "The refresh endpoint is the one place
 //! that decides between refreshing and logging in", "Refresh is always a POST", "Marking a token used is one conditional update", "Nothing about
 //! a session is deleted in normal operation" and "The refresh token lasts
-//! fourteen days idle, and the session thirty days in total" in
-//! docs/core-architecture.md.
+//! fourteen days idle, and the session thirty days in total", "A token used
+//! within the last thirty seconds is not reuse" and "Rotating and revoking
+//! take the family's lock first" in docs/core-architecture.md.
 
 mod common;
 
@@ -14,6 +15,7 @@ use platform_core::registry::Registry;
 use platform_core::signing_key::SigningKey;
 use platform_core::{AppState, DEFAULT_ACCESS_TOKEN_LIFETIME, secret_token, sessions};
 use sqlx::PgPool;
+use sqlx::{Postgres, Transaction};
 use std::collections::BTreeSet;
 use time::{Duration, OffsetDateTime};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -228,6 +230,176 @@ async fn a_disabled_account_cannot_refresh() {
     db.close().await;
 }
 
+// A family started at 0 and rotated at `rotated`: the first token, now used,
+// and the second, live.
+async fn rotated_at(
+    pool: &PgPool,
+    rotated: OffsetDateTime,
+) -> (sessions::Issued, sessions::Issued) {
+    let account_id = account(pool, "active").await;
+    let started = sessions::start(pool, account_id, at(0)).await.unwrap();
+    let first = row_of(pool, &started.refresh_token).await;
+    let next = sessions::rotate(pool, first.id, rotated)
+        .await
+        .unwrap()
+        .expect("a live token did not rotate");
+    (started, next)
+}
+
+// A rotation of the token `id` part way through at `now`, as sessions::rotate
+// does it: the family locked, the token marked used and its successor stored,
+// nothing committed.
+async fn rotation_in_progress(
+    pool: &PgPool,
+    id: Uuid,
+    now: OffsetDateTime,
+) -> Transaction<'static, Postgres> {
+    let mut rotation = pool.begin().await.unwrap();
+    sessions::lock_family(&mut *rotation, id).await.unwrap();
+    let marked = sessions::mark_used(&mut *rotation, id, now)
+        .await
+        .unwrap()
+        .expect("the token did not mark");
+    let (_, next_hash) = secret_token::generate();
+    sqlx::query(
+        "INSERT INTO sessions
+             (id, account_id, family_id, token_hash, issued_at, expires_at, family_expires_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)",
+    )
+    .bind(Uuid::now_v7())
+    .bind(marked.account_id)
+    .bind(marked.family_id)
+    .bind(&next_hash[..])
+    .bind(now)
+    .bind(sessions::token_expiry(now, marked.family_expires_at))
+    .bind(marked.family_expires_at)
+    .execute(&mut *rotation)
+    .await
+    .unwrap();
+    rotation
+}
+
+// An access token from a grace outcome, verified at `now`: its account and
+// family.
+fn graced(state: &AppState, outcome: Outcome, now: OffsetDateTime) -> (Uuid, Uuid) {
+    let Outcome::Grace { access_token } = outcome else {
+        panic!("not grace");
+    };
+    let claims = state.verifier.verify(&access_token, now).unwrap();
+    (claims.account_id, claims.family_id)
+}
+
+#[tokio::test]
+async fn a_replay_inside_the_grace_window_gets_an_access_token_and_no_rotation() {
+    let db = common::TestDb::new().await;
+    let state = state(db.pool.clone()).await;
+    let (started, next) = rotated_at(&db.pool, at(100)).await;
+    let account_id = row_of(&db.pool, &started.refresh_token).await.account_id;
+    let before = snapshot(&db.pool).await;
+
+    let outcome = refresh::refresh(&state, Some(&started.refresh_token), at(130))
+        .await
+        .unwrap();
+
+    assert_eq!(
+        graced(&state, outcome, at(130)),
+        (account_id, started.family_id)
+    );
+    assert_eq!(snapshot(&db.pool).await, before, "grace changed a row");
+    let outcome = refresh::refresh(&state, Some(&next.refresh_token), at(140))
+        .await
+        .unwrap();
+    assert!(
+        matches!(outcome, Outcome::Refreshed { .. }),
+        "the newest token no longer rotates after a grace"
+    );
+
+    db.close().await;
+}
+
+// What the request that lost the conditional update sees when it reads the
+// row again: used at the very instant it is presented.
+#[tokio::test]
+async fn the_loser_of_a_rotation_race_gets_grace() {
+    let db = common::TestDb::new().await;
+    let state = state(db.pool.clone()).await;
+    let account_id = account(&db.pool, "active").await;
+    let started = sessions::start(&db.pool, account_id, at(0)).await.unwrap();
+    let id = row_of(&db.pool, &started.refresh_token).await.id;
+    sessions::mark_used(&db.pool, id, at(100))
+        .await
+        .unwrap()
+        .expect("the token did not mark");
+    let before = snapshot(&db.pool).await;
+
+    let outcome = refresh::refresh(&state, Some(&started.refresh_token), at(100))
+        .await
+        .unwrap();
+
+    assert_eq!(
+        graced(&state, outcome, at(100)),
+        (account_id, started.family_id)
+    );
+    assert_eq!(snapshot(&db.pool).await, before, "grace changed a row");
+
+    db.close().await;
+}
+
+// The race itself: a refresh that read the token unused, decided to rotate,
+// and waited on the family's lock while another request rotated it. Its
+// conditional update then changes nothing, and it reads the row again.
+#[tokio::test]
+async fn a_refresh_that_loses_the_rotation_while_waiting_gets_grace() {
+    let db = common::TestDb::new().await;
+    let state = state(db.pool.clone()).await;
+    let account_id = account(&db.pool, "active").await;
+    let started = sessions::start(&db.pool, account_id, at(0)).await.unwrap();
+    let id = row_of(&db.pool, &started.refresh_token).await.id;
+    let winner = rotation_in_progress(&db.pool, id, at(100)).await;
+
+    let (pool_state, presented) = (state.clone(), started.refresh_token.clone());
+    let losing =
+        tokio::spawn(async move { refresh::refresh(&pool_state, Some(&presented), at(100)).await });
+    common::until_one_waits_on_a_lock(&db, "the refresh did not wait for the rotation").await;
+    winner.commit().await.unwrap();
+    let outcome = losing.await.unwrap().unwrap();
+
+    assert_eq!(
+        graced(&state, outcome, at(100)),
+        (account_id, started.family_id)
+    );
+    assert_eq!(count(&db.pool).await, 2, "the losing refresh stored a row");
+
+    db.close().await;
+}
+
+// The same wait, on a revoke instead: the family is gone by the time the
+// refresh reads its row again.
+#[tokio::test]
+async fn a_refresh_that_waits_on_a_revoke_goes_to_login() {
+    let db = common::TestDb::new().await;
+    let state = state(db.pool.clone()).await;
+    let account_id = account(&db.pool, "active").await;
+    let started = sessions::start(&db.pool, account_id, at(0)).await.unwrap();
+    let id = row_of(&db.pool, &started.refresh_token).await.id;
+    let mut revoking = db.pool.begin().await.unwrap();
+    sessions::lock_family(&mut *revoking, id).await.unwrap();
+
+    let (pool_state, presented) = (state.clone(), started.refresh_token.clone());
+    let waiting =
+        tokio::spawn(async move { refresh::refresh(&pool_state, Some(&presented), at(100)).await });
+    common::until_one_waits_on_a_lock(&db, "the refresh did not wait for the revoke").await;
+    sessions::revoke_family(&mut *revoking, started.family_id, at(50))
+        .await
+        .unwrap();
+    revoking.commit().await.unwrap();
+
+    assert!(matches!(waiting.await.unwrap().unwrap(), Outcome::LogIn));
+    assert_eq!(count(&db.pool).await, 1, "the refresh stored a row");
+
+    db.close().await;
+}
+
 // Over HTTP. The handler reads the clock, so the sessions here start at the
 // real time, or far enough before it to have expired.
 
@@ -418,13 +590,53 @@ async fn a_refresh_sets_both_cookies_and_returns_to_the_path() {
     let rotated = row_of(&db.pool, &refresh_token).await;
     assert_eq!(rotated.family_id, started.family_id);
 
-    // The old token is used now, so presenting it again is a login.
-    let again = post(addr, Some(&started.refresh_token), Some(PLATFORM), "/x?a=1").await;
-    assert_eq!(again.status, 303);
+    db.close().await;
+}
+
+// The second of two tabs refreshing at once presents the token the first
+// just rotated. It gets an access token and nothing else: no rotation, and no
+// refresh cookie at all, not even a clear, since the tabs share one cookie
+// jar and the first response has already set the next token in it.
+#[tokio::test]
+async fn a_grace_response_sets_only_the_access_cookie() {
+    let db = common::TestDb::new().await;
+    let (addr, state) = serve(db.pool.clone()).await;
+    let account_id = account(&db.pool, "active").await;
+    let started = sessions::start(&db.pool, account_id, OffsetDateTime::now_utc())
+        .await
+        .unwrap();
+    let first = post(addr, Some(&started.refresh_token), Some(PLATFORM), "/x").await;
+    assert_eq!(first.status, 303, "{}", first.body);
+    let before = snapshot(&db.pool).await;
+
+    let response = post(addr, Some(&started.refresh_token), Some(PLATFORM), "/x?a=1").await;
+
+    assert_eq!(response.status, 303, "{}", response.body);
+    assert_eq!(response.header("location"), Some("/x?a=1"));
     assert_eq!(
-        again.header("location"),
-        Some("/login?return_to=%2Fx%3Fa%3D1")
+        response.all("set-cookie").len(),
+        1,
+        "{:?}",
+        response.headers
     );
+    let (_, access, attrs) = cookie(named(&response, "__Host-access"));
+    assert_eq!(
+        attrs,
+        attributes(&[
+            "HttpOnly",
+            "SameSite=Lax",
+            "Secure",
+            "Path=/",
+            "Max-Age=1800"
+        ])
+    );
+    let claims = state
+        .verifier
+        .verify(&access, OffsetDateTime::now_utc())
+        .unwrap();
+    assert_eq!(claims.account_id, account_id);
+    assert_eq!(claims.family_id, started.family_id);
+    assert_eq!(snapshot(&db.pool).await, before, "grace changed a row");
 
     db.close().await;
 }

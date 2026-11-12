@@ -87,36 +87,67 @@ pub enum Outcome {
         access_token: String,
         session: sessions::Issued,
     },
-    /// Anything else: no token, one that is not a token, unknown, used,
-    /// revoked or expired, or an account no longer active.
+    /// The presented token was used within the grace window: a new access
+    /// token for its family, and no refresh token, since the request that
+    /// used it has already set the next one.
+    Grace { access_token: String },
+    /// Anything else: no token, one that is not a token, unknown, revoked or
+    /// expired, or an account no longer active.
     LogIn,
 }
 
 /// Refreshes with `presented`, the refresh cookie's value if the request had
-/// one, at `now`. Text that is not a token finds nothing. Grace and reuse
-/// are a login until they are applied.
+/// one, at `now`. Text that is not a token finds nothing.
 pub async fn refresh(
     state: &AppState,
     presented: Option<&str>,
     now: OffsetDateTime,
 ) -> Result<Outcome, Box<dyn Error + Send + Sync>> {
-    let row = match presented.and_then(secret_token::hash) {
-        Some(hash) => sessions::find(&state.pool, &hash).await?,
-        None => None,
-    };
-    let (Decision::Rotate, Some(row)) = (decide(row.as_ref(), now), row) else {
+    let Some(hash) = presented.and_then(secret_token::hash) else {
         return Ok(Outcome::LogIn);
     };
-    let Some(session) = sessions::rotate(&state.pool, row.id, now).await? else {
-        return Ok(Outcome::LogIn);
-    };
-    let access_token = state
-        .issuer
-        .issue(row.account_id, session.family_id, Uuid::now_v7(), now);
-    Ok(Outcome::Refreshed {
-        access_token,
-        session,
-    })
+    let row = sessions::find(&state.pool, &hash).await?;
+    let decision = decide(row.as_ref(), now);
+    if let (Decision::Rotate, Some(row)) = (decision, &row) {
+        if let Some(session) = sessions::rotate(&state.pool, row.id, now).await? {
+            let access_token =
+                state
+                    .issuer
+                    .issue(row.account_id, session.family_id, Uuid::now_v7(), now);
+            return Ok(Outcome::Refreshed {
+                access_token,
+                session,
+            });
+        }
+        // The conditional update changed nothing, so this request lost a
+        // race: another one rotated the token first, or a logout or a reuse
+        // revoked the family while this one waited on its lock. Read the row
+        // as it is now and decide again, which gives grace or a login.
+        let row = sessions::find(&state.pool, &hash).await?;
+        let decision = decide(row.as_ref(), now);
+        return settle(state, decision, row.as_ref(), now).await;
+    }
+    settle(state, decision, row.as_ref(), now).await
+}
+
+// Carries out every decision but a rotation. A rotation reaching here is one
+// the row no longer allows by the time it is decided again, which the
+// conditional update has just shown, so it is a login rather than a second
+// attempt that could loop.
+async fn settle(
+    state: &AppState,
+    decision: Decision,
+    row: Option<&sessions::Row>,
+    now: OffsetDateTime,
+) -> Result<Outcome, Box<dyn Error + Send + Sync>> {
+    match (decision, row) {
+        (Decision::Grace, Some(row)) => Ok(Outcome::Grace {
+            access_token: state
+                .issuer
+                .issue(row.account_id, row.family_id, Uuid::now_v7(), now),
+        }),
+        _ => Ok(Outcome::LogIn),
+    }
 }
 
 pub fn routes() -> Router<AppState> {
@@ -189,6 +220,13 @@ async fn submit(
                     session.refresh_token,
                     session.expires_at - now,
                 ));
+            (jar, Redirect::to(&form.return_to.location())).into_response()
+        }
+        // The access cookie alone: the request that used the token has set
+        // the next refresh token, and touching the refresh cookie here, with a
+        // value or a clear, would race that response in the shared jar.
+        Ok(Outcome::Grace { access_token }) => {
+            let jar = CookieJar::new().add(cookies::access(access_token, state.issuer.lifetime()));
             (jar, Redirect::to(&form.return_to.location())).into_response()
         }
         Ok(Outcome::LogIn) => {

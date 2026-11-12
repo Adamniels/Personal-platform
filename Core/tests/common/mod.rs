@@ -68,6 +68,31 @@ impl TestDb {
     }
 }
 
+// Returns once another connection to this test's database waits for a lock,
+// so a test knows the statement it started has reached the lock before it
+// lets the holder go. Panics with `what` after about five seconds.
+pub async fn until_one_waits_on_a_lock(db: &TestDb, what: &str) {
+    let mut admin = db.admin().await;
+    for _ in 0..250 {
+        let waiting: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM pg_stat_activity
+             WHERE datname = current_database() AND wait_event_type = 'Lock'",
+        )
+        .fetch_one(&mut admin)
+        .await
+        .unwrap();
+        if waiting > 0 {
+            admin.close().await.ok();
+            return;
+        }
+        sqlx::query("SELECT pg_sleep(0.02)")
+            .execute(&mut admin)
+            .await
+            .unwrap();
+    }
+    panic!("{what}");
+}
+
 // The template, built by whichever test of this binary asks first.
 async fn template() -> &'static str {
     static TEMPLATE: OnceCell<String> = OnceCell::const_new();

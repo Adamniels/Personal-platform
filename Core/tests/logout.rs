@@ -11,8 +11,8 @@ use platform_core::refresh::{self, Outcome};
 use platform_core::registry::Registry;
 use platform_core::signing_key::SigningKey;
 use platform_core::{AppState, DEFAULT_ACCESS_TOKEN_LIFETIME, logout, secret_token, sessions};
+use sqlx::PgPool;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
-use sqlx::{Connection, PgPool};
 use std::collections::BTreeSet;
 use time::OffsetDateTime;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -117,31 +117,6 @@ async fn revoking_a_family_marks_every_row_and_keeps_the_first_time() {
     db.close().await;
 }
 
-// Returns once another connection to this test's database waits for a lock,
-// so a test knows the statement it started has reached the lock before it
-// lets the holder go. Panics with `what` after about five seconds.
-async fn until_one_waits_on_a_lock(db: &common::TestDb, what: &str) {
-    let mut admin = db.admin().await;
-    for _ in 0..250 {
-        let waiting: i64 = sqlx::query_scalar(
-            "SELECT count(*) FROM pg_stat_activity
-             WHERE datname = current_database() AND wait_event_type = 'Lock'",
-        )
-        .fetch_one(&mut admin)
-        .await
-        .unwrap();
-        if waiting > 0 {
-            admin.close().await.ok();
-            return;
-        }
-        sqlx::query("SELECT pg_sleep(0.02)")
-            .execute(&mut admin)
-            .await
-            .unwrap();
-    }
-    panic!("{what}");
-}
-
 // A refresh that commits while a logout of its family runs. Under READ
 // COMMITTED the revoke's snapshot predates the refresh's new row, so unless
 // the two serialize on the family, that row stays live and another tab keeps
@@ -184,7 +159,7 @@ async fn a_refresh_committing_during_a_logout_is_revoked_too() {
     let presented = live.clone();
     let logging_out =
         tokio::spawn(async move { logout::logout(&pool, Some(&presented), at(20)).await });
-    until_one_waits_on_a_lock(&db, "the logout did not wait for the rotation").await;
+    common::until_one_waits_on_a_lock(&db, "the logout did not wait for the rotation").await;
     rotation.commit().await.unwrap();
     logging_out.await.unwrap().unwrap();
 
@@ -214,7 +189,7 @@ async fn a_rotation_waiting_on_a_logout_stores_nothing() {
 
     let pool = db.pool.clone();
     let rotating = tokio::spawn(async move { sessions::rotate(&pool, live_row.id, at(10)).await });
-    until_one_waits_on_a_lock(&db, "the rotation did not wait for the family's lock").await;
+    common::until_one_waits_on_a_lock(&db, "the rotation did not wait for the family's lock").await;
     sessions::revoke_family(&mut *revoking, live_row.family_id, at(20))
         .await
         .unwrap();
