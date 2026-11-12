@@ -1,5 +1,7 @@
 import styles from "./gallery.module.css";
 import { ButtonSection } from "./sections/button-section";
+import { TextAreaSection } from "./sections/text-area-section";
+import { TextFieldSection } from "./sections/text-field-section";
 import { ThemeControl } from "./theme-control";
 
 /** Every component of @platform/ui, one section each, in every kind and
@@ -19,6 +21,8 @@ export function Gallery() {
 			</header>
 			<main className={styles.sections}>
 				<ButtonSection />
+				<TextFieldSection />
+				<TextAreaSection />
 			</main>
 		</div>
 	);

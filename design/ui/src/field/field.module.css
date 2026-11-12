@@ -1,0 +1,84 @@
+/* "Text field, textarea, select" in section 4 of design/DESIGN.md. Colours
+ * and sizes are tokens; the paddings are the ones that section gives. The
+ * focus ring comes from the base rule in tokens.css and is never overridden
+ * here, and the font size is --input-font-size, which grows to 16px on
+ * phone, so no field sets its own. */
+
+.field {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-1);
+	min-width: 0;
+}
+
+.label {
+	color: var(--text-2);
+	font-size: var(--text-caption-size);
+	line-height: var(--text-caption-line);
+	font-weight: 500;
+}
+
+.control {
+	box-sizing: border-box;
+	width: 100%;
+	margin: 0;
+	padding: 0 10px;
+	border: 1px solid var(--border-strong);
+	border-radius: var(--radius-md);
+	background: var(--surface);
+	color: var(--text);
+	font-family: var(--font-ui);
+	font-size: var(--input-font-size);
+	line-height: var(--text-body-line);
+}
+
+.control::placeholder {
+	color: var(--text-3);
+	opacity: 1;
+}
+
+.input,
+.select {
+	height: var(--control-h);
+}
+
+.textarea {
+	display: block;
+	min-height: var(--control-h);
+	padding: 8px 10px;
+	resize: vertical;
+}
+
+/* The error's 2px border takes one pixel more on each side than the field's
+ * 1px, so the padding gives that pixel back and the text does not move. */
+.control[aria-invalid="true"] {
+	border: 2px solid var(--danger);
+	padding: 0 9px;
+}
+
+.textarea[aria-invalid="true"] {
+	padding: 7px 9px;
+}
+
+.control:disabled {
+	background: var(--surface-2);
+	color: var(--text-3);
+	border-color: var(--border);
+	cursor: not-allowed;
+}
+
+.help,
+.error {
+	margin: 0;
+	font-size: var(--text-caption-size);
+	line-height: var(--text-caption-line);
+}
+
+.help {
+	color: var(--text-3);
+}
+
+.error {
+	color: var(--danger);
+	font-weight: 500;
+}
