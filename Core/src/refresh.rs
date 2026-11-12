@@ -4,15 +4,18 @@
 //! stored token and the time. See "The refresh endpoint is the one place that
 //! decides between refreshing and logging in" in docs/core-architecture.md.
 
-use crate::AppState;
 use crate::return_path::ReturnPath;
-use crate::sessions;
+use crate::{AppState, cookies, secret_token, sessions};
 use axum::Router;
-use axum::extract::Query;
-use axum::response::Redirect;
+use axum::extract::{DefaultBodyLimit, Form, Query, State};
+use axum::http::StatusCode;
+use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::get;
+use axum_extra::extract::cookie::CookieJar;
 use serde::Deserialize;
+use std::error::Error;
 use time::OffsetDateTime;
+use uuid::Uuid;
 
 /// Where a request without a valid access token is sent.
 pub const PATH: &str = "/auth/refresh";
@@ -53,8 +56,53 @@ pub fn decide(row: Option<&sessions::Row>, now: OffsetDateTime) -> Decision {
     Decision::Rotate
 }
 
+/// What a refresh came to.
+pub enum Outcome {
+    /// The presented token was rotated: a new access token and the next
+    /// refresh token of the family.
+    Refreshed {
+        access_token: String,
+        session: sessions::Issued,
+    },
+    /// Anything else: no token, one that is not a token, unknown, used,
+    /// revoked or expired, or an account no longer active.
+    LogIn,
+}
+
+/// Refreshes with `presented`, the refresh cookie's value if the request had
+/// one, at `now`. Text that is not a token finds nothing. A rotation another
+/// request won first is a login for now, as a used token is.
+pub async fn refresh(
+    state: &AppState,
+    presented: Option<&str>,
+    now: OffsetDateTime,
+) -> Result<Outcome, Box<dyn Error + Send + Sync>> {
+    let row = match presented.and_then(secret_token::hash) {
+        Some(hash) => sessions::find(&state.pool, &hash).await?,
+        None => None,
+    };
+    let (Decision::Rotate, Some(row)) = (decide(row.as_ref(), now), row) else {
+        return Ok(Outcome::LogIn);
+    };
+    let Some(session) = sessions::rotate(&state.pool, row.id, now).await? else {
+        return Ok(Outcome::LogIn);
+    };
+    let access_token = state
+        .issuer
+        .issue(row.account_id, session.family_id, Uuid::now_v7(), now);
+    Ok(Outcome::Refreshed {
+        access_token,
+        session,
+    })
+}
+
 pub fn routes() -> Router<AppState> {
-    Router::new().route(PATH, get(show))
+    Router::new().route(
+        PATH,
+        get(show)
+            .post(submit)
+            .layer(DefaultBodyLimit::max(16 * 1024)),
+    )
 }
 
 #[derive(Deserialize)]
@@ -65,6 +113,48 @@ struct DecideQuery {
 
 async fn show(Query(query): Query<DecideQuery>) -> Redirect {
     Redirect::to(&query.return_to.appended_to("/login"))
+}
+
+#[derive(Deserialize)]
+struct RefreshForm {
+    #[serde(default)]
+    return_to: ReturnPath,
+}
+
+// Always 303, for a form and a fetch alike: back to the return path with both
+// cookies set, or to login with both cleared, so a dead cookie is not sent
+// again on the way back.
+async fn submit(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    Form(form): Form<RefreshForm>,
+) -> Response {
+    let now = OffsetDateTime::now_utc();
+    let presented = jar.get(cookies::REFRESH).map(|cookie| cookie.value());
+    match refresh(&state, presented, now).await {
+        Ok(Outcome::Refreshed {
+            access_token,
+            session,
+        }) => {
+            let jar = CookieJar::new()
+                .add(cookies::access(access_token, state.issuer.lifetime()))
+                .add(cookies::refresh(
+                    session.refresh_token,
+                    session.expires_at - now,
+                ));
+            (jar, Redirect::to(&form.return_to.location())).into_response()
+        }
+        Ok(Outcome::LogIn) => {
+            let jar = CookieJar::new()
+                .add(cookies::clear_access())
+                .add(cookies::clear_refresh());
+            (jar, Redirect::to(&form.return_to.appended_to("/login"))).into_response()
+        }
+        Err(err) => {
+            eprintln!("refresh failed: {err}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error\n").into_response()
+        }
+    }
 }
 
 #[cfg(test)]

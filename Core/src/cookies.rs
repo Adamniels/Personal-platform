@@ -24,6 +24,17 @@ pub fn refresh(token: String, lifetime: Duration) -> Cookie<'static> {
     build(REFRESH, token, "/auth", lifetime)
 }
 
+/// Clears the access cookie: the same name and path, an empty value and
+/// `Max-Age=0`. A clear on any other path leaves the cookie alive.
+pub fn clear_access() -> Cookie<'static> {
+    build(ACCESS, String::new(), "/", Duration::ZERO)
+}
+
+/// Clears the refresh cookie, on `/auth`, where it was set.
+pub fn clear_refresh() -> Cookie<'static> {
+    build(REFRESH, String::new(), "/auth", Duration::ZERO)
+}
+
 fn build(
     name: &'static str,
     value: String,
