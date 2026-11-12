@@ -5,7 +5,7 @@
 //! session. See "Registration is open but invite coded" and "No defence
 //! against user enumeration" in docs/core-architecture.md.
 
-use crate::pages::Page;
+use crate::pages::{FormError, Page};
 use crate::secret_token::{self, TokenHash};
 use crate::{AppState, accounts, invite, password};
 use askama::Template;
@@ -46,16 +46,16 @@ pub struct Input {
 
 /// The rules, before anything is hashed or stored. The email is trimmed and
 /// lowercased, the code trimmed, and the password taken exactly as typed.
-pub fn validate(code: &str, email: &str, password: &str) -> Result<Input, &'static str> {
+pub fn validate(code: &str, email: &str, password: &str) -> Result<Input, FormError<'static>> {
     let email = email.trim().to_lowercase();
     let well_formed = match email.split_once('@') {
         Some((local, domain)) => !local.is_empty() && !domain.is_empty() && !domain.contains('@'),
         None => false,
     };
     if !well_formed || email.chars().count() > EMAIL_MAX_LENGTH {
-        return Err(INVALID_EMAIL);
+        return Err(FormError::on("email", INVALID_EMAIL));
     }
-    password::check_new(password)?;
+    password::check_new(password).map_err(|message| FormError::on("password", message))?;
     Ok(Input {
         code_hash: secret_token::hash(code.trim()),
         email,
@@ -105,7 +105,7 @@ pub fn routes() -> Router<AppState> {
 #[derive(Template)]
 #[template(path = "register.html")]
 struct RegisterPage<'a> {
-    error: Option<&'a str>,
+    error: Option<FormError<'a>>,
     code: &'a str,
     email: &'a str,
 }
@@ -143,8 +143,8 @@ async fn submit(State(pool): State<PgPool>, Form(form): Form<RegisterForm>) -> R
 
     match register(&pool, input, OffsetDateTime::now_utc()).await {
         Ok(Outcome::Registered) => Redirect::to("/login").into_response(),
-        Ok(Outcome::InvalidCode) => refused(INVALID_CODE),
-        Ok(Outcome::EmailTaken) => refused(EMAIL_TAKEN),
+        Ok(Outcome::InvalidCode) => refused(FormError::on("code", INVALID_CODE)),
+        Ok(Outcome::EmailTaken) => refused(FormError::on("email", EMAIL_TAKEN)),
         Err(err) => {
             eprintln!("registration failed: {err}");
             (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error\n").into_response()
@@ -176,12 +176,15 @@ mod tests {
         ] {
             assert_eq!(
                 validate("", email, PASSWORD).err(),
-                Some(INVALID_EMAIL),
+                Some(FormError::on("email", INVALID_EMAIL)),
                 "{email:?}"
             );
         }
         let long = format!("{}@example.com", "a".repeat(EMAIL_MAX_LENGTH));
-        assert_eq!(validate("", &long, PASSWORD).err(), Some(INVALID_EMAIL));
+        assert_eq!(
+            validate("", &long, PASSWORD).err(),
+            Some(FormError::on("email", INVALID_EMAIL))
+        );
     }
 
     #[test]

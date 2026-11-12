@@ -5,7 +5,7 @@
 //! keeping one path by which something becomes a session. See "Password
 //! reset, and changing a password" in docs/core-architecture.md.
 
-use crate::pages::Page;
+use crate::pages::{FormError, Page};
 use crate::{AppState, accounts, password, reset_token, secret_token, sessions};
 use askama::Template;
 use axum::Router;
@@ -77,7 +77,7 @@ pub fn routes() -> Router<AppState> {
 #[derive(Template)]
 #[template(path = "reset.html")]
 struct ResetPage<'a> {
-    error: Option<&'a str>,
+    error: Option<FormError<'a>>,
     token: &'a str,
 }
 
@@ -116,8 +116,8 @@ async fn submit(State(pool): State<PgPool>, Form(form): Form<ResetForm>) -> Resp
     .await
     {
         Ok(Outcome::Reset) => Redirect::to("/login").into_response(),
-        Ok(Outcome::InvalidToken) => refused(INVALID_TOKEN),
-        Ok(Outcome::InvalidPassword(message)) => refused(message),
+        Ok(Outcome::InvalidToken) => refused(FormError::on("token", INVALID_TOKEN)),
+        Ok(Outcome::InvalidPassword(message)) => refused(FormError::on("password", message)),
         Err(err) => {
             eprintln!("password reset failed: {err}");
             (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error\n").into_response()

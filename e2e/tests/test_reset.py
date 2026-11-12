@@ -36,7 +36,9 @@ def test_reset_then_log_in_with_the_new_password(
     assert not names & {"__Host-access", "__Secure-refresh"}, "the reset logged in"
 
     log_in(page, email, old_password)
-    expect(page.get_by_role("alert")).to_have_text("Email or password is incorrect.")
+    expect(page.get_by_role("alert")).to_have_text(
+        "Error: Email or password is incorrect."
+    )
 
     log_in(page, email, new_password)
     expect(page).to_have_url("https://platform.test/")

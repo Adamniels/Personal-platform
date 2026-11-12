@@ -69,7 +69,7 @@ def test_change_password_keeps_this_session_and_ends_the_other(
     expect(elsewhere.get_by_role("heading", name="Log in")).to_be_visible()
     log_in(elsewhere, email, old_password)
     expect(elsewhere.get_by_role("alert")).to_have_text(
-        "Email or password is incorrect."
+        "Error: Email or password is incorrect."
     )
     log_in(elsewhere, email, new_password)
     expect(elsewhere).to_have_url("https://platform.test/")

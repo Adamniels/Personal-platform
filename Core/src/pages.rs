@@ -36,6 +36,30 @@ impl<T: askama::Template> IntoResponse for Page<T> {
     }
 }
 
+/// Why a form was refused, and the field it is about, named by the field's
+/// `name`. The template marks that field `aria-invalid` and shows the message
+/// under it, starting with the word "Error", as the text field rule in
+/// design/DESIGN.md says.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FormError<'a> {
+    pub field: &'static str,
+    pub message: &'a str,
+}
+
+impl<'a> FormError<'a> {
+    pub fn on(field: &'static str, message: &'a str) -> Self {
+        FormError { field, message }
+    }
+}
+
+/// The message for `field`, when a form's error is about it. Templates call
+/// it once per field, for the attributes and for the message.
+pub fn error_on<'a>(error: &Option<FormError<'a>>, field: &str) -> Option<&'a str> {
+    error
+        .filter(|error| error.field == field)
+        .map(|error| error.message)
+}
+
 /// `GET /assets/core.css`.
 pub async fn stylesheet(headers: HeaderMap) -> Response {
     asset(
@@ -190,6 +214,17 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert(header::IF_NONE_MATCH, "\"stale\"".parse().unwrap());
         assert_eq!(stylesheet(headers).await.status(), StatusCode::OK);
+    }
+
+    #[test]
+    fn an_error_belongs_to_its_field_only() {
+        let error = Some(FormError::on("email", "Enter a valid email address."));
+        assert_eq!(
+            error_on(&error, "email"),
+            Some("Enter a valid email address.")
+        );
+        assert_eq!(error_on(&error, "password"), None);
+        assert_eq!(error_on(&None, "email"), None);
     }
 
     // Every colour comes from /design/tokens.css, so the served stylesheet
