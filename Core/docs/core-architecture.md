@@ -679,8 +679,10 @@ TLS and no `aws-lc-rs` C build, which the core already avoided for `jsonwebtoken
 are plain HTTP by the rule in "Routing". One client is built in `AppState::new`, from
 `src/http.rs`, so its connections are pooled and every call shares its policy: redirects are never
 followed and the system's proxy settings are ignored. The alternative was the `hyper-util` legacy
-client already in the tree, lower level and more code to own for a pool, a timeout and a body
-limit that reqwest already has.
+client already in the tree, lower level and more code to own for a pool and for the redirect and
+proxy policy, which reqwest already has. The deadline and the body limit are not reqwest's: the
+deadline is `tokio::time::timeout` around the whole exchange and the limit is counted chunk by
+chunk, both in `src/display.rs`.
 
 **toml** parses the feature registry with serde, at 0.8, the copy sqlx already brings in, so
 nothing new is compiled; the 1.x line would be a second copy. **serde_json** writes the key set's
