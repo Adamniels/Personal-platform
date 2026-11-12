@@ -10,6 +10,28 @@ in "The first milestone" in `High-level/docs/platform-architecture.md`.
   `/auth/refresh?return_to=<the path and query as received, URL encoded>`.
 - `GET /canary/api/whoami`, `{"account_id": "<sub>"}`. Without a valid token it answers `401` with
   an empty body.
+- `GET /canary/api/display`, canary's display data for the front page, see "What a feature exposes
+  for the front page" in `Core/docs/core-architecture.md`. Without a valid token it answers `401`
+  with an empty body, like any API route, and in a display mode other than `normal` it hangs or
+  fails before looking at the token, see Settings.
+
+The display data is what canary knows, that it verified this person's token, and nothing meant to
+be shown as it is: no label, colour, ordering or sentence, since the core decides how it looks.
+
+```json
+{
+  "account_id": "01900000-0000-7000-8000-000000000001",
+  "token_expires_at": 1800001800,
+  "key_id": "kPrK_qmxVWaYVA9wwBF6Iuo3vVzz7TxHCTwXBygrS4k",
+  "python_version": "3.14.0"
+}
+```
+
+`account_id` is the token's `sub`, `token_expires_at` its `exp` in whole seconds since the epoch,
+`key_id` the `kid` it was verified with, and `python_version` is `platform.python_version()`. The
+shape is a contract with the core, pinned by `contracts/display/canary.json`:
+`tests/test_display.py` checks that the real response has its keys, each with the same JSON type,
+see `contracts/README.md`.
 
 Everything else is `404`. The page includes the nav's two lines from "Navigation" in
 `High-level/docs/platform-architecture.md` and a few lines of inline CSS of its own, the nav's
@@ -33,8 +55,8 @@ setting, since uvicorn binds it before canary's code runs.
 
 ## Settings
 
-Canary reads two settings from the process environment, once, in `src/canary/settings.py`. It
-loads no `.env` file; `.env.example` lists both for whoever exports them. Unset means the default,
+Canary reads three settings from the process environment, once, in `src/canary/settings.py`. It
+loads no `.env` file; `.env.example` lists them for whoever exports them. Unset means the default,
 and a value that is set must parse, or canary refuses to start rather than quietly using the
 default.
 
@@ -42,8 +64,24 @@ default.
   where the key set is fetched. A scheme, a host and an optional port, with nothing after it.
 - `CANARY_PUBLIC_ORIGIN`, default `https://platform.test`: the platform's origin exactly as a
   browser sends it, by the same rule as `PublicOrigin::parse` in `Core/src/origin.rs`.
+- `CANARY_DISPLAY_MODE`, default `normal`: what `GET /canary/api/display` does, for every request
+  and before authentication, the way a broken feature would. `normal` serves the data, `error`
+  answers `500`, and `hang` sleeps for an hour, far past the core's deadline, so the client gives
+  up first. Any other value, a different case included, stops canary at startup.
 
 The defaults are right on the Mac mini and in CI, so neither sets them.
+
+**Watching the front page without canary.** The mode changes only with a restart, since a runtime
+toggle would be a state changing endpoint of its own. Stop canary and start it again with the mode
+set, from this directory:
+
+```zsh
+CANARY_DISPLAY_MODE=hang uv run uvicorn canary.app:app --host 127.0.0.1 --port 8081
+```
+
+and load the front page: the core's display fetch gives up at its deadline, and canary's card
+shows the placeholder saying it could not be reached. `error` shows the same placeholder at once.
+Restart without the variable to go back to `normal`. The card itself comes with the front page.
 
 ## How canary authenticates a request
 

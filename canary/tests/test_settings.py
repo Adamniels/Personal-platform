@@ -4,12 +4,14 @@ import sys
 
 import pytest
 
-from canary.settings import Settings, SettingsError, load
+from canary.settings import DisplayMode, Settings, SettingsError, load
 
 
 def test_settings_default_and_refuse_a_malformed_value():
     assert load({}) == Settings(
-        core_url="http://127.0.0.1:8080", public_origin="https://platform.test"
+        core_url="http://127.0.0.1:8080",
+        public_origin="https://platform.test",
+        display_mode=DisplayMode.NORMAL,
     )
 
     for name, value in [
