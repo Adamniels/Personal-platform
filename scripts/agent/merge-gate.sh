@@ -24,10 +24,11 @@
 #                                           (also printed when there is no planned slice to read)
 #   risk record is not the owner's          the slice issue was not written by the owner, or any edit in its
 #                                           whole history was made by someone else (or by an unnamed editor)
-#   needs-owner label is set                the PR carries the needs-owner label
+#   an owner label is set                   the PR carries owner-merge, owner-decision or owner-blocked, or
+#                                           needs-owner, the one label older pull requests carry instead
 # The runner reads these lines: it waits whenever `ci-ok is pending` is among them, hands the PR to the owner as
-# ready when the only ones are `risk is not low` and `touches protected paths`, and escalates otherwise, so they
-# are an interface.
+# ready when the only ones are `risk is not low`, `touches protected paths` and `an owner label is set`, and
+# escalates otherwise, so they are an interface.
 #
 # Risk is low when the first non-empty line of the slice body's first and only `## Risk` section (up to the
 # next `## ` heading) has `low` as its first word, case-sensitive, allowing one trailing comma or period:
@@ -47,7 +48,8 @@ BOT="mac-mini-agent"
 BASE="main"
 CHECK="ci-ok"
 CHECK_APP="github-actions"
-LABEL="needs-owner"
+# Any of these keeps a PR for the owner. What each one tells him is the runner's business (run.sh); here they are equal.
+LABELS='["owner-merge","owner-decision","owner-blocked","needs-owner"]'
 # Matched against the lowercased path. Passed to awk through ENVIRON, so its backslashes reach the regex as written.
 PROTECTED='^(\.github|scripts|\.claude)/|^(agents|claude)\.md$'
 
@@ -65,7 +67,7 @@ gh pr view "$pr" --repo "$OWNER/$REPO_NAME" \
   > "$tmp/pr.json" || fail "could not read the pull request"
 # One field per line, so an empty value cannot shift the others. The slice is "-" unless the PR closes exactly
 # one issue, in this repository, whose number is the head branch's leading `<n>-`.
-jq -r --arg owner "$OWNER" --arg repo "$REPO_NAME" --arg label "$LABEL" '
+jq -r --arg owner "$OWNER" --arg repo "$REPO_NAME" --argjson labels "$LABELS" '
   if (.headRefOid | type) != "string" or (.headRefName | type) != "string" or (.baseRefName | type) != "string"
      or (.isDraft | type) != "boolean" or (.isCrossRepository | type) != "boolean"
      or (.changedFiles | type) != "number" or (.labels | type) != "array"
@@ -76,7 +78,7 @@ jq -r --arg owner "$OWNER" --arg repo "$REPO_NAME" --arg label "$LABEL" '
   | .headRefOid, (.author.login // "-"), .baseRefName, .isDraft, .isCrossRepository, .changedFiles,
     (if ($refs | length) == 1 and $refs[0].repository.owner.login == $owner and $refs[0].repository.name == $repo
         and ($refs[0].number | tostring) == $branch then $branch else "-" end),
-    any(.labels[]; .name == $label)' "$tmp/pr.json" > "$tmp/fields" || fail "could not read the pull request"
+    any(.labels[]; .name as $n | $labels | index($n) != null)' "$tmp/pr.json" > "$tmp/fields" || fail "could not read the pull request"
 { read -r sha; read -r author; read -r base; read -r draft; read -r cross; read -r changed; read -r slice
   read -r labelled; } < "$tmp/fields" || fail "could not read the pull request"
 [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || fail "unreadable head sha: $sha"
@@ -167,7 +169,7 @@ if [ "$slice" != - ] && { [ "$issue_author" != "$OWNER" ] || [ "$issue_editors" 
   reason "risk record is not the owner's"
 fi
 
-[ "$labelled" = false ] || reason "needs-owner label is set"
+[ "$labelled" = false ] || reason "an owner label is set"
 
 if [ -n "$reasons" ]; then
   printf '%s' "$reasons"

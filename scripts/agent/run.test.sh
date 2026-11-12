@@ -32,7 +32,8 @@ printf '%b\n' "$out"
 if [ "$code" = hang ]; then sleep 30 & echo $! > "$D/hang.pid"; wait; exit 0; fi
 exit "$code"
 FAKE
-# gh: logs every call to gh.log; comments go to comments.log as "<clock> <issue> <body>", labels to labels.log.
+# gh: logs every call to gh.log; comments go to comments.log as "<clock> <issue> <body>", label changes to labels.log
+# as "<pr> +<added> -<removed>". `pr view` prints the head and then the PR's labels, FAKE_PR_LABELS, comma separated.
 cat > "$tmp/bin/gh" <<'FAKE'
 #!/usr/bin/env bash
 echo "$*" >> "$D/gh.log"
@@ -42,8 +43,12 @@ case "$*" in
     [ "${FAKE_COMMENT_EXIT:-0}" = 0 ] || exit 1
     issue="$3" body=""; while [ $# -gt 0 ]; do [ "$1" = --body ] && body="$2"; shift; done
     echo "$(cat "$D/clock") $issue $(printf '%s' "$body" | tr '\n' ' ')" >> "$D/comments.log" ;;
-  "pr edit "*"--add-label"*) [ "${FAKE_LABEL_EXIT:-0}" = 0 ] || exit 1; echo "$3 needs-owner" >> "$D/labels.log" ;;
-  "pr view "*) if [ -f "$D/head" ]; then cat "$D/head"; else echo "${FAKE_HEAD:-aaaa}"; fi ;;
+  "pr edit "*)
+    [ "${FAKE_LABEL_EXIT:-0}" = 0 ] || exit 1
+    pr="$3" ops=""
+    while [ $# -gt 0 ]; do case "$1" in --add-label) ops="$ops +$2" ;; --remove-label) ops="$ops -$2" ;; esac; shift; done
+    echo "$pr$ops" >> "$D/labels.log" ;;
+  "pr view "*) if [ -f "$D/head" ]; then cat "$D/head"; else echo "${FAKE_HEAD:-aaaa}"; fi; echo "${FAKE_PR_LABELS:-}" ;;
   "pr list "*) if [ -f "$D/merged.json" ]; then cat "$D/merged.json"; else echo '[]'; fi ;;
   *) echo "unexpected gh call: $*" >&2; exit 9 ;;
 esac
@@ -165,7 +170,7 @@ setup() {
   export D AGENT_HOME AGENT_REPO AGENT_POLL_SECONDS=0 AGENT_TIMEOUT_SECONDS=5400 AGENT_REMOTE="$tmp/t$t/origin.git"
   unset FAKE_STOP_AT FAKE_RATE_EXIT FAKE_COMMENT_EXIT FAKE_LABEL_EXIT FAKE_HEAD FAKE_DOCKER_EXIT FAKE_DF_KB \
         FAKE_GATE_OUT FAKE_GATE_EXIT FAKE_BOARD_EXIT FAKE_VERDICT FAKE_DOCKER_HANG AGENT_CALL_TIMEOUT_SECONDS \
-        AGENT_DOCKER_START_WAIT
+        AGENT_DOCKER_START_WAIT FAKE_PR_LABELS
   export AGENT_DOCKER_START=""
 }
 pending() { printf '%s\n' "$@" > "$D/pending.queue"; }
@@ -217,13 +222,14 @@ check "merge exit 3 with only ci-ok pending sleeps the poll interval, no label, 
   $([ "$(sleeps)" = 7 ] && no_file "$D/labels.log" && no_file "$D/comments.log" && no_file "$D/board.log"; echo $?)
 
 setup; export FAKE_GATE_EXIT=3 FAKE_GATE_OUT='touches protected paths\nrisk is not low\n'; pending "merge 50 41"; runner
-check "merge exit 3 with only owner reasons adds needs-owner and says PR #50 is ready, once, on the slice" \
-  $([ "$(cat "$D/labels.log")" = "50 needs-owner" ] && [ "$(lines "$D/comments.log")" = 1 ] \
-    && grep -q "^$S 41 @Adamniels PR #50 is ready for you" "$D/comments.log"; echo $?)
+check "merge exit 3 with only owner reasons adds owner-merge and says PR #50 is ready to read and merge, once, on the slice" \
+  $([ "$(cat "$D/labels.log")" = "50 +owner-merge" ] && [ "$(lines "$D/comments.log")" = 1 ] \
+    && grep -q "^$S 41 @Adamniels PR #50 is ready for you to read and merge" "$D/comments.log"; echo $?)
 
 setup; export FAKE_GATE_EXIT=3 FAKE_GATE_OUT='ci-ok failed\nrisk is not low\n'; pending "merge 50 41"; runner
-check "merge exit 3 with other reasons adds needs-owner and mentions the reasons" \
-  $([ "$(cat "$D/labels.log")" = "50 needs-owner" ] && grep -q '@Adamniels PR #50 .*ci-ok failed.*risk is not low' "$D/comments.log"; echo $?)
+check "merge exit 3 with other reasons adds owner-blocked and mentions the reasons, never as ready" \
+  $([ "$(cat "$D/labels.log")" = "50 +owner-blocked" ] && grep -q '@Adamniels PR #50 needs you, do not merge it.*ci-ok failed.*risk is not low' "$D/comments.log" \
+    && ! grep -q 'ready' "$D/comments.log"; echo $?)
 
 setup; export FAKE_GATE_EXIT=3 FAKE_GATE_OUT='risk is not low\n' FAKE_LABEL_EXIT=1; pending "merge 50 41" "merge 50 41"; runner
 check "a failed label is retried without a second mention" \
@@ -234,22 +240,57 @@ check "merge exit 1 is a transient pause: 60 s, no label, no mention, no count" 
   $([ "$(sleeps)" = 60 ] && no_file "$D/labels.log" && no_file "$D/comments.log" && [ "$(fails 41)" = 0 ]; echo $?)
 
 setup; pending "cap 50 41"; runner
-check "cap 50 41 adds needs-owner and mentions the owner that review rounds ran out" \
-  $([ "$(cat "$D/labels.log")" = "50 needs-owner" ] && grep -q '^[0-9]* 41 @Adamniels PR #50 .*review rounds' "$D/comments.log"; echo $?)
+check "cap 50 41 adds owner-blocked and mentions the owner that review rounds ran out" \
+  $([ "$(cat "$D/labels.log")" = "50 +owner-blocked" ] && grep -q '^[0-9]* 41 @Adamniels PR #50 .*review rounds' "$D/comments.log"; echo $?)
 
-# --- Owner items: one mention per PR and head sha (R42) ---------------------------------------------------------
-setup; export AGENT_POLL_SECONDS=5; pending "owner 50 41" "owner 50 41"; runner
-check "an owner item mentions once that the reviewed PR is ready to read and merge, and records pr and sha" \
-  $([ "$(lines "$D/comments.log")" = 1 ] && grep -q ' 41 @Adamniels the reviewed PR #50 is ready for you to read and merge' "$D/comments.log" \
-    && [ "$(cat "$AGENT_HOME/agent-logs/owner-told")" = "50 aaaa" ]; echo $?)
+setup; export FAKE_PR_LABELS=bug,owner-decision; pending "cap 50 41"; runner
+check "a cap on a PR with owner-decision adds owner-blocked and leaves the implementer's label" \
+  $([ "$(cat "$D/labels.log")" = "50 +owner-blocked" ]; echo $?)
+
+setup; export FAKE_PR_LABELS=owner-merge; pending "cap 50 41"; runner
+check "a cap on a PR with owner-merge replaces it with owner-blocked" \
+  $([ "$(cat "$D/labels.log")" = "50 +owner-blocked -owner-merge" ]; echo $?)
+
+# --- Owner items: the gate's reasons say ready or stuck, and one mention per PR and head sha (R42) ----------------
+READY='risk is not low\nan owner label is set\n'
+setup; export AGENT_POLL_SECONDS=5 FAKE_GATE_EXIT=3 FAKE_GATE_OUT="$READY" FAKE_PR_LABELS=owner-decision; pending "owner 50 41" "owner 50 41"; runner
+check "an owner item for a PR with owner-decision mentions once that it waits for a decision, records pr and sha, and changes no label" \
+  $([ "$(lines "$D/comments.log")" = 1 ] && grep -q ' 41 @Adamniels PR #50 is approved and waits for your decision: it carries owner-decision' "$D/comments.log" \
+    && [ "$(cat "$AGENT_HOME/agent-logs/owner-told")" = "50 aaaa" ] && [ "$(cat "$D/gate.log" | sort -u)" = 50 ] && no_file "$D/labels.log"; echo $?)
 check "the same pr and sha again comments nothing and waits the poll interval" $([ "$(sleeps)" = 5 ]; echo $?)
 rm -f "$AGENT_HOME/.agent-stop"; export FAKE_HEAD=bbbb; pending "owner 50 41"; runner
-check "a new head sha gets one new mention" $([ "$(lines "$D/comments.log")" = 2 ] && grep -q 'head bbbb' "$D/comments.log"; echo $?)
+check "a new head sha gets one new mention" \
+  $([ "$(lines "$D/comments.log")" = 2 ] && grep -qx '50 bbbb' "$AGENT_HOME/agent-logs/owner-told"; echo $?)
+
+setup; export FAKE_GATE_EXIT=3 FAKE_GATE_OUT="$READY" FAKE_PR_LABELS=needs-owner; pending "owner 50 41"; runner
+check "needs-owner, the older label, is read like owner-decision: the mention names it and no label changes" \
+  $(grep -q 'PR #50 is approved and waits for your decision: it carries needs-owner' "$D/comments.log" && no_file "$D/labels.log"; echo $?)
+
+setup; export FAKE_GATE_EXIT=3 FAKE_GATE_OUT="$READY" FAKE_PR_LABELS=owner-merge; pending "owner 50 41"; runner
+check "an owner item for a PR that already carries owner-merge says ready to read and merge and edits no label" \
+  $(grep -q 'PR #50 is ready for you to read and merge' "$D/comments.log" && no_file "$D/labels.log"; echo $?)
+
+setup; export FAKE_GATE_EXIT=3 FAKE_GATE_OUT="$READY" FAKE_PR_LABELS=owner-blocked; pending "owner 50 41"; runner
+check "an owner-blocked PR that is approved and ready swaps to owner-merge" \
+  $([ "$(cat "$D/labels.log")" = "50 +owner-merge -owner-blocked" ] && grep -q 'ready for you to read and merge' "$D/comments.log"; echo $?)
+
+setup; export FAKE_GATE_EXIT=3 FAKE_GATE_OUT="$READY" FAKE_PR_LABELS=owner-decision,owner-blocked; pending "owner 50 41"; runner
+check "an owner-blocked PR with owner-decision that is ready drops owner-blocked and gets no owner-merge" \
+  $([ "$(cat "$D/labels.log")" = "50 -owner-blocked" ] && grep -q 'waits for your decision' "$D/comments.log"; echo $?)
+
+setup; export FAKE_GATE_EXIT=3 FAKE_GATE_OUT='ci-ok failed\nan owner label is set\n' FAKE_PR_LABELS=owner-merge; pending "owner 50 41"; runner
+check "an owner item the gate refuses for another reason is stuck: owner-blocked replaces owner-merge, never 'ready'" \
+  $([ "$(cat "$D/labels.log")" = "50 +owner-blocked -owner-merge" ] && grep -q 'PR #50 needs you, do not merge it' "$D/comments.log" \
+    && ! grep -q 'ready' "$D/comments.log"; echo $?)
+
+setup; export AGENT_POLL_SECONDS=7 FAKE_GATE_EXIT=3 FAKE_GATE_OUT='ci-ok is pending\nan owner label is set\n' FAKE_PR_LABELS=owner-decision; pending "owner 50 41"; runner
+check "an owner item whose ci-ok is pending waits: no mention yet, no label" \
+  $([ "$(sleeps)" = 7 ] && no_file "$D/comments.log" && no_file "$D/labels.log"; echo $?)
 
 setup; export FAKE_GATE_EXIT=3 FAKE_GATE_OUT='risk is not low\n'; pending "merge 50 41" "owner 50 41"; runner
 check "a merge-gate ready mention, then an owner item for the same sha, mentions once" $([ "$(lines "$D/comments.log")" = 1 ]; echo $?)
 
-setup; pending "cap 50 41" "owner 50 41"; runner
+setup; export FAKE_GATE_EXIT=3 FAKE_GATE_OUT="$READY"; pending "cap 50 41" "owner 50 41"; runner
 check "a cap mention, then an owner item for the same sha, mentions once" $([ "$(lines "$D/comments.log")" = 1 ]; echo $?)
 
 # --- Failures count only when they are about the slice (R13) ----------------------------------------------------
@@ -284,8 +325,8 @@ check "the same item after three ok runs is no progress and sets Blocked" $(grep
 
 # --- Silent reviews (R32) ---------------------------------------------------------------------------------------
 setup; export FAKE_VERDICT="none 0 0 -"; pending "review 50 41" "review 50 41"; runner
-check "two slow reviews that leave no verdict set Blocked and add needs-owner to the PR" \
-  $(grep -q 'status 41 Blocked' "$D/board.log" && grep -q '50 needs-owner' "$D/labels.log"; echo $?)
+check "two slow reviews that leave no verdict set Blocked and add owner-blocked to the PR" \
+  $(grep -q 'status 41 Blocked' "$D/board.log" && grep -q '50 +owner-blocked' "$D/labels.log"; echo $?)
 
 setup; export FAKE_VERDICT="approve bbbb 0 2027-01-15T08:00:00Z" FAKE_HEAD=aaaa; pending "review 50 41"; runner
 check "a verdict for an older head counts as a silent review" $([ "$(fails 41)" = 1 ]; echo $?)
@@ -497,7 +538,7 @@ check "a new head alone does not unblock: the slice stays Blocked until the owne
 setup; : > "$D/board-fail-once"; pending "fix 50 41" "fix 50 41" "merge 50 41"; claude_plays "1 300 tests fail" "1 300 tests fail"; runner
 check "R55: after a failed Blocked write the next item (merge) does not merge; the Block completes, mentioned once" \
   $(no_file "$D/gate.log" && [ "$(lines "$D/comments.log")" = 1 ] && [ "$(cat "$D/status-41")" = Blocked ] \
-    && grep -q '^50 ' "$AGENT_HOME/agent-logs/blocked-prs" && grep -q '50 needs-owner' "$D/labels.log"; echo $?)
+    && grep -q '^50 ' "$AGENT_HOME/agent-logs/blocked-prs" && grep -q '50 +owner-blocked' "$D/labels.log"; echo $?)
 check "R55: the Blocked notice says how to run it again" \
   $(grep -q 'Comment on this PR or move the slice off Blocked to run it again\.$' "$D/comments.log"; echo $?)
 

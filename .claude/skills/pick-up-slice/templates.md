@@ -30,7 +30,7 @@ Closes #<slice>
 
 <Each decision Settled and the docs did not cover: what was decided, the alternative, and why.
 Mark one on high risk ground (auth or tokens, a migration's shape, a contract between the core,
-the brain and features) with **needs-owner**. A plan that changed underneath, adapted to, goes
+the brain and features) with **owner-decision**. A plan that changed underneath, adapted to, goes
 here too. Or "None.">
 
 - <decision>. Alternative: <what else>. Why: <reason>.
@@ -75,9 +75,11 @@ pickup's rules, quoted, with where it was. None was followed.>
 
 ## Waits for the owner
 
-(when the pull request carries `needs-owner`, the slice's Risk is not `low`, or the branch touches
-`.github/`, `scripts/`, `.claude/`, `AGENTS.md` or `CLAUDE.md`) <Which of these applies. The merge
-gate will not merge this pull request; the owner reviews and merges it.>
+(when the pull request carries `owner-decision`, the slice's Risk is not `low`, or the branch
+touches `.github/`, `scripts/`, `.claude/`, `AGENTS.md` or `CLAUDE.md`) <Which of these applies. The
+merge gate will not merge this pull request; the owner reviews and merges it. With
+`owner-decision`, also list each decision that waits for him, one line each, and say that merging
+confirms them and a comment changes them.>
 ~~~
 
 ## Fix reply

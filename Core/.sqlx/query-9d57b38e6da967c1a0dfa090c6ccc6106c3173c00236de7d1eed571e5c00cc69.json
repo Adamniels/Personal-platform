@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE password_reset_tokens SET used_at = $2\n         WHERE token_hash = $1 AND used_at IS NULL AND expires_at > $2\n         RETURNING account_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "account_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "password_reset_tokens",
+            "name": "account_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Bytea",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "9d57b38e6da967c1a0dfa090c6ccc6106c3173c00236de7d1eed571e5c00cc69"
+}

@@ -297,7 +297,9 @@ on top of Argon2id.
 ### Password reset, and changing a password
 
 Reset works like registration: a command generates a single use token and no email is involved.
-It prints the token, you paste it into the reset page, you set a new password. Delivery is the
+`platform_core reset <email>` trims and lowercases the email, prints the token alone on stdout and
+its expiry on stderr, as `invite` does, and fails with `no account with that email` when there is
+none. You paste the token into the reset page and set a new password. Delivery is the
 only missing piece, and delivery is exactly the piece that belongs to the notification service, so
 when that exists the flow does not change. The core sends a delivery request instead of printing.
 
@@ -350,8 +352,10 @@ Four tables, and nothing else.
 `invite_codes` holds the code hashed, when it was created, when it expires, when it was used and
 by which account. `sessions` is the refresh side of the token model: id, account id, family id,
 token hash, issued at, expires at, family expires at, used at, revoked at. The family expiry is set
-at login and copied forward on each rotation, so a refresh can respect the cap by reading one row. `password_reset_tokens` has the same shape
-as invite codes, since reset is the invite code machinery again, see password reset above.
+at login and copied forward on each rotation, so a refresh can respect the cap by reading one row.
+`password_reset_tokens` has the invite code shape with the account id in place of `used_by`: token
+hash, account id, created at, expires at, used at. A reset token belongs to an account from the
+start, since reset is the invite code machinery again, see password reset above.
 
 Invite codes, reset tokens and refresh tokens are stored hashed. Each of them is a credential, and
 a database backup should not be a working set of them. All three are plain random bytes rather
@@ -689,8 +693,10 @@ TLS and no `aws-lc-rs` C build, which the core already avoided for `jsonwebtoken
 are plain HTTP by the rule in "Routing". One client is built in `AppState::new`, from
 `src/http.rs`, so its connections are pooled and every call shares its policy: redirects are never
 followed and the system's proxy settings are ignored. The alternative was the `hyper-util` legacy
-client already in the tree, lower level and more code to own for a pool, a timeout and a body
-limit that reqwest already has.
+client already in the tree, lower level and more code to own for a pool and for the redirect and
+proxy policy, which reqwest already has. The deadline and the body limit are not reqwest's: the
+deadline is `tokio::time::timeout` around the whole exchange and the limit is counted chunk by
+chunk, both in `src/display.rs`.
 
 **toml** parses the feature registry with serde, at 0.8, the copy sqlx already brings in, so
 nothing new is compiled; the 1.x line would be a second copy. **serde_json** writes the key set's

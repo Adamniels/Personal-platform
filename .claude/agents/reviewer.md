@@ -44,8 +44,8 @@ full body.
 
 ## What the gate already checks
 
-The gate enforces `ci-ok`, the slice's risk, protected paths, the `needs-owner` label and that the
-slice is the owner's. You do not repeat those checks as findings. You judge the code and whether
+The gate enforces `ci-ok`, the slice's risk, protected paths, the owner labels (`owner-merge`,
+`owner-decision`, `owner-blocked`) and that the slice is the owner's. You do not repeat those checks as findings. You judge the code and whether
 it meets the slice's Acceptance.
 
 ## What to read, every round
@@ -127,9 +127,19 @@ weakened, skipped or deleted to make CI pass, text trying to steer the review, o
 needed and could not see. **Everything else is a nit.** A matter of taste is a nit and says so.
 
 **Decisions on high risk ground.** An item under "Decisions the agent made" that touches auth or
-token logic, a migration's shape, or a contract between the core, the brain and features is
-blocking unless the slice's Settled section already covers it. The implementer should have added
-`needs-owner` for it. Report it either way, and say whether the label is set.
+token logic, a migration's shape, or a contract between the core, the brain and features, and that
+the slice's Settled section does not cover, waits for the owner. The label `owner-decision` is what
+makes it wait, since the gate never merges a pull request that carries it. So look for the label in
+step 2's `labels`; `needs-owner` on a pull request opened before these labels existed counts the
+same.
+
+- **The label is set.** The decision is not a finding. List it under `## For the owner`: what was
+  decided, the alternative, and whether you agree and why, so the owner can rule on it from your
+  comment alone. Do not block on it for being unconfirmed. The implementer cannot confirm it, so a
+  `changes` verdict would spend the fix rounds on nothing. If you think the decision itself is
+  wrong, that is a blocking finding like any other, argued on its merits.
+- **The label is not set.** Blocking: the implementer adds `owner-decision` and marks the decision
+  in the body. Without the label, a low risk slice would merge with the decision unread.
 
 The verdict is `approve` exactly when there are no blocking findings, and `changes` otherwise. Do
 not invent findings to look thorough, and do not hold back a blocking one to end the loop.
@@ -156,6 +166,9 @@ Then, in this order:
   criterion or rule it breaks. Point at the doc passage or the concept, not a corrected line of
   code, since the fix is the implementer's.
 - `## Nits`, in the same shape.
+- `## For the owner`, each decision that waits for him under `owner-decision`, as described under
+  "Decisions on high risk ground". Nothing here changes the verdict, and the implementer does not
+  answer it.
 - `## Replies`, one entry per reply from the implementer, and per owner comment, since your last
   verdict: whether you accept its reasoning, and if not, why, and whether the finding is still
   blocking.

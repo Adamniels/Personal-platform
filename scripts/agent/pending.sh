@@ -9,17 +9,20 @@
 #                        handled (the latest of head commit, verdict and bot reply, a non-verdict comment by
 #                        the bot)
 #   cap <pr> <slice>     the reviewer asked for changes a fourth time or more: the round cap is reached. Not
-#                        offered for a PR already labelled needs-owner, which has been handed over
+#                        offered for a PR already labelled owner-blocked, which has been handed over. Another
+#                        owner label does not hide it: owner-decision is the implementer's, set long before
 #   review <pr> <slice>  no verdict for the head commit, or a bot reply newer than a changes verdict (the fix
 #                        run answered without a commit; the reviewer reads the reply and issues a new verdict)
 #   merge <pr> <slice>   an approve verdict for the head commit
 #   resume <slice>       status In progress and no open PR
 #   new <slice>          the slice next.sh --number proposes
-#   owner <pr> <slice>   an approve verdict for the head of a PR labelled needs-owner: the owner merges it.
+#   owner <pr> <slice>   an approve verdict for the head of a PR carrying an owner label: the owner merges it.
 #                        Lowest priority, so it never starves other work
+# The owner labels are owner-merge, owner-decision and owner-blocked, and needs-owner, the one label older pull
+# requests carry instead. The merge gate refuses on any of them.
 # Owner input is any issue comment, inline review comment or submitted review (not pending) by the owner.
 # Only open PRs by the bot are considered. A PR whose slice is Blocked on the board (board.sh get) yields nothing,
-# unless there is owner input, which is fix (R51). needs-owner blocks merging only (R42): such a PR gets fix and review
+# unless there is owner input, which is fix (R51). An owner label blocks merging only (R42): such a PR gets fix and review
 # like any other, and an approve for its head gives owner instead of merge. Within a priority, the lowest PR
 # number first. The slice is the PR's first closing issue reference, else the number its head branch name
 # starts with (`<n>-`); a PR with neither is skipped with a warning on stderr.
@@ -34,6 +37,8 @@ OWNER="Adamniels"
 REPO_NAME="Personal-platform"
 BOT="mac-mini-agent"
 MAX_CHANGES=3   # a PR with more changes verdicts than this has used up its rounds
+OWNER_LABELS='["owner-merge","owner-decision","owner-blocked","needs-owner"]'   # the merge gate's list
+BLOCKED_LABEL="owner-blocked"
 
 scripts="${AGENT_SCRIPTS:-$(cd "$(dirname "$0")" && pwd)}"
 tmp="$(mktemp -d)"
@@ -62,13 +67,14 @@ jq --slurpfile d "$tmp/dates.json" \
 : > "$tmp/candidates"
 open_slices=" "
 
-jq -r '.[] | [.number, .headRefOid,
+jq -r --argjson owner_labels "$OWNER_LABELS" --arg blocked "$BLOCKED_LABEL" '.[] | [.number, .headRefOid,
       ([(.closingIssuesReferences[0].number // empty | tostring),
         ((.headRefName // "") | capture("^(?<n>[0-9]+)-").n)?] | .[0] // "-"),
-      (any(.labels[]; .name == "needs-owner")), (.commits[-1].committedDate // error("pull request #\(.number) has no commits"))] | @tsv' "$tmp/prs.json" > "$tmp/prs.tsv" \
+      (any(.labels[]; .name as $n | $owner_labels | index($n) != null)), (any(.labels[]; .name == $blocked)),
+      (.commits[-1].committedDate // error("pull request #\(.number) has no commits"))] | @tsv' "$tmp/prs.json" > "$tmp/prs.tsv" \
   || { echo "could not read the pull request list" >&2; exit 1; }
 
-while IFS=$'\t' read -r pr sha slice labelled committed; do
+while IFS=$'\t' read -r pr sha slice labelled blocked committed; do
   open_slices="$open_slices$slice "
   if [ "$slice" = - ]; then echo "pr #$pr closes no issue; skipped" >&2; continue; fi
 
@@ -120,7 +126,7 @@ while IFS=$'\t' read -r pr sha slice labelled committed; do
     echo "3 $pr review $slice" >> "$tmp/candidates"
   elif [ "$kind" = changes ] && [ "$count" -le "$MAX_CHANGES" ]; then
     echo "1 $pr fix $slice" >> "$tmp/candidates"
-  elif [ "$kind" = changes ] && [ "$labelled" = true ]; then
+  elif [ "$kind" = changes ] && [ "$blocked" = true ]; then
     :   # at the cap and already handed to the owner: nothing to offer, or the runner would loop on it
   elif [ "$kind" = changes ]; then
     echo "2 $pr cap $slice" >> "$tmp/candidates"
