@@ -56,6 +56,11 @@ question one at a time with a recommendation, then cuts the feature into slices,
 tier, orders them with blocked-by links, and writes them to GitHub after a dry run. The procedure,
 and the slice body every agent works from, are in `.claude/skills/plan-feature/SKILL.md`.
 
+What the owner might build is kept in his planning notes in Notion, not here, see "Candidate
+features" in `High-level/docs/platform-architecture.md`. Where the feature has a page there,
+planning starts from it and ends by marking it planned with the feature issue's link. The page's
+intent is copied into the feature issue, since the agents that build it cannot read Notion.
+
 Planning happens ahead of the agent's run, and all of it with the owner, because an unattended run
 has nobody to ask. A slice that still has a question in it stays in Backlog rather than leaving
 the question for the agent to guess, and a slice whose acceptance cannot be written as named tests

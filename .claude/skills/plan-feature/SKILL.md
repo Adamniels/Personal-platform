@@ -31,6 +31,13 @@ other, produces slices the gate refuses.
 
 Before the first recommendation, as the `read-the-plan-first` memory says:
 
+- The feature's page in the owner's planning notes, when the session has the Notion connector.
+  The notes are the Features database on the "Personal Platform" page in his Notion: one page per
+  thing he might build, with the headings What I want, Why, Rough shape, Open questions and Notes
+  for planning. Find the page for this feature by its name and read it. If there is no page, or
+  no connector, plan from what the owner says, and tell him which of the two it was. The page is
+  intent, never design: where it and a doc disagree, that is a question for step 2, not something
+  to pick a side on.
 - `AGENTS.md`, `docs/README.md`, and every doc passage the feature touches. Grep the docs, do not
   work from memory of them.
 - Every issue body in the repository, once per session, and grep it for what the feature touches:
@@ -50,8 +57,8 @@ touches, so he can correct it before the questions start.
 
 ## 2. Settle every open question
 
-Collect the questions: what the owner left open, what the docs leave open, and every collision
-between the feature and a doc or another issue. Cover at least behaviour, edge cases, what the UI
+Collect the questions: what the owner left open, the Open questions on his planning page, what
+the docs leave open, and every collision between the feature and a doc or another issue. Cover at least behaviour, edge cases, what the UI
 looks like and where it lives, scope and what is deliberately left out, new dependencies with exact
 versions, and doc changes.
 
@@ -147,7 +154,8 @@ has to ask. Repeat a decision in each slice that depends on it rather than point
 slice.
 
 The feature parent's body holds the owner's description in his words, the decisions that span
-slices, and the slices in order.
+slices, and the slices in order. What his planning page says under What I want and Why is copied
+into it, since the agents that build the slices cannot read Notion.
 
 ## 5. Write it to GitHub
 
@@ -194,6 +202,18 @@ what is still missing for it.
 Tell the owner that any later edit to a slice body should be his own: an edit by any other account,
 an agent's included, makes the merge gate refuse the slice for good.
 
+**Then update his planning notes**, when the session has the Notion connector. Show the change
+first, like any other, and make it on his yes:
+
+- Set the feature's page to Status `Planned` and its Issue to the feature parent's URL. If the
+  feature had no page, create one with those two values and its Area, so the board in Notion shows
+  every planned feature.
+- Add nothing else to the page. From here on the feature's scope lives on GitHub.
+- An idea that came up while planning and was left out of scope goes to the Inbox on the
+  "Personal Platform" page, one line, if the owner wants it kept.
+
+Without the connector, tell the owner to set the page himself, with the issue's URL to paste.
+
 ## Never
 
 - Write or change code. Planning ends at Ready slices.
@@ -203,3 +223,5 @@ an agent's included, makes the merge gate refuse the slice for good.
 - Set a slice Ready before every GitHub change is verified, set an incomplete slice Ready, or set
   the feature parent Ready.
 - Edit a slice that is In progress or later.
+- Write design or scope into the planning notes. Notion holds what the owner wants and why; design
+  belongs in the docs, through a slice, and scope belongs in the issues.
