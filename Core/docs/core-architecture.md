@@ -165,9 +165,10 @@ apart, but not a rotation and a revoke: under READ COMMITTED a revoke that waits
 refresh is marking then sees that row and not the one the refresh inserts, so a logout would report
 success while the other tab's new token stays live. With the lock, whichever comes second waits, and
 reuse detection revokes under it exactly as logout does; a revoke then sees the new row, and a
-rotation then finds its token revoked. The key space is shared with sqlx's migrator, which holds a
-session advisory lock keyed from the database name while `migrate` runs, so a family whose key
-collides with it would wait out a migration, nothing worse.
+rotation then finds its token revoked. Revoking a whole account, as a reset does, takes the lock of
+each of its families, in family id order, before the statement that revokes them. The key space is
+shared with sqlx's migrator, which holds a session advisory lock keyed from the database name while
+`migrate` runs, so a family whose key collides with it would wait out a migration, nothing worse.
 
 **A token used within the last thirty seconds is not reuse.** The window is inclusive: a token used
 at most thirty seconds before the request is grace, one second later is reuse, and the used check
@@ -299,7 +300,7 @@ on top of Argon2id.
 Reset works like registration: a command generates a single use token and no email is involved.
 `platform_core reset <email>` trims and lowercases the email, prints the token alone on stdout and
 its expiry on stderr, as `invite` does, and fails with `no account with that email` when there is
-none. You paste the token into the reset page and set a new password. Delivery is the
+none. You paste the token into the reset page, `/reset`, and set a new password. Delivery is the
 only missing piece, and delivery is exactly the piece that belongs to the notification service, so
 when that exists the flow does not change. The core sends a delivery request instead of printing.
 
@@ -307,13 +308,17 @@ Sending mail from the core is ruled out rather than deferred. It is the drift th
 decision exists to prevent, and it would pull a provider, deliverability and templates into a
 service holding one account.
 
-**Consuming a reset token revokes every session for that account.** A reset happens because
-someone may have the password, so a session that survives it defeats the whole point. This is also
-where the thirty minute window is least comfortable: nothing new can be minted, but an access
-token already in someone's hands keeps working until it expires. It does not change the answer at
-this size, since an attacker would have to be inside the account during that particular half hour,
-but it is the scenario that comes closest to justifying the revocation feed under what we are not
-doing.
+**Consuming a reset token revokes every session for that account.** A reset happens because someone
+may have the password, so a session that survives it defeats the whole point. Consuming the token,
+setting the password and revoking the sessions are one transaction, with the password checked and
+hashed before it begins, so a token is never spent without the password changing. This is also where
+the thirty minute window is least comfortable: nothing new can be minted, but an access token
+already in someone's hands keeps working until it expires. It does not change the answer at this
+size, since an attacker would have to be inside the account during that particular half hour, but it
+is the scenario that comes closest to justifying the revocation feed under what we are not doing.
+One gap is left open: a login with the old password that commits while the reset runs can leave one
+live session. It needs the old password and a window of milliseconds, and closing it means an
+account level lock in login.
 
 **The token is short lived, an hour rather than a day**, stored hashed, usable once. That is the
 invite code machinery again rather than anything new. Using it does not log you in: it sets the
