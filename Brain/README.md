@@ -567,6 +567,22 @@ the topic routes, "Subjects" above:
   as typed, which the brain makes. Edit, Earlier versions and Retire are Profile's, from
   `src/entries/`, and a state's edit is the `state` correction above.
 
+**History** is what happened and what was decided, `src/history/`, over `GET /history`:
+
+- The package's `Timeline`, newest first by when each thing happened, not by when it was entered,
+  so a course from 2021 entered today sits below this year's entries. The brain answers oldest
+  first, and the page reads it reversed. Each entry shows when, to its precision, in the mono font,
+  `2021`, `Sep 2023`, `12 Nov 2026`, or a day with a time for an instant (`src/history/when.ts`),
+  then its text and its subjects. A year, a month or a day is sent as the start of its period in
+  UTC and read back in UTC, so it is the same period wherever the owner is; the month names are
+  written out there rather than taken from `Intl`, whose `en-GB` September is "Sept" in newer ICU.
+- Above it the filter row: a Topic select of the canonical topics and a Named thing select of the
+  user's named things, each with "Any", sent as `topic` and `entity`.
+- "Add what happened", a secondary button, asks for the text, when it happened as a precision,
+  Year, Month or Day, and the field that matches it, a year, a month by name beside its year, or a
+  day, and the optional subjects Now asks for. The day starts empty, since only the owner knows it.
+  There is no primary button on History, since neither way of adding is the one thing to do.
+
 `index.html` is the same shell as every page with the bar: the design files and `nav.js` from the
 proxy, not bundled, and `<platform-nav current="brain">`. Vite builds it with base `/brain/` into
 `web/dist`, git ignored, its files under `dist/assets/`.

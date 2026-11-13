@@ -6,7 +6,8 @@
 // knowledge view one row per topic that is not an alias, the relations that hold, and promoting a
 // provisional topic. The now view is the active states, newest support first, each stale when
 // last supported more than sixty days before the real time, and confirming supports one at that
-// time. Anything else it answers 404.
+// time. History is the active history entries and decisions by when each happened, oldest first,
+// and the decisions another replaced, each with the one that did. Anything else it answers 404.
 import type { ClientEnvironment } from "../api/client";
 import type { components } from "../api/schema";
 
@@ -15,7 +16,8 @@ type Topic = components["schemas"]["Topic"];
 type KnowledgeRow = components["schemas"]["KnowledgeRow"];
 type TopicRelation = components["schemas"]["TopicRelation"];
 type Entity = components["schemas"]["Entity"];
-type Kind = "profile" | "rule" | "state";
+type Kind = "profile" | "rule" | "state" | "history" | "decision";
+type Precision = NonNullable<Item["occurred_precision"]>;
 type Setting = "topic_level" | "topic_focus";
 
 export type Call = { method: string; path: string; body: unknown };
@@ -33,6 +35,8 @@ const STORES: Record<Kind | Setting, Item["store"]> = {
 	profile: "profile",
 	rule: "procedural",
 	state: "semantic",
+	history: "reported_history",
+	decision: "semantic",
 	topic_level: "knowledge",
 	topic_focus: "profile",
 };
@@ -44,6 +48,8 @@ export function fakeBrain() {
 	const entities: Entity[] = [];
 	// When each state was last supported, by its id.
 	const supported = new Map<string, string>();
+	// The decision that replaced each one another did, by its id.
+	const replacedBy = new Map<string, string>();
 	const calls: Call[] = [];
 	let refusal: Refusal | null = null;
 	let minutes = 0;
@@ -207,6 +213,61 @@ export function fakeBrain() {
 		return item;
 	}
 
+	/** Something that happened, or a decision, dated as given; a decision
+	 * without a date is made now, as the brain dates it by the request. */
+	function makeDated(
+		kind: "history" | "decision",
+		content: string,
+		{
+			occurredAt,
+			precision,
+			details = {},
+			...subjects
+		}: Subjects & {
+			occurredAt?: string;
+			precision?: Precision;
+			details?: Item["details"];
+		},
+	): Item {
+		const item = name(make(kind, content, null), subjects);
+		item.nature = kind === "history" ? "record" : "claim";
+		item.occurred_at = occurredAt ?? item.created_at;
+		item.occurred_precision = precision ?? "instant";
+		item.details = details;
+		return item;
+	}
+
+	function historyView(url: URL) {
+		const slug = url.searchParams.get("topic");
+		const entity = url.searchParams.get("entity")?.toLowerCase() ?? null;
+		const wanted = topics.find((topic) => topic.slug === slug);
+		return items
+			.filter((item) => item.kind === "history" || item.kind === "decision")
+			.filter((item) => item.status === "active" || replacedBy.has(item.id))
+			.filter(
+				(item) =>
+					slug === null ||
+					(wanted !== undefined &&
+						item.topics.some(({ id }) => resolve(id) === wanted.resolves_to)),
+			)
+			.filter(
+				(item) =>
+					entity === null ||
+					item.entities.some(
+						({ name: named }) => named.toLowerCase() === entity,
+					),
+			)
+			.sort(
+				(a, b) =>
+					(a.occurred_at ?? "").localeCompare(b.occurred_at ?? "") ||
+					a.created_at.localeCompare(b.created_at),
+			)
+			.map((item) => ({
+				...item,
+				replaced_by: replacedBy.get(item.id) ?? null,
+			}));
+	}
+
 	function nowView() {
 		const staleBefore = Date.now() - 60 * DAY;
 		return items
@@ -243,6 +304,9 @@ export function fakeBrain() {
 				200,
 				[...topics].sort((a, b) => a.slug.localeCompare(b.slug)),
 			);
+		}
+		if (method === "GET" && path === "/history") {
+			return json(200, historyView(url));
 		}
 		if (method === "GET" && path === "/now") {
 			return json(200, nowView());
@@ -307,6 +371,24 @@ export function fakeBrain() {
 			const subjects = body as Subjects;
 			if (kind === "state") {
 				return json(201, detail(makeState(content, subjects)));
+			}
+			if (kind === "history" || kind === "decision") {
+				const dated = body as {
+					occurred_at?: string;
+					occurred_precision?: Precision;
+					details?: Item["details"];
+				};
+				return json(
+					201,
+					detail(
+						makeDated(kind, content, {
+							...subjects,
+							occurredAt: dated.occurred_at,
+							precision: dated.occurred_precision,
+							details: dated.details,
+						}),
+					),
+				);
 			}
 			const item = make(kind, content, fields.category ?? null);
 			return json(201, detail(item));
@@ -389,6 +471,30 @@ export function fakeBrain() {
 			options: Subjects & { supportedAt?: string } = {},
 		): Item {
 			return makeState(content, options);
+		},
+		/** Something that happened, when and as precisely as given. */
+		happened(
+			content: string,
+			occurredAt: string,
+			precision: Precision,
+			subjects: Subjects = {},
+		): Item {
+			return makeDated("history", content, {
+				...subjects,
+				occurredAt,
+				precision,
+			});
+		},
+		/** A decision, with its reasoning and what it rejected. */
+		decided(
+			content: string,
+			details: { reasoning: string; rejected?: string[] },
+			options: Subjects & { occurredAt?: string; precision?: Precision } = {},
+		): Item {
+			return makeDated("decision", content, {
+				...options,
+				details: { rejected: [], ...details },
+			});
 		},
 		/** A named thing the user already has. */
 		entity(entityName: string): Entity {
