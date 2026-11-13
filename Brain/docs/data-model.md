@@ -25,6 +25,9 @@ isolation is enforced" in `High-level/docs/platform-architecture.md`.
   a connection that never had it and reverts to `''` after a transaction that set it, and a bare
   `current_setting('brain.user_id')::uuid` raises in both cases, where this is null and matches no
   row. `brain.db.CURRENT_USER_SQL` holds the expression, see "The door" in `Brain/README.md`.
+  It is the only permissive policy, with no `WITH CHECK` of its own: Postgres ORs permissive
+  policies, so a second one, for any command, would let a user past it. A table that needs less
+  adds a restrictive policy, which is ANDed with it and only narrows.
 - **One door.** The service reaches the database only through a function that opens a transaction
   and sets `brain.user_id` for that transaction alone. Nothing else may take a connection.
 - **Two roles.** `brain_owner` owns the tables and runs migrations. `brain_app` is what the running

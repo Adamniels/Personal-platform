@@ -10,7 +10,6 @@ and forced, and the one policy from "What holds for every table" in
 import re
 import uuid
 from pathlib import Path
-from typing import cast
 
 import psycopg
 import pytest
@@ -191,30 +190,46 @@ def door_policy(conn: psycopg.Connection[tuple[object, ...]]) -> str:
 
 def unguarded_tables(database: str) -> list[str]:
     """Each scoped table in public, and why it is not guarded: row level
-    security not enabled, not forced, or no policy for every command that is
-    exactly the door's. A near copy, such as the bare cast that errors outside
-    the door instead of returning nothing, does not count."""
+    security not enabled, not forced, no policy for every command that is
+    exactly the door's, or another permissive policy beside it.
+
+    The door's policy reads rows by `user_id = db.CURRENT_USER_SQL` and checks
+    written rows the same way, with no WITH CHECK of its own or that same
+    expression. A near copy, such as the bare cast that errors outside the
+    door instead of returning nothing, does not count. Postgres ORs permissive
+    policies together, so any other one, for any command, would let a user
+    past the door's; a restrictive policy is ANDed with it, only narrows, and
+    is allowed."""
     with admin_connection(database) as conn:
         expected = door_policy(conn)
-        rows = conn.execute(
+        tables = conn.execute(
             """
             SELECT c.relname, c.relrowsecurity, c.relforcerowsecurity,
                    EXISTS (
                        SELECT FROM pg_attribute a
                        WHERE a.attrelid = c.oid AND a.attname = 'user_id'
                          AND a.atttypid = 'uuid'::regtype AND a.attnotnull
-                   ),
-                   coalesce(array_agg(p.qual) FILTER (WHERE p.cmd = 'ALL'), '{}')
+                   )
             FROM pg_class c
             JOIN pg_namespace n ON n.oid = c.relnamespace
-            LEFT JOIN pg_policies p ON p.schemaname = n.nspname AND p.tablename = c.relname
             WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p')
-            GROUP BY c.oid, c.relname, c.relrowsecurity, c.relforcerowsecurity
             ORDER BY c.relname
             """
         ).fetchall()
+        policies = conn.execute(
+            """
+            SELECT tablename::text, policyname::text, cmd, qual, with_check
+            FROM pg_policies
+            WHERE schemaname = 'public' AND permissive = 'PERMISSIVE'
+            ORDER BY tablename, policyname
+            """
+        ).fetchall()
+
+    def is_door(cmd: object, qual: object, with_check: object) -> bool:
+        return cmd == "ALL" and qual == expected and with_check in (None, expected)
+
     found = []
-    for name, enabled, forced, has_user_id, policies in rows:
+    for name, enabled, forced, has_user_id in tables:
         if name in GLOBAL_TABLES:
             continue
         if not enabled:
@@ -223,9 +238,14 @@ def unguarded_tables(database: str) -> list[str]:
             found.append(f"{name}: row level security is not forced")
         if not has_user_id:
             found.append(f"{name}: no user_id uuid NOT NULL")
-        quals = cast(list[str], policies)
-        if expected not in quals:
+        own = [policy for policy in policies if policy[0] == name]
+        if not any(is_door(*policy[2:]) for policy in own):
             found.append(f"{name}: no policy for all commands that is the door's")
+        found.extend(
+            f"{name}: permissive policy {policy[1]} is not the door's"
+            for policy in own
+            if not is_door(*policy[2:])
+        )
     return found
 
 
@@ -252,11 +272,38 @@ def test_the_guard_finds_a_table_left_unguarded(database: str) -> None:
             " CREATE POLICY bare_cast_user ON bare_cast"
             f" USING (user_id = current_setting('{db.USER_SETTING}')::uuid)"
         )
+        # Postgres ORs permissive policies, so a second one beside the door's
+        # opens the table, for one command or all of them.
+        for name, extra in [
+            ("extra_select", "FOR SELECT USING (true)"),
+            ("extra_all", "USING (true)"),
+            ("extra_insert", "FOR INSERT WITH CHECK (true)"),
+        ]:
+            conn.execute(PROBE.replace("probe", name))
+            conn.execute(f"CREATE POLICY {name}_open ON {name} {extra}")
+        # The door's reading, with a check that lets a row name anyone.
+        conn.execute(
+            PROBE.replace("probe", "loose_check").replace(
+                "::uuid);", "::uuid) WITH CHECK (true);"
+            )
+        )
+        # A restrictive policy is ANDed with the door's, so it only narrows
+        # what the door allows and is left alone.
+        conn.execute(PROBE.replace("probe", "narrowed"))
+        conn.execute(
+            "CREATE POLICY narrowed_notes ON narrowed AS RESTRICTIVE USING (note <> '')"
+        )
 
     assert unguarded_tables(database) == [
         "bare_cast: no policy for all commands that is the door's",
+        "bare_cast: permissive policy bare_cast_user is not the door's",
+        "extra_all: permissive policy extra_all_open is not the door's",
+        "extra_insert: permissive policy extra_insert_open is not the door's",
+        "extra_select: permissive policy extra_select_open is not the door's",
         "half_guarded: row level security is not forced",
         "half_guarded: no policy for all commands that is the door's",
+        "loose_check: no policy for all commands that is the door's",
+        "loose_check: permissive policy loose_check_user is not the door's",
         "open_table: row level security is not enabled",
         "open_table: row level security is not forced",
         "open_table: no user_id uuid NOT NULL",

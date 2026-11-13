@@ -204,8 +204,8 @@ NULL`, row level security enabled and forced, and one policy,
 `USING (user_id = nullif(current_setting('brain.user_id', true), '')::uuid)`, the expression
 `brain.db.CURRENT_USER_SQL` holds. With no user set it is null, so a query outside the door
 returns nothing rather than everything. `tests/test_isolation.py` proves it on a probe table, and
-fails for any table a later migration adds to `public` without that guard, except the global ones
-the data model names.
+fails for any table a later migration adds to `public` without that guard, or with any other
+permissive policy beside it, except the global ones the data model names.
 
 ## Building the app
 
