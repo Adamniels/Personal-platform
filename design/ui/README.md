@@ -128,6 +128,33 @@ included, and each follows its entry in section 4 of `DESIGN.md`.
   without which Previous or Next is disabled; and `onPage`, called with `previous` or `next`. It
   is a `nav` named `label`, "Pages" unless a page has more than one.
 
+- `Dialog`: the native `dialog` element, opened with `showModal`, which gives the top layer, the
+  backdrop, Escape and an inert page behind it. It takes `open`, which **the caller owns**;
+  `title`, the h2 that labels it and states the action as a question, which the caller writes;
+  its body as children; `confirmLabel`, the confirming button, which repeats the title's verb;
+  `kind`, that button's kind, `primary` (the default) or `destructive`; `onConfirm`; and
+  `onCancel`. Cancel comes first and the confirming button last, right aligned. `onCancel` is
+  called on Cancel, Escape, a click on the backdrop and a close the browser makes by itself, and
+  the dialog stays open until the caller passes `open={false}`. `onConfirm` may return a promise,
+  and while it is pending the confirming button is disabled, so a second press does nothing; a
+  rejection is the caller's to handle. Tab wraps at the dialog's ends, since a browser would
+  otherwise let it leave for its own interface, and focus returns to what had it when the dialog
+  opened. Below 640px it is a sheet at the bottom, the full width of the screen.
+- `ToastProvider` and `useToast`: **a page wraps itself in `ToastProvider` once**, and anything
+  inside it calls `useToast()`, which throws without one. It gives `success(text, action?)` and
+  `error(text, action?)`, where an action is `{ label, onAction }`, one text action such as Undo
+  or Retry, which reports and dismisses the toast. A success is a `role="status"` and leaves after
+  five seconds. An error is a `role="alert"`, is shown as "Error: <text>" the way a field's error
+  is, and stays until its action is pressed, or Dismiss, which an error without one gets. At most
+  three show, the newest lowest, and a fourth drops the oldest. They sit bottom right on desktop
+  and above the bottom tab bar on phone. The provider's `clock`, read once, is where the five
+  seconds come from: the window's timers unless a test passes its own.
+
+The dialog and the toast are the floating layers, and the only components with a shadow, as hard
+rule 3 of `DESIGN.md` says. `Dialog` takes everything a `dialog` takes apart from what it sets
+itself: `open`, `aria-labelledby`, and the `onCancel`, `onClose`, `onClick`, `onMouseDown` and
+`onKeyDown` it handles. `ToastProvider` renders no element of its own beside the stack.
+
 `Status`, `Badge`, `Chip`, `Progress`, `Meter`, `Card`, `EmptyState`, `Timeline`,
 `TimelineEntry`, `TabPanel`, `Table`, `FilterRow`, `FilterPill` and `Paging` render a `span`, a
 `div`, an `article`, an `ol`, an `li`, a `section` or a `nav`, the table's being its wrapper, and
