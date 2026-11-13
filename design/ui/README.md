@@ -50,6 +50,23 @@ included, and each follows its entry in section 4 of `DESIGN.md`.
   `aria-label`.
 - `Checkbox`: `label`, the text of a row that is the box's label, so the whole row is one target;
   and `done`, the completed to do look. `type` is always `checkbox`.
+- `Status`: `tone`, one of `running`, `needs-you`, `done`, `failed` and `idle`, and its word as
+  children, a required string. The tone decides the colours and the caller decides the word, since
+  a feature has its own words, so a status is always a dot plus a word and the dot is hidden from
+  assistive technology. There are exactly five tones; another is a type error.
+- `Badge`: its text as children, a category or a count. It has no tone and no dot: it is always
+  the neutral fill, which is what tells it apart from a status.
+- `Chip`: the outlined tool chip, its text as children.
+- `Progress`: `value`, from 0 to 100, clamped, and 0 when it is not a number; `label`, what the
+  bar measures; and `kind`, `progress` (the default, amber) or `budget` (info). It is
+  `role="img"`, named "<label>: <value>%" with the value rounded, while the fill is drawn exact.
+- `Meter`: a row of `label`, a short mono label such as "CTX", a `Progress` and the value in mono.
+  `value` and `kind` are the bar's, and `description`, such as "Context used", is what assistive
+  technology hears, the short label when it is left out. The two texts are hidden from assistive
+  technology, so the meter is read once, as its bar.
+
+`Status`, `Badge`, `Chip`, `Progress` and `Meter` render a `span` or a `div`, and take everything
+that element takes.
 
 A field fills the width of what holds it, so a form sizes its fields by its layout. Form state and
 validation are the feature's own.
