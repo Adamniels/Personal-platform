@@ -6,10 +6,11 @@ feature. Why it is a separate service is in "The brain is its own service" in
 `docs/brain-architecture.md`, with the tables in `docs/data-model.md`.
 
 Today it serves a health endpoint, says who is asking, holds each user's subjects, the topics and
-named things their memory will be about, and serves the memory centre, its own application, whose
-sections are still empty. Its database has the roles, the migrations, the one door every query goes
-through, proven to keep two users apart, and the subjects' three tables. The other tables arrive
-with the slices that need them.
+named things their memory will be about, records the events features send it and shows them as a
+timeline, and serves the memory centre, its own application, whose sections are still empty. Its
+database has the roles, the migrations, the one door every query goes through, proven to keep two
+users apart, the subjects' three tables, the verbs and the events. The other tables arrive with the
+slices that need them.
 
 ## What it serves
 
@@ -49,6 +50,35 @@ with the slices that need them.
   `topics.lock_vocabulary`, since the checks above read rows another change could be writing.
   `topics.resolve` and `topics.narrower`, every topic under one through relations that hold,
   aliases resolved, are what retrieval reads them with.
+- **Events**, what happened, in the shape of "The shape" in `docs/event-model.md`: the endpoint
+  every feature sends what it observed to, "record event" in "The two contracts" in
+  `High-level/docs/feature-contract.md`. The rules live in `src/brain/events.py`, the routes in
+  `src/brain/event_routes.py`, and they answer and refuse as the subjects' routes do.
+  - `POST /brain/api/events`, `201` with the event. The body carries `verb`, one of the verbs
+    seeded from "The verb list" in `docs/data-model.md`; at most one of `topic`, a slug, and
+    `entity`, a name; optionally `item`, an id, which until the memory store lands names nothing
+    and is `422`; `origin`, the sending feature's name, by the slug's rule, never `brain`, which
+    is the brain's own; optional `source` and `run`; `occurred_at`, with a zone, and
+    `occurred_precision`, `instant` (the default), `day`, `month` or `year`, both standing for
+    the time it was recorded when left out; `evidence`, readable text, not blank, at most 4000
+    characters; `payload`, a JSON object of at most 16 KiB as compact JSON, opaque to the brain;
+    `payload_version`, 1 or more; and `idempotency_key`. A field it does not know is `422`, so a
+    misspelt one is not lost. `recorded_at` is the brain's own time.
+  - Sent again with the same `origin` and `idempotency_key`, it is `200` with the event already
+    recorded, unchanged, whatever else the second one carries. The key is the user's: another
+    origin's, or another user's, is another event.
+  - A slug the user has no topic for makes a `provisional` topic, named by its slug, and a name
+    they have no named thing for makes one, with no label, both silently. An event names a topic
+    as it was given, an alias included, and is read through it: its `subject_topic` is the one it
+    named, and `topic` is the one that resolves to now, so marking topics the same or separating
+    them rewrites no event.
+  - `GET /brain/api/events`, the timeline: the user's events, newest recorded first, `limit` of
+    them (50 by default, 1 to 200), and with `before`, a time with a zone, only those recorded
+    before it. The next page is `before` the last one's `recorded_at`.
+
+  An event is never changed or removed: `brain_app` may insert and read `events`, never update it,
+  and may only read `verbs`, which is global. A new verb is a migration that adds its row, with its
+  kind, strength and polarity.
 - `GET /brain` and `GET /brain/<section>`, the memory centre's `index.html` from the build, see
   "The memory centre" below. Without a valid token, a `303` to the core's
   `/auth/refresh?return_to=<the path>`.
