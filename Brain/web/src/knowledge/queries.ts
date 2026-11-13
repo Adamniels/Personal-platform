@@ -183,7 +183,7 @@ export function useAddMisconception() {
 	});
 }
 
-function topicPath(id: string, action: string): string {
+function topicAction(id: string, action: string): string {
 	return `/topics/${encodeURIComponent(id)}/${action}`;
 }
 
@@ -201,7 +201,7 @@ function useVocabularyChange<Variables>(
 export function usePromote() {
 	const client = useClient();
 	return useVocabularyChange((id: string) =>
-		client.send<Topic>("POST", topicPath(id, "promote")),
+		client.send<Topic>("POST", topicAction(id, "promote")),
 	);
 }
 
@@ -211,7 +211,7 @@ export function useSameAs() {
 	const client = useClient();
 	return useVocabularyChange(
 		({ id, targetId }: { id: string; targetId: string }) =>
-			client.send<Topic>("POST", topicPath(id, "same-as"), {
+			client.send<Topic>("POST", topicAction(id, "same-as"), {
 				target_id: targetId,
 			}),
 	);
@@ -221,7 +221,7 @@ export function useSameAs() {
 export function useSeparate() {
 	const client = useClient();
 	return useVocabularyChange((id: string) =>
-		client.send<Topic>("POST", topicPath(id, "separate")),
+		client.send<Topic>("POST", topicAction(id, "separate")),
 	);
 }
 
@@ -230,7 +230,7 @@ export function usePlaceUnder() {
 	const client = useClient();
 	return useVocabularyChange(
 		({ id, broaderId }: { id: string; broaderId: string }) =>
-			client.send<TopicRelation>("POST", topicPath(id, "broader"), {
+			client.send<TopicRelation>("POST", topicAction(id, "broader"), {
 				broader_id: broaderId,
 			}),
 	);
