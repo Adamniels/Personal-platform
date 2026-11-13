@@ -2,6 +2,7 @@
 centre's frontend at `/brain` and the addresses of its sections, under the
 prefix the Caddyfile sends here, kept. See Brain/README.md."""
 
+import re
 from collections.abc import AsyncIterator
 from contextlib import AsyncExitStack, asynccontextmanager
 from pathlib import Path
@@ -17,7 +18,15 @@ from platform_auth.origin import OriginCheck
 from platform_auth.verify import Claims
 from pydantic import BaseModel
 
-from brain import ask_routes, db, event_routes, item_routes, search_routes, subjects
+from brain import (
+    ask_routes,
+    db,
+    event_routes,
+    item_routes,
+    search_routes,
+    subjects,
+    topics,
+)
 from brain.edge import UNAUTHORIZED, answer_errors, authenticated, page
 from brain.settings import SETTINGS, Settings
 
@@ -48,9 +57,10 @@ async def whoami(request: Request, claims: Claims) -> Response:
     return JSONResponse(body.model_dump(mode="json"))
 
 
-# The memory centre: one page, index.html from the build, for /brain and for
-# /brain/<section>, which the application reads to decide what to show, an
-# unknown section included. The built files are mounted at /brain/assets/.
+# The memory centre: one page, index.html from the build, for /brain, for
+# /brain/<section> and for a topic's page, /brain/knowledge/<slug>, which the
+# application reads to decide what to show, an unknown section or topic
+# included. The built files are mounted at /brain/assets/.
 pages = APIRouter(include_in_schema=False)
 
 # Single segments under /brain/ that are never a section.
@@ -74,6 +84,15 @@ async def application(request: Request) -> Response:
 async def section(request: Request) -> Response:
     # Before the session is checked, so these answer the same to everyone.
     if request.path_params["section"] in NOT_SECTIONS:
+        raise HTTPException(status_code=404)
+    return await memory_centre(request)
+
+
+@pages.get("/brain/knowledge/{slug}")
+async def topic_page(request: Request) -> Response:
+    """A topic's page under Knowledge. Only a slug is one: anything else
+    under a section is not an address of the application."""
+    if re.fullmatch(topics.SLUG_PATTERN, request.path_params["slug"]) is None:
         raise HTTPException(status_code=404)
     return await memory_centre(request)
 

@@ -342,6 +342,18 @@ async def _relate(
     return TopicRelation(*row)
 
 
+async def holding(conn: Connection) -> list[TopicRelation]:
+    """Every relation between the current user's topics that holds, of every
+    kind, in the order they were made, each with its ends as they were given,
+    for the caller to read through aliases. An ended one is left out: it stays
+    in the table only as a record of what held."""
+    cursor = await conn.execute(
+        f"SELECT {RELATION_COLUMNS} FROM topic_relations"
+        " WHERE ended_at IS NULL ORDER BY created_at, id"
+    )
+    return [TopicRelation(*row) for row in await cursor.fetchall()]
+
+
 async def end_relation(
     conn: Connection, relation_id: UUID, *, now: datetime
 ) -> TopicRelation:

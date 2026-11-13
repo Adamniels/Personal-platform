@@ -4336,6 +4336,32 @@
         "summary": "Search"
       }
     },
+    "/brain/api/topic-relations": {
+      "get": {
+        "description": "Every relation between the user's topics that holds, of every kind,\nin the order they were made. Each end is the topic as it was given, an\nalias included, to be read through `resolves_to` from the topics list.\nAn ended relation is not listed.",
+        "operationId": "list_relations_brain_api_topic_relations_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/TopicRelation"
+                  },
+                  "title": "Response List Relations Brain Api Topic Relations Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "No valid token: missing, expired or failing verification, all alike. The body is empty; the caller refreshes and retries."
+          }
+        },
+        "summary": "List Relations"
+      }
+    },
     "/brain/api/topic-relations/{id}/end": {
       "post": {
         "description": "Ends a relation, which stays, with the time it ended. One already\nended is answered as it is.",

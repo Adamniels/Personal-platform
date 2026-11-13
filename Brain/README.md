@@ -47,6 +47,10 @@ exported to a file and imported into an empty brain, from a terminal.
     `201`, a `related_to` relation from this topic to the other, read either way round and through
     aliases. Refused for the topic itself, read through aliases, and `409` when it already holds
     either way round. Asking about one lists the other by slug, and nothing more.
+  - `GET /brain/api/topic-relations`, every relation between the user's topics that holds, of
+    every kind, in the order they were made: `id`, `from_topic`, `to_topic`, `kind`, `created_at`
+    and `ended_at`, null. Each end is the topic as it was given, an alias included, for the caller
+    to read through `resolves_to` from `GET /brain/api/topics`. An ended relation is not listed.
   - `POST /brain/api/topic-relations/{id}/end` ends a relation. The row stays, with `ended_at`.
   - `GET /brain/api/entities` and `POST /brain/api/entities`, `{"name": ..., "label": ...}`, the
     user's named things, such as a project: a name compared without letter case, so a second one
@@ -313,8 +317,8 @@ exported to a file and imported into an empty brain, from a terminal.
   - Every hand made entry is supported by an event whose evidence quotes it as
     `Entered by hand as <kind>: ...`, so a word such as `hand` or a kind's name finds every such
     entry through its evidence.
-- `GET /brain` and `GET /brain/<section>`, the memory centre's `index.html` from the build, see
-  "The memory centre" below. Without a valid token, a `303` to the core's
+- `GET /brain`, `GET /brain/<section>` and a topic's page, `GET /brain/knowledge/<slug>`, the
+  memory centre's `index.html` from the build, see "The memory centre" below. Without a valid token, a `303` to the core's
   `/auth/refresh?return_to=<the path>`.
 - `GET /brain/assets/<file>`, the build's files, with or without a session, since they hold code
   and never data.
@@ -402,7 +406,8 @@ The address is the state, through the History API and no router library (`src/ad
 pushes its section's address, Back and Forward come back as `popstate`, and an address that names
 no section shows a not found state under the tabs. The brain answers `index.html` for any single
 segment under `/brain/` other than `api` and `assets`, so the list of sections lives in
-`src/sections.ts` alone. Until its slice lands, a section shows the package's `EmptyState`.
+`src/sections.ts` alone, and for a slug under `/brain/knowledge/`, a topic's page, the one section
+with pages of its own. Anything deeper is `404`. Until its slice lands, a section shows the package's `EmptyState`.
 
 **Profile and Rules** are where the owner enters by hand who he is and how the platform should work
 with him, `src/profile/` and `src/rules/` over the shared pieces in `src/entries/`:

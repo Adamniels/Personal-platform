@@ -11,6 +11,8 @@ import type { Focus, Level } from "./levels";
 
 export type KnowledgeRow = components["schemas"]["KnowledgeRow"];
 export type Topic = components["schemas"]["Topic"];
+export type TopicRelation = components["schemas"]["TopicRelation"];
+export type Item = components["schemas"]["Item"];
 type ItemDetail = components["schemas"]["ItemDetail"];
 
 /** The root of every query over topics and the knowledge view. */
@@ -24,6 +26,52 @@ export function useKnowledge() {
 		queryKey: [...KNOWLEDGE, "view"],
 		queryFn: () => client.get("/knowledge"),
 	});
+}
+
+/** Every topic, aliases included: what a topic's page finds itself, its
+ * aliases and the other topics by. */
+export function useTopics() {
+	const client = useClient();
+	return useQuery({
+		queryKey: [...KNOWLEDGE, "topics"],
+		queryFn: () => client.get("/topics"),
+	});
+}
+
+/** Every relation between topics that holds, each end as it was given, to
+ * be read through `resolves_to`. */
+export function useRelations() {
+	const client = useClient();
+	return useQuery({
+		queryKey: [...KNOWLEDGE, "relations"],
+		queryFn: () => client.get("/topic-relations"),
+	});
+}
+
+/** A topic's items of one kind, every version, oldest first, through its
+ * aliases, as the brain matches a topic. */
+export function useTopicItems(slug: string, kind: "topic_level" | "history") {
+	const client = useClient();
+	return useQuery({
+		queryKey: [...ITEMS, "topic", slug, kind],
+		queryFn: () => client.get("/items", { query: { kind, topic: slug } }),
+		select: (items) =>
+			[...items].sort(
+				(a, b) => Date.parse(a.created_at) - Date.parse(b.created_at),
+			),
+	});
+}
+
+/** What a misconception's details hold. */
+export type Misconception = { believed: string; correct: string };
+
+export function misconceptionOf(item: Item): Misconception | undefined {
+	const { misconception, believed, correct } = item.details;
+	return misconception === true &&
+		typeof believed === "string" &&
+		typeof correct === "string"
+		? { believed, correct }
+		: undefined;
 }
 
 function useRefresh() {
@@ -107,6 +155,30 @@ export function useAddTopic() {
 			return topic;
 		},
 		onSettled: refresh,
+		meta: { fieldErrors: true },
+	});
+}
+
+/** Records that he believed something about a topic that is not so: a
+ * history entry on it, with what he believed and what is right. A 422 is
+ * the form's to show. */
+export function useAddMisconception() {
+	const client = useClient();
+	const refresh = useRefresh();
+	return useMutation({
+		mutationFn: ({
+			slug,
+			misconception,
+		}: {
+			slug: string;
+			misconception: Misconception;
+		}) =>
+			client.send<ItemDetail>("POST", "/items", {
+				kind: "history",
+				topic: slug,
+				details: { misconception: true, ...misconception },
+			}),
+		onSuccess: refresh,
 		meta: { fieldErrors: true },
 	});
 }

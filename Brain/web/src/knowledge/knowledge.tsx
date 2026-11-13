@@ -15,11 +15,14 @@ import {
 	useToast,
 } from "@platform/ui";
 import { type FormEvent, useEffect, useRef, useState } from "react";
+import { usePathname } from "../address";
 import section from "../entries/section.module.css";
 import { Link } from "../link";
 import { isFieldError } from "../providers";
+import { pageAt, sectionAt } from "../sections";
 import { FocusSelect, LevelSelect } from "./fields";
 import styles from "./knowledge.module.css";
+import { topicPath } from "./knowledge-paths";
 import {
 	FOCUSES,
 	type Focus,
@@ -37,11 +40,7 @@ import {
 	useKnowledge,
 	useSaveSettings,
 } from "./queries";
-
-/** A topic's page, under the section's address. */
-export function topicPath(slug: string): string {
-	return `/brain/knowledge/${encodeURIComponent(slug)}`;
-}
+import { TopicPage } from "./topic-page";
 
 /** When a level or focus was last set, as a day: "13 Nov 2026". */
 const DAY = new Intl.DateTimeFormat("en-GB", {
@@ -50,7 +49,16 @@ const DAY = new Intl.DateTimeFormat("en-GB", {
 	year: "numeric",
 });
 
+/** The section: a topic's page when the address names one, the table
+ * otherwise. */
 export function Knowledge() {
+	const pathname = usePathname();
+	const here = sectionAt(pathname);
+	const slug = here && pageAt(here, pathname);
+	return slug === undefined ? <Overview /> : <TopicPage slug={slug} />;
+}
+
+function Overview() {
 	const knowledge = useKnowledge();
 	const [adding, setAdding] = useState(false);
 

@@ -191,3 +191,39 @@ async def test_resolve_and_narrower_read_through_aliases(
     async with db.transaction(pool, BOB) as conn:
         assert await topics.narrower(conn, databases.id) == set()
         assert await topics.resolve(conn, old.id) is None
+
+
+def holding(caller: Caller) -> list[dict[str, Any]]:
+    response = caller.get("/brain/api/topic-relations")
+    assert response.status_code == 200, response.text
+    relations: list[dict[str, Any]] = response.json()
+    return relations
+
+
+def test_the_relations_that_hold_are_listed_in_the_order_they_were_made(
+    calling: Callable[[uuid.UUID], Caller],
+) -> None:
+    alice = calling(ALICE)
+    databases = create(alice, "Databases")
+    postgres = create(alice, "Postgres")
+    mysql = create(alice, "MySQL")
+    first = under(alice, postgres, databases).json()
+    gone = under(alice, mysql, databases).json()
+    related = alice.post(
+        f"{TOPICS}/{postgres['id']}/related", {"related_id": mysql["id"]}
+    ).json()
+    assert holding(alice) == [first, gone, related]
+
+    end(alice, gone)
+
+    # An ended relation stays in the table, but no longer holds.
+    assert holding(alice) == [first, related]
+
+
+def test_another_users_relations_are_not_listed(
+    calling: Callable[[uuid.UUID], Caller],
+) -> None:
+    alice = calling(ALICE)
+    under(alice, create(alice, "Postgres"), create(alice, "Databases"))
+
+    assert holding(calling(BOB)) == []

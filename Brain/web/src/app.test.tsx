@@ -52,6 +52,23 @@ describe("the address decides the section, and a tab changes the address", () =>
 		).toBeTruthy();
 	});
 
+	test("a topic's page is under Knowledge, and nothing deeper is", async () => {
+		openAt("/brain/knowledge/postgres");
+
+		expect(selectedTab()?.textContent).toBe("Knowledge");
+		// The fake has no such topic, so the page says so.
+		expect(
+			await within(screen.getByRole("tabpanel")).findByText(
+				"There is no such topic",
+			),
+		).toBeTruthy();
+		cleanup();
+
+		openAt("/brain/knowledge/postgres/deeper");
+		expect(selectedTab()).toBeUndefined();
+		expect(screen.getByText("There is no such section")).toBeTruthy();
+	});
+
 	test("the eight sections are tabs, in order", () => {
 		openAt("/brain");
 
