@@ -13,7 +13,7 @@ Every function takes a connection from `brain.db.transaction`, and acts for
 that transaction's user.
 """
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from typing import Any, Literal, get_args
 from uuid import UUID, uuid7
@@ -23,7 +23,7 @@ from psycopg.rows import TupleRow
 from psycopg.types.json import Jsonb
 
 from brain import entities, events, topics
-from brain.db import CURRENT_USER_SQL
+from brain.db import CURRENT_USER_SQL, USER_SETTING
 from brain.errors import Conflict, NotFound, Refused
 
 type Connection = AsyncConnection[TupleRow]
@@ -43,6 +43,22 @@ Category = Literal[
 # A profile entry's categories, "Which kind goes in which store". The
 # migration checks the same list.
 CATEGORIES: tuple[str, ...] = get_args(Category)
+
+# How well the owner knows a topic, and what he is doing about it: "How level
+# is represented" in docs/knowledge-model.md. A level means: shallow, knows the
+# vocabulary; working, can use it with help; solid, can use it unaided and
+# explain it; deep, knows the internals and could teach it.
+Level = Literal["shallow", "working", "solid", "deep"]
+Focus = Literal["learning", "steady", "not_pursuing"]
+
+# The kinds that hold one value about one topic, each with the values it may
+# hold, and what its generated content calls it. A topic has at most one
+# active entry of each.
+VALUES: dict[str, tuple[str, ...]] = {
+    "topic_level": get_args(Level),
+    "topic_focus": get_args(Focus),
+}
+VALUE_LABELS = {"topic_level": "Level", "topic_focus": "Focus"}
 
 # Where each kind lives and what it is, the table in "Which kind goes in which
 # store". The migration checks the same pairs.
@@ -79,6 +95,9 @@ class NewItem:
     # When it became true, for its event; None for when it was entered.
     occurred_at: datetime | None
     occurred_precision: events.Precision
+    # A level or a focus, for the kinds in VALUES alone.
+    value: str | None = None
+    details: dict[str, Any] = field(default_factory=dict)
 
 
 # How much of each text an edit's evidence quotes, the old and the new.
@@ -259,7 +278,14 @@ async def write(conn: Connection, new: NewItem, *, now: datetime) -> UUID:
 
     A new item is active, asserted, and the first of its lineage. Refused
     when a global kind names a subject, or a topic the user does not have
-    is named."""
+    is named. A level or a focus is set with `set_on_topic`, which keeps one
+    active per topic, and never written here."""
+    if new.kind in VALUES:
+        raise ValueError(f"a {new.kind} is set with set_on_topic")
+    return await _write(conn, new, now=now)
+
+
+async def _write(conn: Connection, new: NewItem, *, now: datetime) -> UUID:
     if new.kind not in PLACES:
         raise Refused(f"{new.kind} is not a kind of item")
     if new.kind in GLOBAL_KINDS and (new.topics or new.entities):
@@ -292,17 +318,19 @@ async def write(conn: Connection, new: NewItem, *, now: datetime) -> UUID:
         ),
         now=now,
     )
+    # A record says when it happened: when it was entered, unless told.
+    record = PLACES[new.kind][1] == "record"
     await _insert(
         conn,
         item_id,
         lineage_id=item_id,
         kind=new.kind,
         content=new.content,
-        value=None,
+        value=new.value,
         category=new.category,
-        details={},
-        occurred_at=None,
-        occurred_precision=None,
+        details=new.details,
+        occurred_at=(new.occurred_at or now) if record else None,
+        occurred_precision=new.occurred_precision if record else None,
         topic_ids=topic_ids,
         entity_ids=entity_ids,
         event_id=event.id,
@@ -562,6 +590,8 @@ class Edit:
     category: str | None
     topics: tuple[str, ...] | None
     entities: tuple[str, ...] | None
+    # A level or a focus, for the kinds in VALUES alone.
+    value: str | None = None
 
 
 async def _canonical(conn: Connection, topic_ids: list[UUID]) -> set[UUID]:
@@ -619,8 +649,14 @@ async def edit(conn: Connection, item_id: UUID, change: Edit, *, now: datetime) 
             raise Refused("only a profile entry has a category")
         if change.category not in CATEGORIES:
             raise Refused(f"{change.category} is not a profile category")
+    if change.value is not None:
+        if old.kind not in VALUES:
+            raise Refused(f"a {old.kind} holds no value")
+        if change.value not in VALUES[old.kind]:
+            raise Refused(f"{change.value} is not a {old.kind}")
     content = change.content if change.content is not None else old.content
     category = change.category if change.category is not None else old.category
+    value = change.value if change.value is not None else old.value
     old_topics, old_entities = await _named_subjects(conn, item_id)
     topic_ids = (
         await _named_topics(conn, change.topics)
@@ -635,6 +671,7 @@ async def edit(conn: Connection, item_id: UUID, change: Edit, *, now: datetime) 
     if (
         content == old.content
         and category == old.category
+        and value == old.value
         and await _canonical(conn, topic_ids) == await _canonical(conn, old_topics)
         and set(entity_ids) == set(old_entities)
     ):
@@ -683,7 +720,7 @@ async def edit(conn: Connection, item_id: UUID, change: Edit, *, now: datetime) 
         lineage_id=old.lineage_id,
         kind=old.kind,
         content=content,
-        value=old.value,
+        value=value,
         category=category,
         details=old.details,
         occurred_at=old.occurred_at,
@@ -748,6 +785,13 @@ async def restore(conn: Connection, item_id: UUID, *, now: datetime) -> None:
         raise Conflict("only a retired item is restored, not a superseded version")
     if item.status == "active":
         raise Conflict("the item is active, there is nothing to restore")
+    if item.kind in VALUES:
+        [topic] = item.topics
+        await _lock_topic(conn, item.kind, topic.id)
+        if await _active_on_topic(conn, item.kind, topic.id) is not None:
+            raise Conflict(
+                f"{topic.slug} has an active {item.kind} already, retire it first"
+            )
     if not await _set_status(
         conn, item_id, was=("inactive", "retired"), to=("active", None)
     ):
@@ -780,3 +824,134 @@ async def versions(conn: Connection, item_id: UUID) -> list[Item] | None:
     if not rows:
         return None
     return await _items(conn, rows)
+
+
+async def _lock_topic(conn: Connection, kind: str, topic_id: UUID) -> None:
+    """Waits for, then holds until the transaction ends, the lock on the
+    current user's entries of `kind` on the canonical topic `topic_id`. Every
+    change that could make a second active one takes it before it looks, so
+    of two at once the second finds what the first wrote. No migration can
+    say one active per topic, since the topic is a row of item_subjects."""
+    await conn.execute(
+        "SELECT pg_advisory_xact_lock(hashtextextended("
+        f"'brain.knowledge:' || current_setting('{USER_SETTING}')"
+        " || ':' || %s || ':' || %s::text, 0))",
+        (kind, topic_id),
+    )
+
+
+async def _active_on_topic(conn: Connection, kind: str, topic_id: UUID) -> UUID | None:
+    """The current user's active entry of `kind` on the canonical topic
+    `topic_id`, read through aliases, or None. Should two topics that each
+    had one be marked the same, the newest is the one that stands."""
+    cursor = await conn.execute(
+        "SELECT i.id FROM items i WHERE i.kind = %(kind)s AND i.status = 'active'"
+        " AND EXISTS ("
+        "  SELECT FROM item_subjects s JOIN topics named ON named.id = s.topic_id"
+        "  WHERE s.item_id = i.id"
+        "  AND coalesce(named.alias_of, named.id) = %(topic)s)"
+        " ORDER BY i.created_at DESC, i.id DESC LIMIT 1",
+        {"kind": kind, "topic": topic_id},
+    )
+    row = await cursor.fetchone()
+    return row[0] if row is not None else None
+
+
+async def _canonical_topic(conn: Connection, slug: str) -> topics.Topic:
+    """The topic `slug` stands for, its target when it is an alias. Refused
+    when the user has none by that slug: an entry by hand never makes one."""
+    named = await topics.by_slug(conn, slug)
+    if named is None:
+        raise Refused(f"there is no topic {slug}, create it first")
+    if named.alias_of is None:
+        return named
+    target = await topics.get(conn, named.alias_of)
+    assert target is not None
+    return target
+
+
+async def set_on_topic(
+    conn: Connection, kind: str, slug: str, value: str, *, now: datetime
+) -> UUID:
+    """Sets the current user's level or focus on the topic `slug` stands for
+    to `value` at `now`, and returns the entry's id: a new one when the topic
+    has no active entry of `kind`, and otherwise the new version `edit` makes
+    of the one it has, so a topic keeps one active level and one active focus
+    and the versions of that entry are the history of its values. On an
+    alias, it is set on the alias's target, and names it. Its content is
+    generated, `<Level|Focus> for <topic name>: <value>`.
+
+    Refused for a value the kind does not hold, a topic the user does not
+    have, or the value the topic already has."""
+    if kind not in VALUES:
+        raise ValueError(f"{kind} holds no value")
+    if value not in VALUES[kind]:
+        raise Refused(f"{value} is not a {kind}")
+    topic = await _canonical_topic(conn, slug)
+    await _lock_topic(conn, kind, topic.id)
+    content = f"{VALUE_LABELS[kind]} for {topic.name}: {value}"
+    current = await _active_on_topic(conn, kind, topic.id)
+    if current is not None:
+        change = Edit(
+            kind=kind,
+            content=content,
+            category=None,
+            topics=None,
+            entities=None,
+            value=value,
+        )
+        return await edit(conn, current, change, now=now)
+    return await _write(
+        conn,
+        NewItem(
+            kind=kind,
+            content=content,
+            category=None,
+            topics=(topic.slug,),
+            entities=(),
+            occurred_at=None,
+            occurred_precision="instant",
+            value=value,
+        ),
+        now=now,
+    )
+
+
+async def write_misconception(
+    conn: Connection,
+    slug: str,
+    believed: str,
+    correct: str,
+    *,
+    occurred_at: datetime | None,
+    occurred_precision: events.Precision,
+    now: datetime,
+) -> UUID:
+    """Records, for the current user at `now`, that they believed something
+    about the topic `slug` that is not so, and returns the entry's id. A
+    corrected misconception is a history entry on its topic and not a kind
+    of its own, see "Knowledge model" in docs/knowledge-model.md: a record in
+    reported history, its `details` `{"misconception": true, "believed": ...,
+    "correct": ...}`, its content built from the two under the topic's name,
+    and its when `occurred_at`, or when it was entered.
+
+    The topic is kept as it is named, an alias included, and read through
+    it, as any entry's. Refused for a topic the user does not have."""
+    topic = await _canonical_topic(conn, slug)
+    return await _write(
+        conn,
+        NewItem(
+            kind="history",
+            content=(
+                f"Misconception about {topic.name}\n"
+                f"Believed: {believed}\nCorrect: {correct}"
+            ),
+            category=None,
+            topics=(slug,),
+            entities=(),
+            occurred_at=occurred_at,
+            occurred_precision=occurred_precision,
+            details={"misconception": True, "believed": believed, "correct": correct},
+        ),
+        now=now,
+    )

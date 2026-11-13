@@ -1,7 +1,8 @@
 # The brain's data model
 
-Status: decided and built. Every table below exists; the kinds beyond `profile` and `rule` arrive
-with the slices that write them.
+Status: decided and built. Every table below exists; `profile`, `rule`, `topic_level`,
+`topic_focus` and `history`, as misconceptions so far, are written, and `state` and `decision`
+arrive with the slices that write them.
 
 Last updated: 2026 11 13
 

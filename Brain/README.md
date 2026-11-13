@@ -7,8 +7,9 @@ feature. Why it is a separate service is in "The brain is its own service" in
 
 Today it serves a health endpoint, says who is asking, holds each user's subjects, the topics and
 named things their memory will be about, records the events features send it and shows them as a
-timeline, holds the memory items the owner enters by hand, profile entries and rules, each with the
-event that proves it was said, and serves the memory centre, its own application, whose sections are
+timeline, holds the memory items the owner enters by hand, profile entries, rules, a level and a
+focus on each topic, and misconceptions, each with the event that proves it was said, lists every
+topic with what he knows of it, and serves the memory centre, its own application, whose sections are
 still empty. Its database has the roles, the migrations, the one door every query goes through,
 proven to keep two users apart, the subjects' three tables, the verbs and the events, and the
 memory store's four tables, every table in `docs/data-model.md`.
@@ -92,6 +93,26 @@ memory store's four tables, every table in `docs/data-model.md`.
     became true. A topic the user does not have is `422`, since a hand made entry names one that
     exists; a named thing they do not have is created, with no label. A field it does not know is
     `422`.
+  - A level or a focus on a topic, as "How level is represented" in `docs/knowledge-model.md` has
+    it: `{"kind": "topic_level", "topic": <slug>, "value": ...}`, `value` one of `shallow`, knows
+    the vocabulary, `working`, can use it with help, `solid`, can use it unaided and explain it, and
+    `deep`, knows the internals and could teach it, in the `knowledge` store; or
+    `{"kind": "topic_focus", ...}`, `value` one of `learning`, `steady` and `not_pursuing`, in
+    `profile`. Exactly one `topic`, which the user has, read through its alias: the entry names the
+    alias's target. Its `content` is generated, `Level for <topic name>: <value>` or `Focus for ...`,
+    and never given. A topic has at most one active entry of each: where it has one, the request is
+    an edit of it, `201` with the new version, so `versions` lists the values it has had, each with
+    when it was set and its event; the value it has already is `422`, an edit that changes nothing.
+    A lock per user, topic and kind, taken before the check, keeps two requests at once from both
+    writing a first entry. No migration says one active per topic, since the topic is a row of
+    `item_subjects`.
+  - A misconception, a history entry on its topic and not a kind of its own:
+    `{"kind": "history", "topic": <slug>, "details": {"misconception": true, "believed": ..., "correct": ...}}`,
+    each half 1 to 1800 characters once its surrounding whitespace is dropped, with an optional
+    `occurred_at` and `occurred_precision`. It is a `record` in `reported_history`, its content
+    `Misconception about <topic name>`, then `Believed: ...` and `Correct: ...` on lines of their
+    own, and its `occurred_at` the one given or when it was entered. A history entry that is not a
+    misconception waits for the slice that needs one.
   - The entry applies at once, as "Standing rules are created deliberately" in
     `docs/trust-model.md` says: one transaction records an `asserted` event through the same path
     as the events endpoint, with origin `brain`, source `manual-entry`, evidence
@@ -126,12 +147,19 @@ memory store's four tables, every table in `docs/data-model.md`.
     `active` again and records a `restored` event, `Restored by hand: "<content>"`, linked as
     `supports`. Each evidence is cut to 500 characters, and each change is one transaction. `409`
     to retire an item already retired or a superseded version, whose newest version is the one to
-    retire, and to restore anything not retired: only a retired item comes back. Retiring is the
+    retire, and to restore anything not retired: only a retired item comes back, and a level or a
+    focus only while its topic has no other active one. Retiring is the
     owner's action alone, as "Nothing is destroyed, and only the owner retires" in
     `docs/trust-model.md` says: nothing in the brain retires an item for its age or for a score.
   - `GET /brain/api/items/{id}/versions`, every version of the entry the item is one of, every row
     of its lineage, oldest first, each as the list answers it, whichever version is asked for. An
     entry never edited has one. `404` for an id the user does not have.
+  - `GET /brain/api/knowledge`, what the user knows: one row per topic that is not an alias, by
+    slug, each alias folded into its target, with `id`, `slug`, `name`, `state`, `level` and
+    `focus`, each the active entry's `id`, `value` and `set_at`, when it was last set, or `null`,
+    and `history_count`, its active history entries. A topic with neither is listed too. Narrowed
+    by any of `level`, `focus` and `state` (`canonical` or `provisional`); a value off their lists
+    is `422`. The query is in `src/brain/knowledge.py`, which owns no rows.
 
   An item is never changed in place: `brain_app` may insert and read the four tables, and update
   only an item's `status` and `inactive_reason`, which editing, retiring and restoring change with

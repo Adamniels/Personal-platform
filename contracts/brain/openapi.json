@@ -772,6 +772,67 @@
         "title": "ItemRelation",
         "type": "object"
       },
+      "KnowledgeRow": {
+        "description": "One topic, its aliases folded into it.",
+        "properties": {
+          "focus": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TopicSetting"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "history_count": {
+            "title": "History Count",
+            "type": "integer"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "level": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TopicSetting"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "slug": {
+            "title": "Slug",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "canonical",
+              "provisional"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "slug",
+          "name",
+          "state",
+          "level",
+          "focus",
+          "history_count"
+        ],
+        "title": "KnowledgeRow",
+        "type": "object"
+      },
       "Topic": {
         "properties": {
           "alias_of": {
@@ -878,6 +939,32 @@
           "ended_at"
         ],
         "title": "TopicRelation",
+        "type": "object"
+      },
+      "TopicSetting": {
+        "description": "A topic's active level or focus.",
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "set_at": {
+            "format": "date-time",
+            "title": "Set At",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "value",
+          "set_at"
+        ],
+        "title": "TopicSetting",
         "type": "object"
       },
       "WhoAmI": {
@@ -1358,7 +1445,7 @@
         "summary": "List Items"
       },
       "post": {
-        "description": "Writes an entry made by hand, 201 with the item, its evidence and its\nrelations. It applies at once: an asserted event, origin brain and source\nmanual-entry, is recorded with it and is its supporting evidence. kind is\nprofile, with a category, or rule, which is global. 422 for an unknown\nkind or category, content that is blank or over 4000 characters, a rule\nnaming a subject, or a topic the user does not have. A named thing the\nuser does not have is created.",
+        "description": "Writes an entry made by hand, 201 with the item, its evidence and its\nrelations. It applies at once: an asserted event, origin brain and source\nmanual-entry, is recorded with it and is its supporting evidence. kind is\nprofile, with a category, or rule, which is global; or topic_level or\ntopic_focus, each on one topic with a value, which where the topic,\nread through its alias, has an active entry of that kind already is an\nedit of it, 201 with the new version. 422 for an unknown kind, category\nor value, content that is blank or over 4000 characters, a rule naming a\nsubject, a topic the user does not have, or a level or focus the topic\nhas already; or history, a corrected misconception on one topic, its\ndetails misconception true with what was believed and what is right, and\nits content built from the two. A named thing the user does not have is\ncreated.",
         "operationId": "write_item_brain_api_items_post",
         "requestBody": {
           "content": {
@@ -1491,6 +1578,150 @@
                       "content"
                     ],
                     "title": "RuleEntry",
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "description": "How well the owner knows one topic, in the knowledge store, where\nevidence may later move it: shallow, knows the vocabulary; working, can\nuse it with help; solid, can use it unaided and explain it; deep, knows\nthe internals and could teach it. Set where the topic has a level\nalready, it is an edit of that one. The content is generated.",
+                    "properties": {
+                      "kind": {
+                        "const": "topic_level",
+                        "title": "Kind",
+                        "type": "string"
+                      },
+                      "topic": {
+                        "maxLength": 80,
+                        "pattern": "^[a-z0-9][a-z0-9-]{0,79}$",
+                        "title": "Topic",
+                        "type": "string"
+                      },
+                      "value": {
+                        "enum": [
+                          "shallow",
+                          "working",
+                          "solid",
+                          "deep"
+                        ],
+                        "title": "Value",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "topic",
+                      "value"
+                    ],
+                    "title": "LevelEntry",
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "description": "What the owner is doing about one topic, in profile, his alone:\nlearning, steady or not_pursuing. Set where the topic has a focus\nalready, it is an edit of that one. The content is generated.",
+                    "properties": {
+                      "kind": {
+                        "const": "topic_focus",
+                        "title": "Kind",
+                        "type": "string"
+                      },
+                      "topic": {
+                        "maxLength": 80,
+                        "pattern": "^[a-z0-9][a-z0-9-]{0,79}$",
+                        "title": "Topic",
+                        "type": "string"
+                      },
+                      "value": {
+                        "enum": [
+                          "learning",
+                          "steady",
+                          "not_pursuing"
+                        ],
+                        "title": "Value",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "topic",
+                      "value"
+                    ],
+                    "title": "FocusEntry",
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "description": "Something that happened, on one topic. So far that is a corrected\nmisconception alone, which is a history entry and not a kind of its own;\nthe content is built from its two halves.",
+                    "properties": {
+                      "details": {
+                        "additionalProperties": false,
+                        "description": "What the owner believed and what is right, each 1 to 1800 characters\nonce its surrounding whitespace is dropped.",
+                        "properties": {
+                          "believed": {
+                            "maxLength": 1800,
+                            "minLength": 1,
+                            "title": "Believed",
+                            "type": "string"
+                          },
+                          "correct": {
+                            "maxLength": 1800,
+                            "minLength": 1,
+                            "title": "Correct",
+                            "type": "string"
+                          },
+                          "misconception": {
+                            "const": true,
+                            "title": "Misconception",
+                            "type": "boolean"
+                          }
+                        },
+                        "required": [
+                          "misconception",
+                          "believed",
+                          "correct"
+                        ],
+                        "title": "Misconception",
+                        "type": "object"
+                      },
+                      "kind": {
+                        "const": "history",
+                        "title": "Kind",
+                        "type": "string"
+                      },
+                      "occurred_at": {
+                        "anyOf": [
+                          {
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "title": "Occurred At"
+                      },
+                      "occurred_precision": {
+                        "default": "instant",
+                        "enum": [
+                          "instant",
+                          "day",
+                          "month",
+                          "year"
+                        ],
+                        "title": "Occurred Precision",
+                        "type": "string"
+                      },
+                      "topic": {
+                        "maxLength": 80,
+                        "pattern": "^[a-z0-9][a-z0-9-]{0,79}$",
+                        "title": "Topic",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "topic",
+                      "details"
+                    ],
+                    "title": "HistoryEntry",
                     "type": "object"
                   }
                 ],
@@ -1839,6 +2070,100 @@
           }
         },
         "summary": "List Versions"
+      }
+    },
+    "/brain/api/knowledge": {
+      "get": {
+        "description": "What the user knows: one row per topic that is not an alias, by slug,\neach alias folded into its target, with its active level and focus, each\nwith its id and when it was last set, or null, and its count of active\nhistory entries. A topic with neither is listed too. Narrowed by level,\nfocus and state when they are given. 422 for a value not on their\nlists.",
+        "operationId": "list_knowledge_brain_api_knowledge_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "level",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "shallow",
+                    "working",
+                    "solid",
+                    "deep"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Level"
+            }
+          },
+          {
+            "in": "query",
+            "name": "focus",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "learning",
+                    "steady",
+                    "not_pursuing"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Focus"
+            }
+          },
+          {
+            "in": "query",
+            "name": "state",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "canonical",
+                    "provisional"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "State"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/KnowledgeRow"
+                  },
+                  "title": "Response List Knowledge Brain Api Knowledge Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "No valid token: missing, expired or failing verification, all alike. The body is empty; the caller refreshes and retries."
+          },
+          "422": {
+            "description": "A body that does not parse, or a request breaking a rule."
+          }
+        },
+        "summary": "List Knowledge"
       }
     },
     "/brain/api/topic-relations/{id}/end": {

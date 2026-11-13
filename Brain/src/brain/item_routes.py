@@ -1,5 +1,7 @@
 """The API for the memory store, under `/brain/api/items`: entries the owner
-makes by hand, as profile entries and rules so far, and correcting them. Every route needs a valid
+makes by hand, as profile entries, rules, a level and a focus on each topic,
+and misconceptions so far, and correcting them; and `/brain/api/knowledge`,
+every topic with its level and focus. Every route needs a valid
 token and acts for the account it names, through `brain.db.transaction`. The
 rules are in `brain.items`; this module reads the request and shapes the
 answer. The routes are listed in "What it serves" in Brain/README.md."""
@@ -21,7 +23,7 @@ from pydantic import (
     field_validator,
 )
 
-from brain import db, items
+from brain import db, items, knowledge
 from brain.edge import (
     NOT_FOUND,
     REFUSED,
@@ -104,8 +106,83 @@ class RuleEntry(BaseModel):
         return _no_nul(content)
 
 
+class LevelEntry(BaseModel):
+    """How well the owner knows one topic, in the knowledge store, where
+    evidence may later move it: shallow, knows the vocabulary; working, can
+    use it with help; solid, can use it unaided and explain it; deep, knows
+    the internals and could teach it. Set where the topic has a level
+    already, it is an edit of that one. The content is generated."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["topic_level"]
+    # A slug the user has, read through its alias.
+    topic: Slug
+    value: items.Level
+
+
+class FocusEntry(BaseModel):
+    """What the owner is doing about one topic, in profile, his alone:
+    learning, steady or not_pursuing. Set where the topic has a focus
+    already, it is an edit of that one. The content is generated."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["topic_focus"]
+    topic: Slug
+    value: items.Focus
+
+
+# Each half of a misconception, so the content built from both and the
+# topic's name stays within CONTENT_MAX.
+MISCONCEPTION_HALF_MAX = 1800
+
+Half = Annotated[
+    str,
+    StringConstraints(
+        strip_whitespace=True, min_length=1, max_length=MISCONCEPTION_HALF_MAX
+    ),
+]
+
+
+class Misconception(BaseModel):
+    """What the owner believed and what is right, each 1 to 1800 characters
+    once its surrounding whitespace is dropped."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    misconception: Literal[True]
+    believed: Half
+    correct: Half
+
+    @field_validator("believed", "correct")
+    @classmethod
+    def storable(cls, text: str) -> str:
+        return _no_nul(text)
+
+
+class HistoryEntry(BaseModel):
+    """Something that happened, on one topic. So far that is a corrected
+    misconception alone, which is a history entry and not a kind of its own;
+    the content is built from its two halves."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["history"]
+    topic: Slug
+    details: Misconception
+    # When it happened, with a zone; without one, when it was entered.
+    occurred_at: AwareDatetime | None = None
+    occurred_precision: Precision = "instant"
+
+
 class NewEntry(
-    RootModel[Annotated[ProfileEntry | RuleEntry, Field(discriminator="kind")]]
+    RootModel[
+        Annotated[
+            ProfileEntry | RuleEntry | LevelEntry | FocusEntry | HistoryEntry,
+            Field(discriminator="kind"),
+        ]
+    ]
 ):
     """An entry, told apart by its kind."""
 
@@ -313,12 +390,44 @@ async def write_item(request: Request, claims: Claims) -> Response:
     """Writes an entry made by hand, 201 with the item, its evidence and its
     relations. It applies at once: an asserted event, origin brain and source
     manual-entry, is recorded with it and is its supporting evidence. kind is
-    profile, with a category, or rule, which is global. 422 for an unknown
-    kind or category, content that is blank or over 4000 characters, a rule
-    naming a subject, or a topic the user does not have. A named thing the
-    user does not have is created."""
+    profile, with a category, or rule, which is global; or topic_level or
+    topic_focus, each on one topic with a value, which where the topic,
+    read through its alias, has an active entry of that kind already is an
+    edit of it, 201 with the new version. 422 for an unknown kind, category
+    or value, content that is blank or over 4000 characters, a rule naming a
+    subject, a topic the user does not have, or a level or focus the topic
+    has already; or history, a corrected misconception on one topic, its
+    details misconception true with what was believed and what is right, and
+    its content built from the two. A named thing the user does not have is
+    created."""
     entry = (await body_as(request, NewEntry)).root
     now = datetime.now(UTC)
+    if isinstance(entry, LevelEntry | FocusEntry):
+        async with db.transaction(request.app.state.pool, claims.account_id) as conn:
+            item_id = await items.set_on_topic(
+                conn, entry.kind, entry.topic, entry.value, now=now
+            )
+            detail = await items.get(conn, item_id)
+        assert detail is not None
+        return JSONResponse(
+            ItemDetail.of_detail(detail).model_dump(mode="json"), status_code=201
+        )
+    if isinstance(entry, HistoryEntry):
+        async with db.transaction(request.app.state.pool, claims.account_id) as conn:
+            item_id = await items.write_misconception(
+                conn,
+                entry.topic,
+                entry.details.believed,
+                entry.details.correct,
+                occurred_at=entry.occurred_at,
+                occurred_precision=entry.occurred_precision,
+                now=now,
+            )
+            detail = await items.get(conn, item_id)
+        assert detail is not None
+        return JSONResponse(
+            ItemDetail.of_detail(detail).model_dump(mode="json"), status_code=201
+        )
     new = items.NewItem(
         kind=entry.kind,
         content=entry.content,
@@ -503,3 +612,75 @@ async def list_versions(request: Request, claims: Claims) -> Response:
     if found is None:
         raise NotFound
     return JSONResponse([Item.of(item).model_dump(mode="json") for item in found])
+
+
+class TopicSetting(BaseModel):
+    """A topic's active level or focus."""
+
+    # The entry's id, its newest version's.
+    id: UUID
+    value: str
+    # When it was last set.
+    set_at: datetime
+
+
+class KnowledgeRow(BaseModel):
+    """One topic, its aliases folded into it."""
+
+    id: UUID
+    slug: str
+    name: str
+    state: Literal["canonical", "provisional"]
+    # Null when the topic has none.
+    level: TopicSetting | None
+    focus: TopicSetting | None
+    # Its active history entries, misconceptions among them.
+    history_count: int
+
+
+class KnowledgeQuery(BaseModel):
+    # Each filter narrows the list; all of them together, every one given.
+    level: items.Level | None = None
+    focus: items.Focus | None = None
+    state: Literal["canonical", "provisional"] | None = None
+
+
+def _setting(setting: knowledge.Setting | None) -> TopicSetting | None:
+    if setting is None:
+        return None
+    return TopicSetting(id=setting.id, value=setting.value, set_at=setting.set_at)
+
+
+@router.get(
+    "/knowledge",
+    response_model=list[KnowledgeRow],
+    responses={**UNAUTHORIZED, **REFUSED},
+    openapi_extra=documented(query=KnowledgeQuery),
+)
+@authenticated
+async def list_knowledge(request: Request, claims: Claims) -> Response:
+    """What the user knows: one row per topic that is not an alias, by slug,
+    each alias folded into its target, with its active level and focus, each
+    with its id and when it was last set, or null, and its count of active
+    history entries. A topic with neither is listed too. Narrowed by level,
+    focus and state when they are given. 422 for a value not on their
+    lists."""
+    query = query_as(request, KnowledgeQuery)
+    async with db.transaction(request.app.state.pool, claims.account_id) as conn:
+        rows = await knowledge.view(
+            conn, level=query.level, focus=query.focus, state=query.state
+        )
+    return JSONResponse(
+        [
+            KnowledgeRow(
+                id=row.id,
+                slug=row.slug,
+                name=row.name,
+                state=row.state,
+                level=_setting(row.level),
+                focus=_setting(row.focus),
+                history_count=row.history_count,
+            ).model_dump(mode="json")
+            for row in rows
+        ]
+    )
