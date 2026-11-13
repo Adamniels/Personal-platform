@@ -53,6 +53,12 @@ export function writtenWhen(iso: string, precision: Precision): string {
 	return `${at.getDate()} ${short(at.getMonth())} ${at.getFullYear()}, ${pad(at.getHours())}:${pad(at.getMinutes())}`;
 }
 
+/** The day an instant falls on, in the owner's time: "12 Nov 2026". */
+export function dayOfInstant(iso: string): string {
+	const at = new Date(iso);
+	return `${at.getDate()} ${short(at.getMonth())} ${at.getFullYear()}`;
+}
+
 const YEAR = /^\d{4}$/;
 const DAY = /^(\d{4})-(\d{2})-(\d{2})$/;
 

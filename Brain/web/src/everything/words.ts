@@ -66,13 +66,6 @@ export function originWords(origin: string): string {
 }
 
 /** A day, as the table shows when an item was last supported: "13 Nov
- * 2026". */
-const DAY = new Intl.DateTimeFormat("en-GB", {
-	day: "numeric",
-	month: "short",
-	year: "numeric",
-});
-
-export function dayOf(iso: string): string {
-	return DAY.format(new Date(iso));
-}
+ * 2026", the months written as History writes them, since `Intl`'s
+ * en-GB September is "Sept" in newer ICU. */
+export { dayOfInstant as dayOf } from "../history/when";

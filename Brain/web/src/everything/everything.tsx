@@ -385,7 +385,6 @@ function FilterBar({
 				<TextField
 					label="Search"
 					type="search"
-					help="Finds the words in what an entry says or in the evidence behind it."
 					maxLength={SEARCH_MAX}
 					value={filters.search}
 					onChange={(event) =>

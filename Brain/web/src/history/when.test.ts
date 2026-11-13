@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { occurredAt, writtenWhen } from "./when";
+import { dayOfInstant, occurredAt, writtenWhen } from "./when";
 
 describe("when something happened is written to its precision", () => {
 	test("a year, a month and a day, as they were said", () => {
@@ -43,5 +43,12 @@ describe("what is said is sent as the start of its period", () => {
 		).toBeUndefined();
 		expect(occurredAt({ precision: "day", day: "" })).toBeUndefined();
 		expect(occurredAt({ precision: "day", day: "2026-02-30" })).toBeUndefined();
+	});
+});
+
+describe("an instant's day is written as History writes a day", () => {
+	test("in the owner's time, September as Sep", () => {
+		const at = new Date(2023, 8, 1, 23, 30);
+		expect(dayOfInstant(at.toISOString())).toBe("1 Sep 2023");
 	});
 });
