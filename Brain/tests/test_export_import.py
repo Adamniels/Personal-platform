@@ -700,3 +700,50 @@ async def test_two_imports_for_one_account_at_once_import_once(
         with pytest.raises(FileRefused, match="already holds"):
             await memory_file.load(second, memory_file.parse(text(other)))
     assert len(rows(fresh_database)["topics"]) == 2
+
+
+# The round trip
+
+
+async def test_export_then_import_gives_back_the_same_memory(
+    database: str,
+    pool: AsyncConnectionPool,
+    fresh_database: str,
+    fresh_pool: AsyncConnectionPool,
+    calling: Callable[[uuid.UUID], Caller],
+    tmp_path: Path,
+) -> None:
+    a_whole_memory(calling(ALICE))
+    a_whole_memory(calling(BOB))
+    first = await memory_file.export(pool, ALICE, exported_at=AT)
+    file = tmp_path / "memory.json"
+    file.write_text(first)
+
+    imported = run_command(fresh_database, "import", str(file))
+    assert imported.returncode == 0, imported.stderr
+
+    second = await memory_file.export(fresh_pool, ALICE, exported_at=AT)
+    assert second == first
+    # And it was a whole memory: every table held something to compare.
+    document = json.loads(first)
+    assert all(document[table] for table in memory_file.TABLES)
+    assert any(row["alias_of"] for row in document["topics"])
+    assert any(row["ended_at"] for row in document["topic_relations"])
+    assert {row["inactive_reason"] for row in document["items"]} >= {
+        "superseded",
+        "retired",
+    }
+    assert {row["kind"] for row in document["items"]} == {
+        "profile",
+        "rule",
+        "state",
+        "topic_level",
+        "topic_focus",
+        "history",
+        "decision",
+    }
+    assert any(row["subject_item"] for row in document["events"])
+    # Only Alice's rows reached the fresh brain.
+    assert {
+        str(row[1]) for table in rows(fresh_database).values() for row in table
+    } == {str(ALICE)}

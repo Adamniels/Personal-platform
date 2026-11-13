@@ -12,7 +12,8 @@ focus on each topic, and misconceptions, each with the event that proves it was 
 topic with what he knows of it, and serves the memory centre, its own application, whose sections are
 still empty. Its database has the roles, the migrations, the one door every query goes through,
 proven to keep two users apart, the subjects' three tables, the verbs and the events, and the
-memory store's four tables, every table in `docs/data-model.md`.
+memory store's four tables, every table in `docs/data-model.md`. One account's memory can be
+exported to a file and imported into an empty brain, from a terminal.
 
 ## What it serves
 
@@ -469,6 +470,42 @@ NULL`, row level security enabled and forced, and one policy,
 returns nothing rather than everything. `tests/test_isolation.py` proves it on a probe table, and
 fails for any table a later migration adds to `public` without that guard, or with any other
 permissive policy beside it, except the global ones the data model names.
+
+### Export and import
+
+Two commands write one account's whole memory to a file and read it back into an empty brain, so
+what the owner enters is not held in one database on one laptop. Neither is reachable over HTTP.
+Both take `BRAIN_APP_DATABASE_URL`, as the running brain does, and work through the door for the one
+account, so row level security holds for them like for any request: an export cannot read another
+user's rows, and an import cannot write any.
+
+```zsh
+BRAIN_APP_DATABASE_URL="postgres://brain_app:$(grep '^BRAIN_APP_PASSWORD=' ../infra/.env | cut -d= -f2-)@127.0.0.1:5432/brain" \
+  uv run brain export <account-id> <file>
+BRAIN_APP_DATABASE_URL="postgres://brain_app:$(grep '^BRAIN_APP_PASSWORD=' ../infra/.env | cut -d= -f2-)@127.0.0.1:5432/brain" \
+  uv run brain import <file> [--as <account-id>]
+```
+
+- **`brain export <account-id> <file>`** writes the memory file, the format in "The memory file" in
+  `docs/data-model.md`, stamped with the command's clock as `exported_at`. It reads every table in
+  one statement, so the file is one snapshot. It never writes over a file that exists, creates the
+  file readable by its owner alone, and prints one line saying how many rows it wrote and that the
+  file is the whole memory in plain text.
+- **`brain import <file> [--as <account-id>]`** reads it back, in one transaction: all of the file
+  or none of it. Every id and every time is kept, so nothing is minted again and nothing gets
+  today's date. It refuses, changing nothing and exiting non zero with what is wrong, a file of a
+  newer format, a malformed one, an event whose verb the brain does not know, and an account that
+  already holds anything in any of the tables, since merging a file into a memory is not something
+  it does. Two imports for one account at once take that account's lock, so the second finds the
+  first's rows and refuses.
+- **`--as`** writes every row under another account id and changes nothing else. It is for moving a
+  memory to a platform where the account was registered again, and so has a new id. Into the brain
+  it came from, the ids are already taken and the import refuses.
+
+**Keep the file somewhere private.** It holds everything the brain knows about the owner, in plain
+text, unencrypted: treat it like a password manager's export, never in a repository, a shared
+folder or a chat. An export by hand is not a backup plan, see "Deployment and backups are outside
+the first milestone" in `High-level/docs/platform-architecture.md`.
 
 ## Building the app
 
