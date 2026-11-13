@@ -60,14 +60,24 @@ Richness was never the issue, uniformity was.
   for a subject, scoring, conflict detection. Features never see these, so a feature never merges
   anything itself, and ranking logic is not reimplemented in five modules.
 
-**The four building blocks.** The primitives so far are four functions in
+**The building blocks.** The primitives so far are four functions in
 `Brain/src/brain/retrieval.py`: `profile()`, `knowledge(topic_ids)`, `history(subject)` and
 `now()`, each taking the door's connection, the time and whether the question is about now or
 history. The `ask` endpoints, the evaluation cases and every later per feature call read through
-them. Conflict detection comes next. Scoring does not exist yet, on purpose: each item carries its
-support, counted per verb kind, and when it was last supported, the facts a score would be computed
-from, and the weights wait until the evaluation cases can test them, for the reason "No decay
-curves yet" in `trust-model.md` gives.
+them. Beside them, `narrower(topic_id)` and `related(topic_id)` walk the topic relations, so an
+answer about a broad topic brings the topics under it and names the ones related to it.
+
+Conflict detection is `conflicts()` and `ranked()` in the same module. Two items in one answer
+that contradict each other are both kept, and their scopes, compared by `compare` in
+`Brain/src/brain/scope.py`, decide only their order, as "Conflicting decisions before
+consolidation" in `event-model.md` says. Until consolidation exists a conflict comes only from a
+`contradicts` relation the owner made by hand: nothing detects one on its own, and nothing
+resolves one.
+
+Scoring does not exist yet, on purpose: each item carries its support, counted per verb kind, and
+when it was last supported, the facts a score would be computed from, and the weights wait until
+the evaluation cases can test them, for the reason "No decay curves yet" in `trust-model.md`
+gives.
 
 **The line that will actually go wrong if unwatched.** The brain returns what it knows about the
 person bearing on the task, and the feature decides what to do about it. So the brain says

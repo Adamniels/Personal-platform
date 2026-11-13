@@ -23,9 +23,15 @@ gone unsupported long enough. About history, age is ignored: nothing is
 stale, the order is when each thing happened, oldest first, and the history
 of a subject keeps the decisions another decision replaced. A retired item is
 never in an answer, nor an older version of an edited one.
+
+Beside the four: `narrower` and `related`, the topics around one, so an
+answer about a broad topic brings the topics under it; and `conflicts` and
+`ranked`, two items of one answer the owner marked as contradicting, both
+kept, ordered by their scopes and never decided between, see
+"Conflicting decisions before consolidation" in docs/event-model.md.
 """
 
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Literal, get_args
@@ -35,6 +41,7 @@ from psycopg import AsyncConnection
 from psycopg.rows import TupleRow
 
 from brain import events, items, now_and_history
+from brain.scope import Scope, compare
 
 type Connection = AsyncConnection[TupleRow]
 type Mode = Literal["now", "history"]
@@ -435,3 +442,105 @@ async def now(conn: Connection, *, now: datetime, mode: Mode) -> list[AnswerItem
     """What is going on now for the current user: their states, as `mode`
     reads them."""
     return await _answered(conn, "i.kind = 'state'", {}, now=now, mode=mode)
+
+
+# Why one of a conflicting pair is preferred, or that neither can be.
+type ConflictReason = Literal[
+    "narrower scope", "newer at equal scope", "incomparable scopes"
+]
+
+
+@dataclass(frozen=True)
+class Conflict:
+    """Two items in one answer the owner marked as contradicting. Both stay
+    in the answer: `prefer` only orders them, and is None when their scopes
+    are incomparable, which no ordering settles."""
+
+    # The relation's two ends, the one it was marked from first.
+    items: tuple[UUID, UUID]
+    prefer: UUID | None
+    reason: ConflictReason
+
+
+def _scope(item: items.Item) -> Scope:
+    # An item's topics are read through their aliases already.
+    return Scope.of([t.id for t in item.topics], [e.id for e in item.entities])
+
+
+def _judged(one: items.Item, other: items.Item) -> Conflict:
+    """The conflict between `one` and `other`, as "Conflicting decisions
+    before consolidation" in docs/event-model.md has it: a narrower scope is
+    preferred whatever its age, at an equal scope the newer, and between
+    incomparable scopes neither."""
+    pair = (one.id, other.id)
+    match compare(_scope(one), _scope(other)):
+        case "narrower":
+            return Conflict(pair, one.id, "narrower scope")
+        case "broader":
+            return Conflict(pair, other.id, "narrower scope")
+        case "equal":
+            newer = max(one, other, key=lambda i: (i.created_at, i.id))
+            return Conflict(pair, newer.id, "newer at equal scope")
+        case "incomparable":
+            return Conflict(pair, None, "incomparable scopes")
+
+
+async def conflicts(conn: Connection, answered: Iterable[AnswerItem]) -> list[Conflict]:
+    """The conflicts among `answered`, the items of one answer: every pair
+    of them with a `contradicts` relation that holds, both active, oldest
+    marked first. Today the owner marks every one by hand; nothing detects a
+    contradiction on its own until consolidation exists. A superseded or
+    retired item is never part of one, even where an answer about history
+    holds it, since it no longer claims anything."""
+    standing = {a.item.id: a.item for a in answered if a.item.status == "active"}
+    if len(standing) < 2:
+        return []
+    cursor = await conn.execute(
+        "SELECT from_item, to_item FROM item_relations"
+        " WHERE kind = 'contradicts' AND ended_at IS NULL"
+        " AND from_item = ANY(%(ids)s) AND to_item = ANY(%(ids)s)"
+        " ORDER BY created_at, id",
+        {"ids": list(standing)},
+    )
+    return [
+        _judged(standing[one], standing[other])
+        for one, other in await cursor.fetchall()
+    ]
+
+
+def ranked(
+    answered: Sequence[AnswerItem], found: Iterable[Conflict]
+) -> list[AnswerItem]:
+    """`answered` with each preferred item moved to just before the first
+    item it is preferred over, and otherwise in the order it had: what an
+    answer about now does with its conflicts. Both items stay.
+
+    Preference never loops: a narrower scope is a strict superset, and at an
+    equal scope the newer wins, so following it only ever leads to narrower
+    or newer items."""
+    present = {a.item.id for a in answered}
+    over: dict[UUID, list[UUID]] = {}
+    for conflict in found:
+        if conflict.prefer is None:
+            continue
+        beaten = next(i for i in conflict.items if i != conflict.prefer)
+        if conflict.prefer in present and beaten in present:
+            over.setdefault(beaten, []).append(conflict.prefer)
+    if not over:
+        return list(answered)
+    by_id = {a.item.id: a for a in answered}
+    position = {a.item.id: n for n, a in enumerate(answered)}
+    placed: set[UUID] = set()
+    order: list[AnswerItem] = []
+
+    def place(item_id: UUID) -> None:
+        if item_id in placed:
+            return
+        placed.add(item_id)
+        for winner in sorted(over.get(item_id, []), key=position.__getitem__):
+            place(winner)
+        order.append(by_id[item_id])
+
+    for each in answered:
+        place(each.item.id)
+    return order

@@ -526,8 +526,9 @@ async def test_an_event_may_name_an_item_the_user_has(
 
 
 # What the app role may change in the memory tables: an item's status and
-# why it is inactive, nothing else. Content is never changed in place; an
-# edit is a new version, see "Versions" in Brain/docs/data-model.md.
+# why it is inactive, and when a relation ended, nothing else. Content is
+# never changed in place; an edit is a new version, see "Versions" in
+# Brain/docs/data-model.md. A relation is taken back by ending it.
 REFUSED = [
     "UPDATE items SET content = 'rewritten'",
     "UPDATE items SET kind = 'rule'",
@@ -535,7 +536,9 @@ REFUSED = [
     "UPDATE items SET lineage_id = id",
     "UPDATE items SET created_by_event = created_by_event",
     "UPDATE item_subjects SET topic_id = NULL",
-    "UPDATE item_relations SET ended_at = now()",
+    "UPDATE item_relations SET kind = 'supersedes'",
+    "UPDATE item_relations SET to_item = from_item",
+    "UPDATE item_relations SET created_at = now()",
     "UPDATE item_evidence SET kind = 'contradicts'",
     "DELETE FROM items",
     "DELETE FROM item_subjects",
@@ -545,7 +548,7 @@ REFUSED = [
 
 
 @pytest.mark.parametrize("statement", REFUSED)
-async def test_the_service_can_change_only_status_on_an_item(
+async def test_the_service_can_change_only_an_items_status_and_a_relations_end(
     statement: str, pool: AsyncConnectionPool
 ) -> None:
     with pytest.raises(psycopg.errors.InsufficientPrivilege, match="permission denied"):
@@ -553,7 +556,7 @@ async def test_the_service_can_change_only_status_on_an_item(
             await conn.execute(statement)
 
 
-async def test_the_service_may_change_an_items_status(
+async def test_the_service_may_change_an_items_status_and_end_a_relation(
     pool: AsyncConnectionPool,
 ) -> None:
     # The control for the test above: allowed, on no rows.
@@ -561,3 +564,4 @@ async def test_the_service_may_change_an_items_status(
         await conn.execute(
             "UPDATE items SET status = 'inactive', inactive_reason = 'retired'"
         )
+        await conn.execute("UPDATE item_relations SET ended_at = now()")

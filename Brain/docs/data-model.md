@@ -85,6 +85,8 @@ item_subjects     item_id, user_id, topic_id, entity_id (exactly one of the two)
 item_relations    id, user_id, from_item, to_item, kind (text: 'supersedes',
                   'contradicts', open to more), created_at, ended_at (null while it
                   holds), created_by_event.
+                  The service may update ended_at only: a relation is taken back by
+                  ending it, never deleted.
 
 item_evidence     id, user_id, item_id, event_id, kind ('supports' | 'contradicts'),
                   created_at.
@@ -128,27 +130,30 @@ is every row of its lineage.
 A verb declares where it sits, or it cannot be weighed, see "Verbs" in `event-model.md`. A new verb
 is a migration that adds its row.
 
-| Verb        | Kind       | Strength | Polarity |
-| ----------- | ---------- | -------- | -------- |
-| `exposed`   | exposure   | 1        | 0        |
-| `opened`    | engagement | 1        | 1        |
-| `completed` | engagement | 2        | 1        |
-| `saved`     | engagement | 2        | 1        |
-| `abandoned` | engagement | 2        | -1       |
-| `skipped`   | engagement | 1        | -1       |
-| `rated`     | judgment   | 3        | 0        |
-| `accepted`  | judgment   | 3        | 1        |
-| `rejected`  | judgment   | 3        | -1       |
-| `edited`    | judgment   | 3        | -1       |
-| `retired`   | judgment   | 3        | -1       |
-| `restored`  | judgment   | 3        | 1        |
-| `confirmed` | judgment   | 3        | 1        |
-| `asserted`  | assertion  | 3        | 1        |
-| `decided`   | decision   | 3        | 1        |
-| `worked`    | activity   | 1        | 0        |
+| Verb           | Kind       | Strength | Polarity |
+| -------------- | ---------- | -------- | -------- |
+| `exposed`      | exposure   | 1        | 0        |
+| `opened`       | engagement | 1        | 1        |
+| `completed`    | engagement | 2        | 1        |
+| `saved`        | engagement | 2        | 1        |
+| `abandoned`    | engagement | 2        | -1       |
+| `skipped`      | engagement | 1        | -1       |
+| `rated`        | judgment   | 3        | 0        |
+| `accepted`     | judgment   | 3        | 1        |
+| `rejected`     | judgment   | 3        | -1       |
+| `edited`       | judgment   | 3        | -1       |
+| `retired`      | judgment   | 3        | -1       |
+| `restored`     | judgment   | 3        | 1        |
+| `confirmed`    | judgment   | 3        | 1        |
+| `asserted`     | assertion  | 3        | 1        |
+| `decided`      | decision   | 3        | 1        |
+| `worked`       | activity   | 1        | 0        |
+| `contradicted` | judgment   | 3        | 0        |
 
-`edited`, `retired`, `restored` and `confirmed` are the brain's own: they record what the owner did
-to an item, with `subject_item` naming it.
+`edited`, `retired`, `restored`, `confirmed` and `contradicted` are the brain's own: they record
+what the owner did to an item, with `subject_item` naming it. `contradicted` makes the
+`contradicts` relation when the owner marks two claims as disagreeing, and is neutral: it says
+the two disagree and of neither that it is wrong, so it is evidence on neither.
 
 ## What is computed, never stored
 

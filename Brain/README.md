@@ -185,6 +185,19 @@ memory store's four tables, every table in `docs/data-model.md`.
     that event, as an edit does. The old one's `decided` event is untouched, and both stay
     readable. Both rows are locked in id order first, so two decisions replacing each other at
     once replace once.
+  - `POST /brain/api/items/{id}/contradicts`, `{"contradicts": <id>}`, marks two claims as
+    contradicting each other, `201` with the relation, a `contradicts` from this item to the other.
+    Both must be active claims: `404` for an id the user does not have, `422` for a `contradicts`
+    they do not have, the item itself, or either being a record, and `409` when either is not
+    active or the two are already marked, either way round. One transaction records a
+    `contradicted` event about this item, evidence `Marked by hand as contradicting: "<one>" and
+    "<other>"`, each cut to 200 characters, linked as evidence to neither, and the relation, made by
+    it. Neither item changes: what an answer does with the pair is under "Asking". It is the only
+    way a contradiction is made, until consolidation exists.
+  - `POST /brain/api/item-relations/{id}/end` takes a contradiction back, `200` with the relation,
+    ended: the row stays, with `ended_at`, and one already ended is answered as it is. `404` for an
+    id the user does not have, `422` for any other kind, since a `supersedes` relation is an
+    entry's history and is not taken back.
   - `GET /brain/api/items/{id}/versions`, every version of the entry the item is one of, every row
     of its lineage, oldest first, each as the list answers it, whichever version is asked for. An
     entry never edited has one. `404` for an id the user does not have.
@@ -217,8 +230,9 @@ memory store's four tables, every table in `docs/data-model.md`.
   per feature calls over shared primitives" in `docs/brain-architecture.md` has it. The routes are
   in `src/brain/ask_routes.py` and call the four building blocks in `src/brain/retrieval.py`,
   `profile()`, `knowledge(topic_ids)`, `history(subject)` and `now()`, which every later per
-  feature call reads through too. Each block takes the door's connection and the time, never
-  calls a model and never leaves the database. Each route is a `POST`, since a question has a body,
+  feature call reads through too, with `narrower()` and `related()` for the topics around one, and
+  `conflicts()` and `ranked()` for the items the owner marked as contradicting. Each block takes
+  the door's connection, never calls a model and never leaves the database. Each route is a `POST`, since a question has a body,
   though none changes anything, so the origin check applies to it as to any `POST`. The body
   carries `mode`, `now` (the default) or `history`, and nothing that names a user: the user is the
   token's, and a field a question does not know is `422`.
@@ -236,6 +250,17 @@ memory store's four tables, every table in `docs/data-model.md`.
     `occurred_at`, `occurred_precision` and `recorded_at`. There is no relevance score, no
     confidence number and no weight: `support` and `last_supported_at` are what one would be
     computed from, once the evaluation cases can test it.
+  - Every answer has `conflicts`: each pair of its items, both active, that the owner marked as
+    contradicting and has not taken back, oldest marked first, as
+    `{"items": [<id>, <id>], "prefer": <id> | null, "reason": ...}`, the one it was marked from
+    first. Both items always stay in the answer, and a superseded or retired one is never in a
+    conflict, even where an answer about history holds it. The scopes are compared by `compare` in
+    `src/brain/scope.py`: a strictly narrower scope is preferred whatever its age, `"narrower
+    scope"`; at an equal scope the newer item, `"newer at equal scope"`; and incomparable scopes,
+    neither holding the other, prefer neither, `"incomparable scopes"`, `prefer` `null`. Asked
+    about now, each list in the answer puts a preferred item just before the first one it is
+    preferred over, and otherwise keeps its order; asked about history, the order is when each
+    thing happened alone. A pair is a conflict only where both are in the same answer.
   - `POST /brain/api/ask/profile`, who is this person: `categories`, every one of the six profile
     categories in order, each with its active profile entries, an empty one included, and then
     `rules`. A topic's focus is in the topics answer instead.

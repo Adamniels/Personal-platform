@@ -496,5 +496,5 @@ def test_every_verb_declares_strength_and_polarity(database: str) -> None:
         }
 
     documented = documented_verbs()
-    assert len(documented) == 16
+    assert len(documented) == 17
     assert seeded == documented

@@ -599,6 +599,7 @@ def test_an_answer_never_crosses_users(
             "items": [],
             "narrower": [],
             "related": [],
+            "conflicts": [],
         }
 
     # No field of a question names a user: whatever tries is refused.
@@ -664,6 +665,7 @@ def test_no_answer_makes_a_model_call_or_leaves_the_database() -> None:
         "brain.events",
         "brain.items",
         "brain.now_and_history",
+        "brain.scope.",
     )
     assert imported and all(name.startswith(allowed) for name in imported), imported
     calls = {

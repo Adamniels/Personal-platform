@@ -178,6 +178,47 @@
         "title": "AnswerItem",
         "type": "object"
       },
+      "Conflict": {
+        "description": "Two items in this answer the owner marked as contradicting. Both are\nin the answer; prefer only orders them, asked about now, the preferred\none just before the other. Null when their scopes are incomparable,\nwhich no order settles.",
+        "properties": {
+          "items": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "prefer": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prefer"
+          },
+          "reason": {
+            "enum": [
+              "narrower scope",
+              "newer at equal scope",
+              "incomparable scopes"
+            ],
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "items",
+          "prefer",
+          "reason"
+        ],
+        "title": "Conflict",
+        "type": "object"
+      },
       "Entity": {
         "properties": {
           "created_at": {
@@ -516,6 +557,13 @@
             "title": "Asked",
             "type": "string"
           },
+          "conflicts": {
+            "items": {
+              "$ref": "#/components/schemas/Conflict"
+            },
+            "title": "Conflicts",
+            "type": "array"
+          },
           "entity": {
             "anyOf": [
               {
@@ -578,7 +626,8 @@
           "entity",
           "items",
           "narrower",
-          "related"
+          "related",
+          "conflicts"
         ],
         "title": "HistoryAnswer",
         "type": "object"
@@ -1370,6 +1419,13 @@
       },
       "NowAnswer": {
         "properties": {
+          "conflicts": {
+            "items": {
+              "$ref": "#/components/schemas/Conflict"
+            },
+            "title": "Conflicts",
+            "type": "array"
+          },
           "items": {
             "items": {
               "$ref": "#/components/schemas/AnswerItem"
@@ -1388,7 +1444,8 @@
         },
         "required": [
           "mode",
-          "items"
+          "items",
+          "conflicts"
         ],
         "title": "NowAnswer",
         "type": "object"
@@ -1597,6 +1654,13 @@
             "title": "Categories",
             "type": "array"
           },
+          "conflicts": {
+            "items": {
+              "$ref": "#/components/schemas/Conflict"
+            },
+            "title": "Conflicts",
+            "type": "array"
+          },
           "mode": {
             "enum": [
               "now",
@@ -1616,7 +1680,8 @@
         "required": [
           "mode",
           "categories",
-          "rules"
+          "rules",
+          "conflicts"
         ],
         "title": "ProfileAnswer",
         "type": "object"
@@ -1968,6 +2033,13 @@
       },
       "TopicsAnswer": {
         "properties": {
+          "conflicts": {
+            "items": {
+              "$ref": "#/components/schemas/Conflict"
+            },
+            "title": "Conflicts",
+            "type": "array"
+          },
           "mode": {
             "enum": [
               "now",
@@ -1986,7 +2058,8 @@
         },
         "required": [
           "mode",
-          "topics"
+          "topics",
+          "conflicts"
         ],
         "title": "TopicsAnswer",
         "type": "object"
@@ -2697,6 +2770,45 @@
           }
         },
         "summary": "List History"
+      }
+    },
+    "/brain/api/item-relations/{id}/end": {
+      "post": {
+        "description": "Takes back a contradiction, 200 with the relation, ended. The row\nstays, with the time it ended, and one already ended is answered as it\nis. Takes no body. 404 for an id the user does not have. 422 for a\nrelation of any other kind, such as supersedes, which is an entry's\nhistory and is not taken back.",
+        "operationId": "end_contradiction_brain_api_item_relations__id__end_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemRelation"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "No valid token: missing, expired or failing verification, all alike. The body is empty; the caller refreshes and retries."
+          },
+          "404": {
+            "description": "Nothing of this user's at that address."
+          },
+          "422": {
+            "description": "A body that does not parse, or a request breaking a rule."
+          }
+        },
+        "summary": "End Contradiction"
       }
     },
     "/brain/api/items": {
@@ -3421,6 +3533,71 @@
           }
         },
         "summary": "Confirm Item"
+      }
+    },
+    "/brain/api/items/{id}/contradicts": {
+      "post": {
+        "description": "Marks two claims as contradicting each other, 201 with the relation,\na contradicts from this item to the other. A contradicted event about\nthis item, which makes the relation, is recorded with it, in one\ntransaction; it is evidence on neither. From then on an answer holding\nboth lists them as a conflict, both kept. 404 for an id the user does\nnot have. 422 for an other item they do not have, the item itself, or\neither being a record. 409 when either is not active, or the two are\nalready marked, either way round.",
+        "operationId": "mark_contradicting_brain_api_items__id__contradicts_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "description": "The other item, by id.",
+                "properties": {
+                  "contradicts": {
+                    "format": "uuid",
+                    "title": "Contradicts",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "contradicts"
+                ],
+                "title": "Contradiction",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemRelation"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "No valid token: missing, expired or failing verification, all alike. The body is empty; the caller refreshes and retries."
+          },
+          "404": {
+            "description": "Nothing of this user's at that address."
+          },
+          "409": {
+            "description": "The item is not in the state this needs: a superseded version, or not active or retired as the change asks."
+          },
+          "422": {
+            "description": "A body that does not parse, or a request breaking a rule."
+          }
+        },
+        "summary": "Mark Contradicting"
       }
     },
     "/brain/api/items/{id}/edit": {

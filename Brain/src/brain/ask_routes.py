@@ -11,7 +11,8 @@ Each is a POST because a question has a body, though none changes anything;
 the origin check applies to it as to any POST. Asking never creates a topic
 or a named thing, and an unknown one is answered with nothing known."""
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Annotated, Any, Literal, Self
 from uuid import UUID
@@ -207,8 +208,48 @@ class AnswerItem(BaseModel):
         )
 
 
-def _all(found: Iterable[retrieval.AnswerItem]) -> list[AnswerItem]:
-    return [AnswerItem.of(answered) for answered in found]
+class Conflict(BaseModel):
+    """Two items in this answer the owner marked as contradicting. Both are
+    in the answer; prefer only orders them, asked about now, the preferred
+    one just before the other. Null when their scopes are incomparable,
+    which no order settles."""
+
+    # The two, the one it was marked from first.
+    items: list[UUID]
+    prefer: UUID | None
+    reason: Literal["narrower scope", "newer at equal scope", "incomparable scopes"]
+
+    @classmethod
+    def of(cls, conflict: retrieval.Conflict) -> Conflict:
+        return cls(
+            items=list(conflict.items), prefer=conflict.prefer, reason=conflict.reason
+        )
+
+
+@dataclass(frozen=True)
+class _Shaping:
+    """How one answer's lists are given: asked about now, each ordered by
+    the answer's conflicts as well, `brain.retrieval.ranked`; asked about
+    history, by when each thing happened alone."""
+
+    mode: Mode
+    conflicts: list[retrieval.Conflict]
+
+    def all(self, found: Sequence[retrieval.AnswerItem]) -> list[AnswerItem]:
+        if self.mode == "now":
+            found = retrieval.ranked(found, self.conflicts)
+        return [AnswerItem.of(answered) for answered in found]
+
+    def listed(self) -> list[Conflict]:
+        return [Conflict.of(conflict) for conflict in self.conflicts]
+
+
+async def _shaping(
+    conn: retrieval.Connection, mode: Mode, found: Iterable[retrieval.AnswerItem]
+) -> _Shaping:
+    """The shaping of an answer holding `found`, its conflicts read among
+    them."""
+    return _Shaping(mode, await retrieval.conflicts(conn, found))
 
 
 def _one(answered: retrieval.AnswerItem | None) -> AnswerItem | None:
@@ -225,6 +266,7 @@ class ProfileAnswer(BaseModel):
     # Every category, in the profile's order, an empty one included.
     categories: list[ProfileGroup]
     rules: list[AnswerItem]
+    conflicts: list[Conflict]
 
 
 @router.post(
@@ -243,13 +285,16 @@ async def ask_profile(request: Request, claims: Claims) -> Response:
     now = datetime.now(UTC)
     async with db.transaction(request.app.state.pool, claims.account_id) as conn:
         found = await retrieval.profile(conn, now=now, mode=question.mode)
+        held = [a for _, grouped in found.categories for a in grouped]
+        shaping = await _shaping(conn, question.mode, [*held, *found.rules])
     answer = ProfileAnswer(
         mode=question.mode,
         categories=[
-            ProfileGroup(category=category, items=_all(grouped))
+            ProfileGroup(category=category, items=shaping.all(grouped))
             for category, grouped in found.categories
         ],
-        rules=_all(found.rules),
+        rules=shaping.all(found.rules),
+        conflicts=shaping.listed(),
     )
     return JSONResponse(answer.model_dump(mode="json"))
 
@@ -296,6 +341,8 @@ class TopicsAnswer(BaseModel):
     mode: Mode
     # One per slug asked, in the order asked.
     topics: list[TopicAnswer]
+    # Among every item above, the topics under each asked one's included.
+    conflicts: list[Conflict]
 
 
 @router.post(
@@ -332,6 +379,16 @@ async def ask_topics(request: Request, claims: Claims) -> Response:
         known_about = await retrieval.knowledge(
             conn, list(dict.fromkeys(wanted)), now=now, mode=question.mode
         )
+        shaping = await _shaping(
+            conn,
+            question.mode,
+            [
+                a
+                for k in known_about.values()
+                for a in (k.level, k.focus, *k.misconceptions, *k.history)
+                if a is not None
+            ],
+        )
     entries = []
     for slug in question.topics:
         topic = named[slug]
@@ -360,8 +417,8 @@ async def ask_topics(request: Request, claims: Claims) -> Response:
                     via=list(below.via),
                     level=_one(about.level),
                     focus=_one(about.focus),
-                    misconceptions=_all(about.misconceptions),
-                    history=_all(about.history),
+                    misconceptions=shaping.all(about.misconceptions),
+                    history=shaping.all(about.history),
                 )
             )
         entries.append(
@@ -371,13 +428,15 @@ async def ask_topics(request: Request, claims: Claims) -> Response:
                 known=True,
                 level=_one(known.level),
                 focus=_one(known.focus),
-                misconceptions=_all(known.misconceptions),
-                history=_all(known.history),
+                misconceptions=shaping.all(known.misconceptions),
+                history=shaping.all(known.history),
                 narrower=narrower,
                 related=[t.slug for t in beside[topic.id]],
             )
         )
-    answer = TopicsAnswer(mode=question.mode, topics=entries)
+    answer = TopicsAnswer(
+        mode=question.mode, topics=entries, conflicts=shaping.listed()
+    )
     return JSONResponse(answer.model_dump(mode="json"))
 
 
@@ -408,6 +467,8 @@ class HistoryAnswer(BaseModel):
     # For a topic, the slugs of the topics related to it, without their
     # items; none for a named thing.
     related: list[str]
+    # Among every item above, the topics under it included.
+    conflicts: list[Conflict]
 
 
 @router.post(
@@ -450,7 +511,7 @@ async def ask_history(request: Request, claims: Claims) -> Response:
             if subject is not None
             else []
         )
-        narrower: list[NarrowerHistory] = []
+        under: list[tuple[retrieval.Narrower, list[retrieval.AnswerItem]]] = []
         related: list[str] = []
         if subject is not None and subject.kind == "topic":
             for below in await retrieval.narrower(conn, subject.id):
@@ -460,12 +521,11 @@ async def ask_history(request: Request, claims: Claims) -> Response:
                     now=now,
                     mode=question.mode,
                 )
-                narrower.append(
-                    NarrowerHistory(
-                        topic=_topic(below.topic), via=list(below.via), items=_all(told)
-                    )
-                )
+                under.append((below, told))
             related = [t.slug for t in await retrieval.related(conn, subject.id)]
+        shaping = await _shaping(
+            conn, question.mode, [*found, *(a for _, told in under for a in told)]
+        )
     asked = question.topic if question.topic is not None else question.entity
     assert asked is not None
     answer = HistoryAnswer(
@@ -474,9 +534,15 @@ async def ask_history(request: Request, claims: Claims) -> Response:
         known=subject is not None,
         topic=answered_topic,
         entity=answered_entity,
-        items=_all(found),
-        narrower=narrower,
+        items=shaping.all(found),
+        narrower=[
+            NarrowerHistory(
+                topic=_topic(below.topic), via=list(below.via), items=shaping.all(told)
+            )
+            for below, told in under
+        ],
         related=related,
+        conflicts=shaping.listed(),
     )
     return JSONResponse(answer.model_dump(mode="json"))
 
@@ -484,6 +550,7 @@ async def ask_history(request: Request, claims: Claims) -> Response:
 class NowAnswer(BaseModel):
     mode: Mode
     items: list[AnswerItem]
+    conflicts: list[Conflict]
 
 
 @router.post(
@@ -501,5 +568,8 @@ async def ask_now(request: Request, claims: Claims) -> Response:
     now = datetime.now(UTC)
     async with db.transaction(request.app.state.pool, claims.account_id) as conn:
         found = await retrieval.now(conn, now=now, mode=question.mode)
-    answer = NowAnswer(mode=question.mode, items=_all(found))
+        shaping = await _shaping(conn, question.mode, found)
+    answer = NowAnswer(
+        mode=question.mode, items=shaping.all(found), conflicts=shaping.listed()
+    )
     return JSONResponse(answer.model_dump(mode="json"))
