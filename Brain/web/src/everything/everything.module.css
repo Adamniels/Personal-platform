@@ -1,0 +1,55 @@
+/* The Everything section's own pieces. The section around them is
+ * entries/section.module.css; the spacing is section 2 of design/DESIGN.md. */
+
+.note {
+	margin: 0;
+	color: var(--text-2);
+}
+
+/* An entry links to its page, cut to one line: the page holds the whole
+ * text. Its width is held, so a long entry cannot widen the table past the
+ * screen; on phone, beside the state, it takes what the screen leaves. */
+.entry {
+	display: block;
+	max-width: 48ch;
+	overflow: hidden;
+	border-radius: var(--radius-sm);
+	color: var(--info);
+	font-weight: 600;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+}
+
+@media (max-width: 639.98px) {
+	.entry {
+		max-width: calc(100vw - 2 * var(--page-pad) - 160px);
+	}
+}
+
+/* Where a search found its words, under the entry: small and quiet, the
+ * matched words emphasised. Not amber, which hard rule 4 keeps for what
+ * needs the user, but the info pair, which passes on both themes. Its width
+ * is the entry's, so it wraps rather than widening the table. */
+.excerpt {
+	max-width: 48ch;
+	margin: var(--space-1) 0 0;
+	color: var(--text-2);
+	font-size: var(--text-small-size);
+	line-height: var(--text-small-line);
+	white-space: normal;
+	overflow-wrap: anywhere;
+}
+
+.excerpt mark {
+	padding: 0 2px;
+	border-radius: var(--radius-sm);
+	background: var(--info-soft);
+	color: var(--info);
+	font-weight: 600;
+}
+
+@media (max-width: 639.98px) {
+	.excerpt {
+		max-width: calc(100vw - 2 * var(--page-pad) - 160px);
+	}
+}

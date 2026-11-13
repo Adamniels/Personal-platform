@@ -222,6 +222,18 @@ describe("a GET's parameters fill its address", () => {
 		expect(calls.map(({ url }) => url)).toEqual(["/brain/api/items?kind=rule"]);
 	});
 
+	test("a list repeats its name once a value, as FastAPI reads one", async () => {
+		const { fetch, calls } = fakeFetch([json(200, [])]);
+
+		await createClient(environment(fetch)).get("/search", {
+			query: { q: "rust", kind: ["rule", "state"], include_inactive: true },
+		});
+
+		expect(calls.map(({ url }) => url)).toEqual([
+			"/brain/api/search?q=rust&kind=rule&kind=state&include_inactive=true",
+		]);
+	});
+
 	test("a path parameter, encoded", async () => {
 		const { fetch, calls } = fakeFetch([json(200, [])]);
 

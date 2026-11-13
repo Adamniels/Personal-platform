@@ -191,11 +191,13 @@ export function createClient(env: ClientEnvironment = browser): Client {
 	};
 }
 
-type Values = Record<string, string | number | boolean | null | undefined>;
+type Value = string | number | boolean;
+type Values = Record<string, Value | readonly Value[] | null | undefined>;
 
 /** The path with each `{name}` filled, encoded, and the query string the
- * values that are given make. A `{name}` with no value is an error, since
- * the call would go to the wrong address. */
+ * values that are given make, a list as its name once a value. A `{name}`
+ * with no value is an error, since the call would go to the wrong
+ * address. */
 function address(
 	path: string,
 	params: { path?: Values; query?: Values } | undefined,
@@ -209,7 +211,10 @@ function address(
 	});
 	const query = new URLSearchParams();
 	for (const [name, value] of Object.entries(params?.query ?? {})) {
-		if (value !== undefined && value !== null) query.set(name, String(value));
+		if (value === undefined || value === null) continue;
+		for (const each of Array.isArray(value) ? value : [value]) {
+			query.append(name, String(each));
+		}
 	}
 	const search = query.toString();
 	return search === "" ? filled : `${filled}?${search}`;

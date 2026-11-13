@@ -1329,6 +1329,201 @@
         "title": "KnowledgeRow",
         "type": "object"
       },
+      "ListedItem": {
+        "description": "An item as a list of them reads it, with its currency.",
+        "properties": {
+          "category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category"
+          },
+          "content": {
+            "title": "Content",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_by_event": {
+            "format": "uuid",
+            "title": "Created By Event",
+            "type": "string"
+          },
+          "details": {
+            "additionalProperties": true,
+            "title": "Details",
+            "type": "object"
+          },
+          "entities": {
+            "items": {
+              "$ref": "#/components/schemas/EventEntity"
+            },
+            "title": "Entities",
+            "type": "array"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "inactive_reason": {
+            "anyOf": [
+              {
+                "enum": [
+                  "superseded",
+                  "retired"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inactive Reason"
+          },
+          "kind": {
+            "enum": [
+              "profile",
+              "rule",
+              "topic_level",
+              "topic_focus",
+              "state",
+              "history",
+              "decision"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "last_supported_at": {
+            "format": "date-time",
+            "title": "Last Supported At",
+            "type": "string"
+          },
+          "lineage_id": {
+            "format": "uuid",
+            "title": "Lineage Id",
+            "type": "string"
+          },
+          "nature": {
+            "enum": [
+              "claim",
+              "record"
+            ],
+            "title": "Nature",
+            "type": "string"
+          },
+          "occurred_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Occurred At"
+          },
+          "occurred_precision": {
+            "anyOf": [
+              {
+                "enum": [
+                  "instant",
+                  "day",
+                  "month",
+                  "year"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Occurred Precision"
+          },
+          "provenance": {
+            "enum": [
+              "asserted",
+              "derived"
+            ],
+            "title": "Provenance",
+            "type": "string"
+          },
+          "stale": {
+            "title": "Stale",
+            "type": "boolean"
+          },
+          "status": {
+            "enum": [
+              "active",
+              "inactive"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "store": {
+            "enum": [
+              "profile",
+              "procedural",
+              "knowledge",
+              "semantic",
+              "reported_history"
+            ],
+            "title": "Store",
+            "type": "string"
+          },
+          "topics": {
+            "items": {
+              "$ref": "#/components/schemas/EventTopic"
+            },
+            "title": "Topics",
+            "type": "array"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "id",
+          "lineage_id",
+          "kind",
+          "store",
+          "nature",
+          "provenance",
+          "content",
+          "value",
+          "category",
+          "details",
+          "occurred_at",
+          "occurred_precision",
+          "status",
+          "inactive_reason",
+          "created_at",
+          "created_by_event",
+          "topics",
+          "entities",
+          "last_supported_at",
+          "stale"
+        ],
+        "title": "ListedItem",
+        "type": "object"
+      },
       "NarrowerHistory": {
         "description": "The records and decisions about one topic under the one asked.",
         "properties": {
@@ -2995,7 +3190,7 @@
     },
     "/brain/api/items": {
       "get": {
-        "description": "The user's items, newest first, each with its subjects, narrowed by\nkind, status, topic and entity when they are given. A topic matches\nthrough aliases, and only itself, not the topics under it. 422 for an\nunknown kind or status, or a malformed slug.",
+        "description": "The user's items, newest first, each with its subjects,\nlast_supported_at, when the newest event supporting it happened, and\nstale, true for an active state when that is more than 60 days before\nthe request, as the now view has them. Narrowed by kind, status, topic\nand entity when they are given. A topic matches through aliases, and\nonly itself, not the topics under it. 422 for an unknown kind or status,\nor a malformed slug.",
         "operationId": "list_items_brain_api_items_get",
         "parameters": [
           {
@@ -3086,7 +3281,7 @@
               "application/json": {
                 "schema": {
                   "items": {
-                    "$ref": "#/components/schemas/Item"
+                    "$ref": "#/components/schemas/ListedItem"
                   },
                   "title": "Response List Items Brain Api Items Get",
                   "type": "array"

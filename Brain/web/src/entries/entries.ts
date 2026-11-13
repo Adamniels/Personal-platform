@@ -96,13 +96,20 @@ export function useAddEntry() {
 	});
 }
 
-/** Corrects an entry's text, which makes a new version of it. A 422 is the
- * form's to show on its field. */
+/** Corrects an entry's text, which makes a new version of it, and resolves
+ * with that version once every list has refreshed. A 422 is the form's to
+ * show on its field. */
 export function useEditEntry() {
 	const client = useClient();
 	const refresh = useRefresh();
 	return useMutation({
-		mutationFn: ({ entry, content }: { entry: Entry; content: string }) =>
+		mutationFn: ({
+			entry,
+			content,
+		}: {
+			entry: Pick<Item, "id" | "kind">;
+			content: string;
+		}) =>
 			client.send<ItemDetail>("POST", `${itemPath(entry.id)}/edit`, {
 				kind: entry.kind,
 				content,

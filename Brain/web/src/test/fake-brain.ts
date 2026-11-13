@@ -6,9 +6,9 @@
 // knowledge view one row per topic that is not an alias, the relations that hold, and promoting a
 // provisional topic. The now view is the active states, newest support first, each stale when
 // last supported more than sixty days before the real time, and confirming supports one at that
-// time. History is the active history entries and decisions by when each happened, oldest first,
-// and the decisions another replaced, each with the one that did, which replacing makes. Anything
-// else it answers 404.
+// time; every item listed carries the same currency. History is the active history entries and
+// decisions by when each happened, oldest first, and the decisions another replaced, each with the
+// one that did, which replacing makes. Anything else it answers 404.
 import type { ClientEnvironment } from "../api/client";
 import type { components } from "../api/schema";
 
@@ -278,18 +278,25 @@ export function fakeBrain() {
 			}));
 	}
 
+	/** An item with when it was last supported, when it was made unless a
+	 * state was supported since, and whether that makes it stale: an active
+	 * state last supported more than sixty days before the real time. */
+	function withCurrency(item: Item) {
+		const last = supported.get(item.id) ?? item.created_at;
+		return {
+			...item,
+			last_supported_at: last,
+			stale:
+				item.kind === "state" &&
+				item.status === "active" &&
+				Date.parse(last) < Date.now() - 60 * DAY,
+		};
+	}
+
 	function nowView() {
-		const staleBefore = Date.now() - 60 * DAY;
 		return items
 			.filter((item) => item.kind === "state" && item.status === "active")
-			.map((item) => {
-				const last = supported.get(item.id) ?? item.created_at;
-				return {
-					...item,
-					last_supported_at: last,
-					stale: Date.parse(last) < staleBefore,
-				};
-			})
+			.map(withCurrency)
 			.sort((a, b) => b.last_supported_at.localeCompare(a.last_supported_at));
 	}
 
@@ -344,7 +351,8 @@ export function fakeBrain() {
 						(wanted !== undefined &&
 							item.topics.some(({ id }) => resolve(id) === wanted.resolves_to)),
 				)
-				.sort((a, b) => b.created_at.localeCompare(a.created_at));
+				.sort((a, b) => b.created_at.localeCompare(a.created_at))
+				.map(withCurrency);
 			return json(200, found);
 		}
 		const versions = /^\/items\/([^/]+)\/versions$/.exec(path);
@@ -357,6 +365,12 @@ export function fakeBrain() {
 					.filter(({ lineage_id }) => lineage_id === item.lineage_id)
 					.sort((a, b) => a.created_at.localeCompare(b.created_at)),
 			);
+		}
+		const one = /^\/items\/([^/]+)$/.exec(path);
+		if (method === "GET" && one) {
+			const item = items.find(({ id }) => id === one[1]);
+			if (!item) return json(404, { detail: "No such item" });
+			return json(200, detail(item));
 		}
 		if (method !== "POST") return json(404, { detail: "No such route" });
 		if (refusal) {
