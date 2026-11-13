@@ -522,6 +522,24 @@ async def get(conn: Connection, item_id: UUID) -> Detail | None:
     return Detail(item, evidence, relations)
 
 
+# The item `i` is about the topic `%(topic)s`, a slug, and the named thing
+# `%(entity)s`, a name, each when it is not null: a topic through aliases on
+# either side, and only itself, a name without letter case. A condition for
+# a query's WHERE, as `listing` reads them.
+SUBJECT_FILTERS = (
+    "(%(topic)s::text IS NULL OR EXISTS ("
+    "  SELECT FROM item_subjects s"
+    "  JOIN topics named ON named.id = s.topic_id"
+    "  JOIN topics wanted ON wanted.slug = %(topic)s"
+    "  WHERE s.item_id = i.id"
+    "  AND coalesce(named.alias_of, named.id)"
+    "   = coalesce(wanted.alias_of, wanted.id)))"
+    " AND (%(entity)s::text IS NULL OR EXISTS ("
+    "  SELECT FROM item_subjects s JOIN entities n ON n.id = s.entity_id"
+    "  WHERE s.item_id = i.id AND lower(n.name) = lower(%(entity)s)))"
+)
+
+
 async def listing(
     conn: Connection,
     *,
@@ -540,16 +558,7 @@ async def listing(
         f"SELECT {COLUMNS} FROM items i"
         " WHERE (%(kind)s::text IS NULL OR i.kind = %(kind)s)"
         " AND (%(status)s::text IS NULL OR i.status = %(status)s)"
-        " AND (%(topic)s::text IS NULL OR EXISTS ("
-        "  SELECT FROM item_subjects s"
-        "  JOIN topics named ON named.id = s.topic_id"
-        "  JOIN topics wanted ON wanted.slug = %(topic)s"
-        "  WHERE s.item_id = i.id"
-        "  AND coalesce(named.alias_of, named.id)"
-        "   = coalesce(wanted.alias_of, wanted.id)))"
-        " AND (%(entity)s::text IS NULL OR EXISTS ("
-        "  SELECT FROM item_subjects s JOIN entities n ON n.id = s.entity_id"
-        "  WHERE s.item_id = i.id AND lower(n.name) = lower(%(entity)s)))"
+        f" AND {SUBJECT_FILTERS}"
         " ORDER BY i.created_at DESC, i.id DESC",
         {"kind": kind, "status": status, "topic": topic, "entity": entity},
     )

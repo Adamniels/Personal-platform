@@ -1,10 +1,12 @@
 """The API for the memory store, under `/brain/api/items`: entries the owner
-makes by hand, as profile entries, rules, a level and a focus on each topic,
-and misconceptions so far, and correcting them; and `/brain/api/knowledge`,
-every topic with its level and focus. Every route needs a valid
-token and acts for the account it names, through `brain.db.transaction`. The
-rules are in `brain.items`; this module reads the request and shapes the
-answer. The routes are listed in "What it serves" in Brain/README.md."""
+makes by hand, as profile entries, rules, states, a level and a focus on each
+topic, history entries, misconceptions among them, and decisions, and
+correcting, confirming and replacing them; `/brain/api/knowledge`, every
+topic with its level and focus; and `/brain/api/now` and
+`/brain/api/history`, what is going on now and what has happened. Every route
+needs a valid token and acts for the account it names, through
+`brain.db.transaction`. The rules are in `brain.items`; this module reads the
+request and shapes the answer. The routes are listed in "What it serves" in Brain/README.md."""
 
 from datetime import UTC, datetime
 from typing import Annotated, Any, Literal
@@ -25,7 +27,7 @@ from pydantic import (
     field_validator,
 )
 
-from brain import db, items, knowledge
+from brain import db, items, knowledge, now_and_history
 from brain.edge import (
     NOT_FOUND,
     REFUSED,
@@ -879,5 +881,84 @@ async def list_knowledge(request: Request, claims: Claims) -> Response:
                 history_count=row.history_count,
             ).model_dump(mode="json")
             for row in rows
+        ]
+    )
+
+
+class NowRow(Item):
+    """A state as the now view reads it."""
+
+    # The newest occurred_at among the events supporting it, computed when
+    # read and never stored.
+    last_supported_at: datetime
+    # Supported last more than 60 days before the request: worth re checking.
+    stale: bool
+
+
+@router.get(
+    "/now",
+    response_model=list[NowRow],
+    responses={**UNAUTHORIZED},
+)
+@authenticated
+async def list_now(request: Request, claims: Claims) -> Response:
+    """What is going on now: the user's active state entries, newest support
+    first, each with its subjects, last_supported_at, when the newest event
+    supporting it happened, and stale, true when that is more than 60 days
+    before the request. Confirming one moves it to the front."""
+    now = datetime.now(UTC)
+    async with db.transaction(request.app.state.pool, claims.account_id) as conn:
+        entries = await now_and_history.now(conn, now=now)
+    return JSONResponse(
+        [
+            NowRow(
+                **Item.fields_of(entry.item),
+                last_supported_at=entry.last_supported_at,
+                stale=entry.stale,
+            ).model_dump(mode="json")
+            for entry in entries
+        ]
+    )
+
+
+class HistoryRow(Item):
+    """A history entry or a decision as the history view reads it."""
+
+    # For a decision another one replaced, the one that did; else null.
+    replaced_by: UUID | None
+
+
+class HistoryQuery(BaseModel):
+    # Each filter narrows the list; both together, each one given.
+    # A topic by slug, read through aliases.
+    topic: Slug | None = None
+    # A named thing by name, without letter case.
+    entity: Name | None = None
+
+
+@router.get(
+    "/history",
+    response_model=list[HistoryRow],
+    responses={**UNAUTHORIZED, **REFUSED},
+    openapi_extra=documented(query=HistoryQuery),
+)
+@authenticated
+async def list_history(request: Request, claims: Claims) -> Response:
+    """What has happened: the user's history entries and decisions by
+    occurred_at, oldest first, each with its subjects. Active ones, and each
+    decision another one replaced, inactive, with replaced_by naming the one
+    that did; retired entries and older versions are left out. Narrowed by
+    topic and entity as the item list is. 422 for a malformed slug."""
+    query = query_as(request, HistoryQuery)
+    async with db.transaction(request.app.state.pool, claims.account_id) as conn:
+        entries = await now_and_history.history(
+            conn, topic=query.topic, entity=query.entity
+        )
+    return JSONResponse(
+        [
+            HistoryRow(
+                **Item.fields_of(entry.item), replaced_by=entry.replaced_by
+            ).model_dump(mode="json")
+            for entry in entries
         ]
     )

@@ -11,6 +11,7 @@ that transaction's user. Time is passed in, never read from the clock here.
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from uuid import UUID
 
 from psycopg import AsyncConnection
 from psycopg.rows import TupleRow
@@ -62,3 +63,45 @@ async def now(conn: Connection, *, now: datetime) -> list[NowEntry]:
         assert last_supported_at is not None
         entries.append(NowEntry(item, last_supported_at, bool(stale)))
     return entries
+
+
+@dataclass(frozen=True)
+class HistoryEntry:
+    item: items.Item
+    # For a decision another one replaced, the one that did; else None.
+    replaced_by: UUID | None
+
+
+async def history(
+    conn: Connection, *, topic: str | None, entity: str | None
+) -> list[HistoryEntry]:
+    """The current user's history entries and decisions, by when each
+    happened, oldest first, so a course from years ago entered today comes
+    before a decision from last week. Active ones, and the decisions another
+    decision replaced, each with the one that replaced it: what was decided
+    stays, though it no longer holds. A retired entry, and an older version
+    of an edited one, are left out. Narrowed by topic and named thing as
+    `items.listing` narrows."""
+    cursor = await conn.execute(
+        f"SELECT {items.COLUMNS}, replaced_by FROM ("
+        "  SELECT i.*, ("
+        "   SELECT r.from_item FROM item_relations r"
+        "   JOIN items newer ON newer.id = r.from_item"
+        "   WHERE r.to_item = i.id AND r.kind = 'supersedes' AND r.ended_at IS NULL"
+        "   AND newer.lineage_id <> i.lineage_id"
+        "   ORDER BY r.created_at DESC, r.id DESC LIMIT 1) AS replaced_by"
+        "  FROM items i"
+        "  WHERE i.kind IN ('history', 'decision')"
+        f"  AND {items.SUBJECT_FILTERS}) i"
+        " WHERE i.status = 'active'"
+        " OR (i.kind = 'decision' AND i.inactive_reason = 'superseded'"
+        "  AND i.replaced_by IS NOT NULL)"
+        " ORDER BY i.occurred_at, i.created_at, i.id",
+        {"topic": topic, "entity": entity},
+    )
+    rows = await cursor.fetchall()
+    found = await items.from_rows(conn, rows)
+    return [
+        HistoryEntry(item, row[len(items.FIELDS)])
+        for item, row in zip(found, rows, strict=True)
+    ]

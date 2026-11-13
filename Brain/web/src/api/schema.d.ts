@@ -78,6 +78,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/brain/api/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List History
+         * @description What has happened: the user's history entries and decisions by
+         *     occurred_at, oldest first, each with its subjects. Active ones, and each
+         *     decision another one replaced, inactive, with replaced_by naming the one
+         *     that did; retired entries and older versions are left out. Narrowed by
+         *     topic and entity as the item list is. 422 for a malformed slug.
+         */
+        get: operations["list_history_brain_api_history_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/brain/api/items": {
         parameters: {
             query?: never;
@@ -309,6 +333,29 @@ export interface paths {
          *     lists.
          */
         get: operations["list_knowledge_brain_api_knowledge_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/brain/api/now": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Now
+         * @description What is going on now: the user's active state entries, newest support
+         *     first, each with its subjects, last_supported_at, when the newest event
+         *     supporting it happened, and stale, true when that is more than 60 days
+         *     before the request. Confirming one moves it to the front.
+         */
+        get: operations["list_now_brain_api_now_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -621,6 +668,79 @@ export interface components {
              */
             status: "ok";
         };
+        /**
+         * HistoryRow
+         * @description A history entry or a decision as the history view reads it.
+         */
+        HistoryRow: {
+            /** Category */
+            category: string | null;
+            /** Content */
+            content: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Created By Event
+             * Format: uuid
+             */
+            created_by_event: string;
+            /** Details */
+            details: {
+                [key: string]: unknown;
+            };
+            /** Entities */
+            entities: components["schemas"]["EventEntity"][];
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Inactive Reason */
+            inactive_reason: ("superseded" | "retired") | null;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "profile" | "rule" | "topic_level" | "topic_focus" | "state" | "history" | "decision";
+            /**
+             * Lineage Id
+             * Format: uuid
+             */
+            lineage_id: string;
+            /**
+             * Nature
+             * @enum {string}
+             */
+            nature: "claim" | "record";
+            /** Occurred At */
+            occurred_at: string | null;
+            /** Occurred Precision */
+            occurred_precision: ("instant" | "day" | "month" | "year") | null;
+            /**
+             * Provenance
+             * @enum {string}
+             */
+            provenance: "asserted" | "derived";
+            /** Replaced By */
+            replaced_by: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "active" | "inactive";
+            /**
+             * Store
+             * @enum {string}
+             */
+            store: "profile" | "procedural" | "knowledge" | "semantic" | "reported_history";
+            /** Topics */
+            topics: components["schemas"]["EventTopic"][];
+            /** Value */
+            value: string | null;
+        };
         /** Item */
         Item: {
             /** Category */
@@ -820,6 +940,84 @@ export interface components {
              * @enum {string}
              */
             state: "canonical" | "provisional";
+        };
+        /**
+         * NowRow
+         * @description A state as the now view reads it.
+         */
+        NowRow: {
+            /** Category */
+            category: string | null;
+            /** Content */
+            content: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Created By Event
+             * Format: uuid
+             */
+            created_by_event: string;
+            /** Details */
+            details: {
+                [key: string]: unknown;
+            };
+            /** Entities */
+            entities: components["schemas"]["EventEntity"][];
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Inactive Reason */
+            inactive_reason: ("superseded" | "retired") | null;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "profile" | "rule" | "topic_level" | "topic_focus" | "state" | "history" | "decision";
+            /**
+             * Last Supported At
+             * Format: date-time
+             */
+            last_supported_at: string;
+            /**
+             * Lineage Id
+             * Format: uuid
+             */
+            lineage_id: string;
+            /**
+             * Nature
+             * @enum {string}
+             */
+            nature: "claim" | "record";
+            /** Occurred At */
+            occurred_at: string | null;
+            /** Occurred Precision */
+            occurred_precision: ("instant" | "day" | "month" | "year") | null;
+            /**
+             * Provenance
+             * @enum {string}
+             */
+            provenance: "asserted" | "derived";
+            /** Stale */
+            stale: boolean;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "active" | "inactive";
+            /**
+             * Store
+             * @enum {string}
+             */
+            store: "profile" | "procedural" | "knowledge" | "semantic" | "reported_history";
+            /** Topics */
+            topics: components["schemas"]["EventTopic"][];
+            /** Value */
+            value: string | null;
         };
         /** Topic */
         Topic: {
@@ -1123,6 +1321,43 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["Health"];
                 };
+            };
+        };
+    };
+    list_history_brain_api_history_get: {
+        parameters: {
+            query?: {
+                topic?: string | null;
+                entity?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HistoryRow"][];
+                };
+            };
+            /** @description No valid token: missing, expired or failing verification, all alike. The body is empty; the caller refreshes and retries. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description A body that does not parse, or a request breaking a rule. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
@@ -1776,6 +2011,33 @@ export interface operations {
             };
             /** @description A body that does not parse, or a request breaking a rule. */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    list_now_brain_api_now_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NowRow"][];
+                };
+            };
+            /** @description No valid token: missing, expired or failing verification, all alike. The body is empty; the caller refreshes and retries. */
+            401: {
                 headers: {
                     [name: string]: unknown;
                 };

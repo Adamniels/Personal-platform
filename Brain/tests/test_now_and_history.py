@@ -457,6 +457,11 @@ def test_a_decision_can_be_replaced_by_another(
     # The decided event that recorded the old one is untouched; newest first.
     assert [e["verb"] for e in about_item(alice, old["id"])] == ["edited", "decided"]
 
+    # The old one shows what replaced it.
+    entries = {entry["id"]: entry for entry in view(alice, HISTORY)}
+    assert entries[old["id"]]["replaced_by"] == new["id"]
+    assert entries[new["id"]]["replaced_by"] is None
+
     # Replaced once: neither it nor what replaced it can now be replaced by it.
     third = write(alice, decision(content="Use something else."))
     before_counts = counts(database)
@@ -597,3 +602,114 @@ async def test_two_decisions_replacing_each_other_at_once_replace_once(
         }
     finally:
         await pool.close()
+
+
+def test_a_record_is_never_stale(
+    calling: Callable[[uuid.UUID], Caller], database: str
+) -> None:
+    alice = calling(ALICE)
+    ten_years_ago = datetime.now(UTC).replace(microsecond=0) - timedelta(days=3653)
+    record = write(
+        alice, history(occurred_at=iso(ten_years_ago), occurred_precision="day")
+    )
+    claim = write(alice, state(occurred_at=iso(ten_years_ago)))
+
+    # Only a state is read for currency; a record has none.
+    now_view = now_at(database, ALICE, datetime.now(UTC))
+    assert [str(entry.item.id) for entry in now_view] == [claim["id"]]
+    assert now_view[0].stale is True
+
+    # The history view carries no flag at all.
+    [entry] = view(alice, HISTORY)
+    assert entry["id"] == record["id"]
+    assert "stale" not in entry and "last_supported_at" not in entry
+
+
+def test_history_is_ordered_by_when_it_happened(
+    calling: Callable[[uuid.UUID], Caller],
+) -> None:
+    alice = calling(ALICE)
+    assert alice.post(TOPICS, {"name": "Rust", "slug": "rust"}).status_code == 201
+    week_ago = datetime.now(UTC).replace(microsecond=0) - timedelta(days=7)
+    decided = write(
+        alice, decision(occurred_at=iso(week_ago), topics=["rust"], entities=["Brain"])
+    )
+    # Entered after the decision, but it happened long before it.
+    course = write(
+        alice,
+        history(
+            content="Took a Rust course.",
+            occurred_at="2023-03-01T00:00:00Z",
+            occurred_precision="month",
+            topics=["rust"],
+        ),
+    )
+
+    entries = view(alice, HISTORY)
+
+    assert [e["id"] for e in entries] == [course["id"], decided["id"]]
+    [course_entry, decided_entry] = entries
+    assert course_entry["kind"] == "history"
+    assert course_entry["occurred_at"] == "2023-03-01T00:00:00Z"
+    assert course_entry["replaced_by"] is None
+    assert decided_entry["details"]["reasoning"]
+
+    # What is not history, and what was put away, is left out.
+    write(alice, state(topics=["rust"]))
+    write(alice, profile())
+    retired = write(
+        alice, history(content="Retired.", occurred_at="2020-01-01T00:00:00Z")
+    )
+    act(alice, retired["id"], "retire")
+    assert [e["id"] for e in view(alice, HISTORY)] == [course["id"], decided["id"]]
+
+    # Filtered by topic and by named thing.
+    write(alice, history(content="Elsewhere.", occurred_at="2024-01-01T00:00:00Z"))
+    assert [e["id"] for e in view(alice, f"{HISTORY}?topic=rust")] == [
+        course["id"],
+        decided["id"],
+    ]
+    assert [e["id"] for e in view(alice, f"{HISTORY}?entity=brain")] == [decided["id"]]
+    assert view(alice, f"{HISTORY}?topic=haskell") == []
+    assert alice.get(f"{HISTORY}?topic=Not%20A%20Slug").status_code == 422
+
+    # Each user's own.
+    assert view(calling(BOB), HISTORY) == []
+
+
+def test_the_now_view_lists_active_states_newest_support_first(
+    calling: Callable[[uuid.UUID], Caller],
+) -> None:
+    alice = calling(ALICE)
+    now = datetime.now(UTC).replace(microsecond=0)
+    old = write(alice, state(content="Old.", occurred_at=iso(now - timedelta(days=90))))
+    recent = write(
+        alice, state(content="Recent.", occurred_at=iso(now - timedelta(days=2)))
+    )
+    middle = write(
+        alice, state(content="Middle.", occurred_at=iso(now - timedelta(days=30)))
+    )
+    retired = write(alice, state(content="Retired."))
+    act(alice, retired["id"], "retire")
+    write(alice, decision())
+    write(alice, history())
+    write(alice, profile())
+
+    entries = view(alice, NOW)
+
+    assert [e["id"] for e in entries] == [recent["id"], middle["id"], old["id"]]
+    assert [e["stale"] for e in entries] == [False, False, True]
+    assert [when(e["last_supported_at"]) for e in entries] == [
+        now - timedelta(days=2),
+        now - timedelta(days=30),
+        now - timedelta(days=90),
+    ]
+    assert entries[0]["kind"] == "state" and entries[0]["content"] == "Recent."
+
+    # Confirming the oldest brings it to the front, and clears its flag.
+    act(alice, old["id"], "confirm")
+    entries = view(alice, NOW)
+    assert [e["id"] for e in entries] == [old["id"], recent["id"], middle["id"]]
+    assert entries[0]["stale"] is False
+
+    assert view(calling(BOB), NOW) == []
