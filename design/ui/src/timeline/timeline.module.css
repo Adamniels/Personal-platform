@@ -1,0 +1,89 @@
+/* "Timeline entry" in section 4 of design/DESIGN.md. Colours and sizes are
+ * tokens; the rail's 10px, the ring's 8px and the 14px between entries are
+ * the ones that section gives. */
+
+.timeline {
+	--ring: 8px;
+	/* The ring is centred on the timestamp's line. */
+	--ring-top: calc((var(--text-mono-line) - var(--ring)) / 2);
+	--between: 14px;
+
+	display: flex;
+	flex-direction: column;
+	gap: var(--between);
+	margin: 0;
+	padding: 0;
+	list-style: none;
+	color: var(--text);
+	font-family: var(--font-ui);
+}
+
+/* A 10px rail, then the content, space-3 apart. */
+.entry {
+	display: grid;
+	grid-template-columns: 10px minmax(0, 1fr);
+	column-gap: var(--space-3);
+}
+
+.rail {
+	position: relative;
+}
+
+/* The 8px ring: 2px border-strong on the surface. */
+.dot {
+	box-sizing: border-box;
+	position: absolute;
+	top: var(--ring-top);
+	left: 50%;
+	width: var(--ring);
+	height: var(--ring);
+	transform: translateX(-50%);
+	border: 2px solid var(--border-strong);
+	border-radius: var(--radius-full);
+	background: var(--surface);
+}
+
+/* The entry that needs the user: a filled accent dot in an accent ring. */
+.attention .dot {
+	border-color: var(--accent-border);
+	background: var(--accent);
+}
+
+/* The 1px line from under the ring down to the next entry's ring, across
+ * the gap between entries. The last entry renders none. */
+.line {
+	position: absolute;
+	top: calc(var(--ring-top) + var(--ring));
+	bottom: calc(-1 * (var(--between) + var(--ring-top)));
+	left: 50%;
+	width: 1px;
+	transform: translateX(-50%);
+	background: var(--border);
+}
+
+.content {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+}
+
+.time {
+	color: var(--text-3);
+	font-family: var(--font-mono);
+	font-size: var(--text-mono-size);
+	line-height: var(--text-mono-line);
+	font-variant-numeric: tabular-nums;
+}
+
+.body {
+	margin: 0;
+	font-size: var(--text-body-size);
+	line-height: var(--text-body-line);
+}
+
+.detail {
+	margin: 0;
+	color: var(--text-2);
+	font-size: var(--text-small-size);
+	line-height: var(--text-small-line);
+}

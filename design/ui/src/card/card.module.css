@@ -1,0 +1,62 @@
+/* "Card" in section 4 of design/DESIGN.md. Colours and sizes are tokens. */
+
+/* Surface fill, 1px border, radius-lg, padding space-4, inner gap space-3,
+ * no shadow. A column, so the footer can be pushed to the bottom and the
+ * footers of cards in a row align when the grid stretches them. */
+.card {
+	box-sizing: border-box;
+	position: relative;
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-3);
+	min-width: 0;
+	padding: var(--space-4);
+	background: var(--surface);
+	border: 1px solid var(--border);
+	border-radius: var(--radius-lg);
+	color: var(--text);
+	font-family: var(--font-ui);
+	font-size: var(--text-body-size);
+	line-height: var(--text-body-line);
+}
+
+/* The needs you outline: the 1px border plus a 1px ring outside it, both in
+ * the accent border, which reads as 2px without moving the content. */
+.attention {
+	border-color: var(--accent-border);
+	box-shadow: 0 0 0 1px var(--accent-border);
+}
+
+/* The title on the left, the caption or status label on the right. */
+.header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--space-2);
+	min-width: 0;
+}
+
+.title {
+	margin: 0;
+	min-width: 0;
+	overflow-wrap: anywhere;
+	font-family: var(--font-heading);
+	font-size: var(--text-h2-size);
+	line-height: var(--text-h2-line);
+	font-weight: 600;
+}
+
+.aside {
+	flex: none;
+	color: var(--text-2);
+	font-size: var(--text-caption-size);
+	line-height: var(--text-caption-line);
+}
+
+/* One action, pushed to the bottom. */
+.footer {
+	margin-top: auto;
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+}

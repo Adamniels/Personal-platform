@@ -1,14 +1,18 @@
 import styles from "./gallery.module.css";
 import { BadgeSection } from "./sections/badge-section";
 import { ButtonSection } from "./sections/button-section";
+import { CardSection } from "./sections/card-section";
 import { CheckboxSection } from "./sections/checkbox-section";
 import { ChipSection } from "./sections/chip-section";
+import { EmptyStateSection } from "./sections/empty-state-section";
 import { MeterSection } from "./sections/meter-section";
 import { ProgressSection } from "./sections/progress-section";
 import { SelectSection } from "./sections/select-section";
 import { StatusSection } from "./sections/status-section";
+import { TabsSection } from "./sections/tabs-section";
 import { TextAreaSection } from "./sections/text-area-section";
 import { TextFieldSection } from "./sections/text-field-section";
+import { TimelineSection } from "./sections/timeline-section";
 import { ThemeControl } from "./theme-control";
 
 /** Every component of @platform/ui, one section each, in every kind and
@@ -37,6 +41,10 @@ export function Gallery() {
 				<ChipSection />
 				<ProgressSection />
 				<MeterSection />
+				<TabsSection />
+				<CardSection />
+				<EmptyStateSection />
+				<TimelineSection />
 			</main>
 		</div>
 	);
