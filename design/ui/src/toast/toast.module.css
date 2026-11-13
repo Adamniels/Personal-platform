@@ -1,0 +1,87 @@
+/* "Toast" in section 4 of design/DESIGN.md, a floating layer, so one of the
+ * two components with a shadow (hard rule 3). */
+
+/* Bottom right on desktop, the newest lowest. The stack lets clicks through
+ * to the page; only the toasts take them. */
+.stack {
+	position: fixed;
+	right: var(--space-4);
+	bottom: var(--space-4);
+	z-index: 1;
+	display: flex;
+	flex-direction: column;
+	align-items: flex-end;
+	gap: var(--space-2);
+	pointer-events: none;
+}
+
+.toast {
+	box-sizing: border-box;
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	max-width: 400px;
+	padding: 8px 12px;
+	background: var(--surface);
+	color: var(--text);
+	border: 1px solid var(--border-strong);
+	border-radius: var(--radius-md);
+	box-shadow: var(--shadow-1);
+	pointer-events: auto;
+}
+
+.dot {
+	flex: none;
+	width: 8px;
+	height: 8px;
+	border-radius: var(--radius-full);
+}
+
+.success .dot {
+	background: var(--ok);
+}
+
+.error .dot {
+	background: var(--danger);
+}
+
+/* One line as written; a longer text wraps rather than losing its end. */
+.text {
+	flex: 1 1 auto;
+	min-width: 0;
+	margin: 0;
+	overflow-wrap: anywhere;
+}
+
+/* A text action. Its target reaches 44px around it on phone (hard rule 10),
+ * through the toast's padding. */
+.action {
+	position: relative;
+	flex: none;
+	margin: 0 0 0 var(--space-2);
+	padding: 0;
+	border: 0;
+	background: transparent;
+	color: var(--info);
+	font-weight: 600;
+	cursor: pointer;
+}
+
+.action::after {
+	content: "";
+	position: absolute;
+	inset: -12px -12px;
+}
+
+.action:hover {
+	color: var(--text);
+}
+
+/* Phone: the width of the screen, above the bottom tab bar. */
+@media (max-width: 639.98px) {
+	.stack {
+		left: var(--space-4);
+		bottom: calc(var(--nav-h) + var(--space-4));
+		align-items: stretch;
+	}
+}
