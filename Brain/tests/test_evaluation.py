@@ -194,4 +194,5 @@ def test_there_are_at_least_thirty_cases_and_every_group_is_covered() -> None:
         if counted[group] < least
     }
     assert short == {}, "groups with fewer cases than settled: (have, need)"
+    assert set(MINIMUMS) == set(evaluation.GROUPS), "every group has a minimum"
     assert set(counted) <= set(MINIMUMS)
