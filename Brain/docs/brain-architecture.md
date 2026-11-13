@@ -185,8 +185,8 @@ left for later, when the first milestone was drawn small, see "What is built now
 The application exists, at `/brain`, opened from the Memory link in the nav bar: a React frontend
 in `Brain/web/`, served by the brain itself, in the platform's style. It has eight sections, each a
 tab with its own address: Profile at `/brain`, then Rules, Knowledge, Now, History, Everything,
-Timeline and Ask, each at `/brain/<name>`. Each is empty until its own slice fills it. How it is
-built, served and tested, and how it calls the brain, is "The memory centre" in `Brain/README.md`.
+Timeline and Ask, each at `/brain/<name>`. How it is built, served and tested, and how it calls
+the brain, is "The memory centre" in `Brain/README.md`.
 
 The general item browser exists, as Everything, at `/brain/everything`: every item, active or
 not, filtered by kind, state and subject and searched by its words, with nothing deleted and
