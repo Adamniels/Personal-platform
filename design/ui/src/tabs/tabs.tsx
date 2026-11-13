@@ -120,7 +120,14 @@ export function Tabs({
 
 export type TabProps = Omit<
 	ComponentProps<"button">,
-	"value" | "id" | "role" | "type" | "tabIndex" | "children"
+	| "value"
+	| "id"
+	| "role"
+	| "type"
+	| "tabIndex"
+	| "aria-selected"
+	| "aria-controls"
+	| "children"
 > & {
 	/** What `Tabs` reports and selects by, unique among its tabs. */
 	value: string;
@@ -171,7 +178,7 @@ export function Tab({
 
 export type TabPanelProps = Omit<
 	ComponentProps<"div">,
-	"id" | "role" | "hidden"
+	"id" | "role" | "hidden" | "aria-labelledby"
 > & {
 	/** The value of the tab that labels it and shows it. */
 	value: string;
