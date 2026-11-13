@@ -1,8 +1,10 @@
 import styles from "./gallery.module.css";
 import { BadgeSection } from "./sections/badge-section";
 import { ButtonSection } from "./sections/button-section";
+import { CardSection } from "./sections/card-section";
 import { CheckboxSection } from "./sections/checkbox-section";
 import { ChipSection } from "./sections/chip-section";
+import { EmptyStateSection } from "./sections/empty-state-section";
 import { MeterSection } from "./sections/meter-section";
 import { ProgressSection } from "./sections/progress-section";
 import { SelectSection } from "./sections/select-section";
@@ -39,6 +41,8 @@ export function Gallery() {
 				<ProgressSection />
 				<MeterSection />
 				<TabsSection />
+				<CardSection />
+				<EmptyStateSection />
 			</main>
 		</div>
 	);
