@@ -644,19 +644,34 @@ class ItemQuery(BaseModel):
     entity: Name | None = None
 
 
+class ListedItem(Item):
+    """An item as a list of them reads it, with its currency."""
+
+    # The newest occurred_at among the events supporting it, computed when
+    # read and never stored.
+    last_supported_at: datetime
+    # Supported last more than 60 days before the request: worth re checking.
+    # Only an active state is ever stale.
+    stale: bool
+
+
 @router.get(
     "/items",
-    response_model=list[Item],
+    response_model=list[ListedItem],
     responses={**UNAUTHORIZED, **REFUSED},
     openapi_extra=documented(query=ItemQuery),
 )
 @authenticated
 async def list_items(request: Request, claims: Claims) -> Response:
-    """The user's items, newest first, each with its subjects, narrowed by
-    kind, status, topic and entity when they are given. A topic matches
-    through aliases, and only itself, not the topics under it. 422 for an
-    unknown kind or status, or a malformed slug."""
+    """The user's items, newest first, each with its subjects,
+    last_supported_at, when the newest event supporting it happened, and
+    stale, true for an active state when that is more than 60 days before
+    the request, as the now view has them. Narrowed by kind, status, topic
+    and entity when they are given. A topic matches through aliases, and
+    only itself, not the topics under it. 422 for an unknown kind or status,
+    or a malformed slug."""
     query = query_as(request, ItemQuery)
+    now = datetime.now(UTC)
     async with db.transaction(request.app.state.pool, claims.account_id) as conn:
         found = await items.listing(
             conn,
@@ -665,7 +680,19 @@ async def list_items(request: Request, claims: Claims) -> Response:
             topic=query.topic,
             entity=query.entity,
         )
-    return JSONResponse([Item.of(item).model_dump(mode="json") for item in found])
+        currency = await now_and_history.currency(
+            conn, [item.id for item in found], now=now
+        )
+    return JSONResponse(
+        [
+            ListedItem(
+                **Item.fields_of(item),
+                last_supported_at=currency[item.id].last_supported_at,
+                stale=currency[item.id].stale,
+            ).model_dump(mode="json")
+            for item in found
+        ]
+    )
 
 
 @router.get(
@@ -982,14 +1009,8 @@ async def list_knowledge(request: Request, claims: Claims) -> Response:
     )
 
 
-class NowRow(Item):
+class NowRow(ListedItem):
     """A state as the now view reads it."""
-
-    # The newest occurred_at among the events supporting it, computed when
-    # read and never stored.
-    last_supported_at: datetime
-    # Supported last more than 60 days before the request: worth re checking.
-    stale: bool
 
 
 @router.get(

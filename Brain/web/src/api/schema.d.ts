@@ -232,10 +232,13 @@ export interface paths {
         };
         /**
          * List Items
-         * @description The user's items, newest first, each with its subjects, narrowed by
-         *     kind, status, topic and entity when they are given. A topic matches
-         *     through aliases, and only itself, not the topics under it. 422 for an
-         *     unknown kind or status, or a malformed slug.
+         * @description The user's items, newest first, each with its subjects,
+         *     last_supported_at, when the newest event supporting it happened, and
+         *     stale, true for an active state when that is more than 60 days before
+         *     the request, as the now view has them. Narrowed by kind, status, topic
+         *     and entity when they are given. A topic matches through aliases, and
+         *     only itself, not the topics under it. 422 for an unknown kind or status,
+         *     or a malformed slug.
          */
         get: operations["list_items_brain_api_items_get"];
         put?: never;
@@ -1271,6 +1274,84 @@ export interface components {
             state: "canonical" | "provisional";
         };
         /**
+         * ListedItem
+         * @description An item as a list of them reads it, with its currency.
+         */
+        ListedItem: {
+            /** Category */
+            category: string | null;
+            /** Content */
+            content: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Created By Event
+             * Format: uuid
+             */
+            created_by_event: string;
+            /** Details */
+            details: {
+                [key: string]: unknown;
+            };
+            /** Entities */
+            entities: components["schemas"]["EventEntity"][];
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Inactive Reason */
+            inactive_reason: ("superseded" | "retired") | null;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "profile" | "rule" | "topic_level" | "topic_focus" | "state" | "history" | "decision";
+            /**
+             * Last Supported At
+             * Format: date-time
+             */
+            last_supported_at: string;
+            /**
+             * Lineage Id
+             * Format: uuid
+             */
+            lineage_id: string;
+            /**
+             * Nature
+             * @enum {string}
+             */
+            nature: "claim" | "record";
+            /** Occurred At */
+            occurred_at: string | null;
+            /** Occurred Precision */
+            occurred_precision: ("instant" | "day" | "month" | "year") | null;
+            /**
+             * Provenance
+             * @enum {string}
+             */
+            provenance: "asserted" | "derived";
+            /** Stale */
+            stale: boolean;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "active" | "inactive";
+            /**
+             * Store
+             * @enum {string}
+             */
+            store: "profile" | "procedural" | "knowledge" | "semantic" | "reported_history";
+            /** Topics */
+            topics: components["schemas"]["EventTopic"][];
+            /** Value */
+            value: string | null;
+        };
+        /**
          * NarrowerHistory
          * @description The records and decisions about one topic under the one asked.
          */
@@ -2171,7 +2252,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Item"][];
+                    "application/json": components["schemas"]["ListedItem"][];
                 };
             };
             /** @description No valid token: missing, expired or failing verification, all alike. The body is empty; the caller refreshes and retries. */

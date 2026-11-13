@@ -761,3 +761,44 @@ def test_the_now_view_lists_active_states_newest_support_first(
     assert entries[0]["stale"] is False
 
     assert view(calling(BOB), NOW) == []
+
+
+def test_every_item_is_listed_with_when_it_was_last_supported(
+    calling: Callable[[uuid.UUID], Caller],
+) -> None:
+    """The item browser in Everything reads GET /items alone, so each row
+    carries the now view's currency: when it was last supported, and the
+    stale flag, which only an active state can raise."""
+    alice = calling(ALICE)
+    now = datetime.now(UTC).replace(microsecond=0)
+    old_state = write(
+        alice, state(content="Old.", occurred_at=iso(now - timedelta(days=90)))
+    )
+    retired_state = write(
+        alice, state(content="Retired.", occurred_at=iso(now - timedelta(days=90)))
+    )
+    act(alice, retired_state["id"], "retire")
+    ten_years_ago = now - timedelta(days=3653)
+    record = write(
+        alice, history(occurred_at=iso(ten_years_ago), occurred_precision="day")
+    )
+    entered = write(alice, profile())
+
+    listed = {row["id"]: row for row in view(alice, ITEMS)}
+
+    assert listed[old_state["id"]]["stale"] is True
+    assert when(listed[old_state["id"]]["last_supported_at"]) == now - timedelta(
+        days=90
+    )
+    # A retired state, and a record however old, are never stale.
+    assert listed[retired_state["id"]]["stale"] is False
+    assert listed[record["id"]]["stale"] is False
+    assert when(listed[record["id"]]["last_supported_at"]) == ten_years_ago
+    assert listed[entered["id"]]["stale"] is False
+    assert when(listed[entered["id"]]["last_supported_at"]) <= datetime.now(UTC)
+
+    # Confirming moves it, and clears the flag, as on the now view.
+    act(alice, old_state["id"], "confirm")
+    [confirmed] = [r for r in view(alice, ITEMS) if r["id"] == old_state["id"]]
+    assert confirmed["stale"] is False
+    assert when(confirmed["last_supported_at"]) > now - timedelta(days=1)
