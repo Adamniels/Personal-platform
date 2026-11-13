@@ -577,3 +577,277 @@ def test_status_text_keeps_its_contrast(page: Page, theme: str):
         style = status(page, tone).evaluate(LABEL_STYLE)
         ratios[tone] = contrast(style["color"], style["background"])
     assert all(ratio >= 4.5 for ratio in ratios.values()), ratios
+
+
+# The layout pieces of "Tabs", "Card", "Empty state" and "Timeline entry" in
+# section 4 of design/DESIGN.md. The gallery names each example by what it
+# shows, which is how a test finds it.
+BOX_STYLE = """element => {
+    const style = getComputedStyle(element);
+    return {
+        background: style.backgroundColor,
+        color: style.color,
+        borders: [style.borderTopColor, style.borderRightColor,
+                  style.borderBottomColor, style.borderLeftColor],
+        borderWidths: [style.borderTopWidth, style.borderRightWidth,
+                       style.borderBottomWidth, style.borderLeftWidth],
+        borderStyles: [style.borderTopStyle, style.borderRightStyle,
+                       style.borderBottomStyle, style.borderLeftStyle],
+        radii: [style.borderTopLeftRadius, style.borderTopRightRadius,
+                style.borderBottomRightRadius, style.borderBottomLeftRadius],
+        padding: [style.paddingTop, style.paddingRight,
+                  style.paddingBottom, style.paddingLeft],
+        height: style.height,
+        width: style.width,
+        gap: style.columnGap,
+        rowGap: style.rowGap,
+        shadow: style.boxShadow,
+        weight: style.fontWeight,
+        fontFamily: style.fontFamily,
+        fontSize: style.fontSize,
+        lineHeight: style.lineHeight,
+        textAlign: style.textAlign,
+        overflowX: style.overflowX,
+        flexWrap: style.flexWrap,
+        whiteSpace: style.whiteSpace,
+    };
+}"""
+
+
+def tablist(page: Page, name: str) -> Locator:
+    region = page.get_by_role("region", name="Tabs")
+    return region.get_by_role("tablist", name=name, exact=True)
+
+
+def card(page: Page, name: str) -> Locator:
+    region = page.get_by_role("region", name="Card")
+    return region.get_by_role("article", name=name, exact=True)
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_the_layout_pieces_are_shown(page: Page, viewport: str, theme: str):
+    open_gallery(page, theme)
+
+    for title in ["Tabs", "Card", "Empty state", "Timeline entry"]:
+        expect(page.get_by_role("region", name=title)).to_be_visible()
+    capture(page, f"gallery-tabs-card-empty-timeline-{theme}")
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_tabs_read_their_values(page: Page, theme: str):
+    open_gallery(page, theme)
+    row = tablist(page, "Four tabs")
+
+    selected = row.get_by_role("tab", selected=True)
+    expect(selected).to_have_count(1)
+    style = selected.evaluate(BOX_STYLE)
+    assert style["background"] == resolve(page, "--surface-2", "background-color")
+    assert style["borders"] == [resolve(page, "--accent-border", "color")] * 4
+    assert style["borderWidths"] == ["1px"] * 4
+    assert style["radii"] == radii(page, "--radius-md")
+    assert style["color"] == resolve(page, "--text", "color")
+    assert style["weight"] == "600"
+    assert style["height"] == resolve(page, "--control-h", "height")
+
+    other = row.get_by_role("tab", selected=False).first
+    style = other.evaluate(BOX_STYLE)
+    assert style["background"] == resolve(page, None, "background-color")
+    assert style["borders"] == [resolve(page, None, "color")] * 4
+    assert style["color"] == resolve(page, "--text-2", "color")
+    assert style["weight"] == "500"
+    assert style["padding"][1] == style["padding"][3] == "12px"
+    assert style["height"] == resolve(page, "--control-h", "height")
+
+    style = row.evaluate(BOX_STYLE)
+    assert style["borders"][2] == resolve(page, "--border", "color")
+    assert style["borderWidths"] == ["0px", "0px", "1px", "0px"]
+    assert style["padding"][2] == "8px"
+    assert style["gap"] == resolve(page, "--space-1", "column-gap")
+
+    # The count after a label is a badge.
+    count = row.get_by_role("tab", name="Decisions 2").get_by_text("2", exact=True)
+    badge = count.evaluate(BOX_STYLE)
+    assert badge["background"] == resolve(page, "--surface-2", "background-color")
+    assert badge["height"] == "22px"
+
+
+def test_tabs_follow_the_keyboard_in_the_browser(page: Page):
+    open_gallery(page, "light")
+    row = tablist(page, "Four tabs")
+    first = row.get_by_role("tab").first
+    last = row.get_by_role("tab").last
+
+    first.focus()
+    page.keyboard.press("ArrowLeft")
+    expect(last).to_be_focused()
+    expect(last).to_have_attribute("aria-selected", "true")
+    expect(
+        page.get_by_role("region", name="Tabs").get_by_role(
+            "tabpanel", name=last.inner_text()
+        )
+    ).to_be_visible()
+    page.keyboard.press("Home")
+    expect(first).to_be_focused()
+    expect(first).to_have_attribute("aria-selected", "true")
+
+
+def test_tabs_scroll_sideways_on_phone_and_never_wrap(page: Page):
+    page.set_viewport_size(VIEWPORTS["phone"])
+    open_gallery(page, "light")
+    row = tablist(page, "Eight tabs")
+
+    tabs = row.get_by_role("tab")
+    assert tabs.count() == 8
+    tops = {tabs.nth(index).evaluate("e => e.offsetTop") for index in range(8)}
+    assert len(tops) == 1, "the row wrapped"
+    style = row.evaluate(BOX_STYLE)
+    assert style["flexWrap"] == "nowrap"
+    assert style["overflowX"] == "auto"
+    assert row.evaluate("e => e.scrollWidth > e.clientWidth"), "the row does not scroll"
+    assert page.evaluate(
+        "() => document.documentElement.scrollWidth <= window.innerWidth"
+    ), "the page scrolls sideways"
+    for index in range(8):
+        box = tabs.nth(index).bounding_box()
+        assert box is not None and box["height"] == 44
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_a_card_reads_its_values(page: Page, theme: str):
+    open_gallery(page, theme)
+
+    style = card(page, "Plain").evaluate(BOX_STYLE)
+    assert style["background"] == resolve(page, "--surface", "background-color")
+    assert style["borders"] == [resolve(page, "--border", "color")] * 4
+    assert style["borderWidths"] == ["1px"] * 4
+    assert style["radii"] == radii(page, "--radius-lg")
+    assert style["padding"] == [resolve(page, "--space-4", "padding-top")] * 4
+    assert style["rowGap"] == resolve(page, "--space-3", "row-gap")
+    assert style["shadow"] == "none"
+
+    heading = card(page, "Plain").get_by_role("heading", level=2).evaluate(BOX_STYLE)
+    assert heading["fontFamily"] == resolve(page, "--font-heading", "font-family")
+    assert heading["fontSize"] == resolve(page, "--text-h2-size", "font-size")
+    assert heading["lineHeight"] == resolve(page, "--text-h2-line", "line-height")
+    assert heading["weight"] == "600"
+
+    # The needs you outline: the 1px border and a 1px ring outside it, both
+    # in the accent border, so it reads as 2px.
+    style = card(page, "Needing you").evaluate(BOX_STYLE)
+    accent = resolve(page, "--accent-border", "color")
+    assert style["borders"] == [accent] * 4
+    assert style["borderWidths"] == ["1px"] * 4
+    assert style["shadow"] == f"{accent} 0px 0px 0px 1px"
+    hidden = card(page, "Needing you").get_by_text("Needs you", exact=True)
+    expect(hidden).to_be_attached()
+    box = hidden.bounding_box()
+    assert box is not None and box["width"] <= 1 and box["height"] <= 1
+
+
+def test_cards_in_a_row_align_their_footers(page: Page):
+    open_gallery(page, "light")
+    region = page.get_by_role("region", name="Card")
+
+    footers = [
+        card(page, name).get_by_role("button").bounding_box()
+        for name in ["Review", "Lessons", "Briefing"]
+    ]
+    assert all(box is not None for box in footers)
+    tops = {round(box["y"]) for box in footers if box}
+    assert len(tops) == 1, footers
+    bodies = [
+        card(page, name).evaluate("e => e.getBoundingClientRect().height")
+        for name in ["Review", "Lessons", "Briefing"]
+    ]
+    assert len(set(bodies)) == 1, "the cards in the row differ in height"
+    expect(region.get_by_role("article")).to_have_count(7)
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_an_empty_state_reads_its_values(page: Page, theme: str):
+    open_gallery(page, theme)
+    region = page.get_by_role("region", name="Empty state")
+
+    title = region.get_by_text("No cards due", exact=True)
+    root = title.locator("..")
+    style = root.evaluate(BOX_STYLE)
+    assert style["borderStyles"] == ["dashed"] * 4
+    assert style["borders"] == [resolve(page, "--border-strong", "color")] * 4
+    assert style["borderWidths"] == ["1px"] * 4
+    assert style["radii"] == radii(page, "--radius-lg")
+    six = resolve(page, "--space-6", "padding-top")
+    four = resolve(page, "--space-4", "padding-top")
+    assert style["padding"] == [six, four, six, four]
+    assert style["textAlign"] == "center"
+
+    assert title.evaluate(BOX_STYLE)["weight"] == "600"
+    detail = root.locator("p").nth(1).evaluate(BOX_STYLE)
+    assert detail["color"] == resolve(page, "--text-2", "color")
+    assert detail["fontSize"] == resolve(page, "--text-small-size", "font-size")
+    assert detail["lineHeight"] == resolve(page, "--text-small-line", "line-height")
+
+    action = root.get_by_role("button")
+    expect(action).to_have_count(1)
+    assert (
+        action.evaluate(BOX_STYLE)["borders"]
+        == [resolve(page, "--border-strong", "color")] * 4
+    ), "the action is a secondary button"
+
+    # The other example has no action.
+    bare = region.get_by_text("Nothing in review", exact=True).locator("..")
+    expect(bare.get_by_role("button")).to_have_count(0)
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_a_timeline_entry_reads_its_values(page: Page, theme: str):
+    open_gallery(page, theme)
+    region = page.get_by_role("region", name="Timeline entry")
+    timeline = region.get_by_role("list", name="Recent")
+    items = timeline.get_by_role("listitem")
+    expect(items).to_have_count(3)
+
+    rails = [items.nth(index).locator("[aria-hidden='true']") for index in range(3)]
+    # Every entry has a ring, and a line down to the next one but the last.
+    assert [rail.locator("span").count() for rail in rails] == [2, 2, 1]
+
+    rail = rails[1].evaluate(BOX_STYLE)
+    assert rail["width"] == "10px"
+    ring = rails[1].locator("span").first.evaluate(BOX_STYLE)
+    assert ring["width"] == ring["height"] == "8px"
+    assert ring["borders"] == [resolve(page, "--border-strong", "color")] * 4
+    assert ring["borderWidths"] == ["2px"] * 4
+    assert ring["background"] == resolve(page, "--surface", "background-color")
+    assert ring["radii"] == radii(page, "--radius-full")
+    line = rails[1].locator("span").nth(1)
+    assert line.evaluate(BOX_STYLE)["width"] == "1px"
+    assert line.evaluate(BOX_STYLE)["background"] == resolve(
+        page, "--border", "background-color"
+    )
+
+    # The line reaches the next entry's ring.
+    line_box = line.bounding_box()
+    next_ring = rails[2].locator("span").first.bounding_box()
+    assert line_box is not None and next_ring is not None
+    assert line_box["y"] + line_box["height"] == pytest.approx(next_ring["y"], abs=1)
+
+    # 14px between entries, and space-3 between the rail and the content.
+    first, second = items.nth(0).bounding_box(), items.nth(1).bounding_box()
+    assert first is not None and second is not None
+    assert second["y"] - (first["y"] + first["height"]) == pytest.approx(14, abs=0.5)
+    assert items.nth(1).evaluate(BOX_STYLE)["gap"] == resolve(
+        page, "--space-3", "column-gap"
+    )
+
+    time = items.nth(1).get_by_text("10 Nov 21:05", exact=True).evaluate(BOX_STYLE)
+    assert time["fontFamily"] == resolve(page, "--font-mono", "font-family")
+    assert time["fontSize"] == resolve(page, "--text-mono-size", "font-size")
+    assert time["color"] == resolve(page, "--text-3", "color")
+
+    detail = items.nth(0).locator("p").last.evaluate(BOX_STYLE)
+    assert detail["color"] == resolve(page, "--text-2", "color")
+    assert detail["fontSize"] == resolve(page, "--text-small-size", "font-size")
+
+    # The entry that needs the user: a filled accent dot in an accent ring.
+    dot = rails[0].locator("span").first.evaluate(BOX_STYLE)
+    assert dot["background"] == resolve(page, "--accent", "background-color")
+    assert dot["borders"] == [resolve(page, "--accent-border", "color")] * 4
