@@ -414,6 +414,12 @@ class Relation:
     created_by_event: UUID
 
 
+# A relation's columns, in the order `Relation` takes them.
+RELATION_COLUMNS = (
+    "id, from_item, to_item, kind, created_at, ended_at, created_by_event"
+)
+
+
 @dataclass(frozen=True)
 class Detail:
     """One item as a single read answers it: the item, the events behind it,
@@ -513,7 +519,7 @@ async def get(conn: Connection, item_id: UUID) -> Detail | None:
         for evidence_id, kind, created_at, *event in await cursor.fetchall()
     )
     cursor = await conn.execute(
-        "SELECT id, from_item, to_item, kind, created_at, ended_at, created_by_event"
+        f"SELECT {RELATION_COLUMNS}"
         " FROM item_relations WHERE from_item = %(id)s OR to_item = %(id)s"
         " ORDER BY created_at, id",
         {"id": item_id},
@@ -947,6 +953,109 @@ async def replace_decision(
     )
     await _link_judgment(conn, item_id, event, now=now)
     await _link_relation(conn, by, item_id, "supersedes", event.id, now=now)
+
+
+async def mark_contradicting(
+    conn: Connection, item_id: UUID, other: UUID, *, now: datetime
+) -> Relation:
+    """Marks the current user's claims `item_id` and `other` as contradicting
+    each other at `now`, and returns the relation, a `contradicts` from the
+    first to the second. A `contradicted` event about the first makes it:
+    the owner's judgment that the two disagree, and of neither that it is
+    wrong, so it is no evidence on either. Both stay as they are; what an
+    answer does with the pair is `brain.retrieval.conflicts`. This is the
+    only way a contradiction is made until consolidation exists.
+
+    Not found for an `item_id` the user does not have. Refused for an
+    `other` they do not have, the item itself, and either being a record,
+    which asserts nothing that could be contradicted. A conflict when either
+    is not active, or the two are already marked, either way round."""
+    one = await _one(conn, item_id)
+    if one is None:
+        raise NotFound
+    against = await _one(conn, other)
+    if against is None:
+        raise Refused(f"there is no item {other}")
+    if one.id == against.id:
+        raise Refused("an item does not contradict itself")
+    if one.nature != "claim" or against.nature != "claim":
+        raise Refused("only a claim contradicts another, a record asserts nothing")
+    if one.status != "active" or against.status != "active":
+        raise Conflict("both items must be active")
+    # Both locked, in id order, so of two marking the same pair at once the
+    # second waits and then finds the first's relation.
+    if not await _hold_active(conn, [item_id, other]):
+        raise Conflict("an item changed while it was being marked")
+    cursor = await conn.execute(
+        "SELECT EXISTS (SELECT FROM item_relations WHERE kind = 'contradicts'"
+        " AND ended_at IS NULL AND ARRAY[from_item, to_item] @> ARRAY[%s, %s])",
+        (item_id, other),
+    )
+    row = await cursor.fetchone()
+    if row is not None and row[0]:
+        raise Conflict("the two are already marked as contradicting")
+    event, _ = await events.record(
+        conn,
+        _judgment(
+            "contradicted",
+            item_id,
+            f'Marked by hand as contradicting: "{_cut(one.content, EDIT_QUOTE_MAX)}"'
+            f' and "{_cut(against.content, EDIT_QUOTE_MAX)}"',
+            f"contradicted:{uuid7()}",
+            {"item": str(item_id), "contradicts": str(other)},
+        ),
+        now=now,
+    )
+    cursor = await conn.execute(
+        "INSERT INTO item_relations (id, user_id, from_item, to_item, kind,"
+        " created_at, ended_at, created_by_event)"
+        f" VALUES (%s, {CURRENT_USER_SQL}, %s, %s, 'contradicts', %s, NULL, %s)"
+        f" RETURNING {RELATION_COLUMNS}",
+        (uuid7(), item_id, other, now, event.id),
+    )
+    made = await cursor.fetchone()
+    assert made is not None
+    return Relation(*made)
+
+
+async def end_contradiction(
+    conn: Connection, relation_id: UUID, *, now: datetime
+) -> Relation:
+    """Takes back a contradiction the owner marked: ends the relation at
+    `now`, and returns it. The row stays, so what was marked and when stays
+    readable, as a topic relation's does. One already ended keeps the time
+    it ended.
+
+    Not found for a relation the user does not have. Refused for any other
+    kind: a `supersedes` relation is part of an entry's history, and is not
+    taken back."""
+    cursor = await conn.execute(
+        f"SELECT {RELATION_COLUMNS} FROM item_relations WHERE id = %s",
+        (relation_id,),
+    )
+    row = await cursor.fetchone()
+    if row is None:
+        raise NotFound
+    relation = Relation(*row)
+    if relation.kind != "contradicts":
+        raise Refused(f"only a contradiction is taken back, not {relation.kind}")
+    if relation.ended_at is not None:
+        return relation
+    cursor = await conn.execute(
+        "UPDATE item_relations SET ended_at = %s"
+        f" WHERE id = %s AND ended_at IS NULL RETURNING {RELATION_COLUMNS}",
+        (now, relation_id),
+    )
+    row = await cursor.fetchone()
+    if row is None:
+        # Ended meanwhile: answered as it was ended.
+        cursor = await conn.execute(
+            f"SELECT {RELATION_COLUMNS} FROM item_relations WHERE id = %s",
+            (relation_id,),
+        )
+        row = await cursor.fetchone()
+        assert row is not None
+    return Relation(*row)
 
 
 async def versions(conn: Connection, item_id: UUID) -> list[Item] | None:

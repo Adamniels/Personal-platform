@@ -43,6 +43,10 @@ exported to a file and imported into an empty brain, from a terminal.
   - `POST /brain/api/topics/{id}/broader`, `{"broader_id": ...}`, places the topic under a broader
     one, `201`, a `broader_than` relation from the broader topic to this one. Refused when it would
     put a topic under itself, directly, through others or through an alias.
+  - `POST /brain/api/topics/{id}/related`, `{"related_id": ...}`, relates the topic to another,
+    `201`, a `related_to` relation from this topic to the other, read either way round and through
+    aliases. Refused for the topic itself, read through aliases, and `409` when it already holds
+    either way round. Asking about one lists the other by slug, and nothing more.
   - `POST /brain/api/topic-relations/{id}/end` ends a relation. The row stays, with `ended_at`.
   - `GET /brain/api/entities` and `POST /brain/api/entities`, `{"name": ..., "label": ...}`, the
     user's named things, such as a project: a name compared without letter case, so a second one
@@ -182,6 +186,19 @@ exported to a file and imported into an empty brain, from a terminal.
     that event, as an edit does. The old one's `decided` event is untouched, and both stay
     readable. Both rows are locked in id order first, so two decisions replacing each other at
     once replace once.
+  - `POST /brain/api/items/{id}/contradicts`, `{"contradicts": <id>}`, marks two claims as
+    contradicting each other, `201` with the relation, a `contradicts` from this item to the other.
+    Both must be active claims: `404` for an id the user does not have, `422` for a `contradicts`
+    they do not have, the item itself, or either being a record, and `409` when either is not
+    active or the two are already marked, either way round. One transaction records a
+    `contradicted` event about this item, evidence `Marked by hand as contradicting: "<one>" and
+    "<other>"`, each cut to 200 characters, linked as evidence to neither, and the relation, made by
+    it. Neither item changes: what an answer does with the pair is under "Asking". It is the only
+    way a contradiction is made, until consolidation exists.
+  - `POST /brain/api/item-relations/{id}/end` takes a contradiction back, `200` with the relation,
+    ended: the row stays, with `ended_at`, and one already ended is answered as it is. `404` for an
+    id the user does not have, `422` for any other kind, since a `supersedes` relation is an
+    entry's history and is not taken back.
   - `GET /brain/api/items/{id}/versions`, every version of the entry the item is one of, every row
     of its lineage, oldest first, each as the list answers it, whichever version is asked for. An
     entry never edited has one. `404` for an id the user does not have.
@@ -214,8 +231,9 @@ exported to a file and imported into an empty brain, from a terminal.
   per feature calls over shared primitives" in `docs/brain-architecture.md` has it. The routes are
   in `src/brain/ask_routes.py` and call the four building blocks in `src/brain/retrieval.py`,
   `profile()`, `knowledge(topic_ids)`, `history(subject)` and `now()`, which every later per
-  feature call reads through too. Each block takes the door's connection and the time, never
-  calls a model and never leaves the database. Each route is a `POST`, since a question has a body,
+  feature call reads through too, with `narrower()` and `related()` for the topics around one, and
+  `conflicts()` and `ranked()` for the items the owner marked as contradicting. Each block takes
+  the door's connection, never calls a model and never leaves the database. Each route is a `POST`, since a question has a body,
   though none changes anything, so the origin check applies to it as to any `POST`. The body
   carries `mode`, `now` (the default) or `history`, and nothing that names a user: the user is the
   token's, and a field a question does not know is `422`.
@@ -233,19 +251,38 @@ exported to a file and imported into an empty brain, from a terminal.
     `occurred_at`, `occurred_precision` and `recorded_at`. There is no relevance score, no
     confidence number and no weight: `support` and `last_supported_at` are what one would be
     computed from, once the evaluation cases can test it.
+  - Every answer has `conflicts`: each pair of its items, both active, that the owner marked as
+    contradicting and has not taken back, oldest marked first, as
+    `{"items": [<id>, <id>], "prefer": <id> | null, "reason": ...}`, the one it was marked from
+    first. Both items always stay in the answer, and a superseded or retired one is never in a
+    conflict, even where an answer about history holds it. The scopes are compared by `compare` in
+    `src/brain/scope.py`: a strictly narrower scope is preferred whatever its age, `"narrower
+    scope"`; at an equal scope the newer item, `"newer at equal scope"`; and incomparable scopes,
+    neither holding the other, prefer neither, `"incomparable scopes"`, `prefer` `null`. Asked
+    about now, each list in the answer puts a preferred item just before the first one it is
+    preferred over, and otherwise keeps its order; asked about history, the order is when each
+    thing happened alone. A pair is a conflict only where both are in the same answer.
   - `POST /brain/api/ask/profile`, who is this person: `categories`, every one of the six profile
     categories in order, each with its active profile entries, an empty one included, and then
     `rules`. A topic's focus is in the topics answer instead.
   - `POST /brain/api/ask/topics`, `{"topics": [<slug>, ...]}`, 1 to 50, what they know about these
     topics: one entry per slug, in the order asked, with `asked`, the slug as given, `topic`, the
     one that answered, an alias's target, `known`, and its active `level` and `focus`, or `null`,
-    its `misconceptions` and its other `history` entries, items about its aliases included. A slug
-    the user has no topic by is `known` `false` with nothing in it, and is never created.
+    its `misconceptions` and its other `history` entries, items about its aliases included. Then
+    `narrower`, every topic under it by the `broader_than` relations that hold, to any depth, read
+    through aliases, nearest first and then by slug: each once, with the same four fields and
+    `via`, the slugs that led to it, from the topic asked down to the one it is directly under, the
+    shortest such chain. And `related`, the slugs of the topics `related_to` it, without what is
+    known about them. A slug the user has no topic by is `known` `false` with nothing in it, and is
+    never created.
   - `POST /brain/api/ask/history`, `{"topic": <slug>}` or `{"entity": <name>}`, exactly one, the
     history of a subject: its `history` entries and decisions, a topic read through aliases, a name
     without letter case, with `asked`, `known`, the `topic` or `entity` that answered, and `items`.
     Asked about history, the decisions another one replaced are there too, `inactive` and
-    `superseded`. An unknown subject is `known` `false` with no items, and is never created.
+    `superseded`. For a topic, `narrower` holds each topic under it, as the topics answer finds
+    them, with its `via` and its own `items`, and `related` the slugs of the topics related to it;
+    both are empty for a named thing. An unknown subject is `known` `false` with no items, and is
+    never created.
   - `POST /brain/api/ask/now`, what is going on now: the active `state` entries as `items`.
 - **Searching**, by words, "search, meaning search memory" in "The two contracts" in
   `High-level/docs/feature-contract.md`. The route is in `src/brain/search_routes.py` and calls

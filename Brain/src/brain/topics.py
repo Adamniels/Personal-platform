@@ -290,6 +290,39 @@ async def add_broader(
     return await _relate(conn, broader_id, topic_id, "broader_than", now=now)
 
 
+async def add_related(
+    conn: Connection, topic_id: UUID, related_id: UUID, *, now: datetime
+) -> TopicRelation:
+    """Relates the topic to `related_id`, and returns the relation, from this
+    topic to the other. Related has no direction: it is read either way, and
+    through aliases on both ends. Neither is under the other, so it never
+    closes a loop, and asking about one lists the other without bringing
+    what is known about it.
+
+    Refused when the other topic is not there, or the two are read as one
+    topic. One that already holds, either way round, read through aliases,
+    is a `Conflict`."""
+    await lock_vocabulary(conn)
+    one = await _found(conn, topic_id)
+    other = await get(conn, related_id)
+    if other is None:
+        raise Refused("there is no such topic to be related to")
+    if other.resolves_to == one.resolves_to:
+        raise Refused("a topic is not related to itself")
+    cursor = await conn.execute(
+        "SELECT EXISTS (SELECT FROM topic_relations r"
+        " JOIN topics a ON a.id = r.from_topic JOIN topics b ON b.id = r.to_topic"
+        " WHERE r.kind = 'related_to' AND r.ended_at IS NULL"
+        " AND ARRAY[coalesce(a.alias_of, a.id), coalesce(b.alias_of, b.id)]"
+        "  @> ARRAY[%(one)s::uuid, %(other)s::uuid])",
+        {"one": one.resolves_to, "other": other.resolves_to},
+    )
+    row = await cursor.fetchone()
+    if row is not None and row[0]:
+        raise Conflict("that relation already holds")
+    return await _relate(conn, topic_id, related_id, "related_to", now=now)
+
+
 async def _relate(
     conn: Connection, from_topic: UUID, to_topic: UUID, kind: str, *, now: datetime
 ) -> TopicRelation:

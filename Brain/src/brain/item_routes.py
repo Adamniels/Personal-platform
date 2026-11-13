@@ -465,6 +465,18 @@ class ItemRelation(BaseModel):
     ended_at: datetime | None
     created_by_event: UUID
 
+    @classmethod
+    def of(cls, relation: items.Relation) -> ItemRelation:
+        return cls(
+            id=relation.id,
+            from_item=relation.from_item,
+            to_item=relation.to_item,
+            kind=relation.kind,
+            created_at=relation.created_at,
+            ended_at=relation.ended_at,
+            created_by_event=relation.created_by_event,
+        )
+
 
 class ItemDetail(Item):
     """One item with the events behind it, oldest first, and every relation
@@ -495,18 +507,7 @@ class ItemDetail(Item):
                 )
                 for each in detail.evidence
             ],
-            relations=[
-                ItemRelation(
-                    id=relation.id,
-                    from_item=relation.from_item,
-                    to_item=relation.to_item,
-                    kind=relation.kind,
-                    created_at=relation.created_at,
-                    ended_at=relation.ended_at,
-                    created_by_event=relation.created_by_event,
-                )
-                for relation in detail.relations
-            ],
+            relations=[ItemRelation.of(relation) for relation in detail.relations],
         )
 
 
@@ -792,6 +793,63 @@ async def replace_item(request: Request, claims: Claims) -> Response:
         detail = await items.get(conn, item_id)
     assert detail is not None
     return JSONResponse(ItemDetail.of_detail(detail).model_dump(mode="json"))
+
+
+class Contradiction(BaseModel):
+    """The other item, by id."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    contradicts: UUID
+
+
+@router.post(
+    "/items/{id}/contradicts",
+    status_code=201,
+    response_model=ItemRelation,
+    responses={**UNAUTHORIZED, **NOT_FOUND, **REFUSED, **NOT_CURRENT},
+    openapi_extra=documented(body=Contradiction, path=("id",)),
+)
+@authenticated
+async def mark_contradicting(request: Request, claims: Claims) -> Response:
+    """Marks two claims as contradicting each other, 201 with the relation,
+    a contradicts from this item to the other. A contradicted event about
+    this item, which makes the relation, is recorded with it, in one
+    transaction; it is evidence on neither. From then on an answer holding
+    both lists them as a conflict, both kept. 404 for an id the user does
+    not have. 422 for an other item they do not have, the item itself, or
+    either being a record. 409 when either is not active, or the two are
+    already marked, either way round."""
+    item_id = path_id(request)
+    body = await body_as(request, Contradiction)
+    now = datetime.now(UTC)
+    async with db.transaction(request.app.state.pool, claims.account_id) as conn:
+        relation = await items.mark_contradicting(
+            conn, item_id, body.contradicts, now=now
+        )
+    return JSONResponse(
+        ItemRelation.of(relation).model_dump(mode="json"), status_code=201
+    )
+
+
+@router.post(
+    "/item-relations/{id}/end",
+    response_model=ItemRelation,
+    responses={**UNAUTHORIZED, **NOT_FOUND, **REFUSED},
+    openapi_extra=documented(path=("id",)),
+)
+@authenticated
+async def end_contradiction(request: Request, claims: Claims) -> Response:
+    """Takes back a contradiction, 200 with the relation, ended. The row
+    stays, with the time it ended, and one already ended is answered as it
+    is. Takes no body. 404 for an id the user does not have. 422 for a
+    relation of any other kind, such as supersedes, which is an entry's
+    history and is not taken back."""
+    relation_id = path_id(request)
+    now = datetime.now(UTC)
+    async with db.transaction(request.app.state.pool, claims.account_id) as conn:
+        relation = await items.end_contradiction(conn, relation_id, now=now)
+    return JSONResponse(ItemRelation.of(relation).model_dump(mode="json"))
 
 
 @router.get(

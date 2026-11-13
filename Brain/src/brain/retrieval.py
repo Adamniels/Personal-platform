@@ -23,9 +23,15 @@ gone unsupported long enough. About history, age is ignored: nothing is
 stale, the order is when each thing happened, oldest first, and the history
 of a subject keeps the decisions another decision replaced. A retired item is
 never in an answer, nor an older version of an edited one.
+
+Beside the five: `narrower` and `related`, the topics around one, so an
+answer about a broad topic brings the topics under it; and `conflicts` and
+`ranked`, two items of one answer the owner marked as contradicting, both
+kept, ordered by their scopes and never decided between, see
+"Conflicting decisions before consolidation" in docs/event-model.md.
 """
 
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Literal, get_args
@@ -35,6 +41,7 @@ from psycopg import AsyncConnection
 from psycopg.rows import TupleRow
 
 from brain import events, items, now_and_history
+from brain.scope import Scope, compare
 
 type Connection = AsyncConnection[TupleRow]
 type Mode = Literal["now", "history"]
@@ -307,6 +314,96 @@ async def knowledge(
 
 
 @dataclass(frozen=True)
+class Narrower:
+    """A topic under the one asked about, directly or through others."""
+
+    topic: events.TopicRef
+    # The slugs that led to it: the topic asked about first, then each topic
+    # on the way, down to the one it is directly under.
+    via: tuple[str, ...]
+
+
+async def _holding(
+    conn: Connection, kind: str
+) -> list[tuple[events.TopicRef, events.TopicRef]]:
+    """The current user's relations of `kind` that hold, each end read
+    through its alias, from_topic first."""
+    cursor = await conn.execute(
+        "SELECT a.id, a.slug, a.name, b.id, b.slug, b.name FROM topic_relations r"
+        " JOIN topics named_a ON named_a.id = r.from_topic"
+        " JOIN topics a ON a.id = coalesce(named_a.alias_of, named_a.id)"
+        " JOIN topics named_b ON named_b.id = r.to_topic"
+        " JOIN topics b ON b.id = coalesce(named_b.alias_of, named_b.id)"
+        " WHERE r.kind = %s AND r.ended_at IS NULL",
+        (kind,),
+    )
+    return [
+        (events.TopicRef(*row[:3]), events.TopicRef(*row[3:]))
+        for row in await cursor.fetchall()
+    ]
+
+
+async def _canonical(conn: Connection, topic_id: UUID) -> events.TopicRef | None:
+    cursor = await conn.execute(
+        "SELECT t.id, t.slug, t.name FROM topics given"
+        " JOIN topics t ON t.id = coalesce(given.alias_of, given.id)"
+        " WHERE given.id = %s",
+        (topic_id,),
+    )
+    row = await cursor.fetchone()
+    return events.TopicRef(*row) if row is not None else None
+
+
+async def narrower(conn: Connection, topic_id: UUID) -> list[Narrower]:
+    """Every topic under `topic_id`, to any depth, by the broader_than
+    relations that hold, read through aliases, nearest first and then by
+    slug. Each is listed once, with the shortest chain that leads to it, the
+    first by slug among equally short ones. The walk visits a topic once, so
+    it ends even on a loop the API would have refused, and the topic asked
+    about is never under itself. Nothing for a topic the user does not
+    have."""
+    root = await _canonical(conn, topic_id)
+    if root is None:
+        return []
+    under: dict[UUID, list[events.TopicRef]] = {}
+    for broader, below in await _holding(conn, "broader_than"):
+        under.setdefault(broader.id, []).append(below)
+    found: dict[UUID, Narrower] = {}
+    reached: dict[UUID, tuple[str, ...]] = {root.id: (root.slug,)}
+    frontier = [root]
+    # Breadth first, so the first chain to reach a topic is a shortest one.
+    while frontier:
+        following = []
+        for topic in frontier:
+            for below in sorted(under.get(topic.id, []), key=lambda t: t.slug):
+                if below.id in reached:
+                    continue
+                via = reached[topic.id]
+                found[below.id] = Narrower(topic=below, via=via)
+                reached[below.id] = (*via, below.slug)
+                following.append(below)
+        frontier = following
+    return sorted(found.values(), key=lambda n: (len(n.via), n.topic.slug))
+
+
+async def related(conn: Connection, topic_id: UUID) -> list[events.TopicRef]:
+    """The topics related to `topic_id` by related_to relations that hold,
+    made from either end, read through aliases, each once, by slug. Only
+    named: what is known about a related topic is not part of the answer
+    about this one. Nothing for a topic the user does not have."""
+    root = await _canonical(conn, topic_id)
+    if root is None:
+        return []
+    found: dict[UUID, events.TopicRef] = {}
+    for one, other in await _holding(conn, "related_to"):
+        if one.id == root.id and other.id != root.id:
+            found[other.id] = other
+        elif other.id == root.id and one.id != root.id:
+            found[one.id] = one
+    return sorted(found.values(), key=lambda t: t.slug)
+
+
+@dataclass(frozen=True)
 class Subject:
     """What a history is asked about: a topic or a named thing, by id."""
 
@@ -349,6 +446,108 @@ async def now(conn: Connection, *, now: datetime, mode: Mode) -> list[AnswerItem
     """What is going on now for the current user: their states, as `mode`
     reads them."""
     return await _answered(conn, "i.kind = 'state'", {}, now=now, mode=mode)
+
+
+# Why one of a conflicting pair is preferred, or that neither can be.
+type ConflictReason = Literal[
+    "narrower scope", "newer at equal scope", "incomparable scopes"
+]
+
+
+@dataclass(frozen=True)
+class Conflict:
+    """Two items in one answer the owner marked as contradicting. Both stay
+    in the answer: `prefer` only orders them, and is None when their scopes
+    are incomparable, which no ordering settles."""
+
+    # The relation's two ends, the one it was marked from first.
+    items: tuple[UUID, UUID]
+    prefer: UUID | None
+    reason: ConflictReason
+
+
+def _scope(item: items.Item) -> Scope:
+    # An item's topics are read through their aliases already.
+    return Scope.of([t.id for t in item.topics], [e.id for e in item.entities])
+
+
+def _judged(one: items.Item, other: items.Item) -> Conflict:
+    """The conflict between `one` and `other`, as "Conflicting decisions
+    before consolidation" in docs/event-model.md has it: a narrower scope is
+    preferred whatever its age, at an equal scope the newer, and between
+    incomparable scopes neither."""
+    pair = (one.id, other.id)
+    match compare(_scope(one), _scope(other)):
+        case "narrower":
+            return Conflict(pair, one.id, "narrower scope")
+        case "broader":
+            return Conflict(pair, other.id, "narrower scope")
+        case "equal":
+            newer = max(one, other, key=lambda i: (i.created_at, i.id))
+            return Conflict(pair, newer.id, "newer at equal scope")
+        case "incomparable":
+            return Conflict(pair, None, "incomparable scopes")
+
+
+async def conflicts(conn: Connection, answered: Iterable[AnswerItem]) -> list[Conflict]:
+    """The conflicts among `answered`, the items of one answer: every pair
+    of them with a `contradicts` relation that holds, both active, oldest
+    marked first. Today the owner marks every one by hand; nothing detects a
+    contradiction on its own until consolidation exists. A superseded or
+    retired item is never part of one, even where an answer about history
+    holds it, since it no longer claims anything."""
+    standing = {a.item.id: a.item for a in answered if a.item.status == "active"}
+    if len(standing) < 2:
+        return []
+    cursor = await conn.execute(
+        "SELECT from_item, to_item FROM item_relations"
+        " WHERE kind = 'contradicts' AND ended_at IS NULL"
+        " AND from_item = ANY(%(ids)s) AND to_item = ANY(%(ids)s)"
+        " ORDER BY created_at, id",
+        {"ids": list(standing)},
+    )
+    return [
+        _judged(standing[one], standing[other])
+        for one, other in await cursor.fetchall()
+    ]
+
+
+def ranked(
+    answered: Sequence[AnswerItem], found: Iterable[Conflict]
+) -> list[AnswerItem]:
+    """`answered` with each preferred item moved to just before the first
+    item it is preferred over, and otherwise in the order it had: what an
+    answer about now does with its conflicts. Both items stay.
+
+    Preference never loops: a narrower scope is a strict superset, and at an
+    equal scope the newer wins, so following it only ever leads to narrower
+    or newer items."""
+    present = {a.item.id for a in answered}
+    over: dict[UUID, list[UUID]] = {}
+    for conflict in found:
+        if conflict.prefer is None:
+            continue
+        beaten = next(i for i in conflict.items if i != conflict.prefer)
+        if conflict.prefer in present and beaten in present:
+            over.setdefault(beaten, []).append(conflict.prefer)
+    if not over:
+        return list(answered)
+    by_id = {a.item.id: a for a in answered}
+    position = {a.item.id: n for n, a in enumerate(answered)}
+    placed: set[UUID] = set()
+    order: list[AnswerItem] = []
+
+    def place(item_id: UUID) -> None:
+        if item_id in placed:
+            return
+        placed.add(item_id)
+        for winner in sorted(over.get(item_id, []), key=position.__getitem__):
+            place(winner)
+        order.append(by_id[item_id])
+
+    for each in answered:
+        place(each.item.id)
+    return order
 
 
 # Searching memory by its words, with Postgres' own text search over the
