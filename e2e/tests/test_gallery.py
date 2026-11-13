@@ -381,3 +381,199 @@ def test_each_control_shows_the_focus_ring(
     assert ring[0] == "solid"
     assert style["outline"] == ring
     assert style["outlineOffset"] == resolve(page, "--focus-offset", "outline-offset")
+
+
+# The labels and meters of "Badge and status label" and "Progress bar and
+# meter" in section 4 of design/DESIGN.md. The gallery shows each status tone
+# with the design's first example word, which is how a test finds it.
+TONES = {
+    "running": ("Running", "--info-soft", "--info"),
+    "needs you": ("Needs you", "--accent-soft", "--accent-text"),
+    "done": ("Done", "--ok-soft", "--ok"),
+    "failed": ("Failed", "--danger-soft", "--danger"),
+    "idle": ("Idle", "--surface-2", "--text-2"),
+}
+
+LABEL_STYLE = """element => {
+    const style = getComputedStyle(element);
+    return {
+        background: style.backgroundColor,
+        color: style.color,
+        borders: [style.borderTopColor, style.borderRightColor,
+                  style.borderBottomColor, style.borderLeftColor],
+        borderWidths: [style.borderTopWidth, style.borderRightWidth,
+                       style.borderBottomWidth, style.borderLeftWidth],
+        height: style.height,
+        width: style.width,
+        radii: [style.borderTopLeftRadius, style.borderTopRightRadius,
+                style.borderBottomRightRadius, style.borderBottomLeftRadius],
+        fontSize: style.fontSize,
+        lineHeight: style.lineHeight,
+        fontFamily: style.fontFamily,
+        weight: style.fontWeight,
+        children: element.children.length,
+    };
+}"""
+
+
+def status(page: Page, tone: str) -> Locator:
+    word = TONES[tone][0]
+    region = page.get_by_role("region", name="Status label")
+    return region.get_by_text(word, exact=True)
+
+
+def radii(page: Page, token: str) -> list[str]:
+    return [resolve(page, token, "border-top-left-radius")] * 4
+
+
+def assert_caption(page: Page, style: dict) -> None:
+    assert style["fontSize"] == resolve(page, "--text-caption-size", "font-size")
+    assert style["lineHeight"] == resolve(page, "--text-caption-line", "line-height")
+    assert style["weight"] == "500"
+
+
+def channels(colour: str) -> tuple[float, float, float]:
+    """The red, green and blue of a computed `rgb(…)` colour, from 0 to 1."""
+    match = re.fullmatch(r"rgba?\((\d+), (\d+), (\d+)(?:, [\d.]+)?\)", colour)
+    assert match, f"not an opaque rgb colour: {colour}"
+    red, green, blue = (int(value) / 255 for value in match.groups())
+    return red, green, blue
+
+
+def luminance(colour: str) -> float:
+    """Relative luminance, as WCAG 2 defines it."""
+
+    def linear(value: float) -> float:
+        return value / 12.92 if value <= 0.04045 else ((value + 0.055) / 1.055) ** 2.4
+
+    red, green, blue = (linear(value) for value in channels(colour))
+    return 0.2126 * red + 0.7152 * green + 0.0722 * blue
+
+
+def contrast(text: str, fill: str) -> float:
+    lighter, darker = sorted([luminance(text), luminance(fill)], reverse=True)
+    return (lighter + 0.05) / (darker + 0.05)
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_the_labels_and_meters_are_shown(page: Page, viewport: str, theme: str):
+    open_gallery(page, theme)
+
+    for title in ["Badge", "Status label", "Tool chip", "Progress bar", "Meter"]:
+        expect(page.get_by_role("region", name=title)).to_be_visible()
+    capture(page, f"gallery-labels-and-meters-{theme}")
+
+
+@pytest.mark.parametrize("theme", THEMES)
+@pytest.mark.parametrize("tone", list(TONES))
+def test_each_status_tone_reads_its_values(page: Page, theme: str, tone: str):
+    _word, fill, text = TONES[tone]
+    open_gallery(page, theme)
+    label = status(page, tone)
+
+    style = label.evaluate(LABEL_STYLE)
+    assert style["background"] == resolve(page, fill, "background-color")
+    assert style["color"] == resolve(page, text, "color")
+    assert style["height"] == "22px"
+    assert style["radii"] == radii(page, "--radius-sm")
+    assert_caption(page, style)
+
+    # The dot: 6px, round, in the text colour, and hidden from assistive
+    # technology, so the word alone is read.
+    dot = label.locator("[aria-hidden='true']")
+    expect(dot).to_have_count(1)
+    dot_style = dot.evaluate(LABEL_STYLE)
+    assert dot_style["width"] == dot_style["height"] == "6px"
+    assert dot_style["background"] == resolve(page, text, "background-color")
+    assert dot_style["radii"] == radii(page, "--radius-full")
+
+
+def test_the_status_tones_differ(page: Page):
+    """Guards the test above, as for the buttons: five tones rendered alike
+    could all pass against one shared token."""
+    open_gallery(page, "light")
+
+    backgrounds = {
+        tone: status(page, tone).evaluate(LABEL_STYLE)["background"] for tone in TONES
+    }
+    assert len(set(backgrounds.values())) == len(TONES), backgrounds
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_a_badge_and_a_chip_read_their_values(page: Page, theme: str):
+    open_gallery(page, theme)
+
+    badge = page.get_by_role("region", name="Badge").get_by_text("Topic", exact=True)
+    style = badge.evaluate(LABEL_STYLE)
+    assert style["background"] == resolve(page, "--surface-2", "background-color")
+    assert style["color"] == resolve(page, "--text-2", "color")
+    assert style["height"] == "22px"
+    assert style["radii"] == radii(page, "--radius-sm")
+    assert style["children"] == 0, "a badge has no dot"
+    assert_caption(page, style)
+
+    region = page.get_by_role("region", name="Tool chip")
+    chip = region.get_by_text("Claude", exact=True)
+    style = chip.evaluate(LABEL_STYLE)
+    assert style["background"] == resolve(page, None, "background-color")
+    assert style["color"] == resolve(page, "--text-2", "color")
+    assert style["borders"] == [resolve(page, "--border-strong", "color")] * 4
+    assert style["borderWidths"] == ["1px"] * 4
+    assert style["height"] == "20px"
+    assert style["radii"] == radii(page, "--radius-sm")
+    assert_caption(page, style)
+
+
+def bar(page: Page, name: str) -> Locator:
+    region = page.get_by_role("region", name="Progress bar")
+    return region.get_by_role("img", name=name, exact=True)
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_a_progress_bar_reads_its_values(page: Page, theme: str):
+    open_gallery(page, theme)
+
+    for kind, fill in [("Progress", "--accent"), ("Budget", "--info")]:
+        track = bar(page, f"{kind}: 62%")
+        style = track.evaluate(LABEL_STYLE)
+        assert style["height"] == "6px"
+        assert style["background"] == resolve(page, "--surface-2", "background-color")
+        assert style["borders"] == [resolve(page, "--border", "color")] * 4
+        assert style["borderWidths"] == ["1px"] * 4
+        assert style["radii"] == radii(page, "--radius-full")
+
+        fill_style = track.locator("div").evaluate(LABEL_STYLE)
+        assert fill_style["background"] == resolve(page, fill, "background-color")
+
+    # The fill is as wide as the value, inside the track's border.
+    for value in [0, 62, 100]:
+        track = bar(page, f"Progress: {value}%")
+        inner = track.evaluate("element => element.clientWidth")
+        width = track.locator("div").evaluate(
+            "element => element.getBoundingClientRect().width"
+        )
+        assert width == pytest.approx(inner * value / 100, abs=0.5), value
+
+
+def test_a_meter_row_reads_its_values(page: Page):
+    open_gallery(page, "light")
+    region = page.get_by_role("region", name="Meter")
+
+    expect(region.get_by_role("img", name="Context used: 62%")).to_be_visible()
+    label = region.get_by_text("CTX", exact=True).evaluate(LABEL_STYLE)
+    value = region.get_by_text("62%", exact=True).evaluate(LABEL_STYLE)
+    for style in [label, value]:
+        assert style["fontFamily"] == resolve(page, "--font-mono", "font-family")
+        assert style["fontSize"] == resolve(page, "--text-mono-size", "font-size")
+    assert label["width"] == "28px"
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_status_text_keeps_its_contrast(page: Page, theme: str):
+    open_gallery(page, theme)
+
+    ratios = {}
+    for tone in TONES:
+        style = status(page, tone).evaluate(LABEL_STYLE)
+        ratios[tone] = contrast(style["color"], style["background"])
+    assert all(ratio >= 4.5 for ratio in ratios.values()), ratios
