@@ -251,7 +251,16 @@ def unguarded_tables(database: str) -> list[str]:
 
 # The scoped tables the migrations have made so far, so the test below is
 # known to have checked them rather than an empty schema.
-SCOPED_TABLES = {"entities", "events", "topic_relations", "topics"}
+SCOPED_TABLES = {
+    "entities",
+    "events",
+    "item_evidence",
+    "item_relations",
+    "item_subjects",
+    "items",
+    "topic_relations",
+    "topics",
+}
 
 
 def test_every_scoped_table_forces_row_level_security(database: str) -> None:

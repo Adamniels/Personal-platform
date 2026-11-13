@@ -78,6 +78,60 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/brain/api/items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Items
+         * @description The user's items, newest first, each with its subjects, narrowed by
+         *     kind, status, topic and entity when they are given. A topic matches
+         *     through aliases, and only itself, not the topics under it. 422 for an
+         *     unknown kind or status, or a malformed slug.
+         */
+        get: operations["list_items_brain_api_items_get"];
+        put?: never;
+        /**
+         * Write Item
+         * @description Writes an entry made by hand, 201 with the item, its evidence and its
+         *     relations. It applies at once: an asserted event, origin brain and source
+         *     manual-entry, is recorded with it and is its supporting evidence. kind is
+         *     profile, with a category, or rule, which is global. 422 for an unknown
+         *     kind or category, content that is blank or over 4000 characters, a rule
+         *     naming a subject, or a topic the user does not have. A named thing the
+         *     user does not have is created.
+         */
+        post: operations["write_item_brain_api_items_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/brain/api/items/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read Item
+         * @description One item with its subjects, the events behind it and its relations.
+         *     404 for an id the user does not have.
+         */
+        get: operations["read_item_brain_api_items__id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/brain/api/topic-relations/{id}/end": {
         parameters: {
             query?: never;
@@ -321,6 +375,59 @@ export interface components {
             /** Slug */
             slug: string;
         };
+        /** Evidence */
+        Evidence: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            event: components["schemas"]["EvidenceEvent"];
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "supports" | "contradicts";
+        };
+        /**
+         * EvidenceEvent
+         * @description The event behind a piece of evidence, as much of it as says why.
+         */
+        EvidenceEvent: {
+            /** Evidence */
+            evidence: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Occurred At
+             * Format: date-time
+             */
+            occurred_at: string;
+            /**
+             * Occurred Precision
+             * @enum {string}
+             */
+            occurred_precision: "instant" | "day" | "month" | "year";
+            /** Origin */
+            origin: string;
+            /**
+             * Recorded At
+             * Format: date-time
+             */
+            recorded_at: string;
+            /** Source */
+            source: string | null;
+            /** Verb */
+            verb: string;
+        };
         /** Health */
         Health: {
             /**
@@ -328,6 +435,182 @@ export interface components {
              * @constant
              */
             status: "ok";
+        };
+        /** Item */
+        Item: {
+            /** Category */
+            category: string | null;
+            /** Content */
+            content: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Created By Event
+             * Format: uuid
+             */
+            created_by_event: string;
+            /** Details */
+            details: {
+                [key: string]: unknown;
+            };
+            /** Entities */
+            entities: components["schemas"]["EventEntity"][];
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Inactive Reason */
+            inactive_reason: ("superseded" | "retired") | null;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "profile" | "rule" | "topic_level" | "topic_focus" | "state" | "history" | "decision";
+            /**
+             * Lineage Id
+             * Format: uuid
+             */
+            lineage_id: string;
+            /**
+             * Nature
+             * @enum {string}
+             */
+            nature: "claim" | "record";
+            /** Occurred At */
+            occurred_at: string | null;
+            /** Occurred Precision */
+            occurred_precision: ("instant" | "day" | "month" | "year") | null;
+            /**
+             * Provenance
+             * @enum {string}
+             */
+            provenance: "asserted" | "derived";
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "active" | "inactive";
+            /**
+             * Store
+             * @enum {string}
+             */
+            store: "profile" | "procedural" | "knowledge" | "semantic" | "reported_history";
+            /** Topics */
+            topics: components["schemas"]["EventTopic"][];
+            /** Value */
+            value: string | null;
+        };
+        /**
+         * ItemDetail
+         * @description One item with the events behind it, oldest first, and every relation
+         *     it is on either end of.
+         */
+        ItemDetail: {
+            /** Category */
+            category: string | null;
+            /** Content */
+            content: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Created By Event
+             * Format: uuid
+             */
+            created_by_event: string;
+            /** Details */
+            details: {
+                [key: string]: unknown;
+            };
+            /** Entities */
+            entities: components["schemas"]["EventEntity"][];
+            /** Evidence */
+            evidence: components["schemas"]["Evidence"][];
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Inactive Reason */
+            inactive_reason: ("superseded" | "retired") | null;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "profile" | "rule" | "topic_level" | "topic_focus" | "state" | "history" | "decision";
+            /**
+             * Lineage Id
+             * Format: uuid
+             */
+            lineage_id: string;
+            /**
+             * Nature
+             * @enum {string}
+             */
+            nature: "claim" | "record";
+            /** Occurred At */
+            occurred_at: string | null;
+            /** Occurred Precision */
+            occurred_precision: ("instant" | "day" | "month" | "year") | null;
+            /**
+             * Provenance
+             * @enum {string}
+             */
+            provenance: "asserted" | "derived";
+            /** Relations */
+            relations: components["schemas"]["ItemRelation"][];
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "active" | "inactive";
+            /**
+             * Store
+             * @enum {string}
+             */
+            store: "profile" | "procedural" | "knowledge" | "semantic" | "reported_history";
+            /** Topics */
+            topics: components["schemas"]["EventTopic"][];
+            /** Value */
+            value: string | null;
+        };
+        /** ItemRelation */
+        ItemRelation: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Created By Event
+             * Format: uuid
+             */
+            created_by_event: string;
+            /** Ended At */
+            ended_at: string | null;
+            /**
+             * From Item
+             * Format: uuid
+             */
+            from_item: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Kind */
+            kind: string;
+            /**
+             * To Item
+             * Format: uuid
+             */
+            to_item: string;
         };
         /** Topic */
         Topic: {
@@ -613,6 +896,166 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["Health"];
                 };
+            };
+        };
+    };
+    list_items_brain_api_items_get: {
+        parameters: {
+            query?: {
+                kind?: ("profile" | "rule" | "topic_level" | "topic_focus" | "state" | "history" | "decision") | null;
+                status?: ("active" | "inactive") | null;
+                topic?: string | null;
+                entity?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Item"][];
+                };
+            };
+            /** @description No valid token: missing, expired or failing verification, all alike. The body is empty; the caller refreshes and retries. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description A body that does not parse, or a request breaking a rule. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    write_item_brain_api_items_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /**
+                     * Category
+                     * @enum {string}
+                     */
+                    category: "identity" | "goals" | "values" | "interests" | "preferences" | "working_style";
+                    /** Content */
+                    content: string;
+                    /**
+                     * Entities
+                     * @default []
+                     */
+                    entities?: string[];
+                    /**
+                     * Kind
+                     * @constant
+                     */
+                    kind: "profile";
+                    /** Occurred At */
+                    occurred_at?: string | null;
+                    /**
+                     * Occurred Precision
+                     * @default instant
+                     * @enum {string}
+                     */
+                    occurred_precision?: "instant" | "day" | "month" | "year";
+                    /**
+                     * Topics
+                     * @default []
+                     */
+                    topics?: string[];
+                } | {
+                    /** Content */
+                    content: string;
+                    /**
+                     * Kind
+                     * @constant
+                     */
+                    kind: "rule";
+                    /** Occurred At */
+                    occurred_at?: string | null;
+                    /**
+                     * Occurred Precision
+                     * @default instant
+                     * @enum {string}
+                     */
+                    occurred_precision?: "instant" | "day" | "month" | "year";
+                };
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ItemDetail"];
+                };
+            };
+            /** @description No valid token: missing, expired or failing verification, all alike. The body is empty; the caller refreshes and retries. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description A body that does not parse, or a request breaking a rule. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    read_item_brain_api_items__id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ItemDetail"];
+                };
+            };
+            /** @description No valid token: missing, expired or failing verification, all alike. The body is empty; the caller refreshes and retries. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Nothing of this user's at that address. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

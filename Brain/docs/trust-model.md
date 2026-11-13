@@ -1,8 +1,10 @@
 # The trust model
 
-Status: decided for the first version, which is being built.
+Status: decided for the first version. The stores exist, in `items`: profile and procedural hold
+the entries the owner makes by hand, and the knowledge model, semantic memory and reported history
+wait for the slices that write them.
 
-Last updated: 2026 11 12
+Last updated: 2026 11 13
 
 Who is allowed to change what, when a written thing takes effect, and how belief is scored and
 corrected. This is the densest part of the design and the pieces below only make sense together.

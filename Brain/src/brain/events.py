@@ -160,9 +160,13 @@ async def record(
     if known is None or not known[0]:
         raise Refused(f"{new.verb} is not a verb the brain knows")
     if new.item is not None:
-        # Items arrive with the memory store, which looks the id up here.
-        # Until then the user has none, so any id names nothing of theirs.
-        raise Refused("there is no such item")
+        # Row level security hides another user's, so it is not there either.
+        cursor = await conn.execute(
+            "SELECT EXISTS (SELECT FROM items WHERE id = %s)", (new.item,)
+        )
+        found = await cursor.fetchone()
+        if found is None or not found[0]:
+            raise Refused("there is no such item")
     topic_id = None
     if new.topic is not None:
         topic_id = (await topics.named(conn, new.topic, now=now)).id
