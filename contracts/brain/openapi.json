@@ -281,6 +281,18 @@
             "title": "Idempotency Key",
             "type": "string"
           },
+          "made_item": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Made Item"
+          },
           "occurred_at": {
             "format": "date-time",
             "title": "Occurred At",
@@ -391,7 +403,8 @@
           "evidence",
           "payload",
           "payload_version",
-          "idempotency_key"
+          "idempotency_key",
+          "made_item"
         ],
         "title": "Event",
         "type": "object"
@@ -2827,7 +2840,7 @@
     },
     "/brain/api/events": {
       "get": {
-        "description": "The timeline: the user's events, newest recorded first, 50 at a time\nunless limit says otherwise, at most 200. The next page is the one before\nthe last event's recorded_at.",
+        "description": "The timeline: the user's events, newest recorded first, 50 at a time\nunless limit says otherwise, at most 200. The next page is the one after\nthe last event: before its recorded_at, and before_id its id, since\nevents recorded together share a time. Each names the item it made.",
         "operationId": "list_events_brain_api_events_get",
         "parameters": [
           {
@@ -2845,6 +2858,23 @@
                 }
               ],
               "title": "Before"
+            }
+          },
+          {
+            "in": "query",
+            "name": "before_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Before Id"
             }
           },
           {

@@ -1,4 +1,11 @@
-import { cleanup, render, screen, within } from "@testing-library/react";
+import {
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+	within,
+} from "@testing-library/react";
 import { afterEach, describe, expect, test } from "vitest";
 import { createClient } from "../api/client";
 import { App } from "../app";
@@ -149,5 +156,82 @@ describe("the timeline", () => {
 			timeline.getByText("What you enter and correct shows here."),
 		).toBeTruthy();
 		expect(timeline.queryByRole("button")).toBeNull();
+	});
+
+	test("an event about an item, or that made one, links to its page in Everything", async () => {
+		const brain = fakeBrain();
+		const item = brain.add("profile", "Lives in Uppsala", "values");
+		brain.recorded('Entered by hand as profile: "Lives in Uppsala"', {
+			made_item: item.id,
+		});
+		brain.recorded("Retired by hand.", {
+			verb: "retired",
+			subject_item: item.id,
+		});
+		brain.recorded("Shown an article.", { verb: "exposed", origin: "news" });
+		const timeline = openTimeline(brain);
+
+		const entered = await timeline.findByRole("link", {
+			name: /You entered this/,
+		});
+		expect(entered.getAttribute("href")).toBe(`/brain/everything/${item.id}`);
+		const retired = timeline.getByRole("link", { name: /You retired this/ });
+		expect(retired.getAttribute("href")).toBe(`/brain/everything/${item.id}`);
+		// About no item, it links nowhere.
+		const shown = await entry(timeline, "Shown an article.");
+		expect(within(shown).queryByRole("link")).toBeNull();
+
+		fireEvent.click(retired);
+		expect(window.location.pathname).toBe(`/brain/everything/${item.id}`);
+	});
+
+	test("Show earlier loads the next fifty after the last one shown", async () => {
+		const brain = fakeBrain();
+		const start = Date.UTC(2026, 9, 1, 12);
+		// 101 events a minute apart, then two recorded together across the
+		// first page's end, as an edit records its two.
+		for (let n = 0; n < 101; n += 1) {
+			brain.recorded(`Event ${n}.`, {
+				recorded_at: new Date(start + n * 60_000).toISOString(),
+			});
+		}
+		const together = new Date(start + 52 * 60_000 - 30_000).toISOString();
+		brain.recorded("Together, first.", {
+			id: "00000000-0000-7000-8000-000000000002",
+			recorded_at: together,
+		});
+		brain.recorded("Together, second.", {
+			id: "00000000-0000-7000-8000-000000000001",
+			recorded_at: together,
+		});
+		const timeline = openTimeline(brain);
+
+		const shownLines = () =>
+			timeline
+				.getAllByRole("listitem")
+				.map(
+					(item) => item.querySelector("span[class*='evidence']")?.textContent,
+				);
+		await timeline.findByText("Event 100.");
+		expect(shownLines()).toHaveLength(50);
+		expect(shownLines().at(-1)).toBe("Together, first.");
+
+		const more = timeline.getByRole("button", { name: "Show earlier" });
+		fireEvent.click(more);
+		await waitFor(() => expect(shownLines()).toHaveLength(100));
+		// Nothing skipped and nothing twice: the tie went to the next page.
+		expect(shownLines()[50]).toBe("Together, second.");
+		expect(new Set(shownLines()).size).toBe(100);
+		expect(brain.calls.at(-1)?.path).toMatch(
+			/before=.+&before_id=00000000-0000-7000-8000-000000000002/,
+		);
+		// The place is kept: the first new entry has focus, the button stays.
+		expect(document.activeElement?.textContent).toContain("Together, second.");
+
+		fireEvent.click(timeline.getByRole("button", { name: "Show earlier" }));
+		await waitFor(() => expect(shownLines()).toHaveLength(103));
+		expect(shownLines().at(-1)).toBe("Event 0.");
+		// Fewer than fifty came back, so there is nothing earlier.
+		expect(timeline.queryByRole("button", { name: "Show earlier" })).toBeNull();
 	});
 });

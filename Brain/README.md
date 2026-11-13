@@ -84,9 +84,15 @@ against a fictional person's memory on every change, see "Evaluating".
     as it was given, an alias included, and is read through it: its `subject_topic` is the one it
     named, and `topic` is the one that resolves to now, so marking topics the same or separating
     them rewrites no event.
-  - `GET /brain/api/events`, the timeline: the user's events, newest recorded first, `limit` of
-    them (50 by default, 1 to 200), and with `before`, a time with a zone, only those recorded
-    before it. The next page is `before` the last one's `recorded_at`.
+  - `GET /brain/api/events`, the timeline: the user's events, newest recorded first and the id
+    breaking a tie, `limit` of them (50 by default, 1 to 200), and with `before`, a time with a
+    zone, only those recorded before it. The next page is `before` the last one's `recorded_at`
+    and `before_id` its `id`, which adds the events recorded at that same time with a smaller id:
+    events written in one transaction share a time, as an edit's `edited` and `asserted` do, and
+    `before` alone would skip the rest of them. `before_id` without `before` is `422`. Each event
+    carries `made_item`, the item it made, or null: the event that makes an item comes first, so
+    it cannot name the item as its subject, and the item names it back in `created_by_event`,
+    unique per event.
 
   An event is never changed or removed: `brain_app` may insert and read `events`, never update it,
   and may only read `verbs`, which is global. A new verb is a migration that adds its row, with its

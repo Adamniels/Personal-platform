@@ -157,6 +157,9 @@ class Event(BaseModel):
     payload: dict[str, Any]
     payload_version: int
     idempotency_key: str
+    # The item this event made, which it cannot name as its subject since it
+    # comes first; null for every other event.
+    made_item: UUID | None
 
     @classmethod
     def of(cls, event: events.Event) -> Event:
@@ -182,6 +185,7 @@ class Event(BaseModel):
             payload=event.payload,
             payload_version=event.payload_version,
             idempotency_key=event.idempotency_key,
+            made_item=event.made_item,
         )
 
 
@@ -249,7 +253,16 @@ class TimelineQuery(BaseModel):
     # Only events recorded before this time, with a zone: the last one's
     # recorded_at, for the next page.
     before: AwareDatetime | None = None
+    # With before, the last one's id as well, so the events recorded at the
+    # same time that come after it are on the next page too.
+    before_id: UUID | None = None
     limit: Annotated[int, Field(ge=1, le=PAGE_MAX)] = PAGE
+
+    @model_validator(mode="after")
+    def place(self) -> Self:
+        if self.before_id is not None and self.before is None:
+            raise ValueError("before_id is given with before")
+        return self
 
 
 @router.get(
@@ -261,9 +274,12 @@ class TimelineQuery(BaseModel):
 @authenticated
 async def list_events(request: Request, claims: Claims) -> Response:
     """The timeline: the user's events, newest recorded first, 50 at a time
-    unless limit says otherwise, at most 200. The next page is the one before
-    the last event's recorded_at."""
+    unless limit says otherwise, at most 200. The next page is the one after
+    the last event: before its recorded_at, and before_id its id, since
+    events recorded together share a time. Each names the item it made."""
     query = query_as(request, TimelineQuery)
     async with db.transaction(request.app.state.pool, claims.account_id) as conn:
-        found = await events.timeline(conn, before=query.before, limit=query.limit)
+        found = await events.timeline(
+            conn, before=query.before, before_id=query.before_id, limit=query.limit
+        )
     return JSONResponse([Event.of(event).model_dump(mode="json") for event in found])

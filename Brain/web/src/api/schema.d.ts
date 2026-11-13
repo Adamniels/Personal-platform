@@ -134,8 +134,9 @@ export interface paths {
         /**
          * List Events
          * @description The timeline: the user's events, newest recorded first, 50 at a time
-         *     unless limit says otherwise, at most 200. The next page is the one before
-         *     the last event's recorded_at.
+         *     unless limit says otherwise, at most 200. The next page is the one after
+         *     the last event: before its recorded_at, and before_id its id, since
+         *     events recorded together share a time. Each names the item it made.
          */
         get: operations["list_events_brain_api_events_get"];
         put?: never;
@@ -860,6 +861,8 @@ export interface components {
             id: string;
             /** Idempotency Key */
             idempotency_key: string;
+            /** Made Item */
+            made_item: string | null;
             /**
              * Occurred At
              * Format: date-time
@@ -2019,6 +2022,7 @@ export interface operations {
         parameters: {
             query?: {
                 before?: string | null;
+                before_id?: string | null;
                 limit?: number;
             };
             header?: never;

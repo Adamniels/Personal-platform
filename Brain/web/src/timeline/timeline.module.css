@@ -38,3 +38,27 @@
 	gap: var(--space-1) var(--space-2);
 	min-width: 0;
 }
+
+/* An event about an item links to it, the whole line, as History's decision
+ * does. */
+.link {
+	border-radius: var(--radius-sm);
+	color: var(--info);
+}
+
+/* An entry takes focus only from Show earlier, so a keyboard user's place
+ * moves on to what is new; it is no control, so it draws the ring only when
+ * focus is seen, as every element does. */
+.entry {
+	border-radius: var(--radius-sm);
+}
+
+.entry:focus-visible {
+	outline: var(--focus-ring);
+	outline-offset: var(--focus-offset);
+}
+
+/* Show earlier, at the foot, at the left under the last entry. */
+.foot {
+	display: flex;
+}

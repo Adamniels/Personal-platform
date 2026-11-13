@@ -79,6 +79,7 @@ items             id, user_id, lineage_id (shared by every version of one entry)
                   inactive_reason (null | 'superseded' | 'retired'), created_at,
                   created_by_event (events.id), search (tsvector, generated from
                   content, value, category and every text value in details).
+                  unique (user_id, created_by_event): an event makes at most one item.
                   The service may update status and inactive_reason only.
 
 item_subjects     item_id, user_id, topic_id, entity_id (exactly one of the two).

@@ -9,7 +9,7 @@
 // time; every item listed carries the same currency. History is the active history entries and
 // decisions by when each happened, oldest first, and the decisions another replaced, each with the
 // one that did, which replacing makes. The timeline is the events a test records, newest recorded
-// first, paged by `before` as the brain pages it. Anything else it answers 404.
+// first, paged by `before` and `before_id` as the brain pages them. Anything else it answers 404.
 import type { ClientEnvironment } from "../api/client";
 import type { components } from "../api/schema";
 
@@ -311,21 +311,29 @@ export function fakeBrain() {
 	}
 
 	/** The events newest recorded first, the id breaking a tie, as the brain
-	 * orders them: `limit` of them, 50 by default, and with `before` only
-	 * those recorded before it. */
+	 * orders them: `limit` of them, 50 by default, and with `before` and
+	 * `before_id` only those after that place. */
 	function timeline(url: URL): Event[] {
 		const before = url.searchParams.get("before");
+		const beforeId = url.searchParams.get("before_id");
 		const limit = Number(url.searchParams.get("limit") ?? 50);
+		const after = (event: Event) => {
+			if (before === null) return true;
+			const at = Date.parse(event.recorded_at);
+			return (
+				at < Date.parse(before) ||
+				(at === Date.parse(before) &&
+					beforeId !== null &&
+					event.id.localeCompare(beforeId) < 0)
+			);
+		};
 		return [...events]
 			.sort(
 				(a, b) =>
 					Date.parse(b.recorded_at) - Date.parse(a.recorded_at) ||
 					b.id.localeCompare(a.id),
 			)
-			.filter(
-				(event) =>
-					before === null || Date.parse(event.recorded_at) < Date.parse(before),
-			)
+			.filter(after)
 			.slice(0, limit);
 	}
 
@@ -625,6 +633,7 @@ export function fakeBrain() {
 				payload: {},
 				payload_version: 1,
 				idempotency_key: crypto.randomUUID(),
+				made_item: null,
 				...overrides,
 			};
 			events.push(event);
