@@ -9,7 +9,9 @@
 // time; every item listed carries the same currency. History is the active history entries and
 // decisions by when each happened, oldest first, and the decisions another replaced, each with the
 // one that did, which replacing makes. The timeline is the events a test records, newest recorded
-// first, paged by `before` and `before_id` as the brain pages them. Anything else it answers 404.
+// first, paged by `before` and `before_id` as the brain pages them. The four questions under
+// /ask/ answer what a test says they answer, since the page shows the brain's answer as it is and
+// retrieval is the brain's to test. Anything else it answers 404.
 import type { ClientEnvironment } from "../api/client";
 import type { components } from "../api/schema";
 
@@ -24,6 +26,18 @@ type Precision = NonNullable<Item["occurred_precision"]>;
 type Setting = "topic_level" | "topic_focus";
 
 export type Call = { method: string; path: string; body: unknown };
+
+type AnswerItem = components["schemas"]["AnswerItem"];
+
+/** The four questions, by their path under /brain/api. */
+export type AskPath =
+	| "/ask/profile"
+	| "/ask/topics"
+	| "/ask/history"
+	| "/ask/now";
+
+/** What a question answers: the answer, or a function of the body asked. */
+type Reply = unknown | ((body: unknown) => unknown);
 
 /** What the next state changing call answers instead of doing its work. */
 type Refusal = { status: number; detail: string };
@@ -55,6 +69,7 @@ export function fakeBrain() {
 	const replacedBy = new Map<string, string>();
 	const events: Event[] = [];
 	const calls: Call[] = [];
+	const replies = new Map<string, Reply>();
 	let refusal: Refusal | null = null;
 	let minutes = 0;
 
@@ -411,6 +426,11 @@ export function fakeBrain() {
 			refusal = null;
 			return json(status, { detail: text });
 		}
+		if (path.startsWith("/ask/")) {
+			if (!replies.has(path)) return json(404, { detail: "No such route" });
+			const reply = replies.get(path);
+			return json(200, typeof reply === "function" ? reply(body) : reply);
+		}
 		const fields = (body ?? {}) as Partial<Record<string, string>>;
 		const content = fields.content ?? "";
 		if (path === "/topics") {
@@ -639,13 +659,74 @@ export function fakeBrain() {
 			events.push(event);
 			return event;
 		},
+		/** What a question answers from now on. */
+		answers(path: AskPath, reply: Reply) {
+			replies.set(path, reply);
+		},
+		/** The questions asked so far, each its path and body. */
+		asked(): Call[] {
+			return calls.filter(({ path }) => path.startsWith(`${API}/ask/`));
+		},
 		/** The next state changing call answers this instead. */
 		refuseNext(status: number, text: string) {
 			refusal = { status, detail: text };
 		},
-		/** The state changing calls sent so far. */
+		/** The state changing calls sent so far. A question is a POST that
+		 * changes nothing, so it is not one. */
 		changes(): Call[] {
-			return calls.filter(({ method }) => method !== "GET");
+			return calls.filter(
+				({ method, path }) =>
+					method !== "GET" && !path.startsWith(`${API}/ask/`),
+			);
 		},
+	};
+}
+
+const NO_COUNTS = {
+	activity: 0,
+	assertion: 0,
+	decision: 0,
+	engagement: 0,
+	exposure: 0,
+	judgment: 0,
+};
+
+/** An item as an answer gives it: an active state entered by hand, last
+ * supported by one assertion, unless the test says otherwise. */
+export function answerItem(overrides: Partial<AnswerItem> = {}): AnswerItem {
+	const at = overrides.last_supported_at ?? "2026-11-12T09:00:00Z";
+	return {
+		id: crypto.randomUUID(),
+		kind: "state",
+		store: "semantic",
+		nature: "claim",
+		provenance: "asserted",
+		status: "active",
+		inactive_reason: null,
+		content: "An entry",
+		value: null,
+		category: null,
+		details: {},
+		occurred_at: null,
+		occurred_precision: null,
+		subjects: { topics: [], entities: [] },
+		last_supported_at: at,
+		stale: false,
+		support: {
+			supports: { ...NO_COUNTS, assertion: 1 },
+			contradicts: { ...NO_COUNTS },
+		},
+		evidence: [
+			{
+				verb: "asserted",
+				kind: "supports",
+				text: `Entered by hand as state: ${overrides.content ?? "An entry"}`,
+				origin: "brain",
+				occurred_at: at,
+				occurred_precision: "instant",
+				recorded_at: at,
+			},
+		],
+		...overrides,
 	};
 }
