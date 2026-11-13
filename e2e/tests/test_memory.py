@@ -28,7 +28,7 @@ SECTIONS = [
     ("Ask", "/brain/ask"),
 ]
 # The sections whose slice has landed, which no longer say they are empty.
-BUILT = {"Profile", "Rules", "Knowledge", "Now", "History", "Everything"}
+BUILT = {"Profile", "Rules", "Knowledge", "Now", "History", "Everything", "Timeline"}
 
 
 def links_bar(page: Page) -> Locator:
@@ -78,9 +78,11 @@ def test_memory_opens_from_the_navigation(page: Page, invite_code: str, viewport
 def test_each_section_not_yet_built_says_it_is_empty(page: Page, invite_code: str):
     open_memory(page, invite_code)
 
+    before = "/brain"
     for name, path in SECTIONS:
         if name in BUILT:
             continue
+        previous = before
         sections(page).get_by_role("tab", name=name, exact=True).click()
 
         expect(page).to_have_url(f"https://platform.test{path}")
@@ -91,10 +93,11 @@ def test_each_section_not_yet_built_says_it_is_empty(page: Page, invite_code: st
         # The address alone opens the same section.
         page.goto(path)
         expect(page.get_by_role("tabpanel", name=name)).to_be_visible()
+        before = path
 
-    # Back returns to the section before.
+    # Back returns to the section before the last one opened.
     page.go_back()
-    expect(page).to_have_url(f"https://platform.test{SECTIONS[-2][1]}")
+    expect(page).to_have_url(f"https://platform.test{previous}")
 
 
 def test_an_unknown_section_says_so(page: Page, invite_code: str):
