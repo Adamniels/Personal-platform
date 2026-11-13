@@ -99,6 +99,17 @@ async def body_as[M: BaseModel](request: Request, model: type[M]) -> M:
         ) from err
 
 
+def query_as[M: BaseModel](request: Request, model: type[M]) -> M:
+    """The request's query string as `model`, or a 422 in FastAPI's own
+    shape. A name given twice is read as its last value."""
+    try:
+        return model.model_validate(dict(request.query_params))
+    except ValidationError as err:
+        raise RequestValidationError(
+            err.errors(include_url=False, include_context=False)
+        ) from err
+
+
 def path_id(request: Request, name: str = "id") -> UUID:
     """The id in the request's address. One that is not a UUID names nothing,
     so it is a 404 like any other id that is not there."""
@@ -109,21 +120,38 @@ def path_id(request: Request, name: str = "id") -> UUID:
 
 
 def documented(
-    *, body: type[BaseModel] | None = None, path: tuple[str, ...] = ()
+    *,
+    body: type[BaseModel] | None = None,
+    path: tuple[str, ...] = (),
+    query: type[BaseModel] | None = None,
 ) -> dict[str, Any]:
     """The schema for what an endpoint reads itself: a JSON body of `body`,
-    and the ids in its address, each a UUID."""
+    the ids in its address, each a UUID, and the fields of `query` as its
+    query string."""
     extra: dict[str, Any] = {}
-    if path:
-        extra["parameters"] = [
+    parameters = [
+        {
+            "name": name,
+            "in": "path",
+            "required": True,
+            "schema": {"type": "string", "format": "uuid"},
+        }
+        for name in path
+    ]
+    if query is not None:
+        schema = query.model_json_schema()
+        required = set(schema.get("required", ()))
+        parameters.extend(
             {
                 "name": name,
-                "in": "path",
-                "required": True,
-                "schema": {"type": "string", "format": "uuid"},
+                "in": "query",
+                "required": name in required,
+                "schema": field,
             }
-            for name in path
-        ]
+            for name, field in schema["properties"].items()
+        )
+    if parameters:
+        extra["parameters"] = parameters
     if body is not None:
         extra["requestBody"] = {
             "required": True,

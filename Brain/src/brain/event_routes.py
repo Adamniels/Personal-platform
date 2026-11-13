@@ -24,7 +24,14 @@ from pydantic import (
 )
 
 from brain import db, events, topics
-from brain.edge import REFUSED, UNAUTHORIZED, authenticated, body_as, documented
+from brain.edge import (
+    REFUSED,
+    UNAUTHORIZED,
+    authenticated,
+    body_as,
+    documented,
+    query_as,
+)
 from brain.subjects import Name, Slug
 
 router = APIRouter(prefix="/brain/api")
@@ -226,3 +233,32 @@ async def record_event(request: Request, claims: Claims) -> Response:
     return JSONResponse(
         Event.of(event).model_dump(mode="json"), status_code=201 if created else 200
     )
+
+
+# The timeline's page size, by default and at most.
+PAGE = 50
+PAGE_MAX = 200
+
+
+class TimelineQuery(BaseModel):
+    # Only events recorded before this time, with a zone: the last one's
+    # recorded_at, for the next page.
+    before: AwareDatetime | None = None
+    limit: Annotated[int, Field(ge=1, le=PAGE_MAX)] = PAGE
+
+
+@router.get(
+    "/events",
+    response_model=list[Event],
+    responses={**UNAUTHORIZED, **REFUSED},
+    openapi_extra=documented(query=TimelineQuery),
+)
+@authenticated
+async def list_events(request: Request, claims: Claims) -> Response:
+    """The timeline: the user's events, newest recorded first, 50 at a time
+    unless limit says otherwise, at most 200. The next page is the one before
+    the last event's recorded_at."""
+    query = query_as(request, TimelineQuery)
+    async with db.transaction(request.app.state.pool, claims.account_id) as conn:
+        found = await events.timeline(conn, before=query.before, limit=query.limit)
+    return JSONResponse([Event.of(event).model_dump(mode="json") for event in found])

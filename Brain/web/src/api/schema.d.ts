@@ -34,7 +34,13 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * List Events
+         * @description The timeline: the user's events, newest recorded first, 50 at a time
+         *     unless limit says otherwise, at most 200. The next page is the one before
+         *     the last event's recorded_at.
+         */
+        get: operations["list_events_brain_api_events_get"];
         put?: never;
         /**
          * Record Event
@@ -459,6 +465,43 @@ export interface operations {
             };
             /** @description It would be the user's second of something unique. */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description A body that does not parse, or a request breaking a rule. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    list_events_brain_api_events_get: {
+        parameters: {
+            query?: {
+                before?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Event"][];
+                };
+            };
+            /** @description No valid token: missing, expired or failing verification, all alike. The body is empty; the caller refreshes and retries. */
+            401: {
                 headers: {
                     [name: string]: unknown;
                 };

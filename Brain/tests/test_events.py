@@ -19,6 +19,7 @@ from tests.conftest import Caller
 from tests.harness import admin_connection
 
 ALICE = uuid.UUID("0190a8f0-0000-7000-8000-00000000a11c")
+BOB = uuid.UUID("0190a8f0-0000-7000-8000-000000000b0b")
 
 EVENTS = "/brain/api/events"
 TOPICS = "/brain/api/topics"
@@ -52,6 +53,13 @@ def record(caller: Caller, body: dict[str, Any]) -> dict[str, Any]:
     assert response.status_code == 201, response.text
     recorded: dict[str, Any] = response.json()
     return recorded
+
+
+def timeline(caller: Caller, query: str = "") -> list[dict[str, Any]]:
+    response = caller.get(f"{EVENTS}{query}")
+    assert response.status_code == 200, response.text
+    events: list[dict[str, Any]] = response.json()
+    return events
 
 
 def rows(database: str) -> list[tuple[Any, ...]]:
@@ -97,6 +105,7 @@ def test_an_event_is_recorded_with_every_part_of_the_shape(
     assert recorded["payload"] == body["payload"]
     assert recorded["payload_version"] == 2
     assert recorded["idempotency_key"] == body["idempotency_key"]
+    assert timeline(alice) == [recorded]
 
 
 def test_an_event_about_a_named_thing_or_nothing_is_recorded(
@@ -291,6 +300,10 @@ def test_an_event_about_an_alias_is_stored_on_the_alias_and_read_on_its_target(
     assert recorded["subject_topic"] == alias["id"]
     assert recorded["topic"]["id"] == target["id"]
     assert recorded["topic"]["slug"] == "postgres-indexing"
+    # Separated again, the same event is read on the alias, which it named.
+    alice.post(f"{TOPICS}/{alias['id']}/separate")
+    [read] = timeline(alice)
+    assert read["topic"]["id"] == alias["id"]
 
 
 def test_occurred_and_recorded_are_kept_apart(
@@ -310,8 +323,9 @@ def test_occurred_and_recorded_are_kept_apart(
             occurred_precision="year",
         ),
     )
+    [read] = timeline(alice)
 
-    for found in (recorded,):
+    for found in (recorded, read):
         assert datetime.fromisoformat(found["occurred_at"]) == three_years_ago
         assert found["occurred_precision"] == "year"
         recorded_at = datetime.fromisoformat(found["recorded_at"])
@@ -377,6 +391,84 @@ async def test_the_service_reads_events_and_verbs_and_adds_events(
             " 1, 'k')",
             (uuid.uuid7(),),
         )
+
+
+def test_the_timeline_is_newest_first_and_paged(
+    calling: Callable[[uuid.UUID], Caller],
+) -> None:
+    alice = calling(ALICE)
+    recorded = [record(alice, event(evidence=f"Event {n}.")) for n in range(5)]
+    newest_first = list(reversed(recorded))
+
+    assert timeline(alice) == newest_first
+    first = timeline(alice, "?limit=2")
+    assert first == newest_first[:2]
+    second = timeline(alice, f"?limit=2&before={_q(first[-1]['recorded_at'])}")
+    assert second == newest_first[2:4]
+    third = timeline(alice, f"?limit=2&before={_q(second[-1]['recorded_at'])}")
+    assert third == newest_first[4:]
+    assert timeline(alice, f"?before={_q(third[-1]['recorded_at'])}") == []
+
+
+def _q(value: str) -> str:
+    # A recorded time in a query string: its + must not read as a space.
+    return value.replace("+", "%2B")
+
+
+def test_the_timeline_answers_50_by_default_and_200_at_most(
+    calling: Callable[[uuid.UUID], Caller], database: str
+) -> None:
+    alice = calling(ALICE)
+    # Written as the superuser, since 201 requests would only be slow.
+    start = datetime(2026, 1, 1, tzinfo=UTC)
+    with admin_connection(database) as conn, conn.cursor() as cursor:
+        cursor.executemany(
+            "INSERT INTO events (id, user_id, verb, subject_topic, subject_entity,"
+            " subject_item, origin, source, run, occurred_at, occurred_precision,"
+            " recorded_at, evidence, payload, payload_version, idempotency_key)"
+            " VALUES (%s, %s, 'opened', NULL, NULL, NULL, 'news', NULL, NULL,"
+            " %s, 'instant', %s, 'Opened it.', '{}', 1, %s)",
+            [
+                (
+                    uuid.uuid7(),
+                    ALICE,
+                    start + timedelta(minutes=n),
+                    start + timedelta(minutes=n),
+                    f"k{n}",
+                )
+                for n in range(201)
+            ],
+        )
+
+    assert len(timeline(alice)) == 50
+    assert len(timeline(alice, "?limit=200")) == 200
+    for query in [
+        "?limit=0",
+        "?limit=201",
+        "?limit=many",
+        "?before=yesterday",
+        "?before=2026-01-01T00:00:00",
+    ]:
+        assert alice.get(f"{EVENTS}{query}").status_code == 422, query
+
+
+def test_events_are_scoped_to_their_user(
+    calling: Callable[[uuid.UUID], Caller], database: str
+) -> None:
+    alice, bob = calling(ALICE), calling(BOB)
+    body = event()
+    hers = record(alice, body)
+
+    assert timeline(bob) == []
+    # Her key is hers: the same one from Bob is his own event.
+    his = record(bob, body)
+    assert his["id"] != hers["id"]
+    # On his own topic of the same slug, made for him.
+    assert his["topic"]["id"] != hers["topic"]["id"]
+    assert [t["slug"] for t in bob.get(TOPICS).json()] == ["postgres-indexing"]
+    assert timeline(alice) == [hers]
+    assert timeline(bob) == [his]
+    assert {row[1] for row in rows(database)} == {ALICE, BOB}
 
 
 def documented_verbs() -> set[tuple[str, str, int, int]]:

@@ -453,6 +453,64 @@
       }
     },
     "/brain/api/events": {
+      "get": {
+        "description": "The timeline: the user's events, newest recorded first, 50 at a time\nunless limit says otherwise, at most 200. The next page is the one before\nthe last event's recorded_at.",
+        "operationId": "list_events_brain_api_events_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "before",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Before"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Event"
+                  },
+                  "title": "Response List Events Brain Api Events Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "No valid token: missing, expired or failing verification, all alike. The body is empty; the caller refreshes and retries."
+          },
+          "422": {
+            "description": "A body that does not parse, or a request breaking a rule."
+          }
+        },
+        "summary": "List Events"
+      },
       "post": {
         "description": "Records what happened, 201. The same origin and idempotency key again\nis 200, with the event already recorded. 422 for an unknown verb, an\norigin of brain, evidence that is missing or blank, a topic and a named\nthing together, a malformed slug, or a payload that is not a JSON object\nof at most 16 KiB. An unknown topic is created provisional, an unknown\nnamed thing is created too.",
         "operationId": "record_event_brain_api_events_post",
@@ -535,8 +593,8 @@
                     "type": "object"
                   },
                   "payload_version": {
-                    "maximum": 2147483647.0,
-                    "minimum": 1.0,
+                    "maximum": 2147483647,
+                    "minimum": 1,
                     "title": "Payload Version",
                     "type": "integer"
                   },
