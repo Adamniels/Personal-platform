@@ -56,7 +56,7 @@ export const BRAIN_ORIGIN = "brain";
  * centre recorded, or the verb and the feature it came from. */
 export function verbWords(verb: string, origin: string): string {
 	const own = origin === BRAIN_ORIGIN ? OWNER_VERBS[verb] : undefined;
-	return own ?? `${verb[0]?.toUpperCase() ?? ""}${verb.slice(1)}, in ${origin}`;
+	return own ?? `${verb[0]?.toUpperCase() ?? ""}${verb.slice(1)} in ${origin}`;
 }
 
 /** Where an event came from: the memory centre, or the feature that sent
