@@ -3,6 +3,8 @@ import { BadgeSection } from "./sections/badge-section";
 import { ButtonSection } from "./sections/button-section";
 import { CheckboxSection } from "./sections/checkbox-section";
 import { ChipSection } from "./sections/chip-section";
+import { MeterSection } from "./sections/meter-section";
+import { ProgressSection } from "./sections/progress-section";
 import { SelectSection } from "./sections/select-section";
 import { StatusSection } from "./sections/status-section";
 import { TextAreaSection } from "./sections/text-area-section";
@@ -33,6 +35,8 @@ export function Gallery() {
 				<BadgeSection />
 				<StatusSection />
 				<ChipSection />
+				<ProgressSection />
+				<MeterSection />
 			</main>
 		</div>
 	);
