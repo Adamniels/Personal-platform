@@ -33,22 +33,59 @@ if [ "$code" = hang ]; then sleep 30 & echo $! > "$D/hang.pid"; wait; exit 0; fi
 exit "$code"
 FAKE
 # gh: logs every call to gh.log; comments go to comments.log as "<clock> <issue> <body>", label changes to labels.log
-# as "<pr> +<added> -<removed>". `pr view` prints the head and then the PR's labels, FAKE_PR_LABELS, comma separated.
+# as "<pr> +<added> -<removed>". `pr view` prints the head, the state and then the PR's labels, comma separated.
+# Labels are kept as GitHub keeps them: a PR starts with FAKE_PR_LABELS, or with what a test wrote to
+# $D/labels-<pr>, and every `pr edit` that succeeds changes that file. The state is $D/state-<pr>, else
+# FAKE_PR_STATE, else OPEN; the listing below never looks at it, which is what a listing that lags looks like.
+# The open pull requests `pr list --state open` prints are the numbers in $D/open-prs, one per line, or PR 50 alone
+# without that file, each as "<pr> <head> <labels>". A PR's head is $D/head-<pr>, else $D/head, else FAKE_HEAD, else
+# aaaa. review-ok is kept per commit in $D/review-ok-<sha>: reading a commit's status prints it, or "none", and
+# posting one stores it and logs "<sha> <state> <description>" to status.log and "status <sha> <state>" to order.log,
+# where the fake merge gate logs "gate <pr>". FAKE_STATUS_EXIT=1 makes the post fail, and $D/gh-pre, when a test
+# writes it, is sourced before each post.
 cat > "$tmp/bin/gh" <<'FAKE'
 #!/usr/bin/env bash
 echo "$*" >> "$D/gh.log"
+head_for() { if [ -f "$D/head-$1" ]; then cat "$D/head-$1"; elif [ -f "$D/head" ]; then cat "$D/head"; else echo "${FAKE_HEAD:-aaaa}"; fi; }
+labels_for() { if [ -f "$D/labels-$1" ]; then cat "$D/labels-$1"; else echo "${FAKE_PR_LABELS:-}"; fi; }
+state_for() { if [ -f "$D/state-$1" ]; then cat "$D/state-$1"; else echo "${FAKE_PR_STATE:-OPEN}"; fi; }
 case "$*" in
   "api rate_limit"*) exit "${FAKE_RATE_EXIT:-0}" ;;
+  "api repos/Adamniels/Personal-platform/commits/"*"/status"*)
+    sha="${2#repos/Adamniels/Personal-platform/commits/}"; sha="${sha%%/*}"
+    if [ -f "$D/review-ok-$sha" ]; then cat "$D/review-ok-$sha"; else echo none; fi ;;
+  "api repos/Adamniels/Personal-platform/statuses/"*)
+    if [ -f "$D/gh-pre" ]; then . "$D/gh-pre"; fi   # a test's one-off, such as failing the next post only
+    [ "${FAKE_STATUS_EXIT:-0}" = 0 ] || { echo "HTTP 502: Bad Gateway" >&2; exit 1; }
+    sha="${2#repos/Adamniels/Personal-platform/statuses/}" state="" context="" desc=""
+    while [ $# -gt 0 ]; do
+      case "$1" in state=*) state="${1#state=}" ;; context=*) context="${1#context=}" ;; description=*) desc="${1#description=}" ;; esac
+      shift
+    done
+    [ "$context" = review-ok ] || { echo "unexpected status context: $context" >&2; exit 9; }
+    echo "$state" > "$D/review-ok-$sha"
+    echo "$sha $state $desc" >> "$D/status.log"; echo "status $sha $state" >> "$D/order.log" ;;
   "issue comment "*)
     [ "${FAKE_COMMENT_EXIT:-0}" = 0 ] || exit 1
     issue="$3" body=""; while [ $# -gt 0 ]; do [ "$1" = --body ] && body="$2"; shift; done
     echo "$(cat "$D/clock") $issue $(printf '%s' "$body" | tr '\n' ' ')" >> "$D/comments.log" ;;
   "pr edit "*)
     [ "${FAKE_LABEL_EXIT:-0}" = 0 ] || exit 1
-    pr="$3" ops=""
-    while [ $# -gt 0 ]; do case "$1" in --add-label) ops="$ops +$2" ;; --remove-label) ops="$ops -$2" ;; esac; shift; done
+    pr="$3" ops="" l="$(labels_for "$3")" cur=","
+    [ -z "$l" ] || cur=",$l,"
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --add-label) ops="$ops +$2"; case "$cur" in *",$2,"*) ;; *) cur="$cur$2," ;; esac ;;
+        --remove-label) ops="$ops -$2"; cur="${cur//,$2,/,}" ;;
+      esac
+      shift
+    done
+    cur="${cur#,}"; echo "${cur%,}" > "$D/labels-$pr"
     echo "$pr$ops" >> "$D/labels.log" ;;
-  "pr view "*) if [ -f "$D/head" ]; then cat "$D/head"; else echo "${FAKE_HEAD:-aaaa}"; fi; echo "${FAKE_PR_LABELS:-}" ;;
+  "pr view "*) head_for "$3"; state_for "$3"; labels_for "$3" ;;
+  "pr list "*" --state open "*)
+    if [ -f "$D/open-prs" ]; then prs="$(cat "$D/open-prs")"; else prs=50; fi
+    for n in $prs; do echo "$n $(head_for "$n") $(labels_for "$n")"; done ;;
   "pr list "*) if [ -f "$D/merged.json" ]; then cat "$D/merged.json"; else echo '[]'; fi ;;
   *) echo "unexpected gh call: $*" >&2; exit 9 ;;
 esac
@@ -120,7 +157,7 @@ esac
 FAKE
 cat > "$tmp/scripts/merge-gate.sh" <<'FAKE'
 #!/usr/bin/env bash
-echo "$*" >> "$D/gate.log"; printf '%b' "${FAKE_GATE_OUT:-merged #$1\n}"; exit "${FAKE_GATE_EXIT:-0}"
+echo "$*" >> "$D/gate.log"; echo "gate $1" >> "$D/order.log"; printf '%b' "${FAKE_GATE_OUT:-merged #$1\n}"; exit "${FAKE_GATE_EXIT:-0}"
 FAKE
 # board.sh: `get <n>` prints status-<n> (default "In review"); `status <n> <s>` logs to board.log and records <s>.
 cat > "$tmp/scripts/board.sh" <<'FAKE'
@@ -130,9 +167,12 @@ echo "$*" >> "$D/board.log"; [ "${FAKE_BOARD_EXIT:-0}" = 0 ] || exit "$FAKE_BOAR
 if [ -e "$D/board-fail-once" ]; then rm -f "$D/board-fail-once"; exit 1; fi
 echo "$3" > "$D/status-$2"
 FAKE
+# verdict.sh <pr>: the line in $D/verdict-<pr>, else $D/verdict (a claude-hook writes it, as a review would), else
+# FAKE_VERDICT, else an approve for aaaa.
 cat > "$tmp/scripts/verdict.sh" <<'FAKE'
 #!/usr/bin/env bash
-echo "${FAKE_VERDICT:-approve aaaa 0 2027-01-15T08:00:00Z}"
+if [ -f "$D/verdict-$1" ]; then cat "$D/verdict-$1"; elif [ -f "$D/verdict" ]; then cat "$D/verdict"
+else echo "${FAKE_VERDICT:-approve aaaa 0 2027-01-15T08:00:00Z}"; fi
 FAKE
 cp "$here/gh-guard.sh" "$tmp/scripts/gh-guard.sh"
 chmod +x "$tmp/bin/"* "$tmp/scripts/"*
@@ -170,7 +210,7 @@ setup() {
   export D AGENT_HOME AGENT_REPO AGENT_POLL_SECONDS=0 AGENT_TIMEOUT_SECONDS=5400 AGENT_REMOTE="$tmp/t$t/origin.git"
   unset FAKE_STOP_AT FAKE_RATE_EXIT FAKE_COMMENT_EXIT FAKE_LABEL_EXIT FAKE_HEAD FAKE_DOCKER_EXIT FAKE_DF_KB \
         FAKE_GATE_OUT FAKE_GATE_EXIT FAKE_BOARD_EXIT FAKE_VERDICT FAKE_DOCKER_HANG AGENT_CALL_TIMEOUT_SECONDS \
-        AGENT_DOCKER_START_WAIT FAKE_PR_LABELS
+        AGENT_DOCKER_START_WAIT FAKE_PR_LABELS FAKE_STATUS_EXIT FAKE_PR_STATE
   export AGENT_DOCKER_START=""
 }
 pending() { printf '%s\n' "$@" > "$D/pending.queue"; }
@@ -243,9 +283,9 @@ setup; pending "cap 50 41"; runner
 check "cap 50 41 adds owner-blocked and mentions the owner that review rounds ran out" \
   $([ "$(cat "$D/labels.log")" = "50 +owner-blocked" ] && grep -q '^[0-9]* 41 @Adamniels PR #50 .*review rounds' "$D/comments.log"; echo $?)
 
-setup; export FAKE_PR_LABELS=bug,owner-decision; pending "cap 50 41"; runner
-check "a cap on a PR with owner-decision adds owner-blocked and leaves the implementer's label" \
-  $([ "$(cat "$D/labels.log")" = "50 +owner-blocked" ]; echo $?)
+setup; export FAKE_PR_LABELS=bug,has-decision,in-review FAKE_VERDICT="changes aaaa 4 2027-01-15T08:00:00Z"; pending "cap 50 41" IDLE; runner
+check "a cap on a PR with has-decision swaps in-review for owner-blocked and leaves the implementer's label" \
+  $([ "$(cat "$D/labels.log")" = "50 +owner-blocked -in-review" ] && [ "$(cat "$D/labels-50")" = "bug,has-decision,owner-blocked" ]; echo $?)
 
 setup; export FAKE_PR_LABELS=owner-merge; pending "cap 50 41"; runner
 check "a cap on a PR with owner-merge replaces it with owner-blocked" \
@@ -253,18 +293,18 @@ check "a cap on a PR with owner-merge replaces it with owner-blocked" \
 
 # --- Owner items: the gate's reasons say ready or stuck, and one mention per PR and head sha (R42) ----------------
 READY='risk is not low\nan owner label is set\n'
-setup; export AGENT_POLL_SECONDS=5 FAKE_GATE_EXIT=3 FAKE_GATE_OUT="$READY" FAKE_PR_LABELS=owner-decision; pending "owner 50 41" "owner 50 41"; runner
-check "an owner item for a PR with owner-decision mentions once that it waits for a decision, records pr and sha, and changes no label" \
-  $([ "$(lines "$D/comments.log")" = 1 ] && grep -q ' 41 @Adamniels PR #50 is approved and waits for your decision: it carries owner-decision' "$D/comments.log" \
+setup; export AGENT_POLL_SECONDS=5 FAKE_GATE_EXIT=3 FAKE_GATE_OUT="$READY" FAKE_PR_LABELS=has-decision,owner-decision; pending "owner 50 41" "owner 50 41"; runner
+check "an owner item for a PR with has-decision and owner-decision mentions once that it waits for a decision, records pr and sha, and changes no label" \
+  $([ "$(lines "$D/comments.log")" = 1 ] && grep -q ' 41 @Adamniels PR #50 is approved and waits for your decision: ' "$D/comments.log" \
     && [ "$(cat "$AGENT_HOME/agent-logs/owner-told")" = "50 aaaa" ] && [ "$(cat "$D/gate.log" | sort -u)" = 50 ] && no_file "$D/labels.log"; echo $?)
 check "the same pr and sha again comments nothing and waits the poll interval" $([ "$(sleeps)" = 5 ]; echo $?)
-rm -f "$AGENT_HOME/.agent-stop"; export FAKE_HEAD=bbbb; pending "owner 50 41"; runner
+rm -f "$AGENT_HOME/.agent-stop"; export FAKE_HEAD=bbbb FAKE_VERDICT="approve bbbb 0 2027-01-15T08:00:00Z"; pending "owner 50 41"; runner
 check "a new head sha gets one new mention" \
   $([ "$(lines "$D/comments.log")" = 2 ] && grep -qx '50 bbbb' "$AGENT_HOME/agent-logs/owner-told"; echo $?)
 
 setup; export FAKE_GATE_EXIT=3 FAKE_GATE_OUT="$READY" FAKE_PR_LABELS=needs-owner; pending "owner 50 41"; runner
-check "needs-owner, the older label, is read like owner-decision: the mention names it and no label changes" \
-  $(grep -q 'PR #50 is approved and waits for your decision: it carries needs-owner' "$D/comments.log" && no_file "$D/labels.log"; echo $?)
+check "needs-owner, the older label, is no longer read: the pull request is ready to read and merge like any other" \
+  $(grep -q 'PR #50 is ready for you to read and merge' "$D/comments.log" && [ "$(cat "$D/labels.log")" = "50 +owner-merge" ]; echo $?)
 
 setup; export FAKE_GATE_EXIT=3 FAKE_GATE_OUT="$READY" FAKE_PR_LABELS=owner-merge; pending "owner 50 41"; runner
 check "an owner item for a PR that already carries owner-merge says ready to read and merge and edits no label" \
@@ -274,16 +314,16 @@ setup; export FAKE_GATE_EXIT=3 FAKE_GATE_OUT="$READY" FAKE_PR_LABELS=owner-block
 check "an owner-blocked PR that is approved and ready swaps to owner-merge" \
   $([ "$(cat "$D/labels.log")" = "50 +owner-merge -owner-blocked" ] && grep -q 'ready for you to read and merge' "$D/comments.log"; echo $?)
 
-setup; export FAKE_GATE_EXIT=3 FAKE_GATE_OUT="$READY" FAKE_PR_LABELS=owner-decision,owner-blocked; pending "owner 50 41"; runner
-check "an owner-blocked PR with owner-decision that is ready drops owner-blocked and gets no owner-merge" \
-  $([ "$(cat "$D/labels.log")" = "50 -owner-blocked" ] && grep -q 'waits for your decision' "$D/comments.log"; echo $?)
+setup; export FAKE_GATE_EXIT=3 FAKE_GATE_OUT="$READY" FAKE_PR_LABELS=has-decision,owner-blocked; pending "owner 50 41"; runner
+check "an owner-blocked PR with has-decision that is ready swaps to owner-decision and gets no owner-merge" \
+  $([ "$(cat "$D/labels.log")" = "50 +owner-decision -owner-blocked" ] && grep -q 'waits for your decision' "$D/comments.log"; echo $?)
 
 setup; export FAKE_GATE_EXIT=3 FAKE_GATE_OUT='ci-ok failed\nan owner label is set\n' FAKE_PR_LABELS=owner-merge; pending "owner 50 41"; runner
 check "an owner item the gate refuses for another reason is stuck: owner-blocked replaces owner-merge, never 'ready'" \
   $([ "$(cat "$D/labels.log")" = "50 +owner-blocked -owner-merge" ] && grep -q 'PR #50 needs you, do not merge it' "$D/comments.log" \
     && ! grep -q 'ready' "$D/comments.log"; echo $?)
 
-setup; export AGENT_POLL_SECONDS=7 FAKE_GATE_EXIT=3 FAKE_GATE_OUT='ci-ok is pending\nan owner label is set\n' FAKE_PR_LABELS=owner-decision; pending "owner 50 41"; runner
+setup; export AGENT_POLL_SECONDS=7 FAKE_GATE_EXIT=3 FAKE_GATE_OUT='ci-ok is pending\nan owner label is set\n' FAKE_PR_LABELS=has-decision,owner-decision; pending "owner 50 41"; runner
 check "an owner item whose ci-ok is pending waits: no mention yet, no label" \
   $([ "$(sleeps)" = 7 ] && no_file "$D/comments.log" && no_file "$D/labels.log"; echo $?)
 
@@ -422,7 +462,8 @@ for f in pending.sh merge-gate.sh verdict.sh board.sh gh-guard.sh; do
   printf '#!/usr/bin/env bash\necho "%s $*" >> "$D/trap.log"; : > "$AGENT_HOME/.agent-stop"\n' "$f" > "$AGENT_REPO/scripts/agent/$f"
 done
 chmod +x "$AGENT_REPO/scripts/agent/"*; git -C "$AGENT_REPO" add scripts; git -C "$AGENT_REPO" commit -q -m trap
-pending "merge 50 41" "review 50 41" "new 41"; runner
+# The review is of another pull request: the runner is done with 50 once the gate has merged it.
+pending "merge 50 41" "review 51 41" "new 41"; runner
 check "pending, the gate, verdict and the guard come from origin/main, never the checked-out branch" \
   $(no_file "$D/trap.log" && [ "$(cat "$D/gate.log")" = 50 ] && [ "$(lines "$D/claude.log")" = 2 ] \
     && [ "$(tail -n1 "$D/claude-gh.log")" = guard ]; echo $?)
@@ -630,6 +671,144 @@ check "idle sleeps the poll interval" $([ "$(sleeps)" = 15 ]; echo $?)
 
 setup; pending IDLE STOP; runner
 check "idle without a merged slice only logs" $(no_file "$D/comments.log" && grep -q 'idle' "$AGENT_HOME/agent-logs/runner.log"; echo $?)
+
+# --- review-ok, the commit status the ruleset requires ----------------------------------------------------------
+APPROVE="approve aaaa 0 2027-01-15T08:00:00Z"
+setup; export FAKE_VERDICT="none 0 0 -"; hook claude-hook "echo '$APPROVE' > '$D/verdict'"; pending "review 50 41"; runner
+check "an approve for the head sets review-ok to success on that commit" \
+  $([ "$(tail -n1 "$D/status.log")" = "aaaa success approved by the reviewer" ] && [ "$(cat "$D/review-ok-aaaa")" = success ] \
+    && grep -q '^api repos/Adamniels/Personal-platform/statuses/aaaa .*state=success' "$D/gh.log" && [ "$(fails 41)" = 0 ]; echo $?)
+
+setup; export FAKE_VERDICT="none 0 0 -"
+hook claude-hook "cp '$D/status.log' '$D/status-at-claude'; echo 'changes aaaa 1 2027-01-15T08:00:00Z' > '$D/verdict'"
+pending "review 50 41"; runner
+check "a head with no approve gets review-ok pending" \
+  $([ "$(cat "$D/status-at-claude")" = "aaaa pending waiting for the reviewer" ] && [ "$(cat "$D/status.log")" = "aaaa pending waiting for the reviewer" ] \
+    && [ "$(cat "$D/review-ok-aaaa")" = pending ] && ! grep -q 'state=failure' "$D/gh.log"; echo $?)
+
+setup; hook claude-hook "echo bbbb > '$D/head'"; pending "fix 50 41" IDLE; runner
+check "a new commit on an approved pull request has review-ok pending, and the old commit keeps its success" \
+  $([ "$(cat "$D/review-ok-aaaa")" = success ] && [ "$(cat "$D/review-ok-bbbb")" = pending ]; echo $?)
+
+setup; pending "merge 50 41"; runner
+check "review-ok is set before the gate is called" \
+  $([ "$(tr '\n' ' ' < "$D/order.log")" = "status aaaa success gate 50 " ]; echo $?)
+
+# The stop comes from the clock, since a runner that cannot write the status never reaches pending.sh.
+setup; export FAKE_STATUS_EXIT=1 FAKE_STOP_AT=$((S + 150)); pending "merge 50 41"; runner
+check "a failed status write is a transient pause, never a merge" \
+  $(no_file "$D/gate.log" && [ "$(waits transient)" = "60 120" ] && no_file "$D/pending.count" && no_file "$D/labels.log" \
+    && no_file "$D/comments.log" && [ "$(fails 41)" = 0 ] && no_file "$D/board.log"; echo $?)
+
+setup; export FAKE_VERDICT="none 0 0 -"; hook claude-hook "echo '$APPROVE' > '$D/verdict'; touch '$D/status-fails'"
+pending "review 50 41" "merge 50 41"; echo 'if [ -e "$D/status-fails" ]; then rm -f "$D/status-fails"; export FAKE_STATUS_EXIT=1; fi' > "$D/gh-pre"; runner
+check "a status write that fails after a review is a transient pause, and the next loop writes it before the gate" \
+  $([ "$(waits transient)" = 60 ] && [ "$(fails 41)" = 0 ] && [ "$(tr '\n' ' ' < "$D/order.log")" = "status aaaa pending status aaaa success gate 50 " ]; echo $?)
+
+setup; export FAKE_HEAD=bbbb; pending "merge 50 41"; runner
+check "a merge item whose head has no approve in this loop does not reach the gate and tells nobody" \
+  $(no_file "$D/gate.log" && [ "$(cat "$D/labels.log")" = "50 +in-review" ] && no_file "$D/comments.log" \
+    && [ "$(cat "$D/review-ok-bbbb")" = pending ] && [ "$(fails 41)" = 0 ] && [ -z "$(waits transient)" ]; echo $?)
+
+setup; printf '50\n51\n' > "$D/open-prs"; echo cccc > "$D/head-51"; echo "none 0 0 -" > "$D/verdict-51"; pending IDLE IDLE IDLE; runner
+check "review-ok is made true for every open pull request each loop, and one already right costs no write" \
+  $([ "$(cat "$D/status.log")" = "aaaa success approved by the reviewer
+cccc pending waiting for the reviewer" ] && [ "$(grep -c 'pr list .*--state open' "$D/gh.log")" -ge 3 ]; echo $?)
+
+# --- The labels are the runner's: in-review in the loop, an owner label when it is the owner's turn -------------
+NONE="none 0 0 -"
+setup; export FAKE_VERDICT="$NONE"; pending IDLE "review 50 41" IDLE; hook claude-hook "echo 'changes aaaa 1 2027-01-15T08:00:00Z' > '$D/verdict'"; runner
+check "a pull request in the loop carries in-review and no owner label" \
+  $([ "$(cat "$D/labels.log")" = "50 +in-review" ] && [ "$(cat "$D/labels-50")" = in-review ]; echo $?)
+
+for reason in 'risk is not low' 'touches protected paths'; do
+  setup; export FAKE_PR_LABELS=in-review FAKE_GATE_EXIT=3 FAKE_GATE_OUT="$reason\n"; pending "merge 50 41" IDLE; runner
+  check "an approved pull request that waits for the owner swaps in-review for owner-merge ($reason)" \
+    $([ "$(cat "$D/labels.log")" = "50 +owner-merge -in-review" ] && [ "$(cat "$D/labels-50")" = owner-merge ] \
+      && grep -q 'PR #50 is ready for you to read and merge' "$D/comments.log"; echo $?)
+done
+
+setup; export FAKE_PR_LABELS=in-review,has-decision FAKE_GATE_EXIT=3 FAKE_GATE_OUT="$READY"; pending "owner 50 41" IDLE; runner
+check "an approved pull request with has-decision gets owner-decision, never owner-merge" \
+  $([ "$(cat "$D/labels.log")" = "50 +owner-decision -in-review" ] && [ "$(cat "$D/labels-50")" = "has-decision,owner-decision" ] \
+    && [ "$(lines "$D/comments.log")" = 1 ] && grep -q ' 41 @Adamniels PR #50 is approved and waits for your decision' "$D/comments.log" \
+    && ! grep -q 'owner-merge' "$D/gh.log"; echo $?)
+
+for label in owner-merge owner-decision owner-blocked; do
+  setup; export FAKE_PR_LABELS="has-decision,$label" FAKE_HEAD=bbbb; pending IDLE IDLE; runner
+  check "a new commit takes the owner label off and puts in-review back ($label)" \
+    $([ "$(cat "$D/labels.log")" = "50 +in-review -$label" ] && [ "$(cat "$D/labels-50")" = "has-decision,in-review" ] \
+      && [ "$(cat "$D/review-ok-bbbb")" = pending ]; echo $?)
+done
+
+setup; export FAKE_PR_LABELS=owner-decision FAKE_VERDICT="$NONE"; pending IDLE IDLE; runner
+check "an owner-decision label with no approve for the head is turned into has-decision and in-review" \
+  $([ "$(cat "$D/labels.log")" = "50 +has-decision +in-review -owner-decision" ] && [ "$(cat "$D/labels-50")" = "has-decision,in-review" ] \
+    && [ "$(cat "$D/review-ok-aaaa")" = pending ] && no_file "$D/comments.log"; echo $?)
+
+# Three pull requests as the change finds them. 50 was approved before it landed and waits for the owner; 51 is in
+# review; 52 was opened under the old procedure, carries owner-decision, and is approved.
+setup; printf '50\n51\n52\n' > "$D/open-prs"; echo cccc > "$D/head-51"; echo dddd > "$D/head-52"
+echo "$NONE" > "$D/verdict-51"; echo "approve dddd 0 2027-01-15T08:00:00Z" > "$D/verdict-52"
+: > "$D/labels-50"; : > "$D/labels-51"; echo owner-decision > "$D/labels-52"
+export FAKE_GATE_EXIT=3 FAKE_GATE_OUT='risk is not low\n'; pending "merge 50 41" IDLE IDLE; runner
+check "the labels and the status are made true for every open pull request each loop" \
+  $([ "$(cat "$D/status.log")" = "aaaa success approved by the reviewer
+cccc pending waiting for the reviewer
+dddd success approved by the reviewer" ] && [ "$(cat "$D/labels.log")" = "51 +in-review
+52 +has-decision
+50 +owner-merge" ] && [ "$(cat "$D/labels-52")" = "owner-decision,has-decision" ] && no_file "$D/claude.log"; echo $?)
+
+setup; export FAKE_PR_LABELS=in-review FAKE_VERDICT="$NONE"; echo pending > "$D/review-ok-aaaa"; pending IDLE IDLE IDLE; runner
+check "a pull request that is already right costs no GitHub write, and no read beyond the listing and its status" \
+  $(no_file "$D/labels.log" && no_file "$D/status.log" && ! grep -Eq '^(pr edit|pr view|issue comment)|statuses/' "$D/gh.log" \
+    && [ "$(grep -c 'pr list .*--state open' "$D/gh.log")" -ge 3 ]; echo $?)
+
+setup; export FAKE_PR_LABELS=owner-blocked FAKE_VERDICT="changes aaaa 4 2027-01-15T08:00:00Z"; pending IDLE IDLE; runner
+check "owner-blocked stays on a pull request whose review rounds ran out at its head, with no in-review beside it" \
+  $(no_file "$D/labels.log"; echo $?)
+
+setup; export FAKE_PR_LABELS=owner-blocked FAKE_VERDICT="$NONE"; mkdir -p "$AGENT_HOME/agent-logs"; echo "50 aaaa" > "$AGENT_HOME/agent-logs/blocked-prs"
+echo Blocked > "$D/status-41"; pending IDLE IDLE; runner
+check "owner-blocked stays on the pull request of a slice the runner set Blocked" $(no_file "$D/labels.log"; echo $?)
+
+setup; export FAKE_PR_LABELS=owner-merge FAKE_LABEL_EXIT=1 FAKE_HEAD=bbbb FAKE_STOP_AT=$((S + 60)); pending "new 41"; runner
+check "a failed label write is a transient pause before the picker is asked" \
+  $([ "$(waits transient)" = 60 ] && no_file "$D/pending.count" && no_file "$D/claude.log" && no_file "$D/comments.log"; echo $?)
+
+# --- After a merge the runner is done with the pull request ------------------------------------------------------
+quiet() { no_file "$D/labels.log" && no_file "$D/comments.log" && no_file "$D/board.log" && [ "$(fails 41)" = 0 ] \
+  && [ -z "$(waits transient)$(waits environment)" ] && no_file "$AGENT_HOME/agent-logs/pause"; }
+setup; pending "merge 50 41" "merge 50 41" "owner 50 41" "review 50 41"; runner
+check "a pull request the gate merged gets no label and no mention afterwards" \
+  $([ "$(cat "$D/gate.log")" = 50 ] && quiet && no_file "$D/claude.log" \
+    && [ "$(grep -c '#50 is merged; nothing to do' "$AGENT_HOME/agent-logs/runner.log")" = 3 ]; echo $?)
+
+# A runner that did not see the merge itself (it was restarted, or the owner merged): the gate says so.
+setup; export FAKE_PR_LABELS=in-review FAKE_GATE_EXIT=3 FAKE_GATE_OUT='pull request is already merged\n'; pending "merge 50 41" "merge 50 41"; runner
+check "the gate's already merged answer is nothing to do: no label, no mention, no pause, and no second gate call" \
+  $([ "$(cat "$D/gate.log")" = 50 ] && quiet && grep -q '#50 is already merged' "$AGENT_HOME/agent-logs/runner.log"; echo $?)
+
+setup; export FAKE_PR_STATE=MERGED FAKE_VERDICT="$NONE" FAKE_PR_LABELS=owner-merge; pending "merge 50 41" "cap 50 41" "fix 50 41"; runner
+check "a merged pull request a lagging listing still shows gets no label, no status and no run" \
+  $(quiet && no_file "$D/status.log" && no_file "$D/gate.log" && no_file "$D/claude.log"; echo $?)
+
+setup; export FAKE_PR_LABELS=in-review; pending "merge 50 41"; runner
+check "in-review comes off when the gate merges" $([ "$(cat "$D/labels.log")" = "50 -in-review" ] && no_file "$D/comments.log"; echo $?)
+
+# #206: the owner merged while the reviewer was reading, and the reviewer, rightly, posted nothing.
+setup; export FAKE_VERDICT="$NONE" FAKE_PR_LABELS=in-review; echo pending > "$D/review-ok-aaaa"
+hook claude-hook "echo MERGED > '$D/state-50'"; pending "review 50 41" "review 50 41"; runner
+merged_mid=$(quiet && [ "$(lines "$D/claude.log")" = 1 ] && no_file "$D/status.log" \
+  && grep -q 'the review of #50 found it merged' "$AGENT_HOME/agent-logs/runner.log"; echo $?)
+setup; export FAKE_VERDICT="$NONE" FAKE_PR_STATE=CLOSED; pending "review 50 41" "review 50 41"; runner
+check "a review of a merged or closed pull request is not a failure" \
+  $([ "$merged_mid" = 0 ] && quiet && no_file "$D/claude.log" && no_file "$D/status.log" \
+    && [ "$(grep -c '#50 is closed; nothing to do' "$AGENT_HOME/agent-logs/runner.log")" = 2 ]; echo $?)
+
+setup; export AGENT_POLL_SECONDS=600; pending "merge 50 41" "merge 50 41" "new 41"; runner
+check "a dropped item waits a minute at most before the picker is asked again, and other work goes on" \
+  $([ "$(sleeps)" = 60 ] && [ "$(lines "$D/claude.log")" = 1 ]; echo $?)
 
 echo "$pass passed, $fail failed"
 [ "$fail" = 0 ]

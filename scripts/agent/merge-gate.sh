@@ -5,6 +5,11 @@
 #
 #   bash scripts/agent/merge-gate.sh <pr-number>
 #
+# A pull request that is already merged is answered first and alone: the one reason line
+#   pull request is already merged
+# with exit 3, and nothing else is read or printed. A listing can hand the runner a pull request this gate merged
+# a moment ago, and its slice is closed by then, so every other condition would only add noise.
+#
 # Conditions, each printed as its reason line on stdout when unmet (all unmet ones, in this order):
 #   author is not the bot                   the PR was not opened by mac-mini-agent
 #   base is not main                        the PR does not target main
@@ -25,10 +30,11 @@
 #   risk record is not the owner's          the slice issue was not written by the owner, or any edit in its
 #                                           whole history was made by someone else (or by an unnamed editor)
 #   an owner label is set                   the PR carries owner-merge, owner-decision or owner-blocked, or
-#                                           needs-owner, the one label older pull requests carry instead
-# The runner reads these lines: it waits whenever `ci-ok is pending` is among them, hands the PR to the owner as
-# ready when the only ones are `risk is not low`, `touches protected paths` and `an owner label is set`, and
-# escalates otherwise, so they are an interface.
+#                                           has-decision, the implementer's mark that a decision waits for the
+#                                           owner. in-review is not one of them and never refuses
+# The runner reads these lines: it drops the PR on `pull request is already merged`, waits whenever
+# `ci-ok is pending` is among them, hands the PR to the owner as ready when the only ones are `risk is not low`,
+# `touches protected paths` and `an owner label is set`, and escalates otherwise, so they are an interface.
 #
 # Risk is low when the first non-empty line of the slice body's first and only `## Risk` section (up to the
 # next `## ` heading) has `low` as its first word, case-sensitive, allowing one trailing comma or period:
@@ -48,8 +54,10 @@ BOT="mac-mini-agent"
 BASE="main"
 CHECK="ci-ok"
 CHECK_APP="github-actions"
-# Any of these keeps a PR for the owner. What each one tells him is the runner's business (run.sh); here they are equal.
-LABELS='["owner-merge","owner-decision","owner-blocked","needs-owner"]'
+# Any of these keeps a PR for the owner. What each one tells him is the runner's business (run.sh); here they are
+# equal. The three owner labels are the runner's; has-decision is the implementer's, set when it makes a decision
+# the owner must answer, and never removed.
+LABELS='["owner-merge","owner-decision","owner-blocked","has-decision"]'
 # Matched against the lowercased path. Passed to awk through ENVIRON, so its backslashes reach the regex as written.
 PROTECTED='^(\.github|scripts|\.claude)/|^(agents|claude)\.md$'
 
@@ -63,7 +71,7 @@ fail() { echo "pr #$pr: $*" >&2; exit 1; }
 
 # Every read is a plain assignment or redirect with an explicit `|| fail`, so no failure reads as a condition.
 gh pr view "$pr" --repo "$OWNER/$REPO_NAME" \
-  --json headRefOid,headRefName,baseRefName,isDraft,isCrossRepository,author,changedFiles,labels,closingIssuesReferences \
+  --json state,headRefOid,headRefName,baseRefName,isDraft,isCrossRepository,author,changedFiles,labels,closingIssuesReferences \
   > "$tmp/pr.json" || fail "could not read the pull request"
 # One field per line, so an empty value cannot shift the others. The slice is "-" unless the PR closes exactly
 # one issue, in this repository, whose number is the head branch's leading `<n>-`.
@@ -71,16 +79,22 @@ jq -r --arg owner "$OWNER" --arg repo "$REPO_NAME" --argjson labels "$LABELS" '
   if (.headRefOid | type) != "string" or (.headRefName | type) != "string" or (.baseRefName | type) != "string"
      or (.isDraft | type) != "boolean" or (.isCrossRepository | type) != "boolean"
      or (.changedFiles | type) != "number" or (.labels | type) != "array"
-     or (.closingIssuesReferences | type) != "array"
+     or (.closingIssuesReferences | type) != "array" or (.state | type) != "string"
   then error("unexpected pull request fields") else . end
   | ((.headRefName | capture("^(?<n>[1-9][0-9]*)-").n) // "-") as $branch
   | .closingIssuesReferences as $refs
   | .headRefOid, (.author.login // "-"), .baseRefName, .isDraft, .isCrossRepository, .changedFiles,
     (if ($refs | length) == 1 and $refs[0].repository.owner.login == $owner and $refs[0].repository.name == $repo
         and ($refs[0].number | tostring) == $branch then $branch else "-" end),
-    any(.labels[]; .name as $n | $labels | index($n) != null)' "$tmp/pr.json" > "$tmp/fields" || fail "could not read the pull request"
+    any(.labels[]; .name as $n | $labels | index($n) != null), .state' "$tmp/pr.json" > "$tmp/fields" || fail "could not read the pull request"
 { read -r sha; read -r author; read -r base; read -r draft; read -r cross; read -r changed; read -r slice
-  read -r labelled; } < "$tmp/fields" || fail "could not read the pull request"
+  read -r labelled; read -r state; } < "$tmp/fields" || fail "could not read the pull request"
+# Already merged: the one reason, alone, before anything else is read. Only GitHub's own word for it counts, so a
+# closed, unmerged pull request goes on to the conditions and fails at the merge like any other.
+if [ "$state" = MERGED ]; then
+  echo "pull request is already merged"
+  exit 3
+fi
 [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || fail "unreadable head sha: $sha"
 [[ "$changed" =~ ^[0-9]+$ ]] || fail "unreadable changed file count: $changed"
 [ "$slice" = - ] || [[ "$slice" =~ ^[1-9][0-9]*$ ]] || fail "unreadable slice: $slice"

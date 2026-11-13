@@ -16,7 +16,12 @@
 #   api with method PATCH or DELETE (-X, --method, any case) when any argument mentions `comments`
 #   api on a `pulls/<n>/merge` path, with any method
 #   api graphql whose query contains `<!--` or the mutations mergePullRequest, enablePullRequestAutoMerge,
-#     updateIssueComment or deleteIssueComment
+#     updateIssueComment, deleteIssueComment or addLabelsToLabelable
+#   api with any argument that holds a `statuses` path segment, with any method: review-ok is a commit status, and
+#     only the runner posts it
+#   pr edit, issue edit, pr create, issue create adding any label but `has-decision` (--add-label, --label, -l, a
+#     comma separated list included): in-review and the owner labels are the runner's
+#   api on an `issues/<n>/labels` or `pulls/<n>/labels` path with a field, an --input or a method other than GET
 # The command and subcommand are the first two words that are not flags or flag values: `gh pr -R x merge` and
 # `gh -R x pr merge` are pr merge. `-b=<v>`, `-F=<v>`, `-f=<v>` and `-X=<v>` are read as `-b <v>` and so on.
 # Everything else execs the real gh with the same arguments and stdin (stdin is replayed when it was read).
@@ -80,10 +85,33 @@ check_body_flags() {
   done
 }
 
+# Labels added by pr/issue edit and create: the implementer's one label is has-decision.
+ALLOWED_LABEL="has-decision"
+check_labels() {
+  local l IFS=,
+  for l in $1; do
+    l="${l#"${l%%[![:space:]]*}"}"; l="${l%"${l##*[![:space:]]}"}"
+    [ "$l" = "$ALLOWED_LABEL" ] || refuse "adding the label ${l:-(empty)}: an implementer adds $ALLOWED_LABEL and no other"
+  done
+  return 0
+}
+check_label_flags() {
+  local a v
+  while [ $# -gt 0 ]; do
+    a="$1"; shift
+    case "$a" in
+      --add-label|--label|-l) [ $# -gt 0 ] && { check_labels "$1"; shift; } ;;
+      --add-label=*) check_labels "${a#--add-label=}" ;;
+      --label=*) check_labels "${a#--label=}" ;;
+      -l?*) v="${a#-l}"; check_labels "${v#=}" ;;
+    esac
+  done
+}
+
 check_query() {
   case "$1" in *'<!--'*) refuse "graphql query contains <!--" ;; esac
-  if grep -Eq 'mergePullRequest|enablePullRequestAutoMerge|updateIssueComment|deleteIssueComment' <<<"$1"; then
-    refuse "graphql mutation that merges or edits comments"
+  if grep -Eq 'mergePullRequest|enablePullRequestAutoMerge|updateIssueComment|deleteIssueComment|addLabelsToLabelable' <<<"$1"; then
+    refuse "graphql mutation that merges, edits comments or adds labels"
   fi
 }
 
@@ -116,19 +144,19 @@ check_input() {
 }
 
 check_api() {
-  local a v method="" all=" $* "
+  local a v method="" writes=0 all=" $* "
   while [ $# -gt 0 ]; do
     a="$1"; shift
     case "$a" in
       -X|--method) [ $# -gt 0 ] && { method="$1"; shift; } ;;
       --method=*) method="${a#--method=}" ;;
       -X?*) method="${a#-X}"; method="${method#=}" ;;
-      -f|-F|--raw-field|--field) [ $# -gt 0 ] && { check_field "$a" "$1"; shift; } ;;
-      --raw-field=*) check_field --raw-field "${a#--raw-field=}" ;;
-      --field=*) check_field --field "${a#--field=}" ;;
-      -f?*|-F?*) v="${a:2}"; check_field "${a:0:2}" "${v#=}" ;;
-      --input) [ $# -gt 0 ] && { check_input "$1"; shift; } ;;
-      --input=*) check_input "${a#--input=}" ;;
+      -f|-F|--raw-field|--field) writes=1; [ $# -gt 0 ] && { check_field "$a" "$1"; shift; } ;;
+      --raw-field=*) writes=1; check_field --raw-field "${a#--raw-field=}" ;;
+      --field=*) writes=1; check_field --field "${a#--field=}" ;;
+      -f?*|-F?*) writes=1; v="${a:2}"; check_field "${a:0:2}" "${v#=}" ;;
+      --input) writes=1; [ $# -gt 0 ] && { check_input "$1"; shift; } ;;
+      --input=*) writes=1; check_input "${a#--input=}" ;;
     esac
   done
   method="$(tr '[:lower:]' '[:upper:]' <<<"$method")"
@@ -136,6 +164,12 @@ check_api() {
     case "$all" in *comments*) refuse "$method on comments" ;; esac
   fi
   if grep -Eiq '(^|[ /])pulls/[^/ ]+/merge([ /?]|$)' <<<"$all"; then refuse "the pull request merge endpoint"; fi
+  if grep -Eiq '(^|[ /])statuses([ /?]|$)' <<<"$all"; then refuse "a statuses path: only the runner posts review-ok"; fi
+  # A field or an --input makes gh api send POST, so either one is a write, as is any method but GET.
+  if [ -n "$method" ] && [ "$method" != GET ]; then writes=1; fi
+  if [ "$writes" = 1 ] && grep -Eiq '(^|[ /])(issues|pulls)/[^/ ]+/labels([ /?]|$)' <<<"$all"; then
+    refuse "the labels endpoint: add $ALLOWED_LABEL with gh pr edit --add-label"
+  fi
   return 0
 }
 
@@ -169,7 +203,9 @@ case "$cmd" in
   pr|issue)
     case "$sub" in
       merge) [ "$cmd" = pr ] && refuse "pr merge: only the merge gate merges" ;;
-      comment|edit) check_body_flags "$@" ;;
+      comment) check_body_flags "$@" ;;
+      edit) check_body_flags "$@"; check_label_flags "$@" ;;
+      create) check_label_flags "$@" ;;
     esac ;;
   api) check_api "$@" ;;
   alias|extension|extensions|ext) refuse "$cmd commands" ;;

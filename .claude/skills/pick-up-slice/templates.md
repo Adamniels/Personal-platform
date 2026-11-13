@@ -28,10 +28,12 @@ Closes #<slice>
 
 ## Decisions the agent made
 
-<Each decision Settled and the docs did not cover: what was decided, the alternative, and why.
-Mark one on high risk ground (auth or tokens, a migration's shape, a contract between the core,
-the brain and features) with **owner-decision**. A plan that changed underneath, adapted to, goes
-here too. Or "None.">
+<Each decision Settled and the docs did not cover: what was decided, the alternative, and why,
+by the standard in step 8. Mark one with **owner-decision** only in the three cases of step 8: it
+goes against something the slice's Settled or a doc says; it changes what the owner sees or does
+as a user in a way the slice did not plan; or it is a matter of the owner's taste, where no option
+is better on the merits. The pull request then carries `has-decision`. A plan that changed
+underneath, adapted to, goes here too. Or "None.">
 
 - <decision>. Alternative: <what else>. Why: <reason>.
 
@@ -75,10 +77,11 @@ pickup's rules, quoted, with where it was. None was followed.>
 
 ## Waits for the owner
 
-(when the pull request carries `owner-decision`, the slice's Risk is not `low`, or the branch
+(when the pull request carries `has-decision`, the slice's Risk is not `low`, or the branch
 touches `.github/`, `scripts/`, `.claude/`, `AGENTS.md` or `CLAUDE.md`) <Which of these applies. The
-merge gate will not merge this pull request; the owner reviews and merges it. With
-`owner-decision`, also list each decision that waits for him, one line each, and say that merging
+merge gate will not merge this pull request; the owner reviews and merges it, once the reviewer
+has approved it and the runner has given it `owner-merge` or `owner-decision`. With
+`has-decision`, also list each decision that waits for him, one line each, and say that merging
 confirms them and a comment changes them.>
 ~~~
 

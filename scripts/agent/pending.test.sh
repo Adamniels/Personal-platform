@@ -189,7 +189,7 @@ check "an owner comment before the head commit does not, even with a verdict" $?
 # R30: a bot reply (an implementer answering without a commit) counts as handling. `reply` writes the
 # issue comments of a PR from "<author> <created_at> [marker]" triples, a marker being a valid verdict marker.
 sha40=0123456789abcdef0123456789abcdef01234567
-pr 5 15 needs-owner
+pr 5 15 owner-decision
 reply() { # reply <pr> <author> <created_at> [marker] ...
   local pr="$1"; shift; local args=()
   while [ $# -ge 2 ]; do
@@ -233,29 +233,43 @@ run; [ "$out" = "review 1 11" ]
 check "an owner comment older than a bot reply on a changes verdict gives review, not fix" $?
 setprs 5; verdict 5 approve 0; reply 5 Adamniels "$late" mac-mini-agent "$later"
 run; [ "$code" = 0 ] && [ "$out" = "owner 5 15" ]
-check "a needs-owner PR whose owner comment is older than the bot reply is not fixed (owner item)" $?
+check "an owner-decision PR whose owner comment is older than the bot reply is not fixed (owner item)" $?
 reply 5 mac-mini-agent "$mid" Adamniels "$late"
 run; [ "$out" = "fix 5 15" ]
-check "a needs-owner PR whose owner comment is newer than the bot reply gives fix" $?
+check "an owner-decision PR whose owner comment is newer than the bot reply gives fix" $?
 comment_inline() { jq -n -c --arg t "$2" '[{user: {login: "Adamniels"}, created_at: $t}]' > "$FAKE_DATA/inline-$1.json"; }
 reply 5 mac-mini-agent "$later"; comment_inline 5 "$late"
 run; [ "$out" = "owner 5 15" ]
 check "an owner inline comment older than the bot reply gives no fix" $?
 setprs 1; verdict 1 approve 0
 
-# The owner labels. Any of them keeps an approved PR for the owner; only owner-blocked says the round cap was
-# already handed over, since owner-decision (and the older needs-owner) is set by the implementer long before.
-for label in owner-merge owner-decision owner-blocked needs-owner; do
+# The owner labels, and has-decision, the implementer's mark. Any of them keeps an approved PR for the owner; only
+# owner-blocked says the round cap was already handed over, since has-decision is set by the implementer long before.
+for label in owner-merge owner-decision owner-blocked; do
   pr 5 15 "$label"
   setprs 5; verdict 5 approve 0
   run; [ "$code" = 0 ] && [ "$out" = "owner 5 15" ]
   check "R42: a PR labelled $label with an approve verdict gives owner, not merge" $?
 done
+pr 5 15 has-decision
+setprs 5; verdict 5 approve 0
+run; [ "$code" = 0 ] && [ "$out" = "owner 5 15" ]
+check "an approve for the head of a pull request with has-decision gives owner, not merge" $?
+jq -c '.labels = [{name: "in-review"}, {name: "has-decision"}]' "$FAKE_DATA/pr-5.json" > "$FAKE_DATA/p" && mv "$FAKE_DATA/p" "$FAKE_DATA/pr-5.json"
+setprs 5; echo "none 0 0 -" > "$FAKE_DATA/verdict-5"
+run; [ "$out" = "review 5 15" ]
+check "a pull request with has-decision and no verdict for its head gives review, like any other" $?
+for label in in-review needs-owner; do
+  pr 5 15 "$label"
+  setprs 5; verdict 5 approve 0
+  run; [ "$out" = "merge 5 15" ]
+  check "$label is not an owner label: an approve for the head gives merge" $?
+done
 pr 5 15 owner-merge-later
 setprs 5; verdict 5 approve 0
 run; [ "$out" = "merge 5 15" ]
 check "a label that only starts with an owner label is not one" $?
-for label in owner-merge owner-decision needs-owner; do
+for label in owner-merge owner-decision has-decision; do
   pr 5 15 "$label"
   setprs 5; verdict 5 changes 4
   run; [ "$out" = "cap 5 15" ]

@@ -2,7 +2,7 @@
 
 Status: exploratory. Built, and not yet run end to end on a real feature.
 
-Last updated: 2026 11 12
+Last updated: 2026 11 13
 
 How agents build this repository and what the owner does around them. How work is cut, features,
 slices, the walking skeleton and what gets tests, is in `how-we-build.md`. This document says who
@@ -79,8 +79,9 @@ logic, a migration, a contract between the core, the brain and features. That gr
 default until 2026 11 12. It changed because the reviewer and the tests were doing the checking
 and his read of every such pull request added little to them, while each one stopped the runner.
 What still waits for him regardless of tier is a pull request touching a path that steers the
-agents, see "The merge gate", and a decision on that same ground which the slice did not settle,
-see "Building a slice". The exact rule is in step 3 of `plan-feature`.
+agents, see "The merge gate", and a decision the implementer may not make alone, which is no
+longer a matter of the ground it is on, see "Building a slice". The exact rule is in step 3 of
+`plan-feature`.
 
 ## Building a slice
 
@@ -101,12 +102,32 @@ round have the subject "Address review: <what>". No commit or pull request names
 the bot as author already says who wrote it.
 
 **The agent decides rather than asks.** Where the slice's Settled section and the docs leave
-something open, the agent decides it the way the docs lean and records it in the pull request under
-"Decisions the agent made", with the alternative and why. A decision on high risk ground also gets
-the label `owner-decision`, which keeps the pull request from merging until the owner has answered
-it. The reviewer does not block on such a decision for being unconfirmed, since no fix round can
-confirm it: it lists it for the owner with its own view, and blocks only when the label is missing.
-How a doc that disagrees with the plan is handled is step 8 of `pick-up-slice`.
+something open, the agent decides it and records it in the pull request under "Decisions the agent
+made", with the alternative and why. It sets the label `has-decision`, which keeps the pull request
+from merging until the owner has answered, and marks the decision **owner-decision** in the body,
+only in three cases:
+
+1. it goes against something the slice's Settled or a doc says;
+2. it changes what the owner sees or does as a user in a way the slice did not plan;
+3. it is a matter of the owner's taste, where no option is better on the merits.
+
+Being about auth, a migration or a contract is no longer a reason by itself. Until 2026 11 13 it
+was, and every backend slice of the brain then asked for the owner, on details such as the fields
+of an API answer: the rule fired on where a decision was, not on how much it mattered.
+
+Every other decision is made by a written standard, and the reviewer judges each recorded decision
+against it:
+
+- correct and secure first, and on security the stricter option when unsure;
+- what holds up in the long run over what is quickest for this slice;
+- consistent with the code and the docs that exist;
+- simple, and easy to change later where that is possible.
+
+A decision that does not meet the standard is a blocking finding, argued on its merits. A decision
+marked for the owner is not blocked for being unconfirmed, since no fix round can confirm it: the
+reviewer lists it for him with its own view, and blocks only when one of the three cases applies
+and `has-decision` is missing. How a doc that disagrees with the plan is handled is step 8 of
+`pick-up-slice`.
 
 **The gate is what CI runs**, decided from the branch's diff by `scripts/ci/changed-areas.sh`, so
 `ci-ok` passes on the first push. When the e2e area is touched, the Playwright suite runs against
@@ -154,11 +175,20 @@ mention.
 `scripts/agent/merge-gate.sh` is the only way code reaches `main` unattended, and the merge decision
 is deterministic code, never a language model. It merges only when `ci-ok` is green on the head
 commit, the latest verdict is `approve` for that commit, the slice is the open issue the branch is
-named for, written and only edited by the owner, its Risk is `low`, it carries no owner label, the
-pull request is the bot's, comes from this repository rather than a fork, targets `main` and is not
-a draft, and no changed file is under a protected path. Its header lists each condition with the
-reason line it prints, which the runner reads. It fails closed: anything it cannot read is not a
-merge.
+named for, written and only edited by the owner, its Risk is `low`, it carries no owner label and
+no `has-decision`, the pull request is the bot's, comes from this repository rather than a fork,
+targets `main` and is not a draft, and no changed file is under a protected path. Its header lists
+each condition with the reason line it prints, which the runner reads. It fails closed: anything it
+cannot read is not a merge.
+
+**`has-decision` refuses like an owner label**, with the same reason line, `an owner label is
+set`, so a decision the implementer marked for the owner cannot merge unread. `in-review` never
+refuses: it only says where a pull request is.
+
+**A pull request that is already merged gets one answer**, the single reason line `pull request is
+already merged`, and nothing else is read. GitHub's listing can hand the runner a pull request the
+gate merged a moment ago, and its slice is closed by then, so the gate used to answer "slice is not
+open" and the runner told the owner not to merge something that was already on `main`.
 
 **Protected paths** are `.github/`, `scripts/` and `.claude/`, and the root `AGENTS.md` and
 `CLAUDE.md`. They steer CI, the gate, the runner and the agents themselves, so a pull request
@@ -179,28 +209,36 @@ sets the slice Done.
 ## What waits for the owner
 
 A pull request waits for him when its slice is high risk, when it touches a protected path, when
-the implementer flagged a decision on high risk ground, or when it is stuck. Its label says which,
-and so what he does:
+the implementer marked a decision for him, or when it is stuck. **One rule says when it is his
+turn: an owner label and a green merge button mean go.** The labels say where a pull request is:
 
-| Label | What it means | What the owner does |
-|---|---|---|
-| `owner-merge` | Approved, CI green, nothing open | Reads it and merges |
-| `owner-decision` | The implementer decided something on high risk ground that Settled does not cover | Reads "Decisions the agent made" and the reviewer's "For the owner". Merging confirms the decisions, and a comment asking for a change starts a fix round |
-| `owner-blocked` | Not mergeable as it is: the review rounds ran out, the slice was set Blocked, or the gate refused it for a reason such as a failed `ci-ok` | Does not merge. Reads the runner's mention for the reason, fixes the slice or the cause, and comments on the pull request to run it again |
+| Label | Set by | What it means | What the owner does |
+|---|---|---|---|
+| `in-review` | The runner | An open pull request whose head the reviewer has not approved. It is in the build, review and fix loop | Nothing. It is not his turn |
+| `has-decision` | The implementer | It made a decision he must answer, one of the three cases in "Building a slice". Never removed, and read only by the gate, the picker and the runner | Nothing yet. It becomes `owner-decision` when the reviewer approves |
+| `owner-merge` | The runner | Approved, waits for him, nothing to decide | Reads it and merges |
+| `owner-decision` | The runner | Approved, waits for him, and carries `has-decision` | Reads "Decisions the agent made" and the reviewer's "For the owner". Merging confirms the decisions, and a comment asking for a change starts a fix round |
+| `owner-blocked` | The runner | Not mergeable as it is: the review rounds ran out, the slice was set Blocked, or the gate refused it for a reason such as a failed `ci-ok` | Does not merge. Reads the runner's mention for the reason, fixes the slice or the cause, and comments on the pull request to run it again |
 
-When a pull request carries more than one, the most severe is the one to act on: `owner-blocked`,
-then `owner-decision`, then `owner-merge`. `owner-decision` is the implementer's, set when it makes
-the decision, and nothing removes it. `owner-merge` and `owner-blocked` are the runner's, and it
-keeps them true: one replaces the other, and a pull request with `owner-decision` never gets
-`owner-merge`. So an `owner-decision` pull request the reviewer has not approved yet is still in
-the loop, and the runner's mention on the slice, "approved and waits for your decision", is the
-signal that it is ready for him.
+**The runner owns `in-review` and the three owner labels**, and the implementer sets `has-decision`
+and nothing else. So a label starting with `owner-` always means the reviewer has approved the
+head, or the pull request is stuck, and it is the owner's turn. A pull request carries at most one
+of them, and never one beside `in-review`. A new commit takes the owner label off and puts
+`in-review` back, since the new head has no approve; `owner-blocked` alone stays while the head is
+still the one whose review rounds ran out, or while its slice is Blocked. A pull request the gate
+will merge on its own, low risk, no protected path and no `has-decision`, gets no owner label:
+`in-review` comes off when it merges, so an approved pull request can still show it while `ci-ok`
+finishes.
 
-An owner label blocks merging and nothing else: every waiting pull request goes through review and
-the fix rounds first, so what he reads has already been through the reviewer. The gate treats the
-three alike and only reads them. It also refuses on `needs-owner`, the one label that pull requests
-opened before 2026-11-12 carry instead, which the runner reads like `owner-decision`; that can go
-once no open pull request carries it.
+**The merge button says the rest.** The ruleset requires `ci-ok` and `review-ok`, and the runner
+sets `review-ok` to success only on the exact commit the reviewer approved, see "The runner". So
+the button is green only when CI passed on that commit and the reviewer approved it, for the owner
+as much as for the gate. Until 2026 11 13 a pull request carried `owner-decision` from the moment
+it was opened, with a green button, and the owner merged one before the reviewer had read it.
+
+An owner label, like `has-decision`, blocks the gate's merge and nothing else: every waiting pull
+request goes through review and the fix rounds first, so what he reads has already been through
+the reviewer. The gate treats the four alike and only reads them.
 
 Once the reviewer approves a pull request that waits for him, the runner announces it to the owner
 once per head commit. A pull request whose review rounds ran out is handed over once. He merges it
@@ -223,6 +261,24 @@ announce to the owner. A slice blocked by a slice still waiting for the owner is
 runner takes other work. Implementer and reviewer each run in a fresh `claude -p` session under a
 timeout of 90 minutes, so no run carries another's context. With nothing to do it waits 10 minutes
 and looks again. The script's header is the exact behaviour.
+
+**Each turn begins by making the labels and `review-ok` true** for every open pull request by the
+bot, before the runner asks for the next item. `review-ok` is a commit status that only the runner
+posts: success, "approved by the reviewer", when the latest verdict is `approve` for that exact
+commit, and pending, "waiting for the reviewer", otherwise. Never failure, since a `changes`
+verdict is still waiting. The runner reads each pull request's verdict, labels and status and
+writes only what differs, so one that is already right costs no write, and it posts the status
+again right after a review. It calls the gate only for a head it found approved in the same turn,
+so the status is written before the gate's own merge needs it. A label or status write that fails
+is an interruption like any other below. This pass is also what carried the open pull requests
+over when the labels changed: one approved earlier got its status and its label without a new
+review, and one opened with `owner-decision` and no approve became `has-decision` and `in-review`.
+
+**After a merge the runner is done with a pull request.** One that is merged or closed when an
+item for it is picked, or after its run, and one the gate answers as already merged, is dropped
+with a log line: no label, no mention, no pause and no count against the slice. Before 2026 11 13
+a listing that lagged behind a merge got three merged pull requests labelled `owner-blocked`, and
+a review of one the owner had merged meanwhile counted as a failed run.
 
 **Interruptions pause, they never count against a slice.** A usage limit, a network or API outage,
 or an `ENVIRONMENT:` ending pauses the runner and retries the same item, sleeping until a usage
@@ -251,16 +307,23 @@ waits is enough until that changes.
 
 - **The bot.** The Mac mini works as `mac-mini-agent`, a collaborator with Write and never Admin,
   with Write on Project 5. It cannot change the ruleset or bypass it.
-- **The ruleset** "Protect main" requires a pull request and the one status check `ci-ok`, requires
-  no approval, allows merge commits only, forbids force pushing or deleting `main`, and gives the
-  bot no bypass. Why one aggregating check is the required one is in "What it costs, and how it
-  is paid" in `platform-architecture.md`.
+- **The ruleset** "Protect main" requires a pull request and the two status checks `ci-ok` and
+  `review-ok`, requires no approval, allows merge commits only, forbids force pushing or deleting
+  `main`, and gives the bot no bypass. `ci-ok` says CI passed on the commit, and why one
+  aggregating check stands for all of CI is in "What it costs, and how it is paid" in
+  `platform-architecture.md`. `review-ok` says the reviewer approved that exact commit, so GitHub
+  lets nobody merge a commit that has not been reviewed, the owner included. His own pull requests
+  are never read by the reviewer and get no status, so he bypasses the check for those, as he can
+  for any rule.
 - **One bot identity.** Implementer and reviewer both post as `mac-mini-agent`, so an implementer
   could in principle post its own approval. Three layers stop that: the runner starts implementer
   runs with `--disallowedTools` patterns refusing the marker text, comment edits and merges; it puts
   `scripts/agent/gh-guard.sh` first on their `PATH` as `gh`, refusing the same; and `verdict.sh`
   ignores an edited comment. A second account for the reviewer is the upgrade if a self approval
-  ever shows up in the logs.
+  ever shows up in the logs. The guard also refuses an implementer's call to any `statuses` path
+  and its adding of any label but `has-decision`, so it cannot set `review-ok`, `in-review` or an
+  owner label. The guard is the only layer there, and `review-ok` set by hand would still not get
+  past the gate, which reads the verdict itself.
 - **Deny rules** in `.claude/settings.json` refuse merging, running the gate, pushing to `main`,
   force pushing and any admin flag in every Claude session, so a confused agent fails rather than
   tries.
@@ -290,12 +353,20 @@ runner clears between planning sessions.
 1. Invite `mac-mini-agent` as a collaborator with Write, and accept the invitation as the bot.
 2. Project 5, Settings, Manage access: add `mac-mini-agent` with Write. Repository access does not
    include the board.
-3. The "Protect main" ruleset, as described under Safety, in the settings UI. The bot cannot read
-   rulesets, so check it from the owner's account with
-   `gh api repos/Adamniels/Personal-platform/rulesets`.
-4. The labels `owner-merge`, `owner-decision` and `owner-blocked`, the Blocked status on the board, and "Automatically delete head
-   branches" in the repository settings.
+3. The "Protect main" ruleset, as described under Safety, in the settings UI, with `ci-ok` as its
+   only required check for now; `review-ok` is added in step 6. The bot cannot read rulesets, so
+   check it from the owner's account with `gh api repos/Adamniels/Personal-platform/rulesets`.
+4. The labels `in-review`, `has-decision`, `owner-merge`, `owner-decision` and `owner-blocked`, the
+   Blocked status on the board, and "Automatically delete head branches" in the repository
+   settings. The labels come before the runner starts: it sets `in-review` on its first turn, and
+   a label that does not exist makes that write fail, which pauses it.
 5. GitHub notifications on for mentions, since that is how the runner reaches the owner.
+6. **`review-ok`, last and by hand.** Add `review-ok` to the required status checks of "Protect
+   main" only after the runner that posts it is on `main` and running, and the status has been
+   seen on a pull request, under its checks as "approved by the reviewer" or "waiting for the
+   reviewer". Not before: until the runner posts it, a required `review-ok` would block every pull
+   request, the one that brings the runner's posting included. From then on the owner's own pull
+   requests need his bypass, since they get no status.
 
 ### Once, on the Mac mini
 
@@ -392,5 +463,7 @@ fresh clone, switch to `main` before it. Detach with `Ctrl-b d`; the runner keep
 | Runs fail at once asking to log in, over SSH | Unlock the login keychain in the runner's tmux session, step 10 |
 | `curl` reports an expired certificate after the Mac mini was off | "After Caddy has been stopped for a while" in `infra/README.md` |
 | The runner pauses and mentions an environment problem | Read the last agent log in `~/agent-logs/`; fix what it names, and the runner carries on |
-| A slice was set Blocked | Read its Blocked notice and fix the slice from the owner's account, or the cause. Then, by what exists: with an open pull request, comment on it, and the runner moves the slice to In review; with a branch that has commits but no pull request, set the slice In progress; with neither, set it Ready. `owner-blocked` stays on the pull request until the reviewer approves it again, when the runner replaces it with `owner-merge`, or drops it where `owner-decision` is set. The pull request waits for the owner's merge either way |
+| A slice was set Blocked | Read its Blocked notice and fix the slice from the owner's account, or the cause. Then, by what exists: with an open pull request, comment on it, and the runner moves the slice to In review; with a branch that has commits but no pull request, set the slice In progress; with neither, set it Ready. `owner-blocked` comes off by itself: the runner swaps it for `in-review` once the slice is off Blocked and the head has moved past the verdict it was stuck on, or for `owner-merge` or `owner-decision` when the reviewer approves a head the gate leaves to the owner |
+| The runner pauses with "could not make #n true" | A label or status write failed. Read `~/agent-logs/runner.log`: a label that does not exist is GitHub step 4, and the runner carries on once it is there |
+| A pull request the reviewer approved shows `review-ok` as expected and never reported | The runner posts it at the start of its next turn; if the runner is stopped, start it. It is never set by hand |
 | Every pull request waits with "risk record is not the owner's" | The slices were created or edited from another account; recreate them as `Adamniels` |

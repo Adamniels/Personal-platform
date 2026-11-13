@@ -109,9 +109,13 @@ review loop, then waits for him to merge it.
   him whatever its tier**, since the merge gate never merges those paths. Mark it high, so the
   issue says what will happen, and gather such changes into as few slices as the work allows, early
   in the order, so the rest of the feature merges unattended.
-- **A low tier makes thorough slices matter more.** A decision on auth, token, migration or contract
-  ground that Settled does not cover still gets `owner-decision` from the implementer and waits. So
-  settle those here.
+- **A low tier makes thorough slices matter more.** The implementer decides whatever Settled
+  leaves open, by the standard in step 8 of `pick-up-slice`, and the reviewer judges the decision.
+  It sets `has-decision`, which makes the pull request wait for the owner, only in three cases: the
+  decision goes against something the slice's Settled or a doc says; it changes what the owner
+  sees or does as a user in a way the slice did not plan; or it is a matter of the owner's taste,
+  where no option is better on the merits. Being about auth, a migration or a contract is not a
+  reason by itself. So settle here what he would want a say in.
 
 The default was high for all of that ground until 2026 11 12. It is worth going back to when the
 platform has users besides the owner, or holds data that cannot be entered again.

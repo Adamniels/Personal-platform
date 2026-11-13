@@ -66,7 +66,7 @@ SLICE=11
 # pr [labels, comma separated] [slice, empty for none]: bot PR 7 into main, head $HEAD on branch "11-copy-change".
 pr() {
   jq -n -c --arg sha "$HEAD" --arg labels "${1:-}" --arg slice "${2-$SLICE}" \
-    '{number: 7, headRefOid: $sha, headRefName: "11-copy-change", baseRefName: "main", isDraft: false,
+    '{number: 7, state: "OPEN", headRefOid: $sha, headRefName: "11-copy-change", baseRefName: "main", isDraft: false,
       isCrossRepository: false, author: {login: "mac-mini-agent"}, changedFiles: 1,
       labels: [$labels | split(",")[] | select(. != "") | {name: .}],
       closingIssuesReferences: [$slice | select(. != "") |
@@ -451,21 +451,56 @@ good; checks "$HEAD" ci-ok completed success ci-ok in_progress null
 run 7; not_eligible "ci-ok is pending"
 check "any unfinished ci-ok run on the head commit is pending" $?
 
-# The owner labels: each of the three, and needs-owner, the label older pull requests carry.
-for label in owner-merge owner-decision owner-blocked needs-owner; do
+# The owner labels: each of the three keeps the pull request for the owner.
+for label in owner-merge owner-decision owner-blocked; do
   good; pr "$label"
   run 7; not_eligible "an owner label is set"
   check "$label exits 3" $?
 done
+# has-decision, the implementer's mark, is refused like an owner label, with the same reason line.
+good; pr "has-decision"
+run 7; not_eligible "an owner label is set"
+check "the gate refuses on has-decision" $?
+good; pr "in-review,has-decision"
+run 7; not_eligible "an owner label is set"
+check "has-decision beside in-review gives the reason once" $?
+good; pr "in-review"
+run 7; [ "$code" = 0 ] && merged
+check "the gate does not refuse on in-review" $?
+good; pr "needs-owner"
+run 7; [ "$code" = 0 ] && merged
+check "needs-owner is no longer read: it is a label like any other" $?
 good; pr "ready,owner-decision"
 run 7; not_eligible "an owner label is set"
 check "an owner label among other labels exits 3" $?
 good; pr "owner-decision,owner-blocked"
 run 7; not_eligible "an owner label is set"
 check "two owner labels give the reason once" $?
-good; pr "owner-merge-later,owner,needs-owner-later"
+good; pr "owner-merge-later,owner,has-decision-later"
 run 7; [ "$code" = 0 ] && merged
 check "a label that only starts with an owner label is not one" $?
+
+# A merged pull request: one reason, alone, whatever else would be unmet, and nothing more is read.
+good; edit pr.json '.state = "MERGED"'
+run 7; not_eligible "pull request is already merged"
+check "the gate says already merged for a merged pull request" $?
+[ "$(grep -c '' "$FAKE_GH_LOG")" = 1 ] && grep -q '^pr view 7 ' "$FAKE_GH_LOG"
+check "a merged pull request is answered from the pull request alone, with no other read" $?
+# What a merged pull request looks like afterwards: its slice closed, an owner label left on it, ci-ok gone.
+rm -f "$FAKE_DATA"/*.json
+pr owner-blocked; files .github/x; checks "$HEAD" ci-ok completed failure; verdict changes "$OLD"; risk "## Risk
+
+high"
+edit pr.json '.state = "MERGED"'
+edit "issue-$SLICE.json" '.data.repository.issue.state = "CLOSED"'
+run 7; not_eligible "pull request is already merged"
+check "already merged is the only reason, with no other reason beside it" $?
+good; edit pr.json '.state = "CLOSED"'
+FAKE_MERGE_FAILS=1 run 7; [ "$code" = 1 ] && ! grep -q 'already merged' <<<"$out"
+check "a closed, unmerged pull request is not called merged" $?
+good; edit pr.json 'del(.state)'
+run 7; [ "$code" = 1 ] && [ -z "$out" ] && ! merged
+check "a missing state exits 1 without merging" $?
 
 # Every unmet condition is reported, in a stable order.
 rm -f "$FAKE_DATA"/*.json
