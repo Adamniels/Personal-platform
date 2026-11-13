@@ -169,3 +169,95 @@ describe("adding needs text, and reports the server's refusal", () => {
 		);
 	});
 });
+
+describe("editing shows the current text, and saving nothing new is not sent", () => {
+	test("the text area holds the entry's text", async () => {
+		const brain = fakeBrain();
+		brain.add("profile", "Honesty over comfort", "values");
+		openProfile(brain);
+
+		const values = within(await card("Values"));
+		fireEvent.click(await values.findByRole("button", { name: "Edit" }));
+
+		const field = values.getByLabelText("Entry") as HTMLTextAreaElement;
+		expect(field.value).toBe("Honesty over comfort");
+	});
+
+	test("saving the same text sends nothing and closes the editor", async () => {
+		const brain = fakeBrain();
+		brain.add("profile", "Honesty over comfort", "values");
+		openProfile(brain);
+
+		const values = within(await card("Values"));
+		fireEvent.click(await values.findByRole("button", { name: "Edit" }));
+		fireEvent.change(values.getByLabelText("Entry"), {
+			target: { value: "  Honesty over comfort " },
+		});
+		fireEvent.click(values.getByRole("button", { name: "Save" }));
+
+		await waitFor(() => expect(values.queryByLabelText("Entry")).toBeNull());
+		expect(values.getByText("Honesty over comfort")).toBeTruthy();
+		expect(brain.changes()).toEqual([]);
+	});
+
+	test("a changed text is sent as an edit of that entry", async () => {
+		const brain = fakeBrain();
+		const entry = brain.add("profile", "Honesty over comfort", "values");
+		openProfile(brain);
+
+		const values = within(await card("Values"));
+		fireEvent.click(await values.findByRole("button", { name: "Edit" }));
+		fireEvent.change(values.getByLabelText("Entry"), {
+			target: { value: "Honesty, kindly" },
+		});
+		fireEvent.click(values.getByRole("button", { name: "Save" }));
+
+		expect(await values.findByText("Honesty, kindly")).toBeTruthy();
+		expect(brain.changes()).toEqual([
+			{
+				method: "POST",
+				path: `/brain/api/items/${entry.id}/edit`,
+				body: { kind: "profile", content: "Honesty, kindly" },
+			},
+		]);
+	});
+});
+
+describe("an entry's earlier versions", () => {
+	test("only an edited entry offers them, oldest first, each with its date", async () => {
+		const brain = fakeBrain();
+		const first = brain.add("profile", "Honesty over comfort", "values");
+		const second = brain.edit(first, "Honesty, kindly");
+		brain.edit(second, "Honesty, said kindly");
+		brain.add("profile", "Say it plainly", "values");
+		openProfile(brain);
+
+		const values = within(await card("Values"));
+		const [edited, plain] = values.getAllByRole("listitem");
+		expect(
+			within(plain as HTMLElement).queryByRole("button", {
+				name: "Earlier versions",
+			}),
+		).toBeNull();
+		const open = within(edited as HTMLElement).getByRole("button", {
+			name: "Earlier versions",
+		});
+		expect(open.getAttribute("aria-expanded")).toBe("false");
+
+		fireEvent.click(open);
+
+		const list = within(
+			await values.findByRole("list", { name: "Earlier versions" }),
+		);
+		const versions = list.getAllByRole("listitem");
+		expect(
+			versions.map((version) => version.querySelector("p")?.textContent),
+		).toEqual(["Honesty over comfort", "Honesty, kindly"]);
+		const date = versions[0]?.querySelector("time");
+		expect(date?.getAttribute("datetime")).toBe(first.created_at);
+		expect(date?.textContent).toMatch(
+			/^\d{1,2} [A-Z][a-z]{2,3} 2026, \d{2}:\d{2}$/,
+		);
+		expect(open.getAttribute("aria-expanded")).toBe("true");
+	});
+});

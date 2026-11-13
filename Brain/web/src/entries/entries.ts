@@ -66,6 +66,19 @@ export function useEntries(kind: EntryKind) {
 	});
 }
 
+/** An entry's versions other than the one shown, oldest first, fetched once
+ * asked for. */
+export function useEarlierVersions(entry: Entry, enabled: boolean) {
+	const client = useClient();
+	return useQuery({
+		queryKey: [...ITEMS, "versions", entry.id],
+		queryFn: () =>
+			client.get("/items/{id}/versions", { path: { id: entry.id } }),
+		select: (versions) => versions.filter(({ id }) => id !== entry.id),
+		enabled,
+	});
+}
+
 function useRefresh() {
 	const queries = useQueryClient();
 	return () => queries.invalidateQueries({ queryKey: ITEMS });
@@ -81,4 +94,45 @@ export function useAddEntry() {
 		onSuccess: refresh,
 		meta: { fieldErrors: true },
 	});
+}
+
+/** Corrects an entry's text, which makes a new version of it. A 422 is the
+ * form's to show on its field. */
+export function useEditEntry() {
+	const client = useClient();
+	const refresh = useRefresh();
+	return useMutation({
+		mutationFn: ({ entry, content }: { entry: Entry; content: string }) =>
+			client.send<ItemDetail>("POST", `${itemPath(entry.id)}/edit`, {
+				kind: entry.kind,
+				content,
+			}),
+		onSuccess: refresh,
+		meta: { fieldErrors: true },
+	});
+}
+
+/** Retires an entry, or brings a retired one back. */
+export function useRetireEntry() {
+	const client = useClient();
+	const refresh = useRefresh();
+	return useMutation({
+		mutationFn: (id: string) =>
+			client.send<ItemDetail>("POST", `${itemPath(id)}/retire`),
+		onSuccess: refresh,
+	});
+}
+
+export function useRestoreEntry() {
+	const client = useClient();
+	const refresh = useRefresh();
+	return useMutation({
+		mutationFn: (id: string) =>
+			client.send<ItemDetail>("POST", `${itemPath(id)}/restore`),
+		onSuccess: refresh,
+	});
+}
+
+function itemPath(id: string): string {
+	return `/items/${encodeURIComponent(id)}`;
 }

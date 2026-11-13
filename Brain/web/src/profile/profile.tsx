@@ -100,13 +100,14 @@ function CategoryCard({
 			footer={adding ? undefined : <Button onClick={onAdd}>Add</Button>}
 		>
 			<div className={layout.body}>
-				{entries.length === 0 ? (
-					<p className={styles.none}>
-						No {category.label.toLowerCase()} entries yet.
-					</p>
-				) : (
-					<EntryList entries={entries} />
-				)}
+				<EntryList
+					entries={entries}
+					labels={{
+						field: "Entry",
+						emptyError: "Write the entry first",
+						none: `No ${category.label.toLowerCase()} entries yet.`,
+					}}
+				/>
 				{adding ? (
 					<EntryForm
 						label="New entry"

@@ -51,3 +51,54 @@
 	display: flex;
 	gap: var(--space-2);
 }
+
+/* Earlier versions, Edit and Retire, ghost buttons at the end of the text. */
+.actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-1);
+	margin-left: auto;
+}
+
+/* Under the entry, the full width of the row, set in from the text by a
+ * rule on its left. */
+.versions {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-2);
+	flex: 1 1 100%;
+	min-width: 0;
+	margin: var(--space-2) 0 0;
+	padding: 0 0 0 var(--space-3);
+	border-left: 1px solid var(--border);
+	list-style: none;
+}
+
+.versionsNote {
+	flex: 1 1 100%;
+	margin: var(--space-2) 0 0;
+	color: var(--text-2);
+}
+
+.version {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+}
+
+.versionText {
+	margin: 0;
+	color: var(--text-2);
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+
+/* A date is in the mono font with tabular figures, hard rule 8 of
+ * design/DESIGN.md. */
+.when {
+	color: var(--text-3);
+	font-family: var(--font-mono);
+	font-size: var(--text-mono-size);
+	line-height: var(--text-mono-line);
+	font-variant-numeric: tabular-nums;
+}
