@@ -88,18 +88,24 @@ class Event:
     payload: dict[str, Any]
     payload_version: int
     idempotency_key: str
+    # The item this event made, which names it back: it comes first, so it
+    # cannot name the item as its subject. None for every other event.
+    made_item: UUID | None
 
 
-# Each event with its subject, the topic read through its alias.
+# Each event with its subject, the topic read through its alias, and the item
+# it made, of which there is at most one (the unique index items_made_by).
 _SELECT = """
 SELECT e.id, e.verb, e.subject_topic, t.id, t.slug, t.name, n.id, n.name,
        e.subject_item, e.origin, e.source, e.run, e.occurred_at,
        e.occurred_precision, e.recorded_at, e.evidence, e.payload,
-       e.payload_version, e.idempotency_key
+       e.payload_version, e.idempotency_key, made.id
 FROM events e
 LEFT JOIN topics named ON named.id = e.subject_topic
 LEFT JOIN topics t ON t.id = coalesce(named.alias_of, named.id)
 LEFT JOIN entities n ON n.id = e.subject_entity
+LEFT JOIN items made
+  ON made.user_id = e.user_id AND made.created_by_event = e.id
 """
 
 
@@ -208,15 +214,24 @@ async def record(
 
 
 async def timeline(
-    conn: Connection, *, before: datetime | None, limit: int
+    conn: Connection,
+    *,
+    before: datetime | None,
+    before_id: UUID | None = None,
+    limit: int,
 ) -> list[Event]:
-    """The current user's events, newest recorded first: at most `limit`,
-    and only those recorded before `before` when it is given, so the next
-    page starts before the last one shown."""
+    """The current user's events, newest recorded first and the id breaking
+    a tie: at most `limit`, and only those that come after the place
+    `before` and `before_id` name when they are given, so the next page
+    starts after the last one shown. Events recorded together share a time,
+    as an edit's two do, so `before` alone is every event recorded before
+    it, and with `before_id` those recorded at it with a smaller id too."""
     cursor = await conn.execute(
         f"{_SELECT} WHERE %(before)s::timestamptz IS NULL"
         " OR e.recorded_at < %(before)s::timestamptz"
+        " OR (e.recorded_at = %(before)s::timestamptz"
+        " AND e.id < %(before_id)s::uuid)"
         " ORDER BY e.recorded_at DESC, e.id DESC LIMIT %(limit)s",
-        {"before": before, "limit": limit},
+        {"before": before, "before_id": before_id, "limit": limit},
     )
     return [_event(row) for row in await cursor.fetchall()]

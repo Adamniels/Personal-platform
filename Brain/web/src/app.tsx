@@ -8,6 +8,7 @@ import { Now } from "./now/now";
 import { Profile } from "./profile/profile";
 import { Rules } from "./rules/rules";
 import { SECTIONS, type Section, sectionAt } from "./sections";
+import { TimelineSection } from "./timeline/timeline";
 
 /** The memory centre's frame: the page's heading, a tab per section, tied to
  * the address, and the section the address names. */
@@ -55,6 +56,7 @@ function SectionView({ section }: { section: Section }) {
 	if (section.key === "now") return <Now />;
 	if (section.key === "history") return <History />;
 	if (section.key === "everything") return <Everything />;
+	if (section.key === "timeline") return <TimelineSection />;
 	return (
 		<EmptyState
 			title={`Nothing in ${section.label} yet`}

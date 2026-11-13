@@ -452,6 +452,75 @@ def test_the_timeline_answers_50_by_default_and_200_at_most(
         assert alice.get(f"{EVENTS}{query}").status_code == 422, query
 
 
+def test_the_timeline_pages_past_events_recorded_at_the_same_time(
+    calling: Callable[[uuid.UUID], Caller], database: str
+) -> None:
+    """Correcting an item records two events in one transaction, at one
+    time, so a page can end between them: the next one starts after the
+    last one's id as well as its time, and loses neither."""
+    alice = calling(ALICE)
+    at = datetime(2026, 11, 12, 9, tzinfo=UTC)
+    ids = sorted(uuid.uuid7() for _ in range(3))
+    with admin_connection(database) as conn, conn.cursor() as cursor:
+        cursor.executemany(
+            "INSERT INTO events (id, user_id, verb, subject_topic, subject_entity,"
+            " subject_item, origin, source, run, occurred_at, occurred_precision,"
+            " recorded_at, evidence, payload, payload_version, idempotency_key)"
+            " VALUES (%s, %s, 'opened', NULL, NULL, NULL, 'news', NULL, NULL,"
+            " %s, 'instant', %s, 'Opened it.', '{}', 1, %s)",
+            [(id_, ALICE, at, at, f"k{n}") for n, id_ in enumerate(ids)],
+        )
+
+    first = timeline(alice, "?limit=2")
+    # Newest first, the id breaking the tie, as the index orders them.
+    assert [e["id"] for e in first] == [str(ids[2]), str(ids[1])]
+    last = first[-1]
+    rest = timeline(
+        alice, f"?limit=2&before={_q(last['recorded_at'])}&before_id={last['id']}"
+    )
+    assert [e["id"] for e in rest] == [str(ids[0])]
+    # The time alone skips what shares it, which before_id is for.
+    assert timeline(alice, f"?before={_q(last['recorded_at'])}") == []
+    for query in [
+        f"?before_id={last['id']}",
+        f"?before={_q(last['recorded_at'])}&before_id=not-an-id",
+    ]:
+        assert alice.get(f"{EVENTS}{query}").status_code == 422, query
+
+
+def test_an_event_names_the_item_it_made(
+    calling: Callable[[uuid.UUID], Caller],
+) -> None:
+    """The event that makes an item cannot name it as its subject, since it
+    comes first; the timeline says which item it made, so it can link to
+    it. A judgment names its item as its subject and made none."""
+    alice = calling(ALICE)
+    made = alice.post(
+        "/brain/api/items",
+        {"kind": "profile", "category": "values", "content": "Lives in Uppsala."},
+    )
+    assert made.status_code == 201, made.text
+    old = made.json()["id"]
+    edited = alice.post(
+        f"/brain/api/items/{old}/edit",
+        {"kind": "profile", "content": "Lives in Stockholm."},
+    )
+    assert edited.status_code == 201, edited.text
+    new = edited.json()["id"]
+    sent = record(alice, event())
+
+    by_verb = {
+        (e["verb"], e["origin"]): (e["subject_item"], e["made_item"])
+        for e in timeline(alice)
+    }
+    assert len(timeline(alice)) == 4
+    assert by_verb[("edited", "brain")] == (old, None)
+    assert by_verb[("exposed", "news")] == (None, None)
+    entered = [e["made_item"] for e in timeline(alice) if e["verb"] == "asserted"]
+    assert entered == [new, old]
+    assert sent["made_item"] is None
+
+
 def test_events_are_scoped_to_their_user(
     calling: Callable[[uuid.UUID], Caller], database: str
 ) -> None:
