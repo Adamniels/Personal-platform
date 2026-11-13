@@ -2,6 +2,103 @@
 // `npm run generate:api`. Do not edit: src/api/schema.test.ts fails when it is stale.
 
 export interface paths {
+    "/brain/api/ask/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ask History
+         * @description What is the history of this subject: the records and decisions about
+         *     one topic, read through aliases, or one named thing, ordered by mode.
+         *     Asked about history, the decisions another one replaced are there too,
+         *     inactive and superseded. A subject the user does not have answers known
+         *     false, with no items, and is never created. 422 for neither or both of
+         *     topic and entity, a malformed slug, or an unknown mode or field.
+         */
+        post: operations["ask_history_brain_api_ask_history_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/brain/api/ask/now": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ask Now
+         * @description What is going on now for this person: their active states, ordered
+         *     by mode, each flagged stale, asked about now, once it has gone 60 days
+         *     unsupported. 422 for an unknown mode or field.
+         */
+        post: operations["ask_now_brain_api_ask_now_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/brain/api/ask/profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ask Profile
+         * @description Who is this person: their active profile entries, grouped by
+         *     category, every one of the six in order, an empty one included, and then
+         *     their rules, each group ordered by mode. A topic's focus is in the
+         *     topics answer instead. 422 for an unknown mode or field.
+         */
+        post: operations["ask_profile_brain_api_ask_profile_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/brain/api/ask/topics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ask Topics
+         * @description What does this person know about these topics: one entry per slug
+         *     asked, in the order asked, each naming the slug asked and the topic that
+         *     answered, an alias's target, with its active level and focus, or null,
+         *     its corrected misconceptions and its other history entries, items about
+         *     its aliases included, each ordered by mode. A slug the user has no topic
+         *     by answers known false, with nothing in it, and is never created. 422
+         *     for no slug, more than 50, a malformed one, or an unknown mode or
+         *     field.
+         */
+        post: operations["ask_topics_brain_api_ask_topics_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/brain/api/entities": {
         parameters: {
             query?: never;
@@ -521,6 +618,71 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * AnswerItem
+         * @description An item as every answer gives it, with why it is believed. Nothing
+         *     here is stored: support, last_supported_at and stale are computed from
+         *     the evidence when the question is asked.
+         */
+        AnswerItem: {
+            /** Category */
+            category: string | null;
+            /** Content */
+            content: string;
+            /** Details */
+            details: {
+                [key: string]: unknown;
+            };
+            /** Evidence */
+            evidence: components["schemas"]["Reason"][];
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Inactive Reason */
+            inactive_reason: ("superseded" | "retired") | null;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "profile" | "rule" | "topic_level" | "topic_focus" | "state" | "history" | "decision";
+            /**
+             * Last Supported At
+             * Format: date-time
+             */
+            last_supported_at: string;
+            /**
+             * Nature
+             * @enum {string}
+             */
+            nature: "claim" | "record";
+            /** Occurred At */
+            occurred_at: string | null;
+            /** Occurred Precision */
+            occurred_precision: ("instant" | "day" | "month" | "year") | null;
+            /**
+             * Provenance
+             * @enum {string}
+             */
+            provenance: "asserted" | "derived";
+            /** Stale */
+            stale: boolean;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "active" | "inactive";
+            /**
+             * Store
+             * @enum {string}
+             */
+            store: "profile" | "procedural" | "knowledge" | "semantic" | "reported_history";
+            subjects: components["schemas"]["Subjects"];
+            support: components["schemas"]["Support"];
+            /** Value */
+            value: string | null;
+        };
         /** Entity */
         Entity: {
             /**
@@ -667,6 +829,22 @@ export interface components {
              * @constant
              */
             status: "ok";
+        };
+        /** HistoryAnswer */
+        HistoryAnswer: {
+            /** Asked */
+            asked: string;
+            entity: components["schemas"]["EventEntity"] | null;
+            /** Items */
+            items: components["schemas"]["AnswerItem"][];
+            /** Known */
+            known: boolean;
+            /**
+             * Mode
+             * @enum {string}
+             */
+            mode: "now" | "history";
+            topic: components["schemas"]["EventTopic"] | null;
         };
         /**
          * HistoryRow
@@ -941,6 +1119,16 @@ export interface components {
              */
             state: "canonical" | "provisional";
         };
+        /** NowAnswer */
+        NowAnswer: {
+            /** Items */
+            items: components["schemas"]["AnswerItem"][];
+            /**
+             * Mode
+             * @enum {string}
+             */
+            mode: "now" | "history";
+        };
         /**
          * NowRow
          * @description A state as the now view reads it.
@@ -1019,6 +1207,81 @@ export interface components {
             /** Value */
             value: string | null;
         };
+        /** ProfileAnswer */
+        ProfileAnswer: {
+            /** Categories */
+            categories: components["schemas"]["ProfileGroup"][];
+            /**
+             * Mode
+             * @enum {string}
+             */
+            mode: "now" | "history";
+            /** Rules */
+            rules: components["schemas"]["AnswerItem"][];
+        };
+        /** ProfileGroup */
+        ProfileGroup: {
+            /**
+             * Category
+             * @enum {string}
+             */
+            category: "identity" | "goals" | "values" | "interests" | "preferences" | "working_style";
+            /** Items */
+            items: components["schemas"]["AnswerItem"][];
+        };
+        /**
+         * Reason
+         * @description One event behind the item.
+         */
+        Reason: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "supports" | "contradicts";
+            /**
+             * Occurred At
+             * Format: date-time
+             */
+            occurred_at: string;
+            /**
+             * Occurred Precision
+             * @enum {string}
+             */
+            occurred_precision: "instant" | "day" | "month" | "year";
+            /** Origin */
+            origin: string;
+            /**
+             * Recorded At
+             * Format: date-time
+             */
+            recorded_at: string;
+            /** Text */
+            text: string;
+            /** Verb */
+            verb: string;
+        };
+        /**
+         * Subjects
+         * @description What an item is about: its topics, each read through its alias, and
+         *     its named things. Both empty for a global item.
+         */
+        Subjects: {
+            /** Entities */
+            entities: components["schemas"]["EventEntity"][];
+            /** Topics */
+            topics: components["schemas"]["EventTopic"][];
+        };
+        /**
+         * Support
+         * @description How many events support the item and how many contradict it. These
+         *     are the facts a relevance or confidence score would be computed from;
+         *     there is no score until the evaluation cases can test one.
+         */
+        Support: {
+            contradicts: components["schemas"]["VerbCounts"];
+            supports: components["schemas"]["VerbCounts"];
+        };
         /** Topic */
         Topic: {
             /** Alias Of */
@@ -1047,6 +1310,23 @@ export interface components {
              * @enum {string}
              */
             state: "canonical" | "provisional";
+        };
+        /**
+         * TopicAnswer
+         * @description What is known about one asked topic.
+         */
+        TopicAnswer: {
+            /** Asked */
+            asked: string;
+            focus: components["schemas"]["AnswerItem"] | null;
+            /** History */
+            history: components["schemas"]["AnswerItem"][];
+            /** Known */
+            known: boolean;
+            level: components["schemas"]["AnswerItem"] | null;
+            /** Misconceptions */
+            misconceptions: components["schemas"]["AnswerItem"][];
+            topic: components["schemas"]["EventTopic"] | null;
         };
         /** TopicRelation */
         TopicRelation: {
@@ -1093,6 +1373,34 @@ export interface components {
             /** Value */
             value: string;
         };
+        /** TopicsAnswer */
+        TopicsAnswer: {
+            /**
+             * Mode
+             * @enum {string}
+             */
+            mode: "now" | "history";
+            /** Topics */
+            topics: components["schemas"]["TopicAnswer"][];
+        };
+        /**
+         * VerbCounts
+         * @description Events counted per verb kind, every kind present.
+         */
+        VerbCounts: {
+            /** Activity */
+            activity: number;
+            /** Assertion */
+            assertion: number;
+            /** Decision */
+            decision: number;
+            /** Engagement */
+            engagement: number;
+            /** Exposure */
+            exposure: number;
+            /** Judgment */
+            judgment: number;
+        };
         /** WhoAmI */
         WhoAmI: {
             /**
@@ -1110,6 +1418,192 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    ask_history_brain_api_ask_history_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Entity */
+                    entity?: string | null;
+                    /**
+                     * Mode
+                     * @default now
+                     * @enum {string}
+                     */
+                    mode?: "now" | "history";
+                    /** Topic */
+                    topic?: string | null;
+                };
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HistoryAnswer"];
+                };
+            };
+            /** @description No valid token: missing, expired or failing verification, all alike. The body is empty; the caller refreshes and retries. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description A body that does not parse, or a request breaking a rule. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ask_now_brain_api_ask_now_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /**
+                     * Mode
+                     * @default now
+                     * @enum {string}
+                     */
+                    mode?: "now" | "history";
+                };
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NowAnswer"];
+                };
+            };
+            /** @description No valid token: missing, expired or failing verification, all alike. The body is empty; the caller refreshes and retries. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description A body that does not parse, or a request breaking a rule. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ask_profile_brain_api_ask_profile_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /**
+                     * Mode
+                     * @default now
+                     * @enum {string}
+                     */
+                    mode?: "now" | "history";
+                };
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProfileAnswer"];
+                };
+            };
+            /** @description No valid token: missing, expired or failing verification, all alike. The body is empty; the caller refreshes and retries. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description A body that does not parse, or a request breaking a rule. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ask_topics_brain_api_ask_topics_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /**
+                     * Mode
+                     * @default now
+                     * @enum {string}
+                     */
+                    mode?: "now" | "history";
+                    /** Topics */
+                    topics: string[];
+                };
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TopicsAnswer"];
+                };
+            };
+            /** @description No valid token: missing, expired or failing verification, all alike. The body is empty; the caller refreshes and retries. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description A body that does not parse, or a request breaking a rule. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     list_entities_brain_api_entities_get: {
         parameters: {
             query?: never;

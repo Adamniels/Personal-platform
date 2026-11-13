@@ -42,7 +42,7 @@ Category = Literal[
 
 # A profile entry's categories, "Which kind goes in which store". The
 # migration checks the same list.
-CATEGORIES: tuple[str, ...] = get_args(Category)
+CATEGORIES: tuple[Category, ...] = get_args(Category)
 
 # How well the owner knows a topic, and what he is doing about it: "How level
 # is represented" in docs/knowledge-model.md. A level means: shallow, knows the

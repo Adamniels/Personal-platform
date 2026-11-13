@@ -202,7 +202,7 @@ class Profile:
     category in the order `brain.items.CATEGORIES` lists them, an empty one
     included; then their rules."""
 
-    categories: tuple[tuple[str, tuple[AnswerItem, ...]], ...]
+    categories: tuple[tuple[items.Category, tuple[AnswerItem, ...]], ...]
     rules: tuple[AnswerItem, ...]
 
 

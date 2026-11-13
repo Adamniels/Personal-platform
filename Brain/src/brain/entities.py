@@ -64,12 +64,19 @@ async def named(conn: Connection, name: str, *, now: datetime) -> Entity:
         " ON CONFLICT (user_id, lower(name)) DO NOTHING",
         (uuid7(), name, now),
     )
+    found = await by_name(conn, name)
+    assert found is not None
+    return found
+
+
+async def by_name(conn: Connection, name: str) -> Entity | None:
+    """The current user's named thing called `name`, in any letter case, or
+    None. It never makes one: what asking about a named thing reads."""
     cursor = await conn.execute(
         f"SELECT {COLUMNS} FROM entities WHERE lower(name) = lower(%s)", (name,)
     )
     row = await cursor.fetchone()
-    assert row is not None
-    return Entity(*row)
+    return Entity(*row) if row is not None else None
 
 
 async def everything(conn: Connection) -> list[Entity]:
