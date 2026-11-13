@@ -106,10 +106,11 @@ export interface paths {
          *     edit of it, 201 with the new version. 422 for an unknown kind, category
          *     or value, content that is blank or over 4000 characters, a rule naming a
          *     subject, a topic the user does not have, or a level or focus the topic
-         *     has already; or history, a corrected misconception on one topic, its
-         *     details misconception true with what was believed and what is right, and
-         *     its content built from the two. A named thing the user does not have is
-         *     created.
+         *     has already; or history, something that happened, with occurred_at and
+         *     occurred_precision required and optional subjects, or, with details, a
+         *     corrected misconception on one topic, its details misconception true with
+         *     what was believed and what is right, and its content built from the two.
+         *     A named thing the user does not have is created.
          */
         post: operations["write_item_brain_api_items_post"];
         delete?: never;
@@ -1242,6 +1243,34 @@ export interface operations {
                      * @enum {string}
                      */
                     value: "learning" | "steady" | "not_pursuing";
+                } | {
+                    /** Content */
+                    content: string;
+                    /**
+                     * Entities
+                     * @default []
+                     */
+                    entities?: string[];
+                    /**
+                     * Kind
+                     * @constant
+                     */
+                    kind: "history";
+                    /**
+                     * Occurred At
+                     * Format: date-time
+                     */
+                    occurred_at: string;
+                    /**
+                     * Occurred Precision
+                     * @enum {string}
+                     */
+                    occurred_precision: "instant" | "day" | "month" | "year";
+                    /**
+                     * Topics
+                     * @default []
+                     */
+                    topics?: string[];
                 } | {
                     /**
                      * Misconception

@@ -1445,13 +1445,13 @@
         "summary": "List Items"
       },
       "post": {
-        "description": "Writes an entry made by hand, 201 with the item, its evidence and its\nrelations. It applies at once: an asserted event, origin brain and source\nmanual-entry, is recorded with it and is its supporting evidence. kind is\nprofile, with a category, or rule, which is global, or state, what is\ngoing on now, with optional subjects like a profile entry; or topic_level or\ntopic_focus, each on one topic with a value, which where the topic,\nread through its alias, has an active entry of that kind already is an\nedit of it, 201 with the new version. 422 for an unknown kind, category\nor value, content that is blank or over 4000 characters, a rule naming a\nsubject, a topic the user does not have, or a level or focus the topic\nhas already; or history, a corrected misconception on one topic, its\ndetails misconception true with what was believed and what is right, and\nits content built from the two. A named thing the user does not have is\ncreated.",
+        "description": "Writes an entry made by hand, 201 with the item, its evidence and its\nrelations. It applies at once: an asserted event, origin brain and source\nmanual-entry, is recorded with it and is its supporting evidence. kind is\nprofile, with a category, or rule, which is global, or state, what is\ngoing on now, with optional subjects like a profile entry; or topic_level or\ntopic_focus, each on one topic with a value, which where the topic,\nread through its alias, has an active entry of that kind already is an\nedit of it, 201 with the new version. 422 for an unknown kind, category\nor value, content that is blank or over 4000 characters, a rule naming a\nsubject, a topic the user does not have, or a level or focus the topic\nhas already; or history, something that happened, with occurred_at and\noccurred_precision required and optional subjects, or, with details, a\ncorrected misconception on one topic, its details misconception true with\nwhat was believed and what is right, and its content built from the two.\nA named thing the user does not have is created.",
         "operationId": "write_item_brain_api_items_post",
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "description": "An entry, told apart by its kind.",
+                "description": "An entry, told apart by its kind, and a history entry by whether it is\na misconception.",
                 "oneOf": [
                   {
                     "additionalProperties": false,
@@ -1717,7 +1717,69 @@
                   },
                   {
                     "additionalProperties": false,
-                    "description": "Something that happened, on one topic. So far that is a corrected\nmisconception alone, which is a history entry and not a kind of its own;\nthe content is built from its two halves.",
+                    "description": "Something that happened: a record in reported history, with when it\nhappened, kept apart from when it was entered, and how precisely that is\nknown. It may name the topics and named things it is about.",
+                    "properties": {
+                      "content": {
+                        "maxLength": 4000,
+                        "minLength": 1,
+                        "title": "Content",
+                        "type": "string"
+                      },
+                      "entities": {
+                        "default": [],
+                        "items": {
+                          "maxLength": 200,
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "maxItems": 20,
+                        "title": "Entities",
+                        "type": "array"
+                      },
+                      "kind": {
+                        "const": "history",
+                        "title": "Kind",
+                        "type": "string"
+                      },
+                      "occurred_at": {
+                        "format": "date-time",
+                        "title": "Occurred At",
+                        "type": "string"
+                      },
+                      "occurred_precision": {
+                        "enum": [
+                          "instant",
+                          "day",
+                          "month",
+                          "year"
+                        ],
+                        "title": "Occurred Precision",
+                        "type": "string"
+                      },
+                      "topics": {
+                        "default": [],
+                        "items": {
+                          "maxLength": 80,
+                          "pattern": "^[a-z0-9][a-z0-9-]{0,79}$",
+                          "type": "string"
+                        },
+                        "maxItems": 20,
+                        "title": "Topics",
+                        "type": "array"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "content",
+                      "occurred_at",
+                      "occurred_precision"
+                    ],
+                    "title": "HistoryEntry",
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "description": "A corrected misconception, on one topic: a history entry and not a\nkind of its own, told apart from any other by its details. The content is\nbuilt from its two halves.",
                     "properties": {
                       "details": {
                         "additionalProperties": false,
@@ -1789,7 +1851,7 @@
                       "topic",
                       "details"
                     ],
-                    "title": "HistoryEntry",
+                    "title": "MisconceptionEntry",
                     "type": "object"
                   }
                 ],

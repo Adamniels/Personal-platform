@@ -251,6 +251,61 @@ def test_confirming_records_an_event_and_clears_the_flag(
     assert counts(database) == before_counts
 
 
+def test_a_history_entry_is_a_record_with_when_it_happened(
+    calling: Callable[[uuid.UUID], Caller], database: str
+) -> None:
+    alice = calling(ALICE)
+    assert alice.post(TOPICS, {"name": "Rust", "slug": "rust"}).status_code == 201
+    before = datetime.now(UTC)
+
+    written = write(
+        alice,
+        history(
+            content="Finished the Rust book.",
+            occurred_at="2023-05-01T00:00:00Z",
+            occurred_precision="month",
+            topics=["rust"],
+            entities=["The Rust book"],
+        ),
+    )
+
+    assert written["kind"] == "history"
+    assert written["store"] == "reported_history"
+    assert written["nature"] == "record"
+    assert written["content"] == "Finished the Rust book."
+    assert written["details"] == {}
+    # When it happened, kept apart from when it was entered.
+    assert written["occurred_at"] == "2023-05-01T00:00:00Z"
+    assert written["occurred_precision"] == "month"
+    assert before <= when(written["created_at"]) <= datetime.now(UTC)
+    [evidence] = written["evidence"]
+    assert evidence["event"]["verb"] == "asserted"
+    assert evidence["event"]["occurred_at"] == "2023-05-01T00:00:00Z"
+    assert evidence["event"]["occurred_precision"] == "month"
+    assert before <= when(evidence["event"]["recorded_at"]) <= datetime.now(UTC)
+    assert [t["slug"] for t in written["topics"]] == ["rust"]
+    assert [n["name"] for n in written["entities"]] == ["The Rust book"]
+    assert write(alice, history())["topics"] == []
+
+    before_counts = counts(database)
+    wrong: list[dict[str, Any]] = [
+        # When it happened, and how precisely, are both required.
+        history(occurred_at=...),
+        history(occurred_precision=...),
+        history(occurred_at="2023-05-01T00:00:00"),
+        history(occurred_precision="week"),
+        history(content="   "),
+        history(content=...),
+        history(topics=["haskell"]),
+        history(category="goals"),
+        history(value="solid"),
+    ]
+    for body in wrong:
+        response = alice.post(ITEMS, body)
+        assert response.status_code == 422, (body, response.text)
+    assert counts(database) == before_counts
+
+
 async def test_a_confirm_waits_for_a_retire_and_then_finds_it_retired(
     database: str,
 ) -> None:

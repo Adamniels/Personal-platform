@@ -17,9 +17,11 @@ from pydantic import (
     AwareDatetime,
     BaseModel,
     ConfigDict,
+    Discriminator,
     Field,
     RootModel,
     StringConstraints,
+    Tag,
     field_validator,
 )
 
@@ -187,10 +189,10 @@ class Misconception(BaseModel):
         return _no_nul(text)
 
 
-class HistoryEntry(BaseModel):
-    """Something that happened, on one topic. So far that is a corrected
-    misconception alone, which is a history entry and not a kind of its own;
-    the content is built from its two halves."""
+class MisconceptionEntry(BaseModel):
+    """A corrected misconception, on one topic: a history entry and not a
+    kind of its own, told apart from any other by its details. The content is
+    built from its two halves."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -202,20 +204,65 @@ class HistoryEntry(BaseModel):
     occurred_precision: Precision = "instant"
 
 
+class HistoryEntry(BaseModel):
+    """Something that happened: a record in reported history, with when it
+    happened, kept apart from when it was entered, and how precisely that is
+    known. It may name the topics and named things it is about."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["history"]
+    content: Content
+    topics: Annotated[list[Slug], Field(max_length=SUBJECTS_MAX)] = []
+    entities: Annotated[list[Name], Field(max_length=SUBJECTS_MAX)] = []
+    # When it happened, with a zone, and how precisely: both required.
+    occurred_at: AwareDatetime
+    occurred_precision: Precision
+
+    @field_validator("content")
+    @classmethod
+    def content_storable(cls, content: str) -> str:
+        return _no_nul(content)
+
+    @field_validator("entities")
+    @classmethod
+    def names_storable(cls, names: list[str]) -> list[str]:
+        return [_no_nul(name) for name in names]
+
+
+def _entry_form(body: Any) -> str | None:
+    """Which form of entry `body` is: its kind, except that a history entry
+    carrying details is a misconception, the one form whose details are its
+    own. None for a body without a kind, which is refused."""
+    if isinstance(body, MisconceptionEntry):
+        return "misconception"
+    if isinstance(body, BaseModel):
+        kind = getattr(body, "kind", None)
+        return kind if isinstance(kind, str) else None
+    if not isinstance(body, dict):
+        return None
+    kind = body.get("kind")
+    if kind == "history" and "details" in body:
+        return "misconception"
+    return kind if isinstance(kind, str) else None
+
+
 class NewEntry(
     RootModel[
         Annotated[
-            ProfileEntry
-            | RuleEntry
-            | StateEntry
-            | LevelEntry
-            | FocusEntry
-            | HistoryEntry,
-            Field(discriminator="kind"),
+            Annotated[ProfileEntry, Tag("profile")]
+            | Annotated[RuleEntry, Tag("rule")]
+            | Annotated[StateEntry, Tag("state")]
+            | Annotated[LevelEntry, Tag("topic_level")]
+            | Annotated[FocusEntry, Tag("topic_focus")]
+            | Annotated[HistoryEntry, Tag("history")]
+            | Annotated[MisconceptionEntry, Tag("misconception")],
+            Discriminator(_entry_form),
         ]
     ]
 ):
-    """An entry, told apart by its kind."""
+    """An entry, told apart by its kind, and a history entry by whether it is
+    a misconception."""
 
 
 class ProfileEdit(BaseModel):
@@ -428,10 +475,11 @@ async def write_item(request: Request, claims: Claims) -> Response:
     edit of it, 201 with the new version. 422 for an unknown kind, category
     or value, content that is blank or over 4000 characters, a rule naming a
     subject, a topic the user does not have, or a level or focus the topic
-    has already; or history, a corrected misconception on one topic, its
-    details misconception true with what was believed and what is right, and
-    its content built from the two. A named thing the user does not have is
-    created."""
+    has already; or history, something that happened, with occurred_at and
+    occurred_precision required and optional subjects, or, with details, a
+    corrected misconception on one topic, its details misconception true with
+    what was believed and what is right, and its content built from the two.
+    A named thing the user does not have is created."""
     entry = (await body_as(request, NewEntry)).root
     now = datetime.now(UTC)
     if isinstance(entry, LevelEntry | FocusEntry):
@@ -444,7 +492,7 @@ async def write_item(request: Request, claims: Claims) -> Response:
         return JSONResponse(
             ItemDetail.of_detail(detail).model_dump(mode="json"), status_code=201
         )
-    if isinstance(entry, HistoryEntry):
+    if isinstance(entry, MisconceptionEntry):
         async with db.transaction(request.app.state.pool, claims.account_id) as conn:
             item_id = await items.write_misconception(
                 conn,
@@ -460,7 +508,9 @@ async def write_item(request: Request, claims: Claims) -> Response:
         return JSONResponse(
             ItemDetail.of_detail(detail).model_dump(mode="json"), status_code=201
         )
-    named = entry if isinstance(entry, ProfileEntry | StateEntry) else None
+    named = (
+        entry if isinstance(entry, ProfileEntry | StateEntry | HistoryEntry) else None
+    )
     new = items.NewItem(
         kind=entry.kind,
         content=entry.content,
