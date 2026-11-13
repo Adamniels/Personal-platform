@@ -1,5 +1,5 @@
-import { useEffect, useId, useState } from "react";
-import styles from "./theme-control.module.css";
+import { useEffect, useState } from "react";
+import { Select } from "../src";
 
 type Theme = "system" | "light" | "dark";
 
@@ -12,7 +12,6 @@ const OPTIONS: { value: Theme; label: string }[] = [
 /** Sets data-theme on the root element, which is all dark mode is: the
  * values in tokens.css change, and no component holds a theme condition. */
 export function ThemeControl() {
-	const id = useId();
 	const [theme, setTheme] = useState<Theme>("system");
 
 	useEffect(() => {
@@ -22,22 +21,16 @@ export function ThemeControl() {
 	}, [theme]);
 
 	return (
-		<div className={styles.field}>
-			<label htmlFor={id} className={styles.label}>
-				Theme
-			</label>
-			<select
-				id={id}
-				className={styles.select}
-				value={theme}
-				onChange={(event) => setTheme(event.target.value as Theme)}
-			>
-				{OPTIONS.map((option) => (
-					<option key={option.value} value={option.value}>
-						{option.label}
-					</option>
-				))}
-			</select>
-		</div>
+		<Select
+			label="Theme"
+			value={theme}
+			onChange={(event) => setTheme(event.target.value as Theme)}
+		>
+			{OPTIONS.map((option) => (
+				<option key={option.value} value={option.value}>
+					{option.label}
+				</option>
+			))}
+		</Select>
 	);
 }

@@ -1,5 +1,9 @@
 import styles from "./gallery.module.css";
 import { ButtonSection } from "./sections/button-section";
+import { CheckboxSection } from "./sections/checkbox-section";
+import { SelectSection } from "./sections/select-section";
+import { TextAreaSection } from "./sections/text-area-section";
+import { TextFieldSection } from "./sections/text-field-section";
 import { ThemeControl } from "./theme-control";
 
 /** Every component of @platform/ui, one section each, in every kind and
@@ -19,6 +23,10 @@ export function Gallery() {
 			</header>
 			<main className={styles.sections}>
 				<ButtonSection />
+				<TextFieldSection />
+				<TextAreaSection />
+				<SelectSection />
+				<CheckboxSection />
 			</main>
 		</div>
 	);
