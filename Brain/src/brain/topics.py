@@ -123,6 +123,30 @@ async def get(conn: Connection, topic_id: UUID) -> Topic | None:
     return Topic(*row) if row is not None else None
 
 
+async def by_slug(conn: Connection, slug: str) -> Topic | None:
+    cursor = await conn.execute(
+        f"SELECT {COLUMNS} FROM topics WHERE slug = %s", (slug,)
+    )
+    row = await cursor.fetchone()
+    return Topic(*row) if row is not None else None
+
+
+async def named(conn: Connection, slug: str, *, now: datetime) -> Topic:
+    """The current user's topic with `slug`, as it is, an alias included, or
+    a new provisional one named by its slug when there is none. What an event
+    about a topic is recorded on: created silently, see "Topic vocabulary" in
+    docs/event-model.md. Created under the user's lock, so two events naming
+    the same new slug make one topic."""
+    found = await by_slug(conn, slug)
+    if found is not None:
+        return found
+    await lock_vocabulary(conn)
+    found = await by_slug(conn, slug)
+    if found is not None:
+        return found
+    return await create(conn, slug, slug, now=now, state="provisional")
+
+
 async def everything(conn: Connection) -> list[Topic]:
     """Every topic the current user has, aliases included, by slug."""
     cursor = await conn.execute(f"SELECT {COLUMNS} FROM topics ORDER BY slug")

@@ -2,7 +2,7 @@
 
 Status: exploratory. Nothing is built.
 
-Last updated: 2026 11 12
+Last updated: 2026 11 13
 
 Isolation of implementation, coupling through contracts. This is what someone building a feature
 needs to know. The brain's own internals are in `Brain/docs/`, and the platform wide thinking
@@ -256,7 +256,8 @@ Both stay small. If either drifts large, something has gone wrong.
 - a named context call per feature, shaped when that feature is built
 - get profile snapshot
 - search, meaning search memory, not search everything the platform knows
-- record event
+- record event, `POST /brain/api/events`, its body and answers in `contracts/brain/openapi.json`
+  and described in "What it serves" in `Brain/README.md`
 - propose memory candidate
 
 The first entry used to read "get context for a task", which was close enough to v1's rejected

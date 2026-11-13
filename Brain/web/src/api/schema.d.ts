@@ -27,6 +27,37 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/brain/api/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Events
+         * @description The timeline: the user's events, newest recorded first, 50 at a time
+         *     unless limit says otherwise, at most 200. The next page is the one before
+         *     the last event's recorded_at.
+         */
+        get: operations["list_events_brain_api_events_get"];
+        put?: never;
+        /**
+         * Record Event
+         * @description Records what happened, 201. The same origin and idempotency key again
+         *     is 200, with the event already recorded. 422 for an unknown verb, an
+         *     origin of brain, evidence that is missing or blank, a topic and a named
+         *     thing together, a malformed slug, or a payload that is not a JSON object
+         *     of at most 16 KiB. An unknown topic is created provisional, an unknown
+         *     named thing is created too.
+         */
+        post: operations["record_event_brain_api_events_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/brain/api/health": {
         parameters: {
             query?: never;
@@ -221,6 +252,75 @@ export interface components {
             /** Name */
             name: string;
         };
+        /** Event */
+        Event: {
+            entity: components["schemas"]["EventEntity"] | null;
+            /** Evidence */
+            evidence: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Idempotency Key */
+            idempotency_key: string;
+            /**
+             * Occurred At
+             * Format: date-time
+             */
+            occurred_at: string;
+            /**
+             * Occurred Precision
+             * @enum {string}
+             */
+            occurred_precision: "instant" | "day" | "month" | "year";
+            /** Origin */
+            origin: string;
+            /** Payload */
+            payload: {
+                [key: string]: unknown;
+            };
+            /** Payload Version */
+            payload_version: number;
+            /**
+             * Recorded At
+             * Format: date-time
+             */
+            recorded_at: string;
+            /** Run */
+            run: string | null;
+            /** Source */
+            source: string | null;
+            /** Subject Item */
+            subject_item: string | null;
+            /** Subject Topic */
+            subject_topic: string | null;
+            topic: components["schemas"]["EventTopic"] | null;
+            /** Verb */
+            verb: string;
+        };
+        /** EventEntity */
+        EventEntity: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+        };
+        /** EventTopic */
+        EventTopic: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /** Slug */
+            slug: string;
+        };
         /** Health */
         Health: {
             /**
@@ -365,6 +465,123 @@ export interface operations {
             };
             /** @description It would be the user's second of something unique. */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description A body that does not parse, or a request breaking a rule. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    list_events_brain_api_events_get: {
+        parameters: {
+            query?: {
+                before?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Event"][];
+                };
+            };
+            /** @description No valid token: missing, expired or failing verification, all alike. The body is empty; the caller refreshes and retries. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description A body that does not parse, or a request breaking a rule. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    record_event_brain_api_events_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Entity */
+                    entity?: string | null;
+                    /** Evidence */
+                    evidence: string;
+                    /** Idempotency Key */
+                    idempotency_key: string;
+                    /** Item */
+                    item?: string | null;
+                    /** Occurred At */
+                    occurred_at?: string | null;
+                    /**
+                     * Occurred Precision
+                     * @default instant
+                     * @enum {string}
+                     */
+                    occurred_precision?: "instant" | "day" | "month" | "year";
+                    /** Origin */
+                    origin: string;
+                    /** Payload */
+                    payload: {
+                        [key: string]: unknown;
+                    };
+                    /** Payload Version */
+                    payload_version: number;
+                    /** Run */
+                    run?: string | null;
+                    /** Source */
+                    source?: string | null;
+                    /** Topic */
+                    topic?: string | null;
+                    /** Verb */
+                    verb: string;
+                };
+            };
+        };
+        responses: {
+            /** @description The user already has an event from this origin with this key: that event, unchanged. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Event"];
+                };
+            };
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Event"];
+                };
+            };
+            /** @description No valid token: missing, expired or failing verification, all alike. The body is empty; the caller refreshes and retries. */
+            401: {
                 headers: {
                     [name: string]: unknown;
                 };
