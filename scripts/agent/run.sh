@@ -11,6 +11,16 @@
 # and extracts scripts/agent from refs/runner/main into a fresh temp dir, from which pending.sh, verdict.sh,
 # merge-gate.sh, board.sh and gh-guard.sh are called. Every git call ignores the repository's hooks.
 #
+# review-ok is a commit status the runner posts, and nothing else does, with
+# `gh api repos/Adamniels/Personal-platform/statuses/<sha>`, context `review-ok`: `success`, "approved by the
+# reviewer", when the latest verdict is approve for that exact sha, and `pending`, "waiting for the reviewer",
+# otherwise. Never `failure`: a changes verdict is still waiting. The ruleset requires it, so GitHub lets nobody
+# merge a commit the reviewer has not approved. Every loop, before asking pending.sh, the runner lists the open pull
+# requests by the bot and makes review-ok true on each one's head: it reads the verdict (verdict.sh) and the status
+# the commit has, and writes only where they differ, so a pull request already right costs no write. It also posts
+# it right after a review run. A failed read or write there is a transient pause before pending.sh is asked, so the
+# merge gate is never called on a head whose status is not written.
+#
 # Work items (one line from pending.sh) and what the runner does with each:
 #   new <slice>, resume <slice>, fix <pr> <slice>
 #                        claude -p "/pick-up-slice <slice>" --permission-mode auto --disallowedTools <patterns>,
@@ -20,8 +30,11 @@
 #                        mentioned, and paused on (R16).
 #   review <pr> <slice>  claude -p "Use the reviewer agent on pull request <pr>" --permission-mode auto, only from a
 #                        clean tree on main (else an environment pause, R53). A review that leaves no verdict for the
-#                        PR's head is a failed run (R32).
-#   merge <pr> <slice>   merge-gate.sh <pr>. Exit 3 with `ci-ok is pending` among the reasons: wait the poll
+#                        PR's head is a failed run (R32). After it, review-ok is posted on the head: success for an
+#                        approve, pending otherwise (a failed write is a transient pause).
+#   merge <pr> <slice>   merge-gate.sh <pr>, only for a head this loop found approved, whose review-ok is therefore
+#                        success before the gate is called; any other head (it moved since pending.sh looked) waits
+#                        up to a minute and is looked at again, with no gate call. Exit 3 with `ci-ok is pending` among the reasons: wait the poll
 #                        interval (R45), with one mention once the same head has waited 2 h (R50). Otherwise, only
 #                        `risk is not low`, `touches protected paths` and `an owner label is set`: the PR is ready,
 #                        and gets "ready to read and merge" and owner-merge, or, when it carries owner-decision,
@@ -94,6 +107,8 @@ LABEL_MERGE="owner-merge"         # approved, nothing open: the owner reads and 
 LABEL_DECISION="owner-decision"   # the implementer's: a decision on high risk ground waits for the owner's answer
 LABEL_BLOCKED="owner-blocked"     # not mergeable as it is: the owner has to unblock it
 LABEL_LEGACY="needs-owner"        # the one label older pull requests carry; read like owner-decision, never added
+STATUS="review-ok"                # the commit status the ruleset requires; only the runner posts it
+SHORT_WAIT=60                     # the longest wait before looking again at an item that had nothing to do
 SNAP="refs/runner/main"           # main as last fetched by the runner; everything it runs comes from here
 MIN_TASK_SECONDS=120              # a failure faster than this is not the slice's fault (R13)
 MIN_FREE_KB=$((5 * 1024 * 1024))
@@ -124,6 +139,8 @@ owner_told="$logs/owner-told"
 blocked_prs="$logs/blocked-prs"
 ci_pending="$logs/ci-pending"
 last_ok_file="$logs/last-ok"
+open_prs="$logs/.open-prs"        # this loop's open pull requests by the bot: "<pr> <head sha> <labels>"
+approved="$logs/.approved"        # this loop's approved heads, review-ok success on each: "<pr> <head sha>"
 
 [[ "$poll" =~ ^[0-9]+$ ]] || { echo "run.sh: AGENT_POLL_SECONDS must be a number: $poll" >&2; exit 2; }
 [[ "$timeout_secs" =~ ^[1-9][0-9]*$ ]] || { echo "run.sh: AGENT_TIMEOUT_SECONDS must be a positive number: $timeout_secs" >&2; exit 2; }
@@ -171,6 +188,9 @@ nap() {
   done
   return 0
 }
+# short_wait: before looking again at an item that had nothing to do, so a listing that lags cannot spin the loop.
+# Never longer than the poll interval, and not a pause: no episode, no backoff, no mention.
+short_wait() { local w="$SHORT_WAIT"; [ "$poll" -lt "$w" ] && w="$poll"; nap "$w"; }
 number() { [[ "${1:-}" =~ ^[0-9]+$ ]]; }
 # Runner-made text in a mention: no mentions, no code spans, one line, short.
 sanitize() { printf '%s' "$1" | tr -d '`@\r' | tr '\n' ' ' | cut -c1-200; }
@@ -231,6 +251,47 @@ head_of() {
   head_sha="$sha"
   [ "$sha" = "$call_out" ] || head_labels="${call_out#*$'\n'}"
 }
+# review_ok <sha> <success|pending>: makes the commit's review-ok status that state. It reads the status the commit
+# has and posts only when it differs, so a commit already right costs no write. Fails when the read or the post does.
+review_ok() {
+  local sha="$1" want="$2" desc="waiting for the reviewer"
+  [ "$want" = success ] && desc="approved by the reviewer"
+  call 120 gh api "repos/$REPO_SLUG/commits/$sha/status?per_page=100" \
+    --jq "[.statuses[] | select(.context == \"$STATUS\") | .state] | first // \"none\"" || return 1
+  [ "$call_out" = "$want" ] && return 0
+  call 120 gh api "repos/$REPO_SLUG/statuses/$sha" --silent -f "state=$want" -f "context=$STATUS" -f "description=$desc" || return 1
+  log "$STATUS is $want on $sha"
+}
+# make_true: before pending.sh is asked, review-ok is made true on the head of every open pull request by the bot,
+# and the heads found approved are kept in $approved for this loop. Returns 1, after a transient pause, when a read
+# or a write failed.
+make_true() {
+  local pr sha labels
+  call 120 gh pr list --repo "$REPO_SLUG" --state open --author "$BOT" --limit 100 --json number,headRefOid,labels \
+    --jq '.[] | "\(.number) \(.headRefOid) \([.labels[].name] | join(","))"' \
+    || { pause transient "could not list the open pull requests" ""; return 1; }
+  printf '%s\n' "$call_out" > "$open_prs"
+  : > "$approved"
+  while read -r pr sha labels <&3; do
+    [ -n "$pr" ] || continue
+    number "$pr" && [[ "$sha" =~ ^[0-9a-f]+$ ]] || { pause transient "unreadable open pull request line: $pr $sha" ""; return 1; }
+    true_pr "$pr" "$sha" "$labels" || { pause transient "could not make #$pr true" ""; return 1; }
+  done 3< "$open_prs"
+  return 0
+}
+# true_pr <pr> <head sha> <labels>: one pull request of make_true.
+true_pr() {
+  local pr="$1" sha="$2" vk vs
+  call 120 bash "$scripts/verdict.sh" "$pr" || return 1
+  read -r vk vs _ <<<"$call_out"
+  if [ "$vk" = approve ] && [ "$vs" = "$sha" ]; then
+    review_ok "$sha" success || return 1
+    echo "$pr $sha" >> "$approved"
+  else
+    review_ok "$sha" pending || return 1
+  fi
+}
+approved_now() { grep -qxF "$1 $2" "$approved" 2> /dev/null; }
 # The owner labels. $cur_labels is what the item's PR carried when its head was read. Exactly one of them is the
 # one to act on, the most severe: owner-blocked, then owner-decision, then owner-merge. owner-blocked and
 # owner-merge are the runner's and it keeps them true; owner-decision is the implementer's and the runner never
@@ -482,7 +543,7 @@ prepare_tree() {
 }
 
 claude_item() { # kind pr slice; the PR's head is $cur_sha
-  local kind="$1" pr="$2" slice="$3" sha="$cur_sha" item logf n start rc secs cls short last key vk vs
+  local kind="$1" pr="$2" slice="$3" sha="$cur_sha" item logf n start rc secs cls short last key vk vs want status_failed=""
   item="$kind $slice"; [ "$pr" = - ] || item="$kind $pr $slice"
   probe || { pause environment "$probe_reason" "$slice"; return; }
   if [ "$kind" = review ]; then
@@ -522,6 +583,9 @@ claude_item() { # kind pr slice; the PR's head is $cur_sha
       cls="$(classify_run 1 "$secs" "$logf")"
       short="the review left no verdict for head $head_sha"
     fi
+    # review-ok right after the review: success on an approved head, pending on any other.
+    want=pending; [ "$vk" = approve ] && [ "$vs" = "$head_sha" ] && want=success
+    review_ok "$head_sha" "$want" || status_failed="$head_sha"
   fi
   log "claude for $item: $cls ($short; last line: $last)"
 
@@ -537,6 +601,8 @@ claude_item() { # kind pr slice; the PR's head is $cur_sha
     task) rm -f "$last_ok_file"; count_failure "$slice" "$pr" "$sha" "$item" "$short" "$logf" ;;
     *) pause "$cls" "$short" "$slice" "$logf" ;;
   esac
+  # The run is accounted for above; the status is written again by the next loop's make_true.
+  [ -z "$status_failed" ] || [ "$paused" = 1 ] || pause transient "could not set $STATUS on $status_failed" "$slice"
 }
 
 # pr_gate <kind> <pr> <slice>: R47, R51 and R54 on a PR item. The board decides: a fix item (owner input) for a
@@ -588,6 +654,11 @@ ci_clear() { [ -f "$ci_pending" ] && { grep -v "^$1 " "$ci_pending" > "$ci_pendi
 # alone does not: an approved PR whose ci-ok failed is not "ready to read and merge".
 merge_item() { # pr slice; head $cur_sha, labels $cur_labels
   local pr="$1" slice="$2" out rc reasons joined r owner_only=1 decision
+  # Only a head this loop's make_true found approved reaches the gate, so its review-ok is success before the gate
+  # is called. Any other head moved after pending.sh looked: nothing is wrong with it, and the next loop reads it.
+  if ! approved_now "$pr" "$cur_sha"; then
+    log "#$pr has no approve for its head $cur_sha in this loop; looking again"; short_wait; return
+  fi
   call 300 bash "$scripts/merge-gate.sh" "$pr"; rc=$?
   out="$call_out"
   case "$rc" in
@@ -735,6 +806,8 @@ while :; do
   paused=0
   cur_item="-"
   load_scripts || continue
+  make_true || continue
+  stopped && break
   call 300 bash "$scripts/pending.sh"; prc=$?
   line="$call_out"
   stopped && break

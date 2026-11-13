@@ -34,11 +34,32 @@ exit "$code"
 FAKE
 # gh: logs every call to gh.log; comments go to comments.log as "<clock> <issue> <body>", label changes to labels.log
 # as "<pr> +<added> -<removed>". `pr view` prints the head and then the PR's labels, FAKE_PR_LABELS, comma separated.
+# The open pull requests `pr list --state open` prints are the numbers in $D/open-prs, one per line, or PR 50 alone
+# without that file, each as "<pr> <head> <labels>". A PR's head is $D/head-<pr>, else $D/head, else FAKE_HEAD, else
+# aaaa. review-ok is kept per commit in $D/review-ok-<sha>: reading a commit's status prints it, or "none", and
+# posting one stores it and logs "<sha> <state> <description>" to status.log and "status <sha> <state>" to order.log,
+# where the fake merge gate logs "gate <pr>". FAKE_STATUS_EXIT=1 makes the post fail, and $D/gh-pre, when a test
+# writes it, is sourced before each post.
 cat > "$tmp/bin/gh" <<'FAKE'
 #!/usr/bin/env bash
 echo "$*" >> "$D/gh.log"
+head_for() { if [ -f "$D/head-$1" ]; then cat "$D/head-$1"; elif [ -f "$D/head" ]; then cat "$D/head"; else echo "${FAKE_HEAD:-aaaa}"; fi; }
 case "$*" in
   "api rate_limit"*) exit "${FAKE_RATE_EXIT:-0}" ;;
+  "api repos/Adamniels/Personal-platform/commits/"*"/status"*)
+    sha="${2#repos/Adamniels/Personal-platform/commits/}"; sha="${sha%%/*}"
+    if [ -f "$D/review-ok-$sha" ]; then cat "$D/review-ok-$sha"; else echo none; fi ;;
+  "api repos/Adamniels/Personal-platform/statuses/"*)
+    if [ -f "$D/gh-pre" ]; then . "$D/gh-pre"; fi   # a test's one-off, such as failing the next post only
+    [ "${FAKE_STATUS_EXIT:-0}" = 0 ] || { echo "HTTP 502: Bad Gateway" >&2; exit 1; }
+    sha="${2#repos/Adamniels/Personal-platform/statuses/}" state="" context="" desc=""
+    while [ $# -gt 0 ]; do
+      case "$1" in state=*) state="${1#state=}" ;; context=*) context="${1#context=}" ;; description=*) desc="${1#description=}" ;; esac
+      shift
+    done
+    [ "$context" = review-ok ] || { echo "unexpected status context: $context" >&2; exit 9; }
+    echo "$state" > "$D/review-ok-$sha"
+    echo "$sha $state $desc" >> "$D/status.log"; echo "status $sha $state" >> "$D/order.log" ;;
   "issue comment "*)
     [ "${FAKE_COMMENT_EXIT:-0}" = 0 ] || exit 1
     issue="$3" body=""; while [ $# -gt 0 ]; do [ "$1" = --body ] && body="$2"; shift; done
@@ -48,7 +69,10 @@ case "$*" in
     pr="$3" ops=""
     while [ $# -gt 0 ]; do case "$1" in --add-label) ops="$ops +$2" ;; --remove-label) ops="$ops -$2" ;; esac; shift; done
     echo "$pr$ops" >> "$D/labels.log" ;;
-  "pr view "*) if [ -f "$D/head" ]; then cat "$D/head"; else echo "${FAKE_HEAD:-aaaa}"; fi; echo "${FAKE_PR_LABELS:-}" ;;
+  "pr view "*) head_for "$3"; echo "${FAKE_PR_LABELS:-}" ;;
+  "pr list "*" --state open "*)
+    if [ -f "$D/open-prs" ]; then prs="$(cat "$D/open-prs")"; else prs=50; fi
+    for n in $prs; do echo "$n $(head_for "$n") ${FAKE_PR_LABELS:-}"; done ;;
   "pr list "*) if [ -f "$D/merged.json" ]; then cat "$D/merged.json"; else echo '[]'; fi ;;
   *) echo "unexpected gh call: $*" >&2; exit 9 ;;
 esac
@@ -120,7 +144,7 @@ esac
 FAKE
 cat > "$tmp/scripts/merge-gate.sh" <<'FAKE'
 #!/usr/bin/env bash
-echo "$*" >> "$D/gate.log"; printf '%b' "${FAKE_GATE_OUT:-merged #$1\n}"; exit "${FAKE_GATE_EXIT:-0}"
+echo "$*" >> "$D/gate.log"; echo "gate $1" >> "$D/order.log"; printf '%b' "${FAKE_GATE_OUT:-merged #$1\n}"; exit "${FAKE_GATE_EXIT:-0}"
 FAKE
 # board.sh: `get <n>` prints status-<n> (default "In review"); `status <n> <s>` logs to board.log and records <s>.
 cat > "$tmp/scripts/board.sh" <<'FAKE'
@@ -130,9 +154,12 @@ echo "$*" >> "$D/board.log"; [ "${FAKE_BOARD_EXIT:-0}" = 0 ] || exit "$FAKE_BOAR
 if [ -e "$D/board-fail-once" ]; then rm -f "$D/board-fail-once"; exit 1; fi
 echo "$3" > "$D/status-$2"
 FAKE
+# verdict.sh <pr>: the line in $D/verdict-<pr>, else $D/verdict (a claude-hook writes it, as a review would), else
+# FAKE_VERDICT, else an approve for aaaa.
 cat > "$tmp/scripts/verdict.sh" <<'FAKE'
 #!/usr/bin/env bash
-echo "${FAKE_VERDICT:-approve aaaa 0 2027-01-15T08:00:00Z}"
+if [ -f "$D/verdict-$1" ]; then cat "$D/verdict-$1"; elif [ -f "$D/verdict" ]; then cat "$D/verdict"
+else echo "${FAKE_VERDICT:-approve aaaa 0 2027-01-15T08:00:00Z}"; fi
 FAKE
 cp "$here/gh-guard.sh" "$tmp/scripts/gh-guard.sh"
 chmod +x "$tmp/bin/"* "$tmp/scripts/"*
@@ -170,7 +197,7 @@ setup() {
   export D AGENT_HOME AGENT_REPO AGENT_POLL_SECONDS=0 AGENT_TIMEOUT_SECONDS=5400 AGENT_REMOTE="$tmp/t$t/origin.git"
   unset FAKE_STOP_AT FAKE_RATE_EXIT FAKE_COMMENT_EXIT FAKE_LABEL_EXIT FAKE_HEAD FAKE_DOCKER_EXIT FAKE_DF_KB \
         FAKE_GATE_OUT FAKE_GATE_EXIT FAKE_BOARD_EXIT FAKE_VERDICT FAKE_DOCKER_HANG AGENT_CALL_TIMEOUT_SECONDS \
-        AGENT_DOCKER_START_WAIT FAKE_PR_LABELS
+        AGENT_DOCKER_START_WAIT FAKE_PR_LABELS FAKE_STATUS_EXIT
   export AGENT_DOCKER_START=""
 }
 pending() { printf '%s\n' "$@" > "$D/pending.queue"; }
@@ -258,7 +285,7 @@ check "an owner item for a PR with owner-decision mentions once that it waits fo
   $([ "$(lines "$D/comments.log")" = 1 ] && grep -q ' 41 @Adamniels PR #50 is approved and waits for your decision: it carries owner-decision' "$D/comments.log" \
     && [ "$(cat "$AGENT_HOME/agent-logs/owner-told")" = "50 aaaa" ] && [ "$(cat "$D/gate.log" | sort -u)" = 50 ] && no_file "$D/labels.log"; echo $?)
 check "the same pr and sha again comments nothing and waits the poll interval" $([ "$(sleeps)" = 5 ]; echo $?)
-rm -f "$AGENT_HOME/.agent-stop"; export FAKE_HEAD=bbbb; pending "owner 50 41"; runner
+rm -f "$AGENT_HOME/.agent-stop"; export FAKE_HEAD=bbbb FAKE_VERDICT="approve bbbb 0 2027-01-15T08:00:00Z"; pending "owner 50 41"; runner
 check "a new head sha gets one new mention" \
   $([ "$(lines "$D/comments.log")" = 2 ] && grep -qx '50 bbbb' "$AGENT_HOME/agent-logs/owner-told"; echo $?)
 
@@ -630,6 +657,49 @@ check "idle sleeps the poll interval" $([ "$(sleeps)" = 15 ]; echo $?)
 
 setup; pending IDLE STOP; runner
 check "idle without a merged slice only logs" $(no_file "$D/comments.log" && grep -q 'idle' "$AGENT_HOME/agent-logs/runner.log"; echo $?)
+
+# --- review-ok, the commit status the ruleset requires ----------------------------------------------------------
+APPROVE="approve aaaa 0 2027-01-15T08:00:00Z"
+setup; export FAKE_VERDICT="none 0 0 -"; hook claude-hook "echo '$APPROVE' > '$D/verdict'"; pending "review 50 41"; runner
+check "an approve for the head sets review-ok to success on that commit" \
+  $([ "$(tail -n1 "$D/status.log")" = "aaaa success approved by the reviewer" ] && [ "$(cat "$D/review-ok-aaaa")" = success ] \
+    && grep -q '^api repos/Adamniels/Personal-platform/statuses/aaaa .*state=success' "$D/gh.log" && [ "$(fails 41)" = 0 ]; echo $?)
+
+setup; export FAKE_VERDICT="none 0 0 -"
+hook claude-hook "cp '$D/status.log' '$D/status-at-claude'; echo 'changes aaaa 1 2027-01-15T08:00:00Z' > '$D/verdict'"
+pending "review 50 41"; runner
+check "a head with no approve gets review-ok pending" \
+  $([ "$(cat "$D/status-at-claude")" = "aaaa pending waiting for the reviewer" ] && [ "$(cat "$D/status.log")" = "aaaa pending waiting for the reviewer" ] \
+    && [ "$(cat "$D/review-ok-aaaa")" = pending ] && ! grep -q 'state=failure' "$D/gh.log"; echo $?)
+
+setup; hook claude-hook "echo bbbb > '$D/head'"; pending "fix 50 41" IDLE; runner
+check "a new commit on an approved pull request has review-ok pending, and the old commit keeps its success" \
+  $([ "$(cat "$D/review-ok-aaaa")" = success ] && [ "$(cat "$D/review-ok-bbbb")" = pending ]; echo $?)
+
+setup; pending "merge 50 41"; runner
+check "review-ok is set before the gate is called" \
+  $([ "$(tr '\n' ' ' < "$D/order.log")" = "status aaaa success gate 50 " ]; echo $?)
+
+# The stop comes from the clock, since a runner that cannot write the status never reaches pending.sh.
+setup; export FAKE_STATUS_EXIT=1 FAKE_STOP_AT=$((S + 150)); pending "merge 50 41"; runner
+check "a failed status write is a transient pause, never a merge" \
+  $(no_file "$D/gate.log" && [ "$(waits transient)" = "60 120" ] && no_file "$D/pending.count" && no_file "$D/labels.log" \
+    && no_file "$D/comments.log" && [ "$(fails 41)" = 0 ] && no_file "$D/board.log"; echo $?)
+
+setup; export FAKE_VERDICT="none 0 0 -"; hook claude-hook "echo '$APPROVE' > '$D/verdict'; touch '$D/status-fails'"
+pending "review 50 41" "merge 50 41"; echo 'if [ -e "$D/status-fails" ]; then rm -f "$D/status-fails"; export FAKE_STATUS_EXIT=1; fi' > "$D/gh-pre"; runner
+check "a status write that fails after a review is a transient pause, and the next loop writes it before the gate" \
+  $([ "$(waits transient)" = 60 ] && [ "$(fails 41)" = 0 ] && [ "$(tr '\n' ' ' < "$D/order.log")" = "status aaaa pending status aaaa success gate 50 " ]; echo $?)
+
+setup; export FAKE_HEAD=bbbb; pending "merge 50 41"; runner
+check "a merge item whose head has no approve in this loop does not reach the gate and tells nobody" \
+  $(no_file "$D/gate.log" && no_file "$D/labels.log" && no_file "$D/comments.log" && [ "$(cat "$D/review-ok-bbbb")" = pending ] \
+    && [ "$(fails 41)" = 0 ] && [ -z "$(waits transient)" ]; echo $?)
+
+setup; printf '50\n51\n' > "$D/open-prs"; echo cccc > "$D/head-51"; echo "none 0 0 -" > "$D/verdict-51"; pending IDLE IDLE IDLE; runner
+check "review-ok is made true for every open pull request each loop, and one already right costs no write" \
+  $([ "$(cat "$D/status.log")" = "aaaa success approved by the reviewer
+cccc pending waiting for the reviewer" ] && [ "$(grep -c 'pr list .*--state open' "$D/gh.log")" -ge 3 ]; echo $?)
 
 echo "$pass passed, $fail failed"
 [ "$fail" = 0 ]
