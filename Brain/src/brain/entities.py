@@ -53,6 +53,25 @@ async def create(
     return Entity(*row)
 
 
+async def named(conn: Connection, name: str, *, now: datetime) -> Entity:
+    """The current user's named thing called `name`, in any letter case, or a
+    new one with no label when there is none: what an event about a named
+    thing is recorded on. Two events naming the same new thing at once make
+    one, since the second insert does nothing and then reads the first."""
+    await conn.execute(
+        f"INSERT INTO entities ({COLUMNS}, user_id)"
+        f" VALUES (%s, %s, NULL, %s, {CURRENT_USER_SQL})"
+        " ON CONFLICT (user_id, lower(name)) DO NOTHING",
+        (uuid7(), name, now),
+    )
+    cursor = await conn.execute(
+        f"SELECT {COLUMNS} FROM entities WHERE lower(name) = lower(%s)", (name,)
+    )
+    row = await cursor.fetchone()
+    assert row is not None
+    return Entity(*row)
+
+
 async def everything(conn: Connection) -> list[Entity]:
     """Every named thing the user has, by name, without letter case."""
     cursor = await conn.execute(

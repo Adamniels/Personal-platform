@@ -38,6 +38,189 @@
         "title": "Entity",
         "type": "object"
       },
+      "Event": {
+        "properties": {
+          "entity": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EventEntity"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "evidence": {
+            "title": "Evidence",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "idempotency_key": {
+            "title": "Idempotency Key",
+            "type": "string"
+          },
+          "occurred_at": {
+            "format": "date-time",
+            "title": "Occurred At",
+            "type": "string"
+          },
+          "occurred_precision": {
+            "enum": [
+              "instant",
+              "day",
+              "month",
+              "year"
+            ],
+            "title": "Occurred Precision",
+            "type": "string"
+          },
+          "origin": {
+            "title": "Origin",
+            "type": "string"
+          },
+          "payload": {
+            "additionalProperties": true,
+            "title": "Payload",
+            "type": "object"
+          },
+          "payload_version": {
+            "title": "Payload Version",
+            "type": "integer"
+          },
+          "recorded_at": {
+            "format": "date-time",
+            "title": "Recorded At",
+            "type": "string"
+          },
+          "run": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          },
+          "subject_item": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subject Item"
+          },
+          "subject_topic": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subject Topic"
+          },
+          "topic": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EventTopic"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "verb": {
+            "title": "Verb",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "verb",
+          "subject_topic",
+          "topic",
+          "entity",
+          "subject_item",
+          "origin",
+          "source",
+          "run",
+          "occurred_at",
+          "occurred_precision",
+          "recorded_at",
+          "evidence",
+          "payload",
+          "payload_version",
+          "idempotency_key"
+        ],
+        "title": "Event",
+        "type": "object"
+      },
+      "EventEntity": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "EventEntity",
+        "type": "object"
+      },
+      "EventTopic": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "slug": {
+            "title": "Slug",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "slug",
+          "name"
+        ],
+        "title": "EventTopic",
+        "type": "object"
+      },
       "Health": {
         "properties": {
           "status": {
@@ -267,6 +450,186 @@
           }
         },
         "summary": "Create Entity"
+      }
+    },
+    "/brain/api/events": {
+      "post": {
+        "description": "Records what happened, 201. The same origin and idempotency key again\nis 200, with the event already recorded. 422 for an unknown verb, an\norigin of brain, evidence that is missing or blank, a topic and a named\nthing together, a malformed slug, or a payload that is not a JSON object\nof at most 16 KiB. An unknown topic is created provisional, an unknown\nnamed thing is created too.",
+        "operationId": "record_event_brain_api_events_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "description": "What happened, as a feature sends it. A field it does not know is\nrefused, so a misspelt one is not silently lost.",
+                "properties": {
+                  "entity": {
+                    "anyOf": [
+                      {
+                        "maxLength": 200,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Entity"
+                  },
+                  "evidence": {
+                    "maxLength": 4000,
+                    "minLength": 1,
+                    "title": "Evidence",
+                    "type": "string"
+                  },
+                  "idempotency_key": {
+                    "maxLength": 200,
+                    "minLength": 1,
+                    "title": "Idempotency Key",
+                    "type": "string"
+                  },
+                  "item": {
+                    "anyOf": [
+                      {
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Item"
+                  },
+                  "occurred_at": {
+                    "anyOf": [
+                      {
+                        "format": "date-time",
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Occurred At"
+                  },
+                  "occurred_precision": {
+                    "default": "instant",
+                    "enum": [
+                      "instant",
+                      "day",
+                      "month",
+                      "year"
+                    ],
+                    "title": "Occurred Precision",
+                    "type": "string"
+                  },
+                  "origin": {
+                    "maxLength": 80,
+                    "pattern": "^[a-z0-9][a-z0-9-]{0,79}$",
+                    "title": "Origin",
+                    "type": "string"
+                  },
+                  "payload": {
+                    "additionalProperties": true,
+                    "title": "Payload",
+                    "type": "object"
+                  },
+                  "payload_version": {
+                    "maximum": 2147483647.0,
+                    "minimum": 1.0,
+                    "title": "Payload Version",
+                    "type": "integer"
+                  },
+                  "run": {
+                    "anyOf": [
+                      {
+                        "maxLength": 200,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Run"
+                  },
+                  "source": {
+                    "anyOf": [
+                      {
+                        "maxLength": 200,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Source"
+                  },
+                  "topic": {
+                    "anyOf": [
+                      {
+                        "maxLength": 80,
+                        "pattern": "^[a-z0-9][a-z0-9-]{0,79}$",
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Topic"
+                  },
+                  "verb": {
+                    "maxLength": 80,
+                    "minLength": 1,
+                    "title": "Verb",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "verb",
+                  "origin",
+                  "evidence",
+                  "payload",
+                  "payload_version",
+                  "idempotency_key"
+                ],
+                "title": "NewEvent",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Event"
+                }
+              }
+            },
+            "description": "The user already has an event from this origin with this key: that event, unchanged."
+          },
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Event"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "No valid token: missing, expired or failing verification, all alike. The body is empty; the caller refreshes and retries."
+          },
+          "422": {
+            "description": "A body that does not parse, or a request breaking a rule."
+          }
+        },
+        "summary": "Record Event"
       }
     },
     "/brain/api/health": {
