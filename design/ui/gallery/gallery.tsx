@@ -1,7 +1,10 @@
 import styles from "./gallery.module.css";
+import { BadgeSection } from "./sections/badge-section";
 import { ButtonSection } from "./sections/button-section";
 import { CheckboxSection } from "./sections/checkbox-section";
+import { ChipSection } from "./sections/chip-section";
 import { SelectSection } from "./sections/select-section";
+import { StatusSection } from "./sections/status-section";
 import { TextAreaSection } from "./sections/text-area-section";
 import { TextFieldSection } from "./sections/text-field-section";
 import { ThemeControl } from "./theme-control";
@@ -27,6 +30,9 @@ export function Gallery() {
 				<TextAreaSection />
 				<SelectSection />
 				<CheckboxSection />
+				<BadgeSection />
+				<StatusSection />
+				<ChipSection />
 			</main>
 		</div>
 	);
