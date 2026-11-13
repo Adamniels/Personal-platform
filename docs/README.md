@@ -84,7 +84,8 @@ features" in `High-level/docs/platform-architecture.md`.
   and the three tests for what is built now
 - `agent-workflow.md` — who does what: the owner plans features, agents implement, review and
   merge them on the Mac mini; planning, building a slice, the review loop, the merge gate, what
-  waits for the owner, the runner, safety, and the runbook
+  waits for the owner, looking at a whole feature when he chooses to, the runner, safety, and the
+  runbook
 
 **Core**
 
