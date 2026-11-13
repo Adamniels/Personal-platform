@@ -1,6 +1,6 @@
 // What the History section reads and changes: the history view, GET /history, narrowed by a topic
-// and a named thing, and adding something that happened, through the routes in "Memory items" in
-// Brain/README.md. Every change refreshes every query under ITEMS, and the named things, since an
+// and a named thing, adding something that happened or a decision, and replacing a decision,
+// through the routes in "Memory items" in Brain/README.md. Every change refreshes every query under ITEMS, and the named things, since an
 // entry may name a new one.
 import {
 	keepPreviousData,
@@ -12,6 +12,7 @@ import type { components } from "../api/schema";
 import { ITEMS } from "../entries/entries";
 import { useClient } from "../providers";
 import { ENTITIES } from "../subjects/subjects";
+import type { DecisionDetails } from "./decisions";
 import type { Precision } from "./when";
 
 export type HistoryRow = components["schemas"]["HistoryRow"];
@@ -68,5 +69,46 @@ export function useAddHappened() {
 			client.send<ItemDetail>("POST", "/items", { kind: "history", ...entry }),
 		onSuccess: refresh,
 		meta: { fieldErrors: true },
+	});
+}
+
+export type NewDecision = {
+	content: string;
+	details: DecisionDetails;
+	occurred_at: string;
+	occurred_precision: Precision;
+	topics: string[];
+	entities: string[];
+};
+
+/** Records a decision, with its reasoning and what it rejected: a decided
+ * event and the claim that it holds. A 422 is the form's to show. */
+export function useAddDecision() {
+	const client = useClient();
+	const refresh = useRefresh();
+	return useMutation({
+		mutationFn: (decision: NewDecision) =>
+			client.send<ItemDetail>("POST", "/items", {
+				kind: "decision",
+				...decision,
+			}),
+		onSuccess: refresh,
+		meta: { fieldErrors: true },
+	});
+}
+
+/** Replaces a decision with a newer one. Both stay readable: the old one
+ * is no longer in force, and says what replaced it. */
+export function useReplace() {
+	const client = useClient();
+	const refresh = useRefresh();
+	return useMutation({
+		mutationFn: ({ id, replacedBy }: { id: string; replacedBy: string }) =>
+			client.send<ItemDetail>(
+				"POST",
+				`/items/${encodeURIComponent(id)}/replace`,
+				{ replaced_by: replacedBy },
+			),
+		onSuccess: refresh,
 	});
 }

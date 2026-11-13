@@ -27,14 +27,16 @@ def test_the_brain_serves_the_application(
     client = serving(web_dir)
 
     # Every section's address answers the same page, and so does a topic's
-    # page under Knowledge; the application reads the address and decides, an
-    # unknown section or topic included.
+    # page under Knowledge and a decision's under History; the application
+    # reads the address and decides, an unknown section, topic or decision
+    # included.
     for path in [
         "/brain",
         "/brain/knowledge",
         "/brain/no-such-section",
         "/brain/knowledge/postgres",
         "/brain/knowledge/no-such-topic",
+        "/brain/history/0196f5a8-3c1e-7d2a-9b4f-5e6a7b8c9d0e",
     ]:
         page = client.get(path, headers=bearer(TOKEN))
         assert page.status_code == 200, path
@@ -68,6 +70,11 @@ def test_the_brain_serves_the_application(
         "/brain/rules/deeper",
         "/brain/knowledge/Not-A-Slug",
         "/brain/knowledge/postgres/deeper",
+        "/brain/history/not-an-id",
+        "/brain/history/0196F5A8-3C1E-7D2A-9B4F-5E6A7B8C9D0E",
+        "/brain/history/0196f5a83c1e7d2a9b4f5e6a7b8c9d0e",
+        "/brain/history/0196f5a8-3c1e-7d2a-9b4f-5e6a7b8c9d0e/deeper",
+        "/brain/rules/0196f5a8-3c1e-7d2a-9b4f-5e6a7b8c9d0e",
     ]:
         for headers in [bearer(TOKEN), {}]:
             answer = client.get(path, headers=headers, follow_redirects=False)

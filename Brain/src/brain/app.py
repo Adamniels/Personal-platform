@@ -58,9 +58,9 @@ async def whoami(request: Request, claims: Claims) -> Response:
 
 
 # The memory centre: one page, index.html from the build, for /brain, for
-# /brain/<section> and for a topic's page, /brain/knowledge/<slug>, which the
-# application reads to decide what to show, an unknown section or topic
-# included. The built files are mounted at /brain/assets/.
+# /brain/<section>, for a topic's page, /brain/knowledge/<slug>, and for a
+# decision's, /brain/history/<id>, which the application reads to decide what
+# to show, an unknown section, topic or decision included. The built files are mounted at /brain/assets/.
 pages = APIRouter(include_in_schema=False)
 
 # Single segments under /brain/ that are never a section.
@@ -93,6 +93,21 @@ async def topic_page(request: Request) -> Response:
     """A topic's page under Knowledge. Only a slug is one: anything else
     under a section is not an address of the application."""
     if re.fullmatch(topics.SLUG_PATTERN, request.path_params["slug"]) is None:
+        raise HTTPException(status_code=404)
+    return await memory_centre(request)
+
+
+@pages.get("/brain/history/{id}")
+async def decision_page(request: Request) -> Response:
+    """A decision's page under History. Only an id, written as the API
+    writes one, is one: anything else under a section is not an address of
+    the application."""
+    given = request.path_params["id"]
+    try:
+        canonical = str(UUID(given)) == given
+    except ValueError:
+        canonical = False
+    if not canonical:
         raise HTTPException(status_code=404)
     return await memory_centre(request)
 

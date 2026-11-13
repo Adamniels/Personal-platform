@@ -493,8 +493,9 @@ The address is the state, through the History API and no router library (`src/ad
 pushes its section's address, Back and Forward come back as `popstate`, and an address that names no
 section shows a not found state under the tabs. The brain answers `index.html` for any single
 segment under `/brain/` other than `api` and `assets`, so the list of sections lives in
-`src/sections.ts` alone, and for a slug under `/brain/knowledge/`, a topic's page, the one section
-with pages of its own. Anything deeper is `404`. Until its slice lands, a section shows the
+`src/sections.ts` alone, for a slug under `/brain/knowledge/`, a topic's page, and for an id under
+`/brain/history/`, written as the API writes one, a decision's page: the two sections with pages of
+their own. Anything deeper is `404`. Until its slice lands, a section shows the
 package's `EmptyState`.
 
 **Profile and Rules** are where the owner enters by hand who he is and how the platform should work
@@ -582,6 +583,17 @@ the topic routes, "Subjects" above:
   Year, Month or Day, and the field that matches it, a year, a month by name beside its year, or a
   day, and the optional subjects Now asks for. The day starts empty, since only the owner knows it.
   There is no primary button on History, since neither way of adding is the one thing to do.
+- A decision's entry is marked with a `Badge`, "Decision", its text a link to its page, its
+  reasoning under it, and, once replaced, the `idle` status "Replaced". "Add decision", the other
+  secondary button, asks for what was decided, why, what was rejected, a field at a time with "Add
+  another", empty ones left out, when, today as a day unless changed, and the optional subjects.
+- A decision's page, `/brain/history/<id>`, read from the same `GET /history`, which holds every
+  decision with what replaced it: a breadcrumb back, what was decided, when, its subjects,
+  "Replaces" and "Replaced by" as links to the other decisions' pages, and cards for why and for
+  what was rejected. "Replace with a newer decision…" asks for the newer one from a select of the
+  other active decisions and calls `replace`; a replaced decision carries the `idle` status
+  "Replaced" and offers no replacing, and focus goes to its heading. Marking two decisions as
+  contradicting belongs to an item's page in Everything, not here.
 
 `index.html` is the same shell as every page with the bar: the design files and `nav.js` from the
 proxy, not bundled, and `<platform-nav current="brain">`. Vite builds it with base `/brain/` into

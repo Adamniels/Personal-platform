@@ -8,14 +8,18 @@ import {
 	EmptyState,
 	FilterRow,
 	Select,
+	Status,
 	Timeline,
 	TimelineEntry,
 	useToast,
 } from "@platform/ui";
 import { type ReactNode, useState } from "react";
+import { usePathname } from "../address";
 import styles from "../entries/entries.module.css";
 import { EntryForm } from "../entries/entry-form";
 import section from "../entries/section.module.css";
+import { Link } from "../link";
+import { pageAt, sectionAt } from "../sections";
 import { SubjectBadges, SubjectFields } from "../subjects/subject-fields";
 import {
 	NO_SUBJECTS,
@@ -23,8 +27,11 @@ import {
 	useCanonicalTopics,
 	useEntities,
 } from "../subjects/subjects";
+import { AddDecision } from "./add-decision";
+import { DecisionPage } from "./decision-page";
 import { decisionOf } from "./decisions";
 import layout from "./history.module.css";
+import { decisionPath } from "./history-paths";
 import {
 	ANY,
 	type HistoryFilters,
@@ -36,9 +43,16 @@ import { occurredAt, type WhenDraft, writtenWhen } from "./when";
 import { WhenFields } from "./when-fields";
 
 export function History() {
+	const pathname = usePathname();
+	const here = sectionAt(pathname);
+	const id = here && pageAt(here, pathname);
+	return id === undefined ? <Overview /> : <DecisionPage id={id} />;
+}
+
+function Overview() {
 	const [filters, setFilters] = useState<HistoryFilters>(ANY);
 	const history = useHistory(filters);
-	const [adding, setAdding] = useState<"happened" | null>(null);
+	const [adding, setAdding] = useState<"happened" | "decision" | null>(null);
 
 	const narrowed = filters.topic !== "" || filters.entity !== "";
 
@@ -50,11 +64,17 @@ export function History() {
 					<Button onClick={() => setAdding("happened")}>
 						Add what happened
 					</Button>
+					<Button onClick={() => setAdding("decision")}>Add decision</Button>
 				</div>
 			</div>
 			{adding === "happened" ? (
 				<div className={`${section.panel} ${section.form}`}>
 					<AddHappened onDone={() => setAdding(null)} />
+				</div>
+			) : null}
+			{adding === "decision" ? (
+				<div className={`${section.panel} ${section.form}`}>
+					<AddDecision onDone={() => setAdding(null)} />
 				</div>
 			) : null}
 			{history.isPending ? (
@@ -115,7 +135,14 @@ function HistoryEntry({ row }: { row: HistoryRow }) {
 			{decision ? (
 				<>
 					<Badge className={layout.mark}>Decision</Badge>
-					<span className={layout.text}>{row.content}</span>
+					<Link className={layout.link} href={decisionPath(row.id)}>
+						{row.content}
+					</Link>
+					{row.replaced_by ? (
+						<Status className={layout.replaced} tone="idle">
+							Replaced
+						</Status>
+					) : null}
 				</>
 			) : (
 				<span className={layout.text}>{row.content}</span>

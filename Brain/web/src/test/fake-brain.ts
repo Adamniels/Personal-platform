@@ -7,7 +7,8 @@
 // provisional topic. The now view is the active states, newest support first, each stale when
 // last supported more than sixty days before the real time, and confirming supports one at that
 // time. History is the active history entries and decisions by when each happened, oldest first,
-// and the decisions another replaced, each with the one that did. Anything else it answers 404.
+// and the decisions another replaced, each with the one that did, which replacing makes. Anything
+// else it answers 404.
 import type { ClientEnvironment } from "../api/client";
 import type { components } from "../api/schema";
 
@@ -237,6 +238,15 @@ export function fakeBrain() {
 		return item;
 	}
 
+	/** Replaces a decision with a newer one: the old one inactive, kept,
+	 * with the one that replaced it. */
+	function replaceWith(old: Item, newer: Item): Item {
+		old.status = "inactive";
+		old.inactive_reason = "superseded";
+		replacedBy.set(old.id, newer.id);
+		return old;
+	}
+
 	function historyView(url: URL) {
 		const slug = url.searchParams.get("topic");
 		const entity = url.searchParams.get("entity")?.toLowerCase() ?? null;
@@ -399,6 +409,13 @@ export function fakeBrain() {
 			promoted.state = "canonical";
 			return json(200, promoted);
 		}
+		const replace = /^\/items\/([^/]+)\/replace$/.exec(path);
+		if (replace) {
+			const old = items.find(({ id }) => id === replace[1]);
+			const newer = items.find(({ id }) => id === fields.replaced_by);
+			if (!old || !newer) return json(404, { detail: "No such item" });
+			return json(200, detail(replaceWith(old, newer)));
+		}
 		const change = /^\/items\/([^/]+)\/(edit|retire|restore|confirm)$/.exec(
 			path,
 		);
@@ -495,6 +512,10 @@ export function fakeBrain() {
 				...options,
 				details: { rejected: [], ...details },
 			});
+		},
+		/** Replaces a decision with a newer one, as the API would. */
+		replace(old: Item, newer: Item): Item {
+			return replaceWith(old, newer);
 		},
 		/** A named thing the user already has. */
 		entity(entityName: string): Entity {

@@ -95,7 +95,7 @@ describe("history is newest first by when it happened", () => {
 		const buttons = panel
 			.getAllByRole("button")
 			.map((button) => button.textContent);
-		expect(buttons).toEqual(["Add what happened"]);
+		expect(buttons).toEqual(["Add what happened", "Add decision"]);
 	});
 });
 
