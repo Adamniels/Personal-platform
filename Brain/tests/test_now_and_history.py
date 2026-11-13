@@ -802,3 +802,48 @@ def test_every_item_is_listed_with_when_it_was_last_supported(
     [confirmed] = [r for r in view(alice, ITEMS) if r["id"] == old_state["id"]]
     assert confirmed["stale"] is False
     assert when(confirmed["last_supported_at"]) > now - timedelta(days=1)
+
+
+def currency_at(
+    database: str, user: uuid.UUID, item_ids: list[str], moment: datetime
+) -> dict[uuid.UUID, now_and_history.Currency]:
+    """The currency of `user`'s items as it reads at `moment`."""
+
+    async def read_currency() -> dict[uuid.UUID, now_and_history.Currency]:
+        pool = AsyncConnectionPool(
+            app_url(database), min_size=1, max_size=1, open=False
+        )
+        await pool.open(wait=True)
+        try:
+            async with db.transaction(pool, user) as conn:
+                return await now_and_history.currency(
+                    conn, [uuid.UUID(i) for i in item_ids], now=moment
+                )
+        finally:
+            await pool.close()
+
+    return asyncio.run(read_currency())
+
+
+def test_an_items_currency_turns_stale_after_sixty_days_as_the_now_views(
+    calling: Callable[[uuid.UUID], Caller], database: str
+) -> None:
+    alice = calling(ALICE)
+    said = datetime(2026, 1, 1, 9, 0, tzinfo=UTC)
+    claim = write(alice, state(occurred_at=iso(said)))["id"]
+    record = write(alice, history(occurred_at=iso(said), occurred_precision="day"))
+    ids = [claim, record["id"]]
+
+    at_sixty = currency_at(database, ALICE, ids, said + timedelta(days=60))
+    assert at_sixty[uuid.UUID(claim)].stale is False
+    just_past = currency_at(database, ALICE, ids, said + timedelta(days=60, seconds=1))
+    assert just_past[uuid.UUID(claim)].stale is True
+    assert just_past[uuid.UUID(claim)].last_supported_at == said
+    # A record is never stale, however long ago it was supported.
+    assert just_past[uuid.UUID(record["id"])].stale is False
+    # The same rule as the now view, read at the same time.
+    [entry] = now_at(database, ALICE, said + timedelta(days=60, seconds=1))
+    assert entry.stale is just_past[uuid.UUID(claim)].stale
+
+    # Another user's ids are left out, as row level security reads them.
+    assert currency_at(database, BOB, ids, said) == {}
