@@ -318,9 +318,9 @@ against a fictional person's memory on every change, see "Evaluating".
   - Every hand made entry is supported by an event whose evidence quotes it as
     `Entered by hand as <kind>: ...`, so a word such as `hand` or a kind's name finds every such
     entry through its evidence.
-- `GET /brain`, `GET /brain/<section>` and a topic's page, `GET /brain/knowledge/<slug>`, the
-  memory centre's `index.html` from the build, see "The memory centre" below. Without a valid token, a `303` to the core's
-  `/auth/refresh?return_to=<the path>`.
+- `GET /brain`, `GET /brain/<section>` and a topic's page, `GET /brain/knowledge/<slug>`, the memory
+  centre's `index.html` from the build, see "The memory centre" below. Without a valid token, a
+  `303` to the core's `/auth/refresh?return_to=<the path>`.
 - `GET /brain/assets/<file>`, the build's files, with or without a session, since they hold code
   and never data.
 
@@ -489,11 +489,12 @@ with its own address:
 | Ask        | `/brain/ask`        |
 
 The address is the state, through the History API and no router library (`src/address.ts`): a tab
-pushes its section's address, Back and Forward come back as `popstate`, and an address that names
-no section shows a not found state under the tabs. The brain answers `index.html` for any single
+pushes its section's address, Back and Forward come back as `popstate`, and an address that names no
+section shows a not found state under the tabs. The brain answers `index.html` for any single
 segment under `/brain/` other than `api` and `assets`, so the list of sections lives in
 `src/sections.ts` alone, and for a slug under `/brain/knowledge/`, a topic's page, the one section
-with pages of its own. Anything deeper is `404`. Until its slice lands, a section shows the package's `EmptyState`.
+with pages of its own. Anything deeper is `404`. Until its slice lands, a section shows the
+package's `EmptyState`.
 
 **Profile and Rules** are where the owner enters by hand who he is and how the platform should work
 with him, `src/profile/` and `src/rules/` over the shared pieces in `src/entries/`:
@@ -528,23 +529,25 @@ the topic routes, "Subjects" above:
 - The table is the package's `Table` over `GET /knowledge`, its canonical rows: Topic, linking to
   the topic's page; Level and Focus, which fold under the topic on phone; and History, the count of
   active history entries, and Last set, both left out on phone. It sorts by topic at first, and by
-  level in the order of the levels, Not set last either way, or by last set. Above it the filter row:
-  a search that narrows by name as typed, Level and Focus selects with "Any", and the count. "Add
-  topic", the one primary button, asks for a name and, optionally, a level and a focus; a name the
-  user has already is shown on the field. An alias is never a row: it answers under its target.
+  level in the order of the levels, Not set last either way, or by last set. Above it the filter
+  row: a search that narrows by name as typed, Level and Focus selects with "Any", and the count.
+  "Add topic", the one primary button, asks for a name and, optionally, a level and a focus; a name
+  the user has already is shown on the field. An alias is never a row: it answers under its target.
 - A row's Edit puts a Level and a Focus select in its cells, the table's editing row, and Save sends
   only what changed, each as `POST /items` with `topic_level` or `topic_focus`, which keeps the
   earlier value as a version. The Level select's help line is the chosen level's meaning, since the
-  native menu holds one line per option. "Not set" is offered only until a value is set. On phone the
-  row's Edit is hidden, since Level and Focus are not columns there, and the topic's page edits
+  native menu holds one line per option. "Not set" is offered only until a value is set. On phone
+  the row's Edit is hidden, since Level and Focus are not columns there, and the topic's page edits
   them.
 - A topic's page, `/brain/knowledge/<slug>`, has a breadcrumb back, its level and focus with Edit,
   "Place under…" and "Same as…", then cards: "Level over time", every version of its level oldest
   first with when it was set; "Misconceptions", what he believed and what is right, with "Add
   misconception"; "Also called", its aliases, each with Separate; and "Under" and "Includes", the
-  relations that hold, read through aliases from `GET /topic-relations`, each with Remove, which ends
-  it. "Same as…" asks first, "Treat these as one topic?", and its button is primary, since Separate
-  undoes it. An alias's address moves to its target's page.
+  relations that hold, read through aliases from `GET /topic-relations`, each with Remove, which
+  ends it. "Same as…" asks first, "Treat these as one topic?", and its button is primary, since
+  Separate undoes it. Both ask for the other topic from the canonical ones only. An alias's address
+  moves to its target's page. A provisional topic's page offers Promote in place of Edit, since only
+  a canonical topic carries a level, as "Topic vocabulary" in `docs/event-model.md` has it.
 - "Topics that arrived on their own", a card under the table when there are any, lists the
   provisional topics, which the brain makes when a feature sends an event about a topic it has not
   seen. Each is promoted, or treated as one of the canonical topics with the same question.
