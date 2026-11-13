@@ -87,10 +87,11 @@ memory store's four tables, every table in `docs/data-model.md`.
   - `POST /brain/api/items`, an entry made by hand, `201` with the item as a single read answers
     it. The body is told apart by `kind`: `profile`, with a `category`, one of `identity`, `goals`,
     `values`, `interests`, `preferences` and `working_style`, and optional `topics`, slugs, and
-    `entities`, names, at most 20 of each; or `rule`, which is global, so it takes no subject and
-    no category. Both carry `content`, 1 to 4000 characters once its surrounding whitespace is
-    dropped, and an optional `occurred_at`, with a zone, and `occurred_precision`, for when it
-    became true. A topic the user does not have is `422`, since a hand made entry names one that
+    `entities`, names, at most 20 of each; `rule`, which is global, so it takes no subject and
+    no category; or `state`, what is going on now, a `claim` in `semantic` with optional `topics`
+    and `entities` like a profile entry. Each carries `content`, 1 to 4000 characters once its
+    surrounding whitespace is dropped, and an optional `occurred_at`, with a zone, and
+    `occurred_precision`, for when it became true, which is when its event happened. A topic the user does not have is `422`, since a hand made entry names one that
     exists; a named thing they do not have is created, with no label. A field it does not know is
     `422`.
   - A level or a focus on a topic, as "How level is represented" in `docs/knowledge-model.md` has
@@ -111,11 +112,23 @@ memory store's four tables, every table in `docs/data-model.md`.
     each half 1 to 1800 characters once its surrounding whitespace is dropped, with an optional
     `occurred_at` and `occurred_precision`. It is a `record` in `reported_history`, its content
     `Misconception about <topic name>`, then `Believed: ...` and `Correct: ...` on lines of their
-    own, and its `occurred_at` the one given or when it was entered. A history entry that is not a
-    misconception waits for the slice that needs one.
+    own, and its `occurred_at` the one given or when it was entered.
+  - Any other history entry, something that happened, as "Claim versus record" in
+    `docs/knowledge-model.md` has it: `{"kind": "history", "content": ..., "occurred_at": ...,
+    "occurred_precision": ...}`, both times required, with optional `topics` and `entities`. It is
+    a `record` in `reported_history`, its `occurred_at` and precision on the item and its event,
+    kept apart from `created_at` and the event's `recorded_at`, when it was entered. A history body
+    is a misconception when it carries `details`, and a plain entry when it does not.
+  - A decision, as "Decisions" in `docs/event-model.md` has it:
+    `{"kind": "decision", "content": ..., "details": {"reasoning": ..., "rejected": [...]}}`,
+    `reasoning` and each of at most 20 `rejected` 1 to 4000 characters, `rejected` empty when left
+    out, with optional `topics` and `entities` and an optional `occurred_at` and
+    `occurred_precision`, when it was made, the request's time when left out. It is a `claim` in
+    `semantic`, the claim that it holds, and is written with a `decided` event in place of an
+    `asserted` one, the permanent record that it was made.
   - The entry applies at once, as "Standing rules are created deliberately" in
-    `docs/trust-model.md` says: one transaction records an `asserted` event through the same path
-    as the events endpoint, with origin `brain`, source `manual-entry`, evidence
+    `docs/trust-model.md` says: one transaction records an `asserted` event, `decided` for a
+    decision, through the same path as the events endpoint, with origin `brain`, source `manual-entry`, evidence
     `Entered by hand as <kind>: "<content>"` cut to 500 characters and a payload naming the item,
     then the item, `active`, `asserted` and the first of its lineage, with `created_by_event`
     naming the event, then its subjects, then a `supports` row in `item_evidence`. A failure at any
@@ -151,6 +164,23 @@ memory store's four tables, every table in `docs/data-model.md`.
     focus only while its topic has no other active one. Retiring is the
     owner's action alone, as "Nothing is destroyed, and only the owner retires" in
     `docs/trust-model.md` says: nothing in the brain retires an item for its age or for a score.
+  - `POST /brain/api/items/{id}/confirm`, saying a claim still holds, `200` with it as a single
+    read answers it. It takes no body and changes nothing on the item: it records a `confirmed`
+    event against it, evidence `Confirmed by hand: "<content>"` cut to 500 characters, linked as
+    `supports`, which moves when it was last supported. Allowed on any active claim; `422` for a
+    record, which asserts nothing about now, and `409` for an item that is not active. It locks
+    the item's row before it looks, so a retire at the same time either waits for it or is waited
+    for, and support never lands on an item retired meanwhile.
+  - `POST /brain/api/items/{id}/replace`, `{"replaced_by": <id>}`, a decision replaced by a newer
+    one, `200` with the old one as a single read answers it. Both must be active decisions of
+    different lineages: `422` for a `replaced_by` the user does not have, either not being a
+    decision, or two versions of one entry, a decision itself included; `409` when either is not
+    active. One transaction sets the old one `inactive` with `superseded`, records an `edited`
+    event against it, evidence `Replaced by hand: "<old>" by "<new>"` with each text cut to 200
+    characters, linked as `contradicts`, and links the new one to it with `supersedes`, made by
+    that event, as an edit does. The old one's `decided` event is untouched, and both stay
+    readable. Both rows are locked in id order first, so two decisions replacing each other at
+    once replace once.
   - `GET /brain/api/items/{id}/versions`, every version of the entry the item is one of, every row
     of its lineage, oldest first, each as the list answers it, whichever version is asked for. An
     entry never edited has one. `404` for an id the user does not have.
@@ -160,10 +190,23 @@ memory store's four tables, every table in `docs/data-model.md`.
     and `history_count`, its active history entries. A topic with neither is listed too. Narrowed
     by any of `level`, `focus` and `state` (`canonical` or `provisional`); a value off their lists
     is `422`. The query is in `src/brain/knowledge.py`, which owns no rows.
+  - `GET /brain/api/now`, what is going on now: the user's active `state` entries, each as the
+    list answers it, with `last_supported_at`, the newest `occurred_at` among the events supporting
+    it, and `stale`, true when that is more than `STALE_AFTER`, 60 days, before the request; newest
+    support first. Both are computed in the query from `item_evidence`, as "Confidence, currency
+    and status are three different things" in `docs/trust-model.md` requires, and neither is
+    stored. Only a claim of kind `state` is ever stale: a record has no currency, so it has no
+    flag. One crude threshold, with no decay curve.
+  - `GET /brain/api/history`, what has happened: the user's `history` entries and decisions by
+    `occurred_at`, oldest first, each as the list answers it with `replaced_by`. Active ones, and
+    each decision another one replaced, `inactive`, with `replaced_by` naming the one that did;
+    retired entries and older versions of an edited entry are left out. Narrowed by `topic` and
+    `entity` as the list is. Both views are in `src/brain/now_and_history.py`, which owns no rows
+    and takes the time as a parameter rather than reading the clock.
 
   An item is never changed in place: `brain_app` may insert and read the four tables, and update
-  only an item's `status` and `inactive_reason`, which editing, retiring and restoring change with
-  one conditional statement each, so of two requests changing the same item at once the second
+  only an item's `status` and `inactive_reason`, which editing, retiring, restoring and replacing
+  change with one conditional statement each, so of two requests changing the same item at once the second
   finds it changed and is `409`. Which kind lives in which store, and its nature,
   is checked by the migration as well as the code, since the store decides who may change a claim.
 - `GET /brain` and `GET /brain/<section>`, the memory centre's `index.html` from the build, see
