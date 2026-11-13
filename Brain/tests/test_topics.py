@@ -359,6 +359,8 @@ ROUTES: list[tuple[str, str, object]] = [
     ("POST", f"{TOPICS}/{uuid.uuid7()}/separate", None),
     ("POST", f"{TOPICS}/{uuid.uuid7()}/broader", {"broader_id": str(uuid.uuid7())}),
     ("POST", f"/brain/api/topic-relations/{uuid.uuid7()}/end", None),
+    ("GET", "/brain/api/entities", None),
+    ("POST", "/brain/api/entities", {"name": "Personal Platform"}),
 ]
 
 

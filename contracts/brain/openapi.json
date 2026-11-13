@@ -1,6 +1,43 @@
 {
   "components": {
     "schemas": {
+      "Entity": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "label",
+          "created_at"
+        ],
+        "title": "Entity",
+        "type": "object"
+      },
       "Health": {
         "properties": {
           "status": {
@@ -145,6 +182,93 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/brain/api/entities": {
+      "get": {
+        "description": "Every named thing the user has, by name.",
+        "operationId": "list_entities_brain_api_entities_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Entity"
+                  },
+                  "title": "Response List Entities Brain Api Entities Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "No valid token: missing, expired or failing verification, all alike. The body is empty; the caller refreshes and retries."
+          }
+        },
+        "summary": "List Entities"
+      },
+      "post": {
+        "description": "A new named thing, with an optional label such as project. A name the\nuser already has, in any letter case, is 409.",
+        "operationId": "create_entity_brain_api_entities_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "label": {
+                    "anyOf": [
+                      {
+                        "maxLength": 80,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Label"
+                  },
+                  "name": {
+                    "maxLength": 200,
+                    "minLength": 1,
+                    "title": "Name",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "name"
+                ],
+                "title": "NewEntity",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Entity"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "No valid token: missing, expired or failing verification, all alike. The body is empty; the caller refreshes and retries."
+          },
+          "409": {
+            "description": "It would be the user's second of something unique."
+          },
+          "422": {
+            "description": "A body that does not parse, or a request breaking a rule."
+          }
+        },
+        "summary": "Create Entity"
+      }
+    },
     "/brain/api/health": {
       "get": {
         "description": "Public: answers whenever the process serves, and needs no token.",

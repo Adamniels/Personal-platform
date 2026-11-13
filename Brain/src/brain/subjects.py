@@ -1,7 +1,9 @@
-"""The API for the brain's subjects, the topics a user's memory can be about,
-under `/brain/api/`. Every route needs a valid token, and acts for the account
-it names, through `brain.db.transaction`. What each does is in
-`brain.topics`; this module only reads the request and shapes the answer.
+"""The API for the brain's subjects, what a user's memory can be about:
+topics and named things, under `/brain/api/`. Every route needs a valid
+token, and acts for the account it names, through `brain.db.transaction`.
+What each does is in `brain.topics` and `brain.entities`; this module only
+reads the request and shapes the answer. A feature is never a subject, so
+nothing here names one.
 The routes are listed in "What it serves" in Brain/README.md."""
 
 from datetime import UTC, datetime
@@ -13,7 +15,7 @@ from fastapi.responses import JSONResponse, Response
 from platform_auth.verify import Claims
 from pydantic import BaseModel, StringConstraints
 
-from brain import db, topics
+from brain import db, entities, topics
 from brain.edge import (
     CONFLICT,
     NOT_FOUND,
@@ -35,6 +37,13 @@ Name = Annotated[
 ]
 Slug = Annotated[
     str, StringConstraints(pattern=topics.SLUG_PATTERN, max_length=topics.SLUG_MAX)
+]
+
+
+# A label, such as `project`: free text, surrounding space dropped, then 1 to
+# 80 characters.
+Label = Annotated[
+    str, StringConstraints(strip_whitespace=True, min_length=1, max_length=80)
 ]
 
 
@@ -72,7 +81,30 @@ class Topic(BaseModel):
         )
 
 
-def answer(model: BaseModel | list[Topic], status: int = 200) -> Response:
+class NewEntity(BaseModel):
+    name: Name
+    label: Label | None = None
+
+
+class Entity(BaseModel):
+    id: UUID
+    name: str
+    label: str | None
+    created_at: datetime
+
+    @classmethod
+    def of(cls, entity: entities.Entity) -> Entity:
+        return cls(
+            id=entity.id,
+            name=entity.name,
+            label=entity.label,
+            created_at=entity.created_at,
+        )
+
+
+def answer(
+    model: BaseModel | list[Topic] | list[Entity], status: int = 200
+) -> Response:
     if isinstance(model, list):
         return JSONResponse([item.model_dump(mode="json") for item in model])
     return JSONResponse(model.model_dump(mode="json"), status_code=status)
@@ -220,3 +252,30 @@ async def end_relation(request: Request, claims: Claims) -> Response:
     async with db.transaction(request.app.state.pool, claims.account_id) as conn:
         relation = await topics.end_relation(conn, relation_id, now=now)
     return answer(TopicRelation.of(relation))
+
+
+@router.get("/entities", response_model=list[Entity], responses=UNAUTHORIZED)
+@authenticated
+async def list_entities(request: Request, claims: Claims) -> Response:
+    """Every named thing the user has, by name."""
+    async with db.transaction(request.app.state.pool, claims.account_id) as conn:
+        found = await entities.everything(conn)
+    return answer([Entity.of(entity) for entity in found])
+
+
+@router.post(
+    "/entities",
+    status_code=201,
+    response_model=Entity,
+    responses={**UNAUTHORIZED, **REFUSED, **CONFLICT},
+    openapi_extra=documented(body=NewEntity),
+)
+@authenticated
+async def create_entity(request: Request, claims: Claims) -> Response:
+    """A new named thing, with an optional label such as project. A name the
+    user already has, in any letter case, is 409."""
+    body = await body_as(request, NewEntity)
+    now = datetime.now(UTC)
+    async with db.transaction(request.app.state.pool, claims.account_id) as conn:
+        entity = await entities.create(conn, body.name, body.label, now=now)
+    return answer(Entity.of(entity), status=201)
