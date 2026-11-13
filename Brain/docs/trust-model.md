@@ -35,9 +35,12 @@ correct it. Related: consolidation proposes, it never silently rewrites.
 
 **Purging is the one way anything is destroyed, and it is not part of the service.** Something that
 truly must be gone, a password pasted into a field by mistake, cannot be answered by retiring it,
-since a retired item stays readable. A command run from a terminal as the owning role removes one
-entry for good: every version of it, what hangs on it, and the events that supported nothing else.
-It shows what it will remove and asks before doing it. It is the named, deliberate bypass path
+since a retired item stays readable. `uv run brain purge <account-id> <item-id>`, run from a
+terminal as the owning role, removes one entry for good: every version of it, the items sharing its
+`lineage_id`; their subjects, relations and evidence links; and the events linked to them that
+nothing left behind still rests on. Topics and named things stay, and so does an event another
+entry rests on. It shows what it will remove and asks before doing it, and writes no event about
+itself. "Purging" in `Brain/README.md` has the details. It is the named, deliberate bypass path
 that "Multi user, and how isolation is enforced" in `High-level/docs/platform-architecture.md` asks
 for, in place of an ad hoc superuser connection. Row level security still applies to it, so it is
 told which account it acts for. There is no button for it anywhere: a button would make destroying

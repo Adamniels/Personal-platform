@@ -13,7 +13,7 @@ dependencies = [
 ]
 
 [project.scripts]
-# `uv run brain migrate`, `export` and `import`, see Brain/README.md.
+# `uv run brain migrate`, `export`, `import` and `purge`, see Brain/README.md.
 brain = "brain.cli:main"
 
 [build-system]
