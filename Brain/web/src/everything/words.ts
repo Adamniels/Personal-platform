@@ -64,3 +64,15 @@ export function verbWords(verb: string, origin: string): string {
 export function originWords(origin: string): string {
 	return origin === BRAIN_ORIGIN ? "From the memory centre" : `From ${origin}`;
 }
+
+/** A day, as the table shows when an item was last supported: "13 Nov
+ * 2026". */
+const DAY = new Intl.DateTimeFormat("en-GB", {
+	day: "numeric",
+	month: "short",
+	year: "numeric",
+});
+
+export function dayOf(iso: string): string {
+	return DAY.format(new Date(iso));
+}

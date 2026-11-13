@@ -58,9 +58,10 @@ async def whoami(request: Request, claims: Claims) -> Response:
 
 
 # The memory centre: one page, index.html from the build, for /brain, for
-# /brain/<section>, for a topic's page, /brain/knowledge/<slug>, and for a
-# decision's, /brain/history/<id>, which the application reads to decide what
-# to show, an unknown section, topic or decision included. The built files are mounted at /brain/assets/.
+# /brain/<section>, for a topic's page, /brain/knowledge/<slug>, for a
+# decision's, /brain/history/<id>, and for an item's, /brain/everything/<id>,
+# which the application reads to decide what to show, an unknown section,
+# topic, decision or item included. The built files are mounted at /brain/assets/.
 pages = APIRouter(include_in_schema=False)
 
 # Single segments under /brain/ that are never a section.
@@ -97,17 +98,29 @@ async def topic_page(request: Request) -> Response:
     return await memory_centre(request)
 
 
+def _written_as_an_id(given: str) -> bool:
+    """Whether a path segment is an id written as the API writes one."""
+    try:
+        return str(UUID(given)) == given
+    except ValueError:
+        return False
+
+
 @pages.get("/brain/history/{id}")
 async def decision_page(request: Request) -> Response:
     """A decision's page under History. Only an id, written as the API
     writes one, is one: anything else under a section is not an address of
     the application."""
-    given = request.path_params["id"]
-    try:
-        canonical = str(UUID(given)) == given
-    except ValueError:
-        canonical = False
-    if not canonical:
+    if not _written_as_an_id(request.path_params["id"]):
+        raise HTTPException(status_code=404)
+    return await memory_centre(request)
+
+
+@pages.get("/brain/everything/{id}")
+async def item_page(request: Request) -> Response:
+    """An item's page under Everything, by its id written as the API writes
+    one, as a decision's is under History."""
+    if not _written_as_an_id(request.path_params["id"]):
         raise HTTPException(status_code=404)
     return await memory_centre(request)
 

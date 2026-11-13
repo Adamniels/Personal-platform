@@ -131,4 +131,20 @@ describe("the filters are kept in the address", () => {
 		expect(window.location.search).toBe("");
 		expect(await entriesOf(everything)).toHaveLength(50);
 	});
+
+	test("an item's link and its breadcrumb keep the filters", async () => {
+		const brain = stocked();
+		const everything = open(brain, "/brain/everything?kind=rule");
+
+		await entriesOf(everything);
+		const link = everything.getByRole("link", { name: "Answer in English" });
+		expect(link.getAttribute("href")).toMatch(
+			/^\/brain\/everything\/[0-9a-f-]+\?kind=rule$/,
+		);
+
+		fireEvent.click(link);
+		const page = within(screen.getByRole("tabpanel", { name: "Everything" }));
+		const crumb = await page.findByRole("link", { name: "Everything" });
+		expect(crumb.getAttribute("href")).toBe("/brain/everything?kind=rule");
+	});
 });

@@ -1,0 +1,181 @@
+/* An item's page: the breadcrumb, its text and state, its facts and
+ * subjects, then its parts, each a heading and a list, a section apart, as
+ * section 2 of design/DESIGN.md spaces a page. The breadcrumb and the head
+ * read as a decision's page does. */
+
+.note {
+	margin: 0;
+	color: var(--text-2);
+}
+
+.link {
+	border-radius: var(--radius-sm);
+	color: var(--info);
+	font-weight: 600;
+	overflow-wrap: anywhere;
+	white-space: pre-wrap;
+}
+
+/* "Everything / Entry": the way back, then where the page is. */
+.breadcrumb {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-2);
+	margin: 0;
+	padding: 0;
+	list-style: none;
+	color: var(--text-2);
+}
+
+.breadcrumb li + li::before {
+	content: "/";
+	margin-right: var(--space-2);
+	color: var(--text-3);
+}
+
+.breadcrumb [aria-current] {
+	color: var(--text);
+}
+
+.head {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-3);
+}
+
+/* Two classes, to outrank page.css's heading margins. The heading takes
+ * focus when the page's entry changes under it, so it shows the ring. */
+.head .title {
+	min-width: 0;
+	margin: 0;
+	overflow-wrap: anywhere;
+	white-space: pre-wrap;
+}
+
+.title:focus-visible {
+	border-radius: var(--radius-sm);
+	outline: var(--focus-ring);
+	outline-offset: var(--focus-offset);
+}
+
+/* The facts as one line in the mono font, hard rule 8, each apart by a
+ * dot, wrapping on a narrow screen. */
+.facts {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-1) var(--space-2);
+	margin: 0;
+	padding: 0;
+	list-style: none;
+	color: var(--text-2);
+	font-family: var(--font-mono);
+	font-size: var(--text-mono-size);
+	line-height: var(--text-mono-line);
+	font-variant-numeric: tabular-nums;
+}
+
+.facts li + li::before {
+	content: "·";
+	margin-right: var(--space-2);
+	color: var(--text-3);
+}
+
+.about {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-2);
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.part {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-3);
+	min-width: 0;
+	max-width: var(--reading-max);
+}
+
+.partTitle {
+	margin: 0;
+	font-family: var(--font-heading);
+	font-size: var(--text-h2-size);
+	line-height: var(--text-h2-line);
+	font-weight: 600;
+}
+
+/* An event's evidence, then where it came from, each on its own line. */
+.evidence,
+.origin {
+	display: block;
+	overflow-wrap: anywhere;
+	white-space: pre-wrap;
+}
+
+.origin {
+	color: var(--text-3);
+}
+
+.versions,
+.related {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-3);
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.version {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-1);
+	min-width: 0;
+}
+
+.versionFacts {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-2);
+}
+
+.text {
+	margin: 0;
+	color: var(--text);
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+
+.here {
+	color: var(--text-2);
+}
+
+/* A date is in the mono font with tabular figures, hard rule 8. */
+.when {
+	color: var(--text-2);
+	font-family: var(--font-mono);
+	font-size: var(--text-mono-size);
+	line-height: var(--text-mono-line);
+	font-variant-numeric: tabular-nums;
+}
+
+/* What the relation is, the other item, when it was made, and its action,
+ * wrapping on a narrow screen. */
+.relation {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-1) var(--space-3);
+	min-width: 0;
+}
+
+.relationWord {
+	color: var(--text-2);
+	font-size: var(--text-caption-size);
+	line-height: var(--text-caption-line);
+	font-weight: 500;
+}

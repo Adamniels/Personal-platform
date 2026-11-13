@@ -366,6 +366,12 @@ export function fakeBrain() {
 					.sort((a, b) => a.created_at.localeCompare(b.created_at)),
 			);
 		}
+		const one = /^\/items\/([^/]+)$/.exec(path);
+		if (method === "GET" && one) {
+			const item = items.find(({ id }) => id === one[1]);
+			if (!item) return json(404, { detail: "No such item" });
+			return json(200, detail(item));
+		}
 		if (method !== "POST") return json(404, { detail: "No such route" });
 		if (refusal) {
 			const { status, detail: text } = refusal;

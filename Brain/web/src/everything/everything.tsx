@@ -38,6 +38,7 @@ import {
 	subjectFrom,
 	subjectValue,
 } from "./filters";
+import { ItemPage } from "./item-page";
 import {
 	type Row,
 	SEARCH_LIMIT,
@@ -45,7 +46,7 @@ import {
 	useSearchItems,
 } from "./queries";
 import { stateOf } from "./state";
-import { KINDS, type Kind, kindWord } from "./words";
+import { dayOf, KINDS, type Kind, kindWord } from "./words";
 
 /** How many rows a page holds. */
 export const PAGE_SIZE = 50;
@@ -56,24 +57,13 @@ const SEARCH_PAUSE = 250;
 /** The longest search the brain takes. */
 const SEARCH_MAX = 200;
 
-/** When an item was last supported, as a day: "13 Nov 2026". */
-const DAY = new Intl.DateTimeFormat("en-GB", {
-	day: "numeric",
-	month: "short",
-	year: "numeric",
-});
-
-export function dayOf(iso: string): string {
-	return DAY.format(new Date(iso));
-}
-
 /** The section: an item's page when the address names one, the table
  * otherwise. */
 export function Everything() {
 	const pathname = usePathname();
 	const here = sectionAt(pathname);
 	const id = here && pageAt(here, pathname);
-	return id === undefined ? <Overview /> : null;
+	return id === undefined ? <Overview /> : <ItemPage id={id} />;
 }
 
 /** Whether a row is among those the state filter shows. */
