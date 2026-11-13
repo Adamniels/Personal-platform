@@ -360,3 +360,37 @@ async def get(conn: Connection, item_id: UUID) -> Detail | None:
     )
     relations = tuple(Relation(*row) for row in await cursor.fetchall())
     return Detail(item, evidence, relations)
+
+
+async def listing(
+    conn: Connection,
+    *,
+    kind: str | None,
+    status: str | None,
+    topic: str | None,
+    entity: str | None,
+) -> list[Item]:
+    """The current user's items, newest first, narrowed by each filter that
+    is given: the kind, the status, a topic by slug and a named thing by
+    name. A topic matches through aliases, on either side: an item about an
+    alias is about its target, and asking for an alias asks for the target.
+    Only the topic itself matches, not those under it. A name matches
+    without letter case. A subject the user does not have matches nothing."""
+    cursor = await conn.execute(
+        f"SELECT {COLUMNS} FROM items i"
+        " WHERE (%(kind)s::text IS NULL OR i.kind = %(kind)s)"
+        " AND (%(status)s::text IS NULL OR i.status = %(status)s)"
+        " AND (%(topic)s::text IS NULL OR EXISTS ("
+        "  SELECT FROM item_subjects s"
+        "  JOIN topics named ON named.id = s.topic_id"
+        "  JOIN topics wanted ON wanted.slug = %(topic)s"
+        "  WHERE s.item_id = i.id"
+        "  AND coalesce(named.alias_of, named.id)"
+        "   = coalesce(wanted.alias_of, wanted.id)))"
+        " AND (%(entity)s::text IS NULL OR EXISTS ("
+        "  SELECT FROM item_subjects s JOIN entities n ON n.id = s.entity_id"
+        "  WHERE s.item_id = i.id AND lower(n.name) = lower(%(entity)s)))"
+        " ORDER BY i.created_at DESC, i.id DESC",
+        {"kind": kind, "status": status, "topic": topic, "entity": entity},
+    )
+    return await _items(conn, await cursor.fetchall())

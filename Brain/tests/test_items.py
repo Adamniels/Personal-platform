@@ -324,6 +324,165 @@ async def test_a_failed_write_leaves_neither_an_item_nor_an_event(
         assert admin.execute("SELECT count(*) FROM entities").fetchone() == (0,)
 
 
+def test_an_entry_may_name_topics_and_named_things(
+    calling: Callable[[uuid.UUID], Caller], database: str
+) -> None:
+    alice = calling(ALICE)
+    rust = alice.post(TOPICS, {"name": "Rust"}).json()
+    systems = alice.post(TOPICS, {"name": "Systems"}).json()
+    project = alice.post(ENTITIES, {"name": "Personal Platform", "label": "project"})
+
+    written = write(
+        alice,
+        profile(
+            category="interests",
+            topics=["rust", "systems"],
+            entities=["personal platform", "Operation Rollout"],
+        ),
+    )
+
+    assert written["topics"] == [
+        {"id": rust["id"], "slug": "rust", "name": "Rust"},
+        {"id": systems["id"], "slug": "systems", "name": "Systems"},
+    ]
+    names = {entity["name"]: entity for entity in alice.get(ENTITIES).json()}
+    # The known one by its own name, the unknown one created, with no label.
+    assert written["entities"] == [
+        {"id": names["Operation Rollout"]["id"], "name": "Operation Rollout"},
+        {"id": project.json()["id"], "name": "Personal Platform"},
+    ]
+    assert names["Operation Rollout"]["label"] is None
+    assert alice.get(f"{ITEMS}/{written['id']}").json()["topics"] == written["topics"]
+
+    # A hand made entry names a topic that exists: an unknown one is refused,
+    # and leaves nothing, not even the named thing beside it.
+    refused = alice.post(ITEMS, profile(topics=["haskell"], entities=["A New Project"]))
+    assert refused.status_code == 422
+    assert "haskell" in refused.json()["detail"]
+    assert {t["slug"] for t in alice.get(TOPICS).json()} == {"rust", "systems"}
+    assert "A New Project" not in {e["name"] for e in alice.get(ENTITIES).json()}
+    assert counts(database)["items"] == 1
+
+
+def test_an_entry_naming_an_alias_is_read_on_its_target(
+    calling: Callable[[uuid.UUID], Caller],
+) -> None:
+    alice = calling(ALICE)
+    target = alice.post(TOPICS, {"name": "Postgres"}).json()
+    alias = alice.post(TOPICS, {"name": "PostgreSQL"}).json()
+    assert (
+        alice.post(
+            f"{TOPICS}/{alias['id']}/same-as", {"target_id": target["id"]}
+        ).status_code
+        == 200
+    )
+
+    written = write(alice, profile(topics=["postgresql", "postgres"]))
+
+    # Named twice, through the alias and directly: one subject, the target.
+    assert written["topics"] == [
+        {"id": target["id"], "slug": "postgres", "name": "Postgres"}
+    ]
+    assert [i["id"] for i in listed(alice, "?topic=postgresql")] == [written["id"]]
+
+
+def test_reading_an_item_returns_its_evidence(
+    calling: Callable[[uuid.UUID], Caller],
+) -> None:
+    alice = calling(ALICE)
+    written = write(alice, profile(content="Prefers prose over heavy formatting."))
+    [event] = alice.get(EVENTS).json()
+
+    response = alice.get(f"{ITEMS}/{written['id']}")
+
+    assert response.status_code == 200, response.text
+    read = response.json()
+    assert read == written
+    [evidence] = read["evidence"]
+    assert evidence["kind"] == "supports"
+    assert evidence["event"] == {
+        "id": event["id"],
+        "verb": "asserted",
+        "origin": "brain",
+        "source": "manual-entry",
+        "evidence": 'Entered by hand as profile: "Prefers prose over heavy formatting."',
+        "occurred_at": event["occurred_at"],
+        "occurred_precision": "instant",
+        "recorded_at": event["recorded_at"],
+    }
+    assert read["relations"] == []
+
+
+def test_an_item_that_is_not_there_is_404(
+    calling: Callable[[uuid.UUID], Caller],
+) -> None:
+    alice = calling(ALICE)
+    assert alice.get(f"{ITEMS}/{uuid.uuid7()}").status_code == 404
+    assert alice.get(f"{ITEMS}/not-an-id").status_code == 404
+
+
+def test_listing_filters_by_kind_status_and_subject(
+    calling: Callable[[uuid.UUID], Caller], database: str
+) -> None:
+    alice = calling(ALICE)
+    for name in ["Rust", "Embedded"]:
+        assert alice.post(TOPICS, {"name": name}).status_code == 201
+    first = write(alice, profile(topics=["rust"]))
+    second = write(alice, profile(category="goals", entities=["Personal Platform"]))
+    third = write(alice, rule())
+    fourth = write(alice, profile(topics=["embedded"], entities=["personal platform"]))
+    # Inactive by hand, since retiring is the next slice.
+    with admin_connection(database) as conn:
+        conn.execute(
+            "UPDATE items SET status = 'inactive', inactive_reason = 'retired'"
+            " WHERE id = %s",
+            (fourth["id"],),
+        )
+
+    def ids(query: str) -> list[str]:
+        return [item["id"] for item in listed(alice, query)]
+
+    # Newest first.
+    assert ids("") == [fourth["id"], third["id"], second["id"], first["id"]]
+    assert ids("?kind=rule") == [third["id"]]
+    assert ids("?kind=profile") == [fourth["id"], second["id"], first["id"]]
+    assert ids("?status=active") == [third["id"], second["id"], first["id"]]
+    assert ids("?status=inactive") == [fourth["id"]]
+    assert ids("?topic=rust") == [first["id"]]
+    assert ids("?entity=PERSONAL%20PLATFORM") == [fourth["id"], second["id"]]
+    assert ids("?entity=Personal%20Platform&status=active") == [second["id"]]
+    assert ids("?kind=rule&topic=rust") == []
+    # A subject the user does not have names nothing.
+    assert ids("?topic=haskell") == []
+    assert ids("?entity=Nothing") == []
+    for query in ["?kind=feeling", "?status=retired", "?topic=Not%20A%20Slug"]:
+        assert alice.get(f"{ITEMS}{query}").status_code == 422, query
+    # The list carries each item's subjects, as the single read does.
+    [listed_first] = listed(alice, "?topic=rust")
+    assert listed_first["topics"] == first["topics"]
+
+
+def test_items_are_scoped_to_their_user(
+    calling: Callable[[uuid.UUID], Caller], database: str
+) -> None:
+    alice, bob = calling(ALICE), calling(BOB)
+    alices = write(alice, profile(entities=["Personal Platform"]))
+
+    assert listed(bob) == []
+    assert listed(bob, "?entity=Personal%20Platform") == []
+    assert bob.get(f"{ITEMS}/{alices['id']}").status_code == 404
+    # Bob's own entry, naming the same thing, names his own.
+    bobs = write(bob, rule())
+    assert [i["id"] for i in listed(alice)] == [alices["id"]]
+    assert [i["id"] for i in listed(bob)] == [bobs["id"]]
+    with admin_connection(database) as conn:
+        owners = conn.execute(
+            "SELECT DISTINCT user_id FROM item_evidence WHERE item_id = %s",
+            (alices["id"],),
+        ).fetchall()
+    assert owners == [(ALICE,)]
+
+
 async def test_an_event_may_name_an_item_the_user_has(
     pool: AsyncConnectionPool,
 ) -> None:

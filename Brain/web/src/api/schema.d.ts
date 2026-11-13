@@ -85,7 +85,14 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * List Items
+         * @description The user's items, newest first, each with its subjects, narrowed by
+         *     kind, status, topic and entity when they are given. A topic matches
+         *     through aliases, and only itself, not the topics under it. 422 for an
+         *     unknown kind or status, or a malformed slug.
+         */
+        get: operations["list_items_brain_api_items_get"];
         put?: never;
         /**
          * Write Item
@@ -98,6 +105,27 @@ export interface paths {
          *     user does not have is created.
          */
         post: operations["write_item_brain_api_items_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/brain/api/items/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read Item
+         * @description One item with its subjects, the events behind it and its relations.
+         *     404 for an id the user does not have.
+         */
+        get: operations["read_item_brain_api_items__id__get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -407,6 +435,74 @@ export interface components {
              * @constant
              */
             status: "ok";
+        };
+        /** Item */
+        Item: {
+            /** Category */
+            category: string | null;
+            /** Content */
+            content: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Created By Event
+             * Format: uuid
+             */
+            created_by_event: string;
+            /** Details */
+            details: {
+                [key: string]: unknown;
+            };
+            /** Entities */
+            entities: components["schemas"]["EventEntity"][];
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Inactive Reason */
+            inactive_reason: ("superseded" | "retired") | null;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "profile" | "rule" | "topic_level" | "topic_focus" | "state" | "history" | "decision";
+            /**
+             * Lineage Id
+             * Format: uuid
+             */
+            lineage_id: string;
+            /**
+             * Nature
+             * @enum {string}
+             */
+            nature: "claim" | "record";
+            /** Occurred At */
+            occurred_at: string | null;
+            /** Occurred Precision */
+            occurred_precision: ("instant" | "day" | "month" | "year") | null;
+            /**
+             * Provenance
+             * @enum {string}
+             */
+            provenance: "asserted" | "derived";
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "active" | "inactive";
+            /**
+             * Store
+             * @enum {string}
+             */
+            store: "profile" | "procedural" | "knowledge" | "semantic" | "reported_history";
+            /** Topics */
+            topics: components["schemas"]["EventTopic"][];
+            /** Value */
+            value: string | null;
         };
         /**
          * ItemDetail
@@ -803,6 +899,45 @@ export interface operations {
             };
         };
     };
+    list_items_brain_api_items_get: {
+        parameters: {
+            query?: {
+                kind?: ("profile" | "rule" | "topic_level" | "topic_focus" | "state" | "history" | "decision") | null;
+                status?: ("active" | "inactive") | null;
+                topic?: string | null;
+                entity?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Item"][];
+                };
+            };
+            /** @description No valid token: missing, expired or failing verification, all alike. The body is empty; the caller refreshes and retries. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description A body that does not parse, or a request breaking a rule. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     write_item_brain_api_items_post: {
         parameters: {
             query?: never;
@@ -881,6 +1016,42 @@ export interface operations {
             };
             /** @description A body that does not parse, or a request breaking a rule. */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    read_item_brain_api_items__id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ItemDetail"];
+                };
+            };
+            /** @description No valid token: missing, expired or failing verification, all alike. The body is empty; the caller refreshes and retries. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Nothing of this user's at that address. */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

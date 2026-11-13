@@ -23,12 +23,16 @@ from pydantic import (
 
 from brain import db, items
 from brain.edge import (
+    NOT_FOUND,
     REFUSED,
     UNAUTHORIZED,
     authenticated,
     body_as,
     documented,
+    path_id,
+    query_as,
 )
+from brain.errors import NotFound
 from brain.event_routes import EventEntity, EventTopic, Precision
 from brain.subjects import Name, Slug
 
@@ -275,3 +279,66 @@ async def write_item(request: Request, claims: Claims) -> Response:
     return JSONResponse(
         ItemDetail.of_detail(detail).model_dump(mode="json"), status_code=201
     )
+
+
+class ItemQuery(BaseModel):
+    # Each filter narrows the list; all of them together, every one given.
+    kind: (
+        Literal[
+            "profile",
+            "rule",
+            "topic_level",
+            "topic_focus",
+            "state",
+            "history",
+            "decision",
+        ]
+        | None
+    ) = None
+    status: Literal["active", "inactive"] | None = None
+    # A topic by slug, read through aliases.
+    topic: Slug | None = None
+    # A named thing by name, without letter case.
+    entity: Name | None = None
+
+
+@router.get(
+    "/items",
+    response_model=list[Item],
+    responses={**UNAUTHORIZED, **REFUSED},
+    openapi_extra=documented(query=ItemQuery),
+)
+@authenticated
+async def list_items(request: Request, claims: Claims) -> Response:
+    """The user's items, newest first, each with its subjects, narrowed by
+    kind, status, topic and entity when they are given. A topic matches
+    through aliases, and only itself, not the topics under it. 422 for an
+    unknown kind or status, or a malformed slug."""
+    query = query_as(request, ItemQuery)
+    async with db.transaction(request.app.state.pool, claims.account_id) as conn:
+        found = await items.listing(
+            conn,
+            kind=query.kind,
+            status=query.status,
+            topic=query.topic,
+            entity=query.entity,
+        )
+    return JSONResponse([Item.of(item).model_dump(mode="json") for item in found])
+
+
+@router.get(
+    "/items/{id}",
+    response_model=ItemDetail,
+    responses={**UNAUTHORIZED, **NOT_FOUND},
+    openapi_extra=documented(path=("id",)),
+)
+@authenticated
+async def read_item(request: Request, claims: Claims) -> Response:
+    """One item with its subjects, the events behind it and its relations.
+    404 for an id the user does not have."""
+    item_id = path_id(request)
+    async with db.transaction(request.app.state.pool, claims.account_id) as conn:
+        detail = await items.get(conn, item_id)
+    if detail is None:
+        raise NotFound
+    return JSONResponse(ItemDetail.of_detail(detail).model_dump(mode="json"))

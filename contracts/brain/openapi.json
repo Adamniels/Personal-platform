@@ -333,6 +333,189 @@
         "title": "Health",
         "type": "object"
       },
+      "Item": {
+        "properties": {
+          "category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category"
+          },
+          "content": {
+            "title": "Content",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_by_event": {
+            "format": "uuid",
+            "title": "Created By Event",
+            "type": "string"
+          },
+          "details": {
+            "additionalProperties": true,
+            "title": "Details",
+            "type": "object"
+          },
+          "entities": {
+            "items": {
+              "$ref": "#/components/schemas/EventEntity"
+            },
+            "title": "Entities",
+            "type": "array"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "inactive_reason": {
+            "anyOf": [
+              {
+                "enum": [
+                  "superseded",
+                  "retired"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inactive Reason"
+          },
+          "kind": {
+            "enum": [
+              "profile",
+              "rule",
+              "topic_level",
+              "topic_focus",
+              "state",
+              "history",
+              "decision"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "lineage_id": {
+            "format": "uuid",
+            "title": "Lineage Id",
+            "type": "string"
+          },
+          "nature": {
+            "enum": [
+              "claim",
+              "record"
+            ],
+            "title": "Nature",
+            "type": "string"
+          },
+          "occurred_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Occurred At"
+          },
+          "occurred_precision": {
+            "anyOf": [
+              {
+                "enum": [
+                  "instant",
+                  "day",
+                  "month",
+                  "year"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Occurred Precision"
+          },
+          "provenance": {
+            "enum": [
+              "asserted",
+              "derived"
+            ],
+            "title": "Provenance",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "active",
+              "inactive"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "store": {
+            "enum": [
+              "profile",
+              "procedural",
+              "knowledge",
+              "semantic",
+              "reported_history"
+            ],
+            "title": "Store",
+            "type": "string"
+          },
+          "topics": {
+            "items": {
+              "$ref": "#/components/schemas/EventTopic"
+            },
+            "title": "Topics",
+            "type": "array"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "id",
+          "lineage_id",
+          "kind",
+          "store",
+          "nature",
+          "provenance",
+          "content",
+          "value",
+          "category",
+          "details",
+          "occurred_at",
+          "occurred_precision",
+          "status",
+          "inactive_reason",
+          "created_at",
+          "created_by_event",
+          "topics",
+          "entities"
+        ],
+        "title": "Item",
+        "type": "object"
+      },
       "ItemDetail": {
         "description": "One item with the events behind it, oldest first, and every relation\nit is on either end of.",
         "properties": {
@@ -1064,6 +1247,116 @@
       }
     },
     "/brain/api/items": {
+      "get": {
+        "description": "The user's items, newest first, each with its subjects, narrowed by\nkind, status, topic and entity when they are given. A topic matches\nthrough aliases, and only itself, not the topics under it. 422 for an\nunknown kind or status, or a malformed slug.",
+        "operationId": "list_items_brain_api_items_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "kind",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "profile",
+                    "rule",
+                    "topic_level",
+                    "topic_focus",
+                    "state",
+                    "history",
+                    "decision"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kind"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "active",
+                    "inactive"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "topic",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 80,
+                  "pattern": "^[a-z0-9][a-z0-9-]{0,79}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Topic"
+            }
+          },
+          {
+            "in": "query",
+            "name": "entity",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Entity"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Item"
+                  },
+                  "title": "Response List Items Brain Api Items Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "No valid token: missing, expired or failing verification, all alike. The body is empty; the caller refreshes and retries."
+          },
+          "422": {
+            "description": "A body that does not parse, or a request breaking a rule."
+          }
+        },
+        "summary": "List Items"
+      },
       "post": {
         "description": "Writes an entry made by hand, 201 with the item, its evidence and its\nrelations. It applies at once: an asserted event, origin brain and source\nmanual-entry, is recorded with it and is its supporting evidence. kind is\nprofile, with a category, or rule, which is global. 422 for an unknown\nkind or category, content that is blank or over 4000 characters, a rule\nnaming a subject, or a topic the user does not have. A named thing the\nuser does not have is created.",
         "operationId": "write_item_brain_api_items_post",
@@ -1226,6 +1519,42 @@
           }
         },
         "summary": "Write Item"
+      }
+    },
+    "/brain/api/items/{id}": {
+      "get": {
+        "description": "One item with its subjects, the events behind it and its relations.\n404 for an id the user does not have.",
+        "operationId": "read_item_brain_api_items__id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "No valid token: missing, expired or failing verification, all alike. The body is empty; the caller refreshes and retries."
+          },
+          "404": {
+            "description": "Nothing of this user's at that address."
+          }
+        },
+        "summary": "Read Item"
       }
     },
     "/brain/api/topic-relations/{id}/end": {
