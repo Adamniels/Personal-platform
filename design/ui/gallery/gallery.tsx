@@ -12,6 +12,7 @@ import { StatusSection } from "./sections/status-section";
 import { TabsSection } from "./sections/tabs-section";
 import { TextAreaSection } from "./sections/text-area-section";
 import { TextFieldSection } from "./sections/text-field-section";
+import { TimelineSection } from "./sections/timeline-section";
 import { ThemeControl } from "./theme-control";
 
 /** Every component of @platform/ui, one section each, in every kind and
@@ -43,6 +44,7 @@ export function Gallery() {
 				<TabsSection />
 				<CardSection />
 				<EmptyStateSection />
+				<TimelineSection />
 			</main>
 		</div>
 	);

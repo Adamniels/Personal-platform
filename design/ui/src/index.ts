@@ -23,3 +23,9 @@ export {
 	Tabs,
 	type TabsProps,
 } from "./tabs/tabs";
+export {
+	Timeline,
+	TimelineEntry,
+	type TimelineEntryProps,
+	type TimelineProps,
+} from "./timeline/timeline";
