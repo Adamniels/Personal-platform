@@ -158,6 +158,33 @@ is a migration that adds its row.
 `edited`, `retired`, `restored` and `confirmed` are the brain's own: they record what the owner did
 to an item, with `subject_item` naming it.
 
+## The memory file
+
+One account's whole memory as one JSON document, what `brain export` writes and `brain import`
+reads back, see "Export and import" in `Brain/README.md`. It is **format 1**, and
+`brain.memory_file.TABLES` is its definition.
+
+- **The document:** `format`, the integer 1; `exported_at`, when it was written, with a zone;
+  `account_id`; then one array per table, in this order: `topics`, `topic_relations`, `entities`,
+  `events`, `items`, `item_subjects`, `item_relations`, `item_evidence`. Nothing else.
+- **Each row** holds every column of its table except the generated ones, the two `search` columns,
+  which Postgres computes again on import. `verbs` is not in it: it is global and comes from the
+  migrations, so an import refuses an event whose verb the brain does not know.
+- **So two exports compare equal:** rows ordered by id, and `item_subjects`, which has none, by
+  item, topic and named thing; every key in a row sorted, those nested in a `payload` or `details`
+  included; times in UTC; two space indent and a trailing newline. An export, an import into a
+  fresh brain and an export at the same `exported_at` give back the same bytes.
+- **The import inserts the tables in the file's order**, each table in one statement, inside one
+  transaction. A reference within a table, an alias to its topic or a version to the first of its
+  lineage, is checked once the whole table is in. Events and items name each other, an item the
+  event that made it and an event about an item that item, so `events`' reference to `items` is
+  deferrable, `migrations/0006_deferrable_event_item.sql`: checked at once for every other write,
+  and at the end of the import, which defers it.
+
+A change to a table or a column is a new format version. A test compares `TABLES` with the schema,
+so a migration that adds either fails it until the format is decided again. An import refuses a
+file of a newer format than its own.
+
 ## What is computed, never stored
 
 Confidence and currency are not columns, as "Confidence, currency and status are three different

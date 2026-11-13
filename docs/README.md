@@ -143,7 +143,7 @@ features" in `High-level/docs/platform-architecture.md`.
 - `Brain/README.md` — what the brain serves, how it knows who is asking, the memory centre and
   its sections, how its client calls the brain and how its API types are generated, how to run
   it and its tests, its settings, its database and roles, migrating, the one door every query
-  goes through, and the libraries it is built on
+  goes through, exporting a memory to a file and importing it, and the libraries it is built on
 - `brain-architecture.md` — per feature modules, retrieval, evaluation, consolidation, and the
   brain's own surface, the memory centre, with its sections and their addresses
 - `trust-model.md` — which store holds what, who can change it, scope, confidence and currency,
@@ -152,7 +152,7 @@ features" in `High-level/docs/platform-architecture.md`.
   what gets in at all
 - `event-model.md` — the event shape, verbs, relations, and what consolidation does
 - `data-model.md` — the tables in their final shape, which kind goes in which store, the verb
-  list, and what is computed and never stored
+  list, the memory file's format, and what is computed and never stored
 
 **E2E**
 
