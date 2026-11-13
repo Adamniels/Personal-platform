@@ -441,3 +441,46 @@ async def edit_item(request: Request, claims: Claims) -> Response:
     return JSONResponse(
         ItemDetail.of_detail(detail).model_dump(mode="json"), status_code=201
     )
+
+
+@router.post(
+    "/items/{id}/retire",
+    response_model=ItemDetail,
+    responses={**UNAUTHORIZED, **NOT_FOUND, **NOT_CURRENT},
+    openapi_extra=documented(path=("id",)),
+)
+@authenticated
+async def retire_item(request: Request, claims: Claims) -> Response:
+    """Puts an item away, 200 with it, now inactive with reason retired. It
+    stops applying, stays readable, and can be restored. A retired event
+    against it is recorded with it, in one transaction. Takes no body. 404
+    for an id the user does not have. 409 for an item already retired, or a
+    superseded version, whose newest version is the one to retire."""
+    item_id = path_id(request)
+    now = datetime.now(UTC)
+    async with db.transaction(request.app.state.pool, claims.account_id) as conn:
+        await items.retire(conn, item_id, now=now)
+        detail = await items.get(conn, item_id)
+    assert detail is not None
+    return JSONResponse(ItemDetail.of_detail(detail).model_dump(mode="json"))
+
+
+@router.post(
+    "/items/{id}/restore",
+    response_model=ItemDetail,
+    responses={**UNAUTHORIZED, **NOT_FOUND, **NOT_CURRENT},
+    openapi_extra=documented(path=("id",)),
+)
+@authenticated
+async def restore_item(request: Request, claims: Claims) -> Response:
+    """Brings a retired item back, 200 with it, active again. A restored
+    event against it is recorded with it, in one transaction. Takes no body.
+    404 for an id the user does not have. 409 for an item that is not
+    retired: an active one, or a superseded version, which stays history."""
+    item_id = path_id(request)
+    now = datetime.now(UTC)
+    async with db.transaction(request.app.state.pool, claims.account_id) as conn:
+        await items.restore(conn, item_id, now=now)
+        detail = await items.get(conn, item_id)
+    assert detail is not None
+    return JSONResponse(ItemDetail.of_detail(detail).model_dump(mode="json"))

@@ -207,6 +207,22 @@ def test_only_the_newest_version_can_be_edited(
     assert counts(database) == before
 
 
+def test_a_retired_item_is_brought_back_before_it_is_edited(
+    calling: Callable[[uuid.UUID], Caller], database: str
+) -> None:
+    alice = calling(ALICE)
+    item = write(alice, rule())
+    act(alice, item["id"], "retire")
+    before = counts(database)
+
+    response = alice.post(
+        f"{ITEMS}/{item['id']}/edit", {"kind": "rule", "content": "x"}
+    )
+
+    assert response.status_code == 409, response.text
+    assert counts(database) == before
+
+
 @pytest.mark.parametrize(
     "body",
     [
@@ -269,6 +285,127 @@ def test_a_rule_edit_names_no_subject(
     assert response.status_code == 422, response.text
 
 
+def test_retiring_makes_an_item_inactive_and_records_it(
+    calling: Callable[[uuid.UUID], Caller],
+) -> None:
+    alice = calling(ALICE)
+    item = write(alice, profile(content="Prefers tabs."))
+
+    retired = act(alice, item["id"], "retire")
+
+    assert retired["id"] == item["id"]
+    assert retired["status"] == "inactive" and retired["inactive_reason"] == "retired"
+    assert retired["content"] == "Prefers tabs."
+    [event] = about(alice, item["id"], "retired")
+    assert event["origin"] == "brain" and event["source"] == "manual-entry"
+    assert event["evidence"] == 'Retired by hand: "Prefers tabs."'
+    assert [(e["kind"], e["event"]["id"]) for e in retired["evidence"]][-1] == (
+        "contradicts",
+        event["id"],
+    )
+    assert read(alice, item["id"]) == retired
+
+
+def test_a_retired_item_can_be_brought_back(
+    calling: Callable[[uuid.UUID], Caller],
+) -> None:
+    alice = calling(ALICE)
+    item = write(alice, rule(content="Concise prose."))
+    act(alice, item["id"], "retire")
+
+    restored = act(alice, item["id"], "restore")
+
+    assert restored["status"] == "active" and restored["inactive_reason"] is None
+    [event] = about(alice, item["id"], "restored")
+    assert event["origin"] == "brain" and event["source"] == "manual-entry"
+    assert event["evidence"] == 'Restored by hand: "Concise prose."'
+    assert [(e["kind"], e["event"]["id"]) for e in restored["evidence"]][-1] == (
+        "supports",
+        event["id"],
+    )
+    # And it can be put away again, each time recorded.
+    act(alice, item["id"], "retire")
+    assert len(about(alice, item["id"], "retired")) == 2
+
+
+def test_a_superseded_version_cannot_be_restored(
+    calling: Callable[[uuid.UUID], Caller], database: str
+) -> None:
+    alice = calling(ALICE)
+    old = write(alice, profile(content="Prefers tabs."))
+    edit(alice, old["id"], {"kind": "profile", "content": "Prefers spaces."})
+    before = counts(database)
+
+    response = alice.post(f"{ITEMS}/{old['id']}/restore")
+
+    assert response.status_code == 409, response.text
+    assert counts(database) == before
+    assert read(alice, old["id"])["inactive_reason"] == "superseded"
+
+
+def test_only_an_active_item_is_retired_and_only_a_retired_one_restored(
+    calling: Callable[[uuid.UUID], Caller], database: str
+) -> None:
+    alice = calling(ALICE)
+    item = write(alice, rule())
+    old = write(alice, profile(content="Prefers tabs."))
+    edit(alice, old["id"], {"kind": "profile", "content": "Prefers spaces."})
+
+    # An active item has nothing to come back from.
+    assert alice.post(f"{ITEMS}/{item['id']}/restore").status_code == 409
+    act(alice, item["id"], "retire")
+    before = counts(database)
+    # Retired is retired once.
+    assert alice.post(f"{ITEMS}/{item['id']}/retire").status_code == 409
+    # A superseded version is not the entry any more; its newest version is.
+    assert alice.post(f"{ITEMS}/{old['id']}/retire").status_code == 409
+    assert counts(database) == before
+
+
+def test_nothing_is_removed_by_any_of_it(
+    calling: Callable[[uuid.UUID], Caller], database: str
+) -> None:
+    alice = calling(ALICE)
+    assert alice.post(TOPICS, {"name": "Rust"}).status_code == 201
+    old = write(alice, profile(content="Prefers tabs.", topics=["rust"]))
+
+    def rows() -> dict[str, set[tuple[Any, ...]]]:
+        found = {}
+        with admin_connection(database) as conn:
+            for table, key in [
+                ("items", "id, content"),
+                ("item_subjects", "item_id, topic_id, entity_id"),
+                ("item_relations", "id"),
+                ("item_evidence", "id"),
+                ("events", "id"),
+            ]:
+                found[table] = set(
+                    conn.execute(f"SELECT {key} FROM {table}").fetchall()
+                )
+        return found
+
+    seen = rows()
+    new = edit(alice, old["id"], {"kind": "profile", "content": "Prefers spaces."})
+    after_edit = rows()
+    act(alice, new["id"], "retire")
+    after_retire = rows()
+    act(alice, new["id"], "restore")
+    after_restore = rows()
+
+    for later in [after_edit, after_retire, after_restore]:
+        for table, found in seen.items():
+            assert found <= later[table], table
+        seen = later
+    # Two versions, the relation, and the five events behind them all.
+    assert counts(database) == {
+        "items": 2,
+        "item_subjects": 2,
+        "item_relations": 1,
+        "item_evidence": 5,
+        "events": 5,
+    }
+
+
 async def test_all_of_it_happens_in_one_transaction(
     pool: AsyncConnectionPool, database: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -292,8 +429,9 @@ async def test_all_of_it_happens_in_one_transaction(
     async def fails(*args: object, **kwargs: object) -> None:
         raise Boom
 
-    # The last step fails, after the old version is superseded and the new
-    # one, its subjects, its events and its evidence are in.
+    # The last step of each fails: for the edit, after the old version is
+    # superseded and the new one, its subjects, its events and its evidence are
+    # in; for retiring, after the status and the event.
     monkeypatch.setattr(items, "_link_relation", fails)
     with pytest.raises(Boom):
         async with db.transaction(pool, ALICE) as conn:
@@ -309,6 +447,10 @@ async def test_all_of_it_happens_in_one_transaction(
                 ),
                 now=now,
             )
+    monkeypatch.setattr(items, "_link_judgment", fails)
+    with pytest.raises(Boom):
+        async with db.transaction(pool, ALICE) as conn:
+            await items.retire(conn, item_id, now=now)
 
     assert counts(database) == before
     with admin_connection(database) as admin:
@@ -318,3 +460,39 @@ async def test_all_of_it_happens_in_one_transaction(
         ).fetchone() == ("active", None, "Prefers tabs.")
         # The named thing the failed edit would have made is not there either.
         assert admin.execute("SELECT count(*) FROM entities").fetchone() == (1,)
+
+
+async def test_a_failed_restore_leaves_the_item_retired(
+    pool: AsyncConnectionPool, database: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    now = datetime.now(UTC)
+    new = items.NewItem(
+        kind="rule",
+        content="Concise prose.",
+        category=None,
+        topics=(),
+        entities=(),
+        occurred_at=None,
+        occurred_precision="instant",
+    )
+    async with db.transaction(pool, ALICE) as conn:
+        item_id = await items.write(conn, new, now=now)
+        await items.retire(conn, item_id, now=now)
+    before = counts(database)
+
+    class Boom(Exception):
+        pass
+
+    async def fails(*args: object, **kwargs: object) -> None:
+        raise Boom
+
+    monkeypatch.setattr(items, "_link_judgment", fails)
+    with pytest.raises(Boom):
+        async with db.transaction(pool, ALICE) as conn:
+            await items.restore(conn, item_id, now=now)
+
+    assert counts(database) == before
+    with admin_connection(database) as admin:
+        assert admin.execute(
+            "SELECT status, inactive_reason FROM items WHERE id = %s", (item_id,)
+        ).fetchone() == ("inactive", "retired")

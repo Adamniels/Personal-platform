@@ -161,6 +161,53 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/brain/api/items/{id}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Restore Item
+         * @description Brings a retired item back, 200 with it, active again. A restored
+         *     event against it is recorded with it, in one transaction. Takes no body.
+         *     404 for an id the user does not have. 409 for an item that is not
+         *     retired: an active one, or a superseded version, which stays history.
+         */
+        post: operations["restore_item_brain_api_items__id__restore_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/brain/api/items/{id}/retire": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Retire Item
+         * @description Puts an item away, 200 with it, now inactive with reason retired. It
+         *     stops applying, stays readable, and can be restored. A retired event
+         *     against it is recorded with it, in one transaction. Takes no body. 404
+         *     for an id the user does not have. 409 for an item already retired, or a
+         *     superseded version, whose newest version is the one to retire.
+         */
+        post: operations["retire_item_brain_api_items__id__retire_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/brain/api/topic-relations/{id}/end": {
         parameters: {
             query?: never;
@@ -1157,6 +1204,92 @@ export interface operations {
             };
             /** @description A body that does not parse, or a request breaking a rule. */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    restore_item_brain_api_items__id__restore_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ItemDetail"];
+                };
+            };
+            /** @description No valid token: missing, expired or failing verification, all alike. The body is empty; the caller refreshes and retries. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Nothing of this user's at that address. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The item is not in the state this needs: a superseded version, or not active or retired as the change asks. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    retire_item_brain_api_items__id__retire_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ItemDetail"];
+                };
+            };
+            /** @description No valid token: missing, expired or failing verification, all alike. The body is empty; the caller refreshes and retries. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Nothing of this user's at that address. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The item is not in the state this needs: a superseded version, or not active or retired as the change asks. */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

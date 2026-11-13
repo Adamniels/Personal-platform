@@ -1723,6 +1723,84 @@
         "summary": "Edit Item"
       }
     },
+    "/brain/api/items/{id}/restore": {
+      "post": {
+        "description": "Brings a retired item back, 200 with it, active again. A restored\nevent against it is recorded with it, in one transaction. Takes no body.\n404 for an id the user does not have. 409 for an item that is not\nretired: an active one, or a superseded version, which stays history.",
+        "operationId": "restore_item_brain_api_items__id__restore_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "No valid token: missing, expired or failing verification, all alike. The body is empty; the caller refreshes and retries."
+          },
+          "404": {
+            "description": "Nothing of this user's at that address."
+          },
+          "409": {
+            "description": "The item is not in the state this needs: a superseded version, or not active or retired as the change asks."
+          }
+        },
+        "summary": "Restore Item"
+      }
+    },
+    "/brain/api/items/{id}/retire": {
+      "post": {
+        "description": "Puts an item away, 200 with it, now inactive with reason retired. It\nstops applying, stays readable, and can be restored. A retired event\nagainst it is recorded with it, in one transaction. Takes no body. 404\nfor an id the user does not have. 409 for an item already retired, or a\nsuperseded version, whose newest version is the one to retire.",
+        "operationId": "retire_item_brain_api_items__id__retire_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "No valid token: missing, expired or failing verification, all alike. The body is empty; the caller refreshes and retries."
+          },
+          "404": {
+            "description": "Nothing of this user's at that address."
+          },
+          "409": {
+            "description": "The item is not in the state this needs: a superseded version, or not active or retired as the change asks."
+          }
+        },
+        "summary": "Retire Item"
+      }
+    },
     "/brain/api/topic-relations/{id}/end": {
       "post": {
         "description": "Ends a relation, which stays, with the time it ended. One already\nended is answered as it is.",

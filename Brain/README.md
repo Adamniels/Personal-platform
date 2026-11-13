@@ -119,6 +119,16 @@ memory store's four tables, every table in `docs/data-model.md`.
     made by the `edited` event. `422` for another kind, a field the kind does not take, a topic the
     user does not have, or an edit that changes nothing; `409` for a version that is not its
     entry's newest, or a retired item, which is restored before it is edited.
+  - `POST /brain/api/items/{id}/retire` and `POST /brain/api/items/{id}/restore`, putting an item
+    away and bringing it back, `200` with it as a single read answers it. Neither takes a body.
+    Retiring sets it `inactive` with `retired`, and records a `retired` event against it, evidence
+    `Retired by hand: "<content>"`, linked to it as `contradicts` evidence; restoring sets it
+    `active` again and records a `restored` event, `Restored by hand: "<content>"`, linked as
+    `supports`. Each evidence is cut to 500 characters, and each change is one transaction. `409`
+    to retire an item already retired or a superseded version, whose newest version is the one to
+    retire, and to restore anything not retired: only a retired item comes back. Retiring is the
+    owner's action alone, as "Nothing is destroyed, and only the owner retires" in
+    `docs/trust-model.md` says: nothing in the brain retires an item for its age or for a score.
 
   An item is never changed in place: `brain_app` may insert and read the four tables, and update
   only an item's `status` and `inactive_reason`. Which kind lives in which store, and its nature,

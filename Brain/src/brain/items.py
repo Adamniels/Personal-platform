@@ -693,3 +693,70 @@ async def edit(conn: Connection, item_id: UUID, change: Edit, *, now: datetime) 
     await _link_judgment(conn, item_id, edited, now=now)
     await _link_relation(conn, new_id, item_id, "supersedes", edited.id, now=now)
     return new_id
+
+
+async def retire(conn: Connection, item_id: UUID, *, now: datetime) -> None:
+    """Puts the current user's item away at `now`: it becomes inactive,
+    retired, and a `retired` event against it records the judgment and is
+    evidence against it. It stays readable and can be restored. Only the
+    owner retires, see "Nothing is destroyed, and only the owner retires" in
+    docs/trust-model.md: nothing calls this for an item's age or a score.
+
+    Not found for an item the user does not have. A conflict for one already
+    retired, or a superseded version, which is not the entry any more."""
+    item = await _one(conn, item_id)
+    if item is None:
+        raise NotFound
+    if item.inactive_reason == "superseded":
+        raise Conflict("a superseded version is not retired, its newest version is")
+    if item.inactive_reason == "retired":
+        raise Conflict("the item is already retired")
+    if not await _set_status(
+        conn, item_id, was=("active", None), to=("inactive", "retired")
+    ):
+        raise Conflict("the item changed while it was being retired")
+    event, _ = await events.record(
+        conn,
+        _judgment(
+            "retired",
+            item_id,
+            _quoted("Retired by hand", item.content),
+            f"retired:{uuid7()}",
+            {"item": str(item_id)},
+        ),
+        now=now,
+    )
+    await _link_judgment(conn, item_id, event, now=now)
+
+
+async def restore(conn: Connection, item_id: UUID, *, now: datetime) -> None:
+    """Brings the current user's retired item back at `now`: it is active
+    again, and a `restored` event against it records the judgment and
+    supports it.
+
+    Not found for an item the user does not have. A conflict for one that is
+    not retired: an active item has nothing to come back from, and a
+    superseded version stays in its entry's history, behind its newest."""
+    item = await _one(conn, item_id)
+    if item is None:
+        raise NotFound
+    if item.inactive_reason == "superseded":
+        raise Conflict("only a retired item is restored, not a superseded version")
+    if item.status == "active":
+        raise Conflict("the item is active, there is nothing to restore")
+    if not await _set_status(
+        conn, item_id, was=("inactive", "retired"), to=("active", None)
+    ):
+        raise Conflict("the item changed while it was being restored")
+    event, _ = await events.record(
+        conn,
+        _judgment(
+            "restored",
+            item_id,
+            _quoted("Restored by hand", item.content),
+            f"restored:{uuid7()}",
+            {"item": str(item_id)},
+        ),
+        now=now,
+    )
+    await _link_judgment(conn, item_id, event, now=now)
