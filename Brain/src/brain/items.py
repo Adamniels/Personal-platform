@@ -13,7 +13,7 @@ Every function takes a connection from `brain.db.transaction`, and acts for
 that transaction's user.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from typing import Any, Literal, get_args
 from uuid import UUID, uuid7
@@ -212,3 +212,151 @@ def _payload(item_id: UUID, new: NewItem) -> dict[str, Any]:
     if new.category is not None:
         payload["category"] = new.category
     return payload
+
+
+@dataclass(frozen=True)
+class Item:
+    id: UUID
+    lineage_id: UUID
+    kind: Kind
+    store: Store
+    nature: Nature
+    provenance: Literal["asserted", "derived"]
+    content: str
+    value: str | None
+    category: str | None
+    details: dict[str, Any]
+    occurred_at: datetime | None
+    occurred_precision: events.Precision | None
+    status: Status
+    inactive_reason: Literal["superseded", "retired"] | None
+    created_at: datetime
+    created_by_event: UUID
+    # What it is about, each topic read through its alias, by slug; and each
+    # named thing, by name. Both empty for a global item.
+    topics: tuple[events.TopicRef, ...] = ()
+    entities: tuple[events.EntityRef, ...] = ()
+
+
+@dataclass(frozen=True)
+class EvidenceEvent:
+    id: UUID
+    verb: str
+    origin: str
+    source: str | None
+    evidence: str
+    occurred_at: datetime
+    occurred_precision: events.Precision
+    recorded_at: datetime
+
+
+@dataclass(frozen=True)
+class Evidence:
+    id: UUID
+    kind: Literal["supports", "contradicts"]
+    created_at: datetime
+    event: EvidenceEvent
+
+
+@dataclass(frozen=True)
+class Relation:
+    id: UUID
+    from_item: UUID
+    to_item: UUID
+    kind: str
+    created_at: datetime
+    ended_at: datetime | None
+    created_by_event: UUID
+
+
+@dataclass(frozen=True)
+class Detail:
+    """One item as a single read answers it: the item, the events behind it,
+    oldest first, which are what confidence and currency would be computed
+    from, and every relation it is on either end of."""
+
+    item: Item
+    evidence: tuple[Evidence, ...]
+    relations: tuple[Relation, ...]
+
+
+COLUMNS = (
+    "id, lineage_id, kind, store, nature, provenance, content, value, category,"
+    " details, occurred_at, occurred_precision, status, inactive_reason,"
+    " created_at, created_by_event"
+)
+
+type Subjects = tuple[tuple[events.TopicRef, ...], tuple[events.EntityRef, ...]]
+
+
+async def _subjects(conn: Connection, item_ids: list[UUID]) -> dict[UUID, Subjects]:
+    """Each item's subjects: its topics read through their aliases, one
+    each however often they were named, by slug; its named things by name,
+    without letter case."""
+    found_topics: dict[UUID, dict[UUID, events.TopicRef]] = {i: {} for i in item_ids}
+    found_entities: dict[UUID, list[events.EntityRef]] = {i: [] for i in item_ids}
+    cursor = await conn.execute(
+        "SELECT s.item_id, t.id, t.slug, t.name FROM item_subjects s"
+        " JOIN topics named ON named.id = s.topic_id"
+        " JOIN topics t ON t.id = coalesce(named.alias_of, named.id)"
+        " WHERE s.item_id = ANY(%s)",
+        (item_ids,),
+    )
+    for item_id, topic_id, slug, name in await cursor.fetchall():
+        found_topics[item_id][topic_id] = events.TopicRef(topic_id, slug, name)
+    cursor = await conn.execute(
+        "SELECT s.item_id, n.id, n.name FROM item_subjects s"
+        " JOIN entities n ON n.id = s.entity_id WHERE s.item_id = ANY(%s)",
+        (item_ids,),
+    )
+    for item_id, entity_id, name in await cursor.fetchall():
+        found_entities[item_id].append(events.EntityRef(entity_id, name))
+    return {
+        item_id: (
+            tuple(sorted(found_topics[item_id].values(), key=lambda t: t.slug)),
+            tuple(
+                sorted(found_entities[item_id], key=lambda n: (n.name.lower(), n.id))
+            ),
+        )
+        for item_id in item_ids
+    }
+
+
+async def _items(conn: Connection, rows: list[TupleRow]) -> list[Item]:
+    subjects = await _subjects(conn, [row[0] for row in rows])
+    found = []
+    for row in rows:
+        named_topics, named_entities = subjects[row[0]]
+        found.append(replace(Item(*row), topics=named_topics, entities=named_entities))
+    return found
+
+
+async def get(conn: Connection, item_id: UUID) -> Detail | None:
+    """The current user's item with this id, with its evidence and
+    relations, or None when they have none."""
+    cursor = await conn.execute(
+        f"SELECT {COLUMNS} FROM items WHERE id = %s", (item_id,)
+    )
+    row = await cursor.fetchone()
+    if row is None:
+        return None
+    [item] = await _items(conn, [row])
+    cursor = await conn.execute(
+        "SELECT ev.id, ev.kind, ev.created_at, e.id, e.verb, e.origin, e.source,"
+        " e.evidence, e.occurred_at, e.occurred_precision, e.recorded_at"
+        " FROM item_evidence ev JOIN events e ON e.id = ev.event_id"
+        " WHERE ev.item_id = %s ORDER BY e.recorded_at, ev.id",
+        (item_id,),
+    )
+    evidence = tuple(
+        Evidence(evidence_id, kind, created_at, EvidenceEvent(*event))
+        for evidence_id, kind, created_at, *event in await cursor.fetchall()
+    )
+    cursor = await conn.execute(
+        "SELECT id, from_item, to_item, kind, created_at, ended_at, created_by_event"
+        " FROM item_relations WHERE from_item = %(id)s OR to_item = %(id)s"
+        " ORDER BY created_at, id",
+        {"id": item_id},
+    )
+    relations = tuple(Relation(*row) for row in await cursor.fetchall())
+    return Detail(item, evidence, relations)

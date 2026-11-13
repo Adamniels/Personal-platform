@@ -17,7 +17,7 @@ from platform_auth.origin import OriginCheck
 from platform_auth.verify import Claims
 from pydantic import BaseModel
 
-from brain import db, event_routes, subjects
+from brain import db, event_routes, item_routes, subjects
 from brain.edge import UNAUTHORIZED, answer_errors, authenticated, page
 from brain.settings import SETTINGS, Settings
 
@@ -127,6 +127,7 @@ def create_app(settings: Settings, keys: KeyCache | None = None) -> FastAPI:
     app.include_router(router)
     app.include_router(subjects.router)
     app.include_router(event_routes.router)
+    app.include_router(item_routes.router)
     answer_errors(app)
     app.include_router(pages)
     # Code, never data, so no session is needed. Checked when the app starts,

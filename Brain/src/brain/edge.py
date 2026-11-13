@@ -155,9 +155,38 @@ def documented(
     if body is not None:
         extra["requestBody"] = {
             "required": True,
-            "content": {"application/json": {"schema": body.model_json_schema()}},
+            "content": {"application/json": {"schema": _inlined(body)}},
         }
     return extra
+
+
+def _inlined(model: type[BaseModel]) -> dict[str, Any]:
+    """`model`'s JSON schema with every model it nests written in place.
+
+    Pydantic puts nested models under `$defs` and points at them with
+    `#/$defs/<name>`, which inside the schema document would point at nothing,
+    since that document keeps its models under `components`. A union's
+    `discriminator` is dropped with them: its mapping names those same
+    addresses, and each branch already fixes its tag with a `const`."""
+    schema = model.model_json_schema()
+    defs: dict[str, Any] = schema.pop("$defs", {})
+
+    def place(node: Any) -> Any:
+        if isinstance(node, list):
+            return [place(each) for each in node]
+        if not isinstance(node, dict):
+            return node
+        ref = node.get("$ref")
+        if isinstance(ref, str) and ref.startswith("#/$defs/"):
+            return place(defs[ref.removeprefix("#/$defs/")])
+        return {
+            key: place(value)
+            for key, value in node.items()
+            if not (key == "discriminator" and "oneOf" in node)
+        }
+
+    placed: dict[str, Any] = place(schema)
+    return placed
 
 
 def answer_errors(app: FastAPI) -> None:
