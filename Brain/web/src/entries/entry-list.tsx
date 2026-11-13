@@ -34,27 +34,39 @@ export function formatWhen(iso: string): string {
 	return WHEN.format(new Date(iso));
 }
 
+/** What a section adds to each of its entries. */
+export type EntryExtras<E extends Entry> = {
+	/** A line under the text, such as its subjects and when it was
+	 * confirmed. */
+	meta?: (entry: E) => ReactNode;
+	/** Buttons of the section's own, before Edit. `focusEdit` sends focus to
+	 * the entry's Edit, for a button that goes away once it is pressed. */
+	actions?: (entry: E, focusEdit: () => void) => ReactNode;
+};
+
 /** The entries in the order given, or what is shown when there are none. It
  * stays mounted when its last entry is retired, so that entry's Undo still
  * has somewhere to run. */
-export function EntryList({
+export function EntryList<E extends Entry>({
 	entries,
 	labels,
 	empty,
 	className,
+	meta,
+	actions,
 }: {
-	entries: readonly Entry[];
+	entries: readonly E[];
 	labels: EntryLabels;
 	/** Shown in place of the list when there are no entries. */
 	empty: ReactNode;
 	/** On the list itself, when there are entries. */
 	className?: string;
-}) {
+} & EntryExtras<E>) {
 	const retire = useRetireEntry();
 	const restore = useRestoreEntry();
 	const toast = useToast();
 
-	async function retireEntry(entry: Entry) {
+	async function retireEntry(entry: E) {
 		await retire.mutateAsync(entry.id);
 		toast.success("Entry retired", {
 			label: "Undo",
@@ -72,21 +84,25 @@ export function EntryList({
 					entry={entry}
 					labels={labels}
 					onRetire={retireEntry}
+					meta={meta}
+					actions={actions}
 				/>
 			))}
 		</ul>
 	);
 }
 
-function EntryRow({
+function EntryRow<E extends Entry>({
 	entry,
 	labels,
 	onRetire,
+	meta,
+	actions,
 }: {
-	entry: Entry;
+	entry: E;
 	labels: EntryLabels;
-	onRetire: (entry: Entry) => Promise<void>;
-}) {
+	onRetire: (entry: E) => Promise<void>;
+} & EntryExtras<E>) {
 	const [editing, setEditing] = useState(false);
 	// Set when the editor closes, so focus goes back to Edit rather than to
 	// the page.
@@ -139,6 +155,7 @@ function EntryRow({
 				{entry.content}
 			</p>
 			<div className={styles.actions}>
+				{actions?.(entry, () => setRefocus(true))}
 				{entry.versions > 1 ? (
 					<Button
 						kind="ghost"
@@ -166,6 +183,7 @@ function EntryRow({
 					Retire
 				</Button>
 			</div>
+			{meta ? <div className={styles.meta}>{meta(entry)}</div> : null}
 			{showVersions ? <Versions id={versionsId} entry={entry} /> : null}
 			{confirming ? (
 				<Dialog

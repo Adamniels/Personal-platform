@@ -2,6 +2,7 @@ import { EmptyState, Tab, TabPanel, Tabs } from "@platform/ui";
 import { navigate, usePathname } from "./address";
 import styles from "./app.module.css";
 import { Knowledge } from "./knowledge/knowledge";
+import { Now } from "./now/now";
 import { Profile } from "./profile/profile";
 import { Rules } from "./rules/rules";
 import { SECTIONS, type Section, sectionAt } from "./sections";
@@ -49,6 +50,7 @@ function SectionView({ section }: { section: Section }) {
 	if (section.key === "profile") return <Profile />;
 	if (section.key === "rules") return <Rules />;
 	if (section.key === "knowledge") return <Knowledge />;
+	if (section.key === "now") return <Now />;
 	return (
 		<EmptyState
 			title={`Nothing in ${section.label} yet`}

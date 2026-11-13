@@ -21,6 +21,8 @@ export type EntryFormProps = {
 	emptyError: string;
 	/** Fields above the text area, such as the category. */
 	children?: ReactNode;
+	/** Fields under it, such as its subjects. */
+	after?: ReactNode;
 	/** Whether the fields above the text area are right; each shows its own
 	 * error. The form sends nothing until it and they are. */
 	validate?: () => boolean;
@@ -40,6 +42,7 @@ export function EntryForm({
 	initial = "",
 	emptyError,
 	children,
+	after,
 	validate,
 	focusText = true,
 	onSave,
@@ -89,6 +92,7 @@ export function EntryForm({
 				error={error}
 				onChange={(event) => setText(event.target.value)}
 			/>
+			{after}
 			<div className={styles.formActions}>
 				<Button type="submit" disabled={saving}>
 					Save

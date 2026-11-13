@@ -153,7 +153,8 @@ against a fictional person's memory on every change, see "Evaluating".
   - `POST /brain/api/items/{id}/edit`, a correction, `201` with the new version as a single read
     answers it. The body names the item's own `kind` and the fields that kind takes, each left out
     to keep what the item has: for `profile`, `content`, `category`, and `topics` and `entities`,
-    which replace that kind of subject whole when given; for `rule`, `content` alone. One
+    which replace that kind of subject whole when given; for `state`, the same but `category`; for
+    `rule`, `content` alone. A corrected state is said again, so its new version is current. One
     transaction, as "Versions" in `docs/data-model.md` says, inserts the new version with the same
     `lineage_id`, `active` and `asserted` whatever the old one was, holding the old version's
     everything else, its subjects included; sets the old one `inactive` with `superseded`; records
@@ -551,6 +552,20 @@ the topic routes, "Subjects" above:
 - "Topics that arrived on their own", a card under the table when there are any, lists the
   provisional topics, which the brain makes when a feature sends an event about a topic it has not
   seen. Each is promoted, or treated as one of the canonical topics with the same question.
+
+**Now** is what is going on, `src/now/`, over `GET /now`:
+
+- One list of the active states, under the line "What you are working on, what is blocking you,
+  what is coming up. The brain asks again after sixty days.", newest support first, as the view
+  orders them. Each shows its text, its subjects as `Badge`s, and when it was last supported in the
+  mono font, "Confirmed today", "Confirmed 12 Nov", or with the year when it is another one.
+- A stale one, last supported more than sixty days ago, carries the `needs-you` status "Still
+  true?" and a secondary button, "Still true", which calls `confirm`: the mark goes, it reads
+  "Confirmed today" and moves to the top, and focus goes to its Edit, since the button is gone.
+- "Add", the one primary button, asks for the text and, optionally, a topic, from a select of the
+  canonical ones, and a named thing, a field offering the ones the user has that takes a new name
+  as typed, which the brain makes. Edit, Earlier versions and Retire are Profile's, from
+  `src/entries/`, and a state's edit is the `state` correction above.
 
 `index.html` is the same shell as every page with the bar: the design files and `nav.js` from the
 proxy, not bundled, and `<platform-nav current="brain">`. Vite builds it with base `/brain/` into

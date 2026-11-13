@@ -252,6 +252,54 @@ def test_confirming_records_an_event_and_clears_the_flag(
     assert counts(database) == before_counts
 
 
+def test_a_state_entry_is_corrected_as_a_new_version(
+    calling: Callable[[uuid.UUID], Caller], database: str
+) -> None:
+    alice = calling(ALICE)
+    assert alice.post(TOPICS, {"name": "Rust", "slug": "rust"}).status_code == 201
+    old = write(
+        alice,
+        state(
+            content="Blocked on the reviewer.",
+            topics=["rust"],
+            entities=["Personal platform"],
+            occurred_at=iso(datetime.now(UTC) - timedelta(days=90)),
+        ),
+    )
+    assert entry_of(now_at(database, ALICE, datetime.now(UTC)), old["id"]).stale
+
+    response = alice.post(
+        f"{ITEMS}/{old['id']}/edit",
+        {"kind": "state", "content": "Waiting on the reviewer."},
+    )
+
+    assert response.status_code == 201, response.text
+    new = response.json()
+    assert new["lineage_id"] == old["id"] and new["id"] != old["id"]
+    assert (new["kind"], new["store"], new["nature"]) == ("state", "semantic", "claim")
+    assert new["content"] == "Waiting on the reviewer."
+    # Its subjects are carried over, as a profile entry's are.
+    assert [topic["slug"] for topic in new["topics"]] == ["rust"]
+    assert [entity["name"] for entity in new["entities"]] == ["Personal platform"]
+    assert read(alice, old["id"])["inactive_reason"] == "superseded"
+    # The owner has just said it, so it is current again, and the now view
+    # holds the new version alone.
+    current = now_at(database, ALICE, datetime.now(UTC))
+    assert [str(entry.item.id) for entry in current] == [new["id"]]
+    assert current[0].stale is False
+
+    # Its subjects are changed the way a profile entry's are, and a state has
+    # no category.
+    emptied = alice.post(f"{ITEMS}/{new['id']}/edit", {"kind": "state", "entities": []})
+    assert emptied.status_code == 201, emptied.text
+    assert emptied.json()["entities"] == []
+    refused = alice.post(
+        f"{ITEMS}/{emptied.json()['id']}/edit",
+        {"kind": "state", "category": "goals"},
+    )
+    assert refused.status_code == 422, refused.text
+
+
 def test_a_history_entry_is_a_record_with_when_it_happened(
     calling: Callable[[uuid.UUID], Caller], database: str
 ) -> None:

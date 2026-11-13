@@ -60,6 +60,17 @@
 	margin-left: auto;
 }
 
+/* A section's own line under the text, the full width of the row, its
+ * parts wrapping. */
+.meta {
+	display: flex;
+	flex: 1 1 100%;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-2);
+	min-width: 0;
+}
+
 /* Under the entry, the full width of the row, set in from the text by a
  * rule on its left. */
 .versions {

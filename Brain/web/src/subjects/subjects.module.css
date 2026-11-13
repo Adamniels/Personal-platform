@@ -1,0 +1,23 @@
+/* An entry's subjects, in a form and on the entry. A control's parts sit
+ * --space-2 apart, as section 2 of design/DESIGN.md has it. */
+
+/* The Topic select and the Named thing field share a row, and stack when it
+ * is too narrow for both. */
+.fields {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-2) var(--space-3);
+}
+
+/* Each field's own wrapper, which the package draws around the control. */
+.fields > * {
+	flex: 1 1 200px;
+	min-width: 0;
+}
+
+.badges {
+	display: inline-flex;
+	flex-wrap: wrap;
+	gap: var(--space-1);
+	min-width: 0;
+}

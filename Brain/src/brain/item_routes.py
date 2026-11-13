@@ -357,8 +357,34 @@ class RuleEdit(BaseModel):
         return None if content is None else _no_nul(content)
 
 
+class StateEdit(BaseModel):
+    """A correction of what is going on now: each field left out keeps what
+    the entry has, and topics and entities, when given, replace that kind of
+    subject whole, as for a profile entry. The new version is said now, so
+    it is current again."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["state"]
+    content: Content | None = None
+    topics: Annotated[list[Slug], Field(max_length=SUBJECTS_MAX)] | None = None
+    entities: Annotated[list[Name], Field(max_length=SUBJECTS_MAX)] | None = None
+
+    @field_validator("content")
+    @classmethod
+    def content_storable(cls, content: str | None) -> str | None:
+        return None if content is None else _no_nul(content)
+
+    @field_validator("entities")
+    @classmethod
+    def names_storable(cls, names: list[str] | None) -> list[str] | None:
+        return None if names is None else [_no_nul(name) for name in names]
+
+
 class EntryEdit(
-    RootModel[Annotated[ProfileEdit | RuleEdit, Field(discriminator="kind")]]
+    RootModel[
+        Annotated[ProfileEdit | RuleEdit | StateEdit, Field(discriminator="kind")]
+    ]
 ):
     """A correction, told apart by the kind of the item it corrects."""
 
@@ -675,10 +701,11 @@ async def edit_item(request: Request, claims: Claims) -> Response:
     else; the old one becomes inactive, superseded, and a supersedes relation
     links the new to it. An edited event against the old version and an
     asserted event behind the new one are recorded with it, in one
-    transaction. kind is the item's own. 404 for an id the user does not
-    have. 422 for another kind, a field the kind does not take, a topic the
-    user does not have, or an edit that changes nothing. 409 for a version
-    that is not the newest, or an item that is retired."""
+    transaction. kind is the item's own: profile, rule or state. 404 for an
+    id the user does not have. 422 for another kind, a field the kind does
+    not take, a topic the user does not have, or an edit that changes
+    nothing. 409 for a version that is not the newest, or an item that is
+    retired."""
     item_id = path_id(request)
     change = (await body_as(request, EntryEdit)).root
     now = datetime.now(UTC)
@@ -691,19 +718,19 @@ async def edit_item(request: Request, claims: Claims) -> Response:
     )
 
 
-def correction(change: ProfileEdit | RuleEdit) -> items.Edit:
+def correction(change: ProfileEdit | RuleEdit | StateEdit) -> items.Edit:
     """The correction `change` asks for, as `brain.items.edit` takes it: what
     the route edits with, and what the evaluation's seed is loaded through."""
-    profile = change if isinstance(change, ProfileEdit) else None
+    subjects = change if isinstance(change, ProfileEdit | StateEdit) else None
     return items.Edit(
         kind=change.kind,
         content=change.content,
-        category=profile.category if profile is not None else None,
-        topics=tuple(profile.topics)
-        if profile is not None and profile.topics is not None
+        category=change.category if isinstance(change, ProfileEdit) else None,
+        topics=tuple(subjects.topics)
+        if subjects is not None and subjects.topics is not None
         else None,
-        entities=tuple(profile.entities)
-        if profile is not None and profile.entities is not None
+        entities=tuple(subjects.entities)
+        if subjects is not None and subjects.entities is not None
         else None,
     )
 
