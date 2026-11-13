@@ -349,6 +349,27 @@ def test_provisional_topics_have_their_own_list(page: Page, invite_code: str):
     expect(item(card(page, "Also called"), "postgresql")).to_be_visible()
 
 
+def test_a_provisional_topics_page_offers_promote_and_no_level(
+    page: Page, invite_code: str, viewport: str
+):
+    # Only canonical topics carry a level, "Topic vocabulary" in
+    # Brain/docs/event-model.md, so the page offers Promote in Edit's place.
+    open_knowledge(page, invite_code)
+    add_topic(page, "Postgres")
+    record_event(page, "rust")
+    page.reload()
+    card(page, PROVISIONAL).get_by_role("link", name="rust", exact=True).click()
+    panel = knowledge(page)
+    expect(panel.get_by_role("heading", name="rust", level=2)).to_be_visible()
+    expect(panel.get_by_role("button", name="Edit", exact=True)).to_have_count(0)
+    expect(panel).to_contain_text("Promote it to give it a level and a focus.")
+    capture(page, "memory-provisional-topic")
+
+    panel.get_by_role("button", name="Promote", exact=True).click()
+    expect(panel.get_by_role("button", name="Edit", exact=True)).to_be_visible()
+    expect(panel.get_by_role("button", name="Promote", exact=True)).to_have_count(0)
+
+
 def test_on_phone_the_table_shows_the_topic_with_level_and_focus_under_it(
     page: Page, invite_code: str
 ):
