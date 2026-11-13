@@ -1,6 +1,6 @@
 """The API for the memory store, under `/brain/api/items`: entries the owner
-makes by hand, as profile entries, rules, and a level and a focus on each
-topic so far, and correcting them. Every route needs a valid
+makes by hand, as profile entries, rules, a level and a focus on each topic,
+and misconceptions so far, and correcting them. Every route needs a valid
 token and acts for the account it names, through `brain.db.transaction`. The
 rules are in `brain.items`; this module reads the request and shapes the
 answer. The routes are listed in "What it serves" in Brain/README.md."""
@@ -132,10 +132,53 @@ class FocusEntry(BaseModel):
     value: items.Focus
 
 
+# Each half of a misconception, so the content built from both and the
+# topic's name stays within CONTENT_MAX.
+MISCONCEPTION_HALF_MAX = 1800
+
+Half = Annotated[
+    str,
+    StringConstraints(
+        strip_whitespace=True, min_length=1, max_length=MISCONCEPTION_HALF_MAX
+    ),
+]
+
+
+class Misconception(BaseModel):
+    """What the owner believed and what is right, each 1 to 1800 characters
+    once its surrounding whitespace is dropped."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    misconception: Literal[True]
+    believed: Half
+    correct: Half
+
+    @field_validator("believed", "correct")
+    @classmethod
+    def storable(cls, text: str) -> str:
+        return _no_nul(text)
+
+
+class HistoryEntry(BaseModel):
+    """Something that happened, on one topic. So far that is a corrected
+    misconception alone, which is a history entry and not a kind of its own;
+    the content is built from its two halves."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["history"]
+    topic: Slug
+    details: Misconception
+    # When it happened, with a zone; without one, when it was entered.
+    occurred_at: AwareDatetime | None = None
+    occurred_precision: Precision = "instant"
+
+
 class NewEntry(
     RootModel[
         Annotated[
-            ProfileEntry | RuleEntry | LevelEntry | FocusEntry,
+            ProfileEntry | RuleEntry | LevelEntry | FocusEntry | HistoryEntry,
             Field(discriminator="kind"),
         ]
     ]
@@ -352,13 +395,32 @@ async def write_item(request: Request, claims: Claims) -> Response:
     edit of it, 201 with the new version. 422 for an unknown kind, category
     or value, content that is blank or over 4000 characters, a rule naming a
     subject, a topic the user does not have, or a level or focus the topic
-    has already. A named thing the user does not have is created."""
+    has already; or history, a corrected misconception on one topic, its
+    details misconception true with what was believed and what is right, and
+    its content built from the two. A named thing the user does not have is
+    created."""
     entry = (await body_as(request, NewEntry)).root
     now = datetime.now(UTC)
     if isinstance(entry, LevelEntry | FocusEntry):
         async with db.transaction(request.app.state.pool, claims.account_id) as conn:
             item_id = await items.set_on_topic(
                 conn, entry.kind, entry.topic, entry.value, now=now
+            )
+            detail = await items.get(conn, item_id)
+        assert detail is not None
+        return JSONResponse(
+            ItemDetail.of_detail(detail).model_dump(mode="json"), status_code=201
+        )
+    if isinstance(entry, HistoryEntry):
+        async with db.transaction(request.app.state.pool, claims.account_id) as conn:
+            item_id = await items.write_misconception(
+                conn,
+                entry.topic,
+                entry.details.believed,
+                entry.details.correct,
+                occurred_at=entry.occurred_at,
+                occurred_precision=entry.occurred_precision,
+                now=now,
             )
             detail = await items.get(conn, item_id)
         assert detail is not None

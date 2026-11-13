@@ -105,7 +105,10 @@ export interface paths {
          *     edit of it, 201 with the new version. 422 for an unknown kind, category
          *     or value, content that is blank or over 4000 characters, a rule naming a
          *     subject, a topic the user does not have, or a level or focus the topic
-         *     has already. A named thing the user does not have is created.
+         *     has already; or history, a corrected misconception on one topic, its
+         *     details misconception true with what was believed and what is right, and
+         *     its content built from the two. A named thing the user does not have is
+         *     created.
          */
         post: operations["write_item_brain_api_items_post"];
         delete?: never;
@@ -1121,6 +1124,38 @@ export interface operations {
                      * @enum {string}
                      */
                     value: "learning" | "steady" | "not_pursuing";
+                } | {
+                    /**
+                     * Misconception
+                     * @description What the owner believed and what is right, each 1 to 1800 characters
+                     *     once its surrounding whitespace is dropped.
+                     */
+                    details: {
+                        /** Believed */
+                        believed: string;
+                        /** Correct */
+                        correct: string;
+                        /**
+                         * Misconception
+                         * @constant
+                         */
+                        misconception: true;
+                    };
+                    /**
+                     * Kind
+                     * @constant
+                     */
+                    kind: "history";
+                    /** Occurred At */
+                    occurred_at?: string | null;
+                    /**
+                     * Occurred Precision
+                     * @default instant
+                     * @enum {string}
+                     */
+                    occurred_precision?: "instant" | "day" | "month" | "year";
+                    /** Topic */
+                    topic: string;
                 };
             };
         };

@@ -1358,7 +1358,7 @@
         "summary": "List Items"
       },
       "post": {
-        "description": "Writes an entry made by hand, 201 with the item, its evidence and its\nrelations. It applies at once: an asserted event, origin brain and source\nmanual-entry, is recorded with it and is its supporting evidence. kind is\nprofile, with a category, or rule, which is global; or topic_level or\ntopic_focus, each on one topic with a value, which where the topic,\nread through its alias, has an active entry of that kind already is an\nedit of it, 201 with the new version. 422 for an unknown kind, category\nor value, content that is blank or over 4000 characters, a rule naming a\nsubject, a topic the user does not have, or a level or focus the topic\nhas already. A named thing the user does not have is created.",
+        "description": "Writes an entry made by hand, 201 with the item, its evidence and its\nrelations. It applies at once: an asserted event, origin brain and source\nmanual-entry, is recorded with it and is its supporting evidence. kind is\nprofile, with a category, or rule, which is global; or topic_level or\ntopic_focus, each on one topic with a value, which where the topic,\nread through its alias, has an active entry of that kind already is an\nedit of it, 201 with the new version. 422 for an unknown kind, category\nor value, content that is blank or over 4000 characters, a rule naming a\nsubject, a topic the user does not have, or a level or focus the topic\nhas already; or history, a corrected misconception on one topic, its\ndetails misconception true with what was believed and what is right, and\nits content built from the two. A named thing the user does not have is\ncreated.",
         "operationId": "write_item_brain_api_items_post",
         "requestBody": {
           "content": {
@@ -1558,6 +1558,83 @@
                       "value"
                     ],
                     "title": "FocusEntry",
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "description": "Something that happened, on one topic. So far that is a corrected\nmisconception alone, which is a history entry and not a kind of its own;\nthe content is built from its two halves.",
+                    "properties": {
+                      "details": {
+                        "additionalProperties": false,
+                        "description": "What the owner believed and what is right, each 1 to 1800 characters\nonce its surrounding whitespace is dropped.",
+                        "properties": {
+                          "believed": {
+                            "maxLength": 1800,
+                            "minLength": 1,
+                            "title": "Believed",
+                            "type": "string"
+                          },
+                          "correct": {
+                            "maxLength": 1800,
+                            "minLength": 1,
+                            "title": "Correct",
+                            "type": "string"
+                          },
+                          "misconception": {
+                            "const": true,
+                            "title": "Misconception",
+                            "type": "boolean"
+                          }
+                        },
+                        "required": [
+                          "misconception",
+                          "believed",
+                          "correct"
+                        ],
+                        "title": "Misconception",
+                        "type": "object"
+                      },
+                      "kind": {
+                        "const": "history",
+                        "title": "Kind",
+                        "type": "string"
+                      },
+                      "occurred_at": {
+                        "anyOf": [
+                          {
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "title": "Occurred At"
+                      },
+                      "occurred_precision": {
+                        "default": "instant",
+                        "enum": [
+                          "instant",
+                          "day",
+                          "month",
+                          "year"
+                        ],
+                        "title": "Occurred Precision",
+                        "type": "string"
+                      },
+                      "topic": {
+                        "maxLength": 80,
+                        "pattern": "^[a-z0-9][a-z0-9-]{0,79}$",
+                        "title": "Topic",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "topic",
+                      "details"
+                    ],
+                    "title": "HistoryEntry",
                     "type": "object"
                   }
                 ],

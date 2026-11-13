@@ -915,3 +915,43 @@ async def set_on_topic(
         ),
         now=now,
     )
+
+
+async def write_misconception(
+    conn: Connection,
+    slug: str,
+    believed: str,
+    correct: str,
+    *,
+    occurred_at: datetime | None,
+    occurred_precision: events.Precision,
+    now: datetime,
+) -> UUID:
+    """Records, for the current user at `now`, that they believed something
+    about the topic `slug` that is not so, and returns the entry's id. A
+    corrected misconception is a history entry on its topic and not a kind
+    of its own, see "Knowledge model" in docs/knowledge-model.md: a record in
+    reported history, its `details` `{"misconception": true, "believed": ...,
+    "correct": ...}`, its content built from the two under the topic's name,
+    and its when `occurred_at`, or when it was entered.
+
+    The topic is kept as it is named, an alias included, and read through
+    it, as any entry's. Refused for a topic the user does not have."""
+    topic = await _canonical_topic(conn, slug)
+    return await _write(
+        conn,
+        NewItem(
+            kind="history",
+            content=(
+                f"Misconception about {topic.name}\n"
+                f"Believed: {believed}\nCorrect: {correct}"
+            ),
+            category=None,
+            topics=(slug,),
+            entities=(),
+            occurred_at=occurred_at,
+            occurred_precision=occurred_precision,
+            details={"misconception": True, "believed": believed, "correct": correct},
+        ),
+        now=now,
+    )
