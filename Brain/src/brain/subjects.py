@@ -103,7 +103,8 @@ class Entity(BaseModel):
 
 
 def answer(
-    model: BaseModel | list[Topic] | list[Entity], status: int = 200
+    model: BaseModel | list[Topic] | list[Entity] | list[TopicRelation],
+    status: int = 200,
 ) -> Response:
     if isinstance(model, list):
         return JSONResponse([item.model_dump(mode="json") for item in model])
@@ -270,6 +271,20 @@ async def add_related(request: Request, claims: Claims) -> Response:
     async with db.transaction(request.app.state.pool, claims.account_id) as conn:
         relation = await topics.add_related(conn, topic_id, body.related_id, now=now)
     return answer(TopicRelation.of(relation), status=201)
+
+
+@router.get(
+    "/topic-relations", response_model=list[TopicRelation], responses=UNAUTHORIZED
+)
+@authenticated
+async def list_relations(request: Request, claims: Claims) -> Response:
+    """Every relation between the user's topics that holds, of every kind,
+    in the order they were made. Each end is the topic as it was given, an
+    alias included, to be read through `resolves_to` from the topics list.
+    An ended relation is not listed."""
+    async with db.transaction(request.app.state.pool, claims.account_id) as conn:
+        found = await topics.holding(conn)
+    return answer([TopicRelation.of(relation) for relation in found])
 
 
 @router.post(

@@ -26,9 +26,16 @@ def test_the_brain_serves_the_application(
     at(CLAIMS["iat"])
     client = serving(web_dir)
 
-    # Every section's address answers the same page; the application reads
-    # the address and decides, an unknown section included.
-    for path in ["/brain", "/brain/knowledge", "/brain/no-such-section"]:
+    # Every section's address answers the same page, and so does a topic's
+    # page under Knowledge; the application reads the address and decides, an
+    # unknown section or topic included.
+    for path in [
+        "/brain",
+        "/brain/knowledge",
+        "/brain/no-such-section",
+        "/brain/knowledge/postgres",
+        "/brain/knowledge/no-such-topic",
+    ]:
         page = client.get(path, headers=bearer(TOKEN))
         assert page.status_code == 200, path
         assert page.text == INDEX, path
@@ -52,12 +59,15 @@ def test_the_brain_serves_the_application(
     assert client.get("/brain/assets/missing.js").status_code == 404
 
     # The API and the assets folder are never answered by the page, with a
-    # session or without one, and nor is a path below a section.
+    # session or without one, and nor is a path below a section other than a
+    # topic's, or one that is no slug.
     for path in [
         "/brain/api",
         "/brain/api/no-such-route",
         "/brain/assets",
-        "/brain/knowledge/deeper",
+        "/brain/rules/deeper",
+        "/brain/knowledge/Not-A-Slug",
+        "/brain/knowledge/postgres/deeper",
     ]:
         for headers in [bearer(TOKEN), {}]:
             answer = client.get(path, headers=headers, follow_redirects=False)

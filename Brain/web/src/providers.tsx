@@ -11,8 +11,8 @@ import { ApiError, type Client, createClient } from "./api/client";
 declare module "@tanstack/react-query" {
 	interface Register {
 		mutationMeta: {
-			/** The change shows a 422 on its form's field, so the toast leaves
-			 * it out. Every other failure still raises one. */
+			/** The change shows a 409 or a 422 on its form's field, so the
+			 * toast leaves it out. Every other failure still raises one. */
 			fieldErrors?: boolean;
 		};
 	}
@@ -27,9 +27,14 @@ export function useClient(): Client {
 	return client;
 }
 
-/** Whether a failed change is a refusal its form shows on the field. */
+/** Whether a failed change is a refusal its form shows on the field: a 422,
+ * what was entered breaks a rule, or a 409, it would be a second of
+ * something unique, such as a topic's name. */
 export function isFieldError(error: unknown): error is ApiError {
-	return error instanceof ApiError && error.problem.status === 422;
+	return (
+		error instanceof ApiError &&
+		(error.problem.status === 422 || error.problem.status === 409)
+	);
 }
 
 /** What the application runs inside: toasts, the client, and React Query for

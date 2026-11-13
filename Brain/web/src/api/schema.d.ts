@@ -540,6 +540,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/brain/api/topic-relations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Relations
+         * @description Every relation between the user's topics that holds, of every kind,
+         *     in the order they were made. Each end is the topic as it was given, an
+         *     alias included, to be read through `resolves_to` from the topics list.
+         *     An ended relation is not listed.
+         */
+        get: operations["list_relations_brain_api_topic_relations_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/brain/api/topic-relations/{id}/end": {
         parameters: {
             query?: never;
@@ -2903,6 +2926,33 @@ export interface operations {
             };
             /** @description A body that does not parse, or a request breaking a rule. */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    list_relations_brain_api_topic_relations_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TopicRelation"][];
+                };
+            };
+            /** @description No valid token: missing, expired or failing verification, all alike. The body is empty; the caller refreshes and retries. */
+            401: {
                 headers: {
                     [name: string]: unknown;
                 };

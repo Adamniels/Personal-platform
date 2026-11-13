@@ -19,9 +19,12 @@ export function usePathname(): string {
 	return useSyncExternalStore(subscribe, () => window.location.pathname);
 }
 
-/** Goes to a path within the application, as a new history entry. */
-export function navigate(path: string): void {
+/** Goes to a path within the application, as a new history entry, or in
+ * place of the current one with `replace`, for an address that has moved,
+ * so Back does not return to it. */
+export function navigate(path: string, { replace = false } = {}): void {
 	if (path === window.location.pathname) return;
-	window.history.pushState(null, "", path);
+	if (replace) window.history.replaceState(null, "", path);
+	else window.history.pushState(null, "", path);
 	for (const listener of listeners) listener();
 }
