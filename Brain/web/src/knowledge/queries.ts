@@ -182,3 +182,67 @@ export function useAddMisconception() {
 		meta: { fieldErrors: true },
 	});
 }
+
+function topicPath(id: string, action: string): string {
+	return `/topics/${encodeURIComponent(id)}/${action}`;
+}
+
+/** A change to the vocabulary: promoting a topic, marking it the same as
+ * another or separating it, placing it under another or taking a relation
+ * back. A refusal, such as a loop, raises its toast. */
+function useVocabularyChange<Variables>(
+	send: (variables: Variables) => Promise<unknown>,
+) {
+	const refresh = useRefresh();
+	return useMutation({ mutationFn: send, onSuccess: refresh });
+}
+
+/** Makes a provisional topic canonical. */
+export function usePromote() {
+	const client = useClient();
+	return useVocabularyChange((id: string) =>
+		client.send<Topic>("POST", topicPath(id, "promote")),
+	);
+}
+
+/** Makes the topic an alias of a canonical one, read as it from now on.
+ * Nothing that names it changes, so Separate loses nothing. */
+export function useSameAs() {
+	const client = useClient();
+	return useVocabularyChange(
+		({ id, targetId }: { id: string; targetId: string }) =>
+			client.send<Topic>("POST", topicPath(id, "same-as"), {
+				target_id: targetId,
+			}),
+	);
+}
+
+/** Makes an alias its own topic again. */
+export function useSeparate() {
+	const client = useClient();
+	return useVocabularyChange((id: string) =>
+		client.send<Topic>("POST", topicPath(id, "separate")),
+	);
+}
+
+/** Places the topic under a broader one. */
+export function usePlaceUnder() {
+	const client = useClient();
+	return useVocabularyChange(
+		({ id, broaderId }: { id: string; broaderId: string }) =>
+			client.send<TopicRelation>("POST", topicPath(id, "broader"), {
+				broader_id: broaderId,
+			}),
+	);
+}
+
+/** Ends a relation: it stays, with when it ended, and no longer holds. */
+export function useEndRelation() {
+	const client = useClient();
+	return useVocabularyChange((id: string) =>
+		client.send<TopicRelation>(
+			"POST",
+			`/topic-relations/${encodeURIComponent(id)}/end`,
+		),
+	);
+}

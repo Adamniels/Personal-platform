@@ -34,6 +34,7 @@ import {
 	levelWord,
 	NOT_SET,
 } from "./levels";
+import { Provisional } from "./provisional";
 import {
 	type KnowledgeRow,
 	useAddTopic,
@@ -75,6 +76,9 @@ function Overview() {
 	}
 
 	const canonical = knowledge.data.filter((row) => row.state === "canonical");
+	const provisional = knowledge.data.filter(
+		(row) => row.state === "provisional",
+	);
 	return (
 		<div className={section.section}>
 			<div className={section.toolbar}>
@@ -95,6 +99,9 @@ function Overview() {
 			) : (
 				<TopicTable rows={canonical} />
 			)}
+			{provisional.length > 0 ? (
+				<Provisional rows={provisional} canonical={canonical} />
+			) : null}
 		</div>
 	);
 }

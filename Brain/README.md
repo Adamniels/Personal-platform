@@ -432,6 +432,37 @@ with him, `src/profile/` and `src/rules/` over the shared pieces in `src/entries
   Entries are entered without subjects here, and a category is not changed: retire the entry and
   add it again.
 
+**Knowledge** is what the owner knows and how well, `src/knowledge/`, over the knowledge view and
+the topic routes, "Subjects" above:
+
+- A level and a focus are always words, from "How level is represented" in
+  `docs/knowledge-model.md`: Shallow, Working, Solid and Deep, and Learning, Steady and Not
+  pursuing, with "Not set" for none (`src/knowledge/levels.ts`). A level is plain text and a focus a
+  `Badge`, never a `Status`, since neither is a state.
+- The table is the package's `Table` over `GET /knowledge`, its canonical rows: Topic, linking to
+  the topic's page; Level and Focus, which fold under the topic on phone; and History, the count of
+  active history entries, and Last set, both left out on phone. It sorts by topic at first, and by
+  level in the order of the levels, Not set last either way, or by last set. Above it the filter row:
+  a search that narrows by name as typed, Level and Focus selects with "Any", and the count. "Add
+  topic", the one primary button, asks for a name and, optionally, a level and a focus; a name the
+  user has already is shown on the field. An alias is never a row: it answers under its target.
+- A row's Edit puts a Level and a Focus select in its cells, the table's editing row, and Save sends
+  only what changed, each as `POST /items` with `topic_level` or `topic_focus`, which keeps the
+  earlier value as a version. The Level select's help line is the chosen level's meaning, since the
+  native menu holds one line per option. "Not set" is offered only until a value is set. On phone the
+  row's Edit is hidden, since Level and Focus are not columns there, and the topic's page edits
+  them.
+- A topic's page, `/brain/knowledge/<slug>`, has a breadcrumb back, its level and focus with Edit,
+  "Place under…" and "Same as…", then cards: "Level over time", every version of its level oldest
+  first with when it was set; "Misconceptions", what he believed and what is right, with "Add
+  misconception"; "Also called", its aliases, each with Separate; and "Under" and "Includes", the
+  relations that hold, read through aliases from `GET /topic-relations`, each with Remove, which ends
+  it. "Same as…" asks first, "Treat these as one topic?", and its button is primary, since Separate
+  undoes it. An alias's address moves to its target's page.
+- "Topics that arrived on their own", a card under the table when there are any, lists the
+  provisional topics, which the brain makes when a feature sends an event about a topic it has not
+  seen. Each is promoted, or treated as one of the canonical topics with the same question.
+
 `index.html` is the same shell as every page with the bar: the design files and `nav.js` from the
 proxy, not bundled, and `<platform-nav current="brain">`. Vite builds it with base `/brain/` into
 `web/dist`, git ignored, its files under `dist/assets/`.
@@ -444,8 +475,9 @@ calls that get a `401` together share that refresh. A second `401` sends the bro
 failure, the network's included, is an `ApiError` carrying a typed `Problem`: the status, a title
 and a detail read from a problem document or from FastAPI's `detail`. React Query holds what the
 server answered, and every failed query or change raises an error toast, in one place,
-`src/providers.tsx`, with the package's `ToastProvider`. A change whose form shows a `422` on its
-field says so with `meta: { fieldErrors: true }`, and that refusal raises no toast as well. A GET's
+`src/providers.tsx`, with the package's `ToastProvider`. A change whose form shows a `409` or a
+`422` on its field says so with `meta: { fieldErrors: true }`, and that refusal raises no toast as
+well. A GET's
 path parameters and query string are typed from the schema too:
 `client.get("/items/{id}/versions", { path: { id } })`. `src/providers.tsx` also holds the one
 client, which `useClient()` returns; a test passes its own, over a fetch it answers, as

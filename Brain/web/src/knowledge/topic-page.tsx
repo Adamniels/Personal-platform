@@ -11,12 +11,13 @@ import {
 	TimelineEntry,
 	useToast,
 } from "@platform/ui";
-import { type FormEvent, useEffect, useRef, useState } from "react";
+import { type FormEvent, useEffect, useId, useRef, useState } from "react";
 import { navigate } from "../address";
 import { formatWhen } from "../entries/entry-list";
 import section from "../entries/section.module.css";
 import { Link } from "../link";
 import { isFieldError } from "../providers";
+import { type Choice, ChooseTopic, SameAsDialog } from "./choose-topic";
 import { FocusSelect, LevelSelect } from "./fields";
 import { KNOWLEDGE_PATH, topicPath } from "./knowledge-paths";
 import { focusWord, levelMeaning, levelWord, NOT_SET } from "./levels";
@@ -26,9 +27,13 @@ import {
 	type Topic,
 	type TopicRelation,
 	useAddMisconception,
+	useEndRelation,
 	useKnowledge,
+	usePlaceUnder,
 	useRelations,
+	useSameAs,
 	useSaveSettings,
+	useSeparate,
 	useTopicItems,
 	useTopics,
 } from "./queries";
@@ -123,6 +128,8 @@ function TopicView({
 	const under = ends("to_topic", "from_topic");
 	const includes = ends("from_topic", "to_topic");
 	const aliases = topics.filter(({ alias_of }) => alias_of === topic.id);
+	const separate = useSeparate();
+	const end = useEndRelation();
 
 	return (
 		<div className={section.section}>
@@ -140,7 +147,7 @@ function TopicView({
 				<h2 className={styles.name}>{topic.name}</h2>
 				{topic.state === "provisional" ? <Badge>Provisional</Badge> : null}
 			</div>
-			<Settings topic={topic} row={row} />
+			<Facts topic={topic} row={row} topics={topics} />
 			<div className={styles.grid}>
 				<LevelHistory slug={topic.slug} />
 				<Misconceptions slug={topic.slug} />
@@ -149,6 +156,8 @@ function TopicView({
 						items={aliases.map((alias) => ({ key: alias.id, topic: alias }))}
 						empty="No other names."
 						link={false}
+						action="Separate"
+						onAction={({ topic: alias }) => separate.mutateAsync(alias.id)}
 					/>
 				</Card>
 				<Card title="Under">
@@ -158,6 +167,8 @@ function TopicView({
 							topic: other,
 						}))}
 						empty="Not under another topic."
+						action="Remove"
+						onAction={({ key }) => end.mutateAsync(key)}
 					/>
 				</Card>
 				<Card title="Includes">
@@ -167,6 +178,8 @@ function TopicView({
 							topic: other,
 						}))}
 						empty="Includes no other topic."
+						action="Remove"
+						onAction={({ key }) => end.mutateAsync(key)}
 					/>
 				</Card>
 			</div>
@@ -174,70 +187,144 @@ function TopicView({
 	);
 }
 
-/** The topic's level and focus, with Edit, which opens both in place. */
-function Settings({
+/** What the topic's actions open in place: its level and focus, or the
+ * other topic to place it under or treat it as. */
+type Open = "edit" | "under" | "same" | null;
+
+/** The topic's level and focus, with Edit, which opens both in place, and
+ * Place under… and Same as…, which each ask for another topic. */
+function Facts({
 	topic,
 	row,
+	topics,
 }: {
 	topic: Topic;
 	row: KnowledgeRow | undefined;
+	topics: readonly Topic[];
 }) {
-	const [editing, setEditing] = useState(false);
-	// Set when the form closes, so focus goes back to Edit.
-	const [refocus, setRefocus] = useState(false);
-	const editButton = useRef<HTMLButtonElement>(null);
+	const [open, setOpen] = useState<Open>(null);
+	// The button whose form just closed, so focus goes back to it.
+	const [refocus, setRefocus] = useState<Exclude<Open, null> | null>(null);
+	const buttons = {
+		edit: useRef<HTMLButtonElement>(null),
+		under: useRef<HTMLButtonElement>(null),
+		same: useRef<HTMLButtonElement>(null),
+	};
+	const [target, setTarget] = useState<Choice | null>(null);
+	const placeUnder = usePlaceUnder();
+	const sameAs = useSameAs();
+	const toast = useToast();
 
 	useEffect(() => {
-		if (!refocus || editing) return;
-		editButton.current?.focus();
-		setRefocus(false);
-	}, [refocus, editing]);
+		if (refocus === null || open !== null) return;
+		buttons[refocus].current?.focus();
+		setRefocus(null);
+	});
 
-	function stop() {
-		setEditing(false);
-		setRefocus(true);
+	function close() {
+		if (open !== null) setRefocus(open);
+		setOpen(null);
 	}
+
+	// Any other topic that is not an alias, as the brain refuses an alias
+	// to point at; and for Same as, only a canonical one.
+	const others = topics.filter(
+		(other) => other.id !== topic.id && other.alias_of === null,
+	);
+	const choices = (canonicalOnly: boolean): Choice[] =>
+		others
+			.filter((other) => !canonicalOnly || other.state === "canonical")
+			.map(({ id, name }) => ({ id, name }))
+			.sort((a, b) => a.name.localeCompare(b.name, "en"));
 
 	const level = row?.level?.value;
 	const focus = row?.focus?.value;
-	if (editing) {
-		return (
-			<div className={`${section.panel} ${section.form}`}>
-				<SettingsForm topic={topic} row={row} onDone={stop} />
-			</div>
-		);
-	}
 	return (
-		<div className={styles.facts}>
-			<dl className={styles.settings}>
-				<div>
-					<dt>Level</dt>
-					<dd>
-						<span className={level ? undefined : styles.unset}>
-							{levelWord(level)}
-						</span>
-						{level ? (
-							<span className={styles.meaning}>{levelMeaning(level)}</span>
-						) : null}
-					</dd>
-				</div>
-				<div>
-					<dt>Focus</dt>
-					<dd>
-						{focus ? (
-							<Badge>{focusWord(focus)}</Badge>
-						) : (
-							<span className={styles.unset}>{NOT_SET}</span>
-						)}
-					</dd>
-				</div>
-			</dl>
-			<div className={styles.actions}>
-				<Button ref={editButton} onClick={() => setEditing(true)}>
-					Edit
-				</Button>
+		<>
+			<div className={styles.facts}>
+				<dl className={styles.settings}>
+					<div>
+						<dt>Level</dt>
+						<dd>
+							<span className={level ? undefined : styles.unset}>
+								{levelWord(level)}
+							</span>
+							{level ? (
+								<span className={styles.meaning}>{levelMeaning(level)}</span>
+							) : null}
+						</dd>
+					</div>
+					<div>
+						<dt>Focus</dt>
+						<dd>
+							{focus ? (
+								<Badge>{focusWord(focus)}</Badge>
+							) : (
+								<span className={styles.unset}>{NOT_SET}</span>
+							)}
+						</dd>
+					</div>
+				</dl>
+				{open === null ? (
+					<div className={styles.actions}>
+						<Button ref={buttons.edit} onClick={() => setOpen("edit")}>
+							Edit
+						</Button>
+						<Button ref={buttons.under} onClick={() => setOpen("under")}>
+							Place under…
+						</Button>
+						<Button ref={buttons.same} onClick={() => setOpen("same")}>
+							Same as…
+						</Button>
+					</div>
+				) : null}
 			</div>
-		</div>
+			{open === null ? null : (
+				<div className={`${section.panel} ${section.form}`}>
+					{open === "edit" ? (
+						<SettingsForm topic={topic} row={row} onDone={close} />
+					) : open === "under" ? (
+						<ChooseTopic
+							name="Place under…"
+							label="Place under"
+							choices={choices(false)}
+							onChoose={async (broader) => {
+								await placeUnder.mutateAsync({
+									id: topic.id,
+									broaderId: broader.id,
+								});
+								toast.success(`Placed under ${broader.name}`);
+								close();
+							}}
+							onCancel={close}
+						/>
+					) : (
+						<ChooseTopic
+							name="Same as…"
+							label="Same as"
+							choices={choices(true)}
+							onChoose={setTarget}
+							onCancel={close}
+						/>
+					)}
+				</div>
+			)}
+			{target ? (
+				<SameAsDialog
+					topic={topic.name}
+					target={target.name}
+					onConfirm={async () => {
+						try {
+							await sameAs.mutateAsync({ id: topic.id, targetId: target.id });
+							toast.success(`Treated as ${target.name}`);
+						} finally {
+							setTarget(null);
+						}
+					}}
+					onCancel={() => setTarget(null)}
+				/>
+			) : null}
+		</>
 	);
 }
 
@@ -468,31 +555,59 @@ function MisconceptionForm({
 	);
 }
 
+type Named = { key: string; topic: Topic };
+
 /** A list of topics by name, each linking to its page unless `link` is
- * false, or a line saying there are none. */
+ * false, with one action at its end, or a line saying there are none. */
 function NameList({
 	items,
 	empty,
 	link = true,
+	action,
+	onAction,
 }: {
-	items: readonly { key: string; topic: Topic }[];
+	items: readonly Named[];
 	empty: string;
 	link?: boolean;
+	/** The action's word, "Separate" or "Remove". */
+	action: string;
+	onAction: (item: Named) => Promise<unknown>;
 }) {
+	const id = useId();
 	if (items.length === 0) return <p className={styles.note}>{empty}</p>;
 	return (
 		<ul className={styles.list}>
-			{items.map(({ key, topic }) => (
-				<li key={key} className={styles.named}>
-					{link ? (
-						<Link className={styles.link} href={topicPath(topic.slug)}>
-							{topic.name}
-						</Link>
-					) : (
-						<span className={styles.alias}>{topic.name}</span>
-					)}
-				</li>
-			))}
+			{items.map((item) => {
+				const nameId = `${id}-${item.key}`;
+				return (
+					<li key={item.key} className={styles.named}>
+						{link ? (
+							<Link
+								id={nameId}
+								className={styles.link}
+								href={topicPath(item.topic.slug)}
+							>
+								{item.topic.name}
+							</Link>
+						) : (
+							<span id={nameId} className={styles.alias}>
+								{item.topic.name}
+							</span>
+						)}
+						<Button
+							kind="ghost"
+							aria-describedby={nameId}
+							onClick={() =>
+								onAction(item).catch(() => {
+									// The failure has raised its toast.
+								})
+							}
+						>
+							{action}
+						</Button>
+					</li>
+				);
+			})}
 		</ul>
 	);
 }

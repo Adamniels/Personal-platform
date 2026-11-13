@@ -170,3 +170,9 @@
 	grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr));
 	gap: var(--space-3);
 }
+
+/* A form opened under a row of a list, the full width of the row. */
+.inline {
+	flex: 1 1 100%;
+	min-width: 0;
+}
