@@ -240,8 +240,13 @@ An owner label, like `has-decision`, blocks the gate's merge and nothing else: e
 request goes through review and the fix rounds first, so what he reads has already been through
 the reviewer. The gate treats the four alike and only reads them.
 
-Once the reviewer approves a pull request that waits for him, the runner announces it to the owner
-once per head commit. A pull request whose review rounds ran out is handed over once. He merges it
+Once the reviewer approves a pull request that waits for him, the runner hands it over right away,
+before it resumes or starts a slice: the owner label replaces `in-review`, and he is mentioned,
+once per head commit. The handover waits only for `ci-ok`. Until that has finished on the approved
+commit the gate cannot say whether the pull request is ready or stuck, so it keeps `in-review` and
+the runner looks again every 10 minutes. Until 2026 11 13 the handover was the last thing the
+runner did, and a pull request sat approved under `in-review` for an hour while a new slice was
+built. A pull request whose review rounds ran out is handed over once. He merges it
 on GitHub, or comments, and a comment newer than the pull request's last handling starts a fix run
 that answers it, followed by a new review. On a pull request whose review rounds ran out, a fix run
 that only replies, with no new commit, gets no new review, and the pull request waits for him again.
@@ -280,9 +285,15 @@ the plan itself.
 
 `scripts/agent/run.sh` runs in tmux on the Mac mini and loops. Each turn it asks `pending.sh` for
 the most important item: a pull request to fix, one whose rounds ran out, one to review, one to
-merge, a slice to resume, the next Ready slice from `next.sh`, and last, an approved pull request to
-announce to the owner. A slice blocked by a slice still waiting for the owner is not picked; the
-runner takes other work. Implementer and reviewer each run in a fresh `claude -p` session under a
+merge, an approved pull request to hand to the owner, a slice to resume, and the next Ready slice
+from `next.sh`. So an approved pull request is handed to the owner before the runner resumes or
+starts a slice. That does not hold the queue up: once it carries `owner-merge` or `owner-decision`
+it has been handed over for that head and is not picked again, so the next turn takes the slice.
+While `ci-ok` is still running on it, as on a pull request the gate is about to merge, the runner
+waits and starts nothing new. Last of all comes an approved pull request that carries
+`owner-blocked`: it is looked at every turn, since the gate's reasons say whether it has become
+ready, and for that reason only when there is nothing else to do. A slice blocked by a slice still
+waiting for the owner is not picked; the runner takes other work. Implementer and reviewer each run in a fresh `claude -p` session under a
 timeout of 90 minutes, so no run carries another's context. With nothing to do it waits 10 minutes
 and looks again. The script's header is the exact behaviour.
 
