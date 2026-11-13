@@ -12,7 +12,8 @@ focus on each topic, and misconceptions, each with the event that proves it was 
 topic with what he knows of it, and serves the memory centre, its own application, whose sections are
 still empty. Its database has the roles, the migrations, the one door every query goes through,
 proven to keep two users apart, the subjects' three tables, the verbs and the events, and the
-memory store's four tables, every table in `docs/data-model.md`.
+memory store's four tables, every table in `docs/data-model.md`. One account's memory can be
+exported to a file and imported into an empty brain, from a terminal.
 
 ## What it serves
 
@@ -283,6 +284,35 @@ memory store's four tables, every table in `docs/data-model.md`.
     both are empty for a named thing. An unknown subject is `known` `false` with no items, and is
     never created.
   - `POST /brain/api/ask/now`, what is going on now: the active `state` entries as `items`.
+- **Searching**, by words, "search, meaning search memory" in "The two contracts" in
+  `High-level/docs/feature-contract.md`. The route is in `src/brain/search_routes.py` and calls
+  `search()` in `src/brain/retrieval.py`, a fifth building block beside the four, which returns
+  items in their shape too. It is Postgres' own text search, in the `english` configuration, over
+  the `search` columns of `items` and `events` in "The tables" in `docs/data-model.md`, and never
+  search by meaning: no embeddings, no model.
+  - `GET /brain/api/search`, with `q`, the words, 1 to 200 characters once surrounding whitespace
+    is dropped; `kind`, repeated for more than one, any of them, every kind when left out;
+    `include_inactive`, `false` by default, to find retired items and older versions of edited ones
+    too; and `limit`, 50 by default, 1 to 200. A field it does not know is `422`.
+  - An item is found when every word of `q` is in what it says, its `content`, `value`, `category`
+    or a text value of its `details`, a decision's reasoning among them, or in the evidence of an
+    event linked to it in `item_evidence`, for it or against it: every word in the item's own text,
+    or every word in one event's evidence, as each has its own `search` column. Word forms match, so `indexing`
+    finds `indexes`, but a word is never found inside another, so `cat` does not find `category`.
+    `q` is read as plain words: every character that is not a letter or a digit is a space and the
+    word `or` is left out, both before `websearch_to_tsquery` sees it, so nothing typed is an
+    operator and every word stays required. A `q` of operators or of words too common to search on
+    finds nothing, `200` with an empty list.
+  - The answer is a list of items in the shape every answer gives, with `excerpt`: about 15 to 35
+    words from `ts_headline`, of the item's own text where that holds the words, otherwise of the
+    evidence of the newest recorded event behind it that does, each matched word in `<mark>`. Every
+    other character is escaped for HTML before the excerpt is cut, since a page shows it, so the
+    marks are its only markup. Ordered by `last_supported_at`, newest first, then by id; Postgres'
+    rank is not used and not returned, since it would be a relevance score by another name, which
+    waits for the evaluation cases. `stale` is the now view's rule.
+  - Every hand made entry is supported by an event whose evidence quotes it as
+    `Entered by hand as <kind>: ...`, so a word such as `hand` or a kind's name finds every such
+    entry through its evidence.
 - `GET /brain` and `GET /brain/<section>`, the memory centre's `index.html` from the build, see
   "The memory centre" below. Without a valid token, a `303` to the core's
   `/auth/refresh?return_to=<the path>`.
@@ -477,6 +507,42 @@ NULL`, row level security enabled and forced, and one policy,
 returns nothing rather than everything. `tests/test_isolation.py` proves it on a probe table, and
 fails for any table a later migration adds to `public` without that guard, or with any other
 permissive policy beside it, except the global ones the data model names.
+
+### Export and import
+
+Two commands write one account's whole memory to a file and read it back into an empty brain, so
+what the owner enters is not held in one database on one laptop. Neither is reachable over HTTP.
+Both take `BRAIN_APP_DATABASE_URL`, as the running brain does, and work through the door for the one
+account, so row level security holds for them like for any request: an export cannot read another
+user's rows, and an import cannot write any.
+
+```zsh
+BRAIN_APP_DATABASE_URL="postgres://brain_app:$(grep '^BRAIN_APP_PASSWORD=' ../infra/.env | cut -d= -f2-)@127.0.0.1:5432/brain" \
+  uv run brain export <account-id> <file>
+BRAIN_APP_DATABASE_URL="postgres://brain_app:$(grep '^BRAIN_APP_PASSWORD=' ../infra/.env | cut -d= -f2-)@127.0.0.1:5432/brain" \
+  uv run brain import <file> [--as <account-id>]
+```
+
+- **`brain export <account-id> <file>`** writes the memory file, the format in "The memory file" in
+  `docs/data-model.md`, stamped with the command's clock as `exported_at`. It reads every table in
+  one statement, so the file is one snapshot. It never writes over a file that exists, creates the
+  file readable by its owner alone, and prints one line saying how many rows it wrote and that the
+  file is the whole memory in plain text.
+- **`brain import <file> [--as <account-id>]`** reads it back, in one transaction: all of the file
+  or none of it. Every id and every time is kept, so nothing is minted again and nothing gets
+  today's date. It refuses, changing nothing and exiting non zero with what is wrong, a file of a
+  newer format, a malformed one, an event whose verb the brain does not know, and an account that
+  already holds anything in any of the tables, since merging a file into a memory is not something
+  it does. Two imports for one account at once take that account's lock, so the second finds the
+  first's rows and refuses.
+- **`--as`** writes every row under another account id and changes nothing else. It is for moving a
+  memory to a platform where the account was registered again, and so has a new id. Into the brain
+  it came from, the ids are already taken and the import refuses.
+
+**Keep the file somewhere private.** It holds everything the brain knows about the owner, in plain
+text, unencrypted: treat it like a password manager's export, never in a repository, a shared
+folder or a chat. An export by hand is not a backup plan, see "Deployment and backups are outside
+the first milestone" in `High-level/docs/platform-architecture.md`.
 
 ## Building the app
 

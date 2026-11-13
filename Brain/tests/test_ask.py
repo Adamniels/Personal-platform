@@ -641,6 +641,13 @@ def test_no_answer_makes_a_model_call_or_leaves_the_database() -> None:
         assert parameters["now"].kind is inspect.Parameter.KEYWORD_ONLY
         assert parameters["now"].annotation is datetime
         assert parameters["conn"].annotation is retrieval.Connection
+    # Search, the fifth, asks by words and reads as now does, so it has no
+    # mode, but takes the same connection and time.
+    parameters = inspect.signature(retrieval.search).parameters
+    assert list(parameters)[:2] == ["conn", "query"]
+    assert parameters["now"].kind is inspect.Parameter.KEYWORD_ONLY
+    assert parameters["now"].annotation is datetime
+    assert parameters["conn"].annotation is retrieval.Connection
 
     # And the module reaches nothing but the database through them: it
     # imports nothing that could call a model or the network, or read the

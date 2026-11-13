@@ -60,12 +60,14 @@ Richness was never the issue, uniformity was.
   for a subject, scoring, conflict detection. Features never see these, so a feature never merges
   anything itself, and ranking logic is not reimplemented in five modules.
 
-**The building blocks.** The primitives so far are four functions in
+**The building blocks.** The primitives so far are five functions in
 `Brain/src/brain/retrieval.py`: `profile()`, `knowledge(topic_ids)`, `history(subject)` and
 `now()`, each taking the door's connection, the time and whether the question is about now or
-history. The `ask` endpoints, the evaluation cases and every later per feature call read through
-them. Beside them, `narrower(topic_id)` and `related(topic_id)` walk the topic relations, so an
-answer about a broad topic brings the topics under it and names the ones related to it.
+history, and `search(query)`, by words, which reads as now does and orders by when each item was
+last supported, never by a rank. The `ask` endpoints, search, the evaluation cases and every later
+per feature call read through them. Beside them, `narrower(topic_id)` and `related(topic_id)` walk
+the topic relations, so an answer about a broad topic brings the topics under it and names the ones
+related to it.
 
 Conflict detection is `conflicts()` and `ranked()` in the same module. Two items in one answer
 that contradict each other are both kept, and their scopes, compared by `compare` in

@@ -410,7 +410,11 @@ environment variables rather than constants, so the same binary runs elsewhere u
 
 **Deployment and backups are outside the first milestone**, which is worth saying rather than
 leaving implied. Backups become serious the moment the brain holds anything, since that is the
-part of this system that cannot be rebuilt.
+part of this system that cannot be rebuilt. Until then the brain can be exported and imported by
+hand, one account's whole memory to a file and back into an empty brain, see "Export and import"
+in `Brain/README.md`. That keeps what the owner enters from living in one database on one laptop,
+but it is not a backup plan: nothing runs it on a schedule, and the core's database is not in it. A
+real plan is still deployment work.
 
 ---
 

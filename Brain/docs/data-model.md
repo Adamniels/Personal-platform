@@ -63,7 +63,8 @@ events            id, user_id, verb, subject_topic, subject_entity, subject_item
                   source (text or null), run (text or null), occurred_at,
                   occurred_precision ('instant' | 'day' | 'month' | 'year'),
                   recorded_at, evidence (text, not empty), payload (jsonb),
-                  payload_version (int), idempotency_key.
+                  payload_version (int), idempotency_key,
+                  search (tsvector, generated from evidence).
                   unique (user_id, origin, idempotency_key).
                   Append only: the service may insert and read, never update.
 
@@ -76,7 +77,8 @@ items             id, user_id, lineage_id (shared by every version of one entry)
                   details (jsonb), occurred_at, occurred_precision (both null except for
                   history and decisions), status ('active' | 'inactive'),
                   inactive_reason (null | 'superseded' | 'retired'), created_at,
-                  created_by_event (events.id).
+                  created_by_event (events.id), search (tsvector, generated from
+                  content, value, category and every text value in details).
                   The service may update status and inactive_reason only.
 
 item_subjects     item_id, user_id, topic_id, entity_id (exactly one of the two).
@@ -93,6 +95,12 @@ item_evidence     id, user_id, item_id, event_id, kind ('supports' | 'contradict
 
 schema_migrations GLOBAL, the owner's only. version, name, applied_at.
 ```
+
+Both `search` columns are stored generated columns, in the `english` text search configuration,
+each with a GIN index: Postgres computes them on every write, so no code sets them and the service
+needs no grant for them. They are what searching by words reads, `GET /brain/api/search` in
+`Brain/README.md`, an item matching on its own column or on that of an event linked to it in
+`item_evidence`. Search by meaning, with embeddings, is not here yet.
 
 `verbs` and `schema_migrations` are the two global tables: they hold nothing about a person, so
 they have no `user_id` and no policy.
@@ -154,6 +162,33 @@ is a migration that adds its row.
 what the owner did to an item, with `subject_item` naming it. `contradicted` makes the
 `contradicts` relation when the owner marks two claims as disagreeing, and is neutral: it says
 the two disagree and of neither that it is wrong, so it is evidence on neither.
+
+## The memory file
+
+One account's whole memory as one JSON document, what `brain export` writes and `brain import`
+reads back, see "Export and import" in `Brain/README.md`. It is **format 1**, and
+`brain.memory_file.TABLES` is its definition.
+
+- **The document:** `format`, the integer 1; `exported_at`, when it was written, with a zone;
+  `account_id`; then one array per table, in this order: `topics`, `topic_relations`, `entities`,
+  `events`, `items`, `item_subjects`, `item_relations`, `item_evidence`. Nothing else.
+- **Each row** holds every column of its table except the generated ones, the two `search` columns,
+  which Postgres computes again on import. `verbs` is not in it: it is global and comes from the
+  migrations, so an import refuses an event whose verb the brain does not know.
+- **So two exports compare equal:** rows ordered by id, and `item_subjects`, which has none, by
+  item, topic and named thing; every key in a row sorted, those nested in a `payload` or `details`
+  included; times in UTC; two space indent and a trailing newline. An export, an import into a
+  fresh brain and an export at the same `exported_at` give back the same bytes.
+- **The import inserts the tables in the file's order**, each table in one statement, inside one
+  transaction. A reference within a table, an alias to its topic or a version to the first of its
+  lineage, is checked once the whole table is in. Events and items name each other, an item the
+  event that made it and an event about an item that item, so `events`' reference to `items` is
+  deferrable, `migrations/0006_deferrable_event_item.sql`: checked at once for every other write,
+  and at the end of the import, which defers it.
+
+A change to a table or a column is a new format version. A test compares `TABLES` with the schema,
+so a migration that adds either fails it until the format is decided again. An import refuses a
+file of a newer format than its own.
 
 ## What is computed, never stored
 

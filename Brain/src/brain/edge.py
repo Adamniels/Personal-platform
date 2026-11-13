@@ -4,7 +4,7 @@ is known, and the status each of `brain.errors` is answered with. See "Who is
 asking" in Brain/README.md."""
 
 from collections.abc import Awaitable, Callable
-from typing import Any
+from typing import Any, get_origin
 from uuid import UUID
 
 from fastapi import FastAPI, Request
@@ -101,9 +101,20 @@ async def body_as[M: BaseModel](request: Request, model: type[M]) -> M:
 
 def query_as[M: BaseModel](request: Request, model: type[M]) -> M:
     """The request's query string as `model`, or a 422 in FastAPI's own
-    shape. A name given twice is read as its last value."""
+    shape. A field of `model` that is a list takes every value its name is
+    given, in order; any other name given twice is read as its last value."""
+    params = request.query_params
+    repeatable = {
+        name
+        for name, field in model.model_fields.items()
+        if get_origin(field.annotation) is list
+    }
+    data = {
+        name: params.getlist(name) if name in repeatable else params[name]
+        for name in params
+    }
     try:
-        return model.model_validate(dict(request.query_params))
+        return model.model_validate(data)
     except ValidationError as err:
         raise RequestValidationError(
             err.errors(include_url=False, include_context=False)
