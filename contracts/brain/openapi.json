@@ -3784,7 +3784,7 @@
     },
     "/brain/api/items/{id}/edit": {
       "post": {
-        "description": "Corrects an item, 201 with the new version. Nothing is changed in\nplace: the new version shares the old one's lineage_id, is active and\nasserted, and holds the fields given and the old version's everything\nelse; the old one becomes inactive, superseded, and a supersedes relation\nlinks the new to it. An edited event against the old version and an\nasserted event behind the new one are recorded with it, in one\ntransaction. kind is the item's own. 404 for an id the user does not\nhave. 422 for another kind, a field the kind does not take, a topic the\nuser does not have, or an edit that changes nothing. 409 for a version\nthat is not the newest, or an item that is retired.",
+        "description": "Corrects an item, 201 with the new version. Nothing is changed in\nplace: the new version shares the old one's lineage_id, is active and\nasserted, and holds the fields given and the old version's everything\nelse; the old one becomes inactive, superseded, and a supersedes relation\nlinks the new to it. An edited event against the old version and an\nasserted event behind the new one are recorded with it, in one\ntransaction. kind is the item's own: profile, rule or state. 404 for an\nid the user does not have. 422 for another kind, a field the kind does\nnot take, a topic the user does not have, or an edit that changes\nnothing. 409 for a version that is not the newest, or an item that is\nretired.",
         "operationId": "edit_item_brain_api_items__id__edit_post",
         "parameters": [
           {
@@ -3912,6 +3912,69 @@
                       "kind"
                     ],
                     "title": "RuleEdit",
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "description": "A correction of what is going on now: each field left out keeps what\nthe entry has, and topics and entities, when given, replace that kind of\nsubject whole, as for a profile entry. The new version is said now, so\nit is current again.",
+                    "properties": {
+                      "content": {
+                        "anyOf": [
+                          {
+                            "maxLength": 4000,
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "title": "Content"
+                      },
+                      "entities": {
+                        "anyOf": [
+                          {
+                            "items": {
+                              "maxLength": 200,
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            "maxItems": 20,
+                            "type": "array"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "title": "Entities"
+                      },
+                      "kind": {
+                        "const": "state",
+                        "title": "Kind",
+                        "type": "string"
+                      },
+                      "topics": {
+                        "anyOf": [
+                          {
+                            "items": {
+                              "maxLength": 80,
+                              "pattern": "^[a-z0-9][a-z0-9-]{0,79}$",
+                              "type": "string"
+                            },
+                            "maxItems": 20,
+                            "type": "array"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "title": "Topics"
+                      }
+                    },
+                    "required": [
+                      "kind"
+                    ],
+                    "title": "StateEdit",
                     "type": "object"
                   }
                 ],

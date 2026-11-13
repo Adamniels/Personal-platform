@@ -356,10 +356,11 @@ export interface paths {
          *     else; the old one becomes inactive, superseded, and a supersedes relation
          *     links the new to it. An edited event against the old version and an
          *     asserted event behind the new one are recorded with it, in one
-         *     transaction. kind is the item's own. 404 for an id the user does not
-         *     have. 422 for another kind, a field the kind does not take, a topic the
-         *     user does not have, or an edit that changes nothing. 409 for a version
-         *     that is not the newest, or an item that is retired.
+         *     transaction. kind is the item's own: profile, rule or state. 404 for an
+         *     id the user does not have. 422 for another kind, a field the kind does
+         *     not take, a topic the user does not have, or an edit that changes
+         *     nothing. 409 for a version that is not the newest, or an item that is
+         *     retired.
          */
         post: operations["edit_item_brain_api_items__id__edit_post"];
         delete?: never;
@@ -2604,6 +2605,18 @@ export interface operations {
                      * @constant
                      */
                     kind: "rule";
+                } | {
+                    /** Content */
+                    content?: string | null;
+                    /** Entities */
+                    entities?: string[] | null;
+                    /**
+                     * Kind
+                     * @constant
+                     */
+                    kind: "state";
+                    /** Topics */
+                    topics?: string[] | null;
                 };
             };
         };

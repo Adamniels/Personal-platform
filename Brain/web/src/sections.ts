@@ -7,7 +7,7 @@ export type Section = {
 	label: string;
 	path: string;
 	/** Whether an address one level under the section's is one of its pages,
-	 * as a topic's page is under Knowledge. */
+	 * as a topic's page is under Knowledge and a decision's under History. */
 	pages?: true;
 };
 
@@ -21,7 +21,7 @@ export const SECTIONS: readonly Section[] = [
 		pages: true,
 	},
 	{ key: "now", label: "Now", path: "/brain/now" },
-	{ key: "history", label: "History", path: "/brain/history" },
+	{ key: "history", label: "History", path: "/brain/history", pages: true },
 	{ key: "everything", label: "Everything", path: "/brain/everything" },
 	{ key: "timeline", label: "Timeline", path: "/brain/timeline" },
 	{ key: "ask", label: "Ask", path: "/brain/ask" },
@@ -42,8 +42,8 @@ export function sectionAt(pathname: string): Section | undefined {
 }
 
 /** The page under a section an address names, a topic's slug under
- * Knowledge, or undefined for the section itself or an address deeper
- * than one level. */
+ * Knowledge or a decision's id under History, or undefined for the section
+ * itself or an address deeper than one level. */
 export function pageAt(section: Section, pathname: string): string | undefined {
 	const path = trimmed(pathname);
 	if (!section.pages || !path.startsWith(`${section.path}/`)) return undefined;

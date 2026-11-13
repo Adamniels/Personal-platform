@@ -153,7 +153,8 @@ against a fictional person's memory on every change, see "Evaluating".
   - `POST /brain/api/items/{id}/edit`, a correction, `201` with the new version as a single read
     answers it. The body names the item's own `kind` and the fields that kind takes, each left out
     to keep what the item has: for `profile`, `content`, `category`, and `topics` and `entities`,
-    which replace that kind of subject whole when given; for `rule`, `content` alone. One
+    which replace that kind of subject whole when given; for `state`, the same but `category`; for
+    `rule`, `content` alone. A corrected state is said again, so its new version is current. One
     transaction, as "Versions" in `docs/data-model.md` says, inserts the new version with the same
     `lineage_id`, `active` and `asserted` whatever the old one was, holding the old version's
     everything else, its subjects included; sets the old one `inactive` with `superseded`; records
@@ -492,8 +493,9 @@ The address is the state, through the History API and no router library (`src/ad
 pushes its section's address, Back and Forward come back as `popstate`, and an address that names no
 section shows a not found state under the tabs. The brain answers `index.html` for any single
 segment under `/brain/` other than `api` and `assets`, so the list of sections lives in
-`src/sections.ts` alone, and for a slug under `/brain/knowledge/`, a topic's page, the one section
-with pages of its own. Anything deeper is `404`. Until its slice lands, a section shows the
+`src/sections.ts` alone, for a slug under `/brain/knowledge/`, a topic's page, and for an id under
+`/brain/history/`, written as the API writes one, a decision's page: the two sections with pages of
+their own. Anything deeper is `404`. Until its slice lands, a section shows the
 package's `EmptyState`.
 
 **Profile and Rules** are where the owner enters by hand who he is and how the platform should work
@@ -551,6 +553,47 @@ the topic routes, "Subjects" above:
 - "Topics that arrived on their own", a card under the table when there are any, lists the
   provisional topics, which the brain makes when a feature sends an event about a topic it has not
   seen. Each is promoted, or treated as one of the canonical topics with the same question.
+
+**Now** is what is going on, `src/now/`, over `GET /now`:
+
+- One list of the active states, under the line "What you are working on, what is blocking you,
+  what is coming up. The brain asks again after sixty days.", newest support first, as the view
+  orders them. Each shows its text, its subjects as `Badge`s, and when it was last supported in the
+  mono font, "Confirmed today", "Confirmed 12 Nov", or with the year when it is another one.
+- A stale one, last supported more than sixty days ago, carries the `needs-you` status "Still
+  true?" and a secondary button, "Still true", which calls `confirm`: the mark goes, it reads
+  "Confirmed today" and moves to the top, and focus goes to its Edit, since the button is gone.
+- "Add", the one primary button, asks for the text and, optionally, a topic, from a select of the
+  canonical ones, and a named thing, a field offering the ones the user has that takes a new name
+  as typed, which the brain makes. Edit, Earlier versions and Retire are Profile's, from
+  `src/entries/`, and a state's edit is the `state` correction above.
+
+**History** is what happened and what was decided, `src/history/`, over `GET /history`:
+
+- The package's `Timeline`, newest first by when each thing happened, not by when it was entered,
+  so a course from 2021 entered today sits below this year's entries. The brain answers oldest
+  first, and the page reads it reversed. Each entry shows when, to its precision, in the mono font,
+  `2021`, `Sep 2023`, `12 Nov 2026`, or a day with a time for an instant (`src/history/when.ts`),
+  then its text and its subjects. A year, a month or a day is sent as the start of its period in
+  UTC and read back in UTC, so it is the same period wherever the owner is; the month names are
+  written out there rather than taken from `Intl`, whose `en-GB` September is "Sept" in newer ICU.
+- Above it the filter row: a Topic select of the canonical topics and a Named thing select of the
+  user's named things, each with "Any", sent as `topic` and `entity`.
+- "Add what happened", a secondary button, asks for the text, when it happened as a precision,
+  Year, Month or Day, and the field that matches it, a year, a month by name beside its year, or a
+  day, and the optional subjects Now asks for. The day starts empty, since only the owner knows it.
+  There is no primary button on History, since neither way of adding is the one thing to do.
+- A decision's entry is marked with a `Badge`, "Decision", its text a link to its page, its
+  reasoning under it, and, once replaced, the `idle` status "Replaced". "Add decision", the other
+  secondary button, asks for what was decided, why, what was rejected, a field at a time with "Add
+  another", empty ones left out, when, today as a day unless changed, and the optional subjects.
+- A decision's page, `/brain/history/<id>`, read from the same `GET /history`, which holds every
+  decision with what replaced it: a breadcrumb back, what was decided, when, its subjects,
+  "Replaces" and "Replaced by" as links to the other decisions' pages, and cards for why and for
+  what was rejected. "Replace with a newer decision…" asks for the newer one from a select of the
+  other active decisions and calls `replace`; a replaced decision carries the `idle` status
+  "Replaced" and offers no replacing, and focus goes to its heading. Marking two decisions as
+  contradicting belongs to an item's page in Everything, not here.
 
 `index.html` is the same shell as every page with the bar: the design files and `nav.js` from the
 proxy, not bundled, and `<platform-nav current="brain">`. Vite builds it with base `/brain/` into
