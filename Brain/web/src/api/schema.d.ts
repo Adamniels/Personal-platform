@@ -99,10 +99,13 @@ export interface paths {
          * @description Writes an entry made by hand, 201 with the item, its evidence and its
          *     relations. It applies at once: an asserted event, origin brain and source
          *     manual-entry, is recorded with it and is its supporting evidence. kind is
-         *     profile, with a category, or rule, which is global. 422 for an unknown
-         *     kind or category, content that is blank or over 4000 characters, a rule
-         *     naming a subject, or a topic the user does not have. A named thing the
-         *     user does not have is created.
+         *     profile, with a category, or rule, which is global; or topic_level or
+         *     topic_focus, each on one topic with a value, which where the topic,
+         *     read through its alias, has an active entry of that kind already is an
+         *     edit of it, 201 with the new version. 422 for an unknown kind, category
+         *     or value, content that is blank or over 4000 characters, a rule naming a
+         *     subject, a topic the user does not have, or a level or focus the topic
+         *     has already. A named thing the user does not have is created.
          */
         post: operations["write_item_brain_api_items_post"];
         delete?: never;
@@ -1092,6 +1095,32 @@ export interface operations {
                      * @enum {string}
                      */
                     occurred_precision?: "instant" | "day" | "month" | "year";
+                } | {
+                    /**
+                     * Kind
+                     * @constant
+                     */
+                    kind: "topic_level";
+                    /** Topic */
+                    topic: string;
+                    /**
+                     * Value
+                     * @enum {string}
+                     */
+                    value: "shallow" | "working" | "solid" | "deep";
+                } | {
+                    /**
+                     * Kind
+                     * @constant
+                     */
+                    kind: "topic_focus";
+                    /** Topic */
+                    topic: string;
+                    /**
+                     * Value
+                     * @enum {string}
+                     */
+                    value: "learning" | "steady" | "not_pursuing";
                 };
             };
         };

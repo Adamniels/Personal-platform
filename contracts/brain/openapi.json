@@ -1358,7 +1358,7 @@
         "summary": "List Items"
       },
       "post": {
-        "description": "Writes an entry made by hand, 201 with the item, its evidence and its\nrelations. It applies at once: an asserted event, origin brain and source\nmanual-entry, is recorded with it and is its supporting evidence. kind is\nprofile, with a category, or rule, which is global. 422 for an unknown\nkind or category, content that is blank or over 4000 characters, a rule\nnaming a subject, or a topic the user does not have. A named thing the\nuser does not have is created.",
+        "description": "Writes an entry made by hand, 201 with the item, its evidence and its\nrelations. It applies at once: an asserted event, origin brain and source\nmanual-entry, is recorded with it and is its supporting evidence. kind is\nprofile, with a category, or rule, which is global; or topic_level or\ntopic_focus, each on one topic with a value, which where the topic,\nread through its alias, has an active entry of that kind already is an\nedit of it, 201 with the new version. 422 for an unknown kind, category\nor value, content that is blank or over 4000 characters, a rule naming a\nsubject, a topic the user does not have, or a level or focus the topic\nhas already. A named thing the user does not have is created.",
         "operationId": "write_item_brain_api_items_post",
         "requestBody": {
           "content": {
@@ -1491,6 +1491,73 @@
                       "content"
                     ],
                     "title": "RuleEntry",
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "description": "How well the owner knows one topic, in the knowledge store, where\nevidence may later move it: shallow, knows the vocabulary; working, can\nuse it with help; solid, can use it unaided and explain it; deep, knows\nthe internals and could teach it. Set where the topic has a level\nalready, it is an edit of that one. The content is generated.",
+                    "properties": {
+                      "kind": {
+                        "const": "topic_level",
+                        "title": "Kind",
+                        "type": "string"
+                      },
+                      "topic": {
+                        "maxLength": 80,
+                        "pattern": "^[a-z0-9][a-z0-9-]{0,79}$",
+                        "title": "Topic",
+                        "type": "string"
+                      },
+                      "value": {
+                        "enum": [
+                          "shallow",
+                          "working",
+                          "solid",
+                          "deep"
+                        ],
+                        "title": "Value",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "topic",
+                      "value"
+                    ],
+                    "title": "LevelEntry",
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "description": "What the owner is doing about one topic, in profile, his alone:\nlearning, steady or not_pursuing. Set where the topic has a focus\nalready, it is an edit of that one. The content is generated.",
+                    "properties": {
+                      "kind": {
+                        "const": "topic_focus",
+                        "title": "Kind",
+                        "type": "string"
+                      },
+                      "topic": {
+                        "maxLength": 80,
+                        "pattern": "^[a-z0-9][a-z0-9-]{0,79}$",
+                        "title": "Topic",
+                        "type": "string"
+                      },
+                      "value": {
+                        "enum": [
+                          "learning",
+                          "steady",
+                          "not_pursuing"
+                        ],
+                        "title": "Value",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "topic",
+                      "value"
+                    ],
+                    "title": "FocusEntry",
                     "type": "object"
                   }
                 ],

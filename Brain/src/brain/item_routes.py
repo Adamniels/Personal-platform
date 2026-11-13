@@ -1,5 +1,6 @@
 """The API for the memory store, under `/brain/api/items`: entries the owner
-makes by hand, as profile entries and rules so far, and correcting them. Every route needs a valid
+makes by hand, as profile entries, rules, and a level and a focus on each
+topic so far, and correcting them. Every route needs a valid
 token and acts for the account it names, through `brain.db.transaction`. The
 rules are in `brain.items`; this module reads the request and shapes the
 answer. The routes are listed in "What it serves" in Brain/README.md."""
@@ -104,8 +105,40 @@ class RuleEntry(BaseModel):
         return _no_nul(content)
 
 
+class LevelEntry(BaseModel):
+    """How well the owner knows one topic, in the knowledge store, where
+    evidence may later move it: shallow, knows the vocabulary; working, can
+    use it with help; solid, can use it unaided and explain it; deep, knows
+    the internals and could teach it. Set where the topic has a level
+    already, it is an edit of that one. The content is generated."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["topic_level"]
+    # A slug the user has, read through its alias.
+    topic: Slug
+    value: items.Level
+
+
+class FocusEntry(BaseModel):
+    """What the owner is doing about one topic, in profile, his alone:
+    learning, steady or not_pursuing. Set where the topic has a focus
+    already, it is an edit of that one. The content is generated."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["topic_focus"]
+    topic: Slug
+    value: items.Focus
+
+
 class NewEntry(
-    RootModel[Annotated[ProfileEntry | RuleEntry, Field(discriminator="kind")]]
+    RootModel[
+        Annotated[
+            ProfileEntry | RuleEntry | LevelEntry | FocusEntry,
+            Field(discriminator="kind"),
+        ]
+    ]
 ):
     """An entry, told apart by its kind."""
 
@@ -313,12 +346,25 @@ async def write_item(request: Request, claims: Claims) -> Response:
     """Writes an entry made by hand, 201 with the item, its evidence and its
     relations. It applies at once: an asserted event, origin brain and source
     manual-entry, is recorded with it and is its supporting evidence. kind is
-    profile, with a category, or rule, which is global. 422 for an unknown
-    kind or category, content that is blank or over 4000 characters, a rule
-    naming a subject, or a topic the user does not have. A named thing the
-    user does not have is created."""
+    profile, with a category, or rule, which is global; or topic_level or
+    topic_focus, each on one topic with a value, which where the topic,
+    read through its alias, has an active entry of that kind already is an
+    edit of it, 201 with the new version. 422 for an unknown kind, category
+    or value, content that is blank or over 4000 characters, a rule naming a
+    subject, a topic the user does not have, or a level or focus the topic
+    has already. A named thing the user does not have is created."""
     entry = (await body_as(request, NewEntry)).root
     now = datetime.now(UTC)
+    if isinstance(entry, LevelEntry | FocusEntry):
+        async with db.transaction(request.app.state.pool, claims.account_id) as conn:
+            item_id = await items.set_on_topic(
+                conn, entry.kind, entry.topic, entry.value, now=now
+            )
+            detail = await items.get(conn, item_id)
+        assert detail is not None
+        return JSONResponse(
+            ItemDetail.of_detail(detail).model_dump(mode="json"), status_code=201
+        )
     new = items.NewItem(
         kind=entry.kind,
         content=entry.content,
