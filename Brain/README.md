@@ -646,6 +646,28 @@ the topic routes, "Subjects" above:
   form, dialog and toasts with the same words; a correction is a new version, so the page moves to
   it. Nothing on these pages is called delete: removing for good is `brain purge`, from a terminal.
 
+**Timeline** is every event the brain has recorded, newest recorded first, `src/timeline/`, over
+`GET /events`:
+
+- Under a heading per day each was recorded, in the owner's time, "Today", "Yesterday", then the
+  date, each day the package's `Timeline`. An entry is its time in the mono font; one line, the verb
+  in plain words as Everything writes it (`verbWords` in `src/everything/words.ts`), then the
+  evidence; and a detail line with where it came from, "Memory" for the brain's own or the
+  feature's name, and its subject as a badge when it has one. The payload is for features and is
+  not shown.
+- The time is when it was recorded, `14:05`, when it happened that same day. Otherwise both show,
+  "Happened 2021 · Recorded 12 Nov 2026", happened to its precision as History writes it and
+  recorded to the day (`src/timeline/when.ts`): something from 2021 entered today should not read as
+  today's news. A month or a year falls on no one day, so it always shows both.
+- An entry about an item, its `subject_item`, or that made one, its `made_item`, links the whole
+  line to the item's page in Everything. A correction records two events at once, that the old
+  version was corrected and the new one entered, so both show.
+- The first fifty load with the section. "Show earlier", a secondary button at the foot, loads the
+  next fifty after the last one shown, by its `recorded_at` and `id`, while the last page came back
+  full. What is shown stays, the page does not scroll, and focus moves to the first new entry.
+- With no events, "Nothing recorded yet" and "What you enter and correct shows here." No filters,
+  no primary button, and nothing changes an event: events are append only.
+
 `index.html` is the same shell as every page with the bar: the design files and `nav.js` from the
 proxy, not bundled, and `<platform-nav current="brain">`. Vite builds it with base `/brain/` into
 `web/dist`, git ignored, its files under `dist/assets/`.
