@@ -2,6 +2,7 @@
 export { Button, type ButtonKind, type ButtonProps } from "./button/button";
 export { Card, type CardProps } from "./card/card";
 export { Checkbox, type CheckboxProps } from "./checkbox/checkbox";
+export { Dialog, type DialogKind, type DialogProps } from "./dialog/dialog";
 export { EmptyState, type EmptyStateProps } from "./empty-state/empty-state";
 export { Select, type SelectProps } from "./field/select";
 export { TextArea, type TextAreaProps } from "./field/text-area";

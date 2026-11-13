@@ -4,6 +4,7 @@ import { ButtonSection } from "./sections/button-section";
 import { CardSection } from "./sections/card-section";
 import { CheckboxSection } from "./sections/checkbox-section";
 import { ChipSection } from "./sections/chip-section";
+import { DialogSection } from "./sections/dialog-section";
 import { EmptyStateSection } from "./sections/empty-state-section";
 import { MeterSection } from "./sections/meter-section";
 import { ProgressSection } from "./sections/progress-section";
@@ -47,6 +48,7 @@ export function Gallery() {
 				<EmptyStateSection />
 				<TimelineSection />
 				<TableSection />
+				<DialogSection />
 			</main>
 		</div>
 	);
