@@ -14,6 +14,7 @@ import pytest
 from psycopg_pool import AsyncConnectionPool
 
 from brain import db, items
+from brain.errors import Conflict
 from tests.conftest import Caller
 from tests.harness import admin_connection
 from tests.test_items import ALICE, BOB, ITEMS, TOPICS, counts, profile, rule, write
@@ -546,3 +547,98 @@ async def test_a_failed_restore_leaves_the_item_retired(
         assert admin.execute(
             "SELECT status, inactive_reason FROM items WHERE id = %s", (item_id,)
         ).fetchone() == ("inactive", "retired")
+
+
+async def _retired(conn: Any, item_id: uuid.UUID, now: datetime) -> None:
+    await items.retire(conn, item_id, now=now)
+
+
+async def _restored(conn: Any, item_id: uuid.UUID, now: datetime) -> None:
+    await items.restore(conn, item_id, now=now)
+
+
+async def _edited(conn: Any, item_id: uuid.UUID, now: datetime) -> None:
+    await items.edit(
+        conn,
+        item_id,
+        items.Edit(
+            kind="profile",
+            content=f"Prefers spaces, {uuid.uuid4()}.",
+            category=None,
+            topics=None,
+            entities=None,
+        ),
+        now=now,
+    )
+
+
+@pytest.mark.parametrize(
+    ("retired_first", "first", "second"),
+    [
+        (False, _edited, _edited),
+        (False, _retired, _edited),
+        (False, _edited, _retired),
+        (False, _retired, _retired),
+        (True, _restored, _restored),
+    ],
+    ids=[
+        "edit-then-edit",
+        "retire-then-edit",
+        "edit-then-retire",
+        "retire-then-retire",
+        "restore-then-restore",
+    ],
+)
+async def test_a_change_that_read_the_item_before_another_finds_it_changed(
+    pool: AsyncConnectionPool,
+    database: str,
+    monkeypatch: pytest.MonkeyPatch,
+    retired_first: bool,
+    first: Callable[..., Any],
+    second: Callable[..., Any],
+) -> None:
+    """Of two changes to one item at once, both read it before either writes,
+    so both pass the checks made on what they read; only the conditional
+    update in `_set_status` tells the second that the first got there. The
+    stale read is made deterministic by handing the second change the item as
+    it was, see "A deterministic test beats a race" in
+    High-level/docs/how-we-build.md."""
+    now = datetime.now(UTC)
+    new = items.NewItem(
+        kind="profile",
+        content="Prefers tabs.",
+        category="values",
+        topics=(),
+        entities=(),
+        occurred_at=None,
+        occurred_precision="instant",
+    )
+    async with db.transaction(pool, ALICE) as conn:
+        item_id = await items.write(conn, new, now=now)
+        if retired_first:
+            await items.retire(conn, item_id, now=now)
+        stale = await items._one(conn, item_id)
+    assert stale is not None
+
+    async with db.transaction(pool, ALICE) as conn:
+        await first(conn, item_id, now)
+    after_first = counts(database)
+
+    async def as_it_was(conn: Any, wanted: uuid.UUID) -> items.Item | None:
+        assert wanted == item_id
+        return stale
+
+    monkeypatch.setattr(items, "_one", as_it_was)
+    with pytest.raises(Conflict, match="changed while"):
+        async with db.transaction(pool, ALICE) as conn:
+            await second(conn, item_id, now)
+
+    assert counts(database) == after_first
+    with admin_connection(database) as admin:
+        active = admin.execute(
+            "SELECT count(*) FROM items WHERE lineage_id = %s AND status = 'active'",
+            (item_id,),
+        ).fetchone()
+    # The entry is as the first change left it: never forked into two current
+    # versions, and a retired one not brought back by a stale edit.
+    assert active == ((0,) if first is _retired else (1,))
