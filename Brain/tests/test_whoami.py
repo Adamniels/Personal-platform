@@ -1,12 +1,8 @@
 """Who is asking the brain: `GET /brain/api/whoami`, through `platform-auth`,
 and the `Origin` check in front of the whole app. The rules are in "How a
 feature authenticates" in `High-level/docs/feature-contract.md`; the library
-tests them in depth, and these check the brain gets them.
-
-Every token here is the contract token, `contracts/token/token.jwt`, or one
-made from it, verified against the committed key set answered from memory,
-so the brain verifies what the core actually produces. The contract token
-expires at a fixed time, so the clock the library reads is pinned per test.
+tests them in depth, and these check the brain gets them. The contract token
+and the pinned clock are in conftest.py.
 """
 
 import base64
@@ -15,25 +11,16 @@ import hmac
 import json
 from collections.abc import Callable
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 
-import httpx2
-import platform_auth.auth
 import pytest
+from conftest import CLAIMS, JWKS, PLATFORM, TOKEN, bearer, contract_client
 from fastapi.testclient import TestClient
 from platform_auth.keys import KeyCache
 
 from brain.app import create_app
 from brain.settings import load
 
-CONTRACT = Path(__file__).resolve().parents[2] / "contracts" / "token"
-TOKEN = (CONTRACT / "token.jwt").read_text()
-CLAIMS = json.loads((CONTRACT / "claims.json").read_text())
-JWKS = json.loads((CONTRACT / "jwks.json").read_text())
-
-CORE_URL = "http://127.0.0.1:8080"
-PLATFORM = "https://platform.test"
 WHOAMI = "/brain/api/whoami"
 
 
@@ -78,34 +65,8 @@ def hs256_keyed_with(secret: bytes) -> str:
     return f"{signing_input}.{b64(mac)}"
 
 
-@pytest.fixture
-def at(monkeypatch: pytest.MonkeyPatch) -> Callable[[int], None]:
-    """Pins the clock the library reads once per request, `time.time()` in
-    `platform_auth.auth`, to whole seconds since the epoch. Only that module's
-    binding is replaced, so nothing else in the process sees the change."""
-
-    def pin(now: int) -> None:
-        monkeypatch.setattr(
-            platform_auth.auth, "time", SimpleNamespace(time=lambda: float(now))
-        )
-
-    return pin
-
-
-def serves_the_contract_keys(request: httpx2.Request) -> httpx2.Response:
-    return httpx2.Response(200, json=JWKS)
-
-
 def client() -> TestClient:
-    keys = KeyCache(
-        httpx2.AsyncClient(transport=httpx2.MockTransport(serves_the_contract_keys)),
-        CORE_URL,
-    )
-    return TestClient(create_app(load({}), keys=keys), base_url=PLATFORM)
-
-
-def bearer(token: str) -> dict[str, str]:
-    return {"authorization": f"Bearer {token}"}
+    return contract_client()
 
 
 def test_whoami_returns_the_account_in_the_token(at: Callable[[int], None]) -> None:
@@ -182,8 +143,8 @@ def test_a_state_changing_request_needs_the_platforms_origin(
     assert allowed.status_code == 405
 
 
-def test_the_app_creates_and_closes_its_own_key_cache() -> None:
-    app = create_app(load({}))
+def test_the_app_creates_and_closes_its_own_key_cache(web_dir: Path) -> None:
+    app = create_app(load({"BRAIN_WEB_DIR": str(web_dir)}))
 
     with TestClient(app):
         assert isinstance(app.state.keys, KeyCache)
