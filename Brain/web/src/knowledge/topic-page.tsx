@@ -226,16 +226,18 @@ function Facts({
 		setOpen(null);
 	}
 
-	// Any other topic that is not an alias, as the brain refuses an alias
-	// to point at; and for Same as, only a canonical one.
-	const others = topics.filter(
-		(other) => other.id !== topic.id && other.alias_of === null,
-	);
-	const choices = (canonicalOnly: boolean): Choice[] =>
-		others
-			.filter((other) => !canonicalOnly || other.state === "canonical")
-			.map(({ id, name }) => ({ id, name }))
-			.sort((a, b) => a.name.localeCompare(b.name, "en"));
+	// The other canonical topics, for Place under… and Same as… alike: not
+	// an alias, which the brain refuses to point at, and not a provisional
+	// topic, which he has not confirmed, so nothing is built on it.
+	const choices: Choice[] = topics
+		.filter(
+			(other) =>
+				other.id !== topic.id &&
+				other.alias_of === null &&
+				other.state === "canonical",
+		)
+		.map(({ id, name }) => ({ id, name }))
+		.sort((a, b) => a.name.localeCompare(b.name, "en"));
 
 	const level = row?.level?.value;
 	const focus = row?.focus?.value;
@@ -287,7 +289,7 @@ function Facts({
 						<ChooseTopic
 							name="Place under…"
 							label="Place under"
-							choices={choices(false)}
+							choices={choices}
 							onChoose={async (broader) => {
 								await placeUnder.mutateAsync({
 									id: topic.id,
@@ -302,7 +304,7 @@ function Facts({
 						<ChooseTopic
 							name="Same as…"
 							label="Same as"
-							choices={choices(true)}
+							choices={choices}
 							onChoose={setTarget}
 							onCancel={close}
 						/>

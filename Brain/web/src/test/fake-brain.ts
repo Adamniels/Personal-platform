@@ -286,6 +286,11 @@ export function fakeBrain() {
 			if (focus) set("topic_focus", topic, focus);
 			return topic;
 		},
+		/** Makes `topic` an alias of `target`, as Same as would. */
+		alias(topic: Topic, target: Topic) {
+			topic.alias_of = target.id;
+			topic.resolves_to = target.id;
+		},
 		/** Sets a level or a focus, as the API would. */
 		set(kind: Setting, topic: Topic, value: string): Item {
 			return set(kind, topic, value);
