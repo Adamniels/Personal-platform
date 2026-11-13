@@ -1,16 +1,17 @@
 """`brain`, the package's command, run as `uv run brain <command>` from
-Brain/: `migrate`, see "Migrating", and `export` and `import`, see "Export
-and import", in Brain/README.md."""
+Brain/: `migrate`, see "Migrating", `export` and `import`, see "Export and
+import", and `purge`, see "Purging", in Brain/README.md."""
 
 import sys
 from pathlib import Path
 from uuid import UUID
 
-from brain import memory_file, migrate
+from brain import memory_file, migrate, purge
 
 USAGE = """usage: brain migrate
        brain export <account-id> <file>
-       brain import <file> [--as <account-id>]"""
+       brain import <file> [--as <account-id>]
+       brain purge <account-id> <item-id>"""
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -30,15 +31,25 @@ def main(argv: list[str] | None = None) -> int:
             if account_id is None:
                 return 2
             return memory_file.import_main(Path(file), account_id)
+        case ["purge", account, item]:
+            account_id = _account(account)
+            item_id = _id(item, "an item id")
+            if account_id is None or item_id is None:
+                return 2
+            return purge.main(account_id, item_id)
     print(USAGE, file=sys.stderr)
     return 2
 
 
 def _account(text: str) -> UUID | None:
+    return _id(text, "an account id")
+
+
+def _id(text: str, what: str) -> UUID | None:
     try:
         return UUID(text)
     except ValueError:
-        print(f"{text!r} is not an account id\n{USAGE}", file=sys.stderr)
+        print(f"{text!r} is not {what}\n{USAGE}", file=sys.stderr)
         return None
 
 
