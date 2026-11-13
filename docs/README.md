@@ -55,6 +55,7 @@ features" in `High-level/docs/platform-architecture.md`.
 | `Core/docs/`        | The core: auth, accounts, routing, the registry, and its own frontend        |
 | `Brain/`            | The brain's code, a Python service, with its docs in `Brain/docs/`           |
 | `Brain/docs/`       | The brain: memory, the trust model, events, retrieval, and its tables        |
+| `Brain/web/`        | The memory centre, the brain's own React application, served at `/brain`     |
 | `libs/`             | Shared libraries owned by no service, token verification first              |
 | `design/`           | The platform's visual style, its fonts and sprites, and the shared nav bar, served at `/design/` |
 | `design/ui/`        | `@platform/ui`, the React components every frontend installs, and their gallery |
@@ -137,10 +138,11 @@ features" in `High-level/docs/platform-architecture.md`.
 
 **Brain**
 
-- `Brain/README.md` — what the brain serves, how it knows who is asking, how to run it and its
-  tests, its settings, and the libraries it is built on
+- `Brain/README.md` — what the brain serves, how it knows who is asking, the memory centre and
+  its sections, how its client calls the brain and how its API types are generated, how to run
+  it and its tests, its settings, and the libraries it is built on
 - `brain-architecture.md` — per feature modules, retrieval, evaluation, consolidation, and the
-  brain's own surface
+  brain's own surface, the memory centre, with its sections and their addresses
 - `trust-model.md` — which store holds what, who can change it, scope, confidence and currency,
   editing, and the review queue
 - `knowledge-model.md` — what the brain is trying to know about a person, and the filter for

@@ -2,7 +2,7 @@
 
 Status: decided for the first version, which is being built.
 
-Last updated: 2026 11 12
+Last updated: 2026 11 13
 
 How the brain is built. Everything here is internal: you need it to write the brain and you do
 not need it to understand the platform.
@@ -146,7 +146,13 @@ What follows:
 
 Part of the first version, except the review queue, which waits for consolidation. It was first
 left for later, when the first milestone was drawn small, see "What is built now" in
-`High-level/docs/how-we-build.md`. Its frontend waits for the platform's design system.
+`High-level/docs/how-we-build.md`.
+
+The application exists, at `/brain`, opened from the Memory link in the nav bar: a React frontend
+in `Brain/web/`, served by the brain itself, in the platform's style. It has eight sections, each a
+tab with its own address: Profile at `/brain`, then Rules, Knowledge, Now, History, Everything,
+Timeline and Ask, each at `/brain/<name>`. Each is empty until its own slice fills it. How it is
+built, served and tested, and how it calls the brain, is "The memory centre" in `Brain/README.md`.
 
 ---
 
