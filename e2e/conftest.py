@@ -63,6 +63,12 @@ def invite_code() -> str:
 
 
 @pytest.fixture
+def another_invite_code() -> str:
+    """A second fresh invite code, for a test that registers two accounts."""
+    return _core_command("invite")
+
+
+@pytest.fixture
 def reset_token() -> Callable[[str], str]:
     """A function that mints a reset token for the account with an email, by
     the core's own command, as the owner would. A function, since the account
