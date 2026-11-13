@@ -474,10 +474,11 @@ for f in pending.sh merge-gate.sh verdict.sh board.sh gh-guard.sh; do
   printf '#!/usr/bin/env bash\necho "%s $*" >> "$D/trap.log"; : > "$AGENT_HOME/.agent-stop"\n' "$f" > "$AGENT_REPO/scripts/agent/$f"
 done
 chmod +x "$AGENT_REPO/scripts/agent/"*; git -C "$AGENT_REPO" add scripts; git -C "$AGENT_REPO" commit -q -m trap
-# The review is of another pull request: the runner is done with 50 once the gate has merged it.
+# The review is of another pull request: the runner is done with 50 once the gate has merged it. It ends in an
+# approve, so the gate is called for 51 in the review's own turn, from main like every other call.
 pending "merge 50 41" "review 51 41" "new 41"; runner
 check "pending, the gate, verdict and the guard come from origin/main, never the checked-out branch" \
-  $(no_file "$D/trap.log" && [ "$(cat "$D/gate.log")" = 50 ] && [ "$(lines "$D/claude.log")" = 2 ] \
+  $(no_file "$D/trap.log" && [ "$(tr '\n' ' ' < "$D/gate.log")" = "50 51 " ] && [ "$(lines "$D/claude.log")" = 2 ] \
     && [ "$(tail -n1 "$D/claude-gh.log")" = guard ]; echo $?)
 check "the extracted scripts are removed" $(! ls -d "${TMPDIR:-/tmp}"/tmp.* 2>/dev/null | while read -r x; do [ -e "$x/scripts/agent/pending.sh" ] && echo "$x"; done | grep -q .; echo $?)
 export AGENT_SCRIPTS="$tmp/scripts"
@@ -826,13 +827,23 @@ check "a dropped item waits a minute at most before the picker is asked again, a
 # The real pending.sh picks here, over the fake gh's pull request 50 (slice 41) and a fake board: next.sh offers
 # the slice in $D/ready as the next Ready one. The claude-hook notes what the pull request carried and how long the
 # runner had slept when the implementer started, and takes the slice off Ready, as an implementer run would. The
-# wrapper stops the loop at call FAKE_LOOPS, since the real picker never does.
+# wrapper stops the loop at call FAKE_LOOPS, since the real picker never does, and at its nth call it copies what
+# pull request 50 carried, the mentions made, the gate's calls and the sleeps so far to <file>-at-pick-<n>, so a
+# test can say what was true before the picker was asked again. The gate here is the fake one, except that one
+# that merges also takes the pull request, the only one these tests have, off the open listing, as GitHub does.
 mkdir -p "$tmp/scripts-picker"; cp "$tmp/scripts/"* "$tmp/scripts-picker/"
 cat > "$tmp/scripts-picker/pending.sh" <<'FAKE'
 #!/usr/bin/env bash
 n=$(( $(cat "$D/pending.count" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$D/pending.count"
+for f in labels-50 comments.log gate.log sleep.log; do cp "$D/$f" "$D/${f%.log}-at-pick-$n" 2>/dev/null; done
 [ "$n" -ge "${FAKE_LOOPS:-30}" ] && { : > "$AGENT_HOME/.agent-stop"; exit 0; }
 exec bash "$REAL_PENDING"
+FAKE
+cat > "$tmp/scripts-picker/merge-gate.sh" <<'FAKE'
+#!/usr/bin/env bash
+bash "$BASE_GATE" "$@"; rc=$?
+if [ "$rc" = 0 ]; then echo MERGED > "$D/state-$1"; : > "$D/open-prs"; fi
+exit "$rc"
 FAKE
 cat > "$tmp/scripts-picker/next.sh" <<'FAKE'
 #!/usr/bin/env bash
@@ -840,7 +851,7 @@ cat > "$tmp/scripts-picker/next.sh" <<'FAKE'
 if [ -f "$D/ready" ]; then echo "next $(cat "$D/ready")"; fi
 FAKE
 chmod +x "$tmp/scripts-picker/"*
-export REAL_PENDING="$here/pending.sh"
+export REAL_PENDING="$here/pending.sh" BASE_GATE="$tmp/scripts/merge-gate.sh"
 at_claude() { hook claude-hook "cp '$D/labels-50' '$D/labels-at-claude' 2>/dev/null; cp '$D/comments.log' '$D/comments-at-claude' 2>/dev/null; cp '$D/sleep.log' '$D/sleep-at-claude' 2>/dev/null; rm -f '$D/ready'"; }
 
 setup; export AGENT_SCRIPTS="$tmp/scripts-picker" FAKE_LOOPS=3 AGENT_POLL_SECONDS=600 FAKE_GATE_EXIT=3 FAKE_GATE_OUT="$READY" FAKE_PR_LABELS=in-review,has-decision
@@ -866,6 +877,134 @@ check "once ci-ok has finished it is handed over, and the next slice starts with
     && [ "$(lines "$D/comments.log")" = 1 ] && grep -q '^-p|/pick-up-slice 42|' "$D/claude.log" \
     && [ "$(tr '\n' ' ' < "$D/sleep.log")" = "7 7 " ]; echo $?)
 export AGENT_SCRIPTS="$tmp/scripts"; unset FAKE_LOOPS
+
+# --- An approve is settled in the same turn: review, then gate, then merged or handed over -----------------------
+# The review here leaves its verdict as a reviewer does, during the run: the claude-hook writes it, and anything
+# else a test wants to have happened meanwhile. Most of these run the real picker, so "before the picker is asked
+# again" is read from the copies its wrapper made at its second call.
+approves() { hook claude-hook "echo '$APPROVE' > '$D/verdict'${1:+; $1}"; }
+nexts() { grep 'next: ' "$AGENT_HOME/agent-logs/runner.log" | sed 's/.*next: //' | tr '\n' ','; }
+same_turn() { export AGENT_SCRIPTS="$tmp/scripts-picker" FAKE_VERDICT="$NONE" FAKE_LOOPS="$1"; }
+
+setup; same_turn 4; export AGENT_POLL_SECONDS=5 FAKE_GATE_EXIT=3 FAKE_GATE_OUT="$READY" FAKE_PR_LABELS=in-review,has-decision
+approves; runner
+check "an approve hands the pull request to the owner in the same turn" \
+  $([ "$(cat "$D/labels-50-at-pick-2" 2>/dev/null)" = "has-decision,owner-decision" ] && [ "$(lines "$D/comments-at-pick-2")" = 1 ] \
+    && grep -q ' 41 @Adamniels PR #50 is approved and waits for your decision' "$D/comments-at-pick-2" \
+    && [ "$(cat "$D/gate-at-pick-2")" = 50 ] && no_file "$D/sleep-at-pick-2" \
+    && [ "$(cat "$D/labels.log")" = "50 +owner-decision -in-review" ]; echo $?)
+check "a pull request settled in the same turn is not settled again" \
+  $([ "$(nexts)" = "review 50 41," ] && [ "$(cat "$D/pending.count")" = 4 ] && [ "$(lines "$D/comments.log")" = 1 ] \
+    && [ "$(cat "$D/gate.log")" = 50 ] && [ "$(cat "$D/labels.log")" = "50 +owner-decision -in-review" ] \
+    && [ "$(tr '\n' ' ' < "$D/sleep.log")" = "5 5 " ] && [ "$(cat "$AGENT_HOME/agent-logs/owner-told")" = "50 aaaa" ]; echo $?)
+
+turn_merge=0
+for reason in 'risk is not low' 'touches protected paths'; do
+  setup; same_turn 2; export FAKE_GATE_EXIT=3 FAKE_GATE_OUT="$reason\n" FAKE_PR_LABELS=in-review; approves; runner
+  [ "$(cat "$D/labels-50-at-pick-2" 2>/dev/null)" = owner-merge ] && [ "$(lines "$D/comments-at-pick-2")" = 1 ] \
+    && grep -q " 41 @Adamniels PR #50 is ready for you to read and merge: .*($reason)" "$D/comments-at-pick-2" \
+    && [ "$(cat "$D/gate-at-pick-2")" = 50 ] && [ "$(cat "$D/labels.log")" = "50 +owner-merge -in-review" ] || turn_merge=1
+done
+check "an approve on a pull request the gate leaves to the owner gets owner-merge in the same turn" "$turn_merge"
+
+setup; same_turn 3; export AGENT_POLL_SECONDS=5 FAKE_PR_LABELS=in-review; approves; runner
+check "an approve on a pull request the gate can merge is merged in the same turn" \
+  $([ "$(cat "$D/gate.log")" = 50 ] && [ "$(cat "$D/gate-at-pick-2")" = 50 ] && [ "$(nexts)" = "review 50 41," ] \
+    && [ "$(cat "$D/labels.log")" = "50 -in-review" ] && no_file "$D/comments.log" && no_file "$D/sleep-at-pick-2" \
+    && [ "$(cat "$AGENT_HOME/agent-logs/merged-prs")" = 50 ] && [ "$(fails 41)" = 0 ]; echo $?)
+
+# First the review's own turn, stopped at the picker's second call. Then the loop goes on with ci-ok still pending:
+# the owner item waits the poll interval, as it does today. Then ci-ok has reported, and the item hands over.
+setup; same_turn 2; export AGENT_POLL_SECONDS=7 FAKE_GATE_EXIT=3 FAKE_PR_LABELS=in-review,has-decision
+export FAKE_GATE_OUT='ci-ok is pending\nan owner label is set\n'; approves; runner
+turn_ci=$([ "$(cat "$D/gate-at-pick-2")" = 50 ] && no_file "$D/labels.log" && no_file "$D/comments.log" && no_file "$D/sleep.log" \
+  && no_file "$AGENT_HOME/agent-logs/ci-pending" && no_file "$AGENT_HOME/agent-logs/owner-told" && [ "$(fails 41)" = 0 ] \
+  && [ -z "$(waits transient)" ] && [ "$(cat "$D/review-ok-aaaa")" = success ]; echo $?)
+again; same_turn 3; runner
+turn_ci_item=$([ "$(nexts)" = "review 50 41,owner 50 41,owner 50 41," ] && [ "$(tr '\n' ' ' < "$D/sleep.log")" = "7 7 " ] \
+  && no_file "$D/labels.log" && no_file "$D/comments.log" && [ "$(lines "$D/claude.log")" = 1 ]; echo $?)
+again; same_turn 3; export FAKE_GATE_OUT="$READY"; runner
+check "an approve while ci-ok is pending goes back to the picker without waiting" \
+  $([ "$turn_ci" = 0 ] && [ "$turn_ci_item" = 0 ] && [ "$(cat "$D/labels.log")" = "50 +owner-decision -in-review" ] \
+    && [ "$(lines "$D/comments.log")" = 1 ] && grep -q 'PR #50 is approved and waits for your decision' "$D/comments.log" \
+    && [ "$(lines "$D/claude.log")" = 1 ]; echo $?)
+
+setup; same_turn 2; export FAKE_GATE_EXIT=3 FAKE_GATE_OUT='ci-ok failed\nrisk is not low\n' FAKE_PR_LABELS=in-review; approves; runner
+check "an approve the gate refuses for another reason is blocked in the same turn" \
+  $([ "$(cat "$D/labels-50-at-pick-2" 2>/dev/null)" = owner-blocked ] && [ "$(lines "$D/comments-at-pick-2")" = 1 ] \
+    && grep -q ' 41 @Adamniels PR #50 needs you, do not merge it as it is: .*ci-ok failed, risk is not low' "$D/comments-at-pick-2" \
+    && ! grep -q 'ready' "$D/comments.log" && [ "$(cat "$D/gate-at-pick-2")" = 50 ] \
+    && [ "$(cat "$D/labels.log")" = "50 +owner-blocked -in-review" ]; echo $?)
+
+setup; same_turn 2; export FAKE_PR_LABELS=in-review,has-decision
+hook claude-hook "echo 'changes aaaa 1 2027-01-15T08:00:00Z' > '$D/verdict'"; runner
+check "a changes verdict settles nothing in the same turn" \
+  $(no_file "$D/gate.log" && no_file "$D/labels.log" && no_file "$D/comments.log" && [ "$(lines "$D/claude.log")" = 1 ] \
+    && [ "$(cat "$D/review-ok-aaaa")" = pending ]; echo $?)
+export AGENT_SCRIPTS="$tmp/scripts"; unset FAKE_LOOPS   # from here on the picker is the fake one, with its queue
+
+# The verdict is there, as it is when the owner merges or closes just after the reviewer posted it.
+setup; export FAKE_VERDICT="$NONE" FAKE_PR_LABELS=in-review; echo pending > "$D/review-ok-aaaa"
+approves "echo MERGED > '$D/state-50'"; pending "review 50 41" IDLE; runner
+gone_merged=$(quiet && no_file "$D/gate.log" && no_file "$D/status.log" && [ "$(lines "$D/claude.log")" = 1 ]; echo $?)
+setup; export FAKE_VERDICT="$NONE" FAKE_PR_LABELS=in-review; echo pending > "$D/review-ok-aaaa"
+approves "echo CLOSED > '$D/state-50'"; pending "review 50 41" IDLE; runner
+check "a review of a pull request merged or closed meanwhile settles nothing" \
+  $([ "$gone_merged" = 0 ] && quiet && no_file "$D/gate.log" && no_file "$D/status.log" && [ "$(lines "$D/claude.log")" = 1 ]; echo $?)
+
+setup; export FAKE_VERDICT="$NONE"; approves; pending "review 50 41"; runner
+check "review-ok is success before the gate is called in the same turn" \
+  $([ "$(tr '\n' ' ' < "$D/order.log")" = "status aaaa pending status aaaa success gate 50 " ]; echo $?)
+
+# What the same turn acts on is the pull request as the review left it, not as it was read when the item was picked.
+setup; export FAKE_VERDICT="$NONE" FAKE_GATE_EXIT=3 FAKE_GATE_OUT="$READY" FAKE_PR_LABELS=in-review
+approves "echo in-review,has-decision > '$D/labels-50'"; pending "review 50 41"; runner
+check "the same turn reads the labels as they are after the review: has-decision added meanwhile gives owner-decision" \
+  $([ "$(cat "$D/labels.log")" = "50 +owner-decision -in-review" ] && grep -q 'waits for your decision' "$D/comments.log" \
+    && ! grep -q 'owner-merge' "$D/gh.log"; echo $?)
+
+setup; export FAKE_VERDICT="$NONE" FAKE_GATE_EXIT=3 FAKE_GATE_OUT='risk is not low\n' FAKE_PR_LABELS=in-review
+hook claude-hook "echo bbbb > '$D/head'; echo 'approve bbbb 0 2027-01-15T08:00:00Z' > '$D/verdict'"; pending "review 50 41"; runner
+check "the same turn settles the head as it is after the review, when the verdict is for it" \
+  $([ "$(cat "$D/gate.log")" = 50 ] && [ "$(cat "$AGENT_HOME/agent-logs/owner-told")" = "50 bbbb" ] \
+    && [ "$(cat "$D/review-ok-bbbb")" = success ] && [ "$(tail -n1 "$D/labels.log")" = "50 +owner-merge -in-review" ]; echo $?)
+
+setup; export FAKE_VERDICT="$NONE" FAKE_PR_LABELS=in-review; approves "echo bbbb > '$D/head'"; pending "review 50 41"; runner
+check "an approve for a head that moved during the review settles nothing in the same turn" \
+  $(no_file "$D/gate.log" && no_file "$D/comments.log" && [ "$(cat "$D/review-ok-bbbb")" = pending ] \
+    && ! grep -q 'owner-' "$D/gh.log"; echo $?)
+
+# Failures in the same turn are the runner's or GitHub's, never the slice's.
+setup; export FAKE_VERDICT="$NONE" FAKE_GATE_EXIT=1 FAKE_PR_LABELS=in-review; approves; pending "review 50 41"; runner
+check "a gate error in the same turn is a transient pause, not a failed review" \
+  $([ "$(waits transient)" = 60 ] && [ "$(cat "$D/gate.log")" = 50 ] && no_file "$D/labels.log" && no_file "$D/comments.log" \
+    && [ "$(fails 41)" = 0 ] && no_file "$D/board.log"; echo $?)
+
+setup; export FAKE_VERDICT="$NONE" FAKE_GATE_EXIT=3 FAKE_GATE_OUT='risk is not low\n' FAKE_PR_LABELS=in-review FAKE_LABEL_EXIT=1
+approves; pending "review 50 41" "merge 50 41"; runner
+check "a failed label write in the same turn is a transient pause, retried by the item without a second mention" \
+  $([ "$(waits transient)" = "60 120" ] && [ "$(lines "$D/comments.log")" = 1 ] && [ "$(grep -c 'add-label owner-merge' "$D/gh.log")" = 2 ] \
+    && [ "$(fails 41)" = 0 ] && no_file "$D/board.log"; echo $?)
+
+setup; export FAKE_VERDICT="$NONE" FAKE_GATE_EXIT=3 FAKE_GATE_OUT='risk is not low\n' FAKE_PR_LABELS=in-review FAKE_COMMENT_EXIT=1
+approves; pending "review 50 41"; runner
+check "a failed mention in the same turn is a transient pause, with no label and no record of a mention" \
+  $([ "$(waits transient)" = 60 ] && [ "$(cat "$D/gate.log")" = 50 ] && no_file "$D/labels.log" \
+    && no_file "$AGENT_HOME/agent-logs/owner-told" && [ "$(fails 41)" = 0 ] && no_file "$D/board.log"; echo $?)
+
+# The owner was told about this head before, and a later review of the same head approves it again.
+setup; export FAKE_VERDICT="$NONE" AGENT_POLL_SECONDS=7 FAKE_GATE_EXIT=3 FAKE_GATE_OUT='risk is not low\n' FAKE_PR_LABELS=in-review
+mkdir -p "$AGENT_HOME/agent-logs"; echo "50 aaaa" > "$AGENT_HOME/agent-logs/owner-told"; approves; pending "review 50 41"; runner
+check "the same turn never waits the poll interval, even when the mention for this head was made before" \
+  $(no_file "$D/sleep.log" && no_file "$D/comments.log" && [ "$(cat "$D/labels.log")" = "50 +owner-merge -in-review" ]; echo $?)
+
+# A review of the same head coming back after an ok run is no progress; the second failure sets the slice Blocked.
+setup; export FAKE_VERDICT="$NONE" FAKE_PR_LABELS=in-review; mkdir -p "$AGENT_HOME/agent-logs/failures"
+echo 1 > "$AGENT_HOME/agent-logs/failures/41"; echo "review 50 41 aaaa" > "$AGENT_HOME/agent-logs/last-ok"
+approves; pending "review 50 41"; runner
+check "a review that sets its slice Blocked settles nothing in the same turn" \
+  $(no_file "$D/gate.log" && [ "$(cat "$D/status-41")" = Blocked ] && [ "$(cat "$D/labels.log")" = "50 +owner-blocked -in-review" ] \
+    && [ "$(lines "$D/comments.log")" = 1 ] && grep -q 'slice #41 is Blocked' "$D/comments.log"; echo $?)
 
 echo "$pass passed, $fail failed"
 [ "$fail" = 0 ]
