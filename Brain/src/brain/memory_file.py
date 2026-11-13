@@ -18,15 +18,21 @@ import asyncio
 import json
 import os
 import sys
+from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from uuid import UUID
 
 import psycopg
-from psycopg import sql
+from psycopg import AsyncConnection, sql
+from psycopg.rows import TupleRow
+from psycopg.types.json import Jsonb
 
 from brain import db
+
+type Connection = AsyncConnection[TupleRow]
 
 # The version of the format below. A file of a newer one is refused, since
 # what it holds may not fit this brain's tables; a change to the tables or
@@ -108,6 +114,35 @@ ORDER: dict[str, str] = {table: "id" for table in TABLES} | {
     "item_subjects": "item_id, topic_id, entity_id"
 }
 
+# The keys of the document, in the order the file writes them.
+KEYS = ("format", "exported_at", "account_id", *TABLES)
+
+# Events go in before items, and the two name each other: an item the event
+# that made it, an event about an item that item. This reference is the one
+# that waits for the end of the import's transaction, see
+# migrations/0006_deferrable_event_item.sql; for every other write it is
+# checked at once, as before.
+DEFERRED = "events_user_id_subject_item_fkey"
+
+
+class FileRefused(Exception):
+    """A file that cannot be imported, or a brain it cannot be imported into,
+    and what is wrong. Nothing was changed."""
+
+
+@dataclass(frozen=True)
+class Memory:
+    """A file that parsed: its account, when it was written, and its rows,
+    each with exactly its table's columns."""
+
+    account_id: UUID
+    exported_at: datetime
+    tables: dict[str, list[dict[str, Any]]]
+
+    @property
+    def rows(self) -> int:
+        return sum(len(rows) for rows in self.tables.values())
+
 
 def _export_query() -> sql.Composed:
     """One statement for all eight tables, so the file is one snapshot: a
@@ -157,6 +192,188 @@ def _sorted(value: Any) -> Any:
     return value
 
 
+def parse(text: str) -> Memory:
+    """The file `text` holds, checked for its shape: the format, the account,
+    the time, every table and every row's columns, each row the file's
+    account's. What the values are, Postgres checks as the import inserts
+    them."""
+    try:
+        document = json.loads(text, object_pairs_hook=_unique)
+    except json.JSONDecodeError as err:
+        raise FileRefused(f"not JSON: {err}") from None
+    if not isinstance(document, dict):
+        raise FileRefused("not a JSON object at the top, the memory file is one")
+    _check_format(document)
+    missing = [key for key in KEYS if key not in document]
+    if missing:
+        raise FileRefused(f"missing {', '.join(missing)}")
+    unknown = sorted(set(document) - set(KEYS))
+    if unknown:
+        raise FileRefused(f"unknown {', '.join(unknown)}, not in format {FORMAT}")
+    exported_at = _time(document["exported_at"])
+    account_id = _account(document["account_id"], "account_id")
+    tables = {
+        table: _rows(document[table], table, columns, account_id)
+        for table, columns in TABLES.items()
+    }
+    return Memory(account_id, exported_at, tables)
+
+
+def _unique(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    """An object, refused when one key is in it twice, which `json` would
+    otherwise settle silently by keeping the last."""
+    found: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in found:
+            raise FileRefused(f"{key} is given twice in one object")
+        found[key] = value
+    return found
+
+
+def _check_format(document: dict[str, Any]) -> None:
+    if "format" not in document:
+        raise FileRefused("no format, the version of the file")
+    version = document["format"]
+    # bool is an int to Python, and true is not a version.
+    if type(version) is not int or version < 1:
+        raise FileRefused(f"format is {json.dumps(version)}, not a version number")
+    if version > FORMAT:
+        raise FileRefused(
+            f"the file is format {version}, and this brain reads format {FORMAT}:"
+            " import it into a brain at least as new as the one that exported it"
+        )
+
+
+def _time(value: Any) -> datetime:
+    try:
+        parsed = datetime.fromisoformat(value) if isinstance(value, str) else None
+    except ValueError:
+        parsed = None
+    if parsed is None or parsed.tzinfo is None:
+        raise FileRefused(f"exported_at is {json.dumps(value)}, not a time with a zone")
+    return parsed
+
+
+def _account(value: Any, where: str) -> UUID:
+    if isinstance(value, str):
+        try:
+            return UUID(value)
+        except ValueError:
+            pass
+    raise FileRefused(f"{where} is {json.dumps(value)}, not an account id")
+
+
+def _rows(
+    value: Any, table: str, columns: Sequence[str], account_id: UUID
+) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        raise FileRefused(f"{table} is not a list of rows")
+    for number, row in enumerate(value, start=1):
+        where = f"{table} row {number}"
+        if not isinstance(row, dict):
+            raise FileRefused(f"{where} is not an object")
+        missing = [column for column in columns if column not in row]
+        if missing:
+            raise FileRefused(f"{where}: missing {', '.join(missing)}")
+        unknown = sorted(set(row) - set(columns))
+        if unknown:
+            raise FileRefused(f"{where}: unknown column {', '.join(unknown)}")
+        owner = _account(row["user_id"], f"{where}'s user_id")
+        if owner != account_id:
+            raise FileRefused(
+                f"{where} belongs to another account, {owner}, not the file's {account_id}"
+            )
+    return value
+
+
+async def load(pool: db.Pool, memory: Memory, *, as_account: UUID | None = None) -> int:
+    """Imports `memory` into the brain, under its own account or `as_account`,
+    in one transaction through the door, and returns how many rows it wrote.
+    Refused, changing nothing, when the account already holds anything."""
+    account = as_account or memory.account_id
+    async with db.transaction(pool, account) as conn:
+        return await load_in(conn, memory, account)
+
+
+async def load_in(conn: Connection, memory: Memory, account: UUID) -> int:
+    """`load`, in the caller's transaction, which the door opened for
+    `account`. Every table in `TABLES` order, each in one statement, so a
+    reference within a table, an alias to its topic or a version to the first
+    of its lineage, is checked once the whole table is in."""
+    # Two imports for one account at once: the second waits here, then finds
+    # what the first wrote. Other accounts' imports never wait for it.
+    await conn.execute(
+        "SELECT pg_advisory_xact_lock(hashtextextended("
+        f"'brain.import:' || current_setting('{db.USER_SETTING}'), 0))"
+    )
+    held = await _held(conn)
+    if held:
+        raise FileRefused(
+            f"the brain already holds memory for {account}, {held}:"
+            " a file is imported only into an account that holds none"
+        )
+    await _check_verbs(conn, memory.tables["events"])
+    await conn.execute(
+        sql.SQL("SET CONSTRAINTS {} DEFERRED").format(sql.Identifier(DEFERRED))
+    )
+    for table, columns in TABLES.items():
+        rows = [{**row, "user_id": str(account)} for row in memory.tables[table]]
+        if not rows:
+            continue
+        names = sql.SQL(", ").join(map(sql.Identifier, columns))
+        insert = sql.SQL(
+            "INSERT INTO {table} ({names}) SELECT {names}"
+            " FROM jsonb_populate_recordset(NULL::{table}, %s)"
+        ).format(table=sql.Identifier(table), names=names)
+        try:
+            await conn.execute(insert, (Jsonb(rows),))
+        except psycopg.Error as err:
+            raise FileRefused(f"{table}: {_reason(err)}") from err
+    try:
+        # Checked here rather than at commit, so a failure names its table.
+        await conn.execute(
+            sql.SQL("SET CONSTRAINTS {} IMMEDIATE").format(sql.Identifier(DEFERRED))
+        )
+    except psycopg.Error as err:
+        raise FileRefused(f"events: {_reason(err)}") from err
+    return memory.rows
+
+
+async def _held(conn: Connection) -> str:
+    """What the current user already has, as `2 topics, 1 entities`, or ''."""
+    counts = sql.SQL(", ").join(
+        sql.SQL("(SELECT count(*) FROM {})").format(sql.Identifier(table))
+        for table in TABLES
+    )
+    cursor = await conn.execute(sql.SQL("SELECT {}").format(counts))
+    found = await cursor.fetchone()
+    assert found is not None
+    return ", ".join(
+        f"{count} {table}" for table, count in zip(TABLES, found, strict=True) if count
+    )
+
+
+async def _check_verbs(conn: Connection, events: list[dict[str, Any]]) -> None:
+    """Refuses an event whose verb this brain does not know. The verbs are
+    global and come from the migrations, so the file does not carry them."""
+    named = sorted({str(event["verb"]) for event in events})
+    cursor = await conn.execute("SELECT verb FROM verbs WHERE verb = ANY(%s)", (named,))
+    known = {str(row[0]) for row in await cursor.fetchall()}
+    unknown = [verb for verb in named if verb not in known]
+    if unknown:
+        raise FileRefused(
+            f"events use verbs this brain does not know: {', '.join(unknown)}"
+        )
+
+
+def _reason(err: psycopg.Error) -> str:
+    """Postgres's own words: the message and, when it gives one, the detail,
+    which names the row's key."""
+    message = err.diag.message_primary or str(err)
+    detail = err.diag.message_detail
+    return f"{message} ({detail})" if detail else message
+
+
 def _database_url() -> str | None:
     url = os.environ.get("BRAIN_APP_DATABASE_URL")
     if not url:
@@ -169,6 +386,14 @@ async def _exported(url: str, account_id: UUID, exported_at: datetime) -> str:
     pool = await db.open_pool(url)
     try:
         return await export(pool, account_id, exported_at=exported_at)
+    finally:
+        await pool.close()
+
+
+async def _loaded(url: str, memory: Memory, as_account: UUID | None) -> int:
+    pool = await db.open_pool(url)
+    try:
+        return await load(pool, memory, as_account=as_account)
     finally:
         await pool.close()
 
@@ -202,4 +427,35 @@ def export_main(account_id: UUID, file: Path) -> int:
         f"wrote {rows} rows to {file}: the whole memory of {account_id} in plain text,"
         " keep it somewhere private"
     )
+    return 0
+
+
+def import_main(file: Path, as_account: UUID | None) -> int:
+    """`brain import <file> [--as <account-id>]`: all of the file or, when
+    anything is wrong, none of it."""
+    try:
+        text = file.read_text(encoding="utf-8")
+    except OSError as err:
+        print(f"could not read {file}: {err.strerror}", file=sys.stderr)
+        return 1
+    except UnicodeDecodeError:
+        print(
+            f"import refused, nothing was changed: {file} is not UTF-8 text",
+            file=sys.stderr,
+        )
+        return 1
+    url = _database_url()
+    if url is None:
+        return 1
+    try:
+        memory = parse(text)
+        rows = asyncio.run(_loaded(url, memory, as_account))
+    except FileRefused as err:
+        print(f"import refused, nothing was changed: {err}", file=sys.stderr)
+        return 1
+    except psycopg.Error as err:
+        print(f"import failed, nothing was changed: {err}", file=sys.stderr)
+        return 1
+    account = as_account or memory.account_id
+    print(f"imported {rows} rows from {file} into the memory of {account}")
     return 0
