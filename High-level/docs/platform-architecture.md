@@ -297,8 +297,11 @@ opts into with `<main class="page">`, so a page written without a stylesheet of 
 has the platform's layout. `theme.js` runs in the head,
 before the page paints, and applies the theme the person chose, if any.
 
-What the bar holds: on the left the mark and the name "Platform", linking to `/`, then Home and one
-link per feature in the order `/api/nav` gives. On the right, a theme toggle and the email as a
+What the bar holds: on the left the mark and the name "Platform", linking to `/`, then Home,
+Memory, and one link per feature in the order `/api/nav` gives. Memory, to `/brain`, opens the
+brain's memory centre, with Lucide's `database` icon on phone. The brain is not a feature and has
+no registry entry, so the link is fixed in `nav.js`, as Home and the link to change a password
+are, rather than coming from `/api/nav`. On the right, a theme toggle and the email as a
 button opening a menu with "Change password", to the core's `/settings/password`, and "Log out",
 to its logout page `/auth/logout`: links rather than forms, so the bar still only renders and
 links, and both work from every feature's page without any of them changing. On phone the links
@@ -306,11 +309,12 @@ move to a tab bar at the bottom, and past five the first four show and More hold
 link whose entry carries `attention: true` gets the dot that marks something needing the person;
 the core sends no such field yet. How each of these looks is section 3 of `design/DESIGN.md`.
 
-`current` names what the page is: `home` on the core's front page, otherwise the feature's prefix
-without the slash. The matching link is marked `aria-current="page"`, and changing the attribute
+`current` names what the page is: `home` on the core's front page, `brain` in the memory centre,
+otherwise the feature's prefix without the slash. The matching link is marked `aria-current="page"`, and changing the attribute
 re-renders the bar. It writes every name and the email as text, and links only to a path that
-starts with `/` and not `//`. When `/api/nav` fails, a 401 or a network error, it shows the mark
-and Home alone: it never redirects and never refreshes the session. The core's own pages use it
+starts with `/` and not `//`. When `/api/nav` fails, a 401 or a network error, it shows the mark,
+Home and Memory alone, the links it holds itself: it never redirects and never refreshes the
+session. The core's own pages use it
 too, see "The core's frontend" in `Core/docs/core-architecture.md`, and leave it off the login and
 registration pages, where nobody is logged in.
 

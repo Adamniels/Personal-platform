@@ -9,14 +9,16 @@
 //   ...
 //   <platform-nav current="canary"></platform-nav>
 //
-// `current` is `home` or a feature's prefix without the slash; the matching
-// link gets aria-current="page". The bar fetches the core's /api/nav and
-// renders the mark and the name, Home, one link per feature in the order the
-// endpoint gives, a theme toggle, and who is logged in as a menu holding
-// "Change password" and "Log out". On phone the links move to a tab bar fixed
-// to the bottom, and past five the last ones fold under More. It renders and
-// links and does nothing else: when /api/nav fails it shows the mark and Home
-// alone, and it never redirects or refreshes the session. See "Navigation" in
+// `current` is `home`, `brain` or a feature's prefix without the slash; the
+// matching link gets aria-current="page". The bar fetches the core's /api/nav
+// and renders the mark and the name, Home, Memory (the brain's memory centre,
+// which is not a feature and so is fixed here), one link per feature in the
+// order the endpoint gives, a theme toggle, and who is logged in as a menu
+// holding "Change password" and "Log out". On phone the links move to a tab
+// bar fixed to the bottom, and past five the last ones fold under More. It
+// renders and links and does nothing else: when /api/nav fails it shows the
+// mark, Home and Memory alone, and it never redirects or refreshes the
+// session. See "Navigation" in
 // High-level/docs/platform-architecture.md, and section 3 of design/DESIGN.md
 // for how it looks.
 //
@@ -44,6 +46,12 @@
           d: "M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z",
         },
       ],
+    ],
+    // database
+    database: [
+      ["ellipse", { cx: "12", cy: "5", rx: "9", ry: "3" }],
+      ["path", { d: "M3 5V19A9 3 0 0 0 21 19V5" }],
+      ["path", { d: "M3 12A9 3 0 0 0 21 12" }],
     ],
     // box
     box: [
@@ -465,10 +473,14 @@
       this.#render();
     }
 
-    // Home, then each feature with a name and a local path, in order.
+    // Home and Memory, which are fixed, then each feature with a name and a
+    // local path, in order.
     #entries() {
       const current = this.getAttribute("current");
-      const entries = [{ name: "Home", path: "/", icon: "house", here: current === "home" }];
+      const entries = [
+        { name: "Home", path: "/", icon: "house", here: current === "home" },
+        { name: "Memory", path: "/brain", icon: "database", here: current === "brain" },
+      ];
       const features = Array.isArray(this.#contents?.features) ? this.#contents.features : [];
       for (const feature of features) {
         if (typeof feature?.name !== "string" || !isLocalPath(feature.path)) {

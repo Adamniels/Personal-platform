@@ -81,11 +81,12 @@ def test_nav_shows_home_features_and_user(page: Page, invite_code: str, viewport
     brand = nav.get_by_role("link", name="Platform", exact=True)
     expect(brand).to_have_attribute("href", "/")
     links = links_bar(page).get_by_role("link")
-    # Home, then one link per registered feature in registry order, which
-    # infra/features.toml makes Canary alone.
-    expect(links).to_have_text(["Home", "Canary"])
+    # Home and Memory, which are fixed, then one link per registered feature
+    # in registry order, which infra/features.toml makes Canary alone.
+    expect(links).to_have_text(["Home", "Memory", "Canary"])
     expect(links.nth(0)).to_have_attribute("href", "/")
-    expect(links.nth(1)).to_have_attribute("href", "/canary")
+    expect(links.nth(1)).to_have_attribute("href", "/brain")
+    expect(links.nth(2)).to_have_attribute("href", "/canary")
     expect(nav.get_by_role("button", name=email, exact=True)).to_be_visible()
     expect(page.get_by_role("heading", name="Platform", level=1)).to_be_visible()
 
@@ -103,6 +104,8 @@ def test_the_active_link_is_marked(page: Page, invite_code: str):
     canary = links_bar(page).get_by_role("link", name="Canary", exact=True)
     expect(home).to_have_attribute("aria-current", "page")
     expect(canary).not_to_have_attribute("aria-current", "page")
+    memory = links_bar(page).get_by_role("link", name="Memory", exact=True)
+    expect(memory).not_to_have_attribute("aria-current", "page")
     # The mark and the name link home too, but are not the active link.
     brand = page.get_by_role("link", name="Platform", exact=True)
     expect(brand).not_to_have_attribute("aria-current", "page")
@@ -217,6 +220,9 @@ def test_no_flash_of_the_wrong_theme(page: Page, invite_code: str):
 def test_on_phone_the_links_are_a_bar_at_the_bottom(page: Page, invite_code: str):
     page.set_viewport_size(VIEWPORTS["phone"])
     email = register_and_log_in(page, invite_code)
+    # The bar draws once more when /api/nav answers, replacing what a box
+    # measured before it would read; measure after that.
+    expect(page.get_by_role("button", name=email, exact=True)).to_be_visible()
     height = page.viewport_size["height"]
     nav_h = float(resolve(page, "--nav-h", "height").removesuffix("px"))
 
@@ -268,14 +274,15 @@ def test_more_than_five_links_fold_into_more(page: Page, invite_code: str):
     page.reload()
 
     bar = links_bar(page)
-    # Home and six features: the first four show, and More holds the rest.
+    # Home, Memory and six features: the first four show, and More holds the
+    # rest.
     expect(bar.get_by_role("link")).to_have_text(
-        ["Home", "Feature 1", "Feature 2", "Feature 3"]
+        ["Home", "Memory", "Feature 1", "Feature 2"]
     )
     more = bar.get_by_role("button", name="More", exact=True)
     expect(more).to_be_visible()
     expect(more).to_have_attribute("aria-expanded", "false")
-    for i in range(4, 7):
+    for i in range(3, 7):
         expect(page.get_by_role("link", name=f"Feature {i}", exact=True)).to_be_hidden()
 
     more.click()
@@ -283,9 +290,9 @@ def test_more_than_five_links_fold_into_more(page: Page, invite_code: str):
     expect(more).to_have_attribute("aria-expanded", "true")
     sheet = page.locator("platform-nav .sheet")
     expect(sheet.get_by_role("link")).to_have_text(
-        ["Feature 4", "Feature 5", "Feature 6"]
+        ["Feature 3", "Feature 4", "Feature 5", "Feature 6"]
     )
-    expect(sheet.get_by_role("link").first).to_have_attribute("href", "/feature4")
+    expect(sheet.get_by_role("link").first).to_have_attribute("href", "/feature3")
     capture(page, "nav-more")
     page.keyboard.press("Escape")
     expect(sheet).to_be_hidden()
@@ -293,14 +300,15 @@ def test_more_than_five_links_fold_into_more(page: Page, invite_code: str):
 
     # On desktop every link is in the bar and there is no More.
     page.set_viewport_size(VIEWPORTS["desktop"])
-    expect(bar.get_by_role("link")).to_have_count(7)
+    expect(bar.get_by_role("link")).to_have_count(8)
     expect(more).to_be_hidden()
 
 
 def test_five_links_need_no_more(page: Page, invite_code: str):
     page.set_viewport_size(VIEWPORTS["phone"])
     register_and_log_in(page, invite_code)
-    features = [{"name": f"Feature {i}", "path": f"/feature{i}"} for i in range(1, 5)]
+    # Home, Memory and three features.
+    features = [{"name": f"Feature {i}", "path": f"/feature{i}"} for i in range(1, 4)]
     page.route("**/api/nav", lambda route: route.fulfill(json=nav_answer(features)))
     page.reload()
 
@@ -358,14 +366,14 @@ def test_the_page_keeps_the_bars_height_before_the_script_runs(
     assert page.locator("platform-nav").bounding_box()["height"] == nav_h
 
 
-def test_the_bar_shows_home_alone_when_the_nav_endpoint_fails(
+def test_the_bar_shows_home_and_memory_alone_when_the_nav_endpoint_fails(
     page: Page, invite_code: str
 ):
     register_and_log_in(page, invite_code)
 
     # A 401, a server error, and a request that never gets an answer. Each
-    # waits for /api/nav to settle, since the bar shows Home alone until it
-    # does.
+    # waits for /api/nav to settle, since the bar shows the fixed links alone
+    # until it does.
     failures = [
         ("response", lambda route: route.fulfill(status=401)),
         ("response", lambda route: route.fulfill(status=500)),
@@ -379,8 +387,8 @@ def test_the_bar_shows_home_alone_when_the_nav_endpoint_fails(
 
         nav = page.get_by_role("navigation")
         expect(nav.get_by_role("link", name="Platform", exact=True)).to_be_visible()
-        expect(links_bar(page).get_by_role("link")).to_have_text(["Home"])
-        expect(nav.get_by_role("link")).to_have_count(2)
+        expect(links_bar(page).get_by_role("link")).to_have_text(["Home", "Memory"])
+        expect(nav.get_by_role("link")).to_have_count(3)
         expect(nav.get_by_role("button", name=re.compile("@"))).to_have_count(0)
         # Never sent anywhere: the bar fails quietly where the page is.
         expect(page).to_have_url("https://platform.test/")
@@ -398,7 +406,9 @@ def test_a_link_from_the_endpoint_must_be_a_local_path(page: Page, invite_code: 
     page.route("**/api/nav", lambda route: route.fulfill(json=nav_answer(features)))
     page.reload()
 
-    expect(links_bar(page).get_by_role("link")).to_have_text(["Home", "Local"])
+    expect(links_bar(page).get_by_role("link")).to_have_text(
+        ["Home", "Memory", "Local"]
+    )
     for name in ["Offsite", "Other origin", "Script", "Relative"]:
         expect(page.get_by_text(name, exact=True)).to_have_count(0)
 
