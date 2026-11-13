@@ -38,6 +38,13 @@ Before the first recommendation, as the `read-the-plan-first` memory says:
   no connector, plan from what the owner says, and tell him which of the two it was. The page is
   intent, never design: where it and a doc disagree, that is a question for step 2, not something
   to pick a side on.
+
+  Something built in several rounds, such as the brain, is one page for the area with a page per
+  part under it, linked by Part of. Each part has its own Status and Issue, and one that cannot be
+  planned yet says why in Waits for. Read the area's page and every part's: the part being planned
+  is the scope, the area's page is what the owner wants from the whole, and the other parts say
+  what is deliberately left for later. A part whose Waits for still holds is not planned: say so
+  and ask.
 - `AGENTS.md`, `docs/README.md`, and every doc passage the feature touches. Grep the docs, do not
   work from memory of them.
 - Every issue body in the repository, once per session, and grep it for what the feature touches:
@@ -168,6 +175,12 @@ The feature parent's body holds the owner's description in his words, the decisi
 slices, and the slices in order. What his planning page says under What I want and Why is copied
 into it, since the agents that build the slices cannot read Notion.
 
+It also holds a section, "Not in this feature": everything the owner wants from the area that
+this feature leaves out, one line each, with which of the three tests in "What is built now" in
+`High-level/docs/how-we-build.md` it failed and what it waits for. This list is where the
+remaining parts in his planning notes come from, see step 6, so nothing left out is left
+unrecorded.
+
 ## 5. Write it to GitHub
 
 Show every GitHub change as one dry run first, run it on the owner's yes, then verify each change
@@ -217,13 +230,24 @@ an agent's included, makes the merge gate refuse the slice for good.
 **Then update his planning notes**, when the session has the Notion connector. Show the change
 first, like any other, and make it on his yes:
 
-- If the feature has a page, set it to Status `Planned` and its Issue to the feature parent's URL.
-  Where the feature is one more part of an area that already has a page, as password reset is of
-  the core, add the issue's link to that page instead.
+- If the feature has a page, set its Issue to the feature parent's URL and its Status to
+  `Building` when its slices were set Ready, since the runner starts on them at once, or to
+  `Planned` when the issue exists and nothing is Ready yet. Where what was planned is one part
+  of an area, the part's page gets the Status and the Issue, and the area's page gets neither an
+  Issue nor a change beyond a Status that says where the area is as a whole.
+- **What was left out becomes parts.** For each line under "Not in this feature" in the feature
+  parent, make sure the area has a part page for it: Status `Idea`, Part of the area, What I want
+  in a sentence or two of the owner's intent, and Waits for saying what it waits on. Update a part
+  that exists rather than adding a second. If the area had no parts before, the page that was
+  planned becomes its first part, under a page for the area. This is what keeps "what is left" true
+  without the owner writing it down.
+- Leave Order alone. The order across the platform is the owner's, and a new part has none until
+  he places it.
 - If it has no page, do not create one. The notes hold what the owner wants the platform to do,
   not every piece of work: something that turned up while building, such as a fix or a CI check,
   is an issue and nothing more.
-- Add nothing else to the page. From here on the feature's scope lives on GitHub.
+- Add nothing else to a page. From here on the feature's scope lives on GitHub. Property changes
+  are sent on their own, never together with a change to a page's content, and read back.
 - An idea that came up while planning and was left out of scope goes to the Inbox on the
   "Personal Platform" page, one line, if the owner wants it kept.
 

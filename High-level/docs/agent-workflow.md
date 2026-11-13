@@ -61,6 +61,13 @@ features" in `High-level/docs/platform-architecture.md`. Where the feature has a
 planning starts from it and ends by marking it planned with the feature issue's link. The page's
 intent is copied into the feature issue, since the agents that build it cannot read Notion.
 
+Something built in several rounds, such as the brain, is one page for the area with a page per
+part under it. A feature issue is one part. What a plan leaves out is written in the feature issue
+under "Not in this feature", each line with what it waits for, and planning ends by making each
+of those lines a part in the notes. So the notes always say what is built, what is being built and
+what is left, and why each remaining part waits. The order across the platform is a number on each
+page there, set by the owner.
+
 Planning happens ahead of the agent's run, and all of it with the owner, because an unattended run
 has nobody to ask. A slice that still has a question in it stays in Backlog rather than leaving
 the question for the agent to guess, and a slice whose acceptance cannot be written as named tests
