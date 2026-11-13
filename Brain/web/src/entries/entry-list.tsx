@@ -2,7 +2,7 @@
 // changes provenance, and every edit records a judgment" in Brain/docs/trust-model.md has them.
 // Nothing here deletes anything: a retired entry stays in Everything, where it can come back.
 import { Button, Dialog, useToast } from "@platform/ui";
-import { type ReactNode, useId, useState } from "react";
+import { type ReactNode, useEffect, useId, useRef, useState } from "react";
 import {
 	type Entry,
 	useEarlierVersions,
@@ -67,7 +67,8 @@ export function EntryList({
 		<ul className={[styles.list, className].filter(Boolean).join(" ")}>
 			{entries.map((entry) => (
 				<EntryRow
-					key={entry.id}
+					// By lineage, so a correction, a new version, is the same row.
+					key={entry.lineage_id}
 					entry={entry}
 					labels={labels}
 					onRetire={retireEntry}
@@ -87,6 +88,10 @@ function EntryRow({
 	onRetire: (entry: Entry) => Promise<void>;
 }) {
 	const [editing, setEditing] = useState(false);
+	// Set when the editor closes, so focus goes back to Edit rather than to
+	// the page.
+	const [refocus, setRefocus] = useState(false);
+	const editButton = useRef<HTMLButtonElement>(null);
 	const [showVersions, setShowVersions] = useState(false);
 	const [confirming, setConfirming] = useState(false);
 	const edit = useEditEntry();
@@ -100,8 +105,19 @@ function EntryRow({
 			await edit.mutateAsync({ entry, content });
 			toast.success("Entry saved");
 		}
-		setEditing(false);
+		stopEditing();
 	}
+
+	function stopEditing() {
+		setEditing(false);
+		setRefocus(true);
+	}
+
+	useEffect(() => {
+		if (!refocus || editing) return;
+		editButton.current?.focus();
+		setRefocus(false);
+	}, [refocus, editing]);
 
 	if (editing) {
 		return (
@@ -111,7 +127,7 @@ function EntryRow({
 					initial={entry.content}
 					emptyError={labels.emptyError}
 					onSave={save}
-					onCancel={() => setEditing(false)}
+					onCancel={stopEditing}
 				/>
 			</li>
 		);
@@ -135,6 +151,7 @@ function EntryRow({
 					</Button>
 				) : null}
 				<Button
+					ref={editButton}
 					kind="ghost"
 					aria-describedby={textId}
 					onClick={() => setEditing(true)}

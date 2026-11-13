@@ -261,3 +261,31 @@ describe("an entry's earlier versions", () => {
 		expect(open.getAttribute("aria-expanded")).toBe("true");
 	});
 });
+
+describe("after correcting, focus is back on the entry", () => {
+	test("on its Edit button, after Save and after Cancel", async () => {
+		const brain = fakeBrain();
+		brain.add("profile", "Honesty over comfort", "values");
+		openProfile(brain);
+
+		const values = within(await card("Values"));
+		fireEvent.click(await values.findByRole("button", { name: "Edit" }));
+		fireEvent.click(values.getByRole("button", { name: "Cancel" }));
+		expect(document.activeElement).toBe(
+			values.getByRole("button", { name: "Edit" }),
+		);
+
+		fireEvent.click(values.getByRole("button", { name: "Edit" }));
+		fireEvent.change(values.getByLabelText("Entry"), {
+			target: { value: "Honesty, kindly" },
+		});
+		fireEvent.click(values.getByRole("button", { name: "Save" }));
+
+		await values.findByText("Honesty, kindly");
+		await waitFor(() =>
+			expect(document.activeElement).toBe(
+				values.getByRole("button", { name: "Edit" }),
+			),
+		);
+	});
+});
