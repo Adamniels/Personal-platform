@@ -461,6 +461,34 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/brain/api/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Search
+         * @description The user's items holding every word of q, in what an item says, its
+         *     content, value, category and the text in its details, or in the evidence
+         *     of an event behind it; word forms match, `indexing` finding `indexes`,
+         *     but not a word inside another. Narrowed to any of kind, when given, and
+         *     to active items unless include_inactive. Newest last_supported_at first,
+         *     at most limit, 50 by default, 1 to 200, with no rank: an excerpt shows
+         *     where the words are. A query of operators or common words alone finds
+         *     nothing. 422 for a q blank or over 200 characters, an unknown kind, a
+         *     limit off its range, or an unknown field.
+         */
+        get: operations["search_brain_api_search_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/brain/api/topic-relations/{id}/end": {
         parameters: {
             query?: never;
@@ -1260,6 +1288,72 @@ export interface components {
             text: string;
             /** Verb */
             verb: string;
+        };
+        /**
+         * SearchItem
+         * @description An item a search found, as every answer gives it, with where its
+         *     words are.
+         */
+        SearchItem: {
+            /** Category */
+            category: string | null;
+            /** Content */
+            content: string;
+            /** Details */
+            details: {
+                [key: string]: unknown;
+            };
+            /** Evidence */
+            evidence: components["schemas"]["Reason"][];
+            /** Excerpt */
+            excerpt: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Inactive Reason */
+            inactive_reason: ("superseded" | "retired") | null;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "profile" | "rule" | "topic_level" | "topic_focus" | "state" | "history" | "decision";
+            /**
+             * Last Supported At
+             * Format: date-time
+             */
+            last_supported_at: string;
+            /**
+             * Nature
+             * @enum {string}
+             */
+            nature: "claim" | "record";
+            /** Occurred At */
+            occurred_at: string | null;
+            /** Occurred Precision */
+            occurred_precision: ("instant" | "day" | "month" | "year") | null;
+            /**
+             * Provenance
+             * @enum {string}
+             */
+            provenance: "asserted" | "derived";
+            /** Stale */
+            stale: boolean;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "active" | "inactive";
+            /**
+             * Store
+             * @enum {string}
+             */
+            store: "profile" | "procedural" | "knowledge" | "semantic" | "reported_history";
+            subjects: components["schemas"]["Subjects"];
+            support: components["schemas"]["Support"];
+            /** Value */
+            value: string | null;
         };
         /**
          * Subjects
@@ -2532,6 +2626,45 @@ export interface operations {
             };
             /** @description No valid token: missing, expired or failing verification, all alike. The body is empty; the caller refreshes and retries. */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    search_brain_api_search_get: {
+        parameters: {
+            query: {
+                q: string;
+                kind?: ("profile" | "rule" | "topic_level" | "topic_focus" | "state" | "history" | "decision")[];
+                include_inactive?: boolean;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchItem"][];
+                };
+            };
+            /** @description No valid token: missing, expired or failing verification, all alike. The body is empty; the caller refreshes and retries. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description A body that does not parse, or a request breaking a rule. */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };

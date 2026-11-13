@@ -1,14 +1,14 @@
 """The building blocks every answer the brain gives is made of: who the
-person is, what they know about some topics, the history of one subject, and
-what is going on now. See "Retrieval: per feature calls over shared
-primitives" in docs/brain-architecture.md.
+person is, what they know about some topics, the history of one subject,
+what is going on now, and what holds some words. See "Retrieval: per feature
+calls over shared primitives" in docs/brain-architecture.md.
 
-The `ask` endpoints, the evaluation cases and every later per feature call
-read through these four and nothing else, so a feature never merges anything
-itself. Each returns items in one shape, `AnswerItem`, which carries the
-reasons the item is believed: the events behind it, how many support it and
-how many contradict it, counted per verb kind, and when it was last
-supported. There is no relevance score, no confidence number and no weight:
+The `ask` endpoints, search, the evaluation cases and every later per
+feature call read through these five and nothing else, so a feature never
+merges anything itself. Each returns items in one shape, `AnswerItem`,
+which carries the reasons the item is believed: the events behind it, how
+many support it and how many contradict it, counted per verb kind, and when
+it was last supported. There is no relevance score, no confidence number and no weight:
 those are the facts such a score would be computed from, and the score waits
 until the evaluation cases can test one, see "Confidence, currency and
 status are three different things" in docs/trust-model.md.
@@ -120,14 +120,18 @@ async def _answered(
     now: datetime,
     mode: Mode,
     replaced: bool = False,
+    inactive: bool = False,
 ) -> list[AnswerItem]:
     """The current user's items that meet `condition`, a WHERE clause over
-    `items i` with `params`, as `mode` reads them: active ones, and with
-    `replaced`, the decisions another one replaced; ordered as the module
-    says. In history order, an item that does not say when it happened is
-    placed by when the event that made it says it did."""
+    `items i` with `params`, as `mode` reads them: active ones, with
+    `replaced` the decisions another one replaced too, and with `inactive`
+    every one, retired and superseded alike; ordered as the module says. In
+    history order, an item that does not say when it happened is placed by
+    when the event that made it says it did."""
     standing = "i.status = 'active'"
-    if replaced:
+    if inactive:
+        standing = "TRUE"
+    elif replaced:
         standing = f"({standing} OR ({_REPLACED}))"
     cursor = await conn.execute(
         f"SELECT {items.COLUMNS}, coalesce(i.occurred_at, ("
@@ -345,3 +349,132 @@ async def now(conn: Connection, *, now: datetime, mode: Mode) -> list[AnswerItem
     """What is going on now for the current user: their states, as `mode`
     reads them."""
     return await _answered(conn, "i.kind = 'state'", {}, now=now, mode=mode)
+
+
+# Searching memory by its words, with Postgres' own text search over the
+# `search` columns migration 0005 adds, in the configuration they are built
+# in: stemmed, so `indexing` finds `indexes`, and never by meaning.
+
+# The text search configuration of both `search` columns.
+SEARCH_CONFIG = "english"
+
+
+def plain_words(query: str) -> str:
+    """`query` as plain words, for `websearch_to_tsquery` to make a search of
+    in which every word is required and nothing is an operator: every
+    character that is not a letter or a digit a space, `&`, `|`, `!`, `:`,
+    `*`, `-`, quotes and parentheses among them, and the word `or`, in any
+    letter case, left out, since it would read it as one. `or` is a stop word
+    of the configuration, so leaving it out finds nothing less. Empty when no
+    word is left."""
+    spaced = "".join(c if c.isalnum() else " " for c in query)
+    return " ".join(word for word in spaced.split() if word.lower() != "or")
+
+
+def _escaped(sql: str) -> str:
+    """The SQL text `sql` evaluates to, escaped for a page as `html.escape`
+    escapes it, `&` first."""
+    # Each character as a SQL literal, and the literal it becomes.
+    for raw, escaped in (
+        ("'&'", "'&amp;'"),
+        ("'<'", "'&lt;'"),
+        ("'>'", "'&gt;'"),
+        ("'\"'", "'&quot;'"),
+        ("''''", "'&#x27;'"),
+    ):
+        sql = f"replace({sql}, {raw}, {escaped})"
+    return sql
+
+
+# An item's own words as one text, what its `search` column is built from:
+# content, its level or focus, its category and every text value in details,
+# a line each.
+_ITEM_TEXT = (
+    "concat_ws(E'\\n', i.content, i.value, i.category, ("
+    " SELECT string_agg(s #>> '{}', E'\\n') FROM jsonb_path_query("
+    "  i.details, 'strict $.** ? (@.type() == \"string\")') s))"
+)
+
+# How an excerpt is cut: about 15 to 35 words around the matched ones, each
+# matched word wrapped in <mark>. ts_headline copies the text it is given,
+# minus anything it reads as a tag, so it is given the text escaped first,
+# and the marks are the only markup in what comes back.
+_HEADLINE = "StartSel=<mark>, StopSel=</mark>, MinWords=15, MaxWords=35"
+
+
+@dataclass(frozen=True)
+class Found:
+    """An item a search found, as every answer gives it, and an excerpt of
+    where its words are: its own text where that matches, otherwise the
+    evidence of the newest recorded event behind it that does. The excerpt is
+    HTML: the matched words in <mark>, every other character escaped."""
+
+    answered: AnswerItem
+    excerpt: str
+
+
+async def search(
+    conn: Connection,
+    query: str,
+    *,
+    now: datetime,
+    kinds: Sequence[items.Kind] = (),
+    inactive: bool = False,
+    limit: int,
+) -> list[Found]:
+    """The current user's items holding every word of `query`, read as
+    `plain_words`, in what they say or in the evidence of an event linked to
+    them for or against: of `kinds`, any when empty; active ones, or every
+    one with `inactive`; newest `last_supported_at` first, at most `limit`.
+    There is no rank: the order is when each was last supported, and Postgres'
+    own rank is neither read nor returned, since it would be a relevance
+    score by another name. A query with no word left finds nothing."""
+    words = plain_words(query)
+    if not words:
+        return []
+    params: dict[str, Any] = {
+        "words": words,
+        "kinds": list(kinds),
+        "inactive": inactive,
+        "limit": limit,
+    }
+    cursor = await conn.execute(
+        "WITH asked AS ("
+        f" SELECT websearch_to_tsquery('{SEARCH_CONFIG}', %(words)s) AS q),"
+        " matched AS ("
+        "  SELECT i.id FROM items i, asked WHERE i.search @@ asked.q"
+        "  UNION"
+        "  SELECT ev.item_id FROM events e"
+        "  JOIN item_evidence ev ON ev.event_id = e.id, asked"
+        "  WHERE e.search @@ asked.q),"
+        " kept AS ("
+        "  SELECT i.id, (SELECT max(e.occurred_at) FROM item_evidence ev"
+        "   JOIN events e ON e.id = ev.event_id"
+        "   WHERE ev.item_id = i.id AND ev.kind = 'supports') AS last_supported_at"
+        "  FROM items i WHERE i.id IN (SELECT id FROM matched)"
+        "  AND (%(inactive)s OR i.status = 'active')"
+        "  AND (cardinality(%(kinds)s::text[]) = 0 OR i.kind = ANY(%(kinds)s::text[]))"
+        "  ORDER BY last_supported_at DESC, i.id DESC LIMIT %(limit)s)"
+        " SELECT i.id, CASE WHEN i.search @@ asked.q THEN"
+        f"  ts_headline('{SEARCH_CONFIG}', {_escaped(_ITEM_TEXT)}, asked.q,"
+        f"   '{_HEADLINE}')"
+        " ELSE ("
+        f"  SELECT ts_headline('{SEARCH_CONFIG}', {_escaped('e.evidence')},"
+        f"   asked.q, '{_HEADLINE}')"
+        "  FROM item_evidence ev JOIN events e ON e.id = ev.event_id"
+        "  WHERE ev.item_id = i.id AND e.search @@ asked.q"
+        "  ORDER BY e.recorded_at DESC, ev.id DESC LIMIT 1) END"
+        " FROM kept JOIN items i ON i.id = kept.id, asked",
+        params,
+    )
+    excerpts: dict[UUID, str] = dict(await cursor.fetchall())
+    found = await _answered(
+        conn,
+        "i.id = ANY(%(ids)s)",
+        {"ids": list(excerpts)},
+        now=now,
+        mode="now",
+        inactive=inactive,
+    )
+    # The now order, newest support first, is the order the query kept.
+    return [Found(answered, excerpts[answered.item.id]) for answered in found]

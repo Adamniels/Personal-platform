@@ -63,7 +63,8 @@ events            id, user_id, verb, subject_topic, subject_entity, subject_item
                   source (text or null), run (text or null), occurred_at,
                   occurred_precision ('instant' | 'day' | 'month' | 'year'),
                   recorded_at, evidence (text, not empty), payload (jsonb),
-                  payload_version (int), idempotency_key.
+                  payload_version (int), idempotency_key,
+                  search (tsvector, generated from evidence).
                   unique (user_id, origin, idempotency_key).
                   Append only: the service may insert and read, never update.
 
@@ -76,7 +77,8 @@ items             id, user_id, lineage_id (shared by every version of one entry)
                   details (jsonb), occurred_at, occurred_precision (both null except for
                   history and decisions), status ('active' | 'inactive'),
                   inactive_reason (null | 'superseded' | 'retired'), created_at,
-                  created_by_event (events.id).
+                  created_by_event (events.id), search (tsvector, generated from
+                  content, value, category and every text value in details).
                   The service may update status and inactive_reason only.
 
 item_subjects     item_id, user_id, topic_id, entity_id (exactly one of the two).
@@ -91,6 +93,12 @@ item_evidence     id, user_id, item_id, event_id, kind ('supports' | 'contradict
 
 schema_migrations GLOBAL, the owner's only. version, name, applied_at.
 ```
+
+Both `search` columns are stored generated columns, in the `english` text search configuration,
+each with a GIN index: Postgres computes them on every write, so no code sets them and the service
+needs no grant for them. They are what searching by words reads, `GET /brain/api/search` in
+`Brain/README.md`, an item matching on its own column or on that of an event linked to it in
+`item_evidence`. Search by meaning, with embeddings, is not here yet.
 
 `verbs` and `schema_migrations` are the two global tables: they hold nothing about a person, so
 they have no `user_id` and no policy.
