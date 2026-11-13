@@ -2,23 +2,23 @@
 centre's frontend at `/brain` and the addresses of its sections, under the
 prefix the Caddyfile sends here, kept. See Brain/README.md."""
 
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator
 from contextlib import AsyncExitStack, asynccontextmanager
 from pathlib import Path
-from typing import Any, Literal
+from typing import Literal
 from uuid import UUID
 
 import httpx2
 from fastapi import APIRouter, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
-from platform_auth import auth
 from platform_auth.keys import KeyCache
 from platform_auth.origin import OriginCheck
 from platform_auth.verify import Claims
 from pydantic import BaseModel
 
-from brain import db
+from brain import db, subjects
+from brain.edge import UNAUTHORIZED, answer_errors, authenticated, page
 from brain.settings import SETTINGS, Settings
 
 
@@ -29,56 +29,6 @@ class Health(BaseModel):
 class WhoAmI(BaseModel):
     # Claims.account_id, the user id everywhere in the brain.
     account_id: UUID
-
-
-# What every route behind a token may also answer, for the schema.
-UNAUTHORIZED: dict[int | str, dict[str, Any]] = {
-    401: {
-        "description": (
-            "No valid token: missing, expired or failing verification, all"
-            " alike. The body is empty; the caller refreshes and retries."
-        )
-    }
-}
-
-
-Handler = Callable[[Request], Awaitable[Response]]
-
-
-def _guarded(
-    guard: Callable[[auth.Endpoint], Handler], endpoint: auth.Endpoint
-) -> Handler:
-    """An endpoint behind one of the library's wrappers, as a handler FastAPI
-    calls with the request alone.
-
-    FastAPI decides a handler's parameters from its signature, following
-    `__wrapped__`, which the wrappers point at the endpoint's
-    `(request, claims)`, and would read `claims` as a request body. The
-    handler returned here takes only the request, which is all FastAPI then
-    passes."""
-    wrapped = guard(endpoint)
-
-    async def handler(request: Request) -> Response:
-        return await wrapped(request)
-
-    # The route's name and description in the schema are the endpoint's.
-    handler.__name__ = endpoint.__name__
-    handler.__qualname__ = endpoint.__qualname__
-    handler.__doc__ = endpoint.__doc__
-    return handler
-
-
-def authenticated(endpoint: auth.Endpoint) -> Handler:
-    """An API endpoint that needs a valid token, through the library's `api`
-    wrapper: called with the claims, or answered 401 with an empty body."""
-    return _guarded(auth.api, endpoint)
-
-
-def page(endpoint: auth.Endpoint) -> Handler:
-    """A page a browser loads, through the library's `page` wrapper: called
-    with the claims, or answered with a 303 to the core's refresh endpoint and
-    the way back."""
-    return _guarded(auth.page, endpoint)
 
 
 router = APIRouter(prefix="/brain/api")
@@ -175,6 +125,8 @@ def create_app(settings: Settings, keys: KeyCache | None = None) -> FastAPI:
         lifespan=lifespan,
     )
     app.include_router(router)
+    app.include_router(subjects.router)
+    answer_errors(app)
     app.include_router(pages)
     # Code, never data, so no session is needed. Checked when the app starts,
     # by check_build, rather than here, so the app can be built without one.
