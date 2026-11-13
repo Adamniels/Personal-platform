@@ -34,6 +34,8 @@ exit "$code"
 FAKE
 # gh: logs every call to gh.log; comments go to comments.log as "<clock> <issue> <body>", label changes to labels.log
 # as "<pr> +<added> -<removed>". `pr view` prints the head, the state and then the PR's labels, comma separated.
+# The reads only the real pending.sh makes are answered too, for the tests that run it: its listing of the open
+# pull requests as JSON, each closing slice 41, a head commit's date, and no comments or reviews.
 # Labels are kept as GitHub keeps them: a PR starts with FAKE_PR_LABELS, or with what a test wrote to
 # $D/labels-<pr>, and every `pr edit` that succeeds changes that file. The state is $D/state-<pr>, else
 # FAKE_PR_STATE, else OPEN; the listing below never looks at it, which is what a listing that lags looks like.
@@ -54,6 +56,9 @@ case "$*" in
   "api repos/Adamniels/Personal-platform/commits/"*"/status"*)
     sha="${2#repos/Adamniels/Personal-platform/commits/}"; sha="${sha%%/*}"
     if [ -f "$D/review-ok-$sha" ]; then cat "$D/review-ok-$sha"; else echo none; fi ;;
+  # The real picker's other reads: a head commit's date, before every verdict, and no comments or reviews.
+  "api repos/Adamniels/Personal-platform/commits/"*) echo "2027-01-15T07:00:00Z" ;;
+  "api repos/Adamniels/Personal-platform/issues/"*"/comments"*|"api repos/Adamniels/Personal-platform/pulls/"*) echo '[]' ;;
   "api repos/Adamniels/Personal-platform/statuses/"*)
     if [ -f "$D/gh-pre" ]; then . "$D/gh-pre"; fi   # a test's one-off, such as failing the next post only
     [ "${FAKE_STATUS_EXIT:-0}" = 0 ] || { echo "HTTP 502: Bad Gateway" >&2; exit 1; }
@@ -83,6 +88,13 @@ case "$*" in
     cur="${cur#,}"; echo "${cur%,}" > "$D/labels-$pr"
     echo "$pr$ops" >> "$D/labels.log" ;;
   "pr view "*) head_for "$3"; state_for "$3"; labels_for "$3" ;;
+  "pr list "*" --state open "*"headRefName"*)   # the real picker's listing: the same pull requests, as JSON
+    if [ -f "$D/open-prs" ]; then prs="$(cat "$D/open-prs")"; else prs=50; fi
+    for n in $prs; do
+      jq -n -c --argjson n "$n" --arg h "$(head_for "$n")" --arg l "$(labels_for "$n")" \
+        '{number: $n, headRefOid: $h, headRefName: "41-x", labels: [$l | split(",")[] | select(. != "") | {name: .}],
+          closingIssuesReferences: [{number: 41}]}'
+    done | jq -s -c . ;;
   "pr list "*" --state open "*)
     if [ -f "$D/open-prs" ]; then prs="$(cat "$D/open-prs")"; else prs=50; fi
     for n in $prs; do echo "$n $(head_for "$n") $(labels_for "$n")"; done ;;
@@ -809,6 +821,51 @@ check "a review of a merged or closed pull request is not a failure" \
 setup; export AGENT_POLL_SECONDS=600; pending "merge 50 41" "merge 50 41" "new 41"; runner
 check "a dropped item waits a minute at most before the picker is asked again, and other work goes on" \
   $([ "$(sleeps)" = 60 ] && [ "$(lines "$D/claude.log")" = 1 ]; echo $?)
+
+# --- The picker and the runner together: a handover comes before new work and does not hold it up ---------------
+# The real pending.sh picks here, over the fake gh's pull request 50 (slice 41) and a fake board: next.sh offers
+# the slice in $D/ready as the next Ready one. The claude-hook notes what the pull request carried and how long the
+# runner had slept when the implementer started, and takes the slice off Ready, as an implementer run would. The
+# wrapper stops the loop at call FAKE_LOOPS, since the real picker never does.
+mkdir -p "$tmp/scripts-picker"; cp "$tmp/scripts/"* "$tmp/scripts-picker/"
+cat > "$tmp/scripts-picker/pending.sh" <<'FAKE'
+#!/usr/bin/env bash
+n=$(( $(cat "$D/pending.count" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$D/pending.count"
+[ "$n" -ge "${FAKE_LOOPS:-30}" ] && { : > "$AGENT_HOME/.agent-stop"; exit 0; }
+exec bash "$REAL_PENDING"
+FAKE
+cat > "$tmp/scripts-picker/next.sh" <<'FAKE'
+#!/usr/bin/env bash
+[ "${1:-}" = --machine ] && [ $# -eq 1 ] || { echo "unexpected next.sh call: $*" >&2; exit 9; }
+if [ -f "$D/ready" ]; then echo "next $(cat "$D/ready")"; fi
+FAKE
+chmod +x "$tmp/scripts-picker/"*
+export REAL_PENDING="$here/pending.sh"
+at_claude() { hook claude-hook "cp '$D/labels-50' '$D/labels-at-claude' 2>/dev/null; cp '$D/comments.log' '$D/comments-at-claude' 2>/dev/null; cp '$D/sleep.log' '$D/sleep-at-claude' 2>/dev/null; rm -f '$D/ready'"; }
+
+setup; export AGENT_SCRIPTS="$tmp/scripts-picker" FAKE_LOOPS=3 AGENT_POLL_SECONDS=600 FAKE_GATE_EXIT=3 FAKE_GATE_OUT="$READY" FAKE_PR_LABELS=in-review,has-decision
+echo 42 > "$D/ready"; at_claude; runner
+check "a handed over pull request does not hold up the next slice" \
+  $([ "$(grep -c 'next: ' "$AGENT_HOME/agent-logs/runner.log")" = 2 ] \
+    && [ "$(grep 'next: ' "$AGENT_HOME/agent-logs/runner.log" | sed 's/.*next: //' | tr '\n' ',')" = "owner 50 41,new 42," ] \
+    && [ "$(cat "$D/labels-at-claude" 2>/dev/null)" = "has-decision,owner-decision" ] \
+    && [ "$(lines "$D/comments-at-claude")" = 1 ] && grep -q ' 41 @Adamniels PR #50 is approved and waits for your decision' "$D/comments-at-claude" \
+    && grep -q '^-p|/pick-up-slice 42|' "$D/claude.log" && [ "$(cat "$D/gate.log")" = 50 ] \
+    && no_file "$D/sleep-at-claude" && no_file "$D/sleep.log" && [ "$(lines "$D/comments.log")" = 1 ]; echo $?)
+
+# ci-ok still pending on the approved head: the gate cannot say yet whether the pull request is ready or stuck, so
+# it gets no owner label and no mention, and its item comes back every poll interval until ci-ok has finished.
+setup; export AGENT_SCRIPTS="$tmp/scripts-picker" FAKE_LOOPS=3 AGENT_POLL_SECONDS=7 FAKE_GATE_EXIT=3 FAKE_PR_LABELS=in-review,has-decision
+export FAKE_GATE_OUT='ci-ok is pending\nan owner label is set\n'; echo 42 > "$D/ready"; at_claude; runner
+check "a pull request with has-decision and ci-ok still pending is looked at again and does not take an owner label" \
+  $([ "$(tr '\n' ' ' < "$D/gate.log")" = "50 50 " ] && no_file "$D/labels.log" && no_file "$D/labels-50" && no_file "$D/comments.log" \
+    && [ "$(tr '\n' ' ' < "$D/sleep.log")" = "7 7 " ] && no_file "$D/claude.log"; echo $?)
+again; export FAKE_GATE_OUT="$READY"; runner
+check "once ci-ok has finished it is handed over, and the next slice starts with no further wait" \
+  $([ "$(cat "$D/labels.log")" = "50 +owner-decision -in-review" ] && [ "$(cat "$D/labels-at-claude" 2>/dev/null)" = "has-decision,owner-decision" ] \
+    && [ "$(lines "$D/comments.log")" = 1 ] && grep -q '^-p|/pick-up-slice 42|' "$D/claude.log" \
+    && [ "$(tr '\n' ' ' < "$D/sleep.log")" = "7 7 " ]; echo $?)
+export AGENT_SCRIPTS="$tmp/scripts"; unset FAKE_LOOPS
 
 echo "$pass passed, $fail failed"
 [ "$fail" = 0 ]
