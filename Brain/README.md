@@ -209,6 +209,43 @@ memory store's four tables, every table in `docs/data-model.md`.
   change with one conditional statement each, so of two requests changing the same item at once the second
   finds it changed and is `409`. Which kind lives in which store, and its nature,
   is checked by the migration as well as the code, since the store decides who may change a claim.
+- **Asking**, the four questions the brain answers, each with what it knows and why, as "Retrieval:
+  per feature calls over shared primitives" in `docs/brain-architecture.md` has it. The routes are
+  in `src/brain/ask_routes.py` and call the four building blocks in `src/brain/retrieval.py`,
+  `profile()`, `knowledge(topic_ids)`, `history(subject)` and `now()`, which every later per
+  feature call reads through too. Each block takes the door's connection and the time, never
+  calls a model and never leaves the database. Each route is a `POST`, since a question has a body,
+  though none changes anything, so the origin check applies to it as to any `POST`. The body
+  carries `mode`, `now` (the default) or `history`, and nothing that names a user: the user is the
+  token's, and a field a question does not know is `422`.
+  - `mode` `now`: active items only, newest `last_supported_at` first, a `state` flagged `stale`
+    by the now view's rule. `mode` `history`: age is ignored, so nothing is `stale`, and the order
+    is when each thing happened, oldest first: an item's `occurred_at`, or for a kind without one
+    the `occurred_at` of the event that made it. A retired item is never in an answer, nor an older
+    version of an edited one.
+  - Every item in every answer has one shape: `id`, `kind`, `store`, `nature`, `provenance`,
+    `status`, `inactive_reason`, `content`, `value`, `category`, `details`, `occurred_at`,
+    `occurred_precision`, `subjects`, its `topics` and `entities`, `last_supported_at`, `stale`,
+    `support`, the events for it and against it, `supports` and `contradicts`, each counted per
+    verb kind with every kind present, and `evidence`, every event behind it, oldest recorded
+    first, each with its `verb`, `kind` (`supports` or `contradicts`), `text`, `origin`,
+    `occurred_at`, `occurred_precision` and `recorded_at`. There is no relevance score, no
+    confidence number and no weight: `support` and `last_supported_at` are what one would be
+    computed from, once the evaluation cases can test it.
+  - `POST /brain/api/ask/profile`, who is this person: `categories`, every one of the six profile
+    categories in order, each with its active profile entries, an empty one included, and then
+    `rules`. A topic's focus is in the topics answer instead.
+  - `POST /brain/api/ask/topics`, `{"topics": [<slug>, ...]}`, 1 to 50, what they know about these
+    topics: one entry per slug, in the order asked, with `asked`, the slug as given, `topic`, the
+    one that answered, an alias's target, `known`, and its active `level` and `focus`, or `null`,
+    its `misconceptions` and its other `history` entries, items about its aliases included. A slug
+    the user has no topic by is `known` `false` with nothing in it, and is never created.
+  - `POST /brain/api/ask/history`, `{"topic": <slug>}` or `{"entity": <name>}`, exactly one, the
+    history of a subject: its `history` entries and decisions, a topic read through aliases, a name
+    without letter case, with `asked`, `known`, the `topic` or `entity` that answered, and `items`.
+    Asked about history, the decisions another one replaced are there too, `inactive` and
+    `superseded`. An unknown subject is `known` `false` with no items, and is never created.
+  - `POST /brain/api/ask/now`, what is going on now: the active `state` entries as `items`.
 - `GET /brain` and `GET /brain/<section>`, the memory centre's `index.html` from the build, see
   "The memory centre" below. Without a valid token, a `303` to the core's
   `/auth/refresh?return_to=<the path>`.

@@ -1,6 +1,183 @@
 {
   "components": {
     "schemas": {
+      "AnswerItem": {
+        "description": "An item as every answer gives it, with why it is believed. Nothing\nhere is stored: support, last_supported_at and stale are computed from\nthe evidence when the question is asked.",
+        "properties": {
+          "category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category"
+          },
+          "content": {
+            "title": "Content",
+            "type": "string"
+          },
+          "details": {
+            "additionalProperties": true,
+            "title": "Details",
+            "type": "object"
+          },
+          "evidence": {
+            "items": {
+              "$ref": "#/components/schemas/Reason"
+            },
+            "title": "Evidence",
+            "type": "array"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "inactive_reason": {
+            "anyOf": [
+              {
+                "enum": [
+                  "superseded",
+                  "retired"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inactive Reason"
+          },
+          "kind": {
+            "enum": [
+              "profile",
+              "rule",
+              "topic_level",
+              "topic_focus",
+              "state",
+              "history",
+              "decision"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "last_supported_at": {
+            "format": "date-time",
+            "title": "Last Supported At",
+            "type": "string"
+          },
+          "nature": {
+            "enum": [
+              "claim",
+              "record"
+            ],
+            "title": "Nature",
+            "type": "string"
+          },
+          "occurred_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Occurred At"
+          },
+          "occurred_precision": {
+            "anyOf": [
+              {
+                "enum": [
+                  "instant",
+                  "day",
+                  "month",
+                  "year"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Occurred Precision"
+          },
+          "provenance": {
+            "enum": [
+              "asserted",
+              "derived"
+            ],
+            "title": "Provenance",
+            "type": "string"
+          },
+          "stale": {
+            "title": "Stale",
+            "type": "boolean"
+          },
+          "status": {
+            "enum": [
+              "active",
+              "inactive"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "store": {
+            "enum": [
+              "profile",
+              "procedural",
+              "knowledge",
+              "semantic",
+              "reported_history"
+            ],
+            "title": "Store",
+            "type": "string"
+          },
+          "subjects": {
+            "$ref": "#/components/schemas/Subjects"
+          },
+          "support": {
+            "$ref": "#/components/schemas/Support"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "store",
+          "nature",
+          "provenance",
+          "status",
+          "inactive_reason",
+          "content",
+          "value",
+          "category",
+          "details",
+          "occurred_at",
+          "occurred_precision",
+          "subjects",
+          "last_supported_at",
+          "stale",
+          "support",
+          "evidence"
+        ],
+        "title": "AnswerItem",
+        "type": "object"
+      },
       "Entity": {
         "properties": {
           "created_at": {
@@ -331,6 +508,63 @@
           "status"
         ],
         "title": "Health",
+        "type": "object"
+      },
+      "HistoryAnswer": {
+        "properties": {
+          "asked": {
+            "title": "Asked",
+            "type": "string"
+          },
+          "entity": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EventEntity"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AnswerItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "known": {
+            "title": "Known",
+            "type": "boolean"
+          },
+          "mode": {
+            "enum": [
+              "now",
+              "history"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "topic": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EventTopic"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "mode",
+          "asked",
+          "known",
+          "topic",
+          "entity",
+          "items"
+        ],
+        "title": "HistoryAnswer",
         "type": "object"
       },
       "HistoryRow": {
@@ -1030,6 +1264,31 @@
         "title": "KnowledgeRow",
         "type": "object"
       },
+      "NowAnswer": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AnswerItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "mode": {
+            "enum": [
+              "now",
+              "history"
+            ],
+            "title": "Mode",
+            "type": "string"
+          }
+        },
+        "required": [
+          "mode",
+          "items"
+        ],
+        "title": "NowAnswer",
+        "type": "object"
+      },
       "NowRow": {
         "description": "A state as the now view reads it.",
         "properties": {
@@ -1225,6 +1484,166 @@
         "title": "NowRow",
         "type": "object"
       },
+      "ProfileAnswer": {
+        "properties": {
+          "categories": {
+            "items": {
+              "$ref": "#/components/schemas/ProfileGroup"
+            },
+            "title": "Categories",
+            "type": "array"
+          },
+          "mode": {
+            "enum": [
+              "now",
+              "history"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "rules": {
+            "items": {
+              "$ref": "#/components/schemas/AnswerItem"
+            },
+            "title": "Rules",
+            "type": "array"
+          }
+        },
+        "required": [
+          "mode",
+          "categories",
+          "rules"
+        ],
+        "title": "ProfileAnswer",
+        "type": "object"
+      },
+      "ProfileGroup": {
+        "properties": {
+          "category": {
+            "enum": [
+              "identity",
+              "goals",
+              "values",
+              "interests",
+              "preferences",
+              "working_style"
+            ],
+            "title": "Category",
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AnswerItem"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "category",
+          "items"
+        ],
+        "title": "ProfileGroup",
+        "type": "object"
+      },
+      "Reason": {
+        "description": "One event behind the item.",
+        "properties": {
+          "kind": {
+            "enum": [
+              "supports",
+              "contradicts"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "occurred_at": {
+            "format": "date-time",
+            "title": "Occurred At",
+            "type": "string"
+          },
+          "occurred_precision": {
+            "enum": [
+              "instant",
+              "day",
+              "month",
+              "year"
+            ],
+            "title": "Occurred Precision",
+            "type": "string"
+          },
+          "origin": {
+            "title": "Origin",
+            "type": "string"
+          },
+          "recorded_at": {
+            "format": "date-time",
+            "title": "Recorded At",
+            "type": "string"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          },
+          "verb": {
+            "title": "Verb",
+            "type": "string"
+          }
+        },
+        "required": [
+          "verb",
+          "kind",
+          "text",
+          "origin",
+          "occurred_at",
+          "occurred_precision",
+          "recorded_at"
+        ],
+        "title": "Reason",
+        "type": "object"
+      },
+      "Subjects": {
+        "description": "What an item is about: its topics, each read through its alias, and\nits named things. Both empty for a global item.",
+        "properties": {
+          "entities": {
+            "items": {
+              "$ref": "#/components/schemas/EventEntity"
+            },
+            "title": "Entities",
+            "type": "array"
+          },
+          "topics": {
+            "items": {
+              "$ref": "#/components/schemas/EventTopic"
+            },
+            "title": "Topics",
+            "type": "array"
+          }
+        },
+        "required": [
+          "topics",
+          "entities"
+        ],
+        "title": "Subjects",
+        "type": "object"
+      },
+      "Support": {
+        "description": "How many events support the item and how many contradict it. These\nare the facts a relevance or confidence score would be computed from;\nthere is no score until the evaluation cases can test one.",
+        "properties": {
+          "contradicts": {
+            "$ref": "#/components/schemas/VerbCounts"
+          },
+          "supports": {
+            "$ref": "#/components/schemas/VerbCounts"
+          }
+        },
+        "required": [
+          "supports",
+          "contradicts"
+        ],
+        "title": "Support",
+        "type": "object"
+      },
       "Topic": {
         "properties": {
           "alias_of": {
@@ -1281,6 +1700,74 @@
           "created_at"
         ],
         "title": "Topic",
+        "type": "object"
+      },
+      "TopicAnswer": {
+        "description": "What is known about one asked topic.",
+        "properties": {
+          "asked": {
+            "title": "Asked",
+            "type": "string"
+          },
+          "focus": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AnswerItem"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "history": {
+            "items": {
+              "$ref": "#/components/schemas/AnswerItem"
+            },
+            "title": "History",
+            "type": "array"
+          },
+          "known": {
+            "title": "Known",
+            "type": "boolean"
+          },
+          "level": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AnswerItem"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "misconceptions": {
+            "items": {
+              "$ref": "#/components/schemas/AnswerItem"
+            },
+            "title": "Misconceptions",
+            "type": "array"
+          },
+          "topic": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EventTopic"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "asked",
+          "topic",
+          "known",
+          "level",
+          "focus",
+          "misconceptions",
+          "history"
+        ],
+        "title": "TopicAnswer",
         "type": "object"
       },
       "TopicRelation": {
@@ -1359,6 +1846,70 @@
         "title": "TopicSetting",
         "type": "object"
       },
+      "TopicsAnswer": {
+        "properties": {
+          "mode": {
+            "enum": [
+              "now",
+              "history"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "topics": {
+            "items": {
+              "$ref": "#/components/schemas/TopicAnswer"
+            },
+            "title": "Topics",
+            "type": "array"
+          }
+        },
+        "required": [
+          "mode",
+          "topics"
+        ],
+        "title": "TopicsAnswer",
+        "type": "object"
+      },
+      "VerbCounts": {
+        "description": "Events counted per verb kind, every kind present.",
+        "properties": {
+          "activity": {
+            "title": "Activity",
+            "type": "integer"
+          },
+          "assertion": {
+            "title": "Assertion",
+            "type": "integer"
+          },
+          "decision": {
+            "title": "Decision",
+            "type": "integer"
+          },
+          "engagement": {
+            "title": "Engagement",
+            "type": "integer"
+          },
+          "exposure": {
+            "title": "Exposure",
+            "type": "integer"
+          },
+          "judgment": {
+            "title": "Judgment",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "exposure",
+          "engagement",
+          "judgment",
+          "assertion",
+          "decision",
+          "activity"
+        ],
+        "title": "VerbCounts",
+        "type": "object"
+      },
       "WhoAmI": {
         "properties": {
           "account_id": {
@@ -1381,6 +1932,242 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/brain/api/ask/history": {
+      "post": {
+        "description": "What is the history of this subject: the records and decisions about\none topic, read through aliases, or one named thing, ordered by mode.\nAsked about history, the decisions another one replaced are there too,\ninactive and superseded. A subject the user does not have answers known\nfalse, with no items, and is never created. 422 for neither or both of\ntopic and entity, a malformed slug, or an unknown mode or field.",
+        "operationId": "ask_history_brain_api_ask_history_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "description": "What is the history of this subject: one topic, by slug, or one named\nthing, by name in any letter case, and not both.",
+                "properties": {
+                  "entity": {
+                    "anyOf": [
+                      {
+                        "maxLength": 200,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Entity"
+                  },
+                  "mode": {
+                    "default": "now",
+                    "enum": [
+                      "now",
+                      "history"
+                    ],
+                    "title": "Mode",
+                    "type": "string"
+                  },
+                  "topic": {
+                    "anyOf": [
+                      {
+                        "maxLength": 80,
+                        "pattern": "^[a-z0-9][a-z0-9-]{0,79}$",
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Topic"
+                  }
+                },
+                "title": "HistoryQuestion",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HistoryAnswer"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "No valid token: missing, expired or failing verification, all alike. The body is empty; the caller refreshes and retries."
+          },
+          "422": {
+            "description": "A body that does not parse, or a request breaking a rule."
+          }
+        },
+        "summary": "Ask History"
+      }
+    },
+    "/brain/api/ask/now": {
+      "post": {
+        "description": "What is going on now for this person: their active states, ordered\nby mode, each flagged stale, asked about now, once it has gone 60 days\nunsupported. 422 for an unknown mode or field.",
+        "operationId": "ask_now_brain_api_ask_now_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "description": "What is going on now.",
+                "properties": {
+                  "mode": {
+                    "default": "now",
+                    "enum": [
+                      "now",
+                      "history"
+                    ],
+                    "title": "Mode",
+                    "type": "string"
+                  }
+                },
+                "title": "NowQuestion",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NowAnswer"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "No valid token: missing, expired or failing verification, all alike. The body is empty; the caller refreshes and retries."
+          },
+          "422": {
+            "description": "A body that does not parse, or a request breaking a rule."
+          }
+        },
+        "summary": "Ask Now"
+      }
+    },
+    "/brain/api/ask/profile": {
+      "post": {
+        "description": "Who is this person: their active profile entries, grouped by\ncategory, every one of the six in order, an empty one included, and then\ntheir rules, each group ordered by mode. A topic's focus is in the\ntopics answer instead. 422 for an unknown mode or field.",
+        "operationId": "ask_profile_brain_api_ask_profile_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "description": "Who is this person.",
+                "properties": {
+                  "mode": {
+                    "default": "now",
+                    "enum": [
+                      "now",
+                      "history"
+                    ],
+                    "title": "Mode",
+                    "type": "string"
+                  }
+                },
+                "title": "ProfileQuestion",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProfileAnswer"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "No valid token: missing, expired or failing verification, all alike. The body is empty; the caller refreshes and retries."
+          },
+          "422": {
+            "description": "A body that does not parse, or a request breaking a rule."
+          }
+        },
+        "summary": "Ask Profile"
+      }
+    },
+    "/brain/api/ask/topics": {
+      "post": {
+        "description": "What does this person know about these topics: one entry per slug\nasked, in the order asked, each naming the slug asked and the topic that\nanswered, an alias's target, with its active level and focus, or null,\nits corrected misconceptions and its other history entries, items about\nits aliases included, each ordered by mode. A slug the user has no topic\nby answers known false, with nothing in it, and is never created. 422\nfor no slug, more than 50, a malformed one, or an unknown mode or\nfield.",
+        "operationId": "ask_topics_brain_api_ask_topics_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "description": "What do they know about these topics: 1 to 50 slugs, answered in the\norder asked, one entry each.",
+                "properties": {
+                  "mode": {
+                    "default": "now",
+                    "enum": [
+                      "now",
+                      "history"
+                    ],
+                    "title": "Mode",
+                    "type": "string"
+                  },
+                  "topics": {
+                    "items": {
+                      "maxLength": 80,
+                      "pattern": "^[a-z0-9][a-z0-9-]{0,79}$",
+                      "type": "string"
+                    },
+                    "maxItems": 50,
+                    "minItems": 1,
+                    "title": "Topics",
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "topics"
+                ],
+                "title": "TopicsQuestion",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TopicsAnswer"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "No valid token: missing, expired or failing verification, all alike. The body is empty; the caller refreshes and retries."
+          },
+          "422": {
+            "description": "A body that does not parse, or a request breaking a rule."
+          }
+        },
+        "summary": "Ask Topics"
+      }
+    },
     "/brain/api/entities": {
       "get": {
         "description": "Every named thing the user has, by name.",

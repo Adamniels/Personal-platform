@@ -60,6 +60,15 @@ Richness was never the issue, uniformity was.
   for a subject, scoring, conflict detection. Features never see these, so a feature never merges
   anything itself, and ranking logic is not reimplemented in five modules.
 
+**The four building blocks.** The primitives so far are four functions in
+`Brain/src/brain/retrieval.py`: `profile()`, `knowledge(topic_ids)`, `history(subject)` and
+`now()`, each taking the door's connection, the time and whether the question is about now or
+history. The `ask` endpoints, the evaluation cases and every later per feature call read through
+them. Conflict detection comes next. Scoring does not exist yet, on purpose: each item carries its
+support, counted per verb kind, and when it was last supported, the facts a score would be computed
+from, and the weights wait until the evaluation cases can test them, for the reason "No decay
+curves yet" in `trust-model.md` gives.
+
 **The line that will actually go wrong if unwatched.** The brain returns what it knows about the
 person bearing on the task, and the feature decides what to do about it. So the brain says
 competent at this topic, last evidenced in March, two misconceptions corrected, adjacent topics
@@ -70,7 +79,9 @@ domain. Nothing structural prevents it, only judgment each time a call is added.
 **Response shape:**
 
 - Calls are bespoke, items are not. Every returned item carries id, content, store, provenance,
-  confidence, currency, scope, evidence references, status.
+  scope as its subjects, evidence references, status, and what confidence and currency are read
+  from: its support per verb kind, when it was last supported, and the stale flag. The item shape
+  is listed under "Asking" in `Brain/README.md`.
 - **Evidence references are included by default, not on request.** That is what makes "why do
   you believe this" answerable where it is used rather than only in the memory centre, and it is
   what decides whether the thing is still trusted in year three.
