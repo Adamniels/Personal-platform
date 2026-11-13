@@ -204,7 +204,11 @@ function BodyRow<Row>({
 		>
 			{columns.map((column, index) => {
 				const content =
-					editing && column.edit ? column.edit(row) : column.cell(row);
+					editing && column.edit ? (
+						<div className={styles.edit}>{column.edit(row)}</div>
+					) : (
+						column.cell(row)
+					);
 				if (index !== first) {
 					return (
 						<td

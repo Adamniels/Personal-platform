@@ -167,7 +167,9 @@ def test_buttons_are_44px_tall_on_phone(page: Page):
 
 
 @pytest.mark.parametrize("theme", THEMES)
-def test_the_gallery_passes_the_accessibility_check(page: Page, theme: str):
+def test_the_gallery_passes_the_accessibility_check(
+    page: Page, viewport: str, theme: str
+):
     open_gallery(page, theme)
     page.add_script_tag(path=str(AXE))
 
@@ -851,3 +853,266 @@ def test_a_timeline_entry_reads_its_values(page: Page, theme: str):
     dot = rails[0].locator("span").first.evaluate(BOX_STYLE)
     assert dot["background"] == resolve(page, "--accent", "background-color")
     assert dot["borders"] == [resolve(page, "--accent-border", "color")] * 4
+
+
+# The "Table" of section 4 of design/DESIGN.md. The gallery's "Sessions"
+# table has columns of all three priorities: Session and Status are 1,
+# Project and Hours (numeric) are 2, Notes is 3. It is sorted by Session, the
+# second row is selected and the third is editing. "Hours by month" is a wide
+# table of priority 1 columns, wider than a phone.
+TABLE_STYLE = """element => {
+    const style = getComputedStyle(element);
+    return {
+        background: style.backgroundColor,
+        color: style.color,
+        borders: [style.borderTopColor, style.borderRightColor,
+                  style.borderBottomColor, style.borderLeftColor],
+        borderWidths: [style.borderTopWidth, style.borderRightWidth,
+                       style.borderBottomWidth, style.borderLeftWidth],
+        radii: [style.borderTopLeftRadius, style.borderTopRightRadius,
+                style.borderBottomRightRadius, style.borderBottomLeftRadius],
+        padding: [style.paddingTop, style.paddingRight,
+                  style.paddingBottom, style.paddingLeft],
+        overflowX: style.overflowX,
+        weight: style.fontWeight,
+        fontFamily: style.fontFamily,
+        fontSize: style.fontSize,
+        lineHeight: style.lineHeight,
+        textAlign: style.textAlign,
+        numerals: style.fontVariantNumeric,
+        shadow: style.boxShadow,
+    };
+}"""
+
+PRIORITY_1 = ["Session", "Status"]
+PRIORITY_2 = ["Project", "Hours"]
+PRIORITY_3 = ["Notes"]
+
+
+def table_section(page: Page) -> Locator:
+    return page.get_by_role("region", name="Table", exact=True)
+
+
+def sessions(page: Page) -> Locator:
+    return table_section(page).get_by_role("table", name="Sessions", exact=True)
+
+
+def body_rows(table: Locator) -> Locator:
+    return table.locator("tbody > tr")
+
+
+def column_index(table: Locator, name: str) -> int:
+    names = table.locator("thead th").all_inner_texts()
+    return [text.strip() for text in names].index(name)
+
+
+def no_sideways_scroll(page: Page) -> bool:
+    return page.evaluate(
+        "() => document.documentElement.scrollWidth <= window.innerWidth"
+    )
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_the_table_is_shown(page: Page, viewport: str, theme: str):
+    open_gallery(page, theme)
+    section = table_section(page)
+
+    expect(sessions(page)).to_be_visible()
+    expect(section.get_by_role("navigation", name="Pages")).to_be_visible()
+    body_rows(sessions(page)).first.hover()
+    capture(page, f"gallery-table-{theme}")
+
+    # Editing another row moves the edit there, with focus in its field.
+    section.get_by_role("button", name="Edit Write the next slice").click()
+    expect(section.get_by_role("textbox", name="Session", exact=True)).to_be_focused()
+    capture(page, f"gallery-table-editing-{theme}")
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_a_table_reads_its_values(page: Page, theme: str):
+    open_gallery(page, theme)
+    table = sessions(page)
+    rows = body_rows(table)
+
+    # The wrapper: 1px border, the large radius, the surface, and it scrolls.
+    wrapper = table.locator("..").evaluate(TABLE_STYLE)
+    assert wrapper["borders"] == [resolve(page, "--border", "color")] * 4
+    assert wrapper["borderWidths"] == ["1px"] * 4
+    assert wrapper["radii"] == radii(page, "--radius-lg")
+    assert wrapper["background"] == resolve(page, "--surface", "background-color")
+    assert wrapper["overflowX"] == "auto"
+
+    # Header cells: surface-2, caption style, text-3; the sorted one is text
+    # at 600.
+    plain = table.locator("thead th", has_text="Project").evaluate(TABLE_STYLE)
+    assert plain["background"] == resolve(page, "--surface-2", "background-color")
+    assert plain["color"] == resolve(page, "--text-3", "color")
+    assert_caption(page, plain)
+    sorted_header = table.locator("thead th[aria-sort]")
+    expect(sorted_header).to_have_count(1)
+    expect(sorted_header).to_have_text("Session")
+    expect(sorted_header).to_have_attribute("aria-sort", "ascending")
+    style = sorted_header.evaluate(TABLE_STYLE)
+    assert style["background"] == resolve(page, "--surface-2", "background-color")
+    assert style["color"] == resolve(page, "--text", "color")
+    assert style["weight"] == "600"
+
+    # Body rows: row-h tall, padding 6px 12px, and a 1px border line between
+    # them, drawn inside the row so a row holding a button is still row-h.
+    row_h = resolve(page, "--row-h", "height")
+    expect(rows).to_have_count(8)
+    for index in [0, 1, 3, 7]:
+        box = rows.nth(index).bounding_box()
+        assert box is not None and f"{box['height']:g}px" == row_h, index
+    cell = rows.nth(3).locator("td").first.evaluate(TABLE_STYLE)
+    assert cell["padding"] == ["6px", "12px", "6px", "12px"]
+    border = resolve(page, "--border", "color")
+    assert cell["shadow"] == f"{border} 0px 1px 0px 0px inset"
+
+    # The numeric column: right aligned, mono, tabular figures.
+    hours = column_index(table, "Hours")
+    number = rows.nth(0).locator("td").nth(hours).evaluate(TABLE_STYLE)
+    assert number["textAlign"] == "right"
+    assert number["fontFamily"] == resolve(page, "--font-mono", "font-family")
+    assert number["numerals"] == "tabular-nums"
+
+    # The folded line is the phone's; on desktop it is not shown.
+    expect(rows.nth(0).locator("td").first.get_by_text("·")).to_be_hidden()
+
+    # Hover: surface-2. Selected and editing: info-soft.
+    plain_row = rows.nth(3)
+    plain_row.hover()
+    assert plain_row.evaluate(TABLE_STYLE)["background"] == resolve(
+        page, "--surface-2", "background-color"
+    )
+    selected = rows.nth(1)
+    expect(selected).to_have_attribute("aria-selected", "true")
+    editing = rows.nth(2)
+    expect(editing).to_have_attribute("aria-selected", "true")
+    expect(editing.get_by_role("textbox", name="Session", exact=True)).to_be_visible()
+    page.mouse.move(0, 0)
+    for row in [selected, editing]:
+        assert row.evaluate(TABLE_STYLE)["background"] == resolve(
+            page, "--info-soft", "background-color"
+        )
+    # A selected row keeps its fill under the pointer.
+    selected.hover()
+    assert selected.evaluate(TABLE_STYLE)["background"] == resolve(
+        page, "--info-soft", "background-color"
+    )
+
+
+def test_a_table_sorts_and_edits_in_the_browser(page: Page):
+    open_gallery(page, "light")
+    section = table_section(page)
+    table = sessions(page)
+
+    section.get_by_role("button", name="Hours", exact=True).click()
+    header = table.locator("thead th[aria-sort]")
+    expect(header).to_have_text("Hours")
+    expect(header).to_have_attribute("aria-sort", "ascending")
+
+    edit = section.get_by_role("button", name="Edit Write the next slice")
+    edit.click()
+    field = section.get_by_role("textbox", name="Session", exact=True)
+    expect(field).to_be_focused()
+    page.keyboard.press("Escape")
+    expect(field).to_have_count(0)
+    expect(edit).to_be_focused()
+
+
+def test_below_640px_only_priority_one_columns_show(page: Page):
+    page.set_viewport_size(VIEWPORTS["phone"])
+    open_gallery(page, "light")
+    table = sessions(page)
+    rows = body_rows(table)
+
+    for name in PRIORITY_1:
+        expect(table.locator("thead th", has_text=name)).to_be_visible()
+    for name in PRIORITY_2 + PRIORITY_3:
+        index = column_index(table, name)
+        expect(table.locator("thead th").nth(index)).to_be_hidden()
+        for row in range(rows.count()):
+            expect(rows.nth(row).locator("td").nth(index)).to_be_hidden()
+
+    # The priority 2 values, folded into one mono line under the first cell.
+    first = rows.nth(3).locator("td").first
+    fold = first.get_by_text("Platform · 2.0 h", exact=True)
+    expect(fold).to_be_visible()
+    style = fold.evaluate(TABLE_STYLE)
+    assert style["fontFamily"] == resolve(page, "--font-mono", "font-family")
+    assert style["fontSize"] == resolve(page, "--text-mono-size", "font-size")
+    title = first.get_by_text("Review the merge gate", exact=True).bounding_box()
+    fold_box = fold.bounding_box()
+    assert title is not None and fold_box is not None
+    assert fold_box["y"] >= title["y"] + title["height"] - 0.5, "not under the cell"
+    # The priority 3 value is not folded in.
+    expect(first).not_to_contain_text("Waits on CI")
+
+    assert no_sideways_scroll(page), "the page scrolls sideways"
+
+
+def test_a_wide_table_scrolls_inside_its_wrapper(page: Page):
+    page.set_viewport_size(VIEWPORTS["phone"])
+    open_gallery(page, "light")
+    wide = table_section(page).get_by_role("table", name="Hours by month")
+    wrapper = wide.locator("..")
+
+    assert wrapper.evaluate("e => e.scrollWidth > e.clientWidth"), "it does not scroll"
+    assert wrapper.evaluate(TABLE_STYLE)["overflowX"] == "auto"
+    wrapper.evaluate("e => { e.scrollLeft = e.scrollWidth; }")
+    assert wrapper.evaluate("e => e.scrollLeft") > 0
+    assert no_sideways_scroll(page), "the page scrolls sideways"
+
+
+def test_rows_are_44px_on_phone(page: Page):
+    page.set_viewport_size(VIEWPORTS["phone"])
+    open_gallery(page, "light")
+    section = table_section(page)
+
+    # A row of one line is exactly 44px; one with the folded line under its
+    # first cell is taller, never shorter.
+    wide = section.get_by_role("table", name="Hours by month")
+    for table, exact in [(wide, True), (sessions(page), False)]:
+        header = table.locator("thead tr").bounding_box()
+        assert header is not None and header["height"] == 44
+        rows = body_rows(table)
+        for index in range(rows.count()):
+            box = rows.nth(index).bounding_box()
+            assert box is not None
+            if exact:
+                assert box["height"] == 44, index
+            else:
+                assert box["height"] >= 44, index
+
+    # The controls in the table are touch targets too.
+    for name in ["Session", "Edit Review the merge gate", "Save", "Cancel"]:
+        box = section.get_by_role("button", name=name, exact=True).bounding_box()
+        assert box is not None and box["height"] >= 44, name
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_the_filters_and_paging_read_their_values(page: Page, theme: str):
+    open_gallery(page, theme)
+    section = table_section(page)
+
+    pill = section.get_by_text("Status: Done", exact=True).locator("..")
+    style = pill.evaluate(TABLE_STYLE)
+    assert pill.evaluate("e => e.getBoundingClientRect().height") == 28
+    assert style["radii"] == radii(page, "--radius-full")
+    assert style["borders"] == [resolve(page, "--border-strong", "color")] * 4
+    assert style["borderWidths"] == ["1px"] * 4
+
+    count = section.get_by_text("8 of 214", exact=True).evaluate(TABLE_STYLE)
+    assert count["fontFamily"] == resolve(page, "--font-mono", "font-family")
+
+    remove = section.get_by_role("button", name="Remove filter Status: Done")
+    remove.click()
+    expect(section.get_by_text("Status: Done", exact=True)).to_have_count(0)
+
+    paging = section.get_by_role("navigation", name="Pages")
+    expect(paging.get_by_text("Rows 1 to 8 of 214")).to_be_visible()
+    expect(paging.get_by_role("button", name="Previous")).to_be_disabled()
+    paging.get_by_role("button", name="Next").click()
+    expect(paging.get_by_text("Rows 9 to 16 of 214")).to_be_visible()
+    expect(paging.get_by_role("button", name="Previous")).to_be_enabled()

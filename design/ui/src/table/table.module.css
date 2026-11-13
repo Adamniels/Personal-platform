@@ -67,14 +67,16 @@
 	flex: none;
 }
 
-/* Body cells: padding 6px 12px, row-h tall, a 1px border above each row,
- * which is the line between it and the row or header above. A cell's height
- * in a table is its least height. */
+/* Body cells: padding 6px 12px, row-h tall, and a 1px border line above
+ * each row, the line between it and the row or header above. The line is an
+ * inset shadow rather than a border, so it sits inside the row's height, and
+ * a control-h button, as tall as the row, still fits a row-h row. A cell's
+ * height in a table is its least height. */
 .table td {
 	box-sizing: border-box;
 	height: var(--row-h);
 	padding: 6px 12px;
-	border-top: 1px solid var(--border);
+	box-shadow: inset 0 1px 0 var(--border);
 	vertical-align: middle;
 }
 
@@ -110,6 +112,17 @@
 	vertical-align: top;
 }
 
+/* A cell's fields are a form, not a value: left aligned in the UI font,
+ * even in a numeric column. */
+.edit {
+	text-align: left;
+	white-space: normal;
+	font-family: var(--font-ui);
+	font-size: var(--text-body-size);
+	line-height: var(--text-body-line);
+	font-variant-numeric: normal;
+}
+
 .editing {
 	display: flex;
 	flex-direction: column;
@@ -122,11 +135,16 @@
 	gap: var(--space-2);
 }
 
-/* The one action at the end of a row. */
+/* The one action at the end of a row. A button is control-h, which is
+ * row-h, so its cell has no padding above or below. */
 .table .action {
 	width: 1%;
 	text-align: right;
 	white-space: nowrap;
+}
+
+.table td.action {
+	padding-block: 0;
 }
 
 /* Column priority, at the one breakpoint of section 2. Below it only priority
