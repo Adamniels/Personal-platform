@@ -78,6 +78,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/brain/api/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List History
+         * @description What has happened: the user's history entries and decisions by
+         *     occurred_at, oldest first, each with its subjects. Active ones, and each
+         *     decision another one replaced, inactive, with replaced_by naming the one
+         *     that did; retired entries and older versions are left out. Narrowed by
+         *     topic and entity as the item list is. 422 for a malformed slug.
+         */
+        get: operations["list_history_brain_api_history_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/brain/api/items": {
         parameters: {
             query?: never;
@@ -99,16 +123,21 @@ export interface paths {
          * @description Writes an entry made by hand, 201 with the item, its evidence and its
          *     relations. It applies at once: an asserted event, origin brain and source
          *     manual-entry, is recorded with it and is its supporting evidence. kind is
-         *     profile, with a category, or rule, which is global; or topic_level or
+         *     profile, with a category, or rule, which is global, or state, what is
+         *     going on now, with optional subjects like a profile entry; or topic_level or
          *     topic_focus, each on one topic with a value, which where the topic,
          *     read through its alias, has an active entry of that kind already is an
          *     edit of it, 201 with the new version. 422 for an unknown kind, category
          *     or value, content that is blank or over 4000 characters, a rule naming a
          *     subject, a topic the user does not have, or a level or focus the topic
-         *     has already; or history, a corrected misconception on one topic, its
-         *     details misconception true with what was believed and what is right, and
-         *     its content built from the two. A named thing the user does not have is
-         *     created.
+         *     has already; or history, something that happened, with occurred_at and
+         *     occurred_precision required and optional subjects, or, with details, a
+         *     corrected misconception on one topic, its details misconception true with
+         *     what was believed and what is right, and its content built from the two.
+         *     Or decision, with details holding its reasoning and what it rejected,
+         *     recorded with a decided event in place of an asserted one, and its
+         *     occurred_at when it was made, the request's time unless given. A named
+         *     thing the user does not have is created.
          */
         post: operations["write_item_brain_api_items_post"];
         delete?: never;
@@ -138,6 +167,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/brain/api/items/{id}/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Confirm Item
+         * @description Says a claim still holds, 200 with it. A confirmed event against it,
+         *     linked as supporting evidence, is recorded in one transaction, and moves
+         *     when it was last supported, so a stale state is stale no longer. Takes
+         *     no body. 404 for an id the user does not have. 422 for a record, which
+         *     asserts nothing about now. 409 for an item that is not active.
+         */
+        post: operations["confirm_item_brain_api_items__id__confirm_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/brain/api/items/{id}/edit": {
         parameters: {
             query?: never;
@@ -161,6 +214,33 @@ export interface paths {
          *     that is not the newest, or an item that is retired.
          */
         post: operations["edit_item_brain_api_items__id__edit_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/brain/api/items/{id}/replace": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Replace Item
+         * @description Replaces a decision with a newer one, 200 with the old one, now
+         *     inactive with reason superseded and a supersedes relation from the new
+         *     one. An edited event against the old one, which makes the relation, is
+         *     recorded with it, in one transaction; its decided event stays, and both
+         *     stay readable. 404 for an id the user does not have. 422 for a
+         *     replaced_by they do not have, either not being a decision, or two
+         *     versions of one entry, a decision itself included. 409 when either is
+         *     not active.
+         */
+        post: operations["replace_item_brain_api_items__id__replace_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -253,6 +333,29 @@ export interface paths {
          *     lists.
          */
         get: operations["list_knowledge_brain_api_knowledge_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/brain/api/now": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Now
+         * @description What is going on now: the user's active state entries, newest support
+         *     first, each with its subjects, last_supported_at, when the newest event
+         *     supporting it happened, and stale, true when that is more than 60 days
+         *     before the request. Confirming one moves it to the front.
+         */
+        get: operations["list_now_brain_api_now_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -565,6 +668,79 @@ export interface components {
              */
             status: "ok";
         };
+        /**
+         * HistoryRow
+         * @description A history entry or a decision as the history view reads it.
+         */
+        HistoryRow: {
+            /** Category */
+            category: string | null;
+            /** Content */
+            content: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Created By Event
+             * Format: uuid
+             */
+            created_by_event: string;
+            /** Details */
+            details: {
+                [key: string]: unknown;
+            };
+            /** Entities */
+            entities: components["schemas"]["EventEntity"][];
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Inactive Reason */
+            inactive_reason: ("superseded" | "retired") | null;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "profile" | "rule" | "topic_level" | "topic_focus" | "state" | "history" | "decision";
+            /**
+             * Lineage Id
+             * Format: uuid
+             */
+            lineage_id: string;
+            /**
+             * Nature
+             * @enum {string}
+             */
+            nature: "claim" | "record";
+            /** Occurred At */
+            occurred_at: string | null;
+            /** Occurred Precision */
+            occurred_precision: ("instant" | "day" | "month" | "year") | null;
+            /**
+             * Provenance
+             * @enum {string}
+             */
+            provenance: "asserted" | "derived";
+            /** Replaced By */
+            replaced_by: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "active" | "inactive";
+            /**
+             * Store
+             * @enum {string}
+             */
+            store: "profile" | "procedural" | "knowledge" | "semantic" | "reported_history";
+            /** Topics */
+            topics: components["schemas"]["EventTopic"][];
+            /** Value */
+            value: string | null;
+        };
         /** Item */
         Item: {
             /** Category */
@@ -764,6 +940,84 @@ export interface components {
              * @enum {string}
              */
             state: "canonical" | "provisional";
+        };
+        /**
+         * NowRow
+         * @description A state as the now view reads it.
+         */
+        NowRow: {
+            /** Category */
+            category: string | null;
+            /** Content */
+            content: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Created By Event
+             * Format: uuid
+             */
+            created_by_event: string;
+            /** Details */
+            details: {
+                [key: string]: unknown;
+            };
+            /** Entities */
+            entities: components["schemas"]["EventEntity"][];
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Inactive Reason */
+            inactive_reason: ("superseded" | "retired") | null;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "profile" | "rule" | "topic_level" | "topic_focus" | "state" | "history" | "decision";
+            /**
+             * Last Supported At
+             * Format: date-time
+             */
+            last_supported_at: string;
+            /**
+             * Lineage Id
+             * Format: uuid
+             */
+            lineage_id: string;
+            /**
+             * Nature
+             * @enum {string}
+             */
+            nature: "claim" | "record";
+            /** Occurred At */
+            occurred_at: string | null;
+            /** Occurred Precision */
+            occurred_precision: ("instant" | "day" | "month" | "year") | null;
+            /**
+             * Provenance
+             * @enum {string}
+             */
+            provenance: "asserted" | "derived";
+            /** Stale */
+            stale: boolean;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "active" | "inactive";
+            /**
+             * Store
+             * @enum {string}
+             */
+            store: "profile" | "procedural" | "knowledge" | "semantic" | "reported_history";
+            /** Topics */
+            topics: components["schemas"]["EventTopic"][];
+            /** Value */
+            value: string | null;
         };
         /** Topic */
         Topic: {
@@ -1070,6 +1324,43 @@ export interface operations {
             };
         };
     };
+    list_history_brain_api_history_get: {
+        parameters: {
+            query?: {
+                topic?: string | null;
+                entity?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HistoryRow"][];
+                };
+            };
+            /** @description No valid token: missing, expired or failing verification, all alike. The body is empty; the caller refreshes and retries. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description A body that does not parse, or a request breaking a rule. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     list_items_brain_api_items_get: {
         parameters: {
             query?: {
@@ -1166,6 +1457,32 @@ export interface operations {
                      */
                     occurred_precision?: "instant" | "day" | "month" | "year";
                 } | {
+                    /** Content */
+                    content: string;
+                    /**
+                     * Entities
+                     * @default []
+                     */
+                    entities?: string[];
+                    /**
+                     * Kind
+                     * @constant
+                     */
+                    kind: "state";
+                    /** Occurred At */
+                    occurred_at?: string | null;
+                    /**
+                     * Occurred Precision
+                     * @default instant
+                     * @enum {string}
+                     */
+                    occurred_precision?: "instant" | "day" | "month" | "year";
+                    /**
+                     * Topics
+                     * @default []
+                     */
+                    topics?: string[];
+                } | {
                     /**
                      * Kind
                      * @constant
@@ -1191,6 +1508,34 @@ export interface operations {
                      * @enum {string}
                      */
                     value: "learning" | "steady" | "not_pursuing";
+                } | {
+                    /** Content */
+                    content: string;
+                    /**
+                     * Entities
+                     * @default []
+                     */
+                    entities?: string[];
+                    /**
+                     * Kind
+                     * @constant
+                     */
+                    kind: "history";
+                    /**
+                     * Occurred At
+                     * Format: date-time
+                     */
+                    occurred_at: string;
+                    /**
+                     * Occurred Precision
+                     * @enum {string}
+                     */
+                    occurred_precision: "instant" | "day" | "month" | "year";
+                    /**
+                     * Topics
+                     * @default []
+                     */
+                    topics?: string[];
                 } | {
                     /**
                      * Misconception
@@ -1223,6 +1568,45 @@ export interface operations {
                     occurred_precision?: "instant" | "day" | "month" | "year";
                     /** Topic */
                     topic: string;
+                } | {
+                    /** Content */
+                    content: string;
+                    /**
+                     * DecisionDetails
+                     * @description Why a decision was made, and what it was made over.
+                     */
+                    details: {
+                        /** Reasoning */
+                        reasoning: string;
+                        /**
+                         * Rejected
+                         * @default []
+                         */
+                        rejected?: string[];
+                    };
+                    /**
+                     * Entities
+                     * @default []
+                     */
+                    entities?: string[];
+                    /**
+                     * Kind
+                     * @constant
+                     */
+                    kind: "decision";
+                    /** Occurred At */
+                    occurred_at?: string | null;
+                    /**
+                     * Occurred Precision
+                     * @default instant
+                     * @enum {string}
+                     */
+                    occurred_precision?: "instant" | "day" | "month" | "year";
+                    /**
+                     * Topics
+                     * @default []
+                     */
+                    topics?: string[];
                 };
             };
         };
@@ -1288,6 +1672,56 @@ export interface operations {
             };
         };
     };
+    confirm_item_brain_api_items__id__confirm_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ItemDetail"];
+                };
+            };
+            /** @description No valid token: missing, expired or failing verification, all alike. The body is empty; the caller refreshes and retries. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Nothing of this user's at that address. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The item is not in the state this needs: a superseded version, or not active or retired as the change asks. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description A body that does not parse, or a request breaking a rule. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     edit_item_brain_api_items__id__edit_post: {
         parameters: {
             query?: never;
@@ -1327,6 +1761,66 @@ export interface operations {
         responses: {
             /** @description Successful Response */
             201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ItemDetail"];
+                };
+            };
+            /** @description No valid token: missing, expired or failing verification, all alike. The body is empty; the caller refreshes and retries. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Nothing of this user's at that address. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The item is not in the state this needs: a superseded version, or not active or retired as the change asks. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description A body that does not parse, or a request breaking a rule. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    replace_item_brain_api_items__id__replace_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /**
+                     * Replaced By
+                     * Format: uuid
+                     */
+                    replaced_by: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -1517,6 +2011,33 @@ export interface operations {
             };
             /** @description A body that does not parse, or a request breaking a rule. */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    list_now_brain_api_now_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NowRow"][];
+                };
+            };
+            /** @description No valid token: missing, expired or failing verification, all alike. The body is empty; the caller refreshes and retries. */
+            401: {
                 headers: {
                     [name: string]: unknown;
                 };

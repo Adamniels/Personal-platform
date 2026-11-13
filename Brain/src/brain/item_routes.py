@@ -1,10 +1,12 @@
 """The API for the memory store, under `/brain/api/items`: entries the owner
-makes by hand, as profile entries, rules, a level and a focus on each topic,
-and misconceptions so far, and correcting them; and `/brain/api/knowledge`,
-every topic with its level and focus. Every route needs a valid
-token and acts for the account it names, through `brain.db.transaction`. The
-rules are in `brain.items`; this module reads the request and shapes the
-answer. The routes are listed in "What it serves" in Brain/README.md."""
+makes by hand, as profile entries, rules, states, a level and a focus on each
+topic, history entries, misconceptions among them, and decisions, and
+correcting, confirming and replacing them; `/brain/api/knowledge`, every
+topic with its level and focus; and `/brain/api/now` and
+`/brain/api/history`, what is going on now and what has happened. Every route
+needs a valid token and acts for the account it names, through
+`brain.db.transaction`. The rules are in `brain.items`; this module reads the
+request and shapes the answer. The routes are listed in "What it serves" in Brain/README.md."""
 
 from datetime import UTC, datetime
 from typing import Annotated, Any, Literal
@@ -17,13 +19,15 @@ from pydantic import (
     AwareDatetime,
     BaseModel,
     ConfigDict,
+    Discriminator,
     Field,
     RootModel,
     StringConstraints,
+    Tag,
     field_validator,
 )
 
-from brain import db, items, knowledge
+from brain import db, items, knowledge, now_and_history
 from brain.edge import (
     NOT_FOUND,
     REFUSED,
@@ -106,6 +110,32 @@ class RuleEntry(BaseModel):
         return _no_nul(content)
 
 
+class StateEntry(BaseModel):
+    """What is going on now: a claim in the semantic store that goes stale
+    when nothing supports it for long enough. It may name the topics and
+    named things it is about."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["state"]
+    content: Content
+    topics: Annotated[list[Slug], Field(max_length=SUBJECTS_MAX)] = []
+    entities: Annotated[list[Name], Field(max_length=SUBJECTS_MAX)] = []
+    # When it became true, with a zone; without one, when it was entered.
+    occurred_at: AwareDatetime | None = None
+    occurred_precision: Precision = "instant"
+
+    @field_validator("content")
+    @classmethod
+    def content_storable(cls, content: str) -> str:
+        return _no_nul(content)
+
+    @field_validator("entities")
+    @classmethod
+    def names_storable(cls, names: list[str]) -> list[str]:
+        return [_no_nul(name) for name in names]
+
+
 class LevelEntry(BaseModel):
     """How well the owner knows one topic, in the knowledge store, where
     evidence may later move it: shallow, knows the vocabulary; working, can
@@ -161,10 +191,10 @@ class Misconception(BaseModel):
         return _no_nul(text)
 
 
-class HistoryEntry(BaseModel):
-    """Something that happened, on one topic. So far that is a corrected
-    misconception alone, which is a history entry and not a kind of its own;
-    the content is built from its two halves."""
+class MisconceptionEntry(BaseModel):
+    """A corrected misconception, on one topic: a history entry and not a
+    kind of its own, told apart from any other by its details. The content is
+    built from its two halves."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -176,15 +206,117 @@ class HistoryEntry(BaseModel):
     occurred_precision: Precision = "instant"
 
 
+class HistoryEntry(BaseModel):
+    """Something that happened: a record in reported history, with when it
+    happened, kept apart from when it was entered, and how precisely that is
+    known. It may name the topics and named things it is about."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["history"]
+    content: Content
+    topics: Annotated[list[Slug], Field(max_length=SUBJECTS_MAX)] = []
+    entities: Annotated[list[Name], Field(max_length=SUBJECTS_MAX)] = []
+    # When it happened, with a zone, and how precisely: both required.
+    occurred_at: AwareDatetime
+    occurred_precision: Precision
+
+    @field_validator("content")
+    @classmethod
+    def content_storable(cls, content: str) -> str:
+        return _no_nul(content)
+
+    @field_validator("entities")
+    @classmethod
+    def names_storable(cls, names: list[str]) -> list[str]:
+        return [_no_nul(name) for name in names]
+
+
+# The most alternatives one decision may say it rejected.
+REJECTED_MAX = 20
+
+
+class DecisionDetails(BaseModel):
+    """Why a decision was made, and what it was made over."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    reasoning: Content
+    rejected: Annotated[list[Content], Field(max_length=REJECTED_MAX)] = []
+
+    @field_validator("reasoning")
+    @classmethod
+    def reasoning_storable(cls, reasoning: str) -> str:
+        return _no_nul(reasoning)
+
+    @field_validator("rejected")
+    @classmethod
+    def rejected_storable(cls, rejected: list[str]) -> list[str]:
+        return [_no_nul(each) for each in rejected]
+
+
+class DecisionEntry(BaseModel):
+    """A decision: a decided event, the permanent record that it was made,
+    and an item in the semantic store, the claim that it holds, which a
+    newer decision can replace. It may name the topics and named things it
+    is about."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["decision"]
+    content: Content
+    details: DecisionDetails
+    topics: Annotated[list[Slug], Field(max_length=SUBJECTS_MAX)] = []
+    entities: Annotated[list[Name], Field(max_length=SUBJECTS_MAX)] = []
+    # When it was made, with a zone; without one, when it was entered.
+    occurred_at: AwareDatetime | None = None
+    occurred_precision: Precision = "instant"
+
+    @field_validator("content")
+    @classmethod
+    def content_storable(cls, content: str) -> str:
+        return _no_nul(content)
+
+    @field_validator("entities")
+    @classmethod
+    def names_storable(cls, names: list[str]) -> list[str]:
+        return [_no_nul(name) for name in names]
+
+
+def _entry_form(body: Any) -> str | None:
+    """Which form of entry `body` is: its kind, except that a history entry
+    carrying details is a misconception, the one form whose details are its
+    own. None for a body without a kind, which is refused."""
+    if isinstance(body, MisconceptionEntry):
+        return "misconception"
+    if isinstance(body, BaseModel):
+        kind = getattr(body, "kind", None)
+        return kind if isinstance(kind, str) else None
+    if not isinstance(body, dict):
+        return None
+    kind = body.get("kind")
+    if kind == "history" and "details" in body:
+        return "misconception"
+    return kind if isinstance(kind, str) else None
+
+
 class NewEntry(
     RootModel[
         Annotated[
-            ProfileEntry | RuleEntry | LevelEntry | FocusEntry | HistoryEntry,
-            Field(discriminator="kind"),
+            Annotated[ProfileEntry, Tag("profile")]
+            | Annotated[RuleEntry, Tag("rule")]
+            | Annotated[StateEntry, Tag("state")]
+            | Annotated[LevelEntry, Tag("topic_level")]
+            | Annotated[FocusEntry, Tag("topic_focus")]
+            | Annotated[HistoryEntry, Tag("history")]
+            | Annotated[MisconceptionEntry, Tag("misconception")]
+            | Annotated[DecisionEntry, Tag("decision")],
+            Discriminator(_entry_form),
         ]
     ]
 ):
-    """An entry, told apart by its kind."""
+    """An entry, told apart by its kind, and a history entry by whether it is
+    a misconception."""
 
 
 class ProfileEdit(BaseModel):
@@ -390,16 +522,21 @@ async def write_item(request: Request, claims: Claims) -> Response:
     """Writes an entry made by hand, 201 with the item, its evidence and its
     relations. It applies at once: an asserted event, origin brain and source
     manual-entry, is recorded with it and is its supporting evidence. kind is
-    profile, with a category, or rule, which is global; or topic_level or
+    profile, with a category, or rule, which is global, or state, what is
+    going on now, with optional subjects like a profile entry; or topic_level or
     topic_focus, each on one topic with a value, which where the topic,
     read through its alias, has an active entry of that kind already is an
     edit of it, 201 with the new version. 422 for an unknown kind, category
     or value, content that is blank or over 4000 characters, a rule naming a
     subject, a topic the user does not have, or a level or focus the topic
-    has already; or history, a corrected misconception on one topic, its
-    details misconception true with what was believed and what is right, and
-    its content built from the two. A named thing the user does not have is
-    created."""
+    has already; or history, something that happened, with occurred_at and
+    occurred_precision required and optional subjects, or, with details, a
+    corrected misconception on one topic, its details misconception true with
+    what was believed and what is right, and its content built from the two.
+    Or decision, with details holding its reasoning and what it rejected,
+    recorded with a decided event in place of an asserted one, and its
+    occurred_at when it was made, the request's time unless given. A named
+    thing the user does not have is created."""
     entry = (await body_as(request, NewEntry)).root
     now = datetime.now(UTC)
     if isinstance(entry, LevelEntry | FocusEntry):
@@ -412,7 +549,7 @@ async def write_item(request: Request, claims: Claims) -> Response:
         return JSONResponse(
             ItemDetail.of_detail(detail).model_dump(mode="json"), status_code=201
         )
-    if isinstance(entry, HistoryEntry):
+    if isinstance(entry, MisconceptionEntry):
         async with db.transaction(request.app.state.pool, claims.account_id) as conn:
             item_id = await items.write_misconception(
                 conn,
@@ -428,14 +565,20 @@ async def write_item(request: Request, claims: Claims) -> Response:
         return JSONResponse(
             ItemDetail.of_detail(detail).model_dump(mode="json"), status_code=201
         )
+    named = (
+        entry
+        if isinstance(entry, ProfileEntry | StateEntry | HistoryEntry | DecisionEntry)
+        else None
+    )
     new = items.NewItem(
         kind=entry.kind,
         content=entry.content,
         category=entry.category if isinstance(entry, ProfileEntry) else None,
-        topics=tuple(entry.topics) if isinstance(entry, ProfileEntry) else (),
-        entities=tuple(entry.entities) if isinstance(entry, ProfileEntry) else (),
+        topics=tuple(named.topics) if named is not None else (),
+        entities=tuple(named.entities) if named is not None else (),
         occurred_at=entry.occurred_at,
         occurred_precision=entry.occurred_precision,
+        details=entry.details.model_dump() if isinstance(entry, DecisionEntry) else {},
     )
     async with db.transaction(request.app.state.pool, claims.account_id) as conn:
         item_id = await items.write(conn, new, now=now)
@@ -595,6 +738,62 @@ async def restore_item(request: Request, claims: Claims) -> Response:
     return JSONResponse(ItemDetail.of_detail(detail).model_dump(mode="json"))
 
 
+@router.post(
+    "/items/{id}/confirm",
+    response_model=ItemDetail,
+    responses={**UNAUTHORIZED, **NOT_FOUND, **REFUSED, **NOT_CURRENT},
+    openapi_extra=documented(path=("id",)),
+)
+@authenticated
+async def confirm_item(request: Request, claims: Claims) -> Response:
+    """Says a claim still holds, 200 with it. A confirmed event against it,
+    linked as supporting evidence, is recorded in one transaction, and moves
+    when it was last supported, so a stale state is stale no longer. Takes
+    no body. 404 for an id the user does not have. 422 for a record, which
+    asserts nothing about now. 409 for an item that is not active."""
+    item_id = path_id(request)
+    now = datetime.now(UTC)
+    async with db.transaction(request.app.state.pool, claims.account_id) as conn:
+        await items.confirm(conn, item_id, now=now)
+        detail = await items.get(conn, item_id)
+    assert detail is not None
+    return JSONResponse(ItemDetail.of_detail(detail).model_dump(mode="json"))
+
+
+class Replacement(BaseModel):
+    """The newer decision, by id."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    replaced_by: UUID
+
+
+@router.post(
+    "/items/{id}/replace",
+    response_model=ItemDetail,
+    responses={**UNAUTHORIZED, **NOT_FOUND, **REFUSED, **NOT_CURRENT},
+    openapi_extra=documented(body=Replacement, path=("id",)),
+)
+@authenticated
+async def replace_item(request: Request, claims: Claims) -> Response:
+    """Replaces a decision with a newer one, 200 with the old one, now
+    inactive with reason superseded and a supersedes relation from the new
+    one. An edited event against the old one, which makes the relation, is
+    recorded with it, in one transaction; its decided event stays, and both
+    stay readable. 404 for an id the user does not have. 422 for a
+    replaced_by they do not have, either not being a decision, or two
+    versions of one entry, a decision itself included. 409 when either is
+    not active."""
+    item_id = path_id(request)
+    replacement = await body_as(request, Replacement)
+    now = datetime.now(UTC)
+    async with db.transaction(request.app.state.pool, claims.account_id) as conn:
+        await items.replace_decision(conn, item_id, replacement.replaced_by, now=now)
+        detail = await items.get(conn, item_id)
+    assert detail is not None
+    return JSONResponse(ItemDetail.of_detail(detail).model_dump(mode="json"))
+
+
 @router.get(
     "/items/{id}/versions",
     response_model=list[Item],
@@ -682,5 +881,84 @@ async def list_knowledge(request: Request, claims: Claims) -> Response:
                 history_count=row.history_count,
             ).model_dump(mode="json")
             for row in rows
+        ]
+    )
+
+
+class NowRow(Item):
+    """A state as the now view reads it."""
+
+    # The newest occurred_at among the events supporting it, computed when
+    # read and never stored.
+    last_supported_at: datetime
+    # Supported last more than 60 days before the request: worth re checking.
+    stale: bool
+
+
+@router.get(
+    "/now",
+    response_model=list[NowRow],
+    responses={**UNAUTHORIZED},
+)
+@authenticated
+async def list_now(request: Request, claims: Claims) -> Response:
+    """What is going on now: the user's active state entries, newest support
+    first, each with its subjects, last_supported_at, when the newest event
+    supporting it happened, and stale, true when that is more than 60 days
+    before the request. Confirming one moves it to the front."""
+    now = datetime.now(UTC)
+    async with db.transaction(request.app.state.pool, claims.account_id) as conn:
+        entries = await now_and_history.now(conn, now=now)
+    return JSONResponse(
+        [
+            NowRow(
+                **Item.fields_of(entry.item),
+                last_supported_at=entry.last_supported_at,
+                stale=entry.stale,
+            ).model_dump(mode="json")
+            for entry in entries
+        ]
+    )
+
+
+class HistoryRow(Item):
+    """A history entry or a decision as the history view reads it."""
+
+    # For a decision another one replaced, the one that did; else null.
+    replaced_by: UUID | None
+
+
+class HistoryQuery(BaseModel):
+    # Each filter narrows the list; both together, each one given.
+    # A topic by slug, read through aliases.
+    topic: Slug | None = None
+    # A named thing by name, without letter case.
+    entity: Name | None = None
+
+
+@router.get(
+    "/history",
+    response_model=list[HistoryRow],
+    responses={**UNAUTHORIZED, **REFUSED},
+    openapi_extra=documented(query=HistoryQuery),
+)
+@authenticated
+async def list_history(request: Request, claims: Claims) -> Response:
+    """What has happened: the user's history entries and decisions by
+    occurred_at, oldest first, each with its subjects. Active ones, and each
+    decision another one replaced, inactive, with replaced_by naming the one
+    that did; retired entries and older versions are left out. Narrowed by
+    topic and entity as the item list is. 422 for a malformed slug."""
+    query = query_as(request, HistoryQuery)
+    async with db.transaction(request.app.state.pool, claims.account_id) as conn:
+        entries = await now_and_history.history(
+            conn, topic=query.topic, entity=query.entity
+        )
+    return JSONResponse(
+        [
+            HistoryRow(
+                **Item.fields_of(entry.item), replaced_by=entry.replaced_by
+            ).model_dump(mode="json")
+            for entry in entries
         ]
     )
