@@ -4,44 +4,40 @@ from contextlib import asynccontextmanager
 from html import escape
 
 import httpx2
+from platform_auth import auth
+from platform_auth.keys import KeyCache
+from platform_auth.origin import OriginCheck
+from platform_auth.verify import Claims
 from starlette.applications import Starlette
 from starlette.middleware import Middleware
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, JSONResponse, PlainTextResponse, Response
 from starlette.routing import Route
 
-from canary import auth
-from canary.keys import KeyCache
-from canary.origin import OriginCheck
 from canary.settings import SETTINGS, DisplayMode, Settings
-from canary.verify import Claims
-
-# Canary's own few lines of style. It takes nothing from the core but the nav,
-# so it reserves the bar's height itself, as the core's stylesheet does, and
-# the page does not jump when /nav.js renders it.
-STYLE = """
-:root { color-scheme: light dark; font-family: system-ui, sans-serif; line-height: 1.5; }
-body { margin: 0; }
-platform-nav { display: block; min-height: 3rem; }
-main { max-width: 40rem; margin: 0 auto; padding: 3rem 1rem; }
-h1 { font-size: 1.5rem; margin: 0 0 1.5rem; }
-code { white-space: nowrap; }
-"""
 
 
 def render_page(account_id: str) -> str:
+    # No style of its own: the ground, text, fonts, theme, the page container
+    # and its headings all come from the design files the proxy serves, and
+    # page.css holds the nav bar's height so the page does not jump when
+    # /design/nav.js renders it. It takes nothing from the core but the nav's
+    # contents.
     return f"""<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Canary · Platform</title>
-  <style>{STYLE}</style>
-  <script src="/nav.js" defer></script>
+  <link rel="stylesheet" href="/design/tokens.css">
+  <link rel="stylesheet" href="/design/fonts.css">
+  <link rel="stylesheet" href="/design/page.css">
+  <script src="/design/theme.js"></script>
+  <script src="/design/nav.js" defer></script>
 </head>
 <body>
   <platform-nav current="canary"></platform-nav>
-  <main>
+  <main class="page">
     <h1>Canary</h1>
     <p>Your token was verified in Python. It says you are account <code>{escape(account_id)}</code>.</p>
   </main>

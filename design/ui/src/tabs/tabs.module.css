@@ -1,0 +1,56 @@
+/* "Tabs" in section 4 of design/DESIGN.md. Colours and sizes are tokens; the
+ * paddings are the ones that section gives. The focus ring comes from the base
+ * rule in tokens.css and is never overridden here. */
+
+/* The row: a 1px bottom border, 8px bottom padding, gap space-1. It never
+ * wraps, and scrolls sideways when the tabs are wider than it, as they are on
+ * phone. Scrolling clips what overflows, so the row keeps space-1, the 2px
+ * ring and its 2px offset, free above and beside the tabs. */
+.row {
+	box-sizing: border-box;
+	display: flex;
+	flex-wrap: nowrap;
+	gap: var(--space-1);
+	padding: var(--space-1) var(--space-1) 8px;
+	border-bottom: 1px solid var(--border);
+	overflow-x: auto;
+	overscroll-behavior-x: contain;
+}
+
+/* The tab: control-h, padding 0 12px, text-2, weight 500. Its 1px border is
+ * transparent until it is selected, so selecting one moves nothing. */
+.tab {
+	box-sizing: border-box;
+	flex: none;
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-2);
+	height: var(--control-h);
+	padding: 0 12px;
+	border: 1px solid transparent;
+	border-radius: var(--radius-md);
+	background: transparent;
+	color: var(--text-2);
+	font-family: var(--font-ui);
+	font-size: var(--text-body-size);
+	line-height: var(--text-body-line);
+	font-weight: 500;
+	white-space: nowrap;
+	cursor: pointer;
+}
+
+.tab[aria-selected="true"] {
+	background: var(--surface-2);
+	border-color: var(--accent-border);
+	color: var(--text);
+	font-weight: 600;
+}
+
+/* The panel holds only its spacing from the row; what it shows is the
+ * caller's. */
+.tabs {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-3);
+	min-width: 0;
+}

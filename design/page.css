@@ -1,0 +1,59 @@
+/*
+ * The page shell around <platform-nav>, which every page with the bar links
+ * after tokens.css. The bar draws itself from /design/nav.js; this keeps the
+ * page from jumping while the script loads and from hiding under the bar.
+ * The bar's own look is in nav.js. See section 3 of DESIGN.md. It also holds
+ * the page container of section 2, which a page opts into by class.
+ */
+
+/* The top bar's height, held before the script renders it. */
+platform-nav {
+  display: block;
+  min-height: var(--nav-h);
+}
+
+/* On phone the links are a tab bar fixed to the bottom, so the page ends
+   that far above the bottom edge and the bar covers nothing. */
+@media (max-width: 639.98px) {
+  body:has(> platform-nav) {
+    padding-bottom: calc(var(--nav-h) + env(safe-area-inset-bottom, 0px));
+  }
+}
+
+/* The page container from section 2, opt in by class so a frontend with
+   its own layout is not touched: <main class="page">. The core's pages and
+   canary use it, so a page with the bar has the same width, padding and
+   headings without a stylesheet of its own. */
+.page {
+  box-sizing: border-box;
+  max-width: var(--content-max);
+  margin: 0 auto;
+  padding: var(--space-5) var(--page-pad);
+}
+
+.page :is(h1, h2) {
+  font-family: var(--font-heading);
+  font-weight: 600;
+  margin: 0;
+}
+
+.page h1 {
+  font-size: var(--text-h1-size);
+  line-height: var(--text-h1-line);
+  margin-bottom: var(--space-5);
+}
+
+.page h2 {
+  font-size: var(--text-h2-size);
+  line-height: var(--text-h2-line);
+}
+
+/* Ids and times in the mono font, hard rule 8. An id is one word, so it
+   may break anywhere rather than overflow at phone width. */
+.page code {
+  font-family: var(--font-mono);
+  font-size: var(--text-mono-size);
+  line-height: var(--text-mono-line);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}

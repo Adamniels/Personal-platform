@@ -14,6 +14,7 @@
 
 #![allow(dead_code)]
 
+pub mod forms;
 pub mod stubs;
 
 use sqlx::postgres::{PgConnectOptions, PgPool, PgPoolOptions};

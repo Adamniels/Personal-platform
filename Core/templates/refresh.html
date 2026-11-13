@@ -5,6 +5,7 @@
 {#- No nav: the access token is gone, so the bar could not say who is logged in. #}
 
 {% block content %}
+<div class="form-card">
 <h1>Continue where you were</h1>
 
 <p>Your session needs renewing before you go on.</p>
@@ -15,5 +16,6 @@
   <input type="hidden" name="return_to" value="{{ return_to }}">
   <button type="submit">Continue</button>
 </form>
+</div>
 <script>document.forms.refresh.submit();</script>
 {% endblock %}

@@ -1,4 +1,5 @@
 import uuid
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 
@@ -27,8 +28,14 @@ def test_only_the_brains_own_prefix_is_served() -> None:
         assert client.get(path).status_code == 404, path
 
 
-def test_the_pool_opens_with_the_app_and_closes_with_it(database: str) -> None:
-    app = create_app(load({"BRAIN_APP_DATABASE_URL": app_url(database)}))
+def test_the_pool_opens_with_the_app_and_closes_with_it(
+    web_dir: Path, database: str
+) -> None:
+    app = create_app(
+        load(
+            {"BRAIN_WEB_DIR": str(web_dir), "BRAIN_APP_DATABASE_URL": app_url(database)}
+        )
+    )
 
     async def who(pool: db.Pool) -> object:
         async with db.transaction(pool, uuid.uuid4()) as conn:

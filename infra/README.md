@@ -98,6 +98,10 @@ from it, as plain files, and nothing else:
 - `/design/fonts.css` and `/design/fonts/*`, the fonts, hosted here so no page asks an outside host
   for one
 - `/design/sprites/*`, the agent avatars
+- `/design/nav.js`, `/design/theme.js` and `/design/page.css`, the shared nav bar, the script that
+  applies a remembered theme before the page paints, and the page shell around the bar with the
+  page container; see
+  "Navigation" in `High-level/docs/platform-architecture.md`
 - `/design/gallery/*`, the component gallery, from `design/ui/gallery/dist`, which
   `npm run build` in `design/ui` writes and git ignores; until it is built this answers `404`, and
   `/design/gallery` redirects to `/design/gallery/`. See `design/ui/README.md`

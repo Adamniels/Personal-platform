@@ -1,6 +1,7 @@
 import os
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -12,6 +13,7 @@ def test_settings_default_and_refuse_a_malformed_value() -> None:
     assert load(MINIMAL_ENV) == Settings(
         core_url="http://127.0.0.1:8080",
         public_origin="https://platform.test",
+        web_dir=Path("web/dist"),
         app_database_url="postgres://brain_app:secret-a1b2@127.0.0.1:5432/brain",
     )
 
@@ -43,6 +45,7 @@ def test_settings_default_and_refuse_a_malformed_value() -> None:
         ("BRAIN_PUBLIC_ORIGIN", "https://user@platform.test"),
         ("BRAIN_PUBLIC_ORIGIN", "ftp://platform.test"),
         ("BRAIN_PUBLIC_ORIGIN", " https://platform.test"),
+        ("BRAIN_WEB_DIR", ""),
     ]:
         with pytest.raises(SettingsError, match=name):
             load({**MINIMAL_ENV, name: value})
@@ -78,6 +81,11 @@ def test_a_well_formed_value_is_taken_as_it_is() -> None:
         assert (
             load({**MINIMAL_ENV, "BRAIN_PUBLIC_ORIGIN": origin}).public_origin == origin
         )
+
+    # A folder is taken as it is: whether it holds a build is checked when the
+    # brain starts, see test_web.py.
+    for web_dir in ["web/dist", "/srv/brain/web", "relative"]:
+        assert load({**MINIMAL_ENV, "BRAIN_WEB_DIR": web_dir}).web_dir == Path(web_dir)
 
 
 def test_the_database_setting_is_required_and_never_shown() -> None:

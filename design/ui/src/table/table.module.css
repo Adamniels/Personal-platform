@@ -1,0 +1,171 @@
+/* "Table" in section 4 of design/DESIGN.md. Colours and sizes are tokens; the
+ * paddings are the ones that section gives. The focus ring comes from the base
+ * rule in tokens.css and is never overridden here. */
+
+/* The wrapper: 1px border, the large radius, the surface, and it scrolls
+ * sideways when the table is wider than it, so the page never does. */
+.wrapper {
+	box-sizing: border-box;
+	max-width: 100%;
+	min-width: 0;
+	overflow-x: auto;
+	overscroll-behavior-x: contain;
+	background: var(--surface);
+	border: 1px solid var(--border);
+	border-radius: var(--radius-lg);
+}
+
+/* Separate borders, so a cell's top border is a line between rows and the
+ * wrapper's radius is not fought by collapsed ones. */
+.table {
+	width: 100%;
+	border-collapse: separate;
+	border-spacing: 0;
+	color: var(--text);
+	font-size: var(--text-body-size);
+	line-height: var(--text-body-line);
+}
+
+/* Header cells: surface-2, caption style, text-3. */
+.table th {
+	box-sizing: border-box;
+	height: var(--row-h);
+	padding: 0 12px;
+	background: var(--surface-2);
+	color: var(--text-3);
+	font-size: var(--text-caption-size);
+	line-height: var(--text-caption-line);
+	font-weight: 500;
+	text-align: left;
+	white-space: nowrap;
+	vertical-align: middle;
+}
+
+/* The sorted column: text, weight 600, with its arrow. */
+.table th.sorted {
+	color: var(--text);
+	font-weight: 600;
+}
+
+/* The header's button fills the cell's height, so it is a touch target on
+ * phone, and looks like the header it is. */
+.sort {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-1);
+	min-height: var(--row-h);
+	margin: 0;
+	padding: 0;
+	border: 0;
+	background: transparent;
+	color: inherit;
+	font: inherit;
+	cursor: pointer;
+}
+
+.arrow {
+	flex: none;
+}
+
+/* Body cells: padding 6px 12px, row-h tall, and a 1px border line above
+ * each row, the line between it and the row or header above. The line is an
+ * inset shadow rather than a border, so it sits inside the row's height, and
+ * a control-h button, as tall as the row, still fits a row-h row. A cell's
+ * height in a table is its least height. */
+.table td {
+	box-sizing: border-box;
+	height: var(--row-h);
+	padding: 6px 12px;
+	box-shadow: inset 0 1px 0 var(--border);
+	vertical-align: middle;
+}
+
+/* Numbers: right aligned, mono, tabular figures (hard rule 8). */
+.table .numeric {
+	text-align: right;
+	white-space: nowrap;
+}
+
+.table td.numeric {
+	font-family: var(--font-mono);
+	font-size: var(--text-mono-size);
+	line-height: var(--text-mono-line);
+	font-variant-numeric: tabular-nums;
+}
+
+.table th.numeric .sort {
+	flex-direction: row-reverse;
+}
+
+/* Hover: surface-2. Selected or editing: info-soft, under the pointer too. */
+.row:hover {
+	background: var(--surface-2);
+}
+
+.row[data-state] {
+	background: var(--info-soft);
+}
+
+/* An editing row: its cells hold fields, so they line up at the top, and the
+ * first holds Save and Cancel directly under its field. */
+.row[data-state="editing"] > td {
+	vertical-align: top;
+}
+
+/* A cell's fields are a form, not a value: left aligned in the UI font,
+ * even in a numeric column. */
+.edit {
+	text-align: left;
+	white-space: normal;
+	font-family: var(--font-ui);
+	font-size: var(--text-body-size);
+	line-height: var(--text-body-line);
+	font-variant-numeric: normal;
+}
+
+.editing {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-2);
+}
+
+.choices {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-2);
+}
+
+/* The one action at the end of a row. A button is control-h, which is
+ * row-h, so its cell has no padding above or below. */
+.table .action {
+	width: 1%;
+	text-align: right;
+	white-space: nowrap;
+}
+
+.table td.action {
+	padding-block: 0;
+}
+
+/* Column priority, at the one breakpoint of section 2. Below it only priority
+ * 1 columns are columns: priority 2 values fold into one mono line under the
+ * first cell, and priority 3 columns are left out. */
+.fold {
+	display: none;
+	color: var(--text-3);
+	font-family: var(--font-mono);
+	font-size: var(--text-mono-size);
+	line-height: var(--text-mono-line);
+	font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 639.98px) {
+	.table [data-priority="2"],
+	.table [data-priority="3"] {
+		display: none;
+	}
+
+	.fold {
+		display: block;
+	}
+}

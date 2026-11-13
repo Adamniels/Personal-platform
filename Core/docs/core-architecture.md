@@ -2,7 +2,7 @@
 
 Status: exploratory. The walking skeleton is being built.
 
-Last updated: 2026 11 12
+Last updated: 2026 11 13
 
 The platform's infrastructure: the thing every feature is reached through, and where nothing
 interesting lives. The platform wide thinking that places it is in
@@ -24,7 +24,9 @@ list.
   core and features simple. See routing below.
 - **The feature registry**, meaning the list of what features exist, where they live, and what
   they offer.
-- **Its own frontend**, meaning the login pages, the front page, and shared navigation.
+- **Its own frontend**, meaning the login pages and the front page, and what the shared navigation
+  lists, through `GET /api/nav`. The bar itself is not the core's: it lives in `design/` and the
+  proxy serves it, see "Navigation" in `High-level/docs/platform-architecture.md`.
 - **Composing the front page**, meaning calling the display endpoints of whichever features you
   chose and assembling the result.
 - **The public keys** that everything else verifies tokens with, served as a set at an
@@ -328,7 +330,7 @@ one.
 
 **Changing a password while logged in is a separate flow.** It requires the current password, and
 it revokes your other sessions but not the one you are sitting in. It is also the one you will
-actually use. It is the page `/settings/password`, reached from "Password" in the nav, and like any
+actually use. It is the page `/settings/password`, reached from "Change password" in the nav's user menu, and like any
 core page it needs a valid access token. The family it keeps is the one named by that token's `sid`
 claim, since the refresh cookie lives on `Path=/auth` and never reaches the page. The current
 password is verified and the new one checked and hashed before a transaction that sets the password
@@ -563,11 +565,28 @@ post and a fetch, so there is one mechanism rather than two.
 
 **The nav script is used on the core's own pages too**, rather than the nav being rendered into
 the templates. The core has the feature list in hand and could render it directly, but then the
-bar exists in two implementations and they drift.
+bar exists in two implementations and they drift. The base template includes it the way a feature
+does, from `/design/nav.js`, with the design files beside it.
 
-**Styling has no build step either**, just a stylesheet the core serves. If a design system ever
-arrives it should arrive because that cost was chosen deliberately, and
-`High-level/docs/platform-architecture.md` names it as the largest permanent cost in the plan.
+**The core serves no shared asset.** What every page shares, the tokens, the fonts, the page shell
+with its page container, and the nav bar, is in `design/` and served by the proxy, see "The design
+folder" in `infra/README.md`. Every core page links, in this order, `/design/tokens.css`,
+`/design/fonts.css`, `/design/page.css`, then the core's own stylesheet, `/assets/core.css`, and
+loads `/design/theme.js` in the head and `/design/nav.js` deferred. Its content sits in
+`<main class="page">`, the page container `page.css` holds, which canary's page uses as well.
+
+**The core's stylesheet builds on the shared values.** `/assets/core.css` holds only what is the
+core's own, its forms and the front page's cards, and every colour in it, and every size that has a
+token, is a `var(--…)` from `design/tokens.css`; it defines no variable of its own, so none can
+shadow a token, and a test keeps raw colours out of it. The pages are not React, so they do not
+use the component package in `design/ui/`: they follow the same written rules in section 4 of
+`design/DESIGN.md` with plain classes. A form sits in a card, centred and at most 26rem wide, its
+submit button is the primary button and any other button secondary. A refused form names the
+field it is about, which is marked `aria-invalid` and shows the message under it, starting with
+"Error". The front page uses the card grid, with a feature that could not be reached as the
+empty state.
+
+**Styling has no build step either**, just that stylesheet and the design files.
 
 **Where this stops being the right tool**, written down now so it is recognised rather than
 discovered. It holds while the front page is something you read and click through. The moment you

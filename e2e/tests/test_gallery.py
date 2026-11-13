@@ -6,6 +6,7 @@ token as the same page resolves it, so no colour or size is written here: a
 change to tokens.css changes both sides, and only a component that stops
 using its token fails."""
 
+import re
 from pathlib import Path
 
 import pytest
@@ -165,9 +166,16 @@ def test_buttons_are_44px_tall_on_phone(page: Page):
         assert box is not None and box["height"] == 44, buttons.nth(index)
 
 
+@pytest.mark.parametrize("opened", ["page", "dialog", "toasts"])
 @pytest.mark.parametrize("theme", THEMES)
-def test_the_gallery_passes_the_accessibility_check(page: Page, theme: str):
+def test_the_gallery_passes_the_accessibility_check(
+    page: Page, viewport: str, theme: str, opened: str
+):
     open_gallery(page, theme)
+    if opened == "dialog":
+        open_dialog(page)
+    elif opened == "toasts":
+        raise_toasts(page)
     page.add_script_tag(path=str(AXE))
 
     violations = page.evaluate(
@@ -177,3 +185,1165 @@ def test_the_gallery_passes_the_accessibility_check(page: Page, theme: str):
         })))"""
     )
     assert violations == []
+
+
+# The form controls of "Text field, textarea, select" and "Checkbox" in
+# section 4 of design/DESIGN.md. Each field section shows the same states,
+# each field labelled with its state.
+FIELDS = {
+    "text field": ("Text field", "textbox"),
+    "text area": ("Text area", "textbox"),
+    "select": ("Select", "combobox"),
+}
+
+FIELD_STYLE = """element => {
+    const style = getComputedStyle(element);
+    const placeholder = getComputedStyle(element, "::placeholder");
+    return {
+        background: style.backgroundColor,
+        color: style.color,
+        borders: [style.borderTopColor, style.borderRightColor,
+                  style.borderBottomColor, style.borderLeftColor],
+        borderWidths: [style.borderTopWidth, style.borderRightWidth,
+                       style.borderBottomWidth, style.borderLeftWidth],
+        height: style.height,
+        fontSize: style.fontSize,
+        radii: [style.borderTopLeftRadius, style.borderTopRightRadius,
+                style.borderBottomRightRadius, style.borderBottomLeftRadius],
+        placeholder: placeholder.color,
+        accent: style.accentColor,
+    };
+}"""
+
+TEXT_STYLE = """element => {
+    const style = getComputedStyle(element);
+    return {
+        color: style.color,
+        fontSize: style.fontSize,
+        lineHeight: style.lineHeight,
+        weight: style.fontWeight,
+        decoration: style.textDecorationLine,
+    };
+}"""
+
+
+def field(page: Page, kind: str, label: str) -> Locator:
+    title, role = FIELDS[kind]
+    region = page.get_by_role("region", name=title)
+    return region.get_by_role(role, name=label, exact=True)
+
+
+def described_by(control: Locator) -> Locator:
+    """The first element the control's aria-describedby names."""
+    first = control.get_attribute("aria-describedby")
+    assert first, "the control has no description"
+    return control.page.locator(f"[id='{first.split()[0]}']")
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_the_form_controls_are_shown(page: Page, viewport: str, theme: str):
+    open_gallery(page, theme)
+
+    for title in ["Text field", "Text area", "Select", "Checkbox"]:
+        expect(page.get_by_role("region", name=title)).to_be_visible()
+    capture(page, f"gallery-form-controls-{theme}")
+
+
+@pytest.mark.parametrize("theme", THEMES)
+@pytest.mark.parametrize("kind", list(FIELDS))
+def test_a_field_reads_its_values(page: Page, theme: str, kind: str):
+    open_gallery(page, theme)
+    control = field(page, kind, "Empty")
+
+    style = control.evaluate(FIELD_STYLE)
+
+    assert style["background"] == resolve(page, "--surface", "background-color")
+    assert style["color"] == resolve(page, "--text", "color")
+    assert style["borders"] == [resolve(page, "--border-strong", "color")] * 4
+    assert style["borderWidths"] == ["1px"] * 4
+    assert (
+        style["radii"] == [resolve(page, "--radius-md", "border-top-left-radius")] * 4
+    )
+    assert style["fontSize"] == resolve(page, "--input-font-size", "font-size")
+    if kind == "text area":
+        # A text area is as tall as its rows, and never shorter than a field.
+        assert float(style["height"].removesuffix("px")) >= float(
+            resolve(page, "--control-h", "height").removesuffix("px")
+        )
+        assert style["placeholder"] == resolve(page, "--text-3", "color")
+    elif kind == "text field":
+        assert style["height"] == resolve(page, "--control-h", "height")
+        assert style["placeholder"] == resolve(page, "--text-3", "color")
+    else:
+        assert style["height"] == resolve(page, "--control-h", "height")
+
+    label = page.get_by_role("region", name=FIELDS[kind][0]).locator(
+        f"label[for='{control.get_attribute('id')}']"
+    )
+    text = label.evaluate(TEXT_STYLE)
+    assert text["color"] == resolve(page, "--text-2", "color")
+    assert text["fontSize"] == resolve(page, "--text-caption-size", "font-size")
+    assert text["lineHeight"] == resolve(page, "--text-caption-line", "line-height")
+    assert text["weight"] == "500"
+    # The label sits above the field.
+    label_box, control_box = label.bounding_box(), control.bounding_box()
+    assert label_box is not None and control_box is not None
+    assert label_box["y"] + label_box["height"] <= control_box["y"]
+
+    help_text = described_by(field(page, kind, "With help")).evaluate(TEXT_STYLE)
+    assert help_text["color"] == resolve(page, "--text-3", "color")
+    assert help_text["fontSize"] == resolve(page, "--text-caption-size", "font-size")
+
+
+@pytest.mark.parametrize("theme", THEMES)
+@pytest.mark.parametrize("kind", list(FIELDS))
+def test_a_field_with_an_error_reads_its_values(page: Page, theme: str, kind: str):
+    open_gallery(page, theme)
+    control = field(page, kind, "With an error")
+
+    expect(control).to_have_attribute("aria-invalid", "true")
+    style = control.evaluate(FIELD_STYLE)
+    assert style["borders"] == [resolve(page, "--danger", "color")] * 4
+    assert style["borderWidths"] == ["2px"] * 4
+
+    message = described_by(control)
+    expect(message).to_have_text(re.compile(r"^Error: "))
+    text = message.evaluate(TEXT_STYLE)
+    assert text["color"] == resolve(page, "--danger", "color")
+    assert text["weight"] == "500"
+
+
+@pytest.mark.parametrize("kind", list(FIELDS))
+def test_fields_are_16px_and_44px_on_phone(page: Page, kind: str):
+    page.set_viewport_size(VIEWPORTS["phone"])
+    open_gallery(page, "light")
+
+    title, role = FIELDS[kind]
+    controls = page.get_by_role("region", name=title).get_by_role(role)
+    assert controls.count() >= 5
+    for index in range(controls.count()):
+        control = controls.nth(index)
+        style = control.evaluate(FIELD_STYLE)
+        assert style["fontSize"] == "16px", control
+        box = control.bounding_box()
+        assert box is not None
+        if kind == "text area":
+            assert box["height"] >= 44, control
+        else:
+            assert box["height"] == 44, control
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_a_checkbox_reads_its_values(page: Page, theme: str):
+    open_gallery(page, theme)
+    region = page.get_by_role("region", name="Checkbox")
+    box = region.get_by_role("checkbox", name="Unchecked", exact=True)
+
+    size = box.bounding_box()
+    assert size is not None and size["width"] == 16 and size["height"] == 16
+    assert box.evaluate(FIELD_STYLE)["accent"] == resolve(
+        page, "--info", "accent-color"
+    )
+
+    # `has` is matched inside each label, so it is not scoped to the region.
+    row = region.locator(
+        "label", has=page.get_by_role("checkbox", name="Unchecked", exact=True)
+    )
+    row_box = row.bounding_box()
+    assert row_box is not None
+    assert f"{row_box['height']:g}px" == resolve(page, "--row-h", "height")
+
+    done = region.locator("label", has_text="Done").evaluate(TEXT_STYLE)
+    assert done["color"] == resolve(page, "--text-3", "color")
+    assert done["decoration"] == "line-through"
+
+
+@pytest.mark.parametrize(
+    ("title", "role", "label"),
+    [
+        ("Text field", "textbox", "Empty"),
+        ("Text area", "textbox", "Empty"),
+        ("Select", "combobox", "Empty"),
+        ("Checkbox", "checkbox", "Unchecked"),
+    ],
+)
+def test_each_control_shows_the_focus_ring(
+    page: Page, title: str, role: str, label: str
+):
+    open_gallery(page, "light")
+    region = page.get_by_role("region", name=title)
+    control = region.get_by_role(role, name=label, exact=True)
+
+    # As for the button: a click on the heading puts the start of the Tab
+    # order there, so the next Tab reaches the section's first control.
+    region.get_by_role("heading", name=title).click()
+    page.keyboard.press("Tab")
+
+    expect(control).to_be_focused()
+    style = control.evaluate(STYLE)
+    ring = [
+        resolve(page, "--focus-ring", "outline", read)
+        for read in ["outline-style", "outline-width", "outline-color"]
+    ]
+    assert ring[0] == "solid"
+    assert style["outline"] == ring
+    assert style["outlineOffset"] == resolve(page, "--focus-offset", "outline-offset")
+
+
+# The labels and meters of "Badge and status label" and "Progress bar and
+# meter" in section 4 of design/DESIGN.md. The gallery shows each status tone
+# with the design's first example word, which is how a test finds it.
+TONES = {
+    "running": ("Running", "--info-soft", "--info"),
+    "needs you": ("Needs you", "--accent-soft", "--accent-text"),
+    "done": ("Done", "--ok-soft", "--ok"),
+    "failed": ("Failed", "--danger-soft", "--danger"),
+    "idle": ("Idle", "--surface-2", "--text-2"),
+}
+
+LABEL_STYLE = """element => {
+    const style = getComputedStyle(element);
+    return {
+        background: style.backgroundColor,
+        color: style.color,
+        borders: [style.borderTopColor, style.borderRightColor,
+                  style.borderBottomColor, style.borderLeftColor],
+        borderWidths: [style.borderTopWidth, style.borderRightWidth,
+                       style.borderBottomWidth, style.borderLeftWidth],
+        height: style.height,
+        width: style.width,
+        radii: [style.borderTopLeftRadius, style.borderTopRightRadius,
+                style.borderBottomRightRadius, style.borderBottomLeftRadius],
+        fontSize: style.fontSize,
+        lineHeight: style.lineHeight,
+        fontFamily: style.fontFamily,
+        weight: style.fontWeight,
+        children: element.children.length,
+    };
+}"""
+
+
+def status(page: Page, tone: str) -> Locator:
+    word = TONES[tone][0]
+    region = page.get_by_role("region", name="Status label")
+    return region.get_by_text(word, exact=True)
+
+
+def radii(page: Page, token: str) -> list[str]:
+    return [resolve(page, token, "border-top-left-radius")] * 4
+
+
+def assert_caption(page: Page, style: dict) -> None:
+    assert style["fontSize"] == resolve(page, "--text-caption-size", "font-size")
+    assert style["lineHeight"] == resolve(page, "--text-caption-line", "line-height")
+    assert style["weight"] == "500"
+
+
+def channels(colour: str) -> tuple[float, float, float]:
+    """The red, green and blue of a computed `rgb(…)` colour, from 0 to 1."""
+    match = re.fullmatch(r"rgba?\((\d+), (\d+), (\d+)(?:, [\d.]+)?\)", colour)
+    assert match, f"not an opaque rgb colour: {colour}"
+    red, green, blue = (int(value) / 255 for value in match.groups())
+    return red, green, blue
+
+
+def luminance(colour: str) -> float:
+    """Relative luminance, as WCAG 2 defines it."""
+
+    def linear(value: float) -> float:
+        return value / 12.92 if value <= 0.04045 else ((value + 0.055) / 1.055) ** 2.4
+
+    red, green, blue = (linear(value) for value in channels(colour))
+    return 0.2126 * red + 0.7152 * green + 0.0722 * blue
+
+
+def contrast(text: str, fill: str) -> float:
+    lighter, darker = sorted([luminance(text), luminance(fill)], reverse=True)
+    return (lighter + 0.05) / (darker + 0.05)
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_the_labels_and_meters_are_shown(page: Page, viewport: str, theme: str):
+    open_gallery(page, theme)
+
+    for title in ["Badge", "Status label", "Tool chip", "Progress bar", "Meter"]:
+        expect(page.get_by_role("region", name=title)).to_be_visible()
+    capture(page, f"gallery-labels-and-meters-{theme}")
+
+
+@pytest.mark.parametrize("theme", THEMES)
+@pytest.mark.parametrize("tone", list(TONES))
+def test_each_status_tone_reads_its_values(page: Page, theme: str, tone: str):
+    _word, fill, text = TONES[tone]
+    open_gallery(page, theme)
+    label = status(page, tone)
+
+    style = label.evaluate(LABEL_STYLE)
+    assert style["background"] == resolve(page, fill, "background-color")
+    assert style["color"] == resolve(page, text, "color")
+    assert style["height"] == "22px"
+    assert style["radii"] == radii(page, "--radius-sm")
+    assert_caption(page, style)
+
+    # The dot: 6px, round, in the text colour, and hidden from assistive
+    # technology, so the word alone is read.
+    dot = label.locator("[aria-hidden='true']")
+    expect(dot).to_have_count(1)
+    dot_style = dot.evaluate(LABEL_STYLE)
+    assert dot_style["width"] == dot_style["height"] == "6px"
+    assert dot_style["background"] == resolve(page, text, "background-color")
+    assert dot_style["radii"] == radii(page, "--radius-full")
+
+
+def test_the_status_tones_differ(page: Page):
+    """Guards the test above, as for the buttons: five tones rendered alike
+    could all pass against one shared token."""
+    open_gallery(page, "light")
+
+    backgrounds = {
+        tone: status(page, tone).evaluate(LABEL_STYLE)["background"] for tone in TONES
+    }
+    assert len(set(backgrounds.values())) == len(TONES), backgrounds
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_a_badge_and_a_chip_read_their_values(page: Page, theme: str):
+    open_gallery(page, theme)
+
+    badge = page.get_by_role("region", name="Badge").get_by_text("Topic", exact=True)
+    style = badge.evaluate(LABEL_STYLE)
+    assert style["background"] == resolve(page, "--surface-2", "background-color")
+    assert style["color"] == resolve(page, "--text-2", "color")
+    assert style["height"] == "22px"
+    assert style["radii"] == radii(page, "--radius-sm")
+    assert style["children"] == 0, "a badge has no dot"
+    assert_caption(page, style)
+
+    region = page.get_by_role("region", name="Tool chip")
+    chip = region.get_by_text("Claude", exact=True)
+    style = chip.evaluate(LABEL_STYLE)
+    assert style["background"] == resolve(page, None, "background-color")
+    assert style["color"] == resolve(page, "--text-2", "color")
+    assert style["borders"] == [resolve(page, "--border-strong", "color")] * 4
+    assert style["borderWidths"] == ["1px"] * 4
+    assert style["height"] == "20px"
+    assert style["radii"] == radii(page, "--radius-sm")
+    assert_caption(page, style)
+
+
+def bar(page: Page, name: str) -> Locator:
+    region = page.get_by_role("region", name="Progress bar")
+    return region.get_by_role("img", name=name, exact=True)
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_a_progress_bar_reads_its_values(page: Page, theme: str):
+    open_gallery(page, theme)
+
+    for kind, fill in [("Progress", "--accent"), ("Budget", "--info")]:
+        track = bar(page, f"{kind}: 62%")
+        style = track.evaluate(LABEL_STYLE)
+        assert style["height"] == "6px"
+        assert style["background"] == resolve(page, "--surface-2", "background-color")
+        assert style["borders"] == [resolve(page, "--border", "color")] * 4
+        assert style["borderWidths"] == ["1px"] * 4
+        assert style["radii"] == radii(page, "--radius-full")
+
+        fill_style = track.locator("div").evaluate(LABEL_STYLE)
+        assert fill_style["background"] == resolve(page, fill, "background-color")
+
+    # The fill is as wide as the value, inside the track's border.
+    for value in [0, 62, 100]:
+        track = bar(page, f"Progress: {value}%")
+        inner = track.evaluate("element => element.clientWidth")
+        width = track.locator("div").evaluate(
+            "element => element.getBoundingClientRect().width"
+        )
+        assert width == pytest.approx(inner * value / 100, abs=0.5), value
+
+
+def test_a_meter_row_reads_its_values(page: Page):
+    open_gallery(page, "light")
+    region = page.get_by_role("region", name="Meter")
+
+    expect(region.get_by_role("img", name="Context used: 62%")).to_be_visible()
+    label = region.get_by_text("CTX", exact=True).evaluate(LABEL_STYLE)
+    value = region.get_by_text("62%", exact=True).evaluate(LABEL_STYLE)
+    for style in [label, value]:
+        assert style["fontFamily"] == resolve(page, "--font-mono", "font-family")
+        assert style["fontSize"] == resolve(page, "--text-mono-size", "font-size")
+    assert label["width"] == "28px"
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_status_text_keeps_its_contrast(page: Page, theme: str):
+    open_gallery(page, theme)
+
+    ratios = {}
+    for tone in TONES:
+        style = status(page, tone).evaluate(LABEL_STYLE)
+        ratios[tone] = contrast(style["color"], style["background"])
+    assert all(ratio >= 4.5 for ratio in ratios.values()), ratios
+
+
+# The layout pieces of "Tabs", "Card", "Empty state" and "Timeline entry" in
+# section 4 of design/DESIGN.md. The gallery names each example by what it
+# shows, which is how a test finds it.
+BOX_STYLE = """element => {
+    const style = getComputedStyle(element);
+    return {
+        background: style.backgroundColor,
+        color: style.color,
+        borders: [style.borderTopColor, style.borderRightColor,
+                  style.borderBottomColor, style.borderLeftColor],
+        borderWidths: [style.borderTopWidth, style.borderRightWidth,
+                       style.borderBottomWidth, style.borderLeftWidth],
+        borderStyles: [style.borderTopStyle, style.borderRightStyle,
+                       style.borderBottomStyle, style.borderLeftStyle],
+        radii: [style.borderTopLeftRadius, style.borderTopRightRadius,
+                style.borderBottomRightRadius, style.borderBottomLeftRadius],
+        padding: [style.paddingTop, style.paddingRight,
+                  style.paddingBottom, style.paddingLeft],
+        height: style.height,
+        width: style.width,
+        gap: style.columnGap,
+        rowGap: style.rowGap,
+        shadow: style.boxShadow,
+        weight: style.fontWeight,
+        fontFamily: style.fontFamily,
+        fontSize: style.fontSize,
+        lineHeight: style.lineHeight,
+        textAlign: style.textAlign,
+        overflowX: style.overflowX,
+        flexWrap: style.flexWrap,
+        whiteSpace: style.whiteSpace,
+    };
+}"""
+
+
+def tablist(page: Page, name: str) -> Locator:
+    region = page.get_by_role("region", name="Tabs")
+    return region.get_by_role("tablist", name=name, exact=True)
+
+
+def card(page: Page, name: str) -> Locator:
+    region = page.get_by_role("region", name="Card")
+    return region.get_by_role("article", name=name, exact=True)
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_the_layout_pieces_are_shown(page: Page, viewport: str, theme: str):
+    open_gallery(page, theme)
+
+    for title in ["Tabs", "Card", "Empty state", "Timeline entry"]:
+        expect(page.get_by_role("region", name=title)).to_be_visible()
+    capture(page, f"gallery-tabs-card-empty-timeline-{theme}")
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_tabs_read_their_values(page: Page, theme: str):
+    open_gallery(page, theme)
+    row = tablist(page, "Four tabs")
+
+    selected = row.get_by_role("tab", selected=True)
+    expect(selected).to_have_count(1)
+    style = selected.evaluate(BOX_STYLE)
+    assert style["background"] == resolve(page, "--surface-2", "background-color")
+    assert style["borders"] == [resolve(page, "--accent-border", "color")] * 4
+    assert style["borderWidths"] == ["1px"] * 4
+    assert style["radii"] == radii(page, "--radius-md")
+    assert style["color"] == resolve(page, "--text", "color")
+    assert style["weight"] == "600"
+    assert style["height"] == resolve(page, "--control-h", "height")
+
+    other = row.get_by_role("tab", selected=False).first
+    style = other.evaluate(BOX_STYLE)
+    assert style["background"] == resolve(page, None, "background-color")
+    assert style["borders"] == [resolve(page, None, "color")] * 4
+    assert style["color"] == resolve(page, "--text-2", "color")
+    assert style["weight"] == "500"
+    assert style["padding"][1] == style["padding"][3] == "12px"
+    assert style["height"] == resolve(page, "--control-h", "height")
+
+    style = row.evaluate(BOX_STYLE)
+    assert style["borders"][2] == resolve(page, "--border", "color")
+    assert style["borderWidths"] == ["0px", "0px", "1px", "0px"]
+    assert style["padding"][2] == "8px"
+    assert style["gap"] == resolve(page, "--space-1", "column-gap")
+
+    # The count after a label is a badge.
+    count = row.get_by_role("tab", name="Decisions 2").get_by_text("2", exact=True)
+    badge = count.evaluate(BOX_STYLE)
+    assert badge["background"] == resolve(page, "--surface-2", "background-color")
+    assert badge["height"] == "22px"
+
+
+def test_tabs_follow_the_keyboard_in_the_browser(page: Page):
+    open_gallery(page, "light")
+    row = tablist(page, "Four tabs")
+    first = row.get_by_role("tab").first
+    last = row.get_by_role("tab").last
+
+    first.focus()
+    page.keyboard.press("ArrowLeft")
+    expect(last).to_be_focused()
+    expect(last).to_have_attribute("aria-selected", "true")
+    expect(
+        page.get_by_role("region", name="Tabs").get_by_role(
+            "tabpanel", name=last.inner_text()
+        )
+    ).to_be_visible()
+    page.keyboard.press("Home")
+    expect(first).to_be_focused()
+    expect(first).to_have_attribute("aria-selected", "true")
+
+
+def test_tabs_scroll_sideways_on_phone_and_never_wrap(page: Page):
+    page.set_viewport_size(VIEWPORTS["phone"])
+    open_gallery(page, "light")
+    row = tablist(page, "Eight tabs")
+
+    tabs = row.get_by_role("tab")
+    assert tabs.count() == 8
+    tops = {tabs.nth(index).evaluate("e => e.offsetTop") for index in range(8)}
+    assert len(tops) == 1, "the row wrapped"
+    style = row.evaluate(BOX_STYLE)
+    assert style["flexWrap"] == "nowrap"
+    assert style["overflowX"] == "auto"
+    assert row.evaluate("e => e.scrollWidth > e.clientWidth"), "the row does not scroll"
+    assert page.evaluate(
+        "() => document.documentElement.scrollWidth <= window.innerWidth"
+    ), "the page scrolls sideways"
+    for index in range(8):
+        box = tabs.nth(index).bounding_box()
+        assert box is not None and box["height"] == 44
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_a_card_reads_its_values(page: Page, theme: str):
+    open_gallery(page, theme)
+
+    style = card(page, "Plain").evaluate(BOX_STYLE)
+    assert style["background"] == resolve(page, "--surface", "background-color")
+    assert style["borders"] == [resolve(page, "--border", "color")] * 4
+    assert style["borderWidths"] == ["1px"] * 4
+    assert style["radii"] == radii(page, "--radius-lg")
+    assert style["padding"] == [resolve(page, "--space-4", "padding-top")] * 4
+    assert style["rowGap"] == resolve(page, "--space-3", "row-gap")
+    assert style["shadow"] == "none"
+
+    heading = card(page, "Plain").get_by_role("heading", level=2).evaluate(BOX_STYLE)
+    assert heading["fontFamily"] == resolve(page, "--font-heading", "font-family")
+    assert heading["fontSize"] == resolve(page, "--text-h2-size", "font-size")
+    assert heading["lineHeight"] == resolve(page, "--text-h2-line", "line-height")
+    assert heading["weight"] == "600"
+
+    # The needs you outline: the 1px border and a 1px ring outside it, both
+    # in the accent border, so it reads as 2px.
+    style = card(page, "Needing you").evaluate(BOX_STYLE)
+    accent = resolve(page, "--accent-border", "color")
+    assert style["borders"] == [accent] * 4
+    assert style["borderWidths"] == ["1px"] * 4
+    assert style["shadow"] == f"{accent} 0px 0px 0px 1px"
+    hidden = card(page, "Needing you").get_by_text("Needs you", exact=True)
+    expect(hidden).to_be_attached()
+    box = hidden.bounding_box()
+    assert box is not None and box["width"] <= 1 and box["height"] <= 1
+
+
+def test_cards_in_a_row_align_their_footers(page: Page):
+    open_gallery(page, "light")
+    region = page.get_by_role("region", name="Card")
+
+    footers = [
+        card(page, name).get_by_role("button").bounding_box()
+        for name in ["Review", "Lessons", "Briefing"]
+    ]
+    assert all(box is not None for box in footers)
+    tops = {round(box["y"]) for box in footers if box}
+    assert len(tops) == 1, footers
+    bodies = [
+        card(page, name).evaluate("e => e.getBoundingClientRect().height")
+        for name in ["Review", "Lessons", "Briefing"]
+    ]
+    assert len(set(bodies)) == 1, "the cards in the row differ in height"
+    expect(region.get_by_role("article")).to_have_count(7)
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_an_empty_state_reads_its_values(page: Page, theme: str):
+    open_gallery(page, theme)
+    region = page.get_by_role("region", name="Empty state")
+
+    title = region.get_by_text("No cards due", exact=True)
+    root = title.locator("..")
+    style = root.evaluate(BOX_STYLE)
+    assert style["borderStyles"] == ["dashed"] * 4
+    assert style["borders"] == [resolve(page, "--border-strong", "color")] * 4
+    assert style["borderWidths"] == ["1px"] * 4
+    assert style["radii"] == radii(page, "--radius-lg")
+    six = resolve(page, "--space-6", "padding-top")
+    four = resolve(page, "--space-4", "padding-top")
+    assert style["padding"] == [six, four, six, four]
+    assert style["textAlign"] == "center"
+
+    assert title.evaluate(BOX_STYLE)["weight"] == "600"
+    detail = root.locator("p").nth(1).evaluate(BOX_STYLE)
+    assert detail["color"] == resolve(page, "--text-2", "color")
+    assert detail["fontSize"] == resolve(page, "--text-small-size", "font-size")
+    assert detail["lineHeight"] == resolve(page, "--text-small-line", "line-height")
+
+    action = root.get_by_role("button")
+    expect(action).to_have_count(1)
+    assert (
+        action.evaluate(BOX_STYLE)["borders"]
+        == [resolve(page, "--border-strong", "color")] * 4
+    ), "the action is a secondary button"
+
+    # The other example has no action.
+    bare = region.get_by_text("Nothing in review", exact=True).locator("..")
+    expect(bare.get_by_role("button")).to_have_count(0)
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_a_timeline_entry_reads_its_values(page: Page, theme: str):
+    open_gallery(page, theme)
+    region = page.get_by_role("region", name="Timeline entry")
+    timeline = region.get_by_role("list", name="Recent")
+    items = timeline.get_by_role("listitem")
+    expect(items).to_have_count(3)
+
+    rails = [items.nth(index).locator("[aria-hidden='true']") for index in range(3)]
+    # Every entry has a ring, and a line down to the next one but the last.
+    assert [rail.locator("span").count() for rail in rails] == [2, 2, 1]
+
+    rail = rails[1].evaluate(BOX_STYLE)
+    assert rail["width"] == "10px"
+    ring = rails[1].locator("span").first.evaluate(BOX_STYLE)
+    assert ring["width"] == ring["height"] == "8px"
+    assert ring["borders"] == [resolve(page, "--border-strong", "color")] * 4
+    assert ring["borderWidths"] == ["2px"] * 4
+    assert ring["background"] == resolve(page, "--surface", "background-color")
+    assert ring["radii"] == radii(page, "--radius-full")
+    line = rails[1].locator("span").nth(1)
+    assert line.evaluate(BOX_STYLE)["width"] == "1px"
+    assert line.evaluate(BOX_STYLE)["background"] == resolve(
+        page, "--border", "background-color"
+    )
+
+    # The line reaches the next entry's ring.
+    line_box = line.bounding_box()
+    next_ring = rails[2].locator("span").first.bounding_box()
+    assert line_box is not None and next_ring is not None
+    assert line_box["y"] + line_box["height"] == pytest.approx(next_ring["y"], abs=1)
+
+    # 14px between entries, and space-3 between the rail and the content.
+    first, second = items.nth(0).bounding_box(), items.nth(1).bounding_box()
+    assert first is not None and second is not None
+    assert second["y"] - (first["y"] + first["height"]) == pytest.approx(14, abs=0.5)
+    assert items.nth(1).evaluate(BOX_STYLE)["gap"] == resolve(
+        page, "--space-3", "column-gap"
+    )
+
+    time = items.nth(1).get_by_text("10 Nov 21:05", exact=True).evaluate(BOX_STYLE)
+    assert time["fontFamily"] == resolve(page, "--font-mono", "font-family")
+    assert time["fontSize"] == resolve(page, "--text-mono-size", "font-size")
+    assert time["color"] == resolve(page, "--text-3", "color")
+
+    detail = items.nth(0).locator("p").last.evaluate(BOX_STYLE)
+    assert detail["color"] == resolve(page, "--text-2", "color")
+    assert detail["fontSize"] == resolve(page, "--text-small-size", "font-size")
+
+    # The entry that needs the user: a filled accent dot in an accent ring.
+    dot = rails[0].locator("span").first.evaluate(BOX_STYLE)
+    assert dot["background"] == resolve(page, "--accent", "background-color")
+    assert dot["borders"] == [resolve(page, "--accent-border", "color")] * 4
+
+
+# The "Table" of section 4 of design/DESIGN.md. The gallery's "Sessions"
+# table has columns of all three priorities: Session and Status are 1,
+# Project and Hours (numeric) are 2, Notes is 3. It is sorted by Session, the
+# second row is selected and the third is editing. "Hours by month" is a wide
+# table of priority 1 columns, wider than a phone.
+TABLE_STYLE = """element => {
+    const style = getComputedStyle(element);
+    return {
+        background: style.backgroundColor,
+        color: style.color,
+        borders: [style.borderTopColor, style.borderRightColor,
+                  style.borderBottomColor, style.borderLeftColor],
+        borderWidths: [style.borderTopWidth, style.borderRightWidth,
+                       style.borderBottomWidth, style.borderLeftWidth],
+        radii: [style.borderTopLeftRadius, style.borderTopRightRadius,
+                style.borderBottomRightRadius, style.borderBottomLeftRadius],
+        padding: [style.paddingTop, style.paddingRight,
+                  style.paddingBottom, style.paddingLeft],
+        overflowX: style.overflowX,
+        weight: style.fontWeight,
+        fontFamily: style.fontFamily,
+        fontSize: style.fontSize,
+        lineHeight: style.lineHeight,
+        textAlign: style.textAlign,
+        numerals: style.fontVariantNumeric,
+        shadow: style.boxShadow,
+    };
+}"""
+
+PRIORITY_1 = ["Session", "Status"]
+PRIORITY_2 = ["Project", "Hours"]
+PRIORITY_3 = ["Notes"]
+
+
+def table_section(page: Page) -> Locator:
+    return page.get_by_role("region", name="Table", exact=True)
+
+
+def sessions(page: Page) -> Locator:
+    return table_section(page).get_by_role("table", name="Sessions", exact=True)
+
+
+def body_rows(table: Locator) -> Locator:
+    return table.locator("tbody > tr")
+
+
+def column_index(table: Locator, name: str) -> int:
+    names = table.locator("thead th").all_inner_texts()
+    return [text.strip() for text in names].index(name)
+
+
+def no_sideways_scroll(page: Page) -> bool:
+    return page.evaluate(
+        "() => document.documentElement.scrollWidth <= window.innerWidth"
+    )
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_the_table_is_shown(page: Page, viewport: str, theme: str):
+    open_gallery(page, theme)
+    section = table_section(page)
+
+    expect(sessions(page)).to_be_visible()
+    expect(section.get_by_role("navigation", name="Pages")).to_be_visible()
+    body_rows(sessions(page)).first.hover()
+    capture(page, f"gallery-table-{theme}")
+
+    # Editing another row moves the edit there, with focus in its field.
+    section.get_by_role("button", name="Edit Write the next slice").click()
+    expect(section.get_by_role("textbox", name="Session", exact=True)).to_be_focused()
+    capture(page, f"gallery-table-editing-{theme}")
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_a_table_reads_its_values(page: Page, theme: str):
+    open_gallery(page, theme)
+    table = sessions(page)
+    rows = body_rows(table)
+
+    # The wrapper: 1px border, the large radius, the surface, and it scrolls.
+    wrapper = table.locator("..").evaluate(TABLE_STYLE)
+    assert wrapper["borders"] == [resolve(page, "--border", "color")] * 4
+    assert wrapper["borderWidths"] == ["1px"] * 4
+    assert wrapper["radii"] == radii(page, "--radius-lg")
+    assert wrapper["background"] == resolve(page, "--surface", "background-color")
+    assert wrapper["overflowX"] == "auto"
+
+    # Header cells: surface-2, caption style, text-3; the sorted one is text
+    # at 600.
+    plain = table.locator("thead th", has_text="Project").evaluate(TABLE_STYLE)
+    assert plain["background"] == resolve(page, "--surface-2", "background-color")
+    assert plain["color"] == resolve(page, "--text-3", "color")
+    assert_caption(page, plain)
+    sorted_header = table.locator("thead th[aria-sort]")
+    expect(sorted_header).to_have_count(1)
+    expect(sorted_header).to_have_text("Session")
+    expect(sorted_header).to_have_attribute("aria-sort", "ascending")
+    style = sorted_header.evaluate(TABLE_STYLE)
+    assert style["background"] == resolve(page, "--surface-2", "background-color")
+    assert style["color"] == resolve(page, "--text", "color")
+    assert style["weight"] == "600"
+
+    # Body rows: row-h tall, padding 6px 12px, and a 1px border line between
+    # them, drawn inside the row so a row holding a button is still row-h.
+    row_h = resolve(page, "--row-h", "height")
+    expect(rows).to_have_count(8)
+    for index in [0, 1, 3, 7]:
+        box = rows.nth(index).bounding_box()
+        assert box is not None and f"{box['height']:g}px" == row_h, index
+    cell = rows.nth(3).locator("td").first.evaluate(TABLE_STYLE)
+    assert cell["padding"] == ["6px", "12px", "6px", "12px"]
+    border = resolve(page, "--border", "color")
+    assert cell["shadow"] == f"{border} 0px 1px 0px 0px inset"
+
+    # The numeric column: right aligned, mono, tabular figures.
+    hours = column_index(table, "Hours")
+    number = rows.nth(0).locator("td").nth(hours).evaluate(TABLE_STYLE)
+    assert number["textAlign"] == "right"
+    assert number["fontFamily"] == resolve(page, "--font-mono", "font-family")
+    assert number["numerals"] == "tabular-nums"
+
+    # The folded line is the phone's; on desktop it is not shown.
+    expect(rows.nth(0).locator("td").first.get_by_text("·")).to_be_hidden()
+
+    # Hover: surface-2. Selected and editing: info-soft.
+    plain_row = rows.nth(3)
+    plain_row.hover()
+    assert plain_row.evaluate(TABLE_STYLE)["background"] == resolve(
+        page, "--surface-2", "background-color"
+    )
+    selected = rows.nth(1)
+    expect(selected).to_have_attribute("aria-selected", "true")
+    editing = rows.nth(2)
+    expect(editing).to_have_attribute("aria-selected", "true")
+    expect(editing.get_by_role("textbox", name="Session", exact=True)).to_be_visible()
+    page.mouse.move(0, 0)
+    for row in [selected, editing]:
+        assert row.evaluate(TABLE_STYLE)["background"] == resolve(
+            page, "--info-soft", "background-color"
+        )
+    # A selected row keeps its fill under the pointer.
+    selected.hover()
+    assert selected.evaluate(TABLE_STYLE)["background"] == resolve(
+        page, "--info-soft", "background-color"
+    )
+
+
+def test_a_table_sorts_and_edits_in_the_browser(page: Page):
+    open_gallery(page, "light")
+    section = table_section(page)
+    table = sessions(page)
+
+    section.get_by_role("button", name="Hours", exact=True).click()
+    header = table.locator("thead th[aria-sort]")
+    expect(header).to_have_text("Hours")
+    expect(header).to_have_attribute("aria-sort", "ascending")
+
+    edit = section.get_by_role("button", name="Edit Write the next slice")
+    edit.click()
+    field = section.get_by_role("textbox", name="Session", exact=True)
+    expect(field).to_be_focused()
+    page.keyboard.press("Escape")
+    expect(field).to_have_count(0)
+    expect(edit).to_be_focused()
+
+
+def test_below_640px_only_priority_one_columns_show(page: Page):
+    page.set_viewport_size(VIEWPORTS["phone"])
+    open_gallery(page, "light")
+    table = sessions(page)
+    rows = body_rows(table)
+
+    for name in PRIORITY_1:
+        expect(table.locator("thead th", has_text=name)).to_be_visible()
+    for name in PRIORITY_2 + PRIORITY_3:
+        index = column_index(table, name)
+        expect(table.locator("thead th").nth(index)).to_be_hidden()
+        for row in range(rows.count()):
+            expect(rows.nth(row).locator("td").nth(index)).to_be_hidden()
+
+    # The priority 2 values, folded into one mono line under the first cell.
+    first = rows.nth(3).locator("td").first
+    fold = first.get_by_text("Platform · 2.0 h", exact=True)
+    expect(fold).to_be_visible()
+    style = fold.evaluate(TABLE_STYLE)
+    assert style["fontFamily"] == resolve(page, "--font-mono", "font-family")
+    assert style["fontSize"] == resolve(page, "--text-mono-size", "font-size")
+    title = first.get_by_text("Review the merge gate", exact=True).bounding_box()
+    fold_box = fold.bounding_box()
+    assert title is not None and fold_box is not None
+    assert fold_box["y"] >= title["y"] + title["height"] - 0.5, "not under the cell"
+    # The priority 3 value is not folded in.
+    expect(first).not_to_contain_text("Waits on CI")
+
+    assert no_sideways_scroll(page), "the page scrolls sideways"
+
+
+def test_a_wide_table_scrolls_inside_its_wrapper(page: Page):
+    page.set_viewport_size(VIEWPORTS["phone"])
+    open_gallery(page, "light")
+    wide = table_section(page).get_by_role("table", name="Hours by month")
+    wrapper = wide.locator("..")
+
+    assert wrapper.evaluate("e => e.scrollWidth > e.clientWidth"), "it does not scroll"
+    assert wrapper.evaluate(TABLE_STYLE)["overflowX"] == "auto"
+    wrapper.evaluate("e => { e.scrollLeft = e.scrollWidth; }")
+    assert wrapper.evaluate("e => e.scrollLeft") > 0
+    assert no_sideways_scroll(page), "the page scrolls sideways"
+
+
+def test_rows_are_44px_on_phone(page: Page):
+    page.set_viewport_size(VIEWPORTS["phone"])
+    open_gallery(page, "light")
+    section = table_section(page)
+
+    # A row of one line is exactly 44px; one with the folded line under its
+    # first cell is taller, never shorter.
+    wide = section.get_by_role("table", name="Hours by month")
+    for table, exact in [(wide, True), (sessions(page), False)]:
+        header = table.locator("thead tr").bounding_box()
+        assert header is not None and header["height"] == 44
+        rows = body_rows(table)
+        for index in range(rows.count()):
+            box = rows.nth(index).bounding_box()
+            assert box is not None
+            if exact:
+                assert box["height"] == 44, index
+            else:
+                assert box["height"] >= 44, index
+
+    # The controls in the table are touch targets too.
+    for name in ["Session", "Edit Review the merge gate", "Save", "Cancel"]:
+        box = section.get_by_role("button", name=name, exact=True).bounding_box()
+        assert box is not None and box["height"] >= 44, name
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_the_filters_and_paging_read_their_values(page: Page, theme: str):
+    open_gallery(page, theme)
+    section = table_section(page)
+
+    pill = section.get_by_text("Status: Done", exact=True).locator("..")
+    style = pill.evaluate(TABLE_STYLE)
+    assert pill.evaluate("e => e.getBoundingClientRect().height") == 28
+    assert style["radii"] == radii(page, "--radius-full")
+    assert style["borders"] == [resolve(page, "--border-strong", "color")] * 4
+    assert style["borderWidths"] == ["1px"] * 4
+
+    count = section.get_by_text("8 of 214", exact=True).evaluate(TABLE_STYLE)
+    assert count["fontFamily"] == resolve(page, "--font-mono", "font-family")
+
+    remove = section.get_by_role("button", name="Remove filter Status: Done")
+    remove.click()
+    expect(section.get_by_text("Status: Done", exact=True)).to_have_count(0)
+
+    paging = section.get_by_role("navigation", name="Pages")
+    expect(paging.get_by_text("Rows 1 to 8 of 214")).to_be_visible()
+    expect(paging.get_by_role("button", name="Previous")).to_be_disabled()
+    paging.get_by_role("button", name="Next").click()
+    expect(paging.get_by_text("Rows 9 to 16 of 214")).to_be_visible()
+    expect(paging.get_by_role("button", name="Previous")).to_be_enabled()
+
+
+# "Dialog" and "Toast" in section 4 of design/DESIGN.md, the two floating
+# layers and the only components with a shadow (hard rule 3). The gallery's
+# Dialog section opens a destructive dialog and a primary one from a button
+# each, and its Toast section raises a success and an error.
+FLOATING_STYLE = """element => {
+    const style = getComputedStyle(element);
+    const backdrop = getComputedStyle(element, "::backdrop");
+    return {
+        background: style.backgroundColor,
+        borders: [style.borderTopColor, style.borderRightColor,
+                  style.borderBottomColor, style.borderLeftColor],
+        borderWidths: [style.borderTopWidth, style.borderRightWidth,
+                       style.borderBottomWidth, style.borderLeftWidth],
+        radii: [style.borderTopLeftRadius, style.borderTopRightRadius,
+                style.borderBottomRightRadius, style.borderBottomLeftRadius],
+        shadow: style.boxShadow,
+        position: style.position,
+        maxWidth: style.maxWidth,
+        backdrop: backdrop.backgroundColor,
+    };
+}"""
+
+INSIDE = "element => element.contains(document.activeElement)"
+
+
+def dialog_section(page: Page) -> Locator:
+    return page.get_by_role("region", name="Dialog", exact=True)
+
+
+def toast_section(page: Page) -> Locator:
+    return page.get_by_role("region", name="Toast", exact=True)
+
+
+def open_dialog(page: Page, opener: str = "Delete 3 entries…") -> Locator:
+    dialog_section(page).get_by_role("button", name=opener, exact=True).click()
+    dialog = page.get_by_role("dialog")
+    expect(dialog).to_be_visible()
+    return dialog
+
+
+def raise_toasts(page: Page) -> tuple[Locator, Locator]:
+    section = toast_section(page)
+    section.get_by_role("button", name="Show a success", exact=True).click()
+    section.get_by_role("button", name="Show an error", exact=True).click()
+    success = page.get_by_role("status").filter(has_text="Entry saved")
+    error = page.get_by_role("alert").filter(has_text="Error: could not reach")
+    expect(success).to_be_visible()
+    expect(error).to_be_visible()
+    return success, error
+
+
+def rgba(colour: str) -> tuple[float, float, float, float]:
+    """The red, green, blue and alpha of a computed colour, from 0 to 1, in
+    either form the browser writes: `rgb(…)`, `rgba(…)` or `color(srgb …)`."""
+    legacy = re.fullmatch(r"rgba?\((\d+), (\d+), (\d+)(?:, ([\d.]+))?\)", colour)
+    if legacy:
+        red, green, blue = (int(value) / 255 for value in legacy.groups()[:3])
+        return red, green, blue, float(legacy.group(4) or 1)
+    modern = re.fullmatch(
+        r"color\(srgb ([\d.e-]+) ([\d.e-]+) ([\d.e-]+)(?: / ([\d.]+))?\)", colour
+    )
+    assert modern, f"not an sRGB colour: {colour}"
+    red, green, blue = (float(value) for value in modern.groups()[:3])
+    return red, green, blue, float(modern.group(4) or 1)
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_the_dialog_and_the_toast_are_shown(page: Page, viewport: str, theme: str):
+    open_gallery(page, theme)
+
+    dialog = open_dialog(page)
+    expect(dialog.get_by_role("heading", name="Delete 3 entries?")).to_be_visible()
+    capture(page, f"gallery-dialog-{theme}")
+    dialog.get_by_role("button", name="Cancel", exact=True).click()
+    expect(dialog).to_be_hidden()
+
+    raise_toasts(page)
+    capture(page, f"gallery-toast-{theme}")
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_a_dialog_reads_its_values(page: Page, theme: str):
+    open_gallery(page, theme)
+    dialog = open_dialog(page)
+
+    style = dialog.evaluate(FLOATING_STYLE)
+    box = dialog.bounding_box()
+    assert box is not None and box["width"] <= 480
+    assert style["maxWidth"] == "480px"
+    assert style["background"] == resolve(page, "--surface", "background-color")
+    assert style["borders"] == [resolve(page, "--border", "color")] * 4
+    assert style["borderWidths"] == ["1px"] * 4
+    assert style["radii"] == radii(page, "--radius-lg")
+    assert style["shadow"] == resolve(page, "--shadow-2", "box-shadow")
+
+    # The backdrop is --bg at 70 percent.
+    *backdrop, alpha = rgba(style["backdrop"])
+    *bg, _ = rgba(resolve(page, "--bg", "background-color"))
+    assert backdrop == pytest.approx(bg, abs=1 / 255)
+    assert alpha == pytest.approx(0.7, abs=0.01)
+
+    # The actions: right aligned, cancel first, the verb repeated.
+    cancel = dialog.get_by_role("button", name="Cancel", exact=True)
+    confirm = dialog.get_by_role("button", name="Delete entries", exact=True)
+    cancel_box, confirm_box = cancel.bounding_box(), confirm.bounding_box()
+    assert cancel_box is not None and confirm_box is not None
+    assert cancel_box["x"] < confirm_box["x"]
+    right = box["x"] + box["width"]
+    assert right - (confirm_box["x"] + confirm_box["width"]) == pytest.approx(21)
+
+
+def test_on_phone_a_dialog_is_a_sheet_at_the_bottom(page: Page):
+    page.set_viewport_size(VIEWPORTS["phone"])
+    open_gallery(page, "light")
+    dialog = open_dialog(page)
+
+    style = dialog.evaluate(FLOATING_STYLE)
+    box = dialog.bounding_box()
+    width, height = VIEWPORTS["phone"]["width"], VIEWPORTS["phone"]["height"]
+    assert style["position"] == "fixed"
+    assert box is not None
+    assert box["x"] == 0 and box["width"] == width
+    assert box["y"] + box["height"] == pytest.approx(height, abs=0.5)
+    # It stays where it is when the page behind it has scrolled.
+    page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+    moved = dialog.bounding_box()
+    assert moved is not None and moved["y"] == pytest.approx(box["y"], abs=0.5)
+
+
+def test_a_dialog_cancels_and_confirms_in_the_browser(page: Page):
+    open_gallery(page, "light")
+    opener = dialog_section(page).get_by_role(
+        "button", name="Archive the project…", exact=True
+    )
+
+    # Escape cancels, and focus returns to the button that opened it.
+    dialog = open_dialog(page, "Archive the project…")
+    page.keyboard.press("Escape")
+    expect(dialog).to_be_hidden()
+    expect(opener).to_be_focused()
+
+    # A click on the backdrop cancels; a click inside does not.
+    dialog = open_dialog(page, "Archive the project…")
+    dialog.get_by_text("Its sessions stay").click()
+    expect(dialog).to_be_visible()
+    page.mouse.click(4, 4)
+    expect(dialog).to_be_hidden()
+
+    # The confirming button is disabled while the work runs, then it closes.
+    dialog = open_dialog(page, "Archive the project…")
+    confirm = dialog.get_by_role("button", name="Archive project", exact=True)
+    confirm.click()
+    expect(confirm).to_be_disabled()
+    expect(dialog).to_be_hidden()
+    expect(opener).to_be_focused()
+    expect(dialog_section(page).get_by_text("Archived.")).to_be_visible()
+
+
+def test_focus_stays_inside_an_open_dialog(page: Page):
+    open_gallery(page, "light")
+    dialog = open_dialog(page)
+    buttons = dialog.get_by_role("button")
+    count = buttons.count()
+
+    assert dialog.evaluate(INSIDE), "focus did not move into the dialog"
+    seen = set()
+    for _ in range(count * 3):
+        page.keyboard.press("Tab")
+        assert dialog.evaluate(INSIDE), "Tab left the dialog"
+        seen.add(page.evaluate("document.activeElement.textContent"))
+    for _ in range(count * 2):
+        page.keyboard.press("Shift+Tab")
+        assert dialog.evaluate(INSIDE), "Shift+Tab left the dialog"
+    assert seen == {"Cancel", "Delete entries"}
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_a_toast_reads_its_values(page: Page, viewport: str, theme: str):
+    open_gallery(page, theme)
+    success, error = raise_toasts(page)
+
+    for toast in [success, error]:
+        style = toast.evaluate(FLOATING_STYLE)
+        assert style["background"] == resolve(page, "--surface", "background-color")
+        assert style["borders"] == [resolve(page, "--border-strong", "color")] * 4
+        assert style["borderWidths"] == ["1px"] * 4
+        assert style["radii"] == radii(page, "--radius-md")
+        assert style["shadow"] == resolve(page, "--shadow-1", "box-shadow")
+        assert style["maxWidth"] == "400px"
+
+    # The action is a text button in --info, weight 600.
+    action = error.get_by_role("button", name="Retry", exact=True)
+    action_style = action.evaluate(STYLE)
+    assert action_style["color"] == resolve(page, "--info", "color")
+    assert action_style["weight"] == "600"
+
+    # Newest lowest: the error, raised second, is under the success.
+    first, last = success.bounding_box(), error.bounding_box()
+    assert first is not None and last is not None
+    assert first["y"] + first["height"] <= last["y"]
+
+    size = VIEWPORTS[viewport]
+    nav_h = float(resolve(page, "--nav-h", "height").removesuffix("px"))
+    bottom = last["y"] + last["height"]
+    if viewport == "desktop":
+        # Bottom right, a small gap from each edge.
+        assert last["x"] > size["width"] / 2
+        assert 0 < size["width"] - (last["x"] + last["width"]) <= 32
+        assert 0 < size["height"] - bottom <= 32
+    else:
+        # Above the bottom tab bar, and inside the screen.
+        assert bottom <= size["height"] - nav_h
+        assert last["x"] >= 0 and last["x"] + last["width"] <= size["width"]
+        assert no_sideways_scroll(page), "the page scrolls sideways"
+
+
+def test_a_toast_action_dismisses_it_in_the_browser(page: Page):
+    open_gallery(page, "light")
+    success, error = raise_toasts(page)
+
+    error.get_by_role("button", name="Retry", exact=True).click()
+    expect(error).to_have_count(0)
+    success.get_by_role("button", name="Undo", exact=True).click()
+    expect(success).to_have_count(0)

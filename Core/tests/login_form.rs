@@ -284,9 +284,10 @@ async fn every_refusal_answers_byte_for_byte_the_same() {
 
     for (response, (email, password)) in answers.iter().zip(refusals) {
         assert_eq!(response.status, 422, "{email}: {}", response.body);
-        assert!(
-            response.body.contains("Email or password is incorrect."),
-            "{email}"
+        common::forms::assert_refused_on(
+            &response.body,
+            "password",
+            "Email or password is incorrect.",
         );
         assert!(
             response.all("set-cookie").is_empty(),

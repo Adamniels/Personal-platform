@@ -13,10 +13,13 @@ directory.
 import os
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
+from pathlib import Path
 from urllib.parse import SplitResult, urlsplit
 
 DEFAULT_CORE_URL = "http://127.0.0.1:8080"
 DEFAULT_PUBLIC_ORIGIN = "https://platform.test"
+# Relative to the directory the brain runs from, Brain/ everywhere it runs.
+DEFAULT_WEB_DIR = Path("web/dist")
 
 DEFAULT_PORTS = {"http": 80, "https": 443}
 
@@ -32,6 +35,10 @@ class Settings:
     core_url: str
     # The platform's origin as a browser sends it, for the Origin check.
     public_origin: str
+    # Where the memory centre's build is, `npm run build` in Brain/web. Whether
+    # it holds one is checked when the brain starts, not here, so the settings
+    # load where no build was made.
+    web_dir: Path
     # The brain's database, as brain_app. It holds a password, so it is left
     # out of the repr and never repeated in an error.
     app_database_url: str = field(repr=False)
@@ -43,6 +50,7 @@ def load(environ: Mapping[str, str]) -> Settings:
         public_origin=_setting(
             environ, "BRAIN_PUBLIC_ORIGIN", DEFAULT_PUBLIC_ORIGIN, parse_origin
         ),
+        web_dir=_setting(environ, "BRAIN_WEB_DIR", DEFAULT_WEB_DIR, parse_web_dir),
         app_database_url=_required(
             environ, "BRAIN_APP_DATABASE_URL", parse_database_url
         ),
@@ -95,6 +103,16 @@ def parse_origin(text: str) -> str:
             f"{text!r} is not an origin like https://platform.test: scheme and host, lowercase, no path, no default port"
         )
     return text
+
+
+def parse_web_dir(text: str) -> Path:
+    """A folder, absolute or relative to where the brain runs. Empty would
+    quietly mean the working directory."""
+    if not text:
+        raise ValueError(
+            "is empty: give the folder Brain/web builds into, such as web/dist"
+        )
+    return Path(text)
 
 
 def parse_database_url(text: str) -> str:

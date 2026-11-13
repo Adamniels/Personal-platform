@@ -5,7 +5,7 @@
 //! reaches this page. See "Password reset, and changing a password" in
 //! docs/core-architecture.md.
 
-use crate::pages::Page;
+use crate::pages::{FormError, Page};
 use crate::session::Session;
 use crate::{AppState, accounts, password, sessions};
 use askama::Template;
@@ -90,7 +90,7 @@ pub fn routes() -> Router<AppState> {
 #[derive(Template)]
 #[template(path = "change_password.html")]
 struct ChangePasswordPage<'a> {
-    error: Option<&'a str>,
+    error: Option<FormError<'a>>,
     changed: bool,
 }
 
@@ -142,8 +142,10 @@ async fn submit(
     .await
     {
         Ok(Outcome::Changed) => Redirect::to(CHANGED_PATH).into_response(),
-        Ok(Outcome::IncorrectCurrent) => refused(INCORRECT_CURRENT),
-        Ok(Outcome::InvalidPassword(message)) => refused(message),
+        Ok(Outcome::IncorrectCurrent) => {
+            refused(FormError::on("current_password", INCORRECT_CURRENT))
+        }
+        Ok(Outcome::InvalidPassword(message)) => refused(FormError::on("new_password", message)),
         Err(err) => {
             eprintln!("changing a password failed: {err}");
             (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error\n").into_response()

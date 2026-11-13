@@ -3,22 +3,32 @@
 {% block title %}Reset password{% endblock %}
 
 {% block content %}
+<div class="form-card">
 <h1>Choose a new password</h1>
 
-{% if let Some(error) = error %}
-<p class="error" role="alert">{{ error }}</p>
-{% endif %}
-
 <form method="post" action="/reset">
-  <label>
-    Reset token
-    <input name="token" value="{{ token }}" required autocomplete="off" spellcheck="false">
-  </label>
-  <label>
-    New password
-    <span class="hint">15 characters or more</span>
-    <input name="password" type="password" required minlength="15" maxlength="1024" autocomplete="new-password">
-  </label>
+  <div class="field">
+    <label>
+      Reset token
+      <input name="token" value="{{ token }}" required autocomplete="off" spellcheck="false"
+        {%- if crate::pages::error_on(error, "token").is_some() %} aria-invalid="true" aria-describedby="token-error"{% endif %}>
+    </label>
+    {%- if let Some(message) = crate::pages::error_on(error, "token") %}
+    <p class="error" id="token-error" role="alert">Error: {{ message }}</p>
+    {%- endif %}
+  </div>
+  <div class="field">
+    <label>
+      New password
+      <input name="password" type="password" required minlength="15" maxlength="1024" autocomplete="new-password"
+        {%- if crate::pages::error_on(error, "password").is_some() %} aria-invalid="true" aria-describedby="password-error"{% endif %}>
+      <span class="hint">15 characters or more</span>
+    </label>
+    {%- if let Some(message) = crate::pages::error_on(error, "password") %}
+    <p class="error" id="password-error" role="alert">Error: {{ message }}</p>
+    {%- endif %}
+  </div>
   <button type="submit">Set password</button>
 </form>
+</div>
 {% endblock %}

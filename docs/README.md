@@ -2,7 +2,7 @@
 
 Status: exploratory. The walking skeleton is being built.
 
-Last updated: 2026 11 12
+Last updated: 2026 11 13
 
 These are planning notes, not specifications. Everything here is the current best idea with the
 reasoning attached, and it is expected to change as building teaches things planning could not.
@@ -55,8 +55,9 @@ features" in `High-level/docs/platform-architecture.md`.
 | `Core/docs/`        | The core: auth, accounts, routing, the registry, and its own frontend        |
 | `Brain/`            | The brain's code, a Python service, with its docs in `Brain/docs/`           |
 | `Brain/docs/`       | The brain: memory, the trust model, events, retrieval, and its tables        |
-| `libs/`             | Shared libraries owned by no service, token verification first, not yet built |
-| `design/`           | The platform's visual style, its fonts and sprites, served at `/design/`     |
+| `Brain/web/`        | The memory centre, the brain's own React application, served at `/brain`     |
+| `libs/`             | Shared libraries owned by no service, token verification first              |
+| `design/`           | The platform's visual style, its fonts and sprites, and the shared nav bar, served at `/design/` |
 | `design/ui/`        | `@platform/ui`, the React components every frontend installs, and their gallery |
 | `canary/`           | Canary, the Python feature proving another language can verify the token     |
 | `desk/docs/`        | Desk, the feature for working through the day, described but not yet built   |
@@ -95,7 +96,13 @@ features" in `High-level/docs/platform-architecture.md`.
 **Canary**
 
 - `canary/README.md` — what canary serves, how to run canary and its tests, its settings, how it
-  authenticates a request, as the reference a feature starts from, and the libraries it is built on
+  authenticates a request with `platform-auth`, and the libraries it is built on
+
+**Libs**
+
+- `libs/python/platform-auth/README.md` — checking the core's token and the `Origin` header, the one
+  copy every Python service installs: what it holds, what it must never grow into, how to run its
+  tests and how a service installs it
 
 **Contracts**
 
@@ -116,6 +123,10 @@ features" in `High-level/docs/platform-architecture.md`.
 - `design/fonts.css` and `design/fonts/` — the three fonts, hosted here with their licences, and
   where they came from
 - `design/sprites/` — the agent avatars
+- `design/nav.js`, `design/theme.js` and `design/page.css` — the shared nav bar, `<platform-nav>`,
+  the script that applies a remembered theme before the page paints, and the page shell around
+  the bar with the page container a page opts into. What the bar holds and how a page includes it is "Navigation" in
+  `platform-architecture.md`
 - `design/reference/` — designed screens as examples of the style, their content illustrative only
 - `design/ui/README.md` — the component package: what may go in it, how a frontend installs it, how
   to add a component and its gallery section, and the gate every frontend runs
@@ -128,11 +139,12 @@ features" in `High-level/docs/platform-architecture.md`.
 
 **Brain**
 
-- `Brain/README.md` — what the brain serves, how to run it and its tests, its settings, its
-  database and roles, migrating, the one door every query goes through, and the libraries it is
-  built on
+- `Brain/README.md` — what the brain serves, how it knows who is asking, the memory centre and
+  its sections, how its client calls the brain and how its API types are generated, how to run
+  it and its tests, its settings, its database and roles, migrating, the one door every query
+  goes through, and the libraries it is built on
 - `brain-architecture.md` — per feature modules, retrieval, evaluation, consolidation, and the
-  brain's own surface
+  brain's own surface, the memory centre, with its sections and their addresses
 - `trust-model.md` — which store holds what, who can change it, scope, confidence and currency,
   editing, and the review queue
 - `knowledge-model.md` — what the brain is trying to know about a person, and the filter for
