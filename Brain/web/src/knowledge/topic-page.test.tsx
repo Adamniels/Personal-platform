@@ -43,3 +43,29 @@ describe("Place under… offers only canonical topics", () => {
 		).toEqual(["Databases", "Storage"]);
 	});
 });
+
+describe("a provisional topic's page", () => {
+	test("offers Promote and no Edit, and Edit once it is promoted", async () => {
+		const brain = fakeBrain();
+		const indexing = brain.topic("Indexing", { state: "provisional" });
+		const page = openTopic(brain, "indexing");
+
+		const promote = await page.findByRole("button", { name: "Promote" });
+		expect(page.queryByRole("button", { name: "Edit" })).toBeNull();
+		expect(
+			page.getByText("Promote it to give it a level and a focus."),
+		).toBeTruthy();
+
+		fireEvent.click(promote);
+
+		expect(await page.findByRole("button", { name: "Edit" })).toBeTruthy();
+		expect(page.queryByRole("button", { name: "Promote" })).toBeNull();
+		expect(brain.changes()).toEqual([
+			{
+				method: "POST",
+				path: `/brain/api/topics/${indexing.id}/promote`,
+				body: undefined,
+			},
+		]);
+	});
+});

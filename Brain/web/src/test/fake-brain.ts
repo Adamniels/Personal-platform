@@ -3,7 +3,8 @@
 // the rules the sections rely on, as "Memory items" and "Subjects" in Brain/README.md have them:
 // the list newest first, an edit a new version of the same lineage, retiring and restoring the
 // status alone, a level or focus set again a new version of the one the topic has, and the
-// knowledge view one row per topic that is not an alias. Anything else it answers 404.
+// knowledge view one row per topic that is not an alias, and promoting a provisional
+// topic. Anything else it answers 404.
 import type { ClientEnvironment } from "../api/client";
 import type { components } from "../api/schema";
 
@@ -223,6 +224,12 @@ export function fakeBrain() {
 			}
 			const item = make(kind, content, fields.category ?? null);
 			return json(201, detail(item));
+		}
+		const promote = /^\/topics\/([^/]+)\/promote$/.exec(path);
+		const promoted = promote && topics.find(({ id }) => id === promote[1]);
+		if (promoted) {
+			promoted.state = "canonical";
+			return json(200, promoted);
 		}
 		const change = /^\/items\/([^/]+)\/(edit|retire|restore)$/.exec(path);
 		const item = change && items.find(({ id }) => id === change[1]);

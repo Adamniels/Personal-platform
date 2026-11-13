@@ -30,6 +30,7 @@ import {
 	useEndRelation,
 	useKnowledge,
 	usePlaceUnder,
+	usePromote,
 	useRelations,
 	useSameAs,
 	useSaveSettings,
@@ -192,7 +193,10 @@ function TopicView({
 type Open = "edit" | "under" | "same" | null;
 
 /** The topic's level and focus, with Edit, which opens both in place, and
- * Place under… and Same as…, which each ask for another topic. */
+ * Place under… and Same as…, which each ask for another topic. A
+ * provisional topic offers Promote instead of Edit: only a canonical topic
+ * may carry a level, as "Topic vocabulary" in Brain/docs/event-model.md
+ * has it, and a focus is set with it. */
 function Facts({
 	topic,
 	row,
@@ -213,6 +217,7 @@ function Facts({
 	const [target, setTarget] = useState<Choice | null>(null);
 	const placeUnder = usePlaceUnder();
 	const sameAs = useSameAs();
+	const promote = usePromote();
 	const toast = useToast();
 
 	useEffect(() => {
@@ -238,6 +243,7 @@ function Facts({
 		)
 		.map(({ id, name }) => ({ id, name }))
 		.sort((a, b) => a.name.localeCompare(b.name, "en"));
+	const provisional = topic.state === "provisional";
 
 	const level = row?.level?.value;
 	const focus = row?.focus?.value;
@@ -269,9 +275,24 @@ function Facts({
 				</dl>
 				{open === null ? (
 					<div className={styles.actions}>
-						<Button ref={buttons.edit} onClick={() => setOpen("edit")}>
-							Edit
-						</Button>
+						{provisional ? (
+							<Button
+								onClick={() =>
+									promote
+										.mutateAsync(topic.id)
+										.then(() => toast.success(`${topic.name} promoted`))
+										.catch(() => {
+											// The failure has raised its toast.
+										})
+								}
+							>
+								Promote
+							</Button>
+						) : (
+							<Button ref={buttons.edit} onClick={() => setOpen("edit")}>
+								Edit
+							</Button>
+						)}
 						<Button ref={buttons.under} onClick={() => setOpen("under")}>
 							Place under…
 						</Button>
@@ -281,6 +302,11 @@ function Facts({
 					</div>
 				) : null}
 			</div>
+			{provisional ? (
+				<p className={styles.note}>
+					Promote it to give it a level and a focus.
+				</p>
+			) : null}
 			{open === null ? null : (
 				<div className={`${section.panel} ${section.form}`}>
 					{open === "edit" ? (
