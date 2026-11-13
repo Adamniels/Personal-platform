@@ -2,8 +2,8 @@
 door, `brain.db.transaction`. Each test runs on its own copy of the migrated
 database, as brain_app, the role the running brain connects as.
 
-No real table exists yet, so the tests create a probe table, as brain_owner,
-the way every scoped table is created: `user_id`, row level security enabled
+The isolation tests create a probe table, as brain_owner, the way every
+scoped table is created: `user_id`, row level security enabled
 and forced, and the one policy from "What holds for every table" in
 `Brain/docs/data-model.md`."""
 
@@ -249,10 +249,59 @@ def unguarded_tables(database: str) -> list[str]:
     return found
 
 
+# The scoped tables the migrations have made so far, so the test below is
+# known to have checked them rather than an empty schema.
+SCOPED_TABLES = {"entities", "topic_relations", "topics"}
+
+
 def test_every_scoped_table_forces_row_level_security(database: str) -> None:
     # Every migration in Brain/migrations/ has run on this database, so a
     # table added later without its guard fails here.
+    with admin_connection(database) as conn:
+        tables = {
+            str(row[0])
+            for row in conn.execute(
+                "SELECT tablename FROM pg_tables WHERE schemaname = 'public'"
+            )
+        }
+    assert SCOPED_TABLES <= tables - GLOBAL_TABLES
     assert unguarded_tables(database) == []
+
+
+# What the app role may change in each subject table: a topic's state and
+# alias, and when a relation ended. Everything else was chosen when the row
+# was made. "Two roles" in Brain/docs/data-model.md.
+REFUSED_UPDATES = [
+    "UPDATE topics SET slug = 'renamed'",
+    "UPDATE topics SET name = 'renamed'",
+    "UPDATE topics SET user_id = gen_random_uuid()",
+    "UPDATE topics SET created_at = now()",
+    "UPDATE topic_relations SET from_topic = to_topic",
+    "UPDATE topic_relations SET kind = 'related_to'",
+    "UPDATE entities SET name = 'renamed'",
+    "UPDATE entities SET label = 'renamed'",
+    "DELETE FROM topics",
+    "DELETE FROM topic_relations",
+    "DELETE FROM entities",
+]
+
+
+@pytest.mark.parametrize("statement", REFUSED_UPDATES)
+async def test_the_app_role_changes_only_what_a_subject_table_allows(
+    statement: str, pool: AsyncConnectionPool
+) -> None:
+    with pytest.raises(psycopg.errors.InsufficientPrivilege, match="permission denied"):
+        async with db.transaction(pool, ALICE) as conn:
+            await conn.execute(statement)
+
+
+async def test_the_app_role_changes_what_a_subject_table_allows(
+    pool: AsyncConnectionPool,
+) -> None:
+    # The control for the test above: allowed, on no rows.
+    async with db.transaction(pool, ALICE) as conn:
+        await conn.execute("UPDATE topics SET state = 'canonical', alias_of = NULL")
+        await conn.execute("UPDATE topic_relations SET ended_at = now()")
 
 
 def test_the_guard_finds_a_table_left_unguarded(database: str) -> None:
