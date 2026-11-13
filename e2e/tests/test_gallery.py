@@ -6,6 +6,7 @@ token as the same page resolves it, so no colour or size is written here: a
 change to tokens.css changes both sides, and only a component that stops
 using its token fails."""
 
+import re
 from pathlib import Path
 
 import pytest
@@ -177,3 +178,206 @@ def test_the_gallery_passes_the_accessibility_check(page: Page, theme: str):
         })))"""
     )
     assert violations == []
+
+
+# The form controls of "Text field, textarea, select" and "Checkbox" in
+# section 4 of design/DESIGN.md. Each field section shows the same states,
+# each field labelled with its state.
+FIELDS = {
+    "text field": ("Text field", "textbox"),
+    "text area": ("Text area", "textbox"),
+    "select": ("Select", "combobox"),
+}
+
+FIELD_STYLE = """element => {
+    const style = getComputedStyle(element);
+    const placeholder = getComputedStyle(element, "::placeholder");
+    return {
+        background: style.backgroundColor,
+        color: style.color,
+        borders: [style.borderTopColor, style.borderRightColor,
+                  style.borderBottomColor, style.borderLeftColor],
+        borderWidths: [style.borderTopWidth, style.borderRightWidth,
+                       style.borderBottomWidth, style.borderLeftWidth],
+        height: style.height,
+        fontSize: style.fontSize,
+        radii: [style.borderTopLeftRadius, style.borderTopRightRadius,
+                style.borderBottomRightRadius, style.borderBottomLeftRadius],
+        placeholder: placeholder.color,
+        accent: style.accentColor,
+    };
+}"""
+
+TEXT_STYLE = """element => {
+    const style = getComputedStyle(element);
+    return {
+        color: style.color,
+        fontSize: style.fontSize,
+        lineHeight: style.lineHeight,
+        weight: style.fontWeight,
+        decoration: style.textDecorationLine,
+    };
+}"""
+
+
+def field(page: Page, kind: str, label: str) -> Locator:
+    title, role = FIELDS[kind]
+    region = page.get_by_role("region", name=title)
+    return region.get_by_role(role, name=label, exact=True)
+
+
+def described_by(control: Locator) -> Locator:
+    """The first element the control's aria-describedby names."""
+    first = control.get_attribute("aria-describedby")
+    assert first, "the control has no description"
+    return control.page.locator(f"[id='{first.split()[0]}']")
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_the_form_controls_are_shown(page: Page, viewport: str, theme: str):
+    open_gallery(page, theme)
+
+    for title in ["Text field", "Text area", "Select", "Checkbox"]:
+        expect(page.get_by_role("region", name=title)).to_be_visible()
+    capture(page, f"gallery-form-controls-{theme}")
+
+
+@pytest.mark.parametrize("theme", THEMES)
+@pytest.mark.parametrize("kind", list(FIELDS))
+def test_a_field_reads_its_values(page: Page, theme: str, kind: str):
+    open_gallery(page, theme)
+    control = field(page, kind, "Empty")
+
+    style = control.evaluate(FIELD_STYLE)
+
+    assert style["background"] == resolve(page, "--surface", "background-color")
+    assert style["color"] == resolve(page, "--text", "color")
+    assert style["borders"] == [resolve(page, "--border-strong", "color")] * 4
+    assert style["borderWidths"] == ["1px"] * 4
+    assert (
+        style["radii"] == [resolve(page, "--radius-md", "border-top-left-radius")] * 4
+    )
+    assert style["fontSize"] == resolve(page, "--input-font-size", "font-size")
+    if kind == "text area":
+        # A text area is as tall as its rows, and never shorter than a field.
+        assert float(style["height"].removesuffix("px")) >= float(
+            resolve(page, "--control-h", "height").removesuffix("px")
+        )
+        assert style["placeholder"] == resolve(page, "--text-3", "color")
+    elif kind == "text field":
+        assert style["height"] == resolve(page, "--control-h", "height")
+        assert style["placeholder"] == resolve(page, "--text-3", "color")
+    else:
+        assert style["height"] == resolve(page, "--control-h", "height")
+
+    label = page.get_by_role("region", name=FIELDS[kind][0]).locator(
+        f"label[for='{control.get_attribute('id')}']"
+    )
+    text = label.evaluate(TEXT_STYLE)
+    assert text["color"] == resolve(page, "--text-2", "color")
+    assert text["fontSize"] == resolve(page, "--text-caption-size", "font-size")
+    assert text["lineHeight"] == resolve(page, "--text-caption-line", "line-height")
+    assert text["weight"] == "500"
+    # The label sits above the field.
+    label_box, control_box = label.bounding_box(), control.bounding_box()
+    assert label_box is not None and control_box is not None
+    assert label_box["y"] + label_box["height"] <= control_box["y"]
+
+    help_text = described_by(field(page, kind, "With help")).evaluate(TEXT_STYLE)
+    assert help_text["color"] == resolve(page, "--text-3", "color")
+    assert help_text["fontSize"] == resolve(page, "--text-caption-size", "font-size")
+
+
+@pytest.mark.parametrize("theme", THEMES)
+@pytest.mark.parametrize("kind", list(FIELDS))
+def test_a_field_with_an_error_reads_its_values(page: Page, theme: str, kind: str):
+    open_gallery(page, theme)
+    control = field(page, kind, "With an error")
+
+    expect(control).to_have_attribute("aria-invalid", "true")
+    style = control.evaluate(FIELD_STYLE)
+    assert style["borders"] == [resolve(page, "--danger", "color")] * 4
+    assert style["borderWidths"] == ["2px"] * 4
+
+    message = described_by(control)
+    expect(message).to_have_text(re.compile(r"^Error: "))
+    text = message.evaluate(TEXT_STYLE)
+    assert text["color"] == resolve(page, "--danger", "color")
+    assert text["weight"] == "500"
+
+
+@pytest.mark.parametrize("kind", list(FIELDS))
+def test_fields_are_16px_and_44px_on_phone(page: Page, kind: str):
+    page.set_viewport_size(VIEWPORTS["phone"])
+    open_gallery(page, "light")
+
+    title, role = FIELDS[kind]
+    controls = page.get_by_role("region", name=title).get_by_role(role)
+    assert controls.count() >= 5
+    for index in range(controls.count()):
+        control = controls.nth(index)
+        style = control.evaluate(FIELD_STYLE)
+        assert style["fontSize"] == "16px", control
+        box = control.bounding_box()
+        assert box is not None
+        if kind == "text area":
+            assert box["height"] >= 44, control
+        else:
+            assert box["height"] == 44, control
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_a_checkbox_reads_its_values(page: Page, theme: str):
+    open_gallery(page, theme)
+    region = page.get_by_role("region", name="Checkbox")
+    box = region.get_by_role("checkbox", name="Unchecked", exact=True)
+
+    size = box.bounding_box()
+    assert size is not None and size["width"] == 16 and size["height"] == 16
+    assert box.evaluate(FIELD_STYLE)["accent"] == resolve(
+        page, "--info", "accent-color"
+    )
+
+    # `has` is matched inside each label, so it is not scoped to the region.
+    row = region.locator(
+        "label", has=page.get_by_role("checkbox", name="Unchecked", exact=True)
+    )
+    row_box = row.bounding_box()
+    assert row_box is not None
+    assert f"{row_box['height']:g}px" == resolve(page, "--row-h", "height")
+
+    done = region.locator("label", has_text="Done").evaluate(TEXT_STYLE)
+    assert done["color"] == resolve(page, "--text-3", "color")
+    assert done["decoration"] == "line-through"
+
+
+@pytest.mark.parametrize(
+    ("title", "role", "label"),
+    [
+        ("Text field", "textbox", "Empty"),
+        ("Text area", "textbox", "Empty"),
+        ("Select", "combobox", "Empty"),
+        ("Checkbox", "checkbox", "Unchecked"),
+    ],
+)
+def test_each_control_shows_the_focus_ring(
+    page: Page, title: str, role: str, label: str
+):
+    open_gallery(page, "light")
+    region = page.get_by_role("region", name=title)
+    control = region.get_by_role(role, name=label, exact=True)
+
+    # As for the button: a click on the heading puts the start of the Tab
+    # order there, so the next Tab reaches the section's first control.
+    region.get_by_role("heading", name=title).click()
+    page.keyboard.press("Tab")
+
+    expect(control).to_be_focused()
+    style = control.evaluate(STYLE)
+    ring = [
+        resolve(page, "--focus-ring", "outline", read)
+        for read in ["outline-style", "outline-width", "outline-color"]
+    ]
+    assert ring[0] == "solid"
+    assert style["outline"] == ring
+    assert style["outlineOffset"] == resolve(page, "--focus-offset", "outline-offset")
