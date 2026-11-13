@@ -3,6 +3,7 @@ import {
 	fireEvent,
 	render,
 	screen,
+	waitFor,
 	within,
 } from "@testing-library/react";
 import { afterEach, describe, expect, test } from "vitest";
@@ -21,6 +22,13 @@ function openTopic(brain: ReturnType<typeof fakeBrain>, slug: string) {
 		</Providers>,
 	);
 	return within(screen.getByRole("tabpanel", { name: "Knowledge" }));
+}
+
+/** The names a card lists, by its title. */
+function listed(page: ReturnType<typeof openTopic>, title: string) {
+	return within(page.getByRole("article", { name: title }))
+		.queryAllByRole("link")
+		.map((link) => link.textContent);
 }
 
 describe("Place under… offers only canonical topics", () => {
@@ -67,5 +75,25 @@ describe("a provisional topic's page", () => {
 				body: undefined,
 			},
 		]);
+	});
+});
+
+describe("Under and Includes are read through aliases", () => {
+	test("a relation given on an alias shows on its target's page, and on the other end's", async () => {
+		const brain = fakeBrain();
+		const postgres = brain.topic("Postgres");
+		const databases = brain.topic("Databases");
+		const db = brain.topic("DB");
+		brain.alias(db, databases);
+		brain.placeUnder(postgres, db);
+
+		const page = openTopic(brain, "postgres");
+		await waitFor(() => expect(listed(page, "Under")).toEqual(["Databases"]));
+		cleanup();
+
+		const target = openTopic(brain, "databases");
+		await waitFor(() =>
+			expect(listed(target, "Includes")).toEqual(["Postgres"]),
+		);
 	});
 });

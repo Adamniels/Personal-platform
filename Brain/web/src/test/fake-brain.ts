@@ -3,14 +3,15 @@
 // the rules the sections rely on, as "Memory items" and "Subjects" in Brain/README.md have them:
 // the list newest first, an edit a new version of the same lineage, retiring and restoring the
 // status alone, a level or focus set again a new version of the one the topic has, and the
-// knowledge view one row per topic that is not an alias, and promoting a provisional
-// topic. Anything else it answers 404.
+// knowledge view one row per topic that is not an alias, the relations that hold, and promoting a
+// provisional topic. Anything else it answers 404.
 import type { ClientEnvironment } from "../api/client";
 import type { components } from "../api/schema";
 
 type Item = components["schemas"]["Item"];
 type Topic = components["schemas"]["Topic"];
 type KnowledgeRow = components["schemas"]["KnowledgeRow"];
+type TopicRelation = components["schemas"]["TopicRelation"];
 type Kind = "profile" | "rule";
 type Setting = "topic_level" | "topic_focus";
 
@@ -31,6 +32,7 @@ const STORES: Record<Kind | Setting, Item["store"]> = {
 export function fakeBrain() {
 	const items: Item[] = [];
 	const topics: Topic[] = [];
+	const relations: TopicRelation[] = [];
 	const calls: Call[] = [];
 	let refusal: Refusal | null = null;
 	let minutes = 0;
@@ -172,7 +174,7 @@ export function fakeBrain() {
 			);
 		}
 		if (method === "GET" && path === "/topic-relations") {
-			return json(200, []);
+			return json(200, relations);
 		}
 		if (method === "GET" && path === "/items") {
 			const kind = url.searchParams.get("kind");
@@ -297,6 +299,19 @@ export function fakeBrain() {
 		alias(topic: Topic, target: Topic) {
 			topic.alias_of = target.id;
 			topic.resolves_to = target.id;
+		},
+		/** Places `narrower` under `broader`, each end as given. */
+		placeUnder(narrower: Topic, broader: Topic): TopicRelation {
+			const relation: TopicRelation = {
+				id: crypto.randomUUID(),
+				from_topic: broader.id,
+				to_topic: narrower.id,
+				kind: "broader_than",
+				created_at: now(),
+				ended_at: null,
+			};
+			relations.push(relation);
+			return relation;
 		},
 		/** Sets a level or a focus, as the API would. */
 		set(kind: Setting, topic: Topic, value: string): Item {
