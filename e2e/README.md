@@ -35,6 +35,7 @@ Screenshots land in `screenshots/`, which is git ignored.
 - `base_url` is `https://platform.test` (set in `pyproject.toml`), and the browser context ignores
   HTTPS errors, so the suite does not depend on the laptop's keychain trusting Caddy's local CA.
 - `invite_code` runs `cargo run -q -- invite` in `Core/` and returns the code. Each test gets its own.
+  `another_invite_code` is a second one, for a test that registers two accounts.
 - `reset_token` is a function: `reset_token(email)` runs `cargo run -q -- reset <email>` in `Core/`
   and returns the token. A function rather than a value, since the account usually exists only once
   the test has registered it.

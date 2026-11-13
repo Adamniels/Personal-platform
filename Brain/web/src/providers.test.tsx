@@ -1,15 +1,8 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
-import {
-	cleanup,
-	fireEvent,
-	render,
-	screen,
-	within,
-} from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, test } from "vitest";
 import { ApiError } from "./api/client";
 import { Providers } from "./providers";
-import { useToast } from "./toast/toast";
 
 afterEach(cleanup);
 
@@ -59,56 +52,43 @@ describe("a failed call that is not a 401 raises an error toast", () => {
 	});
 });
 
-function Raise({ texts }: { texts: string[] }) {
-	const toast = useToast();
+function FormChange({ status }: { status: number }) {
+	const mutation = useMutation({
+		mutationFn: () =>
+			Promise.reject(
+				new ApiError({ status, title: "Refused", detail: "Too long" }),
+			),
+		meta: { fieldErrors: true },
+	});
 	return (
-		<button
-			type="button"
-			onClick={() => {
-				for (const text of texts) toast.error(text);
-			}}
-		>
-			Raise
+		<button type="button" onClick={() => mutation.mutate()}>
+			Save
 		</button>
 	);
 }
 
-describe("an error toast", () => {
-	function raise(texts: string[]) {
+describe("a change that shows its refusal on the field", () => {
+	function save(status: number) {
 		render(
 			<Providers>
-				<Raise texts={texts} />
+				<FormChange status={status} />
 			</Providers>,
 		);
-		fireEvent.click(screen.getByRole("button", { name: "Raise" }));
+		fireEvent.click(screen.getByRole("button", { name: "Save" }));
 	}
 
-	test("starts with the word Error, once", () => {
-		raise(["Saving failed", "Error: already said"]);
+	test("raises no toast for a 422", async () => {
+		save(422);
 
-		expect(
-			screen.getAllByRole("alert").map((alert) => alert.textContent),
-		).toEqual(["Error: Saving failedDismiss", "Error: already saidDismiss"]);
-	});
-
-	test("stays until it is dismissed", () => {
-		raise(["Saving failed"]);
-
-		const toast = screen.getByRole("alert");
-		fireEvent.click(within(toast).getByRole("button", { name: "Dismiss" }));
-
+		// The failure has settled by the time a later microtask runs.
+		await new Promise((resolve) => setTimeout(resolve, 0));
 		expect(screen.queryByRole("alert")).toBeNull();
 	});
 
-	test("shows at most three, the oldest leaving first", () => {
-		raise(["one", "two", "three", "four"]);
+	test("still raises one for any other failure", async () => {
+		save(500);
 
-		expect(
-			screen.getAllByRole("alert").map((alert) => alert.textContent),
-		).toEqual([
-			"Error: twoDismiss",
-			"Error: threeDismiss",
-			"Error: fourDismiss",
-		]);
+		const toast = await screen.findByRole("alert");
+		expect(toast.textContent).toContain("Error: Refused: Too long");
 	});
 });

@@ -7,11 +7,18 @@ import {
 	within,
 } from "@testing-library/react";
 import { afterEach, describe, expect, test } from "vitest";
+import { createClient } from "./api/client";
 import { App } from "./app";
+import { Providers } from "./providers";
+import { fakeBrain } from "./test/fake-brain";
 
 function openAt(path: string) {
 	window.history.pushState(null, "", path);
-	render(<App />);
+	render(
+		<Providers client={createClient(fakeBrain().env)}>
+			<App />
+		</Providers>,
+	);
 }
 
 function selectedTab() {
@@ -23,11 +30,15 @@ function selectedTab() {
 afterEach(cleanup);
 
 describe("the address decides the section, and a tab changes the address", () => {
-	test("/brain shows Profile", () => {
+	test("/brain shows Profile", async () => {
 		openAt("/brain");
 
 		expect(selectedTab()?.textContent).toBe("Profile");
-		expect(screen.getByRole("tabpanel").textContent).toContain("Profile");
+		expect(
+			await within(screen.getByRole("tabpanel")).findByRole("article", {
+				name: "Identity",
+			}),
+		).toBeTruthy();
 	});
 
 	test("/brain/knowledge shows Knowledge", () => {
@@ -71,7 +82,9 @@ describe("the address decides the section, and a tab changes the address", () =>
 		expect(window.location.pathname).toBe("/brain/rules");
 		expect(selectedTab()?.textContent).toBe("Rules");
 		expect(
-			within(screen.getByRole("tabpanel")).getByText(/Rules/),
+			await within(screen.getByRole("tabpanel")).findByRole("button", {
+				name: "Add rule",
+			}),
 		).toBeTruthy();
 
 		window.history.back();
