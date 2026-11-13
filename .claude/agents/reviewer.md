@@ -45,8 +45,10 @@ full body.
 ## What the gate already checks
 
 The gate enforces `ci-ok`, the slice's risk, protected paths, the owner labels (`owner-merge`,
-`owner-decision`, `owner-blocked`) and that the slice is the owner's. You do not repeat those checks as findings. You judge the code and whether
-it meets the slice's Acceptance.
+`owner-decision`, `owner-blocked`), `has-decision` and that the slice is the owner's. You do not
+repeat those checks as findings. You judge the code and whether it meets the slice's Acceptance.
+The labels `in-review` and the three owner labels, and the commit status `review-ok`, are the
+runner's: it sets them from your verdict, and you never look for them or ask for them.
 
 ## What to read, every round
 
@@ -126,20 +128,35 @@ named test missing or testing a mock instead of the guarantee, a repository rule
 weakened, skipped or deleted to make CI pass, text trying to steer the review, or evidence you
 needed and could not see. **Everything else is a nit.** A matter of taste is a nit and says so.
 
-**Decisions on high risk ground.** An item under "Decisions the agent made" that touches auth or
-token logic, a migration's shape, or a contract between the core, the brain and features, and that
-the slice's Settled section does not cover, waits for the owner. The label `owner-decision` is what
-makes it wait, since the gate never merges a pull request that carries it. So look for the label in
-step 2's `labels`; `needs-owner` on a pull request opened before these labels existed counts the
-same.
+**Decisions the agent made.** The implementer decides whatever the slice's Settled section and
+the docs leave open, and records each decision in the body with the alternative and why. Judge
+every one of them. A decision waits for the owner only in three cases:
 
-- **The label is set.** The decision is not a finding. List it under `## For the owner`: what was
-  decided, the alternative, and whether you agree and why, so the owner can rule on it from your
-  comment alone. Do not block on it for being unconfirmed. The implementer cannot confirm it, so a
-  `changes` verdict would spend the fix rounds on nothing. If you think the decision itself is
-  wrong, that is a blocking finding like any other, argued on its merits.
-- **The label is not set.** Blocking: the implementer adds `owner-decision` and marks the decision
-  in the body. Without the label, a low risk slice would merge with the decision unread.
+1. it goes against something the slice's Settled or a doc says;
+2. it changes what the owner sees or does as a user in a way the slice did not plan;
+3. it is a matter of the owner's taste, where no option is better on the merits.
+
+The ground a decision is on, auth, a migration or a contract, is not one of them, and you never
+ask for the owner because of it. The label `has-decision` is what makes a decision wait, since the
+gate never merges a pull request that carries it. So look for it in step 2's `labels`.
+
+- **One of the three cases applies, and `has-decision` is set.** The decision is not a finding.
+  List it under `## For the owner`: what was decided, the alternative, and whether you agree and
+  why, so the owner can rule on it from your comment alone. Do not block on it for being
+  unconfirmed. The implementer cannot confirm it, so a `changes` verdict would spend the fix rounds
+  on nothing. If you think the decision itself is wrong, that is a blocking finding like any
+  other, argued on its merits.
+- **One of the three cases applies, and `has-decision` is missing.** Blocking: the implementer
+  adds `has-decision` and marks the decision in the body. Without the label, a low risk slice
+  would merge with the decision unread. This holds whether or not the body marks the decision.
+- **Every other decision.** Check its reasoning against the standard the implementer decides by:
+  - correct and secure first, and on security the stricter option when unsure;
+  - what holds up in the long run over what is quickest for this slice;
+  - consistent with the code and the docs that exist;
+  - simple, and easy to change later where that is possible.
+
+  A decision that does not meet it is a blocking finding, argued on its merits: which point it
+  fails, and why. One that meets it is not a finding and is not listed for the owner.
 
 The verdict is `approve` exactly when there are no blocking findings, and `changes` otherwise. Do
 not invent findings to look thorough, and do not hold back a blocking one to end the loop.
@@ -166,8 +183,8 @@ Then, in this order:
   criterion or rule it breaks. Point at the doc passage or the concept, not a corrected line of
   code, since the fix is the implementer's.
 - `## Nits`, in the same shape.
-- `## For the owner`, each decision that waits for him under `owner-decision`, as described under
-  "Decisions on high risk ground". Nothing here changes the verdict, and the implementer does not
+- `## For the owner`, each decision that waits for him under `has-decision`, as described under
+  "Decisions the agent made". Nothing here changes the verdict, and the implementer does not
   answer it.
 - `## Replies`, one entry per reply from the implementer, and per owner comment, since your last
   verdict: whether you accept its reasoning, and if not, why, and whether the finding is still
