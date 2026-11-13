@@ -106,6 +106,19 @@ memory store's four tables, every table in `docs/data-model.md`.
   - `GET /brain/api/items/{id}`, one item with its subjects, its `evidence`, oldest first, each with
     its kind and the event's id, verb, origin, source, evidence and times, and its `relations`, on
     either end. What confidence and currency would be computed from, and neither is stored.
+  - `POST /brain/api/items/{id}/edit`, a correction, `201` with the new version as a single read
+    answers it. The body names the item's own `kind` and the fields that kind takes, each left out
+    to keep what the item has: for `profile`, `content`, `category`, and `topics` and `entities`,
+    which replace that kind of subject whole when given; for `rule`, `content` alone. One
+    transaction, as "Versions" in `docs/data-model.md` says, inserts the new version with the same
+    `lineage_id`, `active` and `asserted` whatever the old one was, holding the old version's
+    everything else, its subjects included; sets the old one `inactive` with `superseded`; records
+    an `edited` event against it, evidence `Corrected by hand from "<old>" to "<new>"` with each
+    text cut to 200 characters, linked to it as `contradicts` evidence; records an `asserted` event
+    that makes the new version and supports it; and links the new to the old with `supersedes`,
+    made by the `edited` event. `422` for another kind, a field the kind does not take, a topic the
+    user does not have, or an edit that changes nothing; `409` for a version that is not its
+    entry's newest, or a retired item, which is restored before it is edited.
 
   An item is never changed in place: `brain_app` may insert and read the four tables, and update
   only an item's `status` and `inactive_reason`. Which kind lives in which store, and its nature,

@@ -1557,6 +1557,172 @@
         "summary": "Read Item"
       }
     },
+    "/brain/api/items/{id}/edit": {
+      "post": {
+        "description": "Corrects an item, 201 with the new version. Nothing is changed in\nplace: the new version shares the old one's lineage_id, is active and\nasserted, and holds the fields given and the old version's everything\nelse; the old one becomes inactive, superseded, and a supersedes relation\nlinks the new to it. An edited event against the old version and an\nasserted event behind the new one are recorded with it, in one\ntransaction. kind is the item's own. 404 for an id the user does not\nhave. 422 for another kind, a field the kind does not take, a topic the\nuser does not have, or an edit that changes nothing. 409 for a version\nthat is not the newest, or an item that is retired.",
+        "operationId": "edit_item_brain_api_items__id__edit_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "description": "A correction, told apart by the kind of the item it corrects.",
+                "oneOf": [
+                  {
+                    "additionalProperties": false,
+                    "description": "A correction of a profile entry: each field left out keeps what the\nentry has. topics and entities, when given, replace that kind of subject\nwhole, so an empty list removes them.",
+                    "properties": {
+                      "category": {
+                        "anyOf": [
+                          {
+                            "enum": [
+                              "identity",
+                              "goals",
+                              "values",
+                              "interests",
+                              "preferences",
+                              "working_style"
+                            ],
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "title": "Category"
+                      },
+                      "content": {
+                        "anyOf": [
+                          {
+                            "maxLength": 4000,
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "title": "Content"
+                      },
+                      "entities": {
+                        "anyOf": [
+                          {
+                            "items": {
+                              "maxLength": 200,
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            "maxItems": 20,
+                            "type": "array"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "title": "Entities"
+                      },
+                      "kind": {
+                        "const": "profile",
+                        "title": "Kind",
+                        "type": "string"
+                      },
+                      "topics": {
+                        "anyOf": [
+                          {
+                            "items": {
+                              "maxLength": 80,
+                              "pattern": "^[a-z0-9][a-z0-9-]{0,79}$",
+                              "type": "string"
+                            },
+                            "maxItems": 20,
+                            "type": "array"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "title": "Topics"
+                      }
+                    },
+                    "required": [
+                      "kind"
+                    ],
+                    "title": "ProfileEdit",
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "description": "A correction of a rule, which is global, so only its content.",
+                    "properties": {
+                      "content": {
+                        "anyOf": [
+                          {
+                            "maxLength": 4000,
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "title": "Content"
+                      },
+                      "kind": {
+                        "const": "rule",
+                        "title": "Kind",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "kind"
+                    ],
+                    "title": "RuleEdit",
+                    "type": "object"
+                  }
+                ],
+                "title": "EntryEdit"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "No valid token: missing, expired or failing verification, all alike. The body is empty; the caller refreshes and retries."
+          },
+          "404": {
+            "description": "Nothing of this user's at that address."
+          },
+          "409": {
+            "description": "The item is not in the state this needs: a superseded version, or not active or retired as the change asks."
+          },
+          "422": {
+            "description": "A body that does not parse, or a request breaking a rule."
+          }
+        },
+        "summary": "Edit Item"
+      }
+    },
     "/brain/api/topic-relations/{id}/end": {
       "post": {
         "description": "Ends a relation, which stays, with the time it ended. One already\nended is answered as it is.",
