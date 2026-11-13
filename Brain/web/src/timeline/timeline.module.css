@@ -1,0 +1,40 @@
+/* The Timeline section's own pieces. The section around them and the panel
+ * each day's list sits on are entries/section.module.css; the spacing is
+ * section 2 of design/DESIGN.md. */
+
+/* A day: its heading over its list. */
+.day {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-3);
+	min-width: 0;
+}
+
+.heading {
+	margin: 0;
+	font-family: var(--font-heading);
+	font-size: var(--text-h2-size);
+	line-height: var(--text-h2-line);
+	font-weight: 600;
+}
+
+/* What was done, then the evidence, which keeps its line breaks and wraps a
+ * long word. */
+.verb {
+	font-weight: 600;
+}
+
+.evidence {
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+
+/* Where it came from, then its subject, side by side, wrapping when the row
+ * is too narrow. */
+.detail {
+	display: inline-flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-1) var(--space-2);
+	min-width: 0;
+}

@@ -8,7 +8,8 @@
 // last supported more than sixty days before the real time, and confirming supports one at that
 // time; every item listed carries the same currency. History is the active history entries and
 // decisions by when each happened, oldest first, and the decisions another replaced, each with the
-// one that did, which replacing makes. Anything else it answers 404.
+// one that did, which replacing makes. The timeline is the events a test records, newest recorded
+// first, paged by `before` as the brain pages it. Anything else it answers 404.
 import type { ClientEnvironment } from "../api/client";
 import type { components } from "../api/schema";
 
@@ -17,6 +18,7 @@ type Topic = components["schemas"]["Topic"];
 type KnowledgeRow = components["schemas"]["KnowledgeRow"];
 type TopicRelation = components["schemas"]["TopicRelation"];
 type Entity = components["schemas"]["Entity"];
+type Event = components["schemas"]["Event"];
 type Kind = "profile" | "rule" | "state" | "history" | "decision";
 type Precision = NonNullable<Item["occurred_precision"]>;
 type Setting = "topic_level" | "topic_focus";
@@ -51,6 +53,7 @@ export function fakeBrain() {
 	const supported = new Map<string, string>();
 	// The decision that replaced each one another did, by its id.
 	const replacedBy = new Map<string, string>();
+	const events: Event[] = [];
 	const calls: Call[] = [];
 	let refusal: Refusal | null = null;
 	let minutes = 0;
@@ -307,6 +310,25 @@ export function fakeBrain() {
 		});
 	}
 
+	/** The events newest recorded first, the id breaking a tie, as the brain
+	 * orders them: `limit` of them, 50 by default, and with `before` only
+	 * those recorded before it. */
+	function timeline(url: URL): Event[] {
+		const before = url.searchParams.get("before");
+		const limit = Number(url.searchParams.get("limit") ?? 50);
+		return [...events]
+			.sort(
+				(a, b) =>
+					Date.parse(b.recorded_at) - Date.parse(a.recorded_at) ||
+					b.id.localeCompare(a.id),
+			)
+			.filter(
+				(event) =>
+					before === null || Date.parse(event.recorded_at) < Date.parse(before),
+			)
+			.slice(0, limit);
+	}
+
 	function detail(item: Item) {
 		return { ...item, evidence: [], relations: [] };
 	}
@@ -324,6 +346,9 @@ export function fakeBrain() {
 		}
 		if (method === "GET" && path === "/history") {
 			return json(200, historyView(url));
+		}
+		if (method === "GET" && path === "/events") {
+			return json(200, timeline(url));
 		}
 		if (method === "GET" && path === "/now") {
 			return json(200, nowView());
@@ -577,6 +602,33 @@ export function fakeBrain() {
 			item.status = "inactive";
 			item.inactive_reason = "superseded";
 			return make(item.kind as Kind, content, item.category, item.lineage_id);
+		},
+		/** An event on the timeline: what a feature sent, the evidence and
+		 * the rest given, or by default an entry made in the memory centre,
+		 * recorded and happened now. */
+		recorded(evidence: string, overrides: Partial<Event> = {}): Event {
+			const at = new Date().toISOString();
+			const event: Event = {
+				id: crypto.randomUUID(),
+				verb: "asserted",
+				subject_topic: null,
+				topic: null,
+				entity: null,
+				subject_item: null,
+				origin: "brain",
+				source: "manual-entry",
+				run: null,
+				occurred_at: overrides.recorded_at ?? at,
+				occurred_precision: "instant",
+				recorded_at: at,
+				evidence,
+				payload: {},
+				payload_version: 1,
+				idempotency_key: crypto.randomUUID(),
+				...overrides,
+			};
+			events.push(event);
+			return event;
 		},
 		/** The next state changing call answers this instead. */
 		refuseNext(status: number, text: string) {
