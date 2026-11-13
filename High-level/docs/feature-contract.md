@@ -255,7 +255,10 @@ Both stay small. If either drifts large, something has gone wrong.
 
 - a named context call per feature, shaped when that feature is built
 - get profile snapshot
-- search, meaning search memory, not search everything the platform knows
+- search, meaning search memory, not search everything the platform knows: by words for now,
+  `GET /brain/api/search`, its query and answers in `contracts/brain/openapi.json` and described
+  in "What it serves" in `Brain/README.md`; search by meaning waits until there is enough memory
+  to judge it against
 - record event, `POST /brain/api/events`, its body and answers in `contracts/brain/openapi.json`
   and described in "What it serves" in `Brain/README.md`
 - propose memory candidate

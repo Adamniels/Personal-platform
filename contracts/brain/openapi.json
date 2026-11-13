@@ -1602,6 +1602,188 @@
         "title": "Reason",
         "type": "object"
       },
+      "SearchItem": {
+        "description": "An item a search found, as every answer gives it, with where its\nwords are.",
+        "properties": {
+          "category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category"
+          },
+          "content": {
+            "title": "Content",
+            "type": "string"
+          },
+          "details": {
+            "additionalProperties": true,
+            "title": "Details",
+            "type": "object"
+          },
+          "evidence": {
+            "items": {
+              "$ref": "#/components/schemas/Reason"
+            },
+            "title": "Evidence",
+            "type": "array"
+          },
+          "excerpt": {
+            "title": "Excerpt",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "inactive_reason": {
+            "anyOf": [
+              {
+                "enum": [
+                  "superseded",
+                  "retired"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inactive Reason"
+          },
+          "kind": {
+            "enum": [
+              "profile",
+              "rule",
+              "topic_level",
+              "topic_focus",
+              "state",
+              "history",
+              "decision"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "last_supported_at": {
+            "format": "date-time",
+            "title": "Last Supported At",
+            "type": "string"
+          },
+          "nature": {
+            "enum": [
+              "claim",
+              "record"
+            ],
+            "title": "Nature",
+            "type": "string"
+          },
+          "occurred_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Occurred At"
+          },
+          "occurred_precision": {
+            "anyOf": [
+              {
+                "enum": [
+                  "instant",
+                  "day",
+                  "month",
+                  "year"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Occurred Precision"
+          },
+          "provenance": {
+            "enum": [
+              "asserted",
+              "derived"
+            ],
+            "title": "Provenance",
+            "type": "string"
+          },
+          "stale": {
+            "title": "Stale",
+            "type": "boolean"
+          },
+          "status": {
+            "enum": [
+              "active",
+              "inactive"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "store": {
+            "enum": [
+              "profile",
+              "procedural",
+              "knowledge",
+              "semantic",
+              "reported_history"
+            ],
+            "title": "Store",
+            "type": "string"
+          },
+          "subjects": {
+            "$ref": "#/components/schemas/Subjects"
+          },
+          "support": {
+            "$ref": "#/components/schemas/Support"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "store",
+          "nature",
+          "provenance",
+          "status",
+          "inactive_reason",
+          "content",
+          "value",
+          "category",
+          "details",
+          "occurred_at",
+          "occurred_precision",
+          "subjects",
+          "last_supported_at",
+          "stale",
+          "support",
+          "evidence",
+          "excerpt"
+        ],
+        "title": "SearchItem",
+        "type": "object"
+      },
       "Subjects": {
         "description": "What an item is about: its topics, each read through its alias, and\nits named things. Both empty for a global item.",
         "properties": {
@@ -3770,6 +3952,91 @@
           }
         },
         "summary": "List Now"
+      }
+    },
+    "/brain/api/search": {
+      "get": {
+        "description": "The user's items holding every word of q, in what an item says, its\ncontent, value, category and the text in its details, or in the evidence\nof an event behind it; word forms match, `indexing` finding `indexes`,\nbut not a word inside another. Narrowed to any of kind, when given, and\nto active items unless include_inactive. Newest last_supported_at first,\nat most limit, 50 by default, 1 to 200, with no rank: an excerpt shows\nwhere the words are. A query of operators or common words alone finds\nnothing. 422 for a q blank or over 200 characters, an unknown kind, a\nlimit off its range, or an unknown field.",
+        "operationId": "search_brain_api_search_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "q",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "title": "Q",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "kind",
+            "required": false,
+            "schema": {
+              "items": {
+                "enum": [
+                  "profile",
+                  "rule",
+                  "topic_level",
+                  "topic_focus",
+                  "state",
+                  "history",
+                  "decision"
+                ],
+                "type": "string"
+              },
+              "title": "Kind",
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
+            "name": "include_inactive",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Include Inactive",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SearchItem"
+                  },
+                  "title": "Response Search Brain Api Search Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "No valid token: missing, expired or failing verification, all alike. The body is empty; the caller refreshes and retries."
+          },
+          "422": {
+            "description": "A body that does not parse, or a request breaking a rule."
+          }
+        },
+        "summary": "Search"
       }
     },
     "/brain/api/topic-relations/{id}/end": {

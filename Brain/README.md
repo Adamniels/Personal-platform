@@ -246,6 +246,35 @@ memory store's four tables, every table in `docs/data-model.md`.
     Asked about history, the decisions another one replaced are there too, `inactive` and
     `superseded`. An unknown subject is `known` `false` with no items, and is never created.
   - `POST /brain/api/ask/now`, what is going on now: the active `state` entries as `items`.
+- **Searching**, by words, "search, meaning search memory" in "The two contracts" in
+  `High-level/docs/feature-contract.md`. The route is in `src/brain/search_routes.py` and calls
+  `search()` in `src/brain/retrieval.py`, a fifth building block beside the four, which returns
+  items in their shape too. It is Postgres' own text search, in the `english` configuration, over
+  the `search` columns of `items` and `events` in "The tables" in `docs/data-model.md`, and never
+  search by meaning: no embeddings, no model.
+  - `GET /brain/api/search`, with `q`, the words, 1 to 200 characters once surrounding whitespace
+    is dropped; `kind`, repeated for more than one, any of them, every kind when left out;
+    `include_inactive`, `false` by default, to find retired items and older versions of edited ones
+    too; and `limit`, 50 by default, 1 to 200. A field it does not know is `422`.
+  - An item is found when every word of `q` is in what it says, its `content`, `value`, `category`
+    or a text value of its `details`, a decision's reasoning among them, or in the evidence of an
+    event linked to it in `item_evidence`, for it or against it: every word in the item's own text,
+    or every word in one event's evidence, as each has its own `search` column. Word forms match, so `indexing`
+    finds `indexes`, but a word is never found inside another, so `cat` does not find `category`.
+    `q` is read as plain words: every character that is not a letter or a digit is a space and the
+    word `or` is left out, both before `websearch_to_tsquery` sees it, so nothing typed is an
+    operator and every word stays required. A `q` of operators or of words too common to search on
+    finds nothing, `200` with an empty list.
+  - The answer is a list of items in the shape every answer gives, with `excerpt`: about 15 to 35
+    words from `ts_headline`, of the item's own text where that holds the words, otherwise of the
+    evidence of the newest recorded event behind it that does, each matched word in `<mark>`. Every
+    other character is escaped for HTML before the excerpt is cut, since a page shows it, so the
+    marks are its only markup. Ordered by `last_supported_at`, newest first, then by id; Postgres'
+    rank is not used and not returned, since it would be a relevance score by another name, which
+    waits for the evaluation cases. `stale` is the now view's rule.
+  - Every hand made entry is supported by an event whose evidence quotes it as
+    `Entered by hand as <kind>: ...`, so a word such as `hand` or a kind's name finds every such
+    entry through its evidence.
 - `GET /brain` and `GET /brain/<section>`, the memory centre's `index.html` from the build, see
   "The memory centre" below. Without a valid token, a `303` to the core's
   `/auth/refresh?return_to=<the path>`.
