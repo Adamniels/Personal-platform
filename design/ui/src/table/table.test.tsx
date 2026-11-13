@@ -1,6 +1,14 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { Button, Table, type TableColumn, type TableRowState } from "../index";
+import buttonStyles from "../button/button.module.css";
+import {
+	Button,
+	Table,
+	type TableColumn,
+	type TableRowState,
+	TextField,
+} from "../index";
 import styles from "./table.module.css";
 
 afterEach(cleanup);
@@ -404,5 +412,208 @@ describe("below 640px only priority one columns are columns", () => {
 		);
 
 		expect(document.querySelector(`.${styles.fold}`)).toBeNull();
+	});
+});
+
+/** A table whose rows are edited in place, the edited title kept by the
+ * harness, as a page keeps it. */
+function EditingHarness({
+	onSave,
+	onCancel,
+}: {
+	onSave?: (row: Session, title: string) => void;
+	onCancel?: (row: Session) => void;
+}) {
+	const [rows, setRows] = useState(sessions);
+	const [editing, setEditing] = useState<string | undefined>();
+	const [draft, setDraft] = useState("");
+	const editable: TableColumn<Session>[] = columns.map((column) =>
+		column.key === "title"
+			? {
+					...column,
+					edit: () => (
+						<TextField
+							label="Session"
+							value={draft}
+							onChange={(event) => setDraft(event.target.value)}
+						/>
+					),
+				}
+			: column.key === "hours"
+				? {
+						...column,
+						edit: (row) => (
+							<TextField label="Hours" defaultValue={row.hours.toFixed(1)} />
+						),
+					}
+				: column,
+	);
+	return (
+		<>
+			<Table
+				label="Sessions"
+				columns={editable}
+				rows={rows}
+				rowKey={id}
+				rowState={(row) => (row.id === editing ? "editing" : undefined)}
+				rowAction={(row) => (
+					<Button
+						kind="ghost"
+						aria-label={`Edit ${row.title}`}
+						onClick={() => {
+							setDraft(row.title);
+							setEditing(row.id);
+						}}
+					>
+						Edit
+					</Button>
+				)}
+				onSave={(row) => {
+					onSave?.(row, draft);
+					setRows((all) =>
+						all.map((r) => (r.id === row.id ? { ...r, title: draft } : r)),
+					);
+					setEditing(undefined);
+				}}
+				onCancel={(row) => {
+					onCancel?.(row);
+					setEditing(undefined);
+				}}
+			/>
+			<button type="button">Elsewhere</button>
+		</>
+	);
+}
+
+function startEditing(title: string) {
+	const action = screen.getByRole("button", { name: `Edit ${title}` });
+	action.focus();
+	fireEvent.click(action);
+}
+
+describe("an editing row shows the caller's fields in place of the cell, with Save and Cancel under them", () => {
+	it("calls each column's edit in place of its cell, and keeps the others", () => {
+		render(<EditingHarness />);
+		startEditing("Write the token tests");
+
+		const row = bodyRows()[1];
+		const cells = row?.querySelectorAll("td") ?? [];
+		const title = screen.getByRole("textbox", { name: "Session" });
+		const hours = screen.getByRole("textbox", { name: "Hours" });
+		expect(cells[0]?.contains(title)).toBe(true);
+		expect((title as HTMLInputElement).value).toBe("Write the token tests");
+		expect(cells[2]?.contains(hours)).toBe(true);
+		expect((hours as HTMLInputElement).value).toBe("3.0");
+		// A column without `edit` shows its cell.
+		expect(cells[3]?.textContent).toBe("11 Nov");
+		// Other rows are not editing.
+		expect(screen.getAllByRole("textbox")).toHaveLength(2);
+	});
+
+	it("puts Save, secondary, and Cancel, ghost, directly under the first cell's field", () => {
+		render(<EditingHarness />);
+		startEditing("Write the token tests");
+
+		const first = bodyRows()[1]?.querySelector("td");
+		const save = screen.getByRole("button", { name: "Save" });
+		const cancel = screen.getByRole("button", { name: "Cancel" });
+		expect(first?.contains(save)).toBe(true);
+		expect(first?.contains(cancel)).toBe(true);
+		expect(save.classList.contains(buttonStyles.secondary as string)).toBe(
+			true,
+		);
+		expect(cancel.classList.contains(buttonStyles.ghost as string)).toBe(true);
+		// Under the field: the field comes first in the cell.
+		const field = screen.getByRole("textbox", { name: "Session" });
+		expect(
+			field.compareDocumentPosition(save) & Node.DOCUMENT_POSITION_FOLLOWING,
+		).toBeTruthy();
+		// The editing row shows no action of its own while editing.
+		expect(
+			screen.queryByRole("button", { name: "Edit Write the token tests" }),
+		).toBeNull();
+	});
+
+	it("reports Save and Cancel with the row, holding no edited value itself", () => {
+		const onSave = vi.fn();
+		const onCancel = vi.fn();
+		render(<EditingHarness onSave={onSave} onCancel={onCancel} />);
+
+		startEditing("Write the token tests");
+		const field = screen.getByRole("textbox", { name: "Session" });
+		fireEvent.change(field, { target: { value: "Write the parity tests" } });
+		fireEvent.click(screen.getByRole("button", { name: "Save" }));
+		expect(onSave).toHaveBeenCalledWith(sessions[1], "Write the parity tests");
+		expect(
+			screen.getByRole("button", { name: "Edit Write the parity tests" }),
+		).toBeDefined();
+
+		startEditing("Read the lab brief");
+		fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+		expect(onCancel).toHaveBeenCalledWith(sessions[0]);
+		expect(screen.queryByRole("textbox")).toBeNull();
+	});
+
+	it("cancels on Escape", () => {
+		const onCancel = vi.fn();
+		render(<EditingHarness onCancel={onCancel} />);
+		startEditing("Read the lab brief");
+
+		fireEvent.keyDown(screen.getByRole("textbox", { name: "Session" }), {
+			key: "Escape",
+		});
+
+		expect(onCancel).toHaveBeenCalledWith(sessions[0]);
+		expect(screen.queryByRole("textbox")).toBeNull();
+	});
+
+	it("moves focus to the first field on entering, and back to the row's action on leaving", () => {
+		render(<EditingHarness />);
+
+		startEditing("Read the lab brief");
+		expect(document.activeElement).toBe(
+			screen.getByRole("textbox", { name: "Session" }),
+		);
+		fireEvent.keyDown(document.activeElement as Element, { key: "Escape" });
+		expect(document.activeElement).toBe(
+			screen.getByRole("button", { name: "Edit Read the lab brief" }),
+		);
+
+		startEditing("Plan the next slice");
+		fireEvent.click(screen.getByRole("button", { name: "Save" }));
+		expect(document.activeElement).toBe(
+			screen.getByRole("button", { name: "Edit Plan the next slice" }),
+		);
+	});
+
+	it("leaves focus alone when it is elsewhere as the row leaves editing", () => {
+		function Outside() {
+			const [state, setState] = useState<TableRowState | undefined>("editing");
+			return (
+				<>
+					<Table
+						label="Sessions"
+						columns={columns.map((c) =>
+							c.key === "title"
+								? { ...c, edit: () => <TextField label="Session" /> }
+								: c,
+						)}
+						rows={sessions.slice(0, 1)}
+						rowKey={id}
+						rowState={() => state}
+						rowAction={() => <Button kind="ghost">Edit</Button>}
+					/>
+					<button type="button" onClick={() => setState(undefined)}>
+						Stop
+					</button>
+				</>
+			);
+		}
+		render(<Outside />);
+		const stop = screen.getByRole("button", { name: "Stop" });
+		stop.focus();
+		fireEvent.click(stop);
+
+		expect(document.activeElement).toBe(stop);
 	});
 });

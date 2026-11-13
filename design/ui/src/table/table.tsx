@@ -1,5 +1,6 @@
 import { ArrowDown, ArrowUp } from "lucide-react";
-import type { ComponentProps, ReactNode } from "react";
+import { type ComponentProps, type ReactNode, useEffect, useRef } from "react";
+import { Button } from "../button/button";
 import hidden from "../visually-hidden.module.css";
 import styles from "./table.module.css";
 
@@ -24,6 +25,9 @@ export type TableColumn<Row> = {
 	 * Left out, the cell is used when it is text or a number, and the column
 	 * is skipped when it is not. */
 	fold?: (row: Row) => string;
+	/** The field or fields shown in place of the cell while a row is editing.
+	 * Left out, the cell is shown. */
+	edit?: (row: Row) => ReactNode;
 };
 
 export type TableSortDirection = "ascending" | "descending";
@@ -50,8 +54,14 @@ export type TableProps<Row> = Omit<ComponentProps<"section">, "children"> & {
 	onSort?: (sort: TableSort) => void;
 	/** A row's state, set by the caller. */
 	rowState?: (row: Row) => TableRowState | undefined;
-	/** The one action at the end of a row, such as an Edit button. */
+	/** The one action at the end of a row, such as an Edit button. It is not
+	 * shown while the row is editing, and focus comes back to it after. */
 	rowAction?: (row: Row) => ReactNode;
+	/** Called when Save under an editing row is pressed. The table holds no
+	 * edited value: the fields are the caller's, and so is what they hold. */
+	onSave?: (row: Row) => void;
+	/** Called when Cancel under an editing row is pressed, or on Escape. */
+	onCancel?: (row: Row) => void;
 };
 
 /** "Table" in section 4 of design/DESIGN.md: a real table in a wrapper that
@@ -66,6 +76,8 @@ export function Table<Row>({
 	onSort,
 	rowState,
 	rowAction,
+	onSave,
+	onCancel,
 	className,
 	...rest
 }: TableProps<Row>) {
@@ -101,44 +113,145 @@ export function Table<Row>({
 					</tr>
 				</thead>
 				<tbody>
-					{rows.map((row) => {
-						const state = rowState?.(row);
-						return (
-							<tr
-								key={rowKey(row)}
-								className={styles.row}
-								aria-selected={state ? true : undefined}
-								data-state={state}
-							>
-								{columns.map((column, index) => {
-									const fold =
-										index === first ? foldLine(folded, row) : undefined;
-									return (
-										<td
-											key={column.key}
-											className={cellClass(column)}
-											data-priority={column.priority ?? 1}
-										>
-											{fold ? (
-												<>
-													<div>{column.cell(row)}</div>
-													<div className={styles.fold}>{fold}</div>
-												</>
-											) : (
-												column.cell(row)
-											)}
-										</td>
-									);
-								})}
-								{rowAction && (
-									<td className={styles.action}>{rowAction(row)}</td>
-								)}
-							</tr>
-						);
-					})}
+					{rows.map((row) => (
+						<BodyRow
+							key={rowKey(row)}
+							row={row}
+							columns={columns}
+							first={first}
+							folded={folded}
+							state={rowState?.(row)}
+							rowAction={rowAction}
+							onSave={onSave}
+							onCancel={onCancel}
+						/>
+					))}
 				</tbody>
 			</table>
 		</section>
+	);
+}
+
+/** What can take focus: the first field of an editing row, and the row's
+ * action once it leaves editing. */
+const FIELD = "input:not([type='hidden']), select, textarea";
+const FOCUSABLE = `${FIELD}, button, a[href], [tabindex]`;
+
+function BodyRow<Row>({
+	row,
+	columns,
+	first,
+	folded,
+	state,
+	rowAction,
+	onSave,
+	onCancel,
+}: {
+	row: Row;
+	columns: readonly TableColumn<Row>[];
+	/** The index of the first column that shows on phone. */
+	first: number;
+	folded: readonly TableColumn<Row>[];
+	state: TableRowState | undefined;
+	rowAction: TableProps<Row>["rowAction"];
+	onSave: TableProps<Row>["onSave"];
+	onCancel: TableProps<Row>["onCancel"];
+}) {
+	const ref = useRef<HTMLTableRowElement>(null);
+	const editing = state === "editing";
+	const wasEditing = useRef(editing);
+
+	// Entering editing puts focus in the first field. Leaving it puts focus
+	// back on the row's action, when focus was in the row or went with the
+	// Save or Cancel that was pressed; focus the user moved elsewhere stays.
+	// A row that is editing when it first renders takes no focus, so a page
+	// does not jump on load.
+	useEffect(() => {
+		const element = ref.current;
+		if (!element || editing === wasEditing.current) return;
+		wasEditing.current = editing;
+		if (editing) {
+			element.querySelector<HTMLElement>(FIELD)?.focus();
+			return;
+		}
+		const active = document.activeElement;
+		if (
+			active === null ||
+			active === document.body ||
+			element.contains(active)
+		) {
+			element
+				.querySelector<HTMLElement>(`.${styles.action} :is(${FOCUSABLE})`)
+				?.focus();
+		}
+	}, [editing]);
+
+	return (
+		<tr
+			ref={ref}
+			className={styles.row}
+			aria-selected={state ? true : undefined}
+			data-state={state}
+			onKeyDown={
+				editing
+					? (event) => {
+							if (event.key !== "Escape") return;
+							event.preventDefault();
+							onCancel?.(row);
+						}
+					: undefined
+			}
+		>
+			{columns.map((column, index) => {
+				const content =
+					editing && column.edit ? column.edit(row) : column.cell(row);
+				if (index !== first) {
+					return (
+						<td
+							key={column.key}
+							className={cellClass(column)}
+							data-priority={column.priority ?? 1}
+						>
+							{content}
+						</td>
+					);
+				}
+				// The first cell holds the folded line, and while editing the
+				// Save and Cancel directly under its field instead.
+				const fold = editing ? undefined : foldLine(folded, row);
+				return (
+					<td
+						key={column.key}
+						className={cellClass(column)}
+						data-priority={column.priority ?? 1}
+					>
+						{editing ? (
+							<div className={styles.editing}>
+								{content}
+								<div className={styles.choices}>
+									<Button kind="secondary" onClick={() => onSave?.(row)}>
+										Save
+									</Button>
+									<Button kind="ghost" onClick={() => onCancel?.(row)}>
+										Cancel
+									</Button>
+								</div>
+							</div>
+						) : fold ? (
+							<>
+								<div>{content}</div>
+								<div className={styles.fold}>{fold}</div>
+							</>
+						) : (
+							content
+						)}
+					</td>
+				);
+			})}
+			{rowAction && (
+				<td className={styles.action}>{editing ? null : rowAction(row)}</td>
+			)}
+		</tr>
 	);
 }
 
