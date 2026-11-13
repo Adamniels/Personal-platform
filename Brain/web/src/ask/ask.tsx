@@ -16,6 +16,7 @@ import { type FormEvent, useState } from "react";
 import section from "../entries/section.module.css";
 import { type Subject, subjectFrom, subjectValue } from "../everything/filters";
 import { useCanonicalTopics, useEntities } from "../subjects/subjects";
+import { AnswerView } from "./answer";
 import styles from "./ask.module.css";
 import { useAsk } from "./queries";
 import {
@@ -132,7 +133,14 @@ export function Ask() {
 								</form>
 								{asking.isPending ? (
 									<p className={styles.note}>Asking the brain…</p>
-								) : asking.data ? null : (
+								) : asking.data ? (
+									<AnswerView asked={asking.data} />
+								) : asking.isError ? (
+									<EmptyState
+										title="The question could not be answered"
+										detail="Press Ask to try again."
+									/>
+								) : (
 									<EmptyState
 										title="Nothing asked yet"
 										detail="Choose a question and press Ask."

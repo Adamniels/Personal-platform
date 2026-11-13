@@ -8,9 +8,12 @@ import {
 } from "@testing-library/react";
 import { afterEach, describe, expect, test } from "vitest";
 import { createClient } from "../api/client";
+import type { components } from "../api/schema";
 import { App } from "../app";
 import { Providers } from "../providers";
-import { fakeBrain } from "../test/fake-brain";
+import { answerItem, fakeBrain } from "../test/fake-brain";
+
+type TopicAnswer = components["schemas"]["TopicAnswer"];
 
 afterEach(cleanup);
 
@@ -42,6 +45,30 @@ async function choose(question: string) {
 
 function press(scope: ReturnType<typeof within>, name: string) {
 	fireEvent.click(scope.getByRole("button", { name }));
+}
+
+/** The card an item's text is in. */
+async function card(text: string): Promise<HTMLElement> {
+	const panel = within(await ask());
+	const found = await panel.findByText(text, { selector: "p" });
+	const item = found.closest("li");
+	if (!item) throw new Error(`${text} is not in a list item`);
+	return item;
+}
+
+function topicAnswer(overrides: Partial<TopicAnswer>): TopicAnswer {
+	return {
+		asked: "rust",
+		topic: { id: crypto.randomUUID(), slug: "rust", name: "Rust" },
+		known: true,
+		level: null,
+		focus: null,
+		misconceptions: [],
+		history: [],
+		narrower: [],
+		related: [],
+		...overrides,
+	};
 }
 
 describe("the form asks only for what its question needs", () => {
@@ -198,5 +225,401 @@ describe("the form asks only for what its question needs", () => {
 				},
 			]),
 		);
+	});
+
+	test("nothing is sent until Ask, and changing the question or the mode clears the answer", async () => {
+		const brain = fakeBrain();
+		brain.answers("/ask/now", {
+			mode: "now",
+			items: [answerItem({ content: "Writing the Ask section" })],
+			conflicts: [],
+		});
+		openAsk(brain);
+
+		let form = await choose("What is going on now?");
+		expect(brain.asked()).toEqual([]);
+		press(form, "Ask");
+		await card("Writing the Ask section");
+		expect(brain.asked()).toHaveLength(1);
+
+		fireEvent.change(form.getByLabelText("About"), {
+			target: { value: "history" },
+		});
+		expect(form.queryByText("Writing the Ask section")).toBeNull();
+		expect(form.getByText("Nothing asked yet")).toBeTruthy();
+
+		press(form, "Ask");
+		await card("Writing the Ask section");
+		form = await choose("Who is this person?");
+		expect(screen.queryByText("Writing the Ask section")).toBeNull();
+		expect(form.getByText("Nothing asked yet")).toBeTruthy();
+		expect(brain.asked()).toHaveLength(2);
+	});
+});
+
+describe("an answer shows each item with its reasons", () => {
+	test("where it lives, where it came from, how much supports it, and when", async () => {
+		const brain = fakeBrain();
+		const rust = { id: crypto.randomUUID(), slug: "rust", name: "Rust" };
+		brain.answers("/ask/now", {
+			mode: "now",
+			items: [
+				answerItem({
+					content: "Learning Rust ownership",
+					subjects: { topics: [rust], entities: [] },
+					last_supported_at: "2026-11-12T10:00:00Z",
+					support: {
+						supports: {
+							activity: 1,
+							assertion: 1,
+							decision: 0,
+							engagement: 0,
+							exposure: 0,
+							judgment: 0,
+						},
+						contradicts: {
+							activity: 0,
+							assertion: 0,
+							decision: 0,
+							engagement: 0,
+							exposure: 0,
+							judgment: 0,
+						},
+					},
+					evidence: [
+						{
+							verb: "asserted",
+							kind: "supports",
+							text: "Entered by hand as state: Learning Rust ownership",
+							origin: "brain",
+							occurred_at: "2026-11-01T10:00:00Z",
+							occurred_precision: "instant",
+							recorded_at: "2026-11-01T10:00:00Z",
+						},
+						{
+							verb: "practised",
+							kind: "supports",
+							text: "Did the borrow checker exercises",
+							origin: "learning",
+							occurred_at: "2026-11-12T10:00:00Z",
+							occurred_precision: "instant",
+							recorded_at: "2026-11-12T10:00:00Z",
+						},
+					],
+				}),
+				answerItem({
+					content: "Finishing the thesis draft",
+					stale: true,
+					last_supported_at: "2026-08-01T10:00:00Z",
+				}),
+			],
+			conflicts: [],
+		});
+		openAsk(brain);
+
+		const form = await choose("What is going on now?");
+		press(form, "Ask");
+
+		const item = within(await card("Learning Rust ownership"));
+		const facts = within(item.getByRole("list", { name: "Facts" }));
+		expect(
+			facts.getAllByRole("listitem").map((fact) => fact.textContent),
+		).toEqual([
+			"Now",
+			"Semantic store",
+			"Entered by hand",
+			"Supported by 2 entries, last on 12 Nov 2026",
+		]);
+		expect(item.getByText("Rust")).toBeTruthy();
+		expect(item.getByText("Active")).toBeTruthy();
+		// No score: the brain returns none.
+		expect(item.queryByText(/score|relevance/i)).toBeNull();
+
+		// Why is closed until opened, the events oldest first.
+		const why = item.getByRole("button", { name: "Why" });
+		expect(why.getAttribute("aria-expanded")).toBe("false");
+		expect(item.queryByRole("list", { name: "Why" })).toBeNull();
+		fireEvent.click(why);
+		expect(why.getAttribute("aria-expanded")).toBe("true");
+		const reasons = within(item.getByRole("list", { name: "Why" }));
+		const lines = reasons.getAllByRole("listitem");
+		expect(lines).toHaveLength(2);
+		expect(lines[0]?.textContent).toContain("You entered this");
+		expect(lines[1]?.textContent).toContain("Practised in learning");
+		expect(lines[1]?.textContent).toContain("Did the borrow checker exercises");
+
+		const stale = within(await card("Finishing the thesis draft"));
+		expect(stale.getByText("Still true?")).toBeTruthy();
+		expect(
+			stale.getByText("Supported by 1 entry, last on 1 Aug 2026"),
+		).toBeTruthy();
+	});
+
+	test("the items keep the order the brain returned them in", async () => {
+		const brain = fakeBrain();
+		brain.answers("/ask/now", {
+			mode: "now",
+			items: [
+				answerItem({
+					content: "Older first",
+					last_supported_at: "2026-01-01T00:00:00Z",
+				}),
+				answerItem({
+					content: "Newer second",
+					last_supported_at: "2026-11-01T00:00:00Z",
+				}),
+			],
+			conflicts: [],
+		});
+		openAsk(brain);
+
+		const form = await choose("What is going on now?");
+		press(form, "Ask");
+
+		await card("Older first");
+		const list = form.getByRole("list", { name: "Answer" });
+		expect(
+			[...list.children].map((item) => item.querySelector("p")?.textContent),
+		).toEqual(["Older first", "Newer second"]);
+	});
+
+	test("what do they know groups per topic, says what answered, and the narrower ones through which", async () => {
+		const brain = fakeBrain();
+		brain.topic("Postgres");
+		const indexing = {
+			id: crypto.randomUUID(),
+			slug: "postgres-indexing",
+			name: "Postgres indexing",
+		};
+		brain.answers("/ask/topics", {
+			mode: "now",
+			conflicts: [],
+			topics: [
+				topicAnswer({
+					asked: "postgres",
+					topic: {
+						id: crypto.randomUUID(),
+						slug: "postgres",
+						name: "Postgres",
+					},
+					level: answerItem({
+						kind: "topic_level",
+						store: "knowledge",
+						content: "Level for Postgres: solid",
+					}),
+					related: ["sqlite"],
+					narrower: [
+						{
+							topic: indexing,
+							via: ["postgres"],
+							level: null,
+							focus: null,
+							misconceptions: [],
+							history: [
+								answerItem({
+									kind: "history",
+									store: "reported_history",
+									nature: "record",
+									content: "Read about B-tree indexes",
+								}),
+							],
+						},
+					],
+				}),
+				topicAnswer({
+					asked: "postgres-indexes",
+					topic: indexing,
+				}),
+			],
+		});
+		openAsk(brain);
+
+		const form = await choose("What do they know?");
+		await waitFor(() =>
+			expect(
+				(form.getByLabelText("Topic") as HTMLSelectElement).options.length,
+			).toBe(2),
+		);
+		fireEvent.change(form.getByLabelText("Topic"), {
+			target: { value: "postgres" },
+		});
+		press(form, "Ask");
+
+		await card("Level for Postgres: solid");
+		const headings = form
+			.getAllByRole("heading")
+			.map((heading) => heading.textContent);
+		expect(headings).toEqual([
+			"postgres",
+			"postgres-indexing",
+			"postgres-indexes, answered as postgres-indexing",
+		]);
+		expect(form.getByText("Through postgres")).toBeTruthy();
+		expect(form.getByText("Related: sqlite")).toBeTruthy();
+		const narrower = within(
+			form.getByRole("list", { name: "postgres-indexing" }),
+		);
+		expect(narrower.getByText("Read about B-tree indexes")).toBeTruthy();
+	});
+});
+
+describe("a conflict names both items, which is preferred and why, or that neither is", () => {
+	const global = answerItem({
+		kind: "decision",
+		content: "Use Postgres for everything",
+	});
+	const narrow = answerItem({
+		kind: "decision",
+		content: "Use SQLite for the CLI tool",
+	});
+	const newer = answerItem({ kind: "decision", content: "Ship weekly" });
+	const older = answerItem({ kind: "decision", content: "Ship monthly" });
+	const topic = answerItem({ kind: "decision", content: "Index every key" });
+	const entity = answerItem({
+		kind: "decision",
+		content: "No indexes in Rollout",
+	});
+
+	test("narrower scope, newer at equal scope, and no winner", async () => {
+		const brain = fakeBrain();
+		brain.answers("/ask/now", {
+			mode: "now",
+			items: [narrow, global, newer, older, topic, entity],
+			conflicts: [
+				{
+					items: [global.id, narrow.id],
+					prefer: narrow.id,
+					reason: "narrower scope",
+				},
+				{
+					items: [older.id, newer.id],
+					prefer: newer.id,
+					reason: "newer at equal scope",
+				},
+				{
+					items: [topic.id, entity.id],
+					prefer: null,
+					reason: "incomparable scopes",
+				},
+			],
+		});
+		openAsk(brain);
+
+		const form = await choose("What is going on now?");
+		press(form, "Ask");
+
+		const box = within(
+			await form.findByRole("article", {
+				name: "The brain holds things that disagree",
+			}),
+		);
+		const conflicts = box.getAllByRole("listitem");
+		expect(conflicts).toHaveLength(3);
+
+		const [first, second, third] = conflicts.map((conflict) =>
+			within(conflict),
+		);
+		expect(first?.getAllByRole("link").map((link) => link.textContent)).toEqual(
+			["Use Postgres for everything", "Use SQLite for the CLI tool"],
+		);
+		expect(first?.getByText("Narrower scope")).toBeTruthy();
+		expect(
+			first?.getByText("Preferred: Use SQLite for the CLI tool"),
+		).toBeTruthy();
+		expect(second?.getByText("Newer at equal scope")).toBeTruthy();
+		expect(second?.getByText("Preferred: Ship weekly")).toBeTruthy();
+		expect(third?.getByText("No winner: unrelated subjects")).toBeTruthy();
+		expect(third?.queryByText(/^Preferred/)).toBeNull();
+
+		// Each link goes down to its item, and both items stay in the list.
+		const link = first?.getByRole("link", {
+			name: "Use SQLite for the CLI tool",
+		});
+		const target = link?.getAttribute("href")?.slice(1) ?? "";
+		const item = document.getElementById(target);
+		expect(item?.textContent).toContain("Use SQLite for the CLI tool");
+		expect(await card("Use Postgres for everything")).toBeTruthy();
+		expect(await card("Use SQLite for the CLI tool")).toBeTruthy();
+	});
+
+	test("an answer without conflicts has no conflicts card", async () => {
+		const brain = fakeBrain();
+		brain.answers("/ask/now", { mode: "now", items: [global], conflicts: [] });
+		openAsk(brain);
+
+		const form = await choose("What is going on now?");
+		press(form, "Ask");
+
+		await card("Use Postgres for everything");
+		expect(
+			form.queryByRole("article", {
+				name: "The brain holds things that disagree",
+			}),
+		).toBeNull();
+	});
+});
+
+describe("a topic the brain does not know is said plainly", () => {
+	test("Nothing known about <topic>", async () => {
+		const brain = fakeBrain();
+		brain.topic("Haskell");
+		brain.answers("/ask/topics", {
+			mode: "now",
+			conflicts: [],
+			topics: [topicAnswer({ asked: "haskell", topic: null, known: false })],
+		});
+		openAsk(brain);
+
+		const form = await choose("What do they know?");
+		await waitFor(() =>
+			expect(
+				(form.getByLabelText("Topic") as HTMLSelectElement).options.length,
+			).toBe(2),
+		);
+		fireEvent.change(form.getByLabelText("Topic"), {
+			target: { value: "haskell" },
+		});
+		press(form, "Ask");
+
+		expect(await form.findByText("Nothing known about haskell")).toBeTruthy();
+	});
+});
+
+describe("the raw answer", () => {
+	test("Show what a feature receives holds the answer as JSON, with Copy", async () => {
+		const brain = fakeBrain();
+		const answer = {
+			mode: "now",
+			items: [answerItem({ content: "Writing the Ask section" })],
+			conflicts: [],
+		};
+		brain.answers("/ask/now", answer);
+		let copied = "";
+		Object.defineProperty(navigator, "clipboard", {
+			configurable: true,
+			value: {
+				writeText: (text: string) => {
+					copied = text;
+					return Promise.resolve();
+				},
+			},
+		});
+		openAsk(brain);
+
+		const form = await choose("What is going on now?");
+		press(form, "Ask");
+		await card("Writing the Ask section");
+
+		const show = form.getByRole("button", {
+			name: "Show what a feature receives",
+		});
+		expect(show.getAttribute("aria-expanded")).toBe("false");
+		fireEvent.click(show);
+		const raw = form.getByLabelText("What a feature receives");
+		expect(JSON.parse(raw.textContent ?? "")).toEqual(answer);
+
+		press(form, "Copy");
+		await waitFor(() => expect(JSON.parse(copied)).toEqual(answer));
+		expect(await screen.findByText("Answer copied")).toBeTruthy();
 	});
 });
