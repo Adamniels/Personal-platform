@@ -55,6 +55,29 @@ export function useSetOnTopic() {
 	});
 }
 
+/** Saves a topic's level and focus as a form holds them, "" for none,
+ * sending only what changed: the same value again would be refused, and a
+ * value is never taken away. Resolves with whether anything was sent. */
+export function useSaveSettings() {
+	const set = useSetOnTopic();
+	return async (
+		topic: Pick<KnowledgeRow, "slug" | "level" | "focus">,
+		draft: { level: string; focus: string },
+	): Promise<boolean> => {
+		const changes: Setting[] = [];
+		if (draft.level !== "" && draft.level !== topic.level?.value) {
+			changes.push({ kind: "topic_level", value: draft.level as Level });
+		}
+		if (draft.focus !== "" && draft.focus !== topic.focus?.value) {
+			changes.push({ kind: "topic_focus", value: draft.focus as Focus });
+		}
+		for (const setting of changes) {
+			await set.mutateAsync({ slug: topic.slug, setting });
+		}
+		return changes.length > 0;
+	};
+}
+
 export type NewTopic = { name: string; level?: Level; focus?: Focus };
 
 /** Adds a canonical topic, its slug made from its name, then sets its level

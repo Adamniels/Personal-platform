@@ -3,6 +3,7 @@ import {
 	fireEvent,
 	render,
 	screen,
+	waitFor,
 	within,
 } from "@testing-library/react";
 import { afterEach, describe, expect, test } from "vitest";
@@ -40,6 +41,18 @@ async function rowsOf(knowledge: ReturnType<typeof openKnowledge>) {
 		});
 }
 
+/** The table, where a row's fields are while it is edited. */
+function inTable(knowledge: ReturnType<typeof openKnowledge>) {
+	return within(knowledge.getByRole("table", { name: "Topics" }));
+}
+
+function row(knowledge: ReturnType<typeof openKnowledge>, topic: string) {
+	const link = knowledge.getByRole("link", { name: topic });
+	const found = link.closest("tr");
+	if (!found) throw new Error(`no row for ${topic}`);
+	return within(found);
+}
+
 describe("a level and a focus are shown as words", () => {
 	test("each of the four levels and three focus values, and Not set", async () => {
 		const brain = fakeBrain();
@@ -57,6 +70,36 @@ describe("a level and a focus are shown as words", () => {
 			["Databases", "Deep", "Not set"],
 			["Elixir", "Not set", "Not set"],
 		]);
+	});
+});
+
+describe("the level select explains each level", () => {
+	test("each option's help line is its meaning from the knowledge model", async () => {
+		const brain = fakeBrain();
+		brain.topic("Postgres");
+		const knowledge = openKnowledge(brain);
+
+		fireEvent.click(
+			await knowledge.findByRole("button", { name: "Edit Postgres" }),
+		);
+		const select = inTable(knowledge).getByLabelText(
+			"Level",
+		) as HTMLSelectElement;
+		const meanings: Record<string, string> = {};
+		for (const option of Array.from(select.options).filter((o) => o.value)) {
+			fireEvent.change(select, { target: { value: option.value } });
+			const help = select.getAttribute("aria-describedby") ?? "";
+			meanings[option.text] =
+				document.getElementById(help.split(" ").at(-1) ?? "")?.textContent ??
+				"";
+		}
+
+		expect(meanings).toEqual({
+			Shallow: "Knows the vocabulary",
+			Working: "Can use it with help",
+			Solid: "Can use it unaided and explain it",
+			Deep: "Knows the internals and could teach it",
+		});
 	});
 });
 
@@ -96,6 +139,69 @@ describe("the table sorts by level in the order of the levels, not the alphabet"
 			"Working",
 			"Shallow",
 			"Not set",
+		]);
+	});
+});
+
+describe("editing a row", () => {
+	test("sends only what changed, a level and a focus each on the topic's slug", async () => {
+		const brain = fakeBrain();
+		brain.topic("Postgres", { level: "working", focus: "learning" });
+		const knowledge = openKnowledge(brain);
+
+		fireEvent.click(
+			await knowledge.findByRole("button", { name: "Edit Postgres" }),
+		);
+		// Saved as it is, nothing is sent.
+		fireEvent.click(knowledge.getByRole("button", { name: "Save" }));
+		await waitFor(() =>
+			expect(inTable(knowledge).queryByLabelText("Level")).toBeNull(),
+		);
+		expect(brain.changes()).toEqual([]);
+
+		fireEvent.click(knowledge.getByRole("button", { name: "Edit Postgres" }));
+		fireEvent.change(inTable(knowledge).getByLabelText("Level"), {
+			target: { value: "solid" },
+		});
+		fireEvent.click(knowledge.getByRole("button", { name: "Save" }));
+
+		await waitFor(() =>
+			expect(row(knowledge, "Postgres").getByText("Solid")).toBeTruthy(),
+		);
+		expect(brain.changes()).toEqual([
+			{
+				method: "POST",
+				path: "/brain/api/items",
+				body: { kind: "topic_level", topic: "postgres", value: "solid" },
+			},
+		]);
+	});
+
+	test("a topic with neither offers Not set until a value is chosen, and sends nothing for it", async () => {
+		const brain = fakeBrain();
+		brain.topic("Postgres");
+		const knowledge = openKnowledge(brain);
+
+		fireEvent.click(
+			await knowledge.findByRole("button", { name: "Edit Postgres" }),
+		);
+		const focus = inTable(knowledge).getByLabelText(
+			"Focus",
+		) as HTMLSelectElement;
+		expect(focus.value).toBe("");
+		expect(focus.options[focus.selectedIndex]?.text).toBe("Not set");
+		fireEvent.change(focus, { target: { value: "not_pursuing" } });
+		fireEvent.click(knowledge.getByRole("button", { name: "Save" }));
+
+		await waitFor(() =>
+			expect(row(knowledge, "Postgres").getByText("Not pursuing")).toBeTruthy(),
+		);
+		expect(brain.changes()).toEqual([
+			{
+				method: "POST",
+				path: "/brain/api/items",
+				body: { kind: "topic_focus", topic: "postgres", value: "not_pursuing" },
+			},
 		]);
 	});
 });

@@ -31,7 +31,12 @@ import {
 	levelWord,
 	NOT_SET,
 } from "./levels";
-import { type KnowledgeRow, useAddTopic, useKnowledge } from "./queries";
+import {
+	type KnowledgeRow,
+	useAddTopic,
+	useKnowledge,
+	useSaveSettings,
+} from "./queries";
 
 /** A topic's page, under the section's address. */
 export function topicPath(slug: string): string {
@@ -200,7 +205,21 @@ const COLUMNS: readonly TableColumn<KnowledgeRow>[] = [
 	},
 ];
 
+/** A row's level and focus while it is edited, "" where it has none. */
+type Draft = { level: string; focus: string };
+
+function draftOf(row: KnowledgeRow): Draft {
+	return { level: row.level?.value ?? "", focus: row.focus?.value ?? "" };
+}
+
 function TopicTable({ rows }: { rows: readonly KnowledgeRow[] }) {
+	// The row being edited, by id, and what its fields hold.
+	const [editing, setEditing] = useState<{ id: string; draft: Draft } | null>(
+		null,
+	);
+	const saveSettings = useSaveSettings();
+	const saving = useRef(false);
+	const toast = useToast();
 	const [sort, setSort] = useState<TableSort>({
 		key: "topic",
 		direction: "ascending",
@@ -214,6 +233,57 @@ function TopicTable({ rows }: { rows: readonly KnowledgeRow[] }) {
 		rows.filter((row) => matches(row, filters)),
 		sort,
 	);
+
+	function change(field: keyof Draft, value: string) {
+		setEditing(
+			(current) =>
+				current && { ...current, draft: { ...current.draft, [field]: value } },
+		);
+	}
+
+	// Each column's fields while its row is edited, Level and Focus in place
+	// of their cells.
+	const columns = COLUMNS.map((column): TableColumn<KnowledgeRow> => {
+		if (column.key === "level") {
+			return {
+				...column,
+				edit: (row) => (
+					<LevelSelect
+						value={editing?.draft.level ?? ""}
+						onChange={(value) => change("level", value)}
+						unset={row.level === null}
+					/>
+				),
+			};
+		}
+		if (column.key === "focus") {
+			return {
+				...column,
+				edit: (row) => (
+					<FocusSelect
+						value={editing?.draft.focus ?? ""}
+						onChange={(value) => change("focus", value)}
+						unset={row.focus === null}
+					/>
+				),
+			};
+		}
+		return column;
+	});
+
+	async function save(row: KnowledgeRow) {
+		if (!editing || saving.current) return;
+		saving.current = true;
+		try {
+			const changed = await saveSettings(row, editing.draft);
+			if (changed) toast.success("Topic saved");
+			setEditing(null);
+		} catch {
+			// The failure has raised its toast, and the row stays open.
+		} finally {
+			saving.current = false;
+		}
+	}
 
 	return (
 		<>
@@ -269,11 +339,26 @@ function TopicTable({ rows }: { rows: readonly KnowledgeRow[] }) {
 			) : (
 				<Table
 					label="Topics"
-					columns={COLUMNS}
+					columns={columns}
 					rows={shown}
 					rowKey={(row) => row.id}
 					sort={sort}
 					onSort={setSort}
+					rowState={(row) => (row.id === editing?.id ? "editing" : undefined)}
+					rowAction={(row) => (
+						<Button
+							kind="ghost"
+							// Hidden on phone, where Level and Focus are not
+							// columns to edit in: the topic's page edits them.
+							className={styles.rowEdit}
+							aria-label={`Edit ${row.name}`}
+							onClick={() => setEditing({ id: row.id, draft: draftOf(row) })}
+						>
+							Edit
+						</Button>
+					)}
+					onSave={save}
+					onCancel={() => setEditing(null)}
 				/>
 			)}
 		</>
