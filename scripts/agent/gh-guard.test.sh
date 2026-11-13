@@ -60,7 +60,6 @@ gh pr comment 5 --body-file - < marker.md > /dev/null 2> err
 
 passed "pr comment with a plain reply" pr comment 5 --body-file reply.md
 passed "issue comment with a plain body" issue comment 41 --body "@Adamniels slice #41 is Blocked"
-passed "pr edit --add-label" pr edit 5 --add-label needs-owner
 passed "pr create with a body" pr create --base main --head 41-x --title T --body-file reply.md
 rm -f "$FAKE_REAL_LOG" "$FAKE_REAL_STDIN"
 gh pr comment 5 --body-file - < reply.md > /dev/null 2> err
@@ -122,6 +121,41 @@ passed "api graphql read" api graphql -f 'query=query{viewer{login}}'
 passed "pr view" pr view 5 --json headRefOid
 passed "issue view" issue view 41 --json body
 passed "auth status" auth status
+
+# review-ok and the labels the runner owns: an implementer posts no commit status and adds no label but has-decision.
+# One check per refusal, and one for the label that passes, so the count shows each.
+fails_before=$fail
+refused "api POST a statuses path" api repos/Adamniels/Personal-platform/statuses/0123456789abcdef0123456789abcdef01234567 -f state=success -f context=review-ok
+refused "api statuses path with a leading slash and --method" api --method POST /repos/o/r/statuses/abc -f state=success
+refused "api statuses path read" api repos/o/r/statuses/abc
+refused "api commits/<sha>/statuses" api repos/o/r/commits/abc/statuses
+echo '{"state": "success", "context": "review-ok", "labels": ["owner-merge"]}' > plain.json
+refused "api --input to a statuses path" api repos/o/r/statuses/abc --input plain.json
+for label in owner-merge owner-decision owner-blocked in-review; do
+  refused "pr edit --add-label $label" pr edit 5 --add-label "$label"
+  refused "pr create --label $label" pr create --base main --head 41-x --title T --body-file reply.md --label "$label"
+done
+refused "pr edit --add-label=owner-merge" pr edit 5 --add-label=owner-merge
+refused "pr edit --add-label has-decision,owner-merge" pr edit 5 --add-label has-decision,owner-merge
+refused "pr edit two --add-label flags, one an owner label" pr edit 5 --add-label has-decision --add-label owner-decision
+refused "pr -R x edit --add-label in-review" pr -R o/r edit 5 --add-label in-review
+refused "pr create -l owner-merge" pr create --base main --head 41-x --title T -l owner-merge
+refused "pr create -l=owner-merge" pr create --base main --head 41-x --title T -l=owner-merge
+refused "pr create -lowner-merge" pr create --base main --head 41-x --title T -lowner-merge
+refused "issue edit --add-label owner-blocked" issue edit 41 --add-label owner-blocked
+refused "pr edit --add-label of any other label" pr edit 5 --add-label bug
+refused "api POST issues/<n>/labels" api repos/o/r/issues/5/labels -f 'labels[]=owner-merge'
+refused "api PUT issues/<n>/labels" api -X PUT repos/o/r/issues/5/labels
+refused "api issues/<n>/labels with --input" api repos/o/r/issues/5/labels --input plain.json
+refused "api DELETE issues/<n>/labels/<name>" api --method DELETE repos/o/r/issues/5/labels/has-decision
+refused "api graphql addLabelsToLabelable" api graphql -f 'query=mutation{addLabelsToLabelable(input:{labelableId:"x",labelIds:["y"]}){clientMutationId}}'
+passed "pr edit --add-label has-decision" pr edit 5 --add-label has-decision
+passed "pr edit --add-label=has-decision" pr edit 5 --add-label=has-decision
+passed "pr create --label has-decision" pr create --base main --head 41-x --title T --body-file reply.md --label has-decision
+passed "api GET issues/<n>/labels" api repos/o/r/issues/5/labels
+passed "api commits/<sha>/status, the combined read" api repos/o/r/commits/abc/status
+passed "a comment body that names statuses and an owner label" pr comment 5 --body "review-ok is in statuses; owner-merge is the runner's"
+check "an implementer cannot set review-ok or an owner label" $([ "$fail" = "$fails_before" ]; echo $?)
 
 # The real gh's exit code comes back; the guard finds the real gh past its own directory listed twice.
 rm -f "$FAKE_REAL_LOG"

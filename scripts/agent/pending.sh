@@ -9,20 +9,21 @@
 #                        handled (the latest of head commit, verdict and bot reply, a non-verdict comment by
 #                        the bot)
 #   cap <pr> <slice>     the reviewer asked for changes a fourth time or more: the round cap is reached. Not
-#                        offered for a PR already labelled owner-blocked, which has been handed over. Another
-#                        owner label does not hide it: owner-decision is the implementer's, set long before
+#                        offered for a PR already labelled owner-blocked, which has been handed over. No other
+#                        label hides it: has-decision is the implementer's, set long before
 #   review <pr> <slice>  no verdict for the head commit, or a bot reply newer than a changes verdict (the fix
 #                        run answered without a commit; the reviewer reads the reply and issues a new verdict)
 #   merge <pr> <slice>   an approve verdict for the head commit
 #   resume <slice>       status In progress and no open PR
 #   new <slice>          the slice next.sh --number proposes
-#   owner <pr> <slice>   an approve verdict for the head of a PR carrying an owner label: the owner merges it.
-#                        Lowest priority, so it never starves other work
-# The owner labels are owner-merge, owner-decision and owner-blocked, and needs-owner, the one label older pull
-# requests carry instead. The merge gate refuses on any of them.
+#   owner <pr> <slice>   an approve verdict for the head of a PR carrying an owner label or has-decision: the
+#                        owner merges it. Lowest priority, so it never starves other work
+# The owner labels are owner-merge, owner-decision and owner-blocked, which the runner sets. has-decision is the
+# implementer's mark that a decision waits for the owner, and is read here like an owner label. The merge gate
+# refuses on any of the four. in-review, the runner's label for a head with no approve, is not read here.
 # Owner input is any issue comment, inline review comment or submitted review (not pending) by the owner.
 # Only open PRs by the bot are considered. A PR whose slice is Blocked on the board (board.sh get) yields nothing,
-# unless there is owner input, which is fix (R51). An owner label blocks merging only (R42): such a PR gets fix and review
+# unless there is owner input, which is fix (R51). An owner label or has-decision blocks merging only (R42): such a PR gets fix and review
 # like any other, and an approve for its head gives owner instead of merge. Within a priority, the lowest PR
 # number first. The slice is the PR's first closing issue reference, else the number its head branch name
 # starts with (`<n>-`); a PR with neither is skipped with a warning on stderr.
@@ -37,7 +38,7 @@ OWNER="Adamniels"
 REPO_NAME="Personal-platform"
 BOT="mac-mini-agent"
 MAX_CHANGES=3   # a PR with more changes verdicts than this has used up its rounds
-OWNER_LABELS='["owner-merge","owner-decision","owner-blocked","needs-owner"]'   # the merge gate's list
+OWNER_LABELS='["owner-merge","owner-decision","owner-blocked","has-decision"]'   # the merge gate's list
 BLOCKED_LABEL="owner-blocked"
 
 scripts="${AGENT_SCRIPTS:-$(cd "$(dirname "$0")" && pwd)}"
