@@ -1,8 +1,9 @@
 # The brain's data model
 
-Status: decided, not yet built. Each table arrives with the first slice that needs it.
+Status: decided and built. Every table below exists; the kinds beyond `profile` and `rule` arrive
+with the slices that write them.
 
-Last updated: 2026 11 12
+Last updated: 2026 11 13
 
 The tables the brain stores its memory in, in their final shape. The reasoning behind the shape is
 in the three documents beside this one and is not repeated here: `event-model.md` for events,

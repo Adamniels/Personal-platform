@@ -7,10 +7,11 @@ feature. Why it is a separate service is in "The brain is its own service" in
 
 Today it serves a health endpoint, says who is asking, holds each user's subjects, the topics and
 named things their memory will be about, records the events features send it and shows them as a
-timeline, and serves the memory centre, its own application, whose sections are still empty. Its
-database has the roles, the migrations, the one door every query goes through, proven to keep two
-users apart, the subjects' three tables, the verbs and the events. The other tables arrive with the
-slices that need them.
+timeline, holds the memory items the owner enters by hand, profile entries and rules, each with the
+event that proves it was said, and serves the memory centre, its own application, whose sections are
+still empty. Its database has the roles, the migrations, the one door every query goes through,
+proven to keep two users apart, the subjects' three tables, the verbs and the events, and the
+memory store's four tables, every table in `docs/data-model.md`.
 
 ## What it serves
 
@@ -56,8 +57,8 @@ slices that need them.
   `src/brain/event_routes.py`, and they answer and refuse as the subjects' routes do.
   - `POST /brain/api/events`, `201` with the event. The body carries `verb`, one of the verbs
     seeded from "The verb list" in `docs/data-model.md`; at most one of `topic`, a slug, and
-    `entity`, a name; optionally `item`, an id, which until the memory store lands names nothing
-    and is `422`; `origin`, the sending feature's name, by the slug's rule, never `brain`, which
+    `entity`, a name; optionally `item`, the id of one of the user's memory items, for
+    what the owner did to it, `422` when they have none by it; `origin`, the sending feature's name, by the slug's rule, never `brain`, which
     is the brain's own; optional `source` and `run`; `occurred_at`, with a zone, and
     `occurred_precision`, `instant` (the default), `day`, `month` or `year`, both standing for
     the time it was recorded when left out; `evidence`, readable text, not blank, at most 4000
@@ -79,6 +80,36 @@ slices that need them.
   An event is never changed or removed: `brain_app` may insert and read `events`, never update it,
   and may only read `verbs`, which is global. A new verb is a migration that adds its row, with its
   kind, strength and polarity.
+- **Memory items**, what the brain holds about the user, in the stores of "Which kind goes in which
+  store" in `docs/data-model.md`. The rules live in `src/brain/items.py`, the routes in
+  `src/brain/item_routes.py`, and they answer and refuse as the subjects' routes do.
+  - `POST /brain/api/items`, an entry made by hand, `201` with the item as a single read answers
+    it. The body is told apart by `kind`: `profile`, with a `category`, one of `identity`, `goals`,
+    `values`, `interests`, `preferences` and `working_style`, and optional `topics`, slugs, and
+    `entities`, names, at most 20 of each; or `rule`, which is global, so it takes no subject and
+    no category. Both carry `content`, 1 to 4000 characters once its surrounding whitespace is
+    dropped, and an optional `occurred_at`, with a zone, and `occurred_precision`, for when it
+    became true. A topic the user does not have is `422`, since a hand made entry names one that
+    exists; a named thing they do not have is created, with no label. A field it does not know is
+    `422`.
+  - The entry applies at once, as "Standing rules are created deliberately" in
+    `docs/trust-model.md` says: one transaction records an `asserted` event through the same path
+    as the events endpoint, with origin `brain`, source `manual-entry`, evidence
+    `Entered by hand as <kind>: "<content>"` cut to 500 characters and a payload naming the item,
+    then the item, `active`, `asserted` and the first of its lineage, with `created_by_event`
+    naming the event, then its subjects, then a `supports` row in `item_evidence`. A failure at any
+    step leaves none of it.
+  - `GET /brain/api/items`, the user's items, newest first, each with its `topics`, read through
+    their aliases, and its `entities`, narrowed by any of `kind`, `status` (`active` or
+    `inactive`), `topic`, a slug, and `entity`, a name. A topic matches through aliases on either
+    side, and only itself, not the topics under it; a name matches without letter case.
+  - `GET /brain/api/items/{id}`, one item with its subjects, its `evidence`, oldest first, each with
+    its kind and the event's id, verb, origin, source, evidence and times, and its `relations`, on
+    either end. What confidence and currency would be computed from, and neither is stored.
+
+  An item is never changed in place: `brain_app` may insert and read the four tables, and update
+  only an item's `status` and `inactive_reason`. Which kind lives in which store, and its nature,
+  is checked by the migration as well as the code, since the store decides who may change a claim.
 - `GET /brain` and `GET /brain/<section>`, the memory centre's `index.html` from the build, see
   "The memory centre" below. Without a valid token, a `303` to the core's
   `/auth/refresh?return_to=<the path>`.
