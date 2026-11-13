@@ -13,3 +13,11 @@ export {
 export { Badge, type BadgeProps } from "./status/badge";
 export { Chip, type ChipProps } from "./status/chip";
 export { Status, type StatusProps, type StatusTone } from "./status/status";
+export {
+	Tab,
+	TabPanel,
+	type TabPanelProps,
+	type TabProps,
+	Tabs,
+	type TabsProps,
+} from "./tabs/tabs";

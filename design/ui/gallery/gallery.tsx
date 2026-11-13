@@ -7,6 +7,7 @@ import { MeterSection } from "./sections/meter-section";
 import { ProgressSection } from "./sections/progress-section";
 import { SelectSection } from "./sections/select-section";
 import { StatusSection } from "./sections/status-section";
+import { TabsSection } from "./sections/tabs-section";
 import { TextAreaSection } from "./sections/text-area-section";
 import { TextFieldSection } from "./sections/text-field-section";
 import { ThemeControl } from "./theme-control";
@@ -37,6 +38,7 @@ export function Gallery() {
 				<ChipSection />
 				<ProgressSection />
 				<MeterSection />
+				<TabsSection />
 			</main>
 		</div>
 	);
