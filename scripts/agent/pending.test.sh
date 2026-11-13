@@ -232,25 +232,77 @@ verdict 1 changes 1
 run; [ "$out" = "review 1 11" ]
 check "an owner comment older than a bot reply on a changes verdict gives review, not fix" $?
 setprs 5; verdict 5 approve 0; reply 5 Adamniels "$late" mac-mini-agent "$later"
-run; [ "$code" = 0 ] && [ "$out" = "owner 5 15" ]
-check "an owner-decision PR whose owner comment is older than the bot reply is not fixed (owner item)" $?
+run; [ "$code" = 0 ] && [ -z "$out" ]
+check "an owner-decision PR whose owner comment is older than the bot reply is not fixed (no item: it stays handed over)" $?
 reply 5 mac-mini-agent "$mid" Adamniels "$late"
 run; [ "$out" = "fix 5 15" ]
 check "an owner-decision PR whose owner comment is newer than the bot reply gives fix" $?
 comment_inline() { jq -n -c --arg t "$2" '[{user: {login: "Adamniels"}, created_at: $t}]' > "$FAKE_DATA/inline-$1.json"; }
 reply 5 mac-mini-agent "$later"; comment_inline 5 "$late"
-run; [ "$out" = "owner 5 15" ]
+run; [ "$code" = 0 ] && [ -z "$out" ]
 check "an owner inline comment older than the bot reply gives no fix" $?
 setprs 1; verdict 1 approve 0
 
 # The owner labels, and has-decision, the implementer's mark. Any of them keeps an approved PR for the owner; only
 # owner-blocked says the round cap was already handed over, since has-decision is set by the implementer long before.
-for label in owner-merge owner-decision owner-blocked; do
-  pr 5 15 "$label"
-  setprs 5; verdict 5 approve 0
-  run; [ "$code" = 0 ] && [ "$out" = "owner 5 15" ]
-  check "R42: a PR labelled $label with an approve verdict gives owner, not merge" $?
+# owner-merge and owner-decision say an approved head was handed over, so such a PR is not offered again.
+pr 5 15 owner-blocked
+setprs 5; verdict 5 approve 0
+run; [ "$code" = 0 ] && [ "$out" = "owner 5 15" ]
+check "an approved pull request carrying owner-blocked still yields an owner item" $?
+# labels <pr> <label>...: gives the PR's fragment these labels.
+labels() {
+  local n="$1"; shift
+  printf '%s\n' "$@" | jq -R '{name: .}' | jq -s -c --slurpfile p "$FAKE_DATA/pr-$n.json" '$p[0] + {labels: .}' > "$FAKE_DATA/p" \
+    && mv "$FAKE_DATA/p" "$FAKE_DATA/pr-$n.json"
+}
+for handed in owner-merge owner-decision "has-decision owner-decision"; do
+  pr 5 15; labels 5 $handed
+  setprs 5; verdict 5 approve 0; echo 16 > "$FAKE_DATA/next"
+  run; [ "$code" = 0 ] && [ "$out" = "new 16" ]
+  check "a pull request already carrying owner-merge or owner-decision yields no owner item ($handed)" $?
+  rm -f "$FAKE_DATA/next"
+  run; [ "$code" = 0 ] && [ -z "$out" ] && [ -z "$err" ]
+  check "a handed over pull request alone leaves the picker idle ($handed)" $?
 done
+for stray in "owner-blocked owner-merge" "owner-blocked owner-decision"; do
+  pr 5 15; labels 5 $stray
+  setprs 5; verdict 5 approve 0
+  run; [ "$out" = "owner 5 15" ]
+  check "owner-blocked beside a handed over label is still offered, so the gate's reasons settle it ($stray)" $?
+done
+
+# The order: an approved pull request that waits for the owner and was not handed over yet comes right after merge,
+# before resume and new. PR 5 carries has-decision and in-review, as the implementer and the runner leave it.
+waiting() { pr 5 15; labels 5 has-decision in-review; }
+waiting; setprs 5; verdict 5 approve 0; echo 16 > "$FAKE_DATA/next"
+run; [ "$code" = 0 ] && [ "$out" = "owner 5 15" ]
+check "an approved pull request that waits for the owner is handed over before new work" $?
+echo 17 > "$FAKE_DATA/inflight"
+run; [ "$code" = 0 ] && [ "$out" = "owner 5 15" ]
+check "owner comes before resume" $?
+waiting; pr 6 16; setprs 5 6; verdict 5 approve 0; verdict 6 changes 1
+run; [ "$out" = "fix 6 16" ]
+check "fix, cap, review and merge still come before owner: fix" $?
+setprs 5 6; verdict 5 approve 0; verdict 6 changes 4
+run; [ "$out" = "cap 6 16" ]
+check "fix, cap, review and merge still come before owner: cap" $?
+setprs 5 6; verdict 5 approve 0
+run; [ "$out" = "review 6 16" ]
+check "fix, cap, review and merge still come before owner: review" $?
+setprs 5 6; verdict 5 approve 0; verdict 6 approve 0
+run; [ "$out" = "merge 6 16" ]
+check "fix, cap, review and merge still come before owner: merge" $?
+pr 4 14; labels 4 has-decision
+setprs 5 4; verdict 5 approve 0; verdict 4 approve 0
+run; [ "$out" = "owner 4 14" ]
+check "among owner items the lowest PR number comes first" $?
+# An approved owner-blocked PR is offered every loop for as long as it stays stuck, and the runner waits the poll
+# interval on it each time, so it keeps the lowest priority: above resume and new it would hold them up for good.
+pr 4 14 owner-blocked
+setprs 5 4; verdict 5 approve 0; verdict 4 approve 0
+run; [ "$out" = "owner 5 15" ]
+check "a pull request not yet handed over comes before an approved owner-blocked one, whatever their numbers" $?
 pr 5 15 has-decision
 setprs 5; verdict 5 approve 0
 run; [ "$code" = 0 ] && [ "$out" = "owner 5 15" ]
@@ -309,10 +361,10 @@ run; [ "$out" = "merge 1 11" ]
 check "R42: merge for a plain PR beats owner for a owner-blocked PR" $?
 setprs 5; verdict 5 approve 0; echo 16 > "$FAKE_DATA/next"
 run; [ "$out" = "new 16" ]
-check "R42: owner loses to new" $?
+check "R42: owner for an approved owner-blocked PR loses to new" $?
 echo 17 > "$FAKE_DATA/inflight"
 run; [ "$out" = "resume 17" ]
-check "R42: owner loses to resume" $?
+check "R42: owner for an approved owner-blocked PR loses to resume" $?
 setprs 1; verdict 1 approve 0
 run; [ "$out" = "merge 1 11" ]
 check "R42: a plain PR with an approve verdict still gives merge" $?

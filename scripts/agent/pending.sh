@@ -14,17 +14,25 @@
 #   review <pr> <slice>  no verdict for the head commit, or a bot reply newer than a changes verdict (the fix
 #                        run answered without a commit; the reviewer reads the reply and issues a new verdict)
 #   merge <pr> <slice>   an approve verdict for the head commit
+#   owner <pr> <slice>   an approve verdict for the head of a PR carrying has-decision and none of the three owner
+#                        labels: the runner hands it to the owner, who merges it. Before resume and new, so a
+#                        queue of slices does not delay the owner label and the mention
 #   resume <slice>       status In progress and no open PR
 #   new <slice>          the slice next.sh --number proposes
-#   owner <pr> <slice>   an approve verdict for the head of a PR carrying an owner label or has-decision: the
-#                        owner merges it. Lowest priority, so it never starves other work
+#   owner <pr> <slice>   an approve verdict for the head of a PR carrying owner-blocked: the merge gate's reasons
+#                        say whether it has become ready. Offered every loop for as long as it carries the label,
+#                        so it has the lowest priority and never starves other work
+# An approve verdict for the head of a PR carrying owner-merge or owner-decision, and not owner-blocked, yields
+# nothing: the PR has been handed over for this head, since the runner takes those two labels off as soon as the
+# head has no approve. So the first owner item is offered until the runner has labelled the PR, once per head when
+# the gate leaves it to the owner, and cannot starve resume and new.
 # The owner labels are owner-merge, owner-decision and owner-blocked, which the runner sets. has-decision is the
 # implementer's mark that a decision waits for the owner, and is read here like an owner label. The merge gate
 # refuses on any of the four. in-review, the runner's label for a head with no approve, is not read here.
 # Owner input is any issue comment, inline review comment or submitted review (not pending) by the owner.
 # Only open PRs by the bot are considered. A PR whose slice is Blocked on the board (board.sh get) yields nothing,
 # unless there is owner input, which is fix (R51). An owner label or has-decision blocks merging only (R42): such a PR gets fix and review
-# like any other, and an approve for its head gives owner instead of merge. Within a priority, the lowest PR
+# like any other, and an approve for its head gives owner, or nothing, instead of merge. Within a priority, the lowest PR
 # number first. The slice is the PR's first closing issue reference, else the number its head branch name
 # starts with (`<n>-`); a PR with neither is skipped with a warning on stderr.
 # Verdicts come from verdict.sh (`<approve|changes|none> <sha|0> <changes count> <created_at|->`), each PR's slice
@@ -39,6 +47,7 @@ REPO_NAME="Personal-platform"
 BOT="mac-mini-agent"
 MAX_CHANGES=3   # a PR with more changes verdicts than this has used up its rounds
 OWNER_LABELS='["owner-merge","owner-decision","owner-blocked","has-decision"]'   # the merge gate's list
+HANDED_LABELS='["owner-merge","owner-decision"]'   # an approved head carrying one was handed to the owner
 BLOCKED_LABEL="owner-blocked"
 
 scripts="${AGENT_SCRIPTS:-$(cd "$(dirname "$0")" && pwd)}"
@@ -68,14 +77,15 @@ jq --slurpfile d "$tmp/dates.json" \
 : > "$tmp/candidates"
 open_slices=" "
 
-jq -r --argjson owner_labels "$OWNER_LABELS" --arg blocked "$BLOCKED_LABEL" '.[] | [.number, .headRefOid,
+jq -r --argjson owner_labels "$OWNER_LABELS" --argjson handed_labels "$HANDED_LABELS" --arg blocked "$BLOCKED_LABEL" '.[] | [.number, .headRefOid,
       ([(.closingIssuesReferences[0].number // empty | tostring),
         ((.headRefName // "") | capture("^(?<n>[0-9]+)-").n)?] | .[0] // "-"),
       (any(.labels[]; .name as $n | $owner_labels | index($n) != null)), (any(.labels[]; .name == $blocked)),
+      (any(.labels[]; .name as $n | $handed_labels | index($n) != null)),
       (.commits[-1].committedDate // error("pull request #\(.number) has no commits"))] | @tsv' "$tmp/prs.json" > "$tmp/prs.tsv" \
   || { echo "could not read the pull request list" >&2; exit 1; }
 
-while IFS=$'\t' read -r pr sha slice labelled blocked committed; do
+while IFS=$'\t' read -r pr sha slice labelled blocked handed committed; do
   open_slices="$open_slices$slice "
   if [ "$slice" = - ]; then echo "pr #$pr closes no issue; skipped" >&2; continue; fi
 
@@ -131,8 +141,14 @@ while IFS=$'\t' read -r pr sha slice labelled blocked committed; do
     :   # at the cap and already handed to the owner: nothing to offer, or the runner would loop on it
   elif [ "$kind" = changes ]; then
     echo "2 $pr cap $slice" >> "$tmp/candidates"
+  elif [ "$kind" = approve ] && [ "$blocked" = true ]; then
+    # Offered every loop while it stays stuck, and the runner waits the poll interval on it: last, or it would
+    # hold up resume and new for good. Checked before the handed over labels, so a PR carrying both is settled.
+    echo "8 $pr owner $slice" >> "$tmp/candidates"
+  elif [ "$kind" = approve ] && [ "$handed" = true ]; then
+    :   # handed to the owner for this head: nothing to offer, or the runner would wait on it every loop
   elif [ "$kind" = approve ] && [ "$labelled" = true ]; then
-    echo "7 $pr owner $slice" >> "$tmp/candidates"
+    echo "5 $pr owner $slice" >> "$tmp/candidates"
   elif [ "$kind" = approve ]; then
     echo "4 $pr merge $slice" >> "$tmp/candidates"
   fi
@@ -142,8 +158,8 @@ done < "$tmp/prs.tsv"
 bash "$scripts/next.sh" --machine > "$tmp/board.txt"
 while read -r kind slice; do
   case "$kind" in
-    inprogress) case "$open_slices" in *" $slice "*) ;; *) echo "5 0 resume $slice" >> "$tmp/candidates" ;; esac ;;
-    next) echo "6 0 new $slice" >> "$tmp/candidates" ;;
+    inprogress) case "$open_slices" in *" $slice "*) ;; *) echo "6 0 resume $slice" >> "$tmp/candidates" ;; esac ;;
+    next) echo "7 0 new $slice" >> "$tmp/candidates" ;;
   esac
 done < "$tmp/board.txt"
 
