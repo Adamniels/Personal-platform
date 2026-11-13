@@ -99,7 +99,10 @@ with a final line `Stopped: <reason>` and changes nothing (see Stop).
    On any other branch, a dirty tree ends the run with `ENVIRONMENT: dirty tree on <branch>`.
 3. **Environment.** `infra/.env` and `Core/.env` exist in the clone; they are git ignored, so they
    survive branch switches. If one is missing, end with `ENVIRONMENT: missing <file>`; never create
-   secrets yourself, and never print or read them out.
+   secrets yourself, and never print or read them out. `infra/.env` sets `BRAIN_OWNER_PASSWORD` and
+   `BRAIN_APP_PASSWORD`, checked by name only, as in
+   `grep -q '^BRAIN_APP_PASSWORD=.' infra/.env`; a missing one ends the run with
+   `ENVIRONMENT: missing <name> in infra/.env`.
 4. **Ports.** An interrupted run can leave the core on 8080, canary on 8081 or the brain on 8082.
    For each port, `lsof -ti tcp:8080 -sTCP:LISTEN` (and `tcp:8081`, `tcp:8082`) lists what listens
    on it, and `ps -o command= -p <pid>` says what it is. Always with `-sTCP:LISTEN`: without it
@@ -186,7 +189,12 @@ branch's migrations apply from scratch, never on top of another branch's. Run
 fresh database the tables the query macros check do not exist yet:
 `SQLX_OFFLINE=true CORE_OWNER_DATABASE_URL="postgres://core_owner:$(grep '^CORE_OWNER_PASSWORD=' ../infra/.env | cut -d= -f2-)@127.0.0.1:5432/core" cargo run -- migrate`
 
-In new mode the branch equals `main`, so a failing `migrate` there ends the run with
+Then the brain's, the same way, as `brain_owner`, from `Brain/`:
+`BRAIN_OWNER_DATABASE_URL="postgres://brain_owner:$(grep '^BRAIN_OWNER_PASSWORD=' ../infra/.env | cut -d= -f2-)@127.0.0.1:5432/brain" UV_LOCKED=1 uv run brain migrate`.
+The reset keeps the roles, so it needs `brain_owner` and `brain_app` to exist; on a volume created
+before the brain had a database, "The databases" in `infra/README.md` says how they are made once.
+
+In new mode the branch equals `main`, so either `migrate` failing there ends the run with
 `ENVIRONMENT: migrate fails on main`. On a resumed or fixed branch it may be the slice's own
 migration, and is fixed as part of the work. After editing a migration this run already applied,
 run `bash scripts/agent/reset-db.sh` again before `migrate`.
@@ -270,10 +278,13 @@ and in the same order. Read the workflows each run; today they are:
 - **canary** (`canary.yml`), from `canary/`: `UV_LOCKED=1 uv run ruff check`,
   `UV_LOCKED=1 uv run ruff format --check`, `UV_LOCKED=1 uv run pytest`.
 - **brain** (`brain.yml`), from `Brain/`: `UV_LOCKED=1 uv run ruff check`,
-  `UV_LOCKED=1 uv run ruff format --check`, `UV_LOCKED=1 uv run mypy`, `UV_LOCKED=1 uv run pytest`.
+  `UV_LOCKED=1 uv run ruff format --check`, `UV_LOCKED=1 uv run mypy`; the brain's `migrate`
+  command from step 6; and
+  `BRAIN_TEST_ADMIN_DATABASE_URL="postgres://postgres:$(grep '^POSTGRES_PASSWORD=' ../infra/.env | cut -d= -f2-)@127.0.0.1:5432/postgres" BRAIN_APP_DATABASE_URL="postgres://brain_app:$(grep '^BRAIN_APP_PASSWORD=' ../infra/.env | cut -d= -f2-)@127.0.0.1:5432/brain" UV_LOCKED=1 uv run pytest`.
 - **libs** (`libs.yml`): in every directory matching `libs/python/*/` that holds a
-  `pyproject.toml`, the brain's four commands, in the same order. With no such directory there is
-  nothing to run, and the step passes.
+  `pyproject.toml`, `UV_LOCKED=1 uv run ruff check`, `UV_LOCKED=1 uv run ruff format --check`,
+  `UV_LOCKED=1 uv run mypy` and `UV_LOCKED=1 uv run pytest`, in that order. With no such
+  directory there is nothing to run, and the step passes.
 - **scripts** (`ci.yml`): every `scripts/**/*.test.sh`, as the job's loop does:
   `for t in $(find scripts -name '*.test.sh' | sort); do bash "$t" || echo "FAILED $t"; done`.
 - **web** (`web.yml`): in every folder `bash scripts/ci/frontends.sh` prints, as the job's loop
@@ -295,8 +306,8 @@ it, since a change to the mounted file does not reach a running container: from 
 `docker compose up -d --wait --force-recreate caddy`. From `Core/`,
 `cargo run --locked -q > <tmp>/core.log 2>&1 &`; from `canary/`,
 `UV_LOCKED=1 uv run uvicorn canary.app:app --host 127.0.0.1 --port 8081 > <tmp>/canary.log 2>&1 &`;
-from `Brain/`,
-`UV_LOCKED=1 uv run uvicorn brain.app:app --host 127.0.0.1 --port 8082 > <tmp>/brain.log 2>&1 &`.
+from `Brain/`, with the app role's string set on the command and written nowhere,
+`BRAIN_APP_DATABASE_URL="postgres://brain_app:$(grep '^BRAIN_APP_PASSWORD=' ../infra/.env | cut -d= -f2-)@127.0.0.1:5432/brain" UV_LOCKED=1 uv run uvicorn brain.app:app --host 127.0.0.1 --port 8082 > <tmp>/brain.log 2>&1 &`.
 Wait at most three minutes for the core and the brain to answer:
 
 ```

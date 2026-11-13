@@ -20,7 +20,8 @@ check() {
 
 check "core source" "core=true canary=false brain=false libs=false scripts=false web=false e2e=true" "Core/src/lib.rs"
 check "docs alone" "core=false canary=false brain=false libs=false scripts=false web=false e2e=false" "docs/README.md"
-check "postgres init" "core=true canary=false brain=false libs=false scripts=false web=false e2e=true" "infra/postgres/initdb/core.sh"
+check "postgres init" "core=true canary=false brain=true libs=false scripts=false web=false e2e=true" "infra/postgres/initdb/core.sh"
+check "brain postgres init" "core=true canary=false brain=true libs=false scripts=false web=false e2e=true" "infra/postgres/initdb/brain.sh"
 check "other infra only e2e" "core=false canary=false brain=false libs=false scripts=false web=false e2e=true" "infra/compose.yaml"
 check "canary source" "core=false canary=true brain=false libs=false scripts=false web=false e2e=true" "canary/app/main.py"
 check "scripts" "core=false canary=false brain=false libs=false scripts=true web=false e2e=false" "scripts/ci/ci-ok.sh"

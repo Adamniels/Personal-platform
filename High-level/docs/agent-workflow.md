@@ -115,11 +115,11 @@ at desktop and 390px phone width for what a test does not catch. Screenshots are
 disposable orphan branch `pr-screenshots` by `scripts/agent/screenshots.sh` and embedded in the pull
 request, since GitHub has no API for attaching images.
 
-**The Mac mini's database is disposable.** Each run recreates the core's database empty with
-`scripts/agent/reset-db.sh` and applies the branch's migrations from scratch. Migrations are forward
-only, so on a shared database one slice's unmerged migration would stall every other branch until
-it merged. What it costs is that nothing on the Mac mini keeps data, and running the platform for
-real there would need a separate stack for the agents.
+**The Mac mini's databases are disposable.** Each run recreates the core's and the brain's
+databases empty with `scripts/agent/reset-db.sh` and applies the branch's migrations from scratch.
+Migrations are forward only, so on a shared database one slice's unmerged migration would stall
+every other branch until it merged. What it costs is that nothing on the Mac mini keeps data, and
+running the platform for real there would need a separate stack for the agents.
 
 **How a run ends**, other than with a pull request, is one of three final lines the runner reads.
 `ENVIRONMENT:` is a problem outside the slice, such as Docker down, a missing `.env`, the wrong
@@ -323,8 +323,10 @@ runner clears between planning sessions.
 6. **Environment.** Copy `infra/.env.example` to `infra/.env` and `Core/.env.example` to
    `Core/.env`, and fill in the passwords. Then give this machine its own signing key, from `Core/`:
    `cargo run -q -- keygen >> .env`. They are local to this machine and never leave it.
-7. **Stack.** From `infra/`, `docker compose up -d --wait`. Each run resets the database and applies
-   the migrations itself.
+7. **Stack.** From `infra/`, `docker compose up -d --wait`. Each run resets the databases and
+   applies the migrations itself. A volume created before `infra/.env` had the brain's two
+   passwords has no brain database yet: run `brain.sh` once by hand, as "The databases" in
+   `infra/README.md` says, or the reset fails.
 8. **Browser.** From `e2e/`, `uv run playwright install chromium`.
 9. **Caddy's root.** Not trusted in the keychain here, since an SSH session cannot change trust. The
    agent copies the root out of the volume and passes it to `curl` with `--cacert`, see "Trusting

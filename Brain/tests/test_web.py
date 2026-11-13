@@ -8,15 +8,16 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
-from conftest import ASSET, CLAIMS, INDEX, TOKEN, bearer, contract_client
 from fastapi.testclient import TestClient
 
 from brain.app import create_app
 from brain.settings import load
+from tests.conftest import ASSET, CLAIMS, INDEX, TOKEN, bearer, contract_client
+from tests.harness import MINIMAL_ENV
 
 
 def serving(web_dir: Path) -> TestClient:
-    return contract_client(load({"BRAIN_WEB_DIR": str(web_dir)}))
+    return contract_client(load({**MINIMAL_ENV, "BRAIN_WEB_DIR": str(web_dir)}))
 
 
 def test_the_brain_serves_the_application(
@@ -79,7 +80,7 @@ def test_the_brain_serves_the_application(
 
 def test_a_missing_build_stops_the_brain_at_start(tmp_path: Path) -> None:
     for web_dir in [tmp_path / "absent", tmp_path]:
-        app = create_app(load({"BRAIN_WEB_DIR": str(web_dir)}))
+        app = create_app(load({**MINIMAL_ENV, "BRAIN_WEB_DIR": str(web_dir)}))
 
         with pytest.raises(RuntimeError, match="BRAIN_WEB_DIR"), TestClient(app):
             pass
@@ -88,6 +89,8 @@ def test_a_missing_build_stops_the_brain_at_start(tmp_path: Path) -> None:
 def test_the_page_routes_stay_out_of_the_schema(web_dir: Path) -> None:
     # The schema is the brain's API for the frontend and features; a page is
     # not part of it.
-    paths = create_app(load({"BRAIN_WEB_DIR": str(web_dir)})).openapi()["paths"]
+    paths = create_app(load({**MINIMAL_ENV, "BRAIN_WEB_DIR": str(web_dir)})).openapi()[
+        "paths"
+    ]
 
     assert all(path.startswith("/brain/api/") for path in paths)

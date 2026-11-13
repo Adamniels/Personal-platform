@@ -14,12 +14,13 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from conftest import CLAIMS, JWKS, PLATFORM, TOKEN, bearer, contract_client
 from fastapi.testclient import TestClient
 from platform_auth.keys import KeyCache
 
 from brain.app import create_app
 from brain.settings import load
+from tests.conftest import CLAIMS, JWKS, PLATFORM, TOKEN, bearer, contract_client
+from tests.harness import app_url
 
 WHOAMI = "/brain/api/whoami"
 
@@ -143,8 +144,15 @@ def test_a_state_changing_request_needs_the_platforms_origin(
     assert allowed.status_code == 405
 
 
-def test_the_app_creates_and_closes_its_own_key_cache(web_dir: Path) -> None:
-    app = create_app(load({"BRAIN_WEB_DIR": str(web_dir)}))
+def test_the_app_creates_and_closes_its_own_key_cache(
+    web_dir: Path, database: str
+) -> None:
+    # Starting the app opens its database pool too, so it needs one to reach.
+    app = create_app(
+        load(
+            {"BRAIN_WEB_DIR": str(web_dir), "BRAIN_APP_DATABASE_URL": app_url(database)}
+        )
+    )
 
     with TestClient(app):
         assert isinstance(app.state.keys, KeyCache)

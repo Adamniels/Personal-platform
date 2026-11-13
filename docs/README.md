@@ -134,13 +134,15 @@ features" in `High-level/docs/platform-architecture.md`.
 **Infra**
 
 - `infra/README.md` — the local hostname, running Caddy and what its data volume holds, the
-  design folder and the paths Caddy serves from it, the feature registry, and trusting Caddy's root
+  databases and the scripts that create them, the design folder and the paths Caddy serves from
+  it, the feature registry, and trusting Caddy's root
 
 **Brain**
 
 - `Brain/README.md` — what the brain serves, how it knows who is asking, the memory centre and
   its sections, how its client calls the brain and how its API types are generated, how to run
-  it and its tests, its settings, and the libraries it is built on
+  it and its tests, its settings, its database and roles, migrating, the one door every query
+  goes through, and the libraries it is built on
 - `brain-architecture.md` — per feature modules, retrieval, evaluation, consolidation, and the
   brain's own surface, the memory centre, with its sections and their addresses
 - `trust-model.md` — which store holds what, who can change it, scope, confidence and currency,

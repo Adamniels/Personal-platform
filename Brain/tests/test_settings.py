@@ -6,13 +6,15 @@ from pathlib import Path
 import pytest
 
 from brain.settings import Settings, SettingsError, load
+from tests.harness import MINIMAL_ENV
 
 
 def test_settings_default_and_refuse_a_malformed_value() -> None:
-    assert load({}) == Settings(
+    assert load(MINIMAL_ENV) == Settings(
         core_url="http://127.0.0.1:8080",
         public_origin="https://platform.test",
         web_dir=Path("web/dist"),
+        app_database_url="postgres://brain_app:secret-a1b2@127.0.0.1:5432/brain",
     )
 
     for name, value in [
@@ -46,7 +48,7 @@ def test_settings_default_and_refuse_a_malformed_value() -> None:
         ("BRAIN_WEB_DIR", ""),
     ]:
         with pytest.raises(SettingsError, match=name):
-            load({name: value})
+            load({**MINIMAL_ENV, name: value})
 
     # A malformed value stops the service at import, before uvicorn serves.
     environ = {**os.environ, "BRAIN_CORE_URL": "http://127.0.0.1:8080/"}
@@ -69,16 +71,47 @@ def test_a_well_formed_value_is_taken_as_it_is() -> None:
         "https://core.internal",
         "http://[::1]:8080",
     ]:
-        assert load({"BRAIN_CORE_URL": core_url}).core_url == core_url
+        assert load({**MINIMAL_ENV, "BRAIN_CORE_URL": core_url}).core_url == core_url
 
     for origin in [
         "https://platform.test",
         "https://platform.test:8443",
         "http://localhost:8080",
     ]:
-        assert load({"BRAIN_PUBLIC_ORIGIN": origin}).public_origin == origin
+        assert (
+            load({**MINIMAL_ENV, "BRAIN_PUBLIC_ORIGIN": origin}).public_origin == origin
+        )
 
     # A folder is taken as it is: whether it holds a build is checked when the
     # brain starts, see test_web.py.
     for web_dir in ["web/dist", "/srv/brain/web", "relative"]:
-        assert load({"BRAIN_WEB_DIR": web_dir}).web_dir == Path(web_dir)
+        assert load({**MINIMAL_ENV, "BRAIN_WEB_DIR": web_dir}).web_dir == Path(web_dir)
+
+
+def test_the_database_setting_is_required_and_never_shown() -> None:
+    # No default: there is no connection string that is right everywhere,
+    # and one with a password does not belong in the code.
+    with pytest.raises(SettingsError, match="BRAIN_APP_DATABASE_URL is not set"):
+        load({})
+
+    for value in [
+        "",
+        "brain_app:secret-a1b2@127.0.0.1:5432/brain",
+        "http://brain_app:secret-a1b2@127.0.0.1:5432/brain",
+        "postgres://brain_app:secret-a1b2@/brain",
+        "postgres://brain_app:secret-a1b2@127.0.0.1:5432",
+        "postgres://brain_app:secret-a1b2@127.0.0.1:5432/",
+        "postgres://brain_app:secret-a1b2@127.0.0.1:port/brain",
+    ]:
+        with pytest.raises(SettingsError, match="BRAIN_APP_DATABASE_URL") as refused:
+            load({"BRAIN_APP_DATABASE_URL": value})
+        # The value holds the password, so the error never repeats it.
+        assert "secret-a1b2" not in str(refused.value)
+
+    for value in [
+        "postgres://brain_app:secret-a1b2@127.0.0.1:5432/brain",
+        "postgresql://brain_app@localhost/brain_test_1?sslmode=disable",
+    ]:
+        settings = load({"BRAIN_APP_DATABASE_URL": value})
+        assert settings.app_database_url == value
+        assert "secret-a1b2" not in repr(settings)

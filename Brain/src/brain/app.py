@@ -3,7 +3,7 @@ centre's frontend at `/brain` and the addresses of its sections, under the
 prefix the Caddyfile sends here, kept. See Brain/README.md."""
 
 from collections.abc import AsyncIterator, Awaitable, Callable
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from pathlib import Path
 from typing import Any, Literal
 from uuid import UUID
@@ -18,6 +18,7 @@ from platform_auth.origin import OriginCheck
 from platform_auth.verify import Claims
 from pydantic import BaseModel
 
+from brain import db
 from brain.settings import SETTINGS, Settings
 
 
@@ -138,19 +139,28 @@ def check_build(web_dir: Path) -> None:
 
 
 def create_app(settings: Settings, keys: KeyCache | None = None) -> FastAPI:
-    """The brain as an ASGI app. Without `keys`, it creates one HTTP client
-    and one key cache over it when it starts and closes the client when it
-    stops; tests pass a cache of their own."""
+    """The brain as an ASGI app. When it starts, it checks the memory centre's
+    build, opens the database pool and, without `keys`, one HTTP client with
+    one key cache over it; when it stops, it closes what it opened. Tests pass
+    a key cache of their own."""
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        check_build(settings.web_dir)
-        if keys is not None:
-            yield
-            return
-        async with httpx2.AsyncClient() as http:
-            app.state.http = http
-            app.state.keys = KeyCache(http, settings.core_url)
+        # Each step either stops the brain before it serves or is undone when
+        # it stops, in reverse, a step that fails after an earlier one
+        # included. The build first, since checking it needs no connection.
+        async with AsyncExitStack() as opened:
+            check_build(settings.web_dir)
+            # The pool lives as long as the app, and is reached only through
+            # brain.db.transaction. Migrations never run here: the app role
+            # does not own the tables, see "Migrating" in Brain/README.md.
+            pool = await db.open_pool(settings.app_database_url)
+            opened.push_async_callback(pool.close)
+            app.state.pool = pool
+            if keys is None:
+                http = await opened.enter_async_context(httpx2.AsyncClient())
+                app.state.http = http
+                app.state.keys = KeyCache(http, settings.core_url)
             yield
 
     # FastAPI's documentation pages and its schema route would sit outside
