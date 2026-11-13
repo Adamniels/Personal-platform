@@ -146,7 +146,10 @@ against a fictional person's memory on every change, see "Evaluating".
   - `GET /brain/api/items`, the user's items, newest first, each with its `topics`, read through
     their aliases, and its `entities`, narrowed by any of `kind`, `status` (`active` or
     `inactive`), `topic`, a slug, and `entity`, a name. A topic matches through aliases on either
-    side, and only itself, not the topics under it; a name matches without letter case.
+    side, and only itself, not the topics under it; a name matches without letter case. Each also
+    carries its currency as the now view reads it, `last_supported_at` and `stale`, computed when
+    read by `brain.now_and_history.currency`, so a list of every item, such as Everything, needs no
+    other call: every item has a last support, and only an active state is ever stale.
   - `GET /brain/api/items/{id}`, one item with its subjects, its `evidence`, oldest first, each with
     its kind and the event's id, verb, origin, source, evidence and times, and its `relations`, on
     either end. What confidence and currency would be computed from, and neither is stored.
@@ -494,8 +497,10 @@ pushes its section's address, Back and Forward come back as `popstate`, and an a
 section shows a not found state under the tabs. The brain answers `index.html` for any single
 segment under `/brain/` other than `api` and `assets`, so the list of sections lives in
 `src/sections.ts` alone, for a slug under `/brain/knowledge/`, a topic's page, and for an id under
-`/brain/history/`, written as the API writes one, a decision's page: the two sections with pages of
-their own. Anything deeper is `404`. Until its slice lands, a section shows the
+`/brain/history/`, written as the API writes one, a decision's page, and for an id under
+`/brain/everything/`, the same way, an item's page: the three sections with pages of their own.
+Anything deeper is `404`. A section may keep its state in the query string as well, as Everything
+keeps its filters (`useSearch` in `src/address.ts`). Until its slice lands, a section shows the
 package's `EmptyState`.
 
 **Profile and Rules** are where the owner enters by hand who he is and how the platform should work
@@ -594,6 +599,43 @@ the topic routes, "Subjects" above:
   other active decisions and calls `replace`; a replaced decision carries the `idle` status
   "Replaced" and offers no replacing, and focus goes to its heading. Marking two decisions as
   contradicting belongs to an item's page in Everything, not here.
+
+**Everything** is every item the brain holds, active or not, the general item browser,
+`src/everything/`, over `GET /items` and `GET /search`:
+
+- The package's `Table`: Entry, the text cut to one line, a link to the item's page; Kind, a `Badge`,
+  Profile, Rule, Level, Focus, Now, History or Decision; About, its subjects; Last supported, a day
+  in the mono font; and State, a `Status`. Kind and Last supported fold under the entry on phone,
+  and About is left out. Newest support first, and sortable by last supported only. Fifty rows a
+  page, with the package's `Paging`.
+- A state is one of the brain's four (`src/everything/state.ts`): Active, tone `done`; Still true?,
+  `needs-you`, for an active state nothing has supported for sixty days; Replaced, `idle`, for an
+  earlier version or a decision another replaced; and Retired, `idle`.
+- The filter row: Search, and Kind, State and Subject selects, State at "Active and Still true?"
+  unless changed, Subject a canonical topic or a named thing. Each filter not at its default is also
+  a removable `FilterPill`. The filters and the page are kept in the query string, `q`, `kind`,
+  `state`, `topic` or `entity`, `page`, and `sort=oldest` when sorted that way, so a reload or a
+  shared link shows the same list. There is no primary button: adding happens in the section an
+  entry belongs to, and nothing acts on many rows.
+- Without search words the list is every item, every version, filtered here. With them it comes
+  from `GET /search`, asked once typing pauses, up to its limit of 200, with `include_inactive`
+  when the State filter asks for what is not active, and each row shows the excerpt under its
+  entry. The excerpt is split on `<mark>` and `</mark>`, the brain's five escapes are read back as
+  text, and it is never set as HTML (`src/everything/excerpt.tsx`).
+- An item's page, `/brain/everything/<id>`, read from the same list and `GET /items/{id}`: a
+  breadcrumb back that keeps the filters, which the item's link carried; its full text and state; a
+  line of facts in the mono font, its kind, its store, "Entered by hand" and when; its subjects;
+  "Why the brain holds this", the events behind it as a `Timeline`, each verb in plain words, "You
+  entered this", "You corrected this", "You retired this", "You brought this back", "You confirmed
+  this", "You decided this", or a feature's verb with its name, then its evidence and where it came
+  from; "Versions", oldest first, when there is more than one; and "Related", what it replaces,
+  what replaced it and what it contradicts, each a link.
+- An active item offers Edit, for a profile entry, a rule or a state, the kinds `edit` corrects,
+  and Retire; a retired one Bring back; an active decision "Mark as contradicting…", which asks for
+  the other with a select and calls `contradicts`, and Related offers Take back on a
+  contradiction, which ends it. A replaced item offers none. Correcting and retiring are Profile's
+  form, dialog and toasts with the same words; a correction is a new version, so the page moves to
+  it. Nothing on these pages is called delete: removing for good is `brain purge`, from a terminal.
 
 `index.html` is the same shell as every page with the bar: the design files and `nav.js` from the
 proxy, not bundled, and `<platform-nav current="brain">`. Vite builds it with base `/brain/` into

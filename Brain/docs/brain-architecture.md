@@ -188,6 +188,13 @@ tab with its own address: Profile at `/brain`, then Rules, Knowledge, Now, Histo
 Timeline and Ask, each at `/brain/<name>`. Each is empty until its own slice fills it. How it is
 built, served and tested, and how it calls the brain, is "The memory centre" in `Brain/README.md`.
 
+The general item browser exists, as Everything, at `/brain/everything`: every item, active or
+not, filtered by kind, state and subject and searched by its words, with nothing deleted and
+nothing acted on in bulk. Each item has a page, `/brain/everything/<id>`, that says what it is
+and where it came from, the events behind it as its evidence, its versions and its relations, and
+is where it is corrected, retired, brought back or, for a decision, marked as contradicting
+another. Each of those records its judgment event, so the page's evidence shows it.
+
 ---
 
 ## What we are not doing
