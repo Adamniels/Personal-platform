@@ -1,7 +1,7 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { createRef, type ReactElement } from "react";
 import { afterEach, describe, expect, it } from "vitest";
-import { TextArea, TextField } from "../index";
+import { Select, TextArea, TextField } from "../index";
 
 afterEach(cleanup);
 
@@ -30,6 +30,17 @@ const fields: Case[] = [
 		role: "textbox",
 		tag: "TEXTAREA",
 		render: (props) => <TextArea {...props} />,
+	},
+	{
+		name: "Select",
+		role: "combobox",
+		tag: "SELECT",
+		render: (props) => (
+			<Select {...props}>
+				<option value="">Choose one</option>
+				<option value="a">A</option>
+			</Select>
+		),
 	},
 ];
 
@@ -161,6 +172,22 @@ describe("a field passes native props through and forwards its ref", () => {
 		expect(textarea.getAttribute("rows")).toBe("6");
 		expect(textarea.getAttribute("maxlength")).toBe("200");
 		expect(textarea).toHaveProperty("value", "First line");
+	});
+
+	it("Select", () => {
+		const ref = createRef<HTMLSelectElement>();
+		render(
+			<Select ref={ref} label="Project" name="project" defaultValue="b">
+				<option value="a">Alpha</option>
+				<option value="b">Beta</option>
+			</Select>,
+		);
+		const select = screen.getByRole("combobox", { name: "Project" });
+
+		expect(ref.current).toBe(select);
+		expect(select.getAttribute("name")).toBe("project");
+		expect(select).toHaveProperty("value", "b");
+		expect(screen.getAllByRole("option")).toHaveLength(2);
 	});
 
 	it("keeps an id and a description the caller gives", () => {

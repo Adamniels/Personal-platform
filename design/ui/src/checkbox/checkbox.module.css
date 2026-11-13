@@ -1,0 +1,32 @@
+/* "Checkbox" in section 4 of design/DESIGN.md. The box is the native one,
+ * styled only with accent-color. The focus ring comes from the base rule in
+ * tokens.css and is never overridden here. */
+
+.row {
+	box-sizing: border-box;
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	min-height: var(--row-h);
+	color: var(--text);
+	cursor: pointer;
+}
+
+.box {
+	flex: none;
+	width: 16px;
+	height: 16px;
+	margin: 0;
+	accent-color: var(--info);
+	cursor: inherit;
+}
+
+.done {
+	color: var(--text-3);
+	text-decoration: line-through;
+}
+
+.row:has(.box:disabled) {
+	color: var(--text-3);
+	cursor: not-allowed;
+}
