@@ -20,6 +20,10 @@ export type TableColumn<Row> = {
 	numeric?: boolean;
 	/** Whether the header is a button that asks for this column's sort. */
 	sortable?: boolean;
+	/** The short text a priority 2 column gives the folded line on phone.
+	 * Left out, the cell is used when it is text or a number, and the column
+	 * is skipped when it is not. */
+	fold?: (row: Row) => string;
 };
 
 export type TableSortDirection = "ascending" | "descending";
@@ -65,6 +69,9 @@ export function Table<Row>({
 	className,
 	...rest
 }: TableProps<Row>) {
+	// The folded line goes under the first column that shows on phone.
+	const first = columns.findIndex((column) => (column.priority ?? 1) === 1);
+	const folded = columns.filter((column) => column.priority === 2);
 	return (
 		<section
 			// A region that scrolls is named and reachable by the keyboard, so it
@@ -103,15 +110,26 @@ export function Table<Row>({
 								aria-selected={state ? true : undefined}
 								data-state={state}
 							>
-								{columns.map((column) => (
-									<td
-										key={column.key}
-										className={cellClass(column)}
-										data-priority={column.priority ?? 1}
-									>
-										{column.cell(row)}
-									</td>
-								))}
+								{columns.map((column, index) => {
+									const fold =
+										index === first ? foldLine(folded, row) : undefined;
+									return (
+										<td
+											key={column.key}
+											className={cellClass(column)}
+											data-priority={column.priority ?? 1}
+										>
+											{fold ? (
+												<>
+													<div>{column.cell(row)}</div>
+													<div className={styles.fold}>{fold}</div>
+												</>
+											) : (
+												column.cell(row)
+											)}
+										</td>
+									);
+								})}
 								{rowAction && (
 									<td className={styles.action}>{rowAction(row)}</td>
 								)}
@@ -122,6 +140,23 @@ export function Table<Row>({
 			</table>
 		</section>
 	);
+}
+
+/** The priority 2 values of a row as one line, "Topic · 3 / 5 · 12 Nov",
+ * or nothing when none of them has text. */
+function foldLine<Row>(
+	columns: readonly TableColumn<Row>[],
+	row: Row,
+): string | undefined {
+	const parts = columns.flatMap((column) => {
+		if (column.fold) return [column.fold(row)];
+		const cell = column.cell(row);
+		return typeof cell === "string" || typeof cell === "number"
+			? [String(cell)]
+			: [];
+	});
+	const line = parts.filter((part) => part !== "").join(" · ");
+	return line || undefined;
 }
 
 function cellClass<Row>(column: TableColumn<Row>): string | undefined {

@@ -53,6 +53,7 @@ const columns: TableColumn<Session>[] = [
 		key: "hours",
 		header: "Hours",
 		cell: (row) => row.hours.toFixed(1),
+		fold: (row) => `${row.hours.toFixed(1)} h`,
 		numeric: true,
 		priority: 2,
 		sortable: true,
@@ -331,5 +332,77 @@ describe("a row can be selected or in editing, and says so", () => {
 				`Edit ${sessions[index]?.title}`,
 			);
 		}
+	});
+});
+
+describe("below 640px only priority one columns are columns", () => {
+	it("gives each cell and header its column's priority", () => {
+		render(
+			<Table label="Sessions" columns={columns} rows={sessions} rowKey={id} />,
+		);
+
+		const expected = ["1", "2", "2", "2", "3"];
+		expect(headers().map((th) => th.getAttribute("data-priority"))).toEqual(
+			expected,
+		);
+		for (const row of bodyRows()) {
+			const cells = [...row.querySelectorAll("td")];
+			expect(cells.map((td) => td.getAttribute("data-priority"))).toEqual(
+				expected,
+			);
+		}
+	});
+
+	it("folds the priority 2 values into one mono line under the first cell", () => {
+		render(
+			<Table label="Sessions" columns={columns} rows={sessions} rowKey={id} />,
+		);
+
+		const first = bodyRows()[0]?.querySelector("td");
+		const fold = first?.querySelector(`.${styles.fold}`);
+		// A text cell folds as itself; a column with `fold` uses it.
+		expect(fold?.textContent).toBe("Embedded · 1.5 h · 12 Nov");
+		// Priority 3 values are not folded.
+		expect(fold?.textContent).not.toContain("Timer chapter");
+		// Only the first cell holds the line.
+		expect(bodyRows()[0]?.querySelectorAll(`.${styles.fold}`)).toHaveLength(1);
+	});
+
+	it("leaves out a value that is not text and has no fold, and an empty one", () => {
+		const withStatus: TableColumn<Session>[] = [
+			{ key: "title", header: "Session", cell: (row) => row.title },
+			{
+				key: "badge",
+				header: "Badge",
+				cell: (row) => <strong>{row.project}</strong>,
+				priority: 2,
+			},
+			{ key: "notes", header: "Notes", cell: (row) => row.notes, priority: 2 },
+			{ key: "date", header: "Date", cell: (row) => row.date, priority: 2 },
+		];
+		render(
+			<Table
+				label="Sessions"
+				columns={withStatus}
+				rows={sessions}
+				rowKey={id}
+			/>,
+		);
+
+		const third = bodyRows()[2]?.querySelector("td");
+		expect(third?.querySelector(`.${styles.fold}`)?.textContent).toBe("10 Nov");
+	});
+
+	it("draws no line when there is nothing to fold", () => {
+		render(
+			<Table
+				label="Sessions"
+				columns={[columns[0] as TableColumn<Session>]}
+				rows={sessions}
+				rowKey={id}
+			/>,
+		);
+
+		expect(document.querySelector(`.${styles.fold}`)).toBeNull();
 	});
 });
