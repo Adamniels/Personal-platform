@@ -236,6 +236,8 @@ def test_ask_topics_about_an_unknown_topic_answers_with_nothing_known(
         "focus": None,
         "misconceptions": [],
         "history": [],
+        "narrower": [],
+        "related": [],
     }
     assert rust["known"] is True and rust["level"]["value"] == "working"
     # Asking never creates a topic, nor anything else.
@@ -595,6 +597,8 @@ def test_an_answer_never_crosses_users(
             "topic": None,
             "entity": None,
             "items": [],
+            "narrower": [],
+            "related": [],
         }
 
     # No field of a question names a user: whatever tries is refused.

@@ -303,6 +303,96 @@ async def knowledge(
 
 
 @dataclass(frozen=True)
+class Narrower:
+    """A topic under the one asked about, directly or through others."""
+
+    topic: events.TopicRef
+    # The slugs that led to it: the topic asked about first, then each topic
+    # on the way, down to the one it is directly under.
+    via: tuple[str, ...]
+
+
+async def _holding(
+    conn: Connection, kind: str
+) -> list[tuple[events.TopicRef, events.TopicRef]]:
+    """The current user's relations of `kind` that hold, each end read
+    through its alias, from_topic first."""
+    cursor = await conn.execute(
+        "SELECT a.id, a.slug, a.name, b.id, b.slug, b.name FROM topic_relations r"
+        " JOIN topics named_a ON named_a.id = r.from_topic"
+        " JOIN topics a ON a.id = coalesce(named_a.alias_of, named_a.id)"
+        " JOIN topics named_b ON named_b.id = r.to_topic"
+        " JOIN topics b ON b.id = coalesce(named_b.alias_of, named_b.id)"
+        " WHERE r.kind = %s AND r.ended_at IS NULL",
+        (kind,),
+    )
+    return [
+        (events.TopicRef(*row[:3]), events.TopicRef(*row[3:]))
+        for row in await cursor.fetchall()
+    ]
+
+
+async def _canonical(conn: Connection, topic_id: UUID) -> events.TopicRef | None:
+    cursor = await conn.execute(
+        "SELECT t.id, t.slug, t.name FROM topics given"
+        " JOIN topics t ON t.id = coalesce(given.alias_of, given.id)"
+        " WHERE given.id = %s",
+        (topic_id,),
+    )
+    row = await cursor.fetchone()
+    return events.TopicRef(*row) if row is not None else None
+
+
+async def narrower(conn: Connection, topic_id: UUID) -> list[Narrower]:
+    """Every topic under `topic_id`, to any depth, by the broader_than
+    relations that hold, read through aliases, nearest first and then by
+    slug. Each is listed once, with the shortest chain that leads to it, the
+    first by slug among equally short ones. The walk visits a topic once, so
+    it ends even on a loop the API would have refused, and the topic asked
+    about is never under itself. Nothing for a topic the user does not
+    have."""
+    root = await _canonical(conn, topic_id)
+    if root is None:
+        return []
+    under: dict[UUID, list[events.TopicRef]] = {}
+    for broader, below in await _holding(conn, "broader_than"):
+        under.setdefault(broader.id, []).append(below)
+    found: dict[UUID, Narrower] = {}
+    reached: dict[UUID, tuple[str, ...]] = {root.id: (root.slug,)}
+    frontier = [root]
+    # Breadth first, so the first chain to reach a topic is a shortest one.
+    while frontier:
+        following = []
+        for topic in frontier:
+            for below in sorted(under.get(topic.id, []), key=lambda t: t.slug):
+                if below.id in reached:
+                    continue
+                via = reached[topic.id]
+                found[below.id] = Narrower(topic=below, via=via)
+                reached[below.id] = (*via, below.slug)
+                following.append(below)
+        frontier = following
+    return sorted(found.values(), key=lambda n: (len(n.via), n.topic.slug))
+
+
+async def related(conn: Connection, topic_id: UUID) -> list[events.TopicRef]:
+    """The topics related to `topic_id` by related_to relations that hold,
+    made from either end, read through aliases, each once, by slug. Only
+    named: what is known about a related topic is not part of the answer
+    about this one. Nothing for a topic the user does not have."""
+    root = await _canonical(conn, topic_id)
+    if root is None:
+        return []
+    found: dict[UUID, events.TopicRef] = {}
+    for one, other in await _holding(conn, "related_to"):
+        if one.id == root.id and other.id != root.id:
+            found[other.id] = other
+        elif other.id == root.id and one.id != root.id:
+            found[one.id] = one
+    return sorted(found.values(), key=lambda t: t.slug)
+
+
+@dataclass(frozen=True)
 class Subject:
     """What a history is asked about: a topic or a named thing, by id."""
 

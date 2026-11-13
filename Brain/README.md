@@ -42,6 +42,10 @@ memory store's four tables, every table in `docs/data-model.md`.
   - `POST /brain/api/topics/{id}/broader`, `{"broader_id": ...}`, places the topic under a broader
     one, `201`, a `broader_than` relation from the broader topic to this one. Refused when it would
     put a topic under itself, directly, through others or through an alias.
+  - `POST /brain/api/topics/{id}/related`, `{"related_id": ...}`, relates the topic to another,
+    `201`, a `related_to` relation from this topic to the other, read either way round and through
+    aliases. Refused for the topic itself, read through aliases, and `409` when it already holds
+    either way round. Asking about one lists the other by slug, and nothing more.
   - `POST /brain/api/topic-relations/{id}/end` ends a relation. The row stays, with `ended_at`.
   - `GET /brain/api/entities` and `POST /brain/api/entities`, `{"name": ..., "label": ...}`, the
     user's named things, such as a project: a name compared without letter case, so a second one
@@ -238,13 +242,21 @@ memory store's four tables, every table in `docs/data-model.md`.
   - `POST /brain/api/ask/topics`, `{"topics": [<slug>, ...]}`, 1 to 50, what they know about these
     topics: one entry per slug, in the order asked, with `asked`, the slug as given, `topic`, the
     one that answered, an alias's target, `known`, and its active `level` and `focus`, or `null`,
-    its `misconceptions` and its other `history` entries, items about its aliases included. A slug
-    the user has no topic by is `known` `false` with nothing in it, and is never created.
+    its `misconceptions` and its other `history` entries, items about its aliases included. Then
+    `narrower`, every topic under it by the `broader_than` relations that hold, to any depth, read
+    through aliases, nearest first and then by slug: each once, with the same four fields and
+    `via`, the slugs that led to it, from the topic asked down to the one it is directly under, the
+    shortest such chain. And `related`, the slugs of the topics `related_to` it, without what is
+    known about them. A slug the user has no topic by is `known` `false` with nothing in it, and is
+    never created.
   - `POST /brain/api/ask/history`, `{"topic": <slug>}` or `{"entity": <name>}`, exactly one, the
     history of a subject: its `history` entries and decisions, a topic read through aliases, a name
     without letter case, with `asked`, `known`, the `topic` or `entity` that answered, and `items`.
     Asked about history, the decisions another one replaced are there too, `inactive` and
-    `superseded`. An unknown subject is `known` `false` with no items, and is never created.
+    `superseded`. For a topic, `narrower` holds each topic under it, as the topics answer finds
+    them, with its `via` and its own `items`, and `related` the slugs of the topics related to it;
+    both are empty for a named thing. An unknown subject is `known` `false` with no items, and is
+    never created.
   - `POST /brain/api/ask/now`, what is going on now: the active `state` entries as `items`.
 - `GET /brain` and `GET /brain/<section>`, the memory centre's `index.html` from the build, see
   "The memory centre" below. Without a valid token, a `303` to the core's

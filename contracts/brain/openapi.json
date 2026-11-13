@@ -545,6 +545,20 @@
             "title": "Mode",
             "type": "string"
           },
+          "narrower": {
+            "items": {
+              "$ref": "#/components/schemas/NarrowerHistory"
+            },
+            "title": "Narrower",
+            "type": "array"
+          },
+          "related": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Related",
+            "type": "array"
+          },
           "topic": {
             "anyOf": [
               {
@@ -562,7 +576,9 @@
           "known",
           "topic",
           "entity",
-          "items"
+          "items",
+          "narrower",
+          "related"
         ],
         "title": "HistoryAnswer",
         "type": "object"
@@ -1264,6 +1280,94 @@
         "title": "KnowledgeRow",
         "type": "object"
       },
+      "NarrowerHistory": {
+        "description": "The records and decisions about one topic under the one asked.",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AnswerItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "topic": {
+            "$ref": "#/components/schemas/EventTopic"
+          },
+          "via": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Via",
+            "type": "array"
+          }
+        },
+        "required": [
+          "topic",
+          "via",
+          "items"
+        ],
+        "title": "NarrowerHistory",
+        "type": "object"
+      },
+      "NarrowerKnowledge": {
+        "description": "What is known about one topic under the one asked.",
+        "properties": {
+          "focus": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AnswerItem"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "history": {
+            "items": {
+              "$ref": "#/components/schemas/AnswerItem"
+            },
+            "title": "History",
+            "type": "array"
+          },
+          "level": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AnswerItem"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "misconceptions": {
+            "items": {
+              "$ref": "#/components/schemas/AnswerItem"
+            },
+            "title": "Misconceptions",
+            "type": "array"
+          },
+          "topic": {
+            "$ref": "#/components/schemas/EventTopic"
+          },
+          "via": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Via",
+            "type": "array"
+          }
+        },
+        "required": [
+          "topic",
+          "via",
+          "level",
+          "focus",
+          "misconceptions",
+          "history"
+        ],
+        "title": "NarrowerKnowledge",
+        "type": "object"
+      },
       "NowAnswer": {
         "properties": {
           "items": {
@@ -1747,6 +1851,20 @@
             "title": "Misconceptions",
             "type": "array"
           },
+          "narrower": {
+            "items": {
+              "$ref": "#/components/schemas/NarrowerKnowledge"
+            },
+            "title": "Narrower",
+            "type": "array"
+          },
+          "related": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Related",
+            "type": "array"
+          },
           "topic": {
             "anyOf": [
               {
@@ -1765,7 +1883,9 @@
           "level",
           "focus",
           "misconceptions",
-          "history"
+          "history",
+          "narrower",
+          "related"
         ],
         "title": "TopicAnswer",
         "type": "object"
@@ -3995,6 +4115,69 @@
           }
         },
         "summary": "Promote Topic"
+      }
+    },
+    "/brain/api/topics/{id}/related": {
+      "post": {
+        "description": "Relates the topic to another, a related_to relation from this topic\nto it, read either way round. Asking about one lists the other by slug,\nwithout what is known about it. 422 when the other topic is not there or\nthe two are one topic, read through aliases; 409 when it already holds,\neither way round.",
+        "operationId": "add_related_brain_api_topics__id__related_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "related_id": {
+                    "format": "uuid",
+                    "title": "Related Id",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "related_id"
+                ],
+                "title": "Related",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TopicRelation"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "No valid token: missing, expired or failing verification, all alike. The body is empty; the caller refreshes and retries."
+          },
+          "404": {
+            "description": "Nothing of this user's at that address."
+          },
+          "409": {
+            "description": "It would be the user's second of something unique."
+          },
+          "422": {
+            "description": "A body that does not parse, or a request breaking a rule."
+          }
+        },
+        "summary": "Add Related"
       }
     },
     "/brain/api/topics/{id}/same-as": {

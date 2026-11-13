@@ -21,7 +21,7 @@ from fastapi.responses import JSONResponse, Response
 from platform_auth.verify import Claims
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from brain import db, entities, retrieval, topics
+from brain import db, entities, events, retrieval, topics
 from brain.edge import REFUSED, UNAUTHORIZED, authenticated, body_as, documented
 from brain.event_routes import EventEntity, EventTopic, Precision
 from brain.items import Category
@@ -254,6 +254,23 @@ async def ask_profile(request: Request, claims: Claims) -> Response:
     return JSONResponse(answer.model_dump(mode="json"))
 
 
+def _topic(topic: events.TopicRef) -> EventTopic:
+    return EventTopic(id=topic.id, slug=topic.slug, name=topic.name)
+
+
+class NarrowerKnowledge(BaseModel):
+    """What is known about one topic under the one asked."""
+
+    topic: EventTopic
+    # The slugs that led to it: the topic asked first, then each on the way,
+    # down to the one it is directly under.
+    via: list[str]
+    level: AnswerItem | None
+    focus: AnswerItem | None
+    misconceptions: list[AnswerItem]
+    history: list[AnswerItem]
+
+
 class TopicAnswer(BaseModel):
     """What is known about one asked topic."""
 
@@ -269,6 +286,10 @@ class TopicAnswer(BaseModel):
     misconceptions: list[AnswerItem]
     # Its other history entries.
     history: list[AnswerItem]
+    # Every topic under it, to any depth, nearest first, each once.
+    narrower: list[NarrowerKnowledge]
+    # The slugs of the topics related to it, without what is known of them.
+    related: list[str]
 
 
 class TopicsAnswer(BaseModel):
@@ -300,17 +321,22 @@ async def ask_topics(request: Request, claims: Claims) -> Response:
             slug: await topics.by_slug(conn, slug)
             for slug in dict.fromkeys(question.topics)
         }
-        found = await retrieval.knowledge(
-            conn,
-            [topic.id for topic in named.values() if topic is not None],
-            now=now,
-            mode=question.mode,
+        under: dict[UUID, list[retrieval.Narrower]] = {}
+        beside: dict[UUID, list[events.TopicRef]] = {}
+        for topic in named.values():
+            if topic is not None:
+                under[topic.id] = await retrieval.narrower(conn, topic.id)
+                beside[topic.id] = await retrieval.related(conn, topic.id)
+        wanted = [topic.id for topic in named.values() if topic is not None]
+        wanted += [n.topic.id for found in under.values() for n in found]
+        known_about = await retrieval.knowledge(
+            conn, list(dict.fromkeys(wanted)), now=now, mode=question.mode
         )
     entries = []
     for slug in question.topics:
         topic = named[slug]
-        known = found.get(topic.id) if topic is not None else None
-        if known is None:
+        known = known_about.get(topic.id) if topic is not None else None
+        if topic is None or known is None:
             entries.append(
                 TopicAnswer(
                     asked=slug,
@@ -320,24 +346,49 @@ async def ask_topics(request: Request, claims: Claims) -> Response:
                     focus=None,
                     misconceptions=[],
                     history=[],
+                    narrower=[],
+                    related=[],
                 )
             )
             continue
+        narrower = []
+        for below in under[topic.id]:
+            about = known_about[below.topic.id]
+            narrower.append(
+                NarrowerKnowledge(
+                    topic=_topic(below.topic),
+                    via=list(below.via),
+                    level=_one(about.level),
+                    focus=_one(about.focus),
+                    misconceptions=_all(about.misconceptions),
+                    history=_all(about.history),
+                )
+            )
         entries.append(
             TopicAnswer(
                 asked=slug,
-                topic=EventTopic(
-                    id=known.topic.id, slug=known.topic.slug, name=known.topic.name
-                ),
+                topic=_topic(known.topic),
                 known=True,
                 level=_one(known.level),
                 focus=_one(known.focus),
                 misconceptions=_all(known.misconceptions),
                 history=_all(known.history),
+                narrower=narrower,
+                related=[t.slug for t in beside[topic.id]],
             )
         )
     answer = TopicsAnswer(mode=question.mode, topics=entries)
     return JSONResponse(answer.model_dump(mode="json"))
+
+
+class NarrowerHistory(BaseModel):
+    """The records and decisions about one topic under the one asked."""
+
+    topic: EventTopic
+    # The slugs that led to it: the topic asked first, then each on the way,
+    # down to the one it is directly under.
+    via: list[str]
+    items: list[AnswerItem]
 
 
 class HistoryAnswer(BaseModel):
@@ -351,6 +402,12 @@ class HistoryAnswer(BaseModel):
     topic: EventTopic | None
     entity: EventEntity | None
     items: list[AnswerItem]
+    # For a topic, every topic under it, to any depth, nearest first, each
+    # once with its own records and decisions; none for a named thing.
+    narrower: list[NarrowerHistory]
+    # For a topic, the slugs of the topics related to it, without their
+    # items; none for a named thing.
+    related: list[str]
 
 
 @router.post(
@@ -393,6 +450,22 @@ async def ask_history(request: Request, claims: Claims) -> Response:
             if subject is not None
             else []
         )
+        narrower: list[NarrowerHistory] = []
+        related: list[str] = []
+        if subject is not None and subject.kind == "topic":
+            for below in await retrieval.narrower(conn, subject.id):
+                told = await retrieval.history(
+                    conn,
+                    retrieval.Subject("topic", below.topic.id),
+                    now=now,
+                    mode=question.mode,
+                )
+                narrower.append(
+                    NarrowerHistory(
+                        topic=_topic(below.topic), via=list(below.via), items=_all(told)
+                    )
+                )
+            related = [t.slug for t in await retrieval.related(conn, subject.id)]
     asked = question.topic if question.topic is not None else question.entity
     assert asked is not None
     answer = HistoryAnswer(
@@ -402,6 +475,8 @@ async def ask_history(request: Request, claims: Claims) -> Response:
         topic=answered_topic,
         entity=answered_entity,
         items=_all(found),
+        narrower=narrower,
+        related=related,
     )
     return JSONResponse(answer.model_dump(mode="json"))
 

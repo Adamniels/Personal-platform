@@ -237,6 +237,32 @@ async def add_broader(request: Request, claims: Claims) -> Response:
     return answer(TopicRelation.of(relation), status=201)
 
 
+class Related(BaseModel):
+    related_id: UUID
+
+
+@router.post(
+    "/topics/{id}/related",
+    status_code=201,
+    response_model=TopicRelation,
+    responses={**UNAUTHORIZED, **NOT_FOUND, **REFUSED, **CONFLICT},
+    openapi_extra=documented(body=Related, path=("id",)),
+)
+@authenticated
+async def add_related(request: Request, claims: Claims) -> Response:
+    """Relates the topic to another, a related_to relation from this topic
+    to it, read either way round. Asking about one lists the other by slug,
+    without what is known about it. 422 when the other topic is not there or
+    the two are one topic, read through aliases; 409 when it already holds,
+    either way round."""
+    topic_id = path_id(request)
+    body = await body_as(request, Related)
+    now = datetime.now(UTC)
+    async with db.transaction(request.app.state.pool, claims.account_id) as conn:
+        relation = await topics.add_related(conn, topic_id, body.related_id, now=now)
+    return answer(TopicRelation.of(relation), status=201)
+
+
 @router.post(
     "/topic-relations/{id}/end",
     response_model=TopicRelation,

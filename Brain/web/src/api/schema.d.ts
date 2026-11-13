@@ -550,6 +550,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/brain/api/topics/{id}/related": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add Related
+         * @description Relates the topic to another, a related_to relation from this topic
+         *     to it, read either way round. Asking about one lists the other by slug,
+         *     without what is known about it. 422 when the other topic is not there or
+         *     the two are one topic, read through aliases; 409 when it already holds,
+         *     either way round.
+         */
+        post: operations["add_related_brain_api_topics__id__related_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/brain/api/topics/{id}/same-as": {
         parameters: {
             query?: never;
@@ -844,6 +868,10 @@ export interface components {
              * @enum {string}
              */
             mode: "now" | "history";
+            /** Narrower */
+            narrower: components["schemas"]["NarrowerHistory"][];
+            /** Related */
+            related: string[];
             topic: components["schemas"]["EventTopic"] | null;
         };
         /**
@@ -1119,6 +1147,32 @@ export interface components {
              */
             state: "canonical" | "provisional";
         };
+        /**
+         * NarrowerHistory
+         * @description The records and decisions about one topic under the one asked.
+         */
+        NarrowerHistory: {
+            /** Items */
+            items: components["schemas"]["AnswerItem"][];
+            topic: components["schemas"]["EventTopic"];
+            /** Via */
+            via: string[];
+        };
+        /**
+         * NarrowerKnowledge
+         * @description What is known about one topic under the one asked.
+         */
+        NarrowerKnowledge: {
+            focus: components["schemas"]["AnswerItem"] | null;
+            /** History */
+            history: components["schemas"]["AnswerItem"][];
+            level: components["schemas"]["AnswerItem"] | null;
+            /** Misconceptions */
+            misconceptions: components["schemas"]["AnswerItem"][];
+            topic: components["schemas"]["EventTopic"];
+            /** Via */
+            via: string[];
+        };
         /** NowAnswer */
         NowAnswer: {
             /** Items */
@@ -1326,6 +1380,10 @@ export interface components {
             level: components["schemas"]["AnswerItem"] | null;
             /** Misconceptions */
             misconceptions: components["schemas"]["AnswerItem"][];
+            /** Narrower */
+            narrower: components["schemas"]["NarrowerKnowledge"][];
+            /** Related */
+            related: string[];
             topic: components["schemas"]["EventTopic"] | null;
         };
         /** TopicRelation */
@@ -2741,6 +2799,66 @@ export interface operations {
             };
             /** @description Nothing of this user's at that address. */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description A body that does not parse, or a request breaking a rule. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    add_related_brain_api_topics__id__related_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /**
+                     * Related Id
+                     * Format: uuid
+                     */
+                    related_id: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TopicRelation"];
+                };
+            };
+            /** @description No valid token: missing, expired or failing verification, all alike. The body is empty; the caller refreshes and retries. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Nothing of this user's at that address. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description It would be the user's second of something unique. */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
