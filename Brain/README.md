@@ -129,9 +129,14 @@ memory store's four tables, every table in `docs/data-model.md`.
     retire, and to restore anything not retired: only a retired item comes back. Retiring is the
     owner's action alone, as "Nothing is destroyed, and only the owner retires" in
     `docs/trust-model.md` says: nothing in the brain retires an item for its age or for a score.
+  - `GET /brain/api/items/{id}/versions`, every version of the entry the item is one of, every row
+    of its lineage, oldest first, each as the list answers it, whichever version is asked for. An
+    entry never edited has one. `404` for an id the user does not have.
 
   An item is never changed in place: `brain_app` may insert and read the four tables, and update
-  only an item's `status` and `inactive_reason`. Which kind lives in which store, and its nature,
+  only an item's `status` and `inactive_reason`, which editing, retiring and restoring change with
+  one conditional statement each, so of two requests changing the same item at once the second
+  finds it changed and is `409`. Which kind lives in which store, and its nature,
   is checked by the migration as well as the code, since the store decides who may change a claim.
 - `GET /brain` and `GET /brain/<section>`, the memory centre's `index.html` from the build, see
   "The memory centre" below. Without a valid token, a `303` to the core's

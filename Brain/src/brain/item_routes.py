@@ -484,3 +484,22 @@ async def restore_item(request: Request, claims: Claims) -> Response:
         detail = await items.get(conn, item_id)
     assert detail is not None
     return JSONResponse(ItemDetail.of_detail(detail).model_dump(mode="json"))
+
+
+@router.get(
+    "/items/{id}/versions",
+    response_model=list[Item],
+    responses={**UNAUTHORIZED, **NOT_FOUND},
+    openapi_extra=documented(path=("id",)),
+)
+@authenticated
+async def list_versions(request: Request, claims: Claims) -> Response:
+    """Every version of the entry the item is one of, oldest first, each
+    with its subjects, whichever version is asked for. An entry never edited
+    has one. 404 for an id the user does not have."""
+    item_id = path_id(request)
+    async with db.transaction(request.app.state.pool, claims.account_id) as conn:
+        found = await items.versions(conn, item_id)
+    if found is None:
+        raise NotFound
+    return JSONResponse([Item.of(item).model_dump(mode="json") for item in found])

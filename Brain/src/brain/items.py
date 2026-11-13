@@ -760,3 +760,19 @@ async def restore(conn: Connection, item_id: UUID, *, now: datetime) -> None:
         now=now,
     )
     await _link_judgment(conn, item_id, event, now=now)
+
+
+async def versions(conn: Connection, item_id: UUID) -> list[Item] | None:
+    """Every version of the entry `item_id` is one of, oldest first, each
+    with its subjects: the whole history of one entry, whichever version is
+    asked for. None when the user has no such item."""
+    cursor = await conn.execute(
+        f"SELECT {COLUMNS} FROM items"
+        " WHERE lineage_id = (SELECT lineage_id FROM items WHERE id = %s)"
+        " ORDER BY created_at, id",
+        (item_id,),
+    )
+    rows = await cursor.fetchall()
+    if not rows:
+        return None
+    return await _items(conn, rows)

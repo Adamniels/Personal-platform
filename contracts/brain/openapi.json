@@ -1801,6 +1801,46 @@
         "summary": "Retire Item"
       }
     },
+    "/brain/api/items/{id}/versions": {
+      "get": {
+        "description": "Every version of the entry the item is one of, oldest first, each\nwith its subjects, whichever version is asked for. An entry never edited\nhas one. 404 for an id the user does not have.",
+        "operationId": "list_versions_brain_api_items__id__versions_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Item"
+                  },
+                  "title": "Response List Versions Brain Api Items  Id  Versions Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "No valid token: missing, expired or failing verification, all alike. The body is empty; the caller refreshes and retries."
+          },
+          "404": {
+            "description": "Nothing of this user's at that address."
+          }
+        },
+        "summary": "List Versions"
+      }
+    },
     "/brain/api/topic-relations/{id}/end": {
       "post": {
         "description": "Ends a relation, which stays, with the time it ended. One already\nended is answered as it is.",

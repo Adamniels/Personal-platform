@@ -208,6 +208,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/brain/api/items/{id}/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Versions
+         * @description Every version of the entry the item is one of, oldest first, each
+         *     with its subjects, whichever version is asked for. An entry never edited
+         *     has one. 404 for an id the user does not have.
+         */
+        get: operations["list_versions_brain_api_items__id__versions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/brain/api/topic-relations/{id}/end": {
         parameters: {
             query?: never;
@@ -1290,6 +1312,42 @@ export interface operations {
             };
             /** @description The item is not in the state this needs: a superseded version, or not active or retired as the change asks. */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    list_versions_brain_api_items__id__versions_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Item"][];
+                };
+            };
+            /** @description No valid token: missing, expired or failing verification, all alike. The body is empty; the caller refreshes and retries. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Nothing of this user's at that address. */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

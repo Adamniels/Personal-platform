@@ -16,7 +16,7 @@ from psycopg_pool import AsyncConnectionPool
 from brain import db, items
 from tests.conftest import Caller
 from tests.harness import admin_connection
-from tests.test_items import ALICE, ITEMS, TOPICS, counts, profile, rule, write
+from tests.test_items import ALICE, BOB, ITEMS, TOPICS, counts, profile, rule, write
 
 EVENTS = "/brain/api/events"
 
@@ -360,6 +360,56 @@ def test_only_an_active_item_is_retired_and_only_a_retired_one_restored(
     # A superseded version is not the entry any more; its newest version is.
     assert alice.post(f"{ITEMS}/{old['id']}/retire").status_code == 409
     assert counts(database) == before
+
+
+def test_another_users_item_is_not_there_to_change(
+    calling: Callable[[uuid.UUID], Caller], database: str
+) -> None:
+    alice, bob = calling(ALICE), calling(BOB)
+    item = write(alice, rule())
+    before = counts(database)
+
+    for path, body in [
+        ("edit", {"kind": "rule", "content": "Bob's now."}),
+        ("retire", None),
+        ("restore", None),
+    ]:
+        response = bob.post(f"{ITEMS}/{item['id']}/{path}", body)
+        assert response.status_code == 404, (path, response.text)
+    assert bob.get(f"{ITEMS}/{item['id']}/versions").status_code == 404
+    assert alice.post(f"{ITEMS}/{uuid.uuid7()}/retire").status_code == 404
+    assert alice.post(f"{ITEMS}/not-an-id/restore").status_code == 404
+    assert counts(database) == before
+    assert read(alice, item["id"])["status"] == "active"
+
+
+def test_the_versions_of_an_entry_are_listed_oldest_first(
+    calling: Callable[[uuid.UUID], Caller],
+) -> None:
+    alice = calling(ALICE)
+    first = write(alice, profile(content="One."))
+    second = edit(alice, first["id"], {"kind": "profile", "content": "Two."})
+    third = edit(alice, second["id"], {"kind": "profile", "content": "Three."})
+    act(alice, third["id"], "retire")
+    # Another entry, which is not one of them.
+    write(alice, profile(content="Unrelated."))
+
+    for asked in [first, second, third]:
+        response = alice.get(f"{ITEMS}/{asked['id']}/versions")
+        assert response.status_code == 200, response.text
+        versions = response.json()
+        assert [v["id"] for v in versions] == [first["id"], second["id"], third["id"]]
+        assert [v["content"] for v in versions] == ["One.", "Two.", "Three."]
+        assert [v["inactive_reason"] for v in versions] == [
+            "superseded",
+            "superseded",
+            "retired",
+        ]
+    # An entry never edited has one version, itself.
+    single = write(alice, rule())
+    response = alice.get(f"{ITEMS}/{single['id']}/versions")
+    assert [v["id"] for v in response.json()] == [single["id"]]
+    assert alice.get(f"{ITEMS}/{uuid.uuid7()}/versions").status_code == 404
 
 
 def test_nothing_is_removed_by_any_of_it(
