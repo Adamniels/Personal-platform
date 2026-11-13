@@ -24,8 +24,8 @@
 # reviewer", when the latest verdict is approve for that exact sha, and `pending`, "waiting for the reviewer",
 # otherwise. Never `failure`: a changes verdict is still waiting. The ruleset requires it, so GitHub lets nobody
 # merge a commit the reviewer has not approved. Besides the pass above, the runner posts it right after a review
-# run. The merge gate is called only for a head the pass found approved in the same loop, so review-ok is success
-# on it before the gate is called.
+# run. The merge gate is called only for a head found approved in the same loop, by the pass or by a review run
+# that has just posted success on it, so review-ok is success on it before the gate is called.
 #
 # The labels. The runner owns four, and a pull request carries at most one of them:
 #   in-review       an open pull request whose head has no approve. Set by the pass.
@@ -40,10 +40,11 @@
 # takes the owner label off and puts in-review back. owner-blocked stays on such a head, with no in-review beside
 # it, only while it is still true: the latest verdict is for that head (the review rounds ran out on it), or the
 # pull request is recorded in agent-logs/blocked-prs (the runner set its slice Blocked). On an approved head the
-# pass leaves in-review and the owner labels to the head's merge or owner item, which sets them from the gate's
-# reasons: owner-merge or owner-decision replaces in-review and owner-blocked, owner-blocked replaces the other
-# three, and a pull request the gate merges gets no owner label, its in-review taken off after the merge (a
-# failure there is only logged). A failed label write anywhere else is a transient pause.
+# pass leaves in-review and the owner labels to the turn of the review that approved it, or to the head's merge or
+# owner item, which set them from the gate's reasons: owner-merge or owner-decision replaces in-review and
+# owner-blocked, owner-blocked replaces the other three, and a pull request the gate merges gets no owner label,
+# its in-review taken off after the merge (a failure there is only logged). A failed label write anywhere else is
+# a transient pause.
 #
 # After a merge the runner is done with a pull request. One the gate merged, or answered with the single reason
 # `pull request is already merged`, or that GitHub says is merged, is recorded in agent-logs/merged-prs. An item
@@ -65,6 +66,18 @@
 #                        head of a pull request that is still open is a failed run (R32). After it, review-ok is
 #                        posted on the head: success for an approve, pending otherwise (a failed write is a
 #                        transient pause).
+#                        The same turn: when the verdict is approve for the head as it is after the run, and
+#                        review-ok was made success, the pull request is settled at once, before pending.sh is
+#                        asked again. The head is recorded as approved for this loop and handled exactly as a
+#                        merge item is, below, with the head and the labels read after the run, not the ones the
+#                        item was picked with: merged, or handed to the owner with its label and mention, or
+#                        owner-blocked, and a gate error or a failed label or mention write is a transient pause,
+#                        never a count against the slice. One difference: the turn never waits the poll interval.
+#                        With `ci-ok is pending` among the reasons it records nothing, labels nothing and
+#                        returns, and the pull request's merge or owner item settles it once CI has reported;
+#                        and when the mention for this head was made before, it sets the label and goes on.
+#                        Nothing is settled when the run's own accounting paused or set the slice Blocked, or
+#                        when the pull request was merged or closed meanwhile.
 #   merge <pr> <slice>   merge-gate.sh <pr>, only for a head this loop found approved; any other head (it moved
 #                        since pending.sh looked) waits up to a minute and is looked at again, with no gate call.
 #                        Exit 0: merged, and recorded as merged. Exit 3 with the single reason `pull request is
@@ -76,7 +89,9 @@
 #                        reasons: a mention with them and owner-blocked. Exit 1 or another code: a transient pause.
 #   cap <pr> <slice>     a mention that the review rounds ran out, and owner-blocked.
 #   owner <pr> <slice>   a PR with has-decision or owner-blocked approved for its head: handled as merge is. The
-#                        gate cannot merge it, and its reasons say whether it is ready or stuck. pending.sh offers
+#                        gate cannot merge it, and its reasons say whether it is ready or stuck. It is what settles
+#                        a PR the review's own turn could not: ci-ok was pending, or the handover paused, or the
+#                        PR was approved before the same turn existed. pending.sh offers
 #                        it before resume and new, so the owner label and the mention do not wait for the queue,
 #                        and no longer once the PR carries owner-merge or owner-decision without owner-blocked: it
 #                        was handed over for this head, and the next loop goes on to other work with no wait. One
@@ -397,7 +412,8 @@ relabel() {
 # make_true changes on $cur_labels.
 #   owner-decision without has-decision is what the old procedure left, set by the implementer: has-decision is
 #   added, so the decision is kept whatever becomes of owner-decision.
-#   An approved head is left as it is: its merge or owner item sets its label from the gate's reasons.
+#   An approved head is left as it is: the turn of the review that approved it, or its merge or owner item, sets
+#   its label from the gate's reasons.
 #   A head with no approve carries in-review and no owner label, so a new commit takes owner-merge and
 #   owner-decision off. owner-blocked alone can stay, without in-review, while it is still true: the verdict is for
 #   this head (the review rounds ran out on it), or the runner set the slice Blocked and still records the PR.
