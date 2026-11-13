@@ -163,6 +163,27 @@ def test_the_runner_scores_recall_and_precision() -> None:
     assert evaluation.score({"a"}, {"x"}, ["x"]) == evaluation.Score(0.0, 0.0)
 
 
+def test_the_report_shows_what_each_answer_gave() -> None:
+    # Three answers that all pass the same case, with the same recall and
+    # precision: one gives an item the case does not judge, one flags an item
+    # stale. Each must still change the report, or a change in behaviour that
+    # keeps every case passing would leave it byte for byte the same.
+    case = evaluation.Case.model_validate(a_case())
+    plain = evaluation.judge(case, [evaluation.Returned("p-name", False)], [])
+    extra = evaluation.judge(
+        case,
+        [evaluation.Returned("p-name", False), evaluation.Returned("p-job", False)],
+        [],
+    )
+    stale = evaluation.judge(case, [evaluation.Returned("p-name", True)], [])
+    assert plain.passed and extra.passed and stale.passed
+    assert plain.score == extra.score == stale.score
+
+    reports = {evaluation.report([r]) for r in (plain, extra, stale)}
+    assert len(reports) == 3
+    assert "p-job" in evaluation.report([extra])
+
+
 def test_there_are_at_least_thirty_cases_and_every_group_is_covered() -> None:
     cases = evaluation.load_cases(evaluation.CASES, seed.read(seed.PERSON).item_keys)
     assert len(cases) >= 30

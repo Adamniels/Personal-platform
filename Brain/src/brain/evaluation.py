@@ -230,12 +230,20 @@ class Returned:
     stale: bool
 
 
+type Conflicts = tuple[tuple[frozenset[str], str | None], ...]
+
+
 @dataclass(frozen=True)
 class Result:
     case: Case
     score: Score
     # Every way the answer differs from the case; empty when it passed.
     problems: tuple[str, ...]
+    # The answer itself: every item it gave, in its order, and the conflicts
+    # it listed, or None for a search. The report shows them, so a change the
+    # case does not judge still shows as a diff.
+    returned: tuple[Returned, ...]
+    conflicts: Conflicts | None
 
     @property
     def passed(self) -> bool:
@@ -274,7 +282,13 @@ def judge(
     for key, stale in case.flags.items():
         if key in first and first[key].stale != stale:
             problems.append(f"{key} stale {first[key].stale}, should be {stale}")
-    return Result(case=case, score=scored, problems=tuple(problems))
+    return Result(
+        case=case,
+        score=scored,
+        problems=tuple(problems),
+        returned=tuple(returned),
+        conflicts=None if conflicts is None else tuple(conflicts),
+    )
 
 
 def _conflicts(found: Iterable[tuple[frozenset[str], str | None]]) -> str:
@@ -394,10 +408,22 @@ async def evaluate(admin_url: str) -> list[Result]:
 _ASKED_AT = seed.ASKED_AT.isoformat().replace("+00:00", "Z")
 
 
+def _answer(result: Result) -> str:
+    """One case's answer as the report shows it: every item by seed key, in
+    the answer's order, `(stale)` after a stale one, then the conflicts."""
+    items = ", ".join(f"{r.key} (stale)" if r.stale else r.key for r in result.returned)
+    line = f"- `{result.case.id}`: {items or 'nothing'}"
+    if result.conflicts is not None:
+        line += f"; conflicts {_conflicts(result.conflicts)}"
+    return line
+
+
 def report(results: Sequence[Result]) -> str:
     """The report the runner writes, `eval/report.md`: a table of every case,
-    by file name, then how many pass. It changes only when a case's answer
-    does, so a change in behaviour shows as a diff in review."""
+    by file name, then how many pass, then what each answer gave. The table
+    is the same for every passing run; the answers change whenever one does,
+    judged by its case or not, so a change in behaviour shows as a diff in
+    review even when every case still passes."""
     passed = sum(result.passed for result in results)
     lines = [
         "# Evaluation report",
@@ -417,6 +443,17 @@ def report(results: Sequence[Result]) -> str:
         ),
         "",
         f"{len(results)} cases, {passed} pass.",
+        "",
+        "## Answers",
+        "",
+        (
+            "What each answer gave, by seed key in its order, a stale item"
+            " marked, then the conflicts it listed. A case judges only the"
+            " items it names, so this is where a change it does not judge"
+            " shows."
+        ),
+        "",
+        *(_answer(r) for r in results),
         "",
     ]
     return "\n".join(lines)
