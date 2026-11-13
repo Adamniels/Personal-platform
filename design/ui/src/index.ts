@@ -16,6 +16,14 @@ export { Badge, type BadgeProps } from "./status/badge";
 export { Chip, type ChipProps } from "./status/chip";
 export { Status, type StatusProps, type StatusTone } from "./status/status";
 export {
+	Table,
+	type TableColumn,
+	type TableProps,
+	type TableRowState,
+	type TableSort,
+	type TableSortDirection,
+} from "./table/table";
+export {
 	Tab,
 	TabPanel,
 	type TabPanelProps,

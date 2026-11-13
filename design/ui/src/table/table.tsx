@@ -1,0 +1,174 @@
+import { ArrowDown, ArrowUp } from "lucide-react";
+import type { ComponentProps, ReactNode } from "react";
+import hidden from "../visually-hidden.module.css";
+import styles from "./table.module.css";
+
+/** One column of a `Table`. */
+export type TableColumn<Row> = {
+	/** Unique among the columns; what `onSort` reports. */
+	key: string;
+	/** The header cell's content. */
+	header: ReactNode;
+	/** What the column shows for a row. */
+	cell: (row: Row) => ReactNode;
+	/** Whether the column shows on phone: 1, the default, always; 2 folded
+	 * into the line under the first cell; 3 not at all. */
+	priority?: 1 | 2 | 3;
+	/** Right aligned, in the mono font with tabular figures. Hard rule 8 sets
+	 * numbers, times, dates and ids in mono, so a column of any of them is
+	 * numeric. */
+	numeric?: boolean;
+	/** Whether the header is a button that asks for this column's sort. */
+	sortable?: boolean;
+};
+
+export type TableSortDirection = "ascending" | "descending";
+
+/** Which column the rows are sorted by, and which way. */
+export type TableSort = { key: string; direction: TableSortDirection };
+
+/** What a row is doing: both are drawn alike and marked `aria-selected`. */
+export type TableRowState = "selected" | "editing";
+
+export type TableProps<Row> = Omit<ComponentProps<"section">, "children"> & {
+	/** The table's accessible name, and the name of the wrapper that scrolls. */
+	label: string;
+	columns: readonly TableColumn<Row>[];
+	/** The rows, shown in the order given: the caller sorts, filters and pages. */
+	rows: readonly Row[];
+	/** A stable key for a row. */
+	rowKey: (row: Row) => string;
+	/** How the rows are sorted, shown on the sorted header. */
+	sort?: TableSort;
+	/** Called when a sortable header is pressed, with its key and the
+	 * direction it asks for: the other way when it is already sorted,
+	 * ascending otherwise. Nothing changes until the caller passes `sort`. */
+	onSort?: (sort: TableSort) => void;
+	/** A row's state, set by the caller. */
+	rowState?: (row: Row) => TableRowState | undefined;
+	/** The one action at the end of a row, such as an Edit button. */
+	rowAction?: (row: Row) => ReactNode;
+};
+
+/** "Table" in section 4 of design/DESIGN.md: a real table in a wrapper that
+ * scrolls sideways, rendering what the caller gives it and holding no data
+ * logic of its own. Everything a `section` takes goes to the wrapper. */
+export function Table<Row>({
+	label,
+	columns,
+	rows,
+	rowKey,
+	sort,
+	onSort,
+	rowState,
+	rowAction,
+	className,
+	...rest
+}: TableProps<Row>) {
+	return (
+		<section
+			// A region that scrolls is named and reachable by the keyboard, so it
+			// can be scrolled without a pointer, even with no control inside.
+			// biome-ignore lint/a11y/noNoninteractiveTabindex: a scrolling region must be focusable to be scrolled from the keyboard.
+			tabIndex={0}
+			aria-label={label}
+			{...rest}
+			className={[styles.wrapper, className].filter(Boolean).join(" ")}
+		>
+			<table className={styles.table} aria-label={label}>
+				<thead>
+					<tr>
+						{columns.map((column) => (
+							<HeaderCell
+								key={column.key}
+								column={column}
+								sort={sort}
+								onSort={onSort}
+							/>
+						))}
+						{rowAction && (
+							<th scope="col" className={styles.action}>
+								<span className={hidden.hidden}>Actions</span>
+							</th>
+						)}
+					</tr>
+				</thead>
+				<tbody>
+					{rows.map((row) => {
+						const state = rowState?.(row);
+						return (
+							<tr
+								key={rowKey(row)}
+								className={styles.row}
+								aria-selected={state ? true : undefined}
+								data-state={state}
+							>
+								{columns.map((column) => (
+									<td
+										key={column.key}
+										className={cellClass(column)}
+										data-priority={column.priority ?? 1}
+									>
+										{column.cell(row)}
+									</td>
+								))}
+								{rowAction && (
+									<td className={styles.action}>{rowAction(row)}</td>
+								)}
+							</tr>
+						);
+					})}
+				</tbody>
+			</table>
+		</section>
+	);
+}
+
+function cellClass<Row>(column: TableColumn<Row>): string | undefined {
+	return column.numeric ? styles.numeric : undefined;
+}
+
+function HeaderCell<Row>({
+	column,
+	sort,
+	onSort,
+}: {
+	column: TableColumn<Row>;
+	sort: TableSort | undefined;
+	onSort: TableProps<Row>["onSort"];
+}) {
+	const direction =
+		column.sortable && sort?.key === column.key ? sort.direction : undefined;
+	const classes = [cellClass(column), direction && styles.sorted]
+		.filter(Boolean)
+		.join(" ");
+	const Arrow = direction === "ascending" ? ArrowUp : ArrowDown;
+	return (
+		<th
+			scope="col"
+			className={classes || undefined}
+			aria-sort={direction}
+			data-priority={column.priority ?? 1}
+		>
+			{column.sortable ? (
+				<button
+					type="button"
+					className={styles.sort}
+					onClick={() =>
+						onSort?.({
+							key: column.key,
+							direction: direction === "ascending" ? "descending" : "ascending",
+						})
+					}
+				>
+					{column.header}
+					{direction && (
+						<Arrow aria-hidden="true" size={14} className={styles.arrow} />
+					)}
+				</button>
+			) : (
+				column.header
+			)}
+		</th>
+	);
+}
