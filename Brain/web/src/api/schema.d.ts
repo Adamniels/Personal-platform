@@ -110,7 +110,10 @@ export interface paths {
          *     occurred_precision required and optional subjects, or, with details, a
          *     corrected misconception on one topic, its details misconception true with
          *     what was believed and what is right, and its content built from the two.
-         *     A named thing the user does not have is created.
+         *     Or decision, with details holding its reasoning and what it rejected,
+         *     recorded with a decided event in place of an asserted one, and its
+         *     occurred_at when it was made, the request's time unless given. A named
+         *     thing the user does not have is created.
          */
         post: operations["write_item_brain_api_items_post"];
         delete?: never;
@@ -187,6 +190,33 @@ export interface paths {
          *     that is not the newest, or an item that is retired.
          */
         post: operations["edit_item_brain_api_items__id__edit_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/brain/api/items/{id}/replace": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Replace Item
+         * @description Replaces a decision with a newer one, 200 with the old one, now
+         *     inactive with reason superseded and a supersedes relation from the new
+         *     one. An edited event against the old one, which makes the relation, is
+         *     recorded with it, in one transaction; its decided event stays, and both
+         *     stay readable. 404 for an id the user does not have. 422 for a
+         *     replaced_by they do not have, either not being a decision, or two
+         *     versions of one entry, a decision itself included. 409 when either is
+         *     not active.
+         */
+        post: operations["replace_item_brain_api_items__id__replace_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1303,6 +1333,45 @@ export interface operations {
                     occurred_precision?: "instant" | "day" | "month" | "year";
                     /** Topic */
                     topic: string;
+                } | {
+                    /** Content */
+                    content: string;
+                    /**
+                     * DecisionDetails
+                     * @description Why a decision was made, and what it was made over.
+                     */
+                    details: {
+                        /** Reasoning */
+                        reasoning: string;
+                        /**
+                         * Rejected
+                         * @default []
+                         */
+                        rejected?: string[];
+                    };
+                    /**
+                     * Entities
+                     * @default []
+                     */
+                    entities?: string[];
+                    /**
+                     * Kind
+                     * @constant
+                     */
+                    kind: "decision";
+                    /** Occurred At */
+                    occurred_at?: string | null;
+                    /**
+                     * Occurred Precision
+                     * @default instant
+                     * @enum {string}
+                     */
+                    occurred_precision?: "instant" | "day" | "month" | "year";
+                    /**
+                     * Topics
+                     * @default []
+                     */
+                    topics?: string[];
                 };
             };
         };
@@ -1457,6 +1526,66 @@ export interface operations {
         responses: {
             /** @description Successful Response */
             201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ItemDetail"];
+                };
+            };
+            /** @description No valid token: missing, expired or failing verification, all alike. The body is empty; the caller refreshes and retries. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Nothing of this user's at that address. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The item is not in the state this needs: a superseded version, or not active or retired as the change asks. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description A body that does not parse, or a request breaking a rule. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    replace_item_brain_api_items__id__replace_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /**
+                     * Replaced By
+                     * Format: uuid
+                     */
+                    replaced_by: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };

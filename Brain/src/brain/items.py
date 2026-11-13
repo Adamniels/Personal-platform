@@ -75,6 +75,15 @@ PLACES: dict[str, tuple[Store, Nature]] = {
 # The kinds that are global by construction, so they take no subject.
 GLOBAL_KINDS = frozenset({"rule"})
 
+# The kinds that say when they happened, on the item itself: a record, and a
+# decision, which was made at a time. The migration allows no other.
+DATED_KINDS = frozenset({"history", "decision"})
+
+# The verb of the event that makes an entry by hand, where it is not
+# `asserted`: a decision is written with a `decided` event, the permanent
+# record that it was made, see "Decisions" in docs/event-model.md.
+MADE_BY = {"decision": "decided"}
+
 # The source of an entry the owner typed into the brain.
 MANUAL_ENTRY = "manual-entry"
 # The longest evidence a hand made entry's event carries, so the timeline
@@ -270,7 +279,7 @@ async def _insert(
 
 async def write(conn: Connection, new: NewItem, *, now: datetime) -> UUID:
     """Writes `new` for the current user at `now`, with the `asserted` event
-    that proves it was said, and returns the item's id. The event goes first,
+    that proves it was said, or for a decision the `decided` event, and returns the item's id. The event goes first,
     through the same path as the events endpoint, with origin brain; then the
     item, made by it; then its subjects; then the event as its supporting
     evidence. All of it is in the caller's transaction, so a failure at any
@@ -300,7 +309,7 @@ async def _write(conn: Connection, new: NewItem, *, now: datetime) -> UUID:
     event, _ = await events.record(
         conn,
         events.NewEvent(
-            verb="asserted",
+            verb=MADE_BY.get(new.kind, "asserted"),
             topic=None,
             entity=None,
             # The event comes first, so it cannot name the item it makes; its
@@ -318,8 +327,9 @@ async def _write(conn: Connection, new: NewItem, *, now: datetime) -> UUID:
         ),
         now=now,
     )
-    # A record says when it happened: when it was entered, unless told.
-    record = PLACES[new.kind][1] == "record"
+    # A record says when it happened, and a decision when it was made: when
+    # it was entered, unless told.
+    dated = new.kind in DATED_KINDS
     await _insert(
         conn,
         item_id,
@@ -329,8 +339,8 @@ async def _write(conn: Connection, new: NewItem, *, now: datetime) -> UUID:
         value=new.value,
         category=new.category,
         details=new.details,
-        occurred_at=(new.occurred_at or now) if record else None,
-        occurred_precision=new.occurred_precision if record else None,
+        occurred_at=(new.occurred_at or now) if dated else None,
+        occurred_precision=new.occurred_precision if dated else None,
         topic_ids=topic_ids,
         entity_ids=entity_ids,
         event_id=event.id,
@@ -878,6 +888,56 @@ async def confirm(conn: Connection, item_id: UUID, *, now: datetime) -> None:
         now=now,
     )
     await _link_judgment(conn, item_id, event, now=now)
+
+
+async def replace_decision(
+    conn: Connection, item_id: UUID, by: UUID, *, now: datetime
+) -> None:
+    """Replaces the current user's decision `item_id` with their newer
+    decision `by` at `now`: the old one becomes inactive, superseded, and a
+    `supersedes` relation links the new to it, as an edit's new version
+    does, though the two are entries of their own. An `edited` event against
+    the old one records the judgment, is evidence against it, and makes the
+    relation. The old one's `decided` event, the record that it was made, is
+    untouched, so both stay readable. All of it is in the caller's
+    transaction.
+
+    Not found for an `item_id` the user does not have. Refused for a `by`
+    they do not have, for either not being a decision, and for two versions
+    of one entry, a decision itself included. A conflict when either is not
+    active."""
+    old = await _one(conn, item_id)
+    if old is None:
+        raise NotFound
+    new = await _one(conn, by)
+    if new is None:
+        raise Refused(f"there is no item {by}")
+    if old.kind != "decision" or new.kind != "decision":
+        raise Refused("a decision is replaced by a decision, and by nothing else")
+    if old.lineage_id == new.lineage_id:
+        raise Refused("a decision cannot replace itself or a version of itself")
+    if old.status != "active" or new.status != "active":
+        raise Conflict("both decisions must be active")
+    # Both locked, in id order, so of two replacing each other at once the
+    # second waits and then finds the first's inactive.
+    if not await _hold_active(conn, [item_id, by]) or not await _set_status(
+        conn, item_id, was=("active", None), to=("inactive", "superseded")
+    ):
+        raise Conflict("a decision changed while it was being replaced")
+    event, _ = await events.record(
+        conn,
+        _judgment(
+            "edited",
+            item_id,
+            f'Replaced by hand: "{_cut(old.content, EDIT_QUOTE_MAX)}"'
+            f' by "{_cut(new.content, EDIT_QUOTE_MAX)}"',
+            f"replaced:{uuid7()}",
+            {"item": str(item_id), "replaced_by": str(by)},
+        ),
+        now=now,
+    )
+    await _link_judgment(conn, item_id, event, now=now)
+    await _link_relation(conn, by, item_id, "supersedes", event.id, now=now)
 
 
 async def versions(conn: Connection, item_id: UUID) -> list[Item] | None:

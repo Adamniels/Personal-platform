@@ -230,6 +230,57 @@ class HistoryEntry(BaseModel):
         return [_no_nul(name) for name in names]
 
 
+# The most alternatives one decision may say it rejected.
+REJECTED_MAX = 20
+
+
+class DecisionDetails(BaseModel):
+    """Why a decision was made, and what it was made over."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    reasoning: Content
+    rejected: Annotated[list[Content], Field(max_length=REJECTED_MAX)] = []
+
+    @field_validator("reasoning")
+    @classmethod
+    def reasoning_storable(cls, reasoning: str) -> str:
+        return _no_nul(reasoning)
+
+    @field_validator("rejected")
+    @classmethod
+    def rejected_storable(cls, rejected: list[str]) -> list[str]:
+        return [_no_nul(each) for each in rejected]
+
+
+class DecisionEntry(BaseModel):
+    """A decision: a decided event, the permanent record that it was made,
+    and an item in the semantic store, the claim that it holds, which a
+    newer decision can replace. It may name the topics and named things it
+    is about."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["decision"]
+    content: Content
+    details: DecisionDetails
+    topics: Annotated[list[Slug], Field(max_length=SUBJECTS_MAX)] = []
+    entities: Annotated[list[Name], Field(max_length=SUBJECTS_MAX)] = []
+    # When it was made, with a zone; without one, when it was entered.
+    occurred_at: AwareDatetime | None = None
+    occurred_precision: Precision = "instant"
+
+    @field_validator("content")
+    @classmethod
+    def content_storable(cls, content: str) -> str:
+        return _no_nul(content)
+
+    @field_validator("entities")
+    @classmethod
+    def names_storable(cls, names: list[str]) -> list[str]:
+        return [_no_nul(name) for name in names]
+
+
 def _entry_form(body: Any) -> str | None:
     """Which form of entry `body` is: its kind, except that a history entry
     carrying details is a misconception, the one form whose details are its
@@ -256,7 +307,8 @@ class NewEntry(
             | Annotated[LevelEntry, Tag("topic_level")]
             | Annotated[FocusEntry, Tag("topic_focus")]
             | Annotated[HistoryEntry, Tag("history")]
-            | Annotated[MisconceptionEntry, Tag("misconception")],
+            | Annotated[MisconceptionEntry, Tag("misconception")]
+            | Annotated[DecisionEntry, Tag("decision")],
             Discriminator(_entry_form),
         ]
     ]
@@ -479,7 +531,10 @@ async def write_item(request: Request, claims: Claims) -> Response:
     occurred_precision required and optional subjects, or, with details, a
     corrected misconception on one topic, its details misconception true with
     what was believed and what is right, and its content built from the two.
-    A named thing the user does not have is created."""
+    Or decision, with details holding its reasoning and what it rejected,
+    recorded with a decided event in place of an asserted one, and its
+    occurred_at when it was made, the request's time unless given. A named
+    thing the user does not have is created."""
     entry = (await body_as(request, NewEntry)).root
     now = datetime.now(UTC)
     if isinstance(entry, LevelEntry | FocusEntry):
@@ -509,7 +564,9 @@ async def write_item(request: Request, claims: Claims) -> Response:
             ItemDetail.of_detail(detail).model_dump(mode="json"), status_code=201
         )
     named = (
-        entry if isinstance(entry, ProfileEntry | StateEntry | HistoryEntry) else None
+        entry
+        if isinstance(entry, ProfileEntry | StateEntry | HistoryEntry | DecisionEntry)
+        else None
     )
     new = items.NewItem(
         kind=entry.kind,
@@ -519,6 +576,7 @@ async def write_item(request: Request, claims: Claims) -> Response:
         entities=tuple(named.entities) if named is not None else (),
         occurred_at=entry.occurred_at,
         occurred_precision=entry.occurred_precision,
+        details=entry.details.model_dump() if isinstance(entry, DecisionEntry) else {},
     )
     async with db.transaction(request.app.state.pool, claims.account_id) as conn:
         item_id = await items.write(conn, new, now=now)
@@ -695,6 +753,40 @@ async def confirm_item(request: Request, claims: Claims) -> Response:
     now = datetime.now(UTC)
     async with db.transaction(request.app.state.pool, claims.account_id) as conn:
         await items.confirm(conn, item_id, now=now)
+        detail = await items.get(conn, item_id)
+    assert detail is not None
+    return JSONResponse(ItemDetail.of_detail(detail).model_dump(mode="json"))
+
+
+class Replacement(BaseModel):
+    """The newer decision, by id."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    replaced_by: UUID
+
+
+@router.post(
+    "/items/{id}/replace",
+    response_model=ItemDetail,
+    responses={**UNAUTHORIZED, **NOT_FOUND, **REFUSED, **NOT_CURRENT},
+    openapi_extra=documented(body=Replacement, path=("id",)),
+)
+@authenticated
+async def replace_item(request: Request, claims: Claims) -> Response:
+    """Replaces a decision with a newer one, 200 with the old one, now
+    inactive with reason superseded and a supersedes relation from the new
+    one. An edited event against the old one, which makes the relation, is
+    recorded with it, in one transaction; its decided event stays, and both
+    stay readable. 404 for an id the user does not have. 422 for a
+    replaced_by they do not have, either not being a decision, or two
+    versions of one entry, a decision itself included. 409 when either is
+    not active."""
+    item_id = path_id(request)
+    replacement = await body_as(request, Replacement)
+    now = datetime.now(UTC)
+    async with db.transaction(request.app.state.pool, claims.account_id) as conn:
+        await items.replace_decision(conn, item_id, replacement.replaced_by, now=now)
         detail = await items.get(conn, item_id)
     assert detail is not None
     return JSONResponse(ItemDetail.of_detail(detail).model_dump(mode="json"))

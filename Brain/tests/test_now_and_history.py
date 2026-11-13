@@ -22,7 +22,7 @@ from brain import db, items, now_and_history
 from brain.errors import Conflict
 from tests.conftest import Caller
 from tests.harness import admin_connection, app_url
-from tests.test_corrections import about, act
+from tests.test_corrections import about, act, read
 from tests.test_items import (
     ALICE,
     BOB,
@@ -224,6 +224,7 @@ def test_confirming_records_an_event_and_clears_the_flag(
     # Allowed on any active claim, not only a state.
     assert act(alice, write(alice, profile())["id"], "confirm")["status"] == "active"
     assert act(alice, write(alice, rule())["id"], "confirm")["status"] == "active"
+    assert act(alice, write(alice, decision())["id"], "confirm")["status"] == "active"
 
     # A record asserts nothing about now, so there is nothing to confirm.
     assert alice.post(TOPICS, {"name": "Rust", "slug": "rust"}).status_code == 201
@@ -347,6 +348,69 @@ async def test_a_confirm_waits_for_a_retire_and_then_finds_it_retired(
         await pool.close()
 
 
+def test_a_decision_records_a_decided_event_and_a_standing_claim(
+    calling: Callable[[uuid.UUID], Caller], database: str
+) -> None:
+    alice = calling(ALICE)
+    assert alice.post(TOPICS, {"name": "Brain", "slug": "brain"}).status_code == 201
+    before = datetime.now(UTC)
+
+    written = write(alice, decision(topics=["brain"]))
+
+    assert written["kind"] == "decision"
+    assert written["store"] == "semantic"
+    assert written["nature"] == "claim"
+    assert written["status"] == "active"
+    assert written["content"] == "The brain is its own service."
+    assert written["details"] == {
+        "reasoning": "Splitting memory across languages failed in v1.",
+        "rejected": ["A memory module inside each feature"],
+    }
+    # When it was made: the request's time, unless told.
+    made = when(written["occurred_at"])
+    assert before <= made <= datetime.now(UTC)
+    assert written["occurred_precision"] == "instant"
+    [evidence] = written["evidence"]
+    assert evidence["kind"] == "supports"
+    assert evidence["event"]["verb"] == "decided"
+    assert when(evidence["event"]["occurred_at"]) == made
+    # Decided, not asserted: the event is the record that it was made.
+    assert [e["verb"] for e in about_item(alice, written["id"])] == ["decided"]
+
+    dated = write(
+        alice,
+        decision(
+            occurred_at="2026-07-31T00:00:00Z",
+            occurred_precision="day",
+            details={"reasoning": "Hexagonal keeps the core testable."},
+        ),
+    )
+    assert dated["occurred_at"] == "2026-07-31T00:00:00Z"
+    assert dated["occurred_precision"] == "day"
+    # Nothing was rejected.
+    assert dated["details"] == {
+        "reasoning": "Hexagonal keeps the core testable.",
+        "rejected": [],
+    }
+
+    before_counts = counts(database)
+    wrong: list[dict[str, Any]] = [
+        decision(details=...),
+        decision(details={"rejected": ["x"]}),
+        decision(details={"reasoning": "   "}),
+        decision(details={"reasoning": "Why.", "rejected": [""]}),
+        decision(details={"reasoning": "Why.", "rejected": "x"}),
+        decision(details={"reasoning": "Why.", "extra": 1}),
+        decision(content="  "),
+        decision(topics=["haskell"]),
+        decision(category="goals"),
+    ]
+    for body in wrong:
+        response = alice.post(ITEMS, body)
+        assert response.status_code == 422, (body, response.text)
+    assert counts(database) == before_counts
+
+
 def about_item(caller: Caller, item_id: str) -> list[dict[str, Any]]:
     """The events that made or judged this item: those naming it as their
     subject, and the one whose payload says it made it."""
@@ -355,3 +419,181 @@ def about_item(caller: Caller, item_id: str) -> list[dict[str, Any]]:
         for event in view(caller, "/brain/api/events")
         if event["subject_item"] == item_id or event["payload"].get("item") == item_id
     ]
+
+
+def test_a_decision_can_be_replaced_by_another(
+    calling: Callable[[uuid.UUID], Caller], database: str
+) -> None:
+    alice = calling(ALICE)
+    old = write(alice, decision(content="Use hexagonal architecture."))
+    new = write(alice, decision(content="Use a plain layered architecture."))
+
+    response = replace(alice, old["id"], new["id"])
+
+    assert response.status_code == 200, response.text
+    replaced = response.json()
+    assert replaced["id"] == old["id"]
+    assert replaced["status"] == "inactive"
+    assert replaced["inactive_reason"] == "superseded"
+    # The new one replaced it, and holds.
+    [relation] = replaced["relations"]
+    assert relation["kind"] == "supersedes"
+    assert relation["from_item"] == new["id"] and relation["to_item"] == old["id"]
+    assert relation["ended_at"] is None
+    # A judgment against the old one, which made the relation.
+    [judged] = [e for e in replaced["evidence"] if e["event"]["verb"] == "edited"]
+    assert judged["kind"] == "contradicts"
+    assert relation["created_by_event"] == judged["event"]["id"]
+    assert judged["event"]["evidence"] == (
+        'Replaced by hand: "Use hexagonal architecture."'
+        ' by "Use a plain layered architecture."'
+    )
+
+    # Both stay readable, and the new one shows the relation too.
+    after = read(alice, new["id"])
+    assert after["status"] == "active"
+    assert [r["id"] for r in after["relations"]] == [relation["id"]]
+    assert read(alice, old["id"])["status"] == "inactive"
+    # The decided event that recorded the old one is untouched; newest first.
+    assert [e["verb"] for e in about_item(alice, old["id"])] == ["edited", "decided"]
+
+    # Replaced once: neither it nor what replaced it can now be replaced by it.
+    third = write(alice, decision(content="Use something else."))
+    before_counts = counts(database)
+    assert replace(alice, old["id"], third["id"]).status_code == 409
+    assert replace(alice, third["id"], old["id"]).status_code == 409
+    assert replace(alice, new["id"], old["id"]).status_code == 409
+    assert counts(database) == before_counts
+
+    # Another user's is not there.
+    bob = calling(BOB)
+    bobs = write(bob, decision())
+    assert replace(bob, bobs["id"], third["id"]).status_code == 422
+    assert replace(bob, third["id"], bobs["id"]).status_code == 404
+
+
+def test_replacing_needs_two_decisions(
+    calling: Callable[[uuid.UUID], Caller], database: str
+) -> None:
+    alice = calling(ALICE)
+    one = write(alice, decision())
+    others = [
+        write(alice, state()),
+        write(alice, history()),
+        write(alice, profile()),
+        write(alice, rule()),
+    ]
+    before_counts = counts(database)
+
+    for other in others:
+        response = replace(alice, one["id"], other["id"])
+        assert response.status_code == 422, (other["kind"], response.text)
+        response = replace(alice, other["id"], one["id"])
+        assert response.status_code == 422, (other["kind"], response.text)
+
+    # The newer one is one the user has.
+    assert replace(alice, one["id"], str(uuid.uuid7())).status_code == 422
+    assert replace(alice, str(uuid.uuid7()), one["id"]).status_code == 404
+    for body in [
+        None,
+        {},
+        {"replaced_by": "not an id"},
+        {"replaced_by": one["id"], "x": 1},
+    ]:
+        response = alice.post(f"{ITEMS}/{one['id']}/replace", body)
+        assert response.status_code == 422, (body, response.text)
+    assert counts(database) == before_counts
+
+
+def test_a_decision_cannot_replace_itself_or_a_version_of_itself(
+    calling: Callable[[uuid.UUID], Caller], database: str
+) -> None:
+    alice = calling(ALICE)
+    first = write(alice, decision())
+    first_id = uuid.UUID(first["id"])
+
+    async def edit_it() -> uuid.UUID:
+        pool = AsyncConnectionPool(
+            app_url(database), min_size=1, max_size=1, open=False
+        )
+        await pool.open(wait=True)
+        try:
+            async with db.transaction(pool, ALICE) as conn:
+                return await items.edit(
+                    conn,
+                    first_id,
+                    items.Edit(
+                        kind="decision",
+                        content="The brain is its own service, in Python.",
+                        category=None,
+                        topics=None,
+                        entities=None,
+                    ),
+                    now=datetime.now(UTC),
+                )
+        finally:
+            await pool.close()
+
+    # A decision has no edit route yet; its versions are made the way one is.
+    version = str(asyncio.run(edit_it()))
+    before_counts = counts(database)
+
+    response = replace(alice, version, version)
+    assert response.status_code == 422, response.text
+    # Of its own lineage, whichever way round, before whether either is active.
+    response = replace(alice, version, first["id"])
+    assert response.status_code == 422, response.text
+    response = replace(alice, first["id"], version)
+    assert response.status_code == 422, response.text
+    assert counts(database) == before_counts
+
+
+async def test_two_decisions_replacing_each_other_at_once_replace_once(
+    database: str,
+) -> None:
+    """Each locks both before it looks, so the second waits for the first and
+    then finds its decision inactive, rather than each superseding the
+    other."""
+    pool = AsyncConnectionPool(app_url(database), min_size=2, max_size=2, open=False)
+    await pool.open(wait=True)
+    try:
+
+        def made(content: str) -> items.NewItem:
+            return items.NewItem(
+                kind="decision",
+                content=content,
+                category=None,
+                topics=(),
+                entities=(),
+                occurred_at=None,
+                occurred_precision="instant",
+                details={"reasoning": "Why.", "rejected": []},
+            )
+
+        async with db.transaction(pool, ALICE) as conn:
+            first = await items.write(conn, made("First."), now=datetime.now(UTC))
+            second = await items.write(conn, made("Second."), now=datetime.now(UTC))
+
+        async def the_other_way() -> None:
+            async with db.transaction(pool, ALICE) as conn:
+                await items.replace_decision(conn, second, first, now=datetime.now(UTC))
+
+        async with db.transaction(pool, ALICE) as conn:
+            await items.replace_decision(conn, first, second, now=datetime.now(UTC))
+            other = asyncio.create_task(the_other_way())
+            await asyncio.sleep(0.3)
+            # Held by the first, which has not committed.
+            assert not other.done()
+        with pytest.raises(Conflict):
+            await other
+
+        async with db.transaction(pool, ALICE) as conn:
+            found = await items.listing(
+                conn, kind="decision", status=None, topic=None, entity=None
+            )
+        assert {(i.id, i.status) for i in found} == {
+            (first, "inactive"),
+            (second, "active"),
+        }
+    finally:
+        await pool.close()

@@ -1445,7 +1445,7 @@
         "summary": "List Items"
       },
       "post": {
-        "description": "Writes an entry made by hand, 201 with the item, its evidence and its\nrelations. It applies at once: an asserted event, origin brain and source\nmanual-entry, is recorded with it and is its supporting evidence. kind is\nprofile, with a category, or rule, which is global, or state, what is\ngoing on now, with optional subjects like a profile entry; or topic_level or\ntopic_focus, each on one topic with a value, which where the topic,\nread through its alias, has an active entry of that kind already is an\nedit of it, 201 with the new version. 422 for an unknown kind, category\nor value, content that is blank or over 4000 characters, a rule naming a\nsubject, a topic the user does not have, or a level or focus the topic\nhas already; or history, something that happened, with occurred_at and\noccurred_precision required and optional subjects, or, with details, a\ncorrected misconception on one topic, its details misconception true with\nwhat was believed and what is right, and its content built from the two.\nA named thing the user does not have is created.",
+        "description": "Writes an entry made by hand, 201 with the item, its evidence and its\nrelations. It applies at once: an asserted event, origin brain and source\nmanual-entry, is recorded with it and is its supporting evidence. kind is\nprofile, with a category, or rule, which is global, or state, what is\ngoing on now, with optional subjects like a profile entry; or topic_level or\ntopic_focus, each on one topic with a value, which where the topic,\nread through its alias, has an active entry of that kind already is an\nedit of it, 201 with the new version. 422 for an unknown kind, category\nor value, content that is blank or over 4000 characters, a rule naming a\nsubject, a topic the user does not have, or a level or focus the topic\nhas already; or history, something that happened, with occurred_at and\noccurred_precision required and optional subjects, or, with details, a\ncorrected misconception on one topic, its details misconception true with\nwhat was believed and what is right, and its content built from the two.\nOr decision, with details holding its reasoning and what it rejected,\nrecorded with a decided event in place of an asserted one, and its\noccurred_at when it was made, the request's time unless given. A named\nthing the user does not have is created.",
         "operationId": "write_item_brain_api_items_post",
         "requestBody": {
           "content": {
@@ -1853,6 +1853,103 @@
                     ],
                     "title": "MisconceptionEntry",
                     "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "description": "A decision: a decided event, the permanent record that it was made,\nand an item in the semantic store, the claim that it holds, which a\nnewer decision can replace. It may name the topics and named things it\nis about.",
+                    "properties": {
+                      "content": {
+                        "maxLength": 4000,
+                        "minLength": 1,
+                        "title": "Content",
+                        "type": "string"
+                      },
+                      "details": {
+                        "additionalProperties": false,
+                        "description": "Why a decision was made, and what it was made over.",
+                        "properties": {
+                          "reasoning": {
+                            "maxLength": 4000,
+                            "minLength": 1,
+                            "title": "Reasoning",
+                            "type": "string"
+                          },
+                          "rejected": {
+                            "default": [],
+                            "items": {
+                              "maxLength": 4000,
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            "maxItems": 20,
+                            "title": "Rejected",
+                            "type": "array"
+                          }
+                        },
+                        "required": [
+                          "reasoning"
+                        ],
+                        "title": "DecisionDetails",
+                        "type": "object"
+                      },
+                      "entities": {
+                        "default": [],
+                        "items": {
+                          "maxLength": 200,
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "maxItems": 20,
+                        "title": "Entities",
+                        "type": "array"
+                      },
+                      "kind": {
+                        "const": "decision",
+                        "title": "Kind",
+                        "type": "string"
+                      },
+                      "occurred_at": {
+                        "anyOf": [
+                          {
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "title": "Occurred At"
+                      },
+                      "occurred_precision": {
+                        "default": "instant",
+                        "enum": [
+                          "instant",
+                          "day",
+                          "month",
+                          "year"
+                        ],
+                        "title": "Occurred Precision",
+                        "type": "string"
+                      },
+                      "topics": {
+                        "default": [],
+                        "items": {
+                          "maxLength": 80,
+                          "pattern": "^[a-z0-9][a-z0-9-]{0,79}$",
+                          "type": "string"
+                        },
+                        "maxItems": 20,
+                        "title": "Topics",
+                        "type": "array"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "content",
+                      "details"
+                    ],
+                    "title": "DecisionEntry",
+                    "type": "object"
                   }
                 ],
                 "title": "NewEntry"
@@ -2124,6 +2221,71 @@
           }
         },
         "summary": "Edit Item"
+      }
+    },
+    "/brain/api/items/{id}/replace": {
+      "post": {
+        "description": "Replaces a decision with a newer one, 200 with the old one, now\ninactive with reason superseded and a supersedes relation from the new\none. An edited event against the old one, which makes the relation, is\nrecorded with it, in one transaction; its decided event stays, and both\nstay readable. 404 for an id the user does not have. 422 for a\nreplaced_by they do not have, either not being a decision, or two\nversions of one entry, a decision itself included. 409 when either is\nnot active.",
+        "operationId": "replace_item_brain_api_items__id__replace_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "description": "The newer decision, by id.",
+                "properties": {
+                  "replaced_by": {
+                    "format": "uuid",
+                    "title": "Replaced By",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "replaced_by"
+                ],
+                "title": "Replacement",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "No valid token: missing, expired or failing verification, all alike. The body is empty; the caller refreshes and retries."
+          },
+          "404": {
+            "description": "Nothing of this user's at that address."
+          },
+          "409": {
+            "description": "The item is not in the state this needs: a superseded version, or not active or retired as the change asks."
+          },
+          "422": {
+            "description": "A body that does not parse, or a request breaking a rule."
+          }
+        },
+        "summary": "Replace Item"
       }
     },
     "/brain/api/items/{id}/restore": {
