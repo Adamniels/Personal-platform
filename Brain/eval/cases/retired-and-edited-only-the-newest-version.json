@@ -1,0 +1,15 @@
+{
+  "id": "retired-and-edited-only-the-newest-version",
+  "group": "retired_and_edited",
+  "question": {
+    "call": "profile",
+    "mode": "now"
+  },
+  "must_include": [
+    "p-goal-degree-3"
+  ],
+  "must_exclude": [
+    "p-goal-degree",
+    "p-goal-degree-2"
+  ]
+}

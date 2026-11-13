@@ -1,0 +1,24 @@
+{
+  "id": "aliases-history-through-an-alias",
+  "group": "aliases",
+  "question": {
+    "call": "history",
+    "topic": "pg",
+    "mode": "now"
+  },
+  "must_include": [
+    "d-sql",
+    "h-index-incident",
+    "h-pg-migration"
+  ],
+  "must_exclude": [
+    "d-orm",
+    "lv-postgres"
+  ],
+  "order": [
+    "d-sql",
+    "h-index-incident",
+    "h-pg-migration"
+  ],
+  "conflicts": []
+}

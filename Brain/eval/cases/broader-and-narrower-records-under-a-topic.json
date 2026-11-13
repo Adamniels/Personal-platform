@@ -1,0 +1,33 @@
+{
+  "id": "broader-and-narrower-records-under-a-topic",
+  "group": "broader_and_narrower",
+  "question": {
+    "call": "history",
+    "topic": "databases",
+    "mode": "now"
+  },
+  "must_include": [
+    "h-ta",
+    "h-first-db",
+    "h-index-incident",
+    "m-index",
+    "d-idx-fk",
+    "d-idx-plan",
+    "h-btree-paper",
+    "m-btree"
+  ],
+  "must_exclude": [
+    "s-ddia",
+    "lv-databases",
+    "lv-indexing"
+  ],
+  "conflicts": [
+    {
+      "items": [
+        "d-idx-fk",
+        "d-idx-plan"
+      ],
+      "prefer": "d-idx-plan"
+    }
+  ]
+}

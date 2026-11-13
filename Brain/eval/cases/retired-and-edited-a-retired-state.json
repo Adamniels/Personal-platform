@@ -1,0 +1,14 @@
+{
+  "id": "retired-and-edited-a-retired-state",
+  "group": "retired_and_edited",
+  "question": {
+    "call": "now",
+    "mode": "history"
+  },
+  "must_include": [
+    "s-mentoring"
+  ],
+  "must_exclude": [
+    "s-jobhunt"
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "id": "conflicts-equal-scope-prefers-the-newer",
+  "group": "conflicts",
+  "question": {
+    "call": "history",
+    "topic": "indexing",
+    "mode": "now"
+  },
+  "must_include": [
+    "d-idx-plan",
+    "d-idx-fk",
+    "m-index",
+    "h-index-incident",
+    "h-btree-paper",
+    "m-btree"
+  ],
+  "must_exclude": [],
+  "order": [
+    "d-idx-plan",
+    "d-idx-fk"
+  ],
+  "conflicts": [
+    {
+      "items": [
+        "d-idx-fk",
+        "d-idx-plan"
+      ],
+      "prefer": "d-idx-plan"
+    }
+  ]
+}

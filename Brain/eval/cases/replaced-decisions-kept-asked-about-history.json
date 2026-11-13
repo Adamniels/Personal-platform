@@ -1,0 +1,21 @@
+{
+  "id": "replaced-decisions-kept-asked-about-history",
+  "group": "replaced_decisions",
+  "question": {
+    "call": "history",
+    "topic": "distributed-systems",
+    "mode": "history"
+  },
+  "must_include": [
+    "d-kotlin-project",
+    "d-rust-project"
+  ],
+  "must_exclude": [
+    "h-raft"
+  ],
+  "order": [
+    "d-kotlin-project",
+    "d-rust-project"
+  ],
+  "conflicts": []
+}

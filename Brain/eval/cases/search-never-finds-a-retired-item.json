@@ -1,0 +1,12 @@
+{
+  "id": "search-never-finds-a-retired-item",
+  "group": "search",
+  "question": {
+    "call": "search",
+    "q": "cello"
+  },
+  "must_include": [],
+  "must_exclude": [
+    "p-cello"
+  ]
+}

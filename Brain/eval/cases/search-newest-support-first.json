@@ -1,0 +1,23 @@
+{
+  "id": "search-newest-support-first",
+  "group": "search",
+  "question": {
+    "call": "search",
+    "q": "index"
+  },
+  "must_include": [
+    "d-idx-plan",
+    "d-idx-fk",
+    "m-index",
+    "h-index-incident",
+    "lv-indexing"
+  ],
+  "must_exclude": [],
+  "order": [
+    "d-idx-plan",
+    "d-idx-fk",
+    "m-index",
+    "h-index-incident",
+    "lv-indexing"
+  ]
+}

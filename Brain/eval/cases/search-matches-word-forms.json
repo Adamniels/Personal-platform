@@ -1,0 +1,14 @@
+{
+  "id": "search-matches-word-forms",
+  "group": "search",
+  "question": {
+    "call": "search",
+    "q": "migrate"
+  },
+  "must_include": [
+    "h-pg-migration"
+  ],
+  "must_exclude": [
+    "h-joined"
+  ]
+}

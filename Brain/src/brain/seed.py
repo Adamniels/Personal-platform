@@ -1,29 +1,7 @@
 """The evaluation's seed: a fictional person's memory, `eval/person.json`,
-and the loader that writes it into a brain. See "Evaluating" in
-Brain/README.md.
-
-The person is made up, Mira Lindqvist, so the repository holds nothing of
-the owner's. The seed is frozen: every case is asked at `ASKED_AT`, and every
-entry says the time it was made, before that, so no answer depends on the
-day it is run.
-
-The file is the evaluation's own format, a list of entries in the order
-they were made, each a JSON object with the time it was made, `at`, the user
-it is for, `user`, Mira unless it says, and one action:
-
-- `topic`, `item` or `event`, a body exactly as `POST /brain/api/topics`,
-  `POST /brain/api/items` or `POST /brain/api/events` takes it;
-- `edit`, an item's key, with `change`, a body as
-  `POST /brain/api/items/{id}/edit` takes it;
-- `same_as`, `broader_than` or `related_to`, a pair of topic keys: the first
-  the same as the second, broader than it, or related to it;
-- `retire` or `confirm`, an item's key; `replace`, a decision's key, with
-  `by`, the newer decision's; `contradicts`, a pair of claims' keys.
-
-An entry that makes a topic or an item, a `topic`, `item` or `edit`, has a
-`key`, which later entries and the cases name it by; ids are made as it
-loads, so nothing refers to one. An edit's key is the new version's, and so
-is the key of a level or a focus set on a topic that has one.
+read and checked without a database, and the loader that writes it into a
+brain. The person, the file's format and why it is frozen are "Evaluating"
+in Brain/README.md.
 
 The loader writes each entry through the same functions the API's routes
 call, in a transaction of its own, as a request would be, passing the

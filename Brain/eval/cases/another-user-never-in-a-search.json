@@ -1,0 +1,18 @@
+{
+  "id": "another-user-never-in-a-search",
+  "group": "another_user",
+  "question": {
+    "call": "search",
+    "q": "Kestrel"
+  },
+  "must_include": [
+    "h-joined",
+    "p-name",
+    "s-rewrite",
+    "s-mentoring"
+  ],
+  "must_exclude": [
+    "j-identity",
+    "j-joined"
+  ]
+}

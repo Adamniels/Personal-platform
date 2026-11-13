@@ -1,0 +1,29 @@
+{
+  "id": "conflicts-narrower-scope-wins-whatever-its-age",
+  "group": "conflicts",
+  "question": {
+    "call": "history",
+    "topic": "rust",
+    "mode": "now"
+  },
+  "must_include": [
+    "d-rust-threads",
+    "d-rust-async",
+    "h-raft"
+  ],
+  "must_exclude": [],
+  "order": [
+    "d-rust-threads",
+    "d-rust-async",
+    "h-raft"
+  ],
+  "conflicts": [
+    {
+      "items": [
+        "d-rust-async",
+        "d-rust-threads"
+      ],
+      "prefer": "d-rust-threads"
+    }
+  ]
+}

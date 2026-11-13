@@ -7,13 +7,63 @@ docs/brain-architecture.md.
 The cases run through `brain.evaluation.evaluate`, the code `uv run brain
 eval` runs, so CI needs no step of its own for them."""
 
+import asyncio
 import json
+import os
+from collections import Counter
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 from brain import evaluation, seed
+from tests.harness import admin_url
+
+# The fewest cases each group holds, as the slice settled them.
+MINIMUMS = {
+    "profile": 2,
+    "topics": 4,
+    "aliases": 2,
+    "broader_and_narrower": 3,
+    "history": 3,
+    "now_and_stale": 3,
+    "now_versus_history": 2,
+    "replaced_decisions": 2,
+    "retired_and_edited": 3,
+    "conflicts": 3,
+    "search": 4,
+    "another_user": 2,
+}
+
+
+@pytest.fixture(scope="module")
+def evaluated() -> Iterator[list[evaluation.Result]]:
+    """Every case, run once for this module, on a database the run makes
+    and drops itself."""
+    yield asyncio.run(evaluation.evaluate(admin_url()))
+
+
+def test_every_evaluation_case_passes(evaluated: list[evaluation.Result]) -> None:
+    failed = {
+        result.case.id: list(result.problems)
+        for result in evaluated
+        if not result.passed
+    }
+    assert failed == {}, f"cases that failed: {json.dumps(failed, indent=2)}"
+    assert len(evaluated) == len(list(evaluation.CASES.glob("*.json")))
+
+
+def test_the_committed_report_matches_a_fresh_run(
+    evaluated: list[evaluation.Result],
+) -> None:
+    fresh = evaluation.report(evaluated)
+    if os.environ.get("UPDATE_EVAL_REPORT") == "1":
+        evaluation.REPORT.write_text(fresh)
+    assert evaluation.REPORT.read_text() == fresh, (
+        "eval/report.md is not what the runner writes now: run `uv run brain eval`,"
+        " or the tests with UPDATE_EVAL_REPORT=1, and commit the diff"
+    )
 
 
 def a_case(**changes: Any) -> dict[str, Any]:
@@ -111,3 +161,16 @@ def test_the_runner_scores_recall_and_precision() -> None:
     assert evaluation.score(set(), {"x"}, ["z"]) == evaluation.Score(1.0, 1.0)
     assert evaluation.score({"a"}, {"x"}, []) == evaluation.Score(0.0, 1.0)
     assert evaluation.score({"a"}, {"x"}, ["x"]) == evaluation.Score(0.0, 0.0)
+
+
+def test_there_are_at_least_thirty_cases_and_every_group_is_covered() -> None:
+    cases = evaluation.load_cases(evaluation.CASES, seed.read(seed.PERSON).item_keys)
+    assert len(cases) >= 30
+    counted = Counter[str](case.group for case in cases)
+    short = {
+        group: (counted[group], least)
+        for group, least in MINIMUMS.items()
+        if counted[group] < least
+    }
+    assert short == {}, "groups with fewer cases than settled: (have, need)"
+    assert set(counted) <= set(MINIMUMS)

@@ -1,0 +1,24 @@
+{
+  "id": "history-of-a-topic-oldest-first",
+  "group": "history",
+  "question": {
+    "call": "history",
+    "topic": "postgres",
+    "mode": "history"
+  },
+  "must_include": [
+    "h-pg-migration",
+    "d-orm",
+    "h-index-incident",
+    "d-sql"
+  ],
+  "must_exclude": [
+    "lv-postgres"
+  ],
+  "order": [
+    "h-pg-migration",
+    "d-orm",
+    "h-index-incident",
+    "d-sql"
+  ]
+}

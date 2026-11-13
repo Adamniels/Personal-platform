@@ -1,0 +1,16 @@
+{
+  "id": "retired-and-edited-retired-never-answers",
+  "group": "retired_and_edited",
+  "question": {
+    "call": "profile",
+    "mode": "history"
+  },
+  "must_include": [
+    "p-interests",
+    "r-examples"
+  ],
+  "must_exclude": [
+    "p-cello",
+    "r-java"
+  ]
+}

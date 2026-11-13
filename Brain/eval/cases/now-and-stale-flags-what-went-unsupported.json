@@ -1,0 +1,24 @@
+{
+  "id": "now-and-stale-flags-what-went-unsupported",
+  "group": "now_and_stale",
+  "question": {
+    "call": "now",
+    "mode": "now"
+  },
+  "must_include": [
+    "s-mentoring",
+    "s-competition",
+    "s-rewrite",
+    "s-course",
+    "s-kotlin-book",
+    "s-ddia"
+  ],
+  "must_exclude": [
+    "s-jobhunt",
+    "j-cert"
+  ],
+  "flags": {
+    "s-ddia": true,
+    "s-kotlin-book": true
+  }
+}

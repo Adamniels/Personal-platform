@@ -1,0 +1,20 @@
+{
+  "id": "history-known-only-to-the-year",
+  "group": "history",
+  "question": {
+    "call": "history",
+    "entity": "Lund University",
+    "mode": "history"
+  },
+  "must_include": [
+    "h-first-db",
+    "h-ta"
+  ],
+  "must_exclude": [
+    "s-ddia"
+  ],
+  "order": [
+    "h-first-db",
+    "h-ta"
+  ]
+}

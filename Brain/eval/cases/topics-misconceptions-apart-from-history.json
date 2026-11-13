@@ -1,0 +1,25 @@
+{
+  "id": "topics-misconceptions-apart-from-history",
+  "group": "topics",
+  "question": {
+    "call": "topics",
+    "topics": [
+      "consensus"
+    ],
+    "mode": "now"
+  },
+  "must_include": [
+    "lv-consensus",
+    "m-consensus",
+    "h-raft"
+  ],
+  "must_exclude": [
+    "lv-rust-3",
+    "fc-rust"
+  ],
+  "order": [
+    "lv-consensus",
+    "m-consensus",
+    "h-raft"
+  ]
+}

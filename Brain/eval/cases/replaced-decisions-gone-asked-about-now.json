@@ -1,0 +1,18 @@
+{
+  "id": "replaced-decisions-gone-asked-about-now",
+  "group": "replaced_decisions",
+  "question": {
+    "call": "history",
+    "topic": "distributed-systems",
+    "mode": "now"
+  },
+  "must_include": [
+    "d-rust-project"
+  ],
+  "must_exclude": [
+    "d-kotlin-project",
+    "h-raft",
+    "m-consensus"
+  ],
+  "conflicts": []
+}
