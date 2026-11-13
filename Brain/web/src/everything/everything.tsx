@@ -231,7 +231,7 @@ function Listing({
 					rows={rows}
 					rowKey={(row) => row.id}
 					sort={sort}
-					onSort={(next) => onChange({ page }, { by: next })}
+					onSort={(next) => onChange({}, { by: next })}
 				/>
 				<Paging
 					from={from + 1}

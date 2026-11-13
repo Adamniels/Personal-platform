@@ -132,6 +132,19 @@ describe("the filters are kept in the address", () => {
 		expect(await entriesOf(everything)).toHaveLength(50);
 	});
 
+	test("sorting goes back to the first page", async () => {
+		const brain = fakeBrain();
+		for (let n = 1; n <= 51; n += 1) brain.add("rule", `Rule ${n}`);
+		const everything = open(brain, "/brain/everything?page=2");
+		expect(await entriesOf(everything)).toEqual(["Rule 1"]);
+
+		fireEvent.click(everything.getByRole("button", { name: "Last supported" }));
+		expect(window.location.search).toBe("?sort=oldest");
+		const shown = await entriesOf(everything);
+		expect(shown).toHaveLength(50);
+		expect(shown[0]).toBe("Rule 1");
+	});
+
 	test("an item's link and its breadcrumb keep the filters", async () => {
 		const brain = stocked();
 		const everything = open(brain, "/brain/everything?kind=rule");
