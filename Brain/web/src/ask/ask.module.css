@@ -1,0 +1,82 @@
+/* The Ask section's own pieces. The section around them is
+ * entries/section.module.css; the spacing is section 2 of design/DESIGN.md. */
+
+/* A question's panel: its form, then its answer. */
+.panel {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-4);
+	min-width: 0;
+	padding-top: var(--space-4);
+}
+
+/* The panels of the other questions stay hidden, which the display above
+ * would otherwise undo. */
+.panel[hidden] {
+	display: none;
+}
+
+.form {
+	box-sizing: border-box;
+	width: 100%;
+	padding: var(--space-4);
+	background: var(--surface);
+	border: 1px solid var(--border);
+	border-radius: var(--radius-lg);
+}
+
+/* The topics chosen, as pills under their select. */
+.topics {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-2);
+}
+
+/* About, what the question needs, then Ask, wrapping when the row is too
+ * narrow. Each field keeps its label on top, so Ask sits level with the
+ * fields rather than with their labels. */
+.fields {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: flex-start;
+	gap: var(--space-3);
+}
+
+.fields > * {
+	flex: 0 1 220px;
+	min-width: 0;
+}
+
+.fields > .topics {
+	flex: 1 1 320px;
+}
+
+.ask {
+	flex: 0 0 auto;
+	margin-top: calc(var(--text-caption-line) + var(--space-1));
+}
+
+.pills {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-2);
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.note {
+	margin: 0;
+	color: var(--text-2);
+}
+
+@media (max-width: 639.98px) {
+	.fields > *,
+	.fields > .topics {
+		flex: 1 1 100%;
+	}
+
+	.ask {
+		margin-top: 0;
+	}
+}

@@ -1,6 +1,7 @@
 import { EmptyState, Tab, TabPanel, Tabs } from "@platform/ui";
 import { navigate, usePathname } from "./address";
 import styles from "./app.module.css";
+import { Ask } from "./ask/ask";
 import { Everything } from "./everything/everything";
 import { History } from "./history/history";
 import { Knowledge } from "./knowledge/knowledge";
@@ -57,6 +58,7 @@ function SectionView({ section }: { section: Section }) {
 	if (section.key === "history") return <History />;
 	if (section.key === "everything") return <Everything />;
 	if (section.key === "timeline") return <TimelineSection />;
+	if (section.key === "ask") return <Ask />;
 	return (
 		<EmptyState
 			title={`Nothing in ${section.label} yet`}

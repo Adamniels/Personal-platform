@@ -506,8 +506,7 @@ segment under `/brain/` other than `api` and `assets`, so the list of sections l
 `/brain/history/`, written as the API writes one, a decision's page, and for an id under
 `/brain/everything/`, the same way, an item's page: the three sections with pages of their own.
 Anything deeper is `404`. A section may keep its state in the query string as well, as Everything
-keeps its filters (`useSearch` in `src/address.ts`). Until its slice lands, a section shows the
-package's `EmptyState`.
+keeps its filters (`useSearch` in `src/address.ts`).
 
 **Profile and Rules** are where the owner enters by hand who he is and how the platform should work
 with him, `src/profile/` and `src/rules/` over the shared pieces in `src/entries/`:
@@ -667,6 +666,39 @@ the topic routes, "Subjects" above:
   full. What is shown stays, the page does not scroll, and focus moves to the first new entry.
 - With no events, "Nothing recorded yet" and "What you enter and correct shows here." No filters,
   no primary button, and nothing changes an event: events are append only.
+
+**Ask** is where the owner asks one of the brain's four questions and sees exactly what a feature
+asking the same thing would get, `src/ask/`, over the routes under "Asking" above. It exists so
+retrieval can be checked by using it before any feature exists to do the asking, as "The brain owns
+its own surface" in `docs/brain-architecture.md` has it:
+
+- Under the line "Ask what a feature would ask, and see exactly what it gets.", a second row of
+  tabs, the questions in plain words: "Who is this person?", "What do they know?", "What is the
+  history?" and "What is going on now?". Under it, "About", a select of Now, the default, and
+  History, sent as `mode`, and what the question needs: for what they know, topics chosen one at a
+  time from a select of the canonical ones, in the order chosen, each a removable `FilterPill`, at
+  most fifty; for the history, one topic or one named thing, a select written as Everything's
+  Subject filter writes it. "Ask" is the one primary button. Nothing is sent until it is pressed,
+  and changing the question, the mode or what is asked about clears the answer, so the answer on
+  the page is always the one to the form above it. The question is not kept in the address.
+- The answer is shown in the order the brain returned it and never re-sorted, since the order is
+  part of what is being checked (`src/ask/groups.ts`). Who is this person? is a group per profile
+  category, an empty one said plainly, then the rules; what they know a group per topic asked,
+  headed with the slug as asked and, when an alias answered, "postgres-indexes, answered as
+  postgres-indexing", its level, focus, misconceptions and history, then its related slugs, and
+  each narrower topic under it, marked "Through" with the chain that led to it; the history the
+  subject's group with its narrower topics the same way; what is going on now one list. A topic the
+  brain does not know says "Nothing known about <topic>".
+- Each item is a card: its text and its state as Everything writes it; a line in the mono font of
+  its kind, its store, entered by hand or derived, and its support as counts, "Supported by 2
+  entries, last on 12 Nov", with the year only when it is another, since the brain returns no
+  score; its subjects; and "Why", its evidence as a `Timeline`, closed until opened.
+- Conflicts come first, in a needs you `Card`, "The brain holds things that disagree": each names
+  both items, linking down to the first place each is shown, and says which is preferred and why,
+  "Narrower scope" or "Newer at equal scope", or "No winner: unrelated subjects". Both items always
+  stay in the list.
+- "Show what a feature receives", under the answer, opens the response as formatted JSON in the
+  mono font on `--surface-2`, a focusable region that scrolls inside itself, with Copy.
 
 `index.html` is the same shell as every page with the bar: the design files and `nav.js` from the
 proxy, not bundled, and `<platform-nav current="brain">`. Vite builds it with base `/brain/` into
