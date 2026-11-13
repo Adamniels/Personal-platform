@@ -453,9 +453,11 @@ brain answers today is deterministic. When ranking or search by meaning arrive, 
 scored against a threshold instead, and the report is where the scores are tracked.
 
 **The report**, `eval/report.md`, is a table of every case, its group, recall, precision and
-whether it passed. It is committed, so a change in behaviour shows as a diff in review even when
-every case still passes. `uv run brain eval` writes it; the tests fail when it is not what a fresh
-run writes, and rewrite it with `UPDATE_EVAL_REPORT=1`.
+whether it passed, then what each answer gave: its items by seed key in the answer's order, a stale
+one marked, and the conflicts it listed. While every case passes the table cannot change, so the
+answers are what make a change in behaviour show as a diff in review, including a change to items
+no case judges. It is committed. `uv run brain eval` writes it; the tests fail when it is not what a
+fresh run writes, and rewrite it with `UPDATE_EVAL_REPORT=1`.
 
 **Adding a case.** Write its file, naming the items it expects by their keys. When the seed lacks
 what it needs, add entries to `eval/person.json` in time order, and before `ASKED_AT`. Run

@@ -133,10 +133,11 @@ person's memory, `Brain/eval/person.json`, loaded through the functions the API 
 thirty cases in `Brain/eval/cases/`, each a question to an `ask` call or search with what must and
 must not come back, in what order, with which conflicts and stale flags. The brain's tests run it,
 so it runs on every change. For now it is a hard gate: every case must pass exactly, recall and
-precision 1.0, since everything the brain answers today is deterministic. When ranking or search
-by meaning arrive, the cases they touch become scored against a threshold instead, and the
-committed report, `Brain/eval/report.md`, is where the scores are tracked; it already makes a
-change in behaviour show as a diff in review.
+precision 1.0, with ranking checked as pass or fail through each case's `order` rather than
+scored, since everything the brain answers today is deterministic. When ranking or search by
+meaning arrive, the cases they touch become scored against a threshold instead, and the committed
+report, `Brain/eval/report.md`, is where the scores are tracked. The report also writes out every
+answer, so a change in behaviour shows as a diff in review even where no case judges it.
 
 Free evaluation data: every accept or reject in the review queue is a labelled example. Keep
 rejections rather than discarding them, since they are impossible to reconstruct later.
