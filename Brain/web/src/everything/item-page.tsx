@@ -10,13 +10,14 @@ import {
 	Timeline,
 	TimelineEntry,
 } from "@platform/ui";
-import { type ReactNode, useId } from "react";
+import { type ReactNode, useId, useRef } from "react";
 import { useSearch } from "../address";
 import { formatWhen } from "../entries/entry-list";
 import section from "../entries/section.module.css";
 import { writtenWhen } from "../history/when";
 import { Link } from "../link";
 import { EVERYTHING_PATH, itemPath } from "./everything-paths";
+import { ItemActions, TakeBack } from "./item-actions";
 import page from "./item-page.module.css";
 import {
 	type ItemDetail,
@@ -89,6 +90,14 @@ function ItemView({
 	const detail = useItem(listed.id);
 	const state = stateOf(listed);
 	const back = `${EVERYTHING_PATH}${search}`;
+	const heading = useRef<HTMLHeadingElement>(null);
+	const contradicting = new Set(
+		(detail.data?.relations ?? [])
+			.filter(({ kind, ended_at }) => kind === "contradicts" && !ended_at)
+			.map(({ from_item, to_item }) =>
+				from_item === listed.id ? to_item : from_item,
+			),
+	);
 
 	return (
 		<div className={section.section}>
@@ -103,7 +112,7 @@ function ItemView({
 				</ol>
 			</nav>
 			<div className={page.head}>
-				<h2 tabIndex={-1} className={page.title}>
+				<h2 ref={heading} tabIndex={-1} className={page.title}>
 					{listed.content}
 				</h2>
 				<Status tone={state.tone}>{state.word}</Status>
@@ -127,6 +136,13 @@ function ItemView({
 					))}
 				</ul>
 			) : null}
+			<ItemActions
+				item={listed}
+				everything={everything}
+				contradicting={contradicting}
+				search={search}
+				heading={heading}
+			/>
 			{detail.isPending ? (
 				<p className={page.note}>Loading why the brain holds this…</p>
 			) : detail.isError ? (
@@ -236,7 +252,8 @@ function relationWord(kind: string, from: boolean): string | undefined {
 }
 
 /** The relations that hold: what the item replaces, what replaced it, and
- * what it contradicts, either way round, each a link to the other's page. */
+ * what it contradicts, either way round, each a link to the other's page,
+ * and a contradiction with Take back, since the owner marked it. */
 function Related({
 	detail,
 	everything,
@@ -259,15 +276,49 @@ function Related({
 		<Part title="Related">
 			<ul className={page.related}>
 				{held.map(({ relation, word, other }) => (
-					<li key={relation.id} className={page.relation}>
-						<span className={page.relationWord}>{word}</span>
-						<Link className={page.link} href={`${itemPath(other.id)}${search}`}>
-							{other.content}
-						</Link>
-						<span className={page.when}>{dayOf(relation.created_at)}</span>
-					</li>
+					<RelationLine
+						key={relation.id}
+						relationId={relation.id}
+						word={word}
+						other={other}
+						since={relation.created_at}
+						href={`${itemPath(other.id)}${search}`}
+						takeBack={relation.kind === "contradicts"}
+					/>
 				))}
 			</ul>
 		</Part>
+	);
+}
+
+function RelationLine({
+	relationId,
+	word,
+	other,
+	since,
+	href,
+	takeBack,
+}: {
+	relationId: string;
+	word: string;
+	other: ListedItem;
+	since: string;
+	href: string;
+	takeBack: boolean;
+}) {
+	const link = useId();
+	return (
+		<li className={page.relation}>
+			<span className={page.relationWord}>{word}</span>
+			<Link id={link} className={page.link} href={href}>
+				{other.content}
+			</Link>
+			<time className={page.when} dateTime={since}>
+				{dayOf(since)}
+			</time>
+			{takeBack ? (
+				<TakeBack relationId={relationId} describedBy={link} />
+			) : null}
+		</li>
 	);
 }
