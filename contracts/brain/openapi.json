@@ -15,6 +15,64 @@
         "title": "Health",
         "type": "object"
       },
+      "Topic": {
+        "properties": {
+          "alias_of": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Alias Of"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "resolves_to": {
+            "format": "uuid",
+            "title": "Resolves To",
+            "type": "string"
+          },
+          "slug": {
+            "title": "Slug",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "canonical",
+              "provisional"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "slug",
+          "name",
+          "state",
+          "alias_of",
+          "resolves_to",
+          "created_at"
+        ],
+        "title": "Topic",
+        "type": "object"
+      },
       "WhoAmI": {
         "properties": {
           "account_id": {
@@ -54,6 +112,228 @@
           }
         },
         "summary": "Health"
+      }
+    },
+    "/brain/api/topics": {
+      "get": {
+        "description": "Every topic the user has, aliases included, by slug.",
+        "operationId": "list_topics_brain_api_topics_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Topic"
+                  },
+                  "title": "Response List Topics Brain Api Topics Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "No valid token: missing, expired or failing verification, all alike. The body is empty; the caller refreshes and retries."
+          }
+        },
+        "summary": "List Topics"
+      },
+      "post": {
+        "description": "A new canonical topic. A slug that is not given is made from the name;\none the user already has is 409.",
+        "operationId": "create_topic_brain_api_topics_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "name": {
+                    "maxLength": 200,
+                    "minLength": 1,
+                    "title": "Name",
+                    "type": "string"
+                  },
+                  "slug": {
+                    "anyOf": [
+                      {
+                        "maxLength": 80,
+                        "pattern": "^[a-z0-9][a-z0-9-]{0,79}$",
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Slug"
+                  }
+                },
+                "required": [
+                  "name"
+                ],
+                "title": "NewTopic",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Topic"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "No valid token: missing, expired or failing verification, all alike. The body is empty; the caller refreshes and retries."
+          },
+          "409": {
+            "description": "It would be the user's second of something unique."
+          },
+          "422": {
+            "description": "A body that does not parse, or a request breaking a rule."
+          }
+        },
+        "summary": "Create Topic"
+      }
+    },
+    "/brain/api/topics/{id}/promote": {
+      "post": {
+        "description": "Makes a provisional topic canonical. An alias is 422.",
+        "operationId": "promote_topic_brain_api_topics__id__promote_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Topic"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "No valid token: missing, expired or failing verification, all alike. The body is empty; the caller refreshes and retries."
+          },
+          "404": {
+            "description": "Nothing of this user's at that address."
+          },
+          "422": {
+            "description": "A body that does not parse, or a request breaking a rule."
+          }
+        },
+        "summary": "Promote Topic"
+      }
+    },
+    "/brain/api/topics/{id}/same-as": {
+      "post": {
+        "description": "Marks the topic the same as the target, making it an alias that is\nread as the target. Nothing that names it changes. 422 when the target\nis itself, is not there, is an alias or is provisional, or when the topic\nis an alias or has aliases of its own.",
+        "operationId": "same_as_topic_brain_api_topics__id__same_as_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "target_id": {
+                    "format": "uuid",
+                    "title": "Target Id",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "target_id"
+                ],
+                "title": "SameAs",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Topic"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "No valid token: missing, expired or failing verification, all alike. The body is empty; the caller refreshes and retries."
+          },
+          "404": {
+            "description": "Nothing of this user's at that address."
+          },
+          "422": {
+            "description": "A body that does not parse, or a request breaking a rule."
+          }
+        },
+        "summary": "Same As Topic"
+      }
+    },
+    "/brain/api/topics/{id}/separate": {
+      "post": {
+        "description": "Makes an alias its own topic again. A topic that is not an alias is\nanswered as it is.",
+        "operationId": "separate_topic_brain_api_topics__id__separate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Topic"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "No valid token: missing, expired or failing verification, all alike. The body is empty; the caller refreshes and retries."
+          },
+          "404": {
+            "description": "Nothing of this user's at that address."
+          }
+        },
+        "summary": "Separate Topic"
       }
     },
     "/brain/api/whoami": {

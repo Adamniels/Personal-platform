@@ -8,17 +8,27 @@ against those keys, and a stand in for the frontend's build. Every token is
 the contract token, `contracts/token/token.jwt`, or one made from it,
 verified against the committed key set answered from memory, so the brain
 verifies what the core actually produces. The contract token expires at a
-fixed time, so the clock the library reads is pinned per test."""
+fixed time, so the clock the library reads is pinned per test.
 
+Tests that act as more than one user, through the running brain, mint their
+own tokens instead, with `calling(user)`, see `mint` below."""
+
+import base64
 import json
+import time
+import uuid
 from collections.abc import AsyncIterator, Callable, Generator, Iterator
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
+from uuid import UUID
 
 import httpx2
+import jwt
 import platform_auth.auth
 import pytest
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from fastapi.testclient import TestClient
 from platform_auth.keys import KeyCache
 from psycopg_pool import AsyncConnectionPool
@@ -159,3 +169,84 @@ def web_dir(tmp_path: Path) -> Path:
     (tmp_path / "index.html").write_text(INDEX)
     (tmp_path / "assets" / "index-abc123.js").write_text(ASSET)
     return tmp_path
+
+
+# Tokens for any user, for tests that need more than the contract token's
+# one account: signed with a key made for this test session, and verified
+# against its public half, served as the core would serve its key set. What
+# the brain checks is the same as for the contract token; only the key is
+# the tests' own.
+SIGNING_KEY = Ed25519PrivateKey.generate()
+SIGNING_KID = "brain-tests"
+
+
+def signing_jwks() -> dict[str, Any]:
+    raw = SIGNING_KEY.public_key().public_bytes(
+        serialization.Encoding.Raw, serialization.PublicFormat.Raw
+    )
+    x = base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
+    return {
+        "keys": [
+            {"kty": "OKP", "crv": "Ed25519", "alg": "EdDSA", "kid": SIGNING_KID, "x": x}
+        ]
+    }
+
+
+def mint(account_id: UUID) -> str:
+    """A token for `account_id`, valid for the next half hour by the real
+    clock, which these tests leave alone."""
+    now = int(time.time())
+    claims = {
+        "sub": str(account_id),
+        "sid": str(uuid.uuid7()),
+        "jti": str(uuid.uuid7()),
+        "iat": now,
+        "exp": now + 1800,
+    }
+    return jwt.encode(
+        claims, SIGNING_KEY, algorithm="EdDSA", headers={"kid": SIGNING_KID}
+    )
+
+
+class Caller:
+    """One user calling the running brain: their token on every request, and
+    the platform's origin on every one that changes state."""
+
+    def __init__(self, client: TestClient, user: UUID) -> None:
+        self.client = client
+        self.user = user
+        self.headers = bearer(mint(user))
+
+    def get(self, path: str) -> httpx2.Response:
+        return self.client.get(path, headers=self.headers)
+
+    def post(self, path: str, body: object = None) -> httpx2.Response:
+        headers = {**self.headers, "origin": PLATFORM}
+        if body is None:
+            return self.client.post(path, headers=headers)
+        return self.client.post(path, headers=headers, json=body)
+
+
+@pytest.fixture
+def serving(database: str, web_dir: Path) -> Iterator[TestClient]:
+    """The brain started on this test's database, as brain_app, over the
+    tests' own key set, with its lifespan entered so its pool is open."""
+
+    def serves_the_signing_key(request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(200, json=signing_jwks())
+
+    keys = KeyCache(
+        httpx2.AsyncClient(transport=httpx2.MockTransport(serves_the_signing_key)),
+        CORE_URL,
+    )
+    settings = load(
+        {"BRAIN_WEB_DIR": str(web_dir), "BRAIN_APP_DATABASE_URL": app_url(database)}
+    )
+    with TestClient(create_app(settings, keys=keys), base_url=PLATFORM) as client:
+        yield client
+
+
+@pytest.fixture
+def calling(serving: TestClient) -> Callable[[UUID], Caller]:
+    """`calling(user)`, the running brain as that user."""
+    return lambda user: Caller(serving, user)
