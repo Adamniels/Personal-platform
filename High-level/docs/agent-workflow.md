@@ -118,8 +118,8 @@ request, since GitHub has no API for attaching images.
 **The Mac mini's databases are disposable.** Each run recreates the core's and the brain's
 databases empty with `scripts/agent/reset-db.sh` and applies the branch's migrations from scratch.
 Migrations are forward only, so on a shared database one slice's unmerged migration would stall
-every other branch until it merged. What it costs is that nothing on the Mac mini keeps data, and running the platform for
-real there would need a separate stack for the agents.
+every other branch until it merged. What it costs is that nothing on the Mac mini keeps data, and
+running the platform for real there would need a separate stack for the agents.
 
 **How a run ends**, other than with a pull request, is one of three final lines the runner reads.
 `ENVIRONMENT:` is a problem outside the slice, such as Docker down, a missing `.env`, the wrong
