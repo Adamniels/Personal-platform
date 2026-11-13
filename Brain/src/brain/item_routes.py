@@ -1,6 +1,7 @@
 """The API for the memory store, under `/brain/api/items`: entries the owner
 makes by hand, as profile entries, rules, a level and a focus on each topic,
-and misconceptions so far, and correcting them. Every route needs a valid
+and misconceptions so far, and correcting them; and `/brain/api/knowledge`,
+every topic with its level and focus. Every route needs a valid
 token and acts for the account it names, through `brain.db.transaction`. The
 rules are in `brain.items`; this module reads the request and shapes the
 answer. The routes are listed in "What it serves" in Brain/README.md."""
@@ -22,7 +23,7 @@ from pydantic import (
     field_validator,
 )
 
-from brain import db, items
+from brain import db, items, knowledge
 from brain.edge import (
     NOT_FOUND,
     REFUSED,
@@ -611,3 +612,75 @@ async def list_versions(request: Request, claims: Claims) -> Response:
     if found is None:
         raise NotFound
     return JSONResponse([Item.of(item).model_dump(mode="json") for item in found])
+
+
+class TopicSetting(BaseModel):
+    """A topic's active level or focus."""
+
+    # The entry's id, its newest version's.
+    id: UUID
+    value: str
+    # When it was last set.
+    set_at: datetime
+
+
+class KnowledgeRow(BaseModel):
+    """One topic, its aliases folded into it."""
+
+    id: UUID
+    slug: str
+    name: str
+    state: Literal["canonical", "provisional"]
+    # Null when the topic has none.
+    level: TopicSetting | None
+    focus: TopicSetting | None
+    # Its active history entries, misconceptions among them.
+    history_count: int
+
+
+class KnowledgeQuery(BaseModel):
+    # Each filter narrows the list; all of them together, every one given.
+    level: items.Level | None = None
+    focus: items.Focus | None = None
+    state: Literal["canonical", "provisional"] | None = None
+
+
+def _setting(setting: knowledge.Setting | None) -> TopicSetting | None:
+    if setting is None:
+        return None
+    return TopicSetting(id=setting.id, value=setting.value, set_at=setting.set_at)
+
+
+@router.get(
+    "/knowledge",
+    response_model=list[KnowledgeRow],
+    responses={**UNAUTHORIZED, **REFUSED},
+    openapi_extra=documented(query=KnowledgeQuery),
+)
+@authenticated
+async def list_knowledge(request: Request, claims: Claims) -> Response:
+    """What the user knows: one row per topic that is not an alias, by slug,
+    each alias folded into its target, with its active level and focus, each
+    with its id and when it was last set, or null, and its count of active
+    history entries. A topic with neither is listed too. Narrowed by level,
+    focus and state when they are given. 422 for a value not on their
+    lists."""
+    query = query_as(request, KnowledgeQuery)
+    async with db.transaction(request.app.state.pool, claims.account_id) as conn:
+        rows = await knowledge.view(
+            conn, level=query.level, focus=query.focus, state=query.state
+        )
+    return JSONResponse(
+        [
+            KnowledgeRow(
+                id=row.id,
+                slug=row.slug,
+                name=row.name,
+                state=row.state,
+                level=_setting(row.level),
+                focus=_setting(row.focus),
+                history_count=row.history_count,
+            ).model_dump(mode="json")
+            for row in rows
+        ]
+    )

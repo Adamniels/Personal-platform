@@ -236,6 +236,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/brain/api/knowledge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Knowledge
+         * @description What the user knows: one row per topic that is not an alias, by slug,
+         *     each alias folded into its target, with its active level and focus, each
+         *     with its id and when it was last set, or null, and its count of active
+         *     history entries. A topic with neither is listed too. Narrowed by level,
+         *     focus and state when they are given. 422 for a value not on their
+         *     lists.
+         */
+        get: operations["list_knowledge_brain_api_knowledge_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/brain/api/topic-relations/{id}/end": {
         parameters: {
             query?: never;
@@ -716,6 +741,30 @@ export interface components {
              */
             to_item: string;
         };
+        /**
+         * KnowledgeRow
+         * @description One topic, its aliases folded into it.
+         */
+        KnowledgeRow: {
+            focus: components["schemas"]["TopicSetting"] | null;
+            /** History Count */
+            history_count: number;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            level: components["schemas"]["TopicSetting"] | null;
+            /** Name */
+            name: string;
+            /** Slug */
+            slug: string;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "canonical" | "provisional";
+        };
         /** Topic */
         Topic: {
             /** Alias Of */
@@ -771,6 +820,24 @@ export interface components {
              * Format: uuid
              */
             to_topic: string;
+        };
+        /**
+         * TopicSetting
+         * @description A topic's active level or focus.
+         */
+        TopicSetting: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Set At
+             * Format: date-time
+             */
+            set_at: string;
+            /** Value */
+            value: string;
         };
         /** WhoAmI */
         WhoAmI: {
@@ -1412,6 +1479,44 @@ export interface operations {
             };
             /** @description Nothing of this user's at that address. */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    list_knowledge_brain_api_knowledge_get: {
+        parameters: {
+            query?: {
+                level?: ("shallow" | "working" | "solid" | "deep") | null;
+                focus?: ("learning" | "steady" | "not_pursuing") | null;
+                state?: ("canonical" | "provisional") | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KnowledgeRow"][];
+                };
+            };
+            /** @description No valid token: missing, expired or failing verification, all alike. The body is empty; the caller refreshes and retries. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description A body that does not parse, or a request breaking a rule. */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };

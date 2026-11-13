@@ -772,6 +772,67 @@
         "title": "ItemRelation",
         "type": "object"
       },
+      "KnowledgeRow": {
+        "description": "One topic, its aliases folded into it.",
+        "properties": {
+          "focus": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TopicSetting"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "history_count": {
+            "title": "History Count",
+            "type": "integer"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "level": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TopicSetting"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "slug": {
+            "title": "Slug",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "canonical",
+              "provisional"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "slug",
+          "name",
+          "state",
+          "level",
+          "focus",
+          "history_count"
+        ],
+        "title": "KnowledgeRow",
+        "type": "object"
+      },
       "Topic": {
         "properties": {
           "alias_of": {
@@ -878,6 +939,32 @@
           "ended_at"
         ],
         "title": "TopicRelation",
+        "type": "object"
+      },
+      "TopicSetting": {
+        "description": "A topic's active level or focus.",
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "set_at": {
+            "format": "date-time",
+            "title": "Set At",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "value",
+          "set_at"
+        ],
+        "title": "TopicSetting",
         "type": "object"
       },
       "WhoAmI": {
@@ -1983,6 +2070,100 @@
           }
         },
         "summary": "List Versions"
+      }
+    },
+    "/brain/api/knowledge": {
+      "get": {
+        "description": "What the user knows: one row per topic that is not an alias, by slug,\neach alias folded into its target, with its active level and focus, each\nwith its id and when it was last set, or null, and its count of active\nhistory entries. A topic with neither is listed too. Narrowed by level,\nfocus and state when they are given. 422 for a value not on their\nlists.",
+        "operationId": "list_knowledge_brain_api_knowledge_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "level",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "shallow",
+                    "working",
+                    "solid",
+                    "deep"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Level"
+            }
+          },
+          {
+            "in": "query",
+            "name": "focus",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "learning",
+                    "steady",
+                    "not_pursuing"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Focus"
+            }
+          },
+          {
+            "in": "query",
+            "name": "state",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "canonical",
+                    "provisional"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "State"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/KnowledgeRow"
+                  },
+                  "title": "Response List Knowledge Brain Api Knowledge Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "No valid token: missing, expired or failing verification, all alike. The body is empty; the caller refreshes and retries."
+          },
+          "422": {
+            "description": "A body that does not parse, or a request breaking a rule."
+          }
+        },
+        "summary": "List Knowledge"
       }
     },
     "/brain/api/topic-relations/{id}/end": {
