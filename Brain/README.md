@@ -5,10 +5,11 @@ feature. Why it is a separate service is in "The brain is its own service" in
 `High-level/docs/platform-architecture.md`; what it will hold is in `docs/`, starting at
 `docs/brain-architecture.md`, with the tables in `docs/data-model.md`.
 
-Today it serves a health endpoint, says who is asking, and serves the memory centre, its own
-application, whose sections are still empty. It has a database with no table in it yet: the roles,
-the migrations and the one door every query goes through, proven to keep two users apart. The
-tables arrive with the slices that need them.
+Today it serves a health endpoint, says who is asking, holds each user's subjects, the topics and
+named things their memory will be about, and serves the memory centre, its own application, whose
+sections are still empty. Its database has the roles, the migrations, the one door every query goes
+through, proven to keep two users apart, and the subjects' three tables. The other tables arrive
+with the slices that need them.
 
 ## What it serves
 
@@ -16,6 +17,38 @@ tables arrive with the slices that need them.
   serves, and says nothing about what the brain depends on.
 - `GET /brain/api/whoami`, `{"account_id": "<sub>"}`, the account the request's token names.
   Without a valid token it answers `401` with an empty body.
+- **Subjects**, what a user's memory is about, see "Scope is topic and entity, never feature" in
+  `docs/trust-model.md`. Each route needs a valid token, acts for its account alone, and answers
+  `{"detail": ...}` when it refuses: `404` for an id the user does not have, another user's
+  included, `409` for a second of something unique, and `422` for a body that does not parse or a
+  request that breaks a rule. The rules live in `src/brain/topics.py` and `src/brain/entities.py`,
+  the routes in `src/brain/subjects.py`.
+  - `GET /brain/api/topics`, every topic the user has, aliases included, by slug: `id`, `slug`,
+    `name`, `state` (`canonical` or `provisional`), `alias_of`, `resolves_to`, the topic it is read
+    as, and `created_at`.
+  - `POST /brain/api/topics`, `{"name": ..., "slug": ...}`, a new canonical topic, `201`. A slug is
+    lowercase letters, digits and hyphens, starting with a letter or digit, 1 to 80 characters;
+    without one it is made from the name, lowercased with every other run of characters one hyphen.
+    One the user already has is `409`. A provisional topic is made only by an event.
+  - `POST /brain/api/topics/{id}/promote` makes a provisional topic canonical.
+  - `POST /brain/api/topics/{id}/same-as`, `{"target_id": ...}`, makes the topic an alias of a
+    canonical one. Only `alias_of` changes: whatever names the alias keeps naming it and is read
+    as the target, so `separate` loses nothing. Refused when the target is itself, an alias or
+    provisional, when the topic is an alias or has aliases, or when one is under the other.
+  - `POST /brain/api/topics/{id}/separate` makes an alias its own topic again.
+  - `POST /brain/api/topics/{id}/broader`, `{"broader_id": ...}`, places the topic under a broader
+    one, `201`, a `broader_than` relation from the broader topic to this one. Refused when it would
+    put a topic under itself, directly, through others or through an alias.
+  - `POST /brain/api/topic-relations/{id}/end` ends a relation. The row stays, with `ended_at`.
+  - `GET /brain/api/entities` and `POST /brain/api/entities`, `{"name": ..., "label": ...}`, the
+    user's named things, such as a project: a name compared without letter case, so a second one
+    in any case is `409`, and an optional free text label. Only a name, never a link into a
+    feature's data.
+
+  Every change to a user's topics or their relations takes that user's lock for its transaction,
+  `topics.lock_vocabulary`, since the checks above read rows another change could be writing.
+  `topics.resolve` and `topics.narrower`, every topic under one through relations that hold,
+  aliases resolved, are what retrieval reads them with.
 - `GET /brain` and `GET /brain/<section>`, the memory centre's `index.html` from the build, see
   "The memory centre" below. Without a valid token, a `303` to the core's
   `/auth/refresh?return_to=<the path>`.
@@ -30,8 +63,11 @@ empty body, never a redirect, since a script cannot follow one. The memory centr
 exception: they go through the library's `page` wrapper instead, which sends a browser without a
 valid token to the core's refresh endpoint with the way back. The user id in the
 brain is always the verified token's `Claims.account_id`, never a header, a parameter or a body
-field. `authenticated` and `page` in `src/brain/app.py` put the library's `api` and `page`
-wrappers on a FastAPI route, so FastAPI sees a handler that takes only the request. In front of the whole app, routing
+field. `authenticated` and `page` in `src/brain/edge.py` put the library's `api` and `page`
+wrappers on a FastAPI route, so FastAPI sees a handler that takes only the request. Such a handler
+reads its own body and address, with `body_as` and `path_id` beside them, after the token is
+checked, so a request without a valid one is `401` whatever its body; `documented` puts what it
+reads in the schema. In front of the whole app, routing
 included, the library's `OriginCheck` refuses with `403` any request other than GET, HEAD and
 OPTIONS whose `Origin` is not exactly `BRAIN_PUBLIC_ORIGIN`.
 
@@ -219,6 +255,12 @@ expires at a fixed time, so the tests pin the clock the library reads, with the 
 fixtures. A test that builds the app without starting it loads `MINIMAL_ENV` from
 `tests/harness.py`, a well formed database address nothing connects to; one that starts it is
 given a database of its own.
+
+A test that calls the running brain as more than one user, as the subjects' tests do, cannot use
+the contract token, which names one account and whose private key nobody holds. `calling(user)` in
+`tests/conftest.py` starts the brain on the test's database over a key set of the tests' own, and
+mints each user a token signed with its private half, by the real clock. The signing is `pyjwt`
+and `cryptography`, which `platform-auth` already installs.
 
 ## Libraries the brain is built on
 
