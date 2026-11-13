@@ -60,7 +60,9 @@ export function Ask() {
 
 	return (
 		<div className={section.section}>
-			<p className={section.lede}>{ASK_LINE}</p>
+			<div className={section.toolbar}>
+				<p className={section.lede}>{ASK_LINE}</p>
+			</div>
 			<Tabs
 				label="Questions"
 				value={question}

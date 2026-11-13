@@ -10,6 +10,12 @@
 	padding-top: var(--space-4);
 }
 
+/* The panels of the other questions stay hidden, which the display above
+ * would otherwise undo. */
+.panel[hidden] {
+	display: none;
+}
+
 .form {
 	box-sizing: border-box;
 	width: 100%;
