@@ -65,8 +65,37 @@ included, and each follows its entry in section 4 of `DESIGN.md`.
   technology hears, the short label when it is left out. The two texts are hidden from assistive
   technology, so the meter is read once, as its bar.
 
-`Status`, `Badge`, `Chip`, `Progress` and `Meter` render a `span` or a `div`, and take everything
-that element takes.
+- `Tabs`, with `Tab` and `TabPanel`: `Tabs` takes `label`, the tablist's accessible name;
+  `value`, the selected tab's value; and `onChange`, called with a tab's value when the user picks
+  it. The caller owns the selection, so a page can keep it in the address, and nothing changes
+  until the caller passes the new value back. Each `Tab` takes a `value`, its label as children,
+  and an optional `count`, shown after the label as a `Badge`; each `TabPanel` takes the `value`
+  of its tab. Both are direct children of `Tabs`, which puts the tabs in the row in their order
+  and the panels after it, ties each panel to its tab, and hides the panels of the others. It
+  follows the keyboard pattern for tabs: the selected tab alone is in the tab order (the first,
+  when the value names none), Left and Right move and wrap, Home and End go to the ends, and
+  activation follows focus. The row scrolls sideways when the tabs are wider than it, and never
+  wraps. Give every `Tab` its `TabPanel`, since each tab names its panel.
+- `Card`: `title`, the h2 that names the card; `aside`, an optional caption or status label on the
+  right of it; `footer`, an optional action, pushed to the bottom so cards in a row of the card
+  grid align; `attention`, the needs you outline, with a visually hidden "Needs you" so the mark
+  is not colour alone; and its body as children. It is an `article`. The design's one key fact
+  and at most three rows are the page's to keep to; the card does not count them.
+- `EmptyState`: `title`, the line that says what is empty; `detail`, the line that says what
+  happens next; and an optional `action`, one element, normally a secondary `Button`. It is a
+  `div`, with no illustration.
+- `Timeline`, with `TimelineEntry`: `Timeline` is an `ol`, so give it an `aria-label` where no
+  heading names it, and its entries are its direct children, so it knows the last one, which draws
+  no line. Each `TimelineEntry` takes `time`, already formatted and shown in the mono font; its
+  line as children; an optional `detail`; and `attention`, the filled accent dot, with a visually
+  hidden "Needs you" as on the card. The rail is hidden from assistive technology.
+
+`Status`, `Badge`, `Chip`, `Progress`, `Meter`, `Card`, `EmptyState`, `Timeline`,
+`TimelineEntry` and `TabPanel` render a `span`, a `div`, an `article`, an `ol` or an `li`, and take
+everything that element takes, apart from the props they set themselves, such as a panel's `id`,
+`role`, `hidden` and `aria-labelledby`. `Tabs` takes a `div`'s, and `Tab` a `button`'s, without
+the ones the pattern decides: its `id`, `role`, `type`, `tabIndex`, `aria-selected` and
+`aria-controls`.
 
 A field fills the width of what holds it, so a form sizes its fields by its layout. Form state and
 validation are the feature's own.
@@ -80,6 +109,8 @@ A component is a folder under `src/`: the component, its `*.module.css`, and its
 - Its styles use `var(--…)` for every colour and for every size that has a token. It never imports
   `tokens.css` and never holds a theme condition: dark mode is the values changing.
   `src/styles.test.ts` fails on a hex colour, `rgb(` or `hsl(` in any `*.module.css`.
+- Text meant for assistive technology alone, such as the "Needs you" of a card, uses the one
+  shared rule in `src/visually-hidden.module.css`.
 - It is exported from `src/index.ts`.
 - It gets a section in the gallery, `gallery/sections/<name>-section.tsx`, added to
   `gallery/gallery.tsx`, showing every kind and state. Its look is tested in
