@@ -440,11 +440,12 @@ tell_owner() {
   comment "$3" "$4" || { log "could not comment on #$3"; return 1; }
   echo "$1 $2" >> "$owner_told"
 }
-# hand_over <pr> <sha> <slice> <body> <label_ready|label_blocked>: tells the owner once for this head, then sets the
-# label; when the mention was made before, waits the poll interval, so a repeated item cannot spin (R43b).
+# hand_over <pr> <sha> <slice> <body> <label_ready|label_blocked> [turn]: tells the owner once for this head, then
+# sets the label; when the mention was made before, waits the poll interval, so a repeated item cannot spin (R43b).
+# With `turn`, in the turn of the review that approved the head, it never waits: no item repeats there.
 hand_over() {
   tell_owner "$1" "$2" "$3" "$4" && "$5" "$1" || return 1
-  [ "$already_told" = 1 ] && nap "$poll"
+  [ "$already_told" = 1 ] && [ "${6:-}" != turn ] && nap "$poll"
   return 0
 }
 # merged_slice: sets $merged to the slice of the most recently merged bot PR, or empty.
@@ -644,6 +645,7 @@ prepare_tree() {
 
 claude_item() { # kind pr slice; the PR's head is $cur_sha
   local kind="$1" pr="$2" slice="$3" sha="$cur_sha" item logf n start rc secs cls short last key vk vs want what status_failed=""
+  local settle_sha="" settle_labels=""
   item="$kind $slice"; [ "$pr" = - ] || item="$kind $pr $slice"
   probe || { pause environment "$probe_reason" "$slice"; return; }
   if [ "$kind" = review ]; then
@@ -698,7 +700,13 @@ claude_item() { # kind pr slice; the PR's head is $cur_sha
     fi
     # review-ok right after the review: success on an approved head, pending on any other.
     want=pending; [ "$vk" = approve ] && [ "$vs" = "$head_sha" ] && want=success
-    review_ok "$head_sha" "$want" || status_failed="$head_sha"
+    if ! review_ok "$head_sha" "$want"; then status_failed="$head_sha"
+    elif [ "$want" = success ]; then
+      # The head is approved and its review-ok is success: recorded for this loop as make_true records it, and
+      # settled below, with the head and the labels just read, not the ones the item was picked with.
+      approved_now "$pr" "$head_sha" || echo "$pr $head_sha" >> "$approved"
+      settle_sha="$head_sha" settle_labels="$head_labels"
+    fi
   fi
   log "claude for $item: $cls ($short; last line: $last)"
 
@@ -716,6 +724,13 @@ claude_item() { # kind pr slice; the PR's head is $cur_sha
   esac
   # The run is accounted for above; the status is written again by the next loop's make_true.
   [ -z "$status_failed" ] || [ "$paused" = 1 ] || pause transient "could not set $STATUS on $status_failed" "$slice"
+  # The same turn: an approved head is settled at once, as its merge or owner item would settle it, before
+  # pending.sh is asked for anything else. Not when the run's accounting paused, set the slice Blocked or left a
+  # Block half done: pending.sh offers nothing but owner input for a Blocked slice.
+  if [ -n "$settle_sha" ] && [ "$paused" = 0 ] && [ "$(failures "$slice")" -lt 2 ] && ! pr_recorded "$pr"; then
+    cur_sha="$settle_sha" cur_labels="$settle_labels"
+    merge_item "$pr" "$slice" turn
+  fi
 }
 
 # pr_gate <kind> <pr> <slice>: R47, R51 and R54 on a PR item. The board decides: a fix item (owner input) for a
@@ -762,11 +777,14 @@ ci_wait() {
 }
 ci_clear() { [ -f "$ci_pending" ] && { grep -v "^$1 " "$ci_pending" > "$ci_pending.new"; mv -f "$ci_pending.new" "$ci_pending"; }; return 0; }
 
-# merge_item <pr> <slice>: a merge item and an owner item alike. For an owner item the gate cannot merge, since the
+# merge_item <pr> <slice> [turn]: a merge item and an owner item alike. For an owner item the gate cannot merge, since the
 # PR carries has-decision or owner-blocked, but its reasons say whether the PR is ready for the owner or stuck, which the label
 # alone does not: an approved PR whose ci-ok failed is not "ready to read and merge".
-merge_item() { # pr slice; head $cur_sha, labels $cur_labels
-  local pr="$1" slice="$2" out rc reasons joined r owner_only=1 decision
+# With `turn` it is called by claude_item, in the turn of the review that approved the head, and differs in one
+# thing: it never waits the poll interval. With ci-ok pending it records nothing and returns, and the PR's merge or
+# owner item settles it once CI has reported.
+merge_item() { # pr slice [turn]; head $cur_sha, labels $cur_labels
+  local pr="$1" slice="$2" turn="${3:-}" out rc reasons joined r owner_only=1 decision
   # Only a head this loop's make_true found approved reaches the gate, so its review-ok is success before the gate
   # is called. Any other head moved after pending.sh looked: nothing is wrong with it, and the next loop reads it.
   if ! approved_now "$pr" "$cur_sha"; then
@@ -786,6 +804,9 @@ merge_item() { # pr slice; head $cur_sha, labels $cur_labels
         log "#$pr is already merged; nothing to do"; note_merged "$pr"; ci_clear "$pr"; end_episode; short_wait; return
       fi
       if grep -qxF "ci-ok is pending" <<<"$reasons"; then
+        if [ "$turn" = turn ]; then
+          log "#$pr is approved and waits for ci-ok ($(tr '\n' ',' <<<"$reasons")); its item settles it"; return
+        fi
         log "#$pr waits for ci-ok ($(tr '\n' ',' <<<"$reasons"))"; ci_wait "$pr" "$cur_sha" "$slice"; nap "$poll"; return
       fi
       ci_clear "$pr"
@@ -797,13 +818,13 @@ merge_item() { # pr slice; head $cur_sha, labels $cur_labels
       log "the merge gate refused #$pr: $joined"
       decision=0; has_label "$LABEL_HAS" && decision=1
       if [ "$owner_only" = 1 ] && [ "$decision" = 1 ]; then
-        hand_over "$pr" "$cur_sha" "$slice" "@$OWNER PR #$pr is approved and waits for your decision: read \"Decisions the agent made\" in its body and \"For the owner\" in the review, then merge it or comment on it to change something ($joined)." label_ready \
+        hand_over "$pr" "$cur_sha" "$slice" "@$OWNER PR #$pr is approved and waits for your decision: read \"Decisions the agent made\" in its body and \"For the owner\" in the review, then merge it or comment on it to change something ($joined)." label_ready "$turn" \
           || pause transient "could not hand #$pr to the owner" "$slice"
       elif [ "$owner_only" = 1 ]; then
-        hand_over "$pr" "$cur_sha" "$slice" "@$OWNER PR #$pr is ready for you to read and merge: the merge gate leaves it to the owner ($joined)." label_ready \
+        hand_over "$pr" "$cur_sha" "$slice" "@$OWNER PR #$pr is ready for you to read and merge: the merge gate leaves it to the owner ($joined)." label_ready "$turn" \
           || pause transient "could not hand #$pr to the owner" "$slice"
       else
-        hand_over "$pr" "$cur_sha" "$slice" "@$OWNER PR #$pr needs you, do not merge it as it is: the merge gate refused it ($joined)." label_blocked \
+        hand_over "$pr" "$cur_sha" "$slice" "@$OWNER PR #$pr needs you, do not merge it as it is: the merge gate refused it ($joined)." label_blocked "$turn" \
           || pause transient "could not hand #$pr to the owner" "$slice"
       fi ;;
     *) pause transient "merge-gate.sh exited $rc for #$pr" "$slice" ;;
