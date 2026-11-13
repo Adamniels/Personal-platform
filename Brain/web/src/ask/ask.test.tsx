@@ -17,6 +17,9 @@ type TopicAnswer = components["schemas"]["TopicAnswer"];
 
 afterEach(cleanup);
 
+// This year, so a support line reads without one whenever the tests run.
+const YEAR = new Date().getFullYear();
+
 const QUESTIONS = [
 	"Who is this person?",
 	"What do they know?",
@@ -267,7 +270,7 @@ describe("an answer shows each item with its reasons", () => {
 				answerItem({
 					content: "Learning Rust ownership",
 					subjects: { topics: [rust], entities: [] },
-					last_supported_at: "2026-11-12T10:00:00Z",
+					last_supported_at: `${YEAR}-11-12T10:00:00Z`,
 					support: {
 						supports: {
 							activity: 1,
@@ -292,25 +295,25 @@ describe("an answer shows each item with its reasons", () => {
 							kind: "supports",
 							text: "Entered by hand as state: Learning Rust ownership",
 							origin: "brain",
-							occurred_at: "2026-11-01T10:00:00Z",
+							occurred_at: `${YEAR}-11-01T10:00:00Z`,
 							occurred_precision: "instant",
-							recorded_at: "2026-11-01T10:00:00Z",
+							recorded_at: `${YEAR}-11-01T10:00:00Z`,
 						},
 						{
 							verb: "practised",
 							kind: "supports",
 							text: "Did the borrow checker exercises",
 							origin: "learning",
-							occurred_at: "2026-11-12T10:00:00Z",
+							occurred_at: `${YEAR}-11-12T10:00:00Z`,
 							occurred_precision: "instant",
-							recorded_at: "2026-11-12T10:00:00Z",
+							recorded_at: `${YEAR}-11-12T10:00:00Z`,
 						},
 					],
 				}),
 				answerItem({
 					content: "Finishing the thesis draft",
 					stale: true,
-					last_supported_at: "2026-08-01T10:00:00Z",
+					last_supported_at: `${YEAR}-08-01T10:00:00Z`,
 				}),
 			],
 			conflicts: [],
@@ -328,7 +331,7 @@ describe("an answer shows each item with its reasons", () => {
 			"Now",
 			"Semantic store",
 			"Entered by hand",
-			"Supported by 2 entries, last on 12 Nov 2026",
+			"Supported by 2 entries, last on 12 Nov",
 		]);
 		expect(item.getByText("Rust")).toBeTruthy();
 		expect(item.getByText("Active")).toBeTruthy();
@@ -350,9 +353,7 @@ describe("an answer shows each item with its reasons", () => {
 
 		const stale = within(await card("Finishing the thesis draft"));
 		expect(stale.getByText("Still true?")).toBeTruthy();
-		expect(
-			stale.getByText("Supported by 1 entry, last on 1 Aug 2026"),
-		).toBeTruthy();
+		expect(stale.getByText("Supported by 1 entry, last on 1 Aug")).toBeTruthy();
 	});
 
 	test("the items keep the order the brain returned them in", async () => {

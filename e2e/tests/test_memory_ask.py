@@ -172,7 +172,7 @@ def test_asking_who_i_am_returns_my_profile_and_rules(page: Page, invite_code: s
             "Profile",
             "Profile store",
             "Entered by hand",
-            re.compile(r"^Supported by 1 entry, last on \d+ \w{3} \d{4}$"),
+            re.compile(r"^Supported by 1 entry, last on \d+ \w{3}$"),
         ]
     )
     expect(

@@ -691,8 +691,8 @@ its own surface" in `docs/brain-architecture.md` has it:
   brain does not know says "Nothing known about <topic>".
 - Each item is a card: its text and its state as Everything writes it; a line in the mono font of
   its kind, its store, entered by hand or derived, and its support as counts, "Supported by 2
-  entries, last on 12 Nov 2026", since the brain returns no score; its subjects; and "Why", its
-  evidence as a `Timeline`, closed until opened.
+  entries, last on 12 Nov", with the year only when it is another, since the brain returns no
+  score; its subjects; and "Why", its evidence as a `Timeline`, closed until opened.
 - Conflicts come first, in a needs you `Card`, "The brain holds things that disagree": each names
   both items, linking down to the first place each is shown, and says which is preferred and why,
   "Narrower scope" or "Newer at equal scope", or "No winner: unrelated subjects". Both items always
