@@ -89,10 +89,49 @@ included, and each follows its entry in section 4 of `DESIGN.md`.
   no line. Each `TimelineEntry` takes `time`, already formatted and shown in the mono font; its
   line as children; an optional `detail`; and `attention`, the filled accent dot, with a visually
   hidden "Needs you" as on the card. The rail is hidden from assistive technology.
+- `Table`: `label`, the table's accessible name; `columns`; `rows`, shown in the order given; and
+  `rowKey`, a stable key for a row. **The caller owns the data**: it sorts, filters and pages the
+  rows, and holds what an edit changes, while the table renders what it is given and reports what
+  was asked for. A column has a `key`, a `header`, a `cell` function from a row to what to show,
+  `priority` (1, 2 or 3, default 1), `numeric` and `sortable`, and two optional functions, `fold`
+  and `edit`, below. `numeric` sets the column right aligned in the mono font with tabular
+  figures, so it is for every value hard rule 8 puts in mono: numbers, times, dates and ids.
+  Sorting is `sort`, `{ key, direction }` with `direction` `ascending` or `descending`, shown on
+  the header by its arrow and `aria-sort`, and `onSort`, called when a sortable header, a button,
+  is pressed, with that column and the direction it asks for: the other way when it is already
+  sorted, ascending otherwise. `rowState` gives a row's state, `selected` or `editing`; both are
+  drawn in `--info-soft` and set `aria-selected`. `rowAction` is the one action at the end of a
+  row, such as an Edit button.
+
+  For an editing row the table calls each column's `edit` in place of its cell, the cell where a
+  column has none, and puts Save (secondary) and Cancel (ghost) directly under the first cell,
+  reporting `onSave` and `onCancel` with the row; Escape cancels. Focus goes to the first field
+  when a row starts editing, and back to the row's action when it stops, unless the user had moved
+  it out of the row. A row that is editing when the table first renders takes no focus. The row's
+  action is not shown while it edits.
+
+  **Column priority** is the design's rule for phone. Below 640px only priority 1 columns are
+  columns. A priority 2 column gives a short text through `fold`, or its cell when that is text or
+  a number, and those texts are joined with " · " in one mono line under the first priority 1
+  cell, the line a column without text is left out of. Priority 3 columns are not shown on phone.
+  Since a column that is not shown cannot be edited, a column that must be editable on phone is
+  priority 1.
+
+  The wrapper is a `section` named by `label`, in the tab order so the keyboard can scroll it,
+  and scrolls sideways when the table is wider than it, so the page never does.
+- `FilterRow`: the wrapping row above a table. It takes `search`, normally a `TextField`, which
+  grows to fill the row; the other filters as children, selects and pills in their order; and
+  `count`, the result count, in mono on the right and announced politely when it changes.
+- `FilterPill`: `label`, the filter in words, and `onRemove`, called by its remove button, which
+  is named "Remove filter <label>". It is 28px tall, and its remove button's target reaches 44px.
+- `Paging`: `from`, `to` and `total`, shown as "Rows 1 to 7 of 214"; `hasPrevious` and `hasNext`,
+  without which Previous or Next is disabled; and `onPage`, called with `previous` or `next`. It
+  is a `nav` named `label`, "Pages" unless a page has more than one.
 
 `Status`, `Badge`, `Chip`, `Progress`, `Meter`, `Card`, `EmptyState`, `Timeline`,
-`TimelineEntry` and `TabPanel` render a `span`, a `div`, an `article`, an `ol` or an `li`, and take
-everything that element takes, apart from the props they set themselves, such as a panel's `id`,
+`TimelineEntry`, `TabPanel`, `Table`, `FilterRow`, `FilterPill` and `Paging` render a `span`, a
+`div`, an `article`, an `ol`, an `li`, a `section` or a `nav`, the table's being its wrapper, and
+take everything that element takes, apart from the props they set themselves, such as a panel's `id`,
 `role`, `hidden` and `aria-labelledby`. `Tabs` takes a `div`'s, and `Tab` a `button`'s, without
 the ones the pattern decides: its `id`, `role`, `type`, `tabIndex`, `aria-selected` and
 `aria-controls`.
