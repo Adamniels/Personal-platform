@@ -2,7 +2,9 @@
 docs/event-model.md, and the `topics` table in docs/data-model.md.
 
 A topic is canonical or provisional, and may be an alias: marked the same as
-another, with `alias_of` naming it. Nothing else is rewritten when that
+another, with `alias_of` naming it. Topics are related to each other, one
+broader than another, in `topic_relations`, which are ended rather than
+deleted. See "Relations" in docs/event-model.md. Nothing else is rewritten when that
 happens. Whatever names the alias keeps naming it, and is read as the target,
 through `resolve`, so separating the two again loses nothing.
 
@@ -52,6 +54,25 @@ class Topic:
 
 
 COLUMNS = "id, slug, name, state, alias_of, created_at"
+
+# The kinds of relation between topics. A text column, checked here rather
+# than in the database, so a new kind is a change to this list and not a
+# migration. `from_topic` is broader than `to_topic`.
+RELATION_KINDS = ("broader_than", "related_to")
+
+
+@dataclass(frozen=True)
+class TopicRelation:
+    id: UUID
+    from_topic: UUID
+    to_topic: UUID
+    kind: str
+    created_at: datetime
+    # None while it holds.
+    ended_at: datetime | None
+
+
+RELATION_COLUMNS = "id, from_topic, to_topic, kind, created_at, ended_at"
 
 
 def slug_from(name: str) -> str | None:
@@ -154,7 +175,8 @@ async def same_as(conn: Connection, topic_id: UUID, target_id: UUID) -> Topic:
     Refused when the result would not be a vocabulary: the topic itself as
     its target, a target that is not there, is an alias or is not canonical,
     a topic that is already an alias, or one that others are aliases of,
-    which would leave them pointing at an alias."""
+    which would leave them pointing at an alias. And when one of the two is
+    under the other, since read as one topic it would be under itself."""
     await lock_vocabulary(conn)
     topic = await _found(conn, topic_id)
     if target_id == topic_id:
@@ -174,6 +196,11 @@ async def same_as(conn: Connection, topic_id: UUID, target_id: UUID) -> Topic:
     row = await cursor.fetchone()
     if row is not None and row[0]:
         raise Refused("other topics are aliases of this one")
+    # One under the other would, once they are read as one, be under itself.
+    if target_id in await narrower(conn, topic_id) or topic_id in await narrower(
+        conn, target_id
+    ):
+        raise Refused("one of the two is under the other")
     return await _set(conn, topic_id, "alias_of", target_id)
 
 
@@ -186,3 +213,96 @@ async def separate(conn: Connection, topic_id: UUID) -> Topic:
     if topic.alias_of is None:
         return topic
     return await _set(conn, topic_id, "alias_of", None)
+
+
+async def narrower(conn: Connection, topic_id: UUID) -> set[UUID]:
+    """Every topic under `topic_id`, directly or through others, by the
+    broader_than relations that hold, with every topic on the way read
+    through its alias. Asked about an alias, it answers about the target.
+    The topic itself is never in it, since no relation closes a loop."""
+    root = await resolve(conn, topic_id)
+    if root is None:
+        return set()
+    cursor = await conn.execute(
+        """
+        WITH RECURSIVE edges AS (
+            SELECT coalesce(broader.alias_of, broader.id) AS broader,
+                   coalesce(under.alias_of, under.id) AS narrower
+            FROM topic_relations r
+            JOIN topics broader ON broader.id = r.from_topic
+            JOIN topics under ON under.id = r.to_topic
+            WHERE r.kind = 'broader_than' AND r.ended_at IS NULL
+        ), below (id) AS (
+            SELECT narrower FROM edges WHERE broader = %(root)s
+            UNION
+            SELECT edges.narrower FROM edges JOIN below ON edges.broader = below.id
+        )
+        SELECT id FROM below WHERE id <> %(root)s
+        """,
+        {"root": root},
+    )
+    return {row[0] for row in await cursor.fetchall()}
+
+
+async def add_broader(
+    conn: Connection, topic_id: UUID, broader_id: UUID, *, now: datetime
+) -> TopicRelation:
+    """Places the topic under `broader_id`, and returns the relation. Both are
+    kept as given, and read through their aliases.
+
+    Refused when the broader topic is not there, or when it would close a
+    loop: the two read as one topic, or the broader one already under this
+    one, directly or through others. One that already holds is a
+    `Conflict`."""
+    await lock_vocabulary(conn)
+    under = await _found(conn, topic_id)
+    over = await get(conn, broader_id)
+    if over is None:
+        raise Refused("there is no such topic to be under")
+    if over.resolves_to == under.resolves_to:
+        raise Refused("a topic is not under itself")
+    if over.resolves_to in await narrower(conn, under.resolves_to):
+        raise Refused("the broader topic is already under this one")
+    return await _relate(conn, broader_id, topic_id, "broader_than", now=now)
+
+
+async def _relate(
+    conn: Connection, from_topic: UUID, to_topic: UUID, kind: str, *, now: datetime
+) -> TopicRelation:
+    if kind not in RELATION_KINDS:
+        raise Refused(f"{kind} is not a kind of relation between topics")
+    try:
+        cursor = await conn.execute(
+            f"INSERT INTO topic_relations ({RELATION_COLUMNS}, user_id)"
+            f" VALUES (%s, %s, %s, %s, %s, NULL, {CURRENT_USER_SQL})"
+            f" RETURNING {RELATION_COLUMNS}",
+            (uuid7(), from_topic, to_topic, kind, now),
+        )
+    except errors.UniqueViolation as err:
+        raise Conflict("that relation already holds") from err
+    row = await cursor.fetchone()
+    assert row is not None
+    return TopicRelation(*row)
+
+
+async def end_relation(
+    conn: Connection, relation_id: UUID, *, now: datetime
+) -> TopicRelation:
+    """Ends a relation at `now`, and returns it. The row stays, so what held
+    and when stays readable. One that has already ended keeps the time it
+    ended."""
+    cursor = await conn.execute(
+        f"UPDATE topic_relations SET ended_at = %s"
+        f" WHERE id = %s AND ended_at IS NULL RETURNING {RELATION_COLUMNS}",
+        (now, relation_id),
+    )
+    row = await cursor.fetchone()
+    if row is None:
+        cursor = await conn.execute(
+            f"SELECT {RELATION_COLUMNS} FROM topic_relations WHERE id = %s",
+            (relation_id,),
+        )
+        row = await cursor.fetchone()
+    if row is None:
+        raise NotFound
+    return TopicRelation(*row)

@@ -22,6 +22,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/brain/api/topic-relations/{id}/end": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * End Relation
+         * @description Ends a relation, which stays, with the time it ended. One already
+         *     ended is answered as it is.
+         */
+        post: operations["end_relation_brain_api_topic_relations__id__end_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/brain/api/topics": {
         parameters: {
             query?: never;
@@ -41,6 +62,29 @@ export interface paths {
          *     one the user already has is 409.
          */
         post: operations["create_topic_brain_api_topics_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/brain/api/topics/{id}/broader": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add Broader
+         * @description Places the topic under a broader one, a broader_than relation from the
+         *     broader topic to this one. 422 when the broader topic is not there or the
+         *     relation would close a loop, read through aliases; 409 when it already
+         *     holds.
+         */
+        post: operations["add_broader_brain_api_topics__id__broader_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -172,6 +216,33 @@ export interface components {
              */
             state: "canonical" | "provisional";
         };
+        /** TopicRelation */
+        TopicRelation: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Ended At */
+            ended_at: string | null;
+            /**
+             * From Topic
+             * Format: uuid
+             */
+            from_topic: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Kind */
+            kind: string;
+            /**
+             * To Topic
+             * Format: uuid
+             */
+            to_topic: string;
+        };
         /** WhoAmI */
         WhoAmI: {
             /**
@@ -206,6 +277,42 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["Health"];
                 };
+            };
+        };
+    };
+    end_relation_brain_api_topic_relations__id__end_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TopicRelation"];
+                };
+            };
+            /** @description No valid token: missing, expired or failing verification, all alike. The body is empty; the caller refreshes and retries. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Nothing of this user's at that address. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
@@ -265,6 +372,66 @@ export interface operations {
             };
             /** @description No valid token: missing, expired or failing verification, all alike. The body is empty; the caller refreshes and retries. */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description It would be the user's second of something unique. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description A body that does not parse, or a request breaking a rule. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    add_broader_brain_api_topics__id__broader_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /**
+                     * Broader Id
+                     * Format: uuid
+                     */
+                    broader_id: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TopicRelation"];
+                };
+            };
+            /** @description No valid token: missing, expired or failing verification, all alike. The body is empty; the caller refreshes and retries. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Nothing of this user's at that address. */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

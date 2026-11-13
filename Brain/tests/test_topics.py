@@ -310,7 +310,9 @@ def test_a_topic_that_is_not_there_is_404(
         (f"{TOPICS}/{missing}/promote", None),
         (f"{TOPICS}/{missing}/same-as", {"target_id": str(uuid.uuid7())}),
         (f"{TOPICS}/{missing}/separate", None),
+        (f"{TOPICS}/{missing}/broader", {"broader_id": str(uuid.uuid7())}),
         (f"{TOPICS}/not-a-uuid/promote", None),
+        (f"/brain/api/topic-relations/{missing}/end", None),
     ]:
         assert alice.post(path, body).status_code == 404, path
 
@@ -355,6 +357,8 @@ ROUTES: list[tuple[str, str, object]] = [
     ("POST", f"{TOPICS}/{uuid.uuid7()}/promote", None),
     ("POST", f"{TOPICS}/{uuid.uuid7()}/same-as", {"target_id": str(uuid.uuid7())}),
     ("POST", f"{TOPICS}/{uuid.uuid7()}/separate", None),
+    ("POST", f"{TOPICS}/{uuid.uuid7()}/broader", {"broader_id": str(uuid.uuid7())}),
+    ("POST", f"/brain/api/topic-relations/{uuid.uuid7()}/end", None),
 ]
 
 

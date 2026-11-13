@@ -156,3 +156,67 @@ async def separate_topic(request: Request, claims: Claims) -> Response:
     async with db.transaction(request.app.state.pool, claims.account_id) as conn:
         topic = await topics.separate(conn, topic_id)
     return answer(Topic.of(topic))
+
+
+class Broader(BaseModel):
+    broader_id: UUID
+
+
+class TopicRelation(BaseModel):
+    id: UUID
+    # Broader than to_topic, for kind broader_than.
+    from_topic: UUID
+    to_topic: UUID
+    kind: str
+    created_at: datetime
+    # Null while it holds.
+    ended_at: datetime | None
+
+    @classmethod
+    def of(cls, relation: topics.TopicRelation) -> TopicRelation:
+        return cls(
+            id=relation.id,
+            from_topic=relation.from_topic,
+            to_topic=relation.to_topic,
+            kind=relation.kind,
+            created_at=relation.created_at,
+            ended_at=relation.ended_at,
+        )
+
+
+@router.post(
+    "/topics/{id}/broader",
+    status_code=201,
+    response_model=TopicRelation,
+    responses={**UNAUTHORIZED, **NOT_FOUND, **REFUSED, **CONFLICT},
+    openapi_extra=documented(body=Broader, path=("id",)),
+)
+@authenticated
+async def add_broader(request: Request, claims: Claims) -> Response:
+    """Places the topic under a broader one, a broader_than relation from the
+    broader topic to this one. 422 when the broader topic is not there or the
+    relation would close a loop, read through aliases; 409 when it already
+    holds."""
+    topic_id = path_id(request)
+    body = await body_as(request, Broader)
+    now = datetime.now(UTC)
+    async with db.transaction(request.app.state.pool, claims.account_id) as conn:
+        relation = await topics.add_broader(conn, topic_id, body.broader_id, now=now)
+    return answer(TopicRelation.of(relation), status=201)
+
+
+@router.post(
+    "/topic-relations/{id}/end",
+    response_model=TopicRelation,
+    responses={**UNAUTHORIZED, **NOT_FOUND},
+    openapi_extra=documented(path=("id",)),
+)
+@authenticated
+async def end_relation(request: Request, claims: Claims) -> Response:
+    """Ends a relation, which stays, with the time it ended. One already
+    ended is answered as it is."""
+    relation_id = path_id(request)
+    now = datetime.now(UTC)
+    async with db.transaction(request.app.state.pool, claims.account_id) as conn:
+        relation = await topics.end_relation(conn, relation_id, now=now)
+    return answer(TopicRelation.of(relation))

@@ -73,6 +73,56 @@
         "title": "Topic",
         "type": "object"
       },
+      "TopicRelation": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "ended_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended At"
+          },
+          "from_topic": {
+            "format": "uuid",
+            "title": "From Topic",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "to_topic": {
+            "format": "uuid",
+            "title": "To Topic",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "from_topic",
+          "to_topic",
+          "kind",
+          "created_at",
+          "ended_at"
+        ],
+        "title": "TopicRelation",
+        "type": "object"
+      },
       "WhoAmI": {
         "properties": {
           "account_id": {
@@ -112,6 +162,42 @@
           }
         },
         "summary": "Health"
+      }
+    },
+    "/brain/api/topic-relations/{id}/end": {
+      "post": {
+        "description": "Ends a relation, which stays, with the time it ended. One already\nended is answered as it is.",
+        "operationId": "end_relation_brain_api_topic_relations__id__end_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TopicRelation"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "No valid token: missing, expired or failing verification, all alike. The body is empty; the caller refreshes and retries."
+          },
+          "404": {
+            "description": "Nothing of this user's at that address."
+          }
+        },
+        "summary": "End Relation"
       }
     },
     "/brain/api/topics": {
@@ -199,6 +285,69 @@
           }
         },
         "summary": "Create Topic"
+      }
+    },
+    "/brain/api/topics/{id}/broader": {
+      "post": {
+        "description": "Places the topic under a broader one, a broader_than relation from the\nbroader topic to this one. 422 when the broader topic is not there or the\nrelation would close a loop, read through aliases; 409 when it already\nholds.",
+        "operationId": "add_broader_brain_api_topics__id__broader_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "broader_id": {
+                    "format": "uuid",
+                    "title": "Broader Id",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "broader_id"
+                ],
+                "title": "Broader",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TopicRelation"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "No valid token: missing, expired or failing verification, all alike. The body is empty; the caller refreshes and retries."
+          },
+          "404": {
+            "description": "Nothing of this user's at that address."
+          },
+          "409": {
+            "description": "It would be the user's second of something unique."
+          },
+          "422": {
+            "description": "A body that does not parse, or a request breaking a rule."
+          }
+        },
+        "summary": "Add Broader"
       }
     },
     "/brain/api/topics/{id}/promote": {
