@@ -1,0 +1,36 @@
+{
+  "id": "broader-and-narrower-topics-to-any-depth",
+  "group": "broader_and_narrower",
+  "question": {
+    "call": "topics",
+    "topics": [
+      "databases"
+    ],
+    "mode": "now"
+  },
+  "must_include": [
+    "lv-databases",
+    "h-ta",
+    "h-first-db",
+    "lv-indexing",
+    "m-index",
+    "h-index-incident",
+    "lv-b-trees",
+    "fc-b-trees",
+    "m-btree",
+    "h-btree-paper"
+  ],
+  "must_exclude": [
+    "s-ddia",
+    "d-idx-fk",
+    "d-idx-plan",
+    "j-lv-databases"
+  ],
+  "order": [
+    "lv-databases",
+    "h-ta",
+    "h-first-db",
+    "lv-indexing",
+    "lv-b-trees"
+  ]
+}

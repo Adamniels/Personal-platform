@@ -1,0 +1,12 @@
+{
+  "id": "another-user-state-never-found",
+  "group": "another_user",
+  "question": {
+    "call": "search",
+    "q": "certification"
+  },
+  "must_include": [],
+  "must_exclude": [
+    "j-cert"
+  ]
+}

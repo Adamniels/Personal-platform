@@ -1,0 +1,26 @@
+{
+  "id": "now-and-stale-newest-support-first",
+  "group": "now_and_stale",
+  "question": {
+    "call": "now",
+    "mode": "now"
+  },
+  "must_include": [
+    "s-mentoring",
+    "s-competition",
+    "s-rewrite",
+    "s-course",
+    "s-kotlin-book",
+    "s-ddia"
+  ],
+  "must_exclude": [],
+  "order": [
+    "s-mentoring",
+    "s-competition",
+    "s-rewrite",
+    "s-course",
+    "s-kotlin-book",
+    "s-ddia"
+  ],
+  "conflicts": []
+}

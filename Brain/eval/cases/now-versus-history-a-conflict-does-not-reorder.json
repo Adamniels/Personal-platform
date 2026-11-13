@@ -1,0 +1,31 @@
+{
+  "id": "now-versus-history-a-conflict-does-not-reorder",
+  "group": "now_versus_history",
+  "question": {
+    "call": "history",
+    "topic": "rust",
+    "mode": "history"
+  },
+  "must_include": [
+    "d-rust-threads",
+    "h-raft",
+    "d-rust-async"
+  ],
+  "must_exclude": [
+    "lv-rust-3"
+  ],
+  "order": [
+    "d-rust-threads",
+    "h-raft",
+    "d-rust-async"
+  ],
+  "conflicts": [
+    {
+      "items": [
+        "d-rust-async",
+        "d-rust-threads"
+      ],
+      "prefer": "d-rust-threads"
+    }
+  ]
+}

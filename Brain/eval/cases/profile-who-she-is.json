@@ -1,0 +1,45 @@
+{
+  "id": "profile-who-she-is",
+  "group": "profile",
+  "question": {
+    "call": "profile",
+    "mode": "now"
+  },
+  "must_include": [
+    "p-name",
+    "p-student",
+    "p-goal-degree-3",
+    "p-goal-staff",
+    "p-values",
+    "p-interests",
+    "p-preferences",
+    "p-working",
+    "r-examples",
+    "r-short",
+    "r-sources",
+    "r-english",
+    "r-no-emoji"
+  ],
+  "must_exclude": [
+    "fc-rust",
+    "fc-kotlin",
+    "j-identity",
+    "j-rule"
+  ],
+  "order": [
+    "p-student",
+    "p-name",
+    "p-goal-degree-3",
+    "p-goal-staff",
+    "p-values",
+    "p-interests",
+    "p-preferences",
+    "p-working",
+    "r-no-emoji",
+    "r-english",
+    "r-sources",
+    "r-short",
+    "r-examples"
+  ],
+  "conflicts": []
+}

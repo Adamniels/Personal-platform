@@ -1,0 +1,19 @@
+{
+  "id": "search-by-kind",
+  "group": "search",
+  "question": {
+    "call": "search",
+    "q": "Kestrel",
+    "kind": [
+      "history"
+    ]
+  },
+  "must_include": [
+    "h-joined"
+  ],
+  "must_exclude": [
+    "p-name",
+    "s-rewrite",
+    "s-mentoring"
+  ]
+}

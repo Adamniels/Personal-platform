@@ -1,0 +1,28 @@
+{
+  "id": "history-of-a-named-thing",
+  "group": "history",
+  "question": {
+    "call": "history",
+    "entity": "kestrel freight",
+    "mode": "history"
+  },
+  "must_include": [
+    "h-joined",
+    "h-pg-migration",
+    "d-orm",
+    "d-sql"
+  ],
+  "must_exclude": [
+    "s-rewrite",
+    "s-mentoring",
+    "p-name",
+    "j-joined"
+  ],
+  "order": [
+    "h-joined",
+    "h-pg-migration",
+    "d-orm",
+    "d-sql"
+  ],
+  "conflicts": []
+}

@@ -31,8 +31,8 @@ from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
 import psycopg
-from psycopg import sql
-from psycopg.conninfo import make_conninfo
+
+from brain import scratch
 
 MIGRATIONS = Path(__file__).resolve().parents[1] / "migrations"
 
@@ -67,18 +67,14 @@ def app_url(database: str) -> str:
 def admin_connection(
     database: str = "postgres",
 ) -> psycopg.Connection[tuple[object, ...]]:
-    """A superuser connection, in autocommit, since CREATE and DROP DATABASE
-    cannot run inside a transaction."""
-    return psycopg.connect(make_conninfo(admin_url(), dbname=database), autocommit=True)
+    """A superuser connection, in autocommit, see `brain.scratch`."""
+    return scratch.admin_connection(admin_url(), database)
 
 
 def owner_connection(database: str) -> psycopg.Connection[tuple[object, ...]]:
-    """A superuser connection acting as brain_owner, as `brain migrate` runs,
-    so what it creates is the owner's and the owner's default privileges
-    apply. The owner's password is not something tests hold."""
-    conn = admin_connection(database)
-    conn.execute("SET ROLE brain_owner")
-    return conn
+    """A superuser connection acting as brain_owner, as `brain migrate` runs.
+    The owner's password is not something tests hold."""
+    return scratch.owner_connection(admin_url(), database)
 
 
 def unique_name(kind: str) -> str:
@@ -88,51 +84,23 @@ def unique_name(kind: str) -> str:
 
 
 def create_database(name: str, template: str | None = None) -> None:
-    with admin_connection() as admin:
-        if template is None:
-            admin.execute(
-                sql.SQL("CREATE DATABASE {} OWNER brain_owner").format(
-                    sql.Identifier(name)
-                )
-            )
-        else:
-            admin.execute(
-                sql.SQL("CREATE DATABASE {} TEMPLATE {} OWNER brain_owner").format(
-                    sql.Identifier(name), sql.Identifier(template)
-                )
-            )
-        # Database privileges belong to the database, not its contents, so a
-        # copy does not inherit the template's. The same two lines as brain.sh.
-        admin.execute(
-            sql.SQL("REVOKE ALL ON DATABASE {} FROM PUBLIC").format(
-                sql.Identifier(name)
-            )
-        )
-        admin.execute(
-            sql.SQL("GRANT CONNECT ON DATABASE {} TO brain_app").format(
-                sql.Identifier(name)
-            )
-        )
+    scratch.create(admin_url(), name, template)
 
 
 def drop_database(name: str) -> None:
-    with admin_connection() as admin:
-        admin.execute(
-            sql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(
-                sql.Identifier(name)
-            )
-        )
+    scratch.drop(admin_url(), name)
 
 
 def sweep() -> None:
-    """Drops what earlier runs left: databases of failed tests, and templates,
-    but only those stamped long enough before this session started, so a run
-    going at the same time keeps its own."""
+    """Drops what earlier runs left: databases of failed tests, templates,
+    and an evaluation's stopped before it dropped its own, but only those
+    stamped long enough before this session started, so a run going at
+    the same time keeps its own."""
     with admin_connection() as admin:
         names = [
             row[0]
             for row in admin.execute(
-                r"SELECT datname::text FROM pg_database WHERE datname ~ '^brain_(test|tpl|empty)_\d+_'"
+                r"SELECT datname::text FROM pg_database WHERE datname ~ '^brain_(test|tpl|empty|eval)_\d+_'"
             )
         ]
     for name in names:

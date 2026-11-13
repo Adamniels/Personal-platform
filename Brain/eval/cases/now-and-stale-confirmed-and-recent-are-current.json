@@ -1,0 +1,21 @@
+{
+  "id": "now-and-stale-confirmed-and-recent-are-current",
+  "group": "now_and_stale",
+  "question": {
+    "call": "now",
+    "mode": "now"
+  },
+  "must_include": [
+    "s-mentoring",
+    "s-course",
+    "s-rewrite",
+    "s-competition"
+  ],
+  "must_exclude": [],
+  "flags": {
+    "s-mentoring": false,
+    "s-course": false,
+    "s-rewrite": false,
+    "s-competition": false
+  }
+}

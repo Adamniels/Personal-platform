@@ -1,0 +1,28 @@
+{
+  "id": "topics-several-in-the-order-asked",
+  "group": "topics",
+  "question": {
+    "call": "topics",
+    "topics": [
+      "statistics",
+      "kotlin",
+      "zig"
+    ],
+    "mode": "now"
+  },
+  "must_include": [
+    "lv-statistics",
+    "fc-statistics",
+    "lv-kotlin",
+    "fc-kotlin"
+  ],
+  "must_exclude": [
+    "s-kotlin-book"
+  ],
+  "order": [
+    "lv-statistics",
+    "fc-statistics",
+    "lv-kotlin",
+    "fc-kotlin"
+  ]
+}

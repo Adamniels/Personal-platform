@@ -1,0 +1,27 @@
+{
+  "id": "topics-level-focus-and-history",
+  "group": "topics",
+  "question": {
+    "call": "topics",
+    "topics": [
+      "rust"
+    ],
+    "mode": "now"
+  },
+  "must_include": [
+    "lv-rust-3",
+    "fc-rust",
+    "h-raft"
+  ],
+  "must_exclude": [
+    "d-rust-async",
+    "d-rust-threads",
+    "s-rewrite"
+  ],
+  "order": [
+    "lv-rust-3",
+    "fc-rust",
+    "h-raft"
+  ],
+  "conflicts": []
+}

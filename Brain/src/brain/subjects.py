@@ -131,13 +131,22 @@ async def create_topic(request: Request, claims: Claims) -> Response:
     """A new canonical topic. A slug that is not given is made from the name;
     one the user already has is 409."""
     body = await body_as(request, NewTopic)
+    now = datetime.now(UTC)
+    async with db.transaction(request.app.state.pool, claims.account_id) as conn:
+        topic = await create(conn, body, now=now)
+    return answer(Topic.of(topic), status=201)
+
+
+async def create(
+    conn: topics.Connection, body: NewTopic, *, now: datetime
+) -> topics.Topic:
+    """The topic `body` asks for, created canonical at `now`: what the route
+    does inside its transaction, and what the evaluation's seed is loaded
+    through."""
     slug = body.slug or topics.slug_from(body.name)
     if slug is None:
         raise Refused("the name has no letters or digits to make a slug from")
-    now = datetime.now(UTC)
-    async with db.transaction(request.app.state.pool, claims.account_id) as conn:
-        topic = await topics.create(conn, body.name, slug, now=now)
-    return answer(Topic.of(topic), status=201)
+    return await topics.create(conn, body.name, slug, now=now)
 
 
 @router.post(

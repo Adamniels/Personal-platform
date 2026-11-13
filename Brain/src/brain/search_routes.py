@@ -87,19 +87,24 @@ async def search(request: Request, claims: Claims) -> Response:
     query = query_as(request, SearchQuery)
     now = datetime.now(UTC)
     async with db.transaction(request.app.state.pool, claims.account_id) as conn:
-        found = await retrieval.search(
-            conn,
-            query.q,
-            now=now,
-            kinds=query.kind,
-            inactive=query.include_inactive,
-            limit=query.limit,
-        )
-    return JSONResponse(
-        [
-            SearchItem(
-                **dict(AnswerItem.of(each.answered)), excerpt=each.excerpt
-            ).model_dump(mode="json")
-            for each in found
-        ]
+        found = await answer(conn, query, now=now)
+    return JSONResponse([each.model_dump(mode="json") for each in found])
+
+
+async def answer(
+    conn: retrieval.Connection, query: SearchQuery, *, now: datetime
+) -> list[SearchItem]:
+    """What `query` finds at `now`: what the route answers, and what an
+    evaluation case asks."""
+    found = await retrieval.search(
+        conn,
+        query.q,
+        now=now,
+        kinds=query.kind,
+        inactive=query.include_inactive,
+        limit=query.limit,
     )
+    return [
+        SearchItem(**dict(AnswerItem.of(each.answered)), excerpt=each.excerpt)
+        for each in found
+    ]

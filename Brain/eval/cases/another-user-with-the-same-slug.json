@@ -1,0 +1,19 @@
+{
+  "id": "another-user-with-the-same-slug",
+  "group": "another_user",
+  "question": {
+    "call": "topics",
+    "topics": [
+      "databases",
+      "haskell"
+    ],
+    "mode": "now"
+  },
+  "must_include": [
+    "lv-databases"
+  ],
+  "must_exclude": [
+    "j-lv-databases",
+    "j-lv-haskell"
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "id": "search-leaves-out-older-versions",
+  "group": "search",
+  "question": {
+    "call": "search",
+    "q": "degree"
+  },
+  "must_include": [
+    "p-goal-degree-3"
+  ],
+  "must_exclude": [
+    "p-goal-degree",
+    "p-goal-degree-2"
+  ]
+}
