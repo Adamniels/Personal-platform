@@ -621,7 +621,10 @@ the topic routes, "Subjects" above:
   from `GET /search`, asked once typing pauses, up to its limit of 200, with `include_inactive`
   when the State filter asks for what is not active, and each row shows the excerpt under its
   entry. The excerpt is split on `<mark>` and `</mark>`, the brain's five escapes are read back as
-  text, and it is never set as HTML (`src/everything/excerpt.tsx`).
+  text, and it is never set as HTML (`src/everything/excerpt.tsx`). Subject and the states the
+  brain cannot ask for are filtered in the page after that limit, so on a large memory a narrow
+  search can miss matches, and the line that names the limit counts what the search found before
+  those filters. Paging `GET /search` on the server would end both.
 - An item's page, `/brain/everything/<id>`, read from the same list and `GET /items/{id}`: a
   breadcrumb back that keeps the filters, which the item's link carried; its full text and state; a
   line of facts in the mono font, its kind, its store, "Entered by hand" and when; its subjects;
