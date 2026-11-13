@@ -10,13 +10,17 @@
 }
 
 /* The section's line on the left, its one primary button on the right, the
- * button moving under the line when the row is too narrow. */
+ * button moving under the line when the row is too narrow, and staying at
+ * the right. */
 .toolbar {
 	display: flex;
 	flex-wrap: wrap;
 	align-items: center;
-	justify-content: flex-end;
 	gap: var(--space-3);
+}
+
+.toolbar > button {
+	margin-left: auto;
 }
 
 .lede {

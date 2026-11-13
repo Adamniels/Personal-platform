@@ -108,9 +108,7 @@ function CategoryCard({
 						emptyError: "Write the entry first",
 					}}
 					empty={
-						<p className={styles.none}>
-							No {category.label.toLowerCase()} entries yet.
-						</p>
+						<p className={styles.none}>Nothing under {category.label} yet.</p>
 					}
 				/>
 				{adding ? (

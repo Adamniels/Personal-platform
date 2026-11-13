@@ -60,11 +60,11 @@ describe("the profile section groups entries by category in a fixed order", () =
 			within(await card("Goals")).getByText("Finish the degree"),
 		).toBeTruthy();
 		expect(
-			within(await card("Identity")).getByText("No identity entries yet."),
+			within(await card("Identity")).getByText("Nothing under Identity yet."),
 		).toBeTruthy();
 		expect(
 			within(await card("Working style")).getByText(
-				"No working style entries yet.",
+				"Nothing under Working style yet.",
 			),
 		).toBeTruthy();
 	});
