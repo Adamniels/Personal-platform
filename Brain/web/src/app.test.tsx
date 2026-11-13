@@ -41,11 +41,15 @@ describe("the address decides the section, and a tab changes the address", () =>
 		).toBeTruthy();
 	});
 
-	test("/brain/knowledge shows Knowledge", () => {
+	test("/brain/knowledge shows Knowledge", async () => {
 		openAt("/brain/knowledge");
 
 		expect(selectedTab()?.textContent).toBe("Knowledge");
-		expect(screen.getByRole("tabpanel").textContent).toContain("Knowledge");
+		expect(
+			await within(screen.getByRole("tabpanel")).findByRole("button", {
+				name: "Add topic",
+			}),
+		).toBeTruthy();
 	});
 
 	test("the eight sections are tabs, in order", () => {

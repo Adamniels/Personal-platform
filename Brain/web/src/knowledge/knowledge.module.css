@@ -1,0 +1,42 @@
+/* The Knowledge section's own pieces. The section around them, its toolbar
+ * and the add form's panel, is entries/section.module.css; the spacing is
+ * section 2 of design/DESIGN.md. */
+
+.note {
+	margin: 0;
+	color: var(--text-2);
+}
+
+/* A topic's name links to its page. */
+.topic {
+	border-radius: var(--radius-sm);
+	color: var(--info);
+	font-weight: 600;
+	overflow-wrap: anywhere;
+}
+
+.unset {
+	color: var(--text-2);
+}
+
+/* A form's fields, then Save and Cancel, a control's parts apart. */
+.form {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-3);
+	min-width: 0;
+}
+
+/* Level and focus side by side, each at least a select's width, stacking
+ * when the row is too narrow for both. */
+.pair {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr));
+	gap: var(--space-3);
+}
+
+.actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-2);
+}

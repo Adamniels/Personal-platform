@@ -77,8 +77,8 @@ describe("a change that shows its refusal on the field", () => {
 		fireEvent.click(screen.getByRole("button", { name: "Save" }));
 	}
 
-	test("raises no toast for a 422", async () => {
-		save(422);
+	test.each([422, 409])("raises no toast for a %i", async (status) => {
+		save(status);
 
 		// The failure has settled by the time a later microtask runs.
 		await new Promise((resolve) => setTimeout(resolve, 0));
