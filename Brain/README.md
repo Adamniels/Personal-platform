@@ -434,7 +434,8 @@ created with its two roles by `infra/postgres/initdb/brain.sh`, see "The databas
 migrations, and running it" and "Multi user, and how isolation is enforced" in
 `High-level/docs/platform-architecture.md`.
 
-- **`brain_owner`** owns the tables and runs the migrations. Nothing running connects as it.
+- **`brain_owner`** owns the tables, and runs the migrations and the purge. Nothing running
+  connects as it.
 - **`brain_app`** is what the running brain connects as. It owns nothing, so row level security
   applies to it, and `migrations/0001_default_privileges.sql` grants it `SELECT`, `INSERT` and
   `UPDATE` on every table the owner creates, never `DELETE` or `TRUNCATE`. A table that needs less
@@ -506,6 +507,50 @@ BRAIN_APP_DATABASE_URL="postgres://brain_app:$(grep '^BRAIN_APP_PASSWORD=' ../in
 text, unencrypted: treat it like a password manager's export, never in a repository, a shared
 folder or a chat. An export by hand is not a backup plan, see "Deployment and backups are outside
 the first milestone" in `High-level/docs/platform-architecture.md`.
+
+### Purging
+
+Retiring is the normal way to put an entry away: it stops applying and stays readable, and it can
+be brought back, see "Nothing is destroyed, and only the owner retires" in `docs/trust-model.md`.
+Purging is for the rare entry that must truly be gone, such as a password pasted into a field by
+mistake, which retiring would leave readable. It is a command run from a terminal, deliberately,
+and nothing else: it is not reachable over HTTP, and the memory centre has no button for it.
+
+```zsh
+BRAIN_OWNER_DATABASE_URL="postgres://brain_owner:$(grep '^BRAIN_OWNER_PASSWORD=' ../infra/.env | cut -d= -f2-)@127.0.0.1:5432/brain" \
+  uv run brain purge <account-id> <item-id>
+```
+
+It connects as `brain_owner`, from `BRAIN_OWNER_DATABASE_URL` alone, as `brain migrate` does. The
+owning role may delete, which `brain_app` may not, and that is the whole of the bypass; `brain_app`
+has no `DELETE` on any table, and `tests/test_purge.py` checks it still has none. Row level security
+is forced, so it applies to the owner too: the command sets `brain.user_id` to the account it is
+given for its one transaction, as the door does, and sees and removes that account's rows alone. An
+item id the account does not have, its own unknown or another account's, gets the same answer and
+a non zero exit.
+
+**What goes.** Every version of the entry, the items sharing the given item's `lineage_id`,
+whichever version is named; their `item_subjects`, their `item_relations` on either side, and their
+`item_evidence`; and every event linked to those rows, by `subject_item`, by `item_evidence`, or as
+the event that made an item or a relation, unless something that stays still references it. Topics
+and named things never go, since the owner chose them and other entries may use them.
+
+**What stays.** An event another entry rests on, as its evidence, its subject or the event that made
+it, stays. Its `subject_item` is cleared when it named a removed item, and its text is left as it
+was, so it may still quote the purged entry. The listing shows each such event before anything is
+removed. A replaced decision is the common case: purging the newer one keeps the `edited` event
+against the older, which quotes both, and leaves the older inactive, superseded, with no relation
+naming what replaced it. Purge the older one too when that text must go.
+
+**How it asks.** It prints every row it will remove, one per line, by table and id with the first
+80 characters of its text, then the events it keeps, then `Type yes to remove these <n> rows for
+good:`, and reads one line. Only the exact word `yes` proceeds; anything else, an empty line or the
+end of input included, removes nothing and exits non zero. The listing, the answer and the removal
+are one transaction, with the entry's items and linked events locked, so nothing new can come to
+rest on them in between, and a failure part way removes nothing.
+
+It writes no event about the purge, since the point is that nothing about the entry remains. What
+it prints, `removed <n> rows for good` with the count per table, is the only record.
 
 ## Building the app
 
