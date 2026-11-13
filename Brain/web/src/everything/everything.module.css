@@ -25,3 +25,31 @@
 		max-width: calc(100vw - 2 * var(--page-pad) - 160px);
 	}
 }
+
+/* Where a search found its words, under the entry: small and quiet, the
+ * matched words emphasised. Not amber, which hard rule 4 keeps for what
+ * needs the user, but the info pair, which passes on both themes. Its width
+ * is the entry's, so it wraps rather than widening the table. */
+.excerpt {
+	max-width: 48ch;
+	margin: var(--space-1) 0 0;
+	color: var(--text-2);
+	font-size: var(--text-small-size);
+	line-height: var(--text-small-line);
+	white-space: normal;
+	overflow-wrap: anywhere;
+}
+
+.excerpt mark {
+	padding: 0 2px;
+	border-radius: var(--radius-sm);
+	background: var(--info-soft);
+	color: var(--info);
+	font-weight: 600;
+}
+
+@media (max-width: 639.98px) {
+	.excerpt {
+		max-width: calc(100vw - 2 * var(--page-pad) - 160px);
+	}
+}

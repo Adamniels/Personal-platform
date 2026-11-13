@@ -14,7 +14,9 @@ import {
 	Table,
 	type TableColumn,
 	type TableSort,
+	TextField,
 } from "@platform/ui";
+import { type ReactNode, useEffect, useState } from "react";
 import { navigate, usePathname, useSearch } from "../address";
 import section from "../entries/section.module.css";
 import { Link } from "../link";
@@ -23,10 +25,12 @@ import { SubjectBadges } from "../subjects/subject-fields";
 import { useCanonicalTopics, useEntities } from "../subjects/subjects";
 import styles from "./everything.module.css";
 import { EVERYTHING_PATH, itemPath } from "./everything-paths";
+import { Excerpt } from "./excerpt";
 import {
 	DEFAULTS,
 	type Filters,
 	filtersFrom,
+	includesInactive,
 	STATE_FILTERS,
 	type StateFilter,
 	type Subject,
@@ -34,12 +38,23 @@ import {
 	subjectFrom,
 	subjectValue,
 } from "./filters";
-import { type Row, useEverything } from "./queries";
+import {
+	type Row,
+	SEARCH_LIMIT,
+	useEverything,
+	useSearchItems,
+} from "./queries";
 import { stateOf } from "./state";
 import { KINDS, type Kind, kindWord } from "./words";
 
 /** How many rows a page holds. */
 export const PAGE_SIZE = 50;
+
+/** How long typing pauses before a search is asked for, in milliseconds. */
+const SEARCH_PAUSE = 250;
+
+/** The longest search the brain takes. */
+const SEARCH_MAX = 200;
 
 /** When an item was last supported, as a day: "13 Nov 2026". */
 const DAY = new Intl.DateTimeFormat("en-GB", {
@@ -140,9 +155,49 @@ function Overview() {
 			/>
 		);
 	}
+	return (
+		<div className={section.section}>
+			<Listing
+				filters={filters}
+				sort={sort}
+				search={search}
+				everything={everything.data}
+				onChange={show}
+			/>
+		</div>
+	);
+}
+
+/** The filter row and what it shows: every item, or, with search words,
+ * what a search finds, narrowed by the other filters and paged. The filter
+ * row stays while a search loads, so typing goes on in its field. */
+function Listing({
+	filters,
+	sort,
+	search,
+	everything,
+	onChange,
+}: {
+	filters: Filters;
+	sort: TableSort;
+	search: string;
+	everything: readonly Row[];
+	onChange: (
+		next: Partial<Filters>,
+		options?: { replace?: boolean; by?: TableSort },
+	) => void;
+}) {
+	// A search is asked for once typing pauses, not at every key.
+	const words = useDebounced(filters.search.trim(), SEARCH_PAUSE);
+	const found = useSearchItems(words, {
+		kind: filters.kind,
+		inactive: includesInactive(filters.state),
+	});
+	const searching = words !== "";
+	const source = searching ? found.data : everything;
 
 	const shown = sorted(
-		everything.data.filter(
+		(source ?? []).filter(
 			(row) =>
 				(filters.kind === "" || row.kind === filters.kind) &&
 				inState(row, filters.state) &&
@@ -155,46 +210,75 @@ function Overview() {
 	const from = (page - 1) * PAGE_SIZE;
 	const rows = shown.slice(from, from + PAGE_SIZE);
 
-	return (
-		<div className={section.section}>
-			<FilterBar filters={filters} total={shown.length} onChange={show} />
-			{rows.length === 0 ? (
-				<EmptyState
-					title={
-						everything.data.length === 0
-							? "Nothing in your memory yet"
-							: "Nothing matches"
-					}
-					detail={
-						everything.data.length === 0
-							? "What you add in the other sections shows here."
-							: "Change the filters to see more."
+	let body: ReactNode;
+	if (searching && found.isPending) {
+		body = <p className={styles.note}>Searching…</p>;
+	} else if (searching && found.isError) {
+		body = (
+			<EmptyState
+				title="The search could not be made"
+				detail="Change the words, or reload the page to try again."
+			/>
+		);
+	} else if (rows.length === 0) {
+		const empty = everything.length === 0 && !searching;
+		body = (
+			<EmptyState
+				title={empty ? "Nothing in your memory yet" : "Nothing matches"}
+				detail={
+					empty
+						? "What you add in the other sections shows here."
+						: "Change the search or the filters to see more."
+				}
+			/>
+		);
+	} else {
+		body = (
+			<>
+				<Table
+					label="Everything"
+					columns={columnsFor(search)}
+					rows={rows}
+					rowKey={(row) => row.id}
+					sort={sort}
+					onSort={(next) => onChange({ page }, { by: next })}
+				/>
+				<Paging
+					from={from + 1}
+					to={from + rows.length}
+					total={shown.length}
+					hasPrevious={page > 1}
+					hasNext={page < pages}
+					onPage={(direction) =>
+						onChange({ page: direction === "next" ? page + 1 : page - 1 })
 					}
 				/>
-			) : (
-				<>
-					<Table
-						label="Everything"
-						columns={columnsFor(search)}
-						rows={rows}
-						rowKey={(row) => row.id}
-						sort={sort}
-						onSort={(next) => show({ page }, { by: next })}
-					/>
-					<Paging
-						from={from + 1}
-						to={from + rows.length}
-						total={shown.length}
-						hasPrevious={page > 1}
-						hasNext={page < pages}
-						onPage={(direction) =>
-							show({ page: direction === "next" ? page + 1 : page - 1 })
-						}
-					/>
-				</>
-			)}
-		</div>
+				{searching && found.data?.length === SEARCH_LIMIT ? (
+					<p className={styles.note}>
+						A search shows the {SEARCH_LIMIT} entries supported most recently.
+						Add a word to narrow it.
+					</p>
+				) : null}
+			</>
+		);
+	}
+
+	return (
+		<>
+			<FilterBar filters={filters} total={shown.length} onChange={onChange} />
+			{body}
+		</>
 	);
+}
+
+/** The value, once it has stayed the same for `delay` milliseconds. */
+function useDebounced<T>(value: T, delay: number): T {
+	const [settled, setSettled] = useState(value);
+	useEffect(() => {
+		const timer = setTimeout(() => setSettled(value), delay);
+		return () => clearTimeout(timer);
+	}, [value, delay]);
+	return settled;
 }
 
 /** The columns, each entry linking to its page with the list's address
@@ -206,9 +290,14 @@ function columnsFor(search: string): TableColumn<Row>[] {
 			header: "Entry",
 			priority: 1,
 			cell: (row) => (
-				<Link className={styles.entry} href={`${itemPath(row.id)}${search}`}>
-					{row.content}
-				</Link>
+				<>
+					<Link className={styles.entry} href={`${itemPath(row.id)}${search}`}>
+						{row.content}
+					</Link>
+					{row.excerpt ? (
+						<Excerpt className={styles.excerpt} html={row.excerpt} />
+					) : null}
+				</>
 			),
 		},
 		{
@@ -272,6 +361,12 @@ function FilterBar({
 			: subject?.name;
 
 	const pills: { label: string; reset: Partial<Filters> }[] = [];
+	if (filters.search.trim() !== "") {
+		pills.push({
+			label: `Search: ${filters.search.trim()}`,
+			reset: { search: DEFAULTS.search },
+		});
+	}
 	if (filters.kind !== "") {
 		pills.push({
 			label: `Kind: ${kindWord(filters.kind)}`,
@@ -296,6 +391,18 @@ function FilterBar({
 		<FilterRow
 			role="search"
 			aria-label="Filter everything"
+			search={
+				<TextField
+					label="Search"
+					type="search"
+					help="Finds the words in what an entry says or in the evidence behind it."
+					maxLength={SEARCH_MAX}
+					value={filters.search}
+					onChange={(event) =>
+						onChange({ search: event.target.value }, { replace: true })
+					}
+				/>
+			}
 			count={count(total)}
 		>
 			<Select
