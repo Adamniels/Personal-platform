@@ -284,10 +284,19 @@ async def ask_profile(request: Request, claims: Claims) -> Response:
     question = await body_as(request, ProfileQuestion)
     now = datetime.now(UTC)
     async with db.transaction(request.app.state.pool, claims.account_id) as conn:
-        found = await retrieval.profile(conn, now=now, mode=question.mode)
-        held = [a for _, grouped in found.categories for a in grouped]
-        shaping = await _shaping(conn, question.mode, [*held, *found.rules])
-    answer = ProfileAnswer(
+        answer = await answer_profile(conn, question, now=now)
+    return JSONResponse(answer.model_dump(mode="json"))
+
+
+async def answer_profile(
+    conn: retrieval.Connection, question: ProfileQuestion, *, now: datetime
+) -> ProfileAnswer:
+    """The answer to `question` asked at `now`: what the route answers, and
+    what an evaluation case asks."""
+    found = await retrieval.profile(conn, now=now, mode=question.mode)
+    held = [a for _, grouped in found.categories for a in grouped]
+    shaping = await _shaping(conn, question.mode, [*held, *found.rules])
+    return ProfileAnswer(
         mode=question.mode,
         categories=[
             ProfileGroup(category=category, items=shaping.all(grouped))
@@ -296,7 +305,6 @@ async def ask_profile(request: Request, claims: Claims) -> Response:
         rules=shaping.all(found.rules),
         conflicts=shaping.listed(),
     )
-    return JSONResponse(answer.model_dump(mode="json"))
 
 
 def _topic(topic: events.TopicRef) -> EventTopic:
@@ -364,31 +372,40 @@ async def ask_topics(request: Request, claims: Claims) -> Response:
     question = await body_as(request, TopicsQuestion)
     now = datetime.now(UTC)
     async with db.transaction(request.app.state.pool, claims.account_id) as conn:
-        named = {
-            slug: await topics.by_slug(conn, slug)
-            for slug in dict.fromkeys(question.topics)
-        }
-        under: dict[UUID, list[retrieval.Narrower]] = {}
-        beside: dict[UUID, list[events.TopicRef]] = {}
-        for topic in named.values():
-            if topic is not None:
-                under[topic.id] = await retrieval.narrower(conn, topic.id)
-                beside[topic.id] = await retrieval.related(conn, topic.id)
-        wanted = [topic.id for topic in named.values() if topic is not None]
-        wanted += [n.topic.id for found in under.values() for n in found]
-        known_about = await retrieval.knowledge(
-            conn, list(dict.fromkeys(wanted)), now=now, mode=question.mode
-        )
-        shaping = await _shaping(
-            conn,
-            question.mode,
-            [
-                a
-                for k in known_about.values()
-                for a in (k.level, k.focus, *k.misconceptions, *k.history)
-                if a is not None
-            ],
-        )
+        answer = await answer_topics(conn, question, now=now)
+    return JSONResponse(answer.model_dump(mode="json"))
+
+
+async def answer_topics(
+    conn: retrieval.Connection, question: TopicsQuestion, *, now: datetime
+) -> TopicsAnswer:
+    """The answer to `question` asked at `now`: what the route answers, and
+    what an evaluation case asks."""
+    named = {
+        slug: await topics.by_slug(conn, slug)
+        for slug in dict.fromkeys(question.topics)
+    }
+    under: dict[UUID, list[retrieval.Narrower]] = {}
+    beside: dict[UUID, list[events.TopicRef]] = {}
+    for topic in named.values():
+        if topic is not None:
+            under[topic.id] = await retrieval.narrower(conn, topic.id)
+            beside[topic.id] = await retrieval.related(conn, topic.id)
+    wanted = [topic.id for topic in named.values() if topic is not None]
+    wanted += [n.topic.id for found in under.values() for n in found]
+    known_about = await retrieval.knowledge(
+        conn, list(dict.fromkeys(wanted)), now=now, mode=question.mode
+    )
+    shaping = await _shaping(
+        conn,
+        question.mode,
+        [
+            a
+            for k in known_about.values()
+            for a in (k.level, k.focus, *k.misconceptions, *k.history)
+            if a is not None
+        ],
+    )
     entries = []
     for slug in question.topics:
         topic = named[slug]
@@ -434,10 +451,7 @@ async def ask_topics(request: Request, claims: Claims) -> Response:
                 related=[t.slug for t in beside[topic.id]],
             )
         )
-    answer = TopicsAnswer(
-        mode=question.mode, topics=entries, conflicts=shaping.listed()
-    )
-    return JSONResponse(answer.model_dump(mode="json"))
+    return TopicsAnswer(mode=question.mode, topics=entries, conflicts=shaping.listed())
 
 
 class NarrowerHistory(BaseModel):
@@ -487,48 +501,57 @@ async def ask_history(request: Request, claims: Claims) -> Response:
     topic and entity, a malformed slug, or an unknown mode or field."""
     question = await body_as(request, HistoryQuestion)
     now = datetime.now(UTC)
+    async with db.transaction(request.app.state.pool, claims.account_id) as conn:
+        answer = await answer_history(conn, question, now=now)
+    return JSONResponse(answer.model_dump(mode="json"))
+
+
+async def answer_history(
+    conn: retrieval.Connection, question: HistoryQuestion, *, now: datetime
+) -> HistoryAnswer:
+    """The answer to `question` asked at `now`: what the route answers, and
+    what an evaluation case asks."""
     answered_topic: EventTopic | None = None
     answered_entity: EventEntity | None = None
     subject: retrieval.Subject | None = None
-    async with db.transaction(request.app.state.pool, claims.account_id) as conn:
-        if question.topic is not None:
-            named = await topics.by_slug(conn, question.topic)
-            if named is not None:
-                target = await topics.get(conn, named.resolves_to)
-                assert target is not None
-                answered_topic = EventTopic(
-                    id=target.id, slug=target.slug, name=target.name
-                )
-                subject = retrieval.Subject("topic", target.id)
-        else:
-            assert question.entity is not None
-            thing = await entities.by_name(conn, question.entity)
-            if thing is not None:
-                answered_entity = EventEntity(id=thing.id, name=thing.name)
-                subject = retrieval.Subject("entity", thing.id)
-        found = (
-            await retrieval.history(conn, subject, now=now, mode=question.mode)
-            if subject is not None
-            else []
-        )
-        under: list[tuple[retrieval.Narrower, list[retrieval.AnswerItem]]] = []
-        related: list[str] = []
-        if subject is not None and subject.kind == "topic":
-            for below in await retrieval.narrower(conn, subject.id):
-                told = await retrieval.history(
-                    conn,
-                    retrieval.Subject("topic", below.topic.id),
-                    now=now,
-                    mode=question.mode,
-                )
-                under.append((below, told))
-            related = [t.slug for t in await retrieval.related(conn, subject.id)]
-        shaping = await _shaping(
-            conn, question.mode, [*found, *(a for _, told in under for a in told)]
-        )
+    if question.topic is not None:
+        named = await topics.by_slug(conn, question.topic)
+        if named is not None:
+            target = await topics.get(conn, named.resolves_to)
+            assert target is not None
+            answered_topic = EventTopic(
+                id=target.id, slug=target.slug, name=target.name
+            )
+            subject = retrieval.Subject("topic", target.id)
+    else:
+        assert question.entity is not None
+        thing = await entities.by_name(conn, question.entity)
+        if thing is not None:
+            answered_entity = EventEntity(id=thing.id, name=thing.name)
+            subject = retrieval.Subject("entity", thing.id)
+    found = (
+        await retrieval.history(conn, subject, now=now, mode=question.mode)
+        if subject is not None
+        else []
+    )
+    under: list[tuple[retrieval.Narrower, list[retrieval.AnswerItem]]] = []
+    related: list[str] = []
+    if subject is not None and subject.kind == "topic":
+        for below in await retrieval.narrower(conn, subject.id):
+            told = await retrieval.history(
+                conn,
+                retrieval.Subject("topic", below.topic.id),
+                now=now,
+                mode=question.mode,
+            )
+            under.append((below, told))
+        related = [t.slug for t in await retrieval.related(conn, subject.id)]
+    shaping = await _shaping(
+        conn, question.mode, [*found, *(a for _, told in under for a in told)]
+    )
     asked = question.topic if question.topic is not None else question.entity
     assert asked is not None
-    answer = HistoryAnswer(
+    return HistoryAnswer(
         mode=question.mode,
         asked=asked,
         known=subject is not None,
@@ -544,7 +567,6 @@ async def ask_history(request: Request, claims: Claims) -> Response:
         related=related,
         conflicts=shaping.listed(),
     )
-    return JSONResponse(answer.model_dump(mode="json"))
 
 
 class NowAnswer(BaseModel):
@@ -567,9 +589,17 @@ async def ask_now(request: Request, claims: Claims) -> Response:
     question = await body_as(request, NowQuestion)
     now = datetime.now(UTC)
     async with db.transaction(request.app.state.pool, claims.account_id) as conn:
-        found = await retrieval.now(conn, now=now, mode=question.mode)
-        shaping = await _shaping(conn, question.mode, found)
-    answer = NowAnswer(
+        answer = await answer_now(conn, question, now=now)
+    return JSONResponse(answer.model_dump(mode="json"))
+
+
+async def answer_now(
+    conn: retrieval.Connection, question: NowQuestion, *, now: datetime
+) -> NowAnswer:
+    """The answer to `question` asked at `now`: what the route answers, and
+    what an evaluation case asks."""
+    found = await retrieval.now(conn, now=now, mode=question.mode)
+    shaping = await _shaping(conn, question.mode, found)
+    return NowAnswer(
         mode=question.mode, items=shaping.all(found), conflicts=shaping.listed()
     )
-    return JSONResponse(answer.model_dump(mode="json"))

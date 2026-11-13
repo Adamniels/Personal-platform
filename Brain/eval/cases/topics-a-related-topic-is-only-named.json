@@ -1,0 +1,22 @@
+{
+  "id": "topics-a-related-topic-is-only-named",
+  "group": "topics",
+  "question": {
+    "call": "topics",
+    "topics": [
+      "distributed-systems"
+    ],
+    "mode": "now"
+  },
+  "must_include": [
+    "lv-distributed-systems",
+    "fc-distributed-systems"
+  ],
+  "must_exclude": [
+    "lv-consensus",
+    "m-consensus",
+    "h-raft",
+    "d-rust-project",
+    "s-course"
+  ]
+}

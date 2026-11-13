@@ -1,0 +1,42 @@
+{
+  "id": "profile-asked-about-history",
+  "group": "profile",
+  "question": {
+    "call": "profile",
+    "mode": "history"
+  },
+  "must_include": [
+    "p-name",
+    "p-student",
+    "p-goal-degree-3",
+    "p-goal-staff",
+    "p-values",
+    "p-interests",
+    "p-preferences",
+    "p-working",
+    "r-examples",
+    "r-short",
+    "r-sources",
+    "r-english",
+    "r-no-emoji"
+  ],
+  "must_exclude": [
+    "j-identity",
+    "j-rule"
+  ],
+  "order": [
+    "p-name",
+    "p-student",
+    "p-goal-staff",
+    "p-goal-degree-3",
+    "p-values",
+    "p-interests",
+    "p-preferences",
+    "p-working",
+    "r-examples",
+    "r-short",
+    "r-sources",
+    "r-english",
+    "r-no-emoji"
+  ]
+}

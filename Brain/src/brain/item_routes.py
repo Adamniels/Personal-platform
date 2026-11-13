@@ -540,31 +540,44 @@ async def write_item(request: Request, claims: Claims) -> Response:
     thing the user does not have is created."""
     entry = (await body_as(request, NewEntry)).root
     now = datetime.now(UTC)
+    async with db.transaction(request.app.state.pool, claims.account_id) as conn:
+        item_id = await write_entry(conn, entry, now=now)
+        detail = await items.get(conn, item_id)
+    assert detail is not None
+    return JSONResponse(
+        ItemDetail.of_detail(detail).model_dump(mode="json"), status_code=201
+    )
+
+
+type Entry = (
+    ProfileEntry
+    | RuleEntry
+    | StateEntry
+    | LevelEntry
+    | FocusEntry
+    | HistoryEntry
+    | MisconceptionEntry
+    | DecisionEntry
+)
+
+
+async def write_entry(conn: items.Connection, entry: Entry, *, now: datetime) -> UUID:
+    """Writes `entry` at `now` and returns the item's id, a level's or a
+    focus's new version where the topic had one: what the route does inside
+    its transaction, and what the evaluation's seed is loaded through."""
     if isinstance(entry, LevelEntry | FocusEntry):
-        async with db.transaction(request.app.state.pool, claims.account_id) as conn:
-            item_id = await items.set_on_topic(
-                conn, entry.kind, entry.topic, entry.value, now=now
-            )
-            detail = await items.get(conn, item_id)
-        assert detail is not None
-        return JSONResponse(
-            ItemDetail.of_detail(detail).model_dump(mode="json"), status_code=201
+        return await items.set_on_topic(
+            conn, entry.kind, entry.topic, entry.value, now=now
         )
     if isinstance(entry, MisconceptionEntry):
-        async with db.transaction(request.app.state.pool, claims.account_id) as conn:
-            item_id = await items.write_misconception(
-                conn,
-                entry.topic,
-                entry.details.believed,
-                entry.details.correct,
-                occurred_at=entry.occurred_at,
-                occurred_precision=entry.occurred_precision,
-                now=now,
-            )
-            detail = await items.get(conn, item_id)
-        assert detail is not None
-        return JSONResponse(
-            ItemDetail.of_detail(detail).model_dump(mode="json"), status_code=201
+        return await items.write_misconception(
+            conn,
+            entry.topic,
+            entry.details.believed,
+            entry.details.correct,
+            occurred_at=entry.occurred_at,
+            occurred_precision=entry.occurred_precision,
+            now=now,
         )
     named = (
         entry
@@ -581,13 +594,7 @@ async def write_item(request: Request, claims: Claims) -> Response:
         occurred_precision=entry.occurred_precision,
         details=entry.details.model_dump() if isinstance(entry, DecisionEntry) else {},
     )
-    async with db.transaction(request.app.state.pool, claims.account_id) as conn:
-        item_id = await items.write(conn, new, now=now)
-        detail = await items.get(conn, item_id)
-    assert detail is not None
-    return JSONResponse(
-        ItemDetail.of_detail(detail).model_dump(mode="json"), status_code=201
-    )
+    return await items.write(conn, new, now=now)
 
 
 class ItemQuery(BaseModel):
@@ -675,8 +682,20 @@ async def edit_item(request: Request, claims: Claims) -> Response:
     item_id = path_id(request)
     change = (await body_as(request, EntryEdit)).root
     now = datetime.now(UTC)
+    async with db.transaction(request.app.state.pool, claims.account_id) as conn:
+        new_id = await items.edit(conn, item_id, correction(change), now=now)
+        detail = await items.get(conn, new_id)
+    assert detail is not None
+    return JSONResponse(
+        ItemDetail.of_detail(detail).model_dump(mode="json"), status_code=201
+    )
+
+
+def correction(change: ProfileEdit | RuleEdit) -> items.Edit:
+    """The correction `change` asks for, as `brain.items.edit` takes it: what
+    the route edits with, and what the evaluation's seed is loaded through."""
     profile = change if isinstance(change, ProfileEdit) else None
-    edit = items.Edit(
+    return items.Edit(
         kind=change.kind,
         content=change.content,
         category=profile.category if profile is not None else None,
@@ -686,13 +705,6 @@ async def edit_item(request: Request, claims: Claims) -> Response:
         entities=tuple(profile.entities)
         if profile is not None and profile.entities is not None
         else None,
-    )
-    async with db.transaction(request.app.state.pool, claims.account_id) as conn:
-        new_id = await items.edit(conn, item_id, edit, now=now)
-        detail = await items.get(conn, new_id)
-    assert detail is not None
-    return JSONResponse(
-        ItemDetail.of_detail(detail).model_dump(mode="json"), status_code=201
     )
 
 

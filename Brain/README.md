@@ -13,7 +13,8 @@ topic with what he knows of it, and serves the memory centre, its own applicatio
 still empty. Its database has the roles, the migrations, the one door every query goes through,
 proven to keep two users apart, the subjects' three tables, the verbs and the events, and the
 memory store's four tables, every table in `docs/data-model.md`. One account's memory can be
-exported to a file and imported into an empty brain, from a terminal.
+exported to a file and imported into an empty brain, from a terminal. Its answers are measured
+against a fictional person's memory on every change, see "Evaluating".
 
 ## What it serves
 
@@ -380,6 +381,91 @@ database gets one of its own, copied from a template migrated once per run, and 
 `uv run` builds `.venv` from `uv.lock` on first use. Port 8082 is the brain's everywhere, beside
 the core's 8080 and canary's 8081. It stays a uvicorn flag rather than a setting, since uvicorn
 binds it before the brain's code runs.
+
+## Evaluating
+
+The brain's answers are measured, as "Evaluation exists from early on" in
+`docs/brain-architecture.md` asks: a fictional person's memory, and a frozen set of cases, each a
+question asked of it and what must and must not come back.
+
+```zsh
+BRAIN_TEST_ADMIN_DATABASE_URL="postgres://postgres:$(grep '^POSTGRES_PASSWORD=' ../infra/.env | cut -d= -f2-)@127.0.0.1:5432/postgres" \
+  uv run brain eval
+```
+
+It needs the superuser's string alone, the one the tests hold. It makes a database of its own,
+`brain_eval_<ms>_<pid>`, migrates it as `brain_owner`, then loads the seed and asks every case as
+`brain_app`, so row level security holds as it does for the running brain, and drops the database
+when it ends; one left by a run that was stopped is swept by the next test run. It prints each
+failing case and what differed, writes `eval/report.md`, and exits non zero on any failure.
+`tests/test_evaluation.py` runs the same code, so `uv run pytest`, and CI, run every case with no
+step of their own. The code is `src/brain/evaluation.py` and `src/brain/seed.py`.
+
+**The seed**, `eval/person.json`, is Mira Lindqvist, a backend engineer and part time student,
+made up so the repository holds nothing of the owner's, and a second user, Jonas, whose memory must
+never reach an answer to her. It is frozen: every case is asked at 2026-06-01T12:00:00Z,
+`seed.ASKED_AT`, and every entry was made before it, so no answer depends on the day it runs. It is
+the evaluation's own format, not the export's: a list of entries in the order they were made, each
+an object with the time it was made, `at`, the user it is for, `user`, `mira` unless it says, and
+one action:
+
+- `topic`, `item` or `event`, a body exactly as `POST /brain/api/topics`, `POST /brain/api/items`
+  or `POST /brain/api/events` takes it;
+- `edit`, an item's key, with `change`, a body as `POST /brain/api/items/{id}/edit` takes it;
+- `same_as`, `broader_than` or `related_to`, a pair of topic keys: the first the same as the
+  second, broader than it, or related to it;
+- `retire` or `confirm`, an item's key; `replace`, a decision's key, with `by`, the newer
+  decision's; `contradicts`, a pair of claims' keys.
+
+An entry that makes a topic or an item, a `topic`, `item` or `edit`, has a `key`, which later
+entries and the cases name it by, since ids are made as it loads. An edit's key is the new
+version's, and so is the key of a level or a focus set on a topic that has one. The loader writes
+each entry through the functions the routes call, each in a transaction of its own, at its own
+time, so the seed gets real events and evidence. A malformed entry, a key named before it is made,
+or an entry the brain refuses stops the run and names the entry. `tests/test_seed.py` checks that
+the seed still holds what each group of cases needs.
+
+**A case** is one file in `eval/cases/`, named by its id:
+
+```json
+{
+  "id": "conflicts-narrower-scope-wins-whatever-its-age",
+  "group": "conflicts",
+  "question": {"call": "history", "topic": "rust", "mode": "now"},
+  "must_include": ["d-rust-threads", "d-rust-async", "h-raft"],
+  "must_exclude": [],
+  "order": ["d-rust-threads", "d-rust-async", "h-raft"],
+  "conflicts": [{"items": ["d-rust-async", "d-rust-threads"], "prefer": "d-rust-threads"}]
+}
+```
+
+`group` is one of the twelve in `evaluation.GROUPS`, and the test holds how few each may have.
+`question` is `call`, one of `profile`, `topics`, `history`, `now` and `search`, with the fields
+that route's own question takes, refused as the route refuses them; the answer comes from the
+function the route answers with. `must_include` and `must_exclude` are item keys, and both are
+required; an item in neither is not judged. `order`, optional, is included items that must come
+back in that order, though not next to each other, reading the answer's lists in the order it gives
+them, a topic's narrower topics after it. `conflicts`, optional, is exactly the conflicts the answer
+must list, each pair either way round with the one it prefers or `null`; a search lists none.
+`flags`, optional, maps included items to whether each must be flagged stale. A field it does not
+know, a missing expectation, or a key the seed does not have makes the run fail and name the file.
+
+**Passing.** Recall is the share of `must_include` that came back. Precision is, of what came back
+and is judged, the share in `must_include`. A case passes with both at 1.0 and its `order`,
+`conflicts` and `flags` as written, and every case must pass: a hard gate, since everything the
+brain answers today is deterministic. When ranking or search by meaning arrive, some cases will be
+scored against a threshold instead, and the report is where the scores are tracked.
+
+**The report**, `eval/report.md`, is a table of every case, its group, recall, precision and
+whether it passed, then what each answer gave: its items by seed key in the answer's order, a stale
+one marked, and the conflicts it listed. While every case passes the table cannot change, so the
+answers are what make a change in behaviour show as a diff in review, including a change to items
+no case judges. It is committed. `uv run brain eval` writes it; the tests fail when it is not what a
+fresh run writes, and rewrite it with `UPDATE_EVAL_REPORT=1`.
+
+**Adding a case.** Write its file, naming the items it expects by their keys. When the seed lacks
+what it needs, add entries to `eval/person.json` in time order, and before `ASKED_AT`. Run
+`uv run brain eval`, read the report's diff, and commit the case, the seed and the report together.
 
 ## The memory centre
 

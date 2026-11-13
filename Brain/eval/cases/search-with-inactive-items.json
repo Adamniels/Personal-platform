@@ -1,0 +1,15 @@
+{
+  "id": "search-with-inactive-items",
+  "group": "search",
+  "question": {
+    "call": "search",
+    "q": "degree",
+    "include_inactive": true
+  },
+  "must_include": [
+    "p-goal-degree-3",
+    "p-goal-degree-2",
+    "p-goal-degree"
+  ],
+  "must_exclude": []
+}

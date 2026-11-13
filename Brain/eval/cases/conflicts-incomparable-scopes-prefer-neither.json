@@ -1,0 +1,31 @@
+{
+  "id": "conflicts-incomparable-scopes-prefer-neither",
+  "group": "conflicts",
+  "question": {
+    "call": "history",
+    "topic": "bouldering",
+    "mode": "now"
+  },
+  "must_include": [
+    "d-train-course",
+    "d-train-club",
+    "h-boulder"
+  ],
+  "must_exclude": [
+    "s-competition"
+  ],
+  "order": [
+    "d-train-course",
+    "d-train-club",
+    "h-boulder"
+  ],
+  "conflicts": [
+    {
+      "items": [
+        "d-train-club",
+        "d-train-course"
+      ],
+      "prefer": null
+    }
+  ]
+}

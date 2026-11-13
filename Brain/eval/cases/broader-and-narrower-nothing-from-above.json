@@ -1,0 +1,29 @@
+{
+  "id": "broader-and-narrower-nothing-from-above",
+  "group": "broader_and_narrower",
+  "question": {
+    "call": "topics",
+    "topics": [
+      "indexing"
+    ],
+    "mode": "now"
+  },
+  "must_include": [
+    "lv-indexing",
+    "m-index",
+    "h-index-incident",
+    "lv-b-trees",
+    "fc-b-trees",
+    "m-btree",
+    "h-btree-paper"
+  ],
+  "must_exclude": [
+    "lv-databases",
+    "h-first-db",
+    "h-ta"
+  ],
+  "order": [
+    "lv-indexing",
+    "lv-b-trees"
+  ]
+}

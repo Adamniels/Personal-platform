@@ -1,0 +1,35 @@
+{
+  "id": "now-versus-history-nothing-is-stale",
+  "group": "now_versus_history",
+  "question": {
+    "call": "now",
+    "mode": "history"
+  },
+  "must_include": [
+    "s-mentoring",
+    "s-competition",
+    "s-rewrite",
+    "s-course",
+    "s-kotlin-book",
+    "s-ddia"
+  ],
+  "must_exclude": [
+    "s-jobhunt"
+  ],
+  "order": [
+    "s-mentoring",
+    "s-ddia",
+    "s-kotlin-book",
+    "s-course",
+    "s-rewrite",
+    "s-competition"
+  ],
+  "flags": {
+    "s-mentoring": false,
+    "s-competition": false,
+    "s-rewrite": false,
+    "s-course": false,
+    "s-kotlin-book": false,
+    "s-ddia": false
+  }
+}

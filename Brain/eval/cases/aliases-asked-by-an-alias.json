@@ -1,0 +1,21 @@
+{
+  "id": "aliases-asked-by-an-alias",
+  "group": "aliases",
+  "question": {
+    "call": "topics",
+    "topics": [
+      "btree"
+    ],
+    "mode": "now"
+  },
+  "must_include": [
+    "lv-b-trees",
+    "fc-b-trees",
+    "m-btree",
+    "h-btree-paper"
+  ],
+  "must_exclude": [
+    "lv-indexing",
+    "m-index"
+  ]
+}

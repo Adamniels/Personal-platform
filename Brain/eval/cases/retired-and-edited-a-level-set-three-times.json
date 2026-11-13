@@ -1,0 +1,18 @@
+{
+  "id": "retired-and-edited-a-level-set-three-times",
+  "group": "retired_and_edited",
+  "question": {
+    "call": "topics",
+    "topics": [
+      "rust"
+    ],
+    "mode": "history"
+  },
+  "must_include": [
+    "lv-rust-3"
+  ],
+  "must_exclude": [
+    "lv-rust",
+    "lv-rust-2"
+  ]
+}

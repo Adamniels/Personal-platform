@@ -213,7 +213,17 @@ async def record_event(request: Request, claims: Claims) -> Response:
     named thing is created too."""
     body = await body_as(request, NewEvent)
     now = datetime.now(UTC)
-    new = events.NewEvent(
+    async with db.transaction(request.app.state.pool, claims.account_id) as conn:
+        event, created = await events.record(conn, recorded(body), now=now)
+    return JSONResponse(
+        Event.of(event).model_dump(mode="json"), status_code=201 if created else 200
+    )
+
+
+def recorded(body: NewEvent) -> events.NewEvent:
+    """The event `body` sends, as `brain.events.record` takes it: what the
+    route records, and what the evaluation's seed is loaded through."""
+    return events.NewEvent(
         verb=body.verb,
         topic=body.topic,
         entity=body.entity,
@@ -227,11 +237,6 @@ async def record_event(request: Request, claims: Claims) -> Response:
         payload=body.payload,
         payload_version=body.payload_version,
         idempotency_key=body.idempotency_key,
-    )
-    async with db.transaction(request.app.state.pool, claims.account_id) as conn:
-        event, created = await events.record(conn, new, now=now)
-    return JSONResponse(
-        Event.of(event).model_dump(mode="json"), status_code=201 if created else 200
     )
 
 
