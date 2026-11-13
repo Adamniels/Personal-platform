@@ -415,11 +415,26 @@ class Detail:
     relations: tuple[Relation, ...]
 
 
-COLUMNS = (
-    "id, lineage_id, kind, store, nature, provenance, content, value, category,"
-    " details, occurred_at, occurred_precision, status, inactive_reason,"
-    " created_at, created_by_event"
+# An item's columns, in the order `Item` takes them.
+FIELDS = (
+    "id",
+    "lineage_id",
+    "kind",
+    "store",
+    "nature",
+    "provenance",
+    "content",
+    "value",
+    "category",
+    "details",
+    "occurred_at",
+    "occurred_precision",
+    "status",
+    "inactive_reason",
+    "created_at",
+    "created_by_event",
 )
+COLUMNS = ", ".join(FIELDS)
 
 type Subjects = tuple[tuple[events.TopicRef, ...], tuple[events.EntityRef, ...]]
 
@@ -457,12 +472,16 @@ async def _subjects(conn: Connection, item_ids: list[UUID]) -> dict[UUID, Subjec
     }
 
 
-async def _items(conn: Connection, rows: list[TupleRow]) -> list[Item]:
+async def from_rows(conn: Connection, rows: list[TupleRow]) -> list[Item]:
+    """The items `rows` hold, each a row whose first columns are `COLUMNS`,
+    in that order, with their subjects. Columns after those are left to the
+    caller, which reads them from the same rows."""
     subjects = await _subjects(conn, [row[0] for row in rows])
     found = []
     for row in rows:
         named_topics, named_entities = subjects[row[0]]
-        found.append(replace(Item(*row), topics=named_topics, entities=named_entities))
+        item = Item(*row[: len(FIELDS)])
+        found.append(replace(item, topics=named_topics, entities=named_entities))
     return found
 
 
@@ -524,7 +543,7 @@ async def listing(
         " ORDER BY i.created_at DESC, i.id DESC",
         {"kind": kind, "status": status, "topic": topic, "entity": entity},
     )
-    return await _items(conn, await cursor.fetchall())
+    return await from_rows(conn, await cursor.fetchall())
 
 
 async def _one(conn: Connection, item_id: UUID) -> Item | None:
@@ -534,7 +553,7 @@ async def _one(conn: Connection, item_id: UUID) -> Item | None:
     row = await cursor.fetchone()
     if row is None:
         return None
-    [item] = await _items(conn, [row])
+    [item] = await from_rows(conn, [row])
     return item
 
 
@@ -810,6 +829,57 @@ async def restore(conn: Connection, item_id: UUID, *, now: datetime) -> None:
     await _link_judgment(conn, item_id, event, now=now)
 
 
+async def _hold_active(conn: Connection, item_ids: list[UUID]) -> bool:
+    """Waits for, then holds until the transaction ends, a lock on each of
+    these items, taken in id order, and says whether every one is active
+    once it has it. A change of status takes the row's lock too, so of a
+    change and this at once, whichever comes second sees what the first
+    left: an item retired meanwhile is found inactive, and one locked here
+    is not retired until this transaction ends."""
+    cursor = await conn.execute(
+        "SELECT status FROM items WHERE id = ANY(%s) ORDER BY id FOR NO KEY UPDATE",
+        (item_ids,),
+    )
+    found = [row[0] for row in await cursor.fetchall()]
+    return len(found) == len(set(item_ids)) and all(s == "active" for s in found)
+
+
+async def confirm(conn: Connection, item_id: UUID, *, now: datetime) -> None:
+    """Records at `now` that the owner says the current user's claim
+    `item_id` still holds: a `confirmed` event against it, linked as
+    evidence supporting it, which is what moves when it was last supported,
+    see "Confidence, currency and status are three different things" in
+    docs/trust-model.md. Nothing on the item changes.
+
+    Not found for an item the user does not have. Refused for a record,
+    which asserts nothing about now. A conflict for an item that is not
+    active: a superseded version, whose newest is the one to confirm, or a
+    retired one, which is restored first."""
+    item = await _one(conn, item_id)
+    if item is None:
+        raise NotFound
+    if item.nature != "claim":
+        raise Refused("a record asserts nothing about now, there is nothing to confirm")
+    if item.inactive_reason == "superseded":
+        raise Conflict("only the newest version of an entry is confirmed")
+    if item.inactive_reason == "retired":
+        raise Conflict("a retired item is restored before it is confirmed")
+    if not await _hold_active(conn, [item_id]):
+        raise Conflict("the item changed while it was being confirmed")
+    event, _ = await events.record(
+        conn,
+        _judgment(
+            "confirmed",
+            item_id,
+            _quoted("Confirmed by hand", item.content),
+            f"confirmed:{uuid7()}",
+            {"item": str(item_id)},
+        ),
+        now=now,
+    )
+    await _link_judgment(conn, item_id, event, now=now)
+
+
 async def versions(conn: Connection, item_id: UUID) -> list[Item] | None:
     """Every version of the entry `item_id` is one of, oldest first, each
     with its subjects: the whole history of one entry, whichever version is
@@ -823,7 +893,7 @@ async def versions(conn: Connection, item_id: UUID) -> list[Item] | None:
     rows = await cursor.fetchall()
     if not rows:
         return None
-    return await _items(conn, rows)
+    return await from_rows(conn, rows)
 
 
 async def _lock_topic(conn: Connection, kind: str, topic_id: UUID) -> None:

@@ -1445,7 +1445,7 @@
         "summary": "List Items"
       },
       "post": {
-        "description": "Writes an entry made by hand, 201 with the item, its evidence and its\nrelations. It applies at once: an asserted event, origin brain and source\nmanual-entry, is recorded with it and is its supporting evidence. kind is\nprofile, with a category, or rule, which is global; or topic_level or\ntopic_focus, each on one topic with a value, which where the topic,\nread through its alias, has an active entry of that kind already is an\nedit of it, 201 with the new version. 422 for an unknown kind, category\nor value, content that is blank or over 4000 characters, a rule naming a\nsubject, a topic the user does not have, or a level or focus the topic\nhas already; or history, a corrected misconception on one topic, its\ndetails misconception true with what was believed and what is right, and\nits content built from the two. A named thing the user does not have is\ncreated.",
+        "description": "Writes an entry made by hand, 201 with the item, its evidence and its\nrelations. It applies at once: an asserted event, origin brain and source\nmanual-entry, is recorded with it and is its supporting evidence. kind is\nprofile, with a category, or rule, which is global, or state, what is\ngoing on now, with optional subjects like a profile entry; or topic_level or\ntopic_focus, each on one topic with a value, which where the topic,\nread through its alias, has an active entry of that kind already is an\nedit of it, 201 with the new version. 422 for an unknown kind, category\nor value, content that is blank or over 4000 characters, a rule naming a\nsubject, a topic the user does not have, or a level or focus the topic\nhas already; or history, a corrected misconception on one topic, its\ndetails misconception true with what was believed and what is right, and\nits content built from the two. A named thing the user does not have is\ncreated.",
         "operationId": "write_item_brain_api_items_post",
         "requestBody": {
           "content": {
@@ -1578,6 +1578,74 @@
                       "content"
                     ],
                     "title": "RuleEntry",
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "description": "What is going on now: a claim in the semantic store that goes stale\nwhen nothing supports it for long enough. It may name the topics and\nnamed things it is about.",
+                    "properties": {
+                      "content": {
+                        "maxLength": 4000,
+                        "minLength": 1,
+                        "title": "Content",
+                        "type": "string"
+                      },
+                      "entities": {
+                        "default": [],
+                        "items": {
+                          "maxLength": 200,
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "maxItems": 20,
+                        "title": "Entities",
+                        "type": "array"
+                      },
+                      "kind": {
+                        "const": "state",
+                        "title": "Kind",
+                        "type": "string"
+                      },
+                      "occurred_at": {
+                        "anyOf": [
+                          {
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "title": "Occurred At"
+                      },
+                      "occurred_precision": {
+                        "default": "instant",
+                        "enum": [
+                          "instant",
+                          "day",
+                          "month",
+                          "year"
+                        ],
+                        "title": "Occurred Precision",
+                        "type": "string"
+                      },
+                      "topics": {
+                        "default": [],
+                        "items": {
+                          "maxLength": 80,
+                          "pattern": "^[a-z0-9][a-z0-9-]{0,79}$",
+                          "type": "string"
+                        },
+                        "maxItems": 20,
+                        "title": "Topics",
+                        "type": "array"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "content"
+                    ],
+                    "title": "StateEntry",
                     "type": "object"
                   },
                   {
@@ -1786,6 +1854,48 @@
           }
         },
         "summary": "Read Item"
+      }
+    },
+    "/brain/api/items/{id}/confirm": {
+      "post": {
+        "description": "Says a claim still holds, 200 with it. A confirmed event against it,\nlinked as supporting evidence, is recorded in one transaction, and moves\nwhen it was last supported, so a stale state is stale no longer. Takes\nno body. 404 for an id the user does not have. 422 for a record, which\nasserts nothing about now. 409 for an item that is not active.",
+        "operationId": "confirm_item_brain_api_items__id__confirm_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "No valid token: missing, expired or failing verification, all alike. The body is empty; the caller refreshes and retries."
+          },
+          "404": {
+            "description": "Nothing of this user's at that address."
+          },
+          "409": {
+            "description": "The item is not in the state this needs: a superseded version, or not active or retired as the change asks."
+          },
+          "422": {
+            "description": "A body that does not parse, or a request breaking a rule."
+          }
+        },
+        "summary": "Confirm Item"
       }
     },
     "/brain/api/items/{id}/edit": {

@@ -106,6 +106,32 @@ class RuleEntry(BaseModel):
         return _no_nul(content)
 
 
+class StateEntry(BaseModel):
+    """What is going on now: a claim in the semantic store that goes stale
+    when nothing supports it for long enough. It may name the topics and
+    named things it is about."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["state"]
+    content: Content
+    topics: Annotated[list[Slug], Field(max_length=SUBJECTS_MAX)] = []
+    entities: Annotated[list[Name], Field(max_length=SUBJECTS_MAX)] = []
+    # When it became true, with a zone; without one, when it was entered.
+    occurred_at: AwareDatetime | None = None
+    occurred_precision: Precision = "instant"
+
+    @field_validator("content")
+    @classmethod
+    def content_storable(cls, content: str) -> str:
+        return _no_nul(content)
+
+    @field_validator("entities")
+    @classmethod
+    def names_storable(cls, names: list[str]) -> list[str]:
+        return [_no_nul(name) for name in names]
+
+
 class LevelEntry(BaseModel):
     """How well the owner knows one topic, in the knowledge store, where
     evidence may later move it: shallow, knows the vocabulary; working, can
@@ -179,7 +205,12 @@ class HistoryEntry(BaseModel):
 class NewEntry(
     RootModel[
         Annotated[
-            ProfileEntry | RuleEntry | LevelEntry | FocusEntry | HistoryEntry,
+            ProfileEntry
+            | RuleEntry
+            | StateEntry
+            | LevelEntry
+            | FocusEntry
+            | HistoryEntry,
             Field(discriminator="kind"),
         ]
     ]
@@ -390,7 +421,8 @@ async def write_item(request: Request, claims: Claims) -> Response:
     """Writes an entry made by hand, 201 with the item, its evidence and its
     relations. It applies at once: an asserted event, origin brain and source
     manual-entry, is recorded with it and is its supporting evidence. kind is
-    profile, with a category, or rule, which is global; or topic_level or
+    profile, with a category, or rule, which is global, or state, what is
+    going on now, with optional subjects like a profile entry; or topic_level or
     topic_focus, each on one topic with a value, which where the topic,
     read through its alias, has an active entry of that kind already is an
     edit of it, 201 with the new version. 422 for an unknown kind, category
@@ -428,12 +460,13 @@ async def write_item(request: Request, claims: Claims) -> Response:
         return JSONResponse(
             ItemDetail.of_detail(detail).model_dump(mode="json"), status_code=201
         )
+    named = entry if isinstance(entry, ProfileEntry | StateEntry) else None
     new = items.NewItem(
         kind=entry.kind,
         content=entry.content,
         category=entry.category if isinstance(entry, ProfileEntry) else None,
-        topics=tuple(entry.topics) if isinstance(entry, ProfileEntry) else (),
-        entities=tuple(entry.entities) if isinstance(entry, ProfileEntry) else (),
+        topics=tuple(named.topics) if named is not None else (),
+        entities=tuple(named.entities) if named is not None else (),
         occurred_at=entry.occurred_at,
         occurred_precision=entry.occurred_precision,
     )
@@ -590,6 +623,28 @@ async def restore_item(request: Request, claims: Claims) -> Response:
     now = datetime.now(UTC)
     async with db.transaction(request.app.state.pool, claims.account_id) as conn:
         await items.restore(conn, item_id, now=now)
+        detail = await items.get(conn, item_id)
+    assert detail is not None
+    return JSONResponse(ItemDetail.of_detail(detail).model_dump(mode="json"))
+
+
+@router.post(
+    "/items/{id}/confirm",
+    response_model=ItemDetail,
+    responses={**UNAUTHORIZED, **NOT_FOUND, **REFUSED, **NOT_CURRENT},
+    openapi_extra=documented(path=("id",)),
+)
+@authenticated
+async def confirm_item(request: Request, claims: Claims) -> Response:
+    """Says a claim still holds, 200 with it. A confirmed event against it,
+    linked as supporting evidence, is recorded in one transaction, and moves
+    when it was last supported, so a stale state is stale no longer. Takes
+    no body. 404 for an id the user does not have. 422 for a record, which
+    asserts nothing about now. 409 for an item that is not active."""
+    item_id = path_id(request)
+    now = datetime.now(UTC)
+    async with db.transaction(request.app.state.pool, claims.account_id) as conn:
+        await items.confirm(conn, item_id, now=now)
         detail = await items.get(conn, item_id)
     assert detail is not None
     return JSONResponse(ItemDetail.of_detail(detail).model_dump(mode="json"))

@@ -99,7 +99,8 @@ export interface paths {
          * @description Writes an entry made by hand, 201 with the item, its evidence and its
          *     relations. It applies at once: an asserted event, origin brain and source
          *     manual-entry, is recorded with it and is its supporting evidence. kind is
-         *     profile, with a category, or rule, which is global; or topic_level or
+         *     profile, with a category, or rule, which is global, or state, what is
+         *     going on now, with optional subjects like a profile entry; or topic_level or
          *     topic_focus, each on one topic with a value, which where the topic,
          *     read through its alias, has an active entry of that kind already is an
          *     edit of it, 201 with the new version. 422 for an unknown kind, category
@@ -132,6 +133,30 @@ export interface paths {
         get: operations["read_item_brain_api_items__id__get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/brain/api/items/{id}/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Confirm Item
+         * @description Says a claim still holds, 200 with it. A confirmed event against it,
+         *     linked as supporting evidence, is recorded in one transaction, and moves
+         *     when it was last supported, so a stale state is stale no longer. Takes
+         *     no body. 404 for an id the user does not have. 422 for a record, which
+         *     asserts nothing about now. 409 for an item that is not active.
+         */
+        post: operations["confirm_item_brain_api_items__id__confirm_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1166,6 +1191,32 @@ export interface operations {
                      */
                     occurred_precision?: "instant" | "day" | "month" | "year";
                 } | {
+                    /** Content */
+                    content: string;
+                    /**
+                     * Entities
+                     * @default []
+                     */
+                    entities?: string[];
+                    /**
+                     * Kind
+                     * @constant
+                     */
+                    kind: "state";
+                    /** Occurred At */
+                    occurred_at?: string | null;
+                    /**
+                     * Occurred Precision
+                     * @default instant
+                     * @enum {string}
+                     */
+                    occurred_precision?: "instant" | "day" | "month" | "year";
+                    /**
+                     * Topics
+                     * @default []
+                     */
+                    topics?: string[];
+                } | {
                     /**
                      * Kind
                      * @constant
@@ -1281,6 +1332,56 @@ export interface operations {
             };
             /** @description Nothing of this user's at that address. */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    confirm_item_brain_api_items__id__confirm_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ItemDetail"];
+                };
+            };
+            /** @description No valid token: missing, expired or failing verification, all alike. The body is empty; the caller refreshes and retries. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Nothing of this user's at that address. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The item is not in the state this needs: a superseded version, or not active or retired as the change asks. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description A body that does not parse, or a request breaking a rule. */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
