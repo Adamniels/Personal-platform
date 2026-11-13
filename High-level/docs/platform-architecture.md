@@ -580,7 +580,9 @@ The list of what might get built is not kept in this repository. It lives in the
 notes in Notion, one page per candidate, at the level of what he wants and why, and it stops
 before design. A candidate arrives here when it is planned: its scope as a feature issue with its
 slices, and whatever design outlasts it in these docs. Agents never need the list, since a slice
-carries everything they build from.
+carries everything they build from. The same notes hold the parts of something built in several
+rounds, which are built, which are left and what each waits for, and the order across the
+platform; what exists is what the code and each service's README say.
 
 It moved out because the two have different readers. The owner drops and weighs ideas where he
 works through the day, and only agents work in the repository, so a list kept here was read by

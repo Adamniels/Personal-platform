@@ -113,6 +113,10 @@ Only what he said yes to, and only if he wants tickets at all.
   as step 5 of `/plan-feature` says. Check `gh api user --jq .login` prints `Adamniels` first.
 - A change to how features are planned or built, the last point of the report, is not a slice. It
   is a change to a skill or a doc, proposed to him and made as its own pull request on his yes.
+- When he calls the feature done, offer to set its page in his planning notes to `Built`, or its
+  part's page where the feature is one part of an area, and make the change on his yes. A finding
+  that is more than a follow up, something the area still lacks, is offered as a new part there,
+  with what it waits for, as step 6 of `/plan-feature` writes them.
 
 ## Never
 

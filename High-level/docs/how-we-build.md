@@ -111,7 +111,9 @@ alone are enough.
 
 **A part is built now when it passes three tests: it is not waiting on anything, its design is
 settled, and it can be checked now**, by a test or by the owner using it. A part that fails one of
-the three waits, and the plan says which test it failed.
+the three waits, and the plan says which test it failed: in the feature issue, under "Not in this
+feature", and from there as a part of its own in the owner's planning notes, so what is left and
+why is kept in one list rather than remembered.
 
 This replaced sizing a first version by how little could be built. That made sense while the owner
 wrote the code by hand, and the brain's first milestone was drawn that way: profile, events,
