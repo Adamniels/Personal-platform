@@ -252,6 +252,30 @@ when a slice goes Blocked, when an interruption has lasted over 30 minutes, and 
 empties. A Blocked notice for a pull request's item goes on that pull request instead, and a usage
 limit pause mentions him only once it has lasted 6 hours or hit 10 limits in a row on one item.
 
+## Looking at a whole feature
+
+Every slice is reviewed alone, against its own ticket. Nothing above looks at a feature as one
+piece: whether its slices fit together, whether a rule held everywhere or only where a test checked
+it, whether the docs still match the code, and whether it became what the owner wanted. The owner
+no longer reads every line that lands, and since the agents decide routine things by a standard
+rather than asking, their decisions are judged one at a time and never read together.
+
+`/review-feature` is where that can happen. The owner starts it, on the laptop, when he wants a
+feature looked at: it reads everything the feature merged, what the agents decided and left
+unverified, the code as it now is, and what he asked for, and reports what a review of one slice
+cannot see. He goes through the findings and decides which become work, and those become follow up
+slices the runner picks up like any others. A problem that shows up more than once points at how
+features are planned or built, and is fixed there. The procedure is
+`.claude/skills/review-feature/SKILL.md`.
+
+**It is optional, and it is his.** It is not a stage in the life of a feature. Nothing waits for
+it, a feature is done when its last slice merges whether or not it is ever reviewed, and no agent
+starts it or says it is due. It sits beside planning as something he does when he judges it worth
+doing: after a large feature, before building on one, or not at all for a small one.
+
+It is best done in a session that did not plan the feature, since a planner's blind spots are in
+the plan itself.
+
 ## The runner
 
 `scripts/agent/run.sh` runs in tmux on the Mac mini and loops. Each turn it asks `pending.sh` for
@@ -426,6 +450,11 @@ The board access is checked by hand once, since no run checks it before its firs
 
 `/plan-feature` in a Claude Code session in the owner's clone, with `gh` logged in as `Adamniels`.
 Any later change to a slice body is made from that account too, or the gate refuses the slice.
+
+### Looking at a whole feature, on the laptop
+
+`/review-feature` in a fresh Claude Code session in the owner's clone, when he wants one looked at.
+Optional: see "Looking at a whole feature" above.
 
 ### Running
 

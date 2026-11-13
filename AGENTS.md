@@ -30,8 +30,9 @@ merging its slices, is in `High-level/docs/agent-workflow.md`.
 
 - **Implementation runs through the workflow skills.** `/plan-feature` plans a feature with the
   owner, on the laptop, and `/pick-up-slice` works a slice that is Ready, on the Mac mini, called by
-  the runner, `scripts/agent/run.sh`. Code written outside them, in an interactive session, is
-  written when the owner asks for it.
+  the runner, `scripts/agent/run.sh`. `/review-feature` reads a whole feature after its slices
+  have merged, on the laptop, only when the owner starts it. Code written outside them, in an
+  interactive session, is written when the owner asks for it.
 - **Only the merge gate merges.** `scripts/agent/merge-gate.sh` is run by the runner, never by an
   agent. Never `gh pr merge`, never an admin bypass, even when asked. What the gate does not merge,
   the owner merges on GitHub.
