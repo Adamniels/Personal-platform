@@ -132,6 +132,104 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/brain/api/items/{id}/edit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Edit Item
+         * @description Corrects an item, 201 with the new version. Nothing is changed in
+         *     place: the new version shares the old one's lineage_id, is active and
+         *     asserted, and holds the fields given and the old version's everything
+         *     else; the old one becomes inactive, superseded, and a supersedes relation
+         *     links the new to it. An edited event against the old version and an
+         *     asserted event behind the new one are recorded with it, in one
+         *     transaction. kind is the item's own. 404 for an id the user does not
+         *     have. 422 for another kind, a field the kind does not take, a topic the
+         *     user does not have, or an edit that changes nothing. 409 for a version
+         *     that is not the newest, or an item that is retired.
+         */
+        post: operations["edit_item_brain_api_items__id__edit_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/brain/api/items/{id}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Restore Item
+         * @description Brings a retired item back, 200 with it, active again. A restored
+         *     event against it is recorded with it, in one transaction. Takes no body.
+         *     404 for an id the user does not have. 409 for an item that is not
+         *     retired: an active one, or a superseded version, which stays history.
+         */
+        post: operations["restore_item_brain_api_items__id__restore_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/brain/api/items/{id}/retire": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Retire Item
+         * @description Puts an item away, 200 with it, now inactive with reason retired. It
+         *     stops applying, stays readable, and can be restored. A retired event
+         *     against it is recorded with it, in one transaction. Takes no body. 404
+         *     for an id the user does not have. 409 for an item already retired, or a
+         *     superseded version, whose newest version is the one to retire.
+         */
+        post: operations["retire_item_brain_api_items__id__retire_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/brain/api/items/{id}/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Versions
+         * @description Every version of the entry the item is one of, oldest first, each
+         *     with its subjects, whichever version is asked for. An entry never edited
+         *     has one. 404 for an id the user does not have.
+         */
+        get: operations["list_versions_brain_api_items__id__versions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/brain/api/topic-relations/{id}/end": {
         parameters: {
             query?: never;
@@ -1041,6 +1139,204 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ItemDetail"];
+                };
+            };
+            /** @description No valid token: missing, expired or failing verification, all alike. The body is empty; the caller refreshes and retries. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Nothing of this user's at that address. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    edit_item_brain_api_items__id__edit_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Category */
+                    category?: ("identity" | "goals" | "values" | "interests" | "preferences" | "working_style") | null;
+                    /** Content */
+                    content?: string | null;
+                    /** Entities */
+                    entities?: string[] | null;
+                    /**
+                     * Kind
+                     * @constant
+                     */
+                    kind: "profile";
+                    /** Topics */
+                    topics?: string[] | null;
+                } | {
+                    /** Content */
+                    content?: string | null;
+                    /**
+                     * Kind
+                     * @constant
+                     */
+                    kind: "rule";
+                };
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ItemDetail"];
+                };
+            };
+            /** @description No valid token: missing, expired or failing verification, all alike. The body is empty; the caller refreshes and retries. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Nothing of this user's at that address. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The item is not in the state this needs: a superseded version, or not active or retired as the change asks. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description A body that does not parse, or a request breaking a rule. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    restore_item_brain_api_items__id__restore_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ItemDetail"];
+                };
+            };
+            /** @description No valid token: missing, expired or failing verification, all alike. The body is empty; the caller refreshes and retries. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Nothing of this user's at that address. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The item is not in the state this needs: a superseded version, or not active or retired as the change asks. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    retire_item_brain_api_items__id__retire_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ItemDetail"];
+                };
+            };
+            /** @description No valid token: missing, expired or failing verification, all alike. The body is empty; the caller refreshes and retries. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Nothing of this user's at that address. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The item is not in the state this needs: a superseded version, or not active or retired as the change asks. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    list_versions_brain_api_items__id__versions_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Item"][];
                 };
             };
             /** @description No valid token: missing, expired or failing verification, all alike. The body is empty; the caller refreshes and retries. */

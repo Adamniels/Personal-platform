@@ -1,5 +1,5 @@
 """The API for the memory store, under `/brain/api/items`: entries the owner
-makes by hand, as profile entries and rules so far. Every route needs a valid
+makes by hand, as profile entries and rules so far, and correcting them. Every route needs a valid
 token and acts for the account it names, through `brain.db.transaction`. The
 rules are in `brain.items`; this module reads the request and shapes the
 answer. The routes are listed in "What it serves" in Brain/README.md."""
@@ -108,6 +108,62 @@ class NewEntry(
     RootModel[Annotated[ProfileEntry | RuleEntry, Field(discriminator="kind")]]
 ):
     """An entry, told apart by its kind."""
+
+
+class ProfileEdit(BaseModel):
+    """A correction of a profile entry: each field left out keeps what the
+    entry has. topics and entities, when given, replace that kind of subject
+    whole, so an empty list removes them."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["profile"]
+    category: items.Category | None = None
+    content: Content | None = None
+    topics: Annotated[list[Slug], Field(max_length=SUBJECTS_MAX)] | None = None
+    entities: Annotated[list[Name], Field(max_length=SUBJECTS_MAX)] | None = None
+
+    @field_validator("content")
+    @classmethod
+    def content_storable(cls, content: str | None) -> str | None:
+        return None if content is None else _no_nul(content)
+
+    @field_validator("entities")
+    @classmethod
+    def names_storable(cls, names: list[str] | None) -> list[str] | None:
+        return None if names is None else [_no_nul(name) for name in names]
+
+
+class RuleEdit(BaseModel):
+    """A correction of a rule, which is global, so only its content."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["rule"]
+    content: Content | None = None
+
+    @field_validator("content")
+    @classmethod
+    def content_storable(cls, content: str | None) -> str | None:
+        return None if content is None else _no_nul(content)
+
+
+class EntryEdit(
+    RootModel[Annotated[ProfileEdit | RuleEdit, Field(discriminator="kind")]]
+):
+    """A correction, told apart by the kind of the item it corrects."""
+
+
+# What a route changing an item may answer when the item is not in the state
+# the change needs.
+NOT_CURRENT: dict[int | str, dict[str, Any]] = {
+    409: {
+        "description": (
+            "The item is not in the state this needs: a superseded version, or"
+            " not active or retired as the change asks."
+        )
+    }
+}
 
 
 class Item(BaseModel):
@@ -342,3 +398,108 @@ async def read_item(request: Request, claims: Claims) -> Response:
     if detail is None:
         raise NotFound
     return JSONResponse(ItemDetail.of_detail(detail).model_dump(mode="json"))
+
+
+@router.post(
+    "/items/{id}/edit",
+    status_code=201,
+    response_model=ItemDetail,
+    responses={**UNAUTHORIZED, **NOT_FOUND, **REFUSED, **NOT_CURRENT},
+    openapi_extra=documented(body=EntryEdit, path=("id",)),
+)
+@authenticated
+async def edit_item(request: Request, claims: Claims) -> Response:
+    """Corrects an item, 201 with the new version. Nothing is changed in
+    place: the new version shares the old one's lineage_id, is active and
+    asserted, and holds the fields given and the old version's everything
+    else; the old one becomes inactive, superseded, and a supersedes relation
+    links the new to it. An edited event against the old version and an
+    asserted event behind the new one are recorded with it, in one
+    transaction. kind is the item's own. 404 for an id the user does not
+    have. 422 for another kind, a field the kind does not take, a topic the
+    user does not have, or an edit that changes nothing. 409 for a version
+    that is not the newest, or an item that is retired."""
+    item_id = path_id(request)
+    change = (await body_as(request, EntryEdit)).root
+    now = datetime.now(UTC)
+    profile = change if isinstance(change, ProfileEdit) else None
+    edit = items.Edit(
+        kind=change.kind,
+        content=change.content,
+        category=profile.category if profile is not None else None,
+        topics=tuple(profile.topics)
+        if profile is not None and profile.topics is not None
+        else None,
+        entities=tuple(profile.entities)
+        if profile is not None and profile.entities is not None
+        else None,
+    )
+    async with db.transaction(request.app.state.pool, claims.account_id) as conn:
+        new_id = await items.edit(conn, item_id, edit, now=now)
+        detail = await items.get(conn, new_id)
+    assert detail is not None
+    return JSONResponse(
+        ItemDetail.of_detail(detail).model_dump(mode="json"), status_code=201
+    )
+
+
+@router.post(
+    "/items/{id}/retire",
+    response_model=ItemDetail,
+    responses={**UNAUTHORIZED, **NOT_FOUND, **NOT_CURRENT},
+    openapi_extra=documented(path=("id",)),
+)
+@authenticated
+async def retire_item(request: Request, claims: Claims) -> Response:
+    """Puts an item away, 200 with it, now inactive with reason retired. It
+    stops applying, stays readable, and can be restored. A retired event
+    against it is recorded with it, in one transaction. Takes no body. 404
+    for an id the user does not have. 409 for an item already retired, or a
+    superseded version, whose newest version is the one to retire."""
+    item_id = path_id(request)
+    now = datetime.now(UTC)
+    async with db.transaction(request.app.state.pool, claims.account_id) as conn:
+        await items.retire(conn, item_id, now=now)
+        detail = await items.get(conn, item_id)
+    assert detail is not None
+    return JSONResponse(ItemDetail.of_detail(detail).model_dump(mode="json"))
+
+
+@router.post(
+    "/items/{id}/restore",
+    response_model=ItemDetail,
+    responses={**UNAUTHORIZED, **NOT_FOUND, **NOT_CURRENT},
+    openapi_extra=documented(path=("id",)),
+)
+@authenticated
+async def restore_item(request: Request, claims: Claims) -> Response:
+    """Brings a retired item back, 200 with it, active again. A restored
+    event against it is recorded with it, in one transaction. Takes no body.
+    404 for an id the user does not have. 409 for an item that is not
+    retired: an active one, or a superseded version, which stays history."""
+    item_id = path_id(request)
+    now = datetime.now(UTC)
+    async with db.transaction(request.app.state.pool, claims.account_id) as conn:
+        await items.restore(conn, item_id, now=now)
+        detail = await items.get(conn, item_id)
+    assert detail is not None
+    return JSONResponse(ItemDetail.of_detail(detail).model_dump(mode="json"))
+
+
+@router.get(
+    "/items/{id}/versions",
+    response_model=list[Item],
+    responses={**UNAUTHORIZED, **NOT_FOUND},
+    openapi_extra=documented(path=("id",)),
+)
+@authenticated
+async def list_versions(request: Request, claims: Claims) -> Response:
+    """Every version of the entry the item is one of, oldest first, each
+    with its subjects, whichever version is asked for. An entry never edited
+    has one. 404 for an id the user does not have."""
+    item_id = path_id(request)
+    async with db.transaction(request.app.state.pool, claims.account_id) as conn:
+        found = await items.versions(conn, item_id)
+    if found is None:
+        raise NotFound
+    return JSONResponse([Item.of(item).model_dump(mode="json") for item in found])

@@ -106,9 +106,37 @@ memory store's four tables, every table in `docs/data-model.md`.
   - `GET /brain/api/items/{id}`, one item with its subjects, its `evidence`, oldest first, each with
     its kind and the event's id, verb, origin, source, evidence and times, and its `relations`, on
     either end. What confidence and currency would be computed from, and neither is stored.
+  - `POST /brain/api/items/{id}/edit`, a correction, `201` with the new version as a single read
+    answers it. The body names the item's own `kind` and the fields that kind takes, each left out
+    to keep what the item has: for `profile`, `content`, `category`, and `topics` and `entities`,
+    which replace that kind of subject whole when given; for `rule`, `content` alone. One
+    transaction, as "Versions" in `docs/data-model.md` says, inserts the new version with the same
+    `lineage_id`, `active` and `asserted` whatever the old one was, holding the old version's
+    everything else, its subjects included; sets the old one `inactive` with `superseded`; records
+    an `edited` event against it, evidence `Corrected by hand from "<old>" to "<new>"` with each
+    text cut to 200 characters, linked to it as `contradicts` evidence; records an `asserted` event
+    that makes the new version and supports it; and links the new to the old with `supersedes`,
+    made by the `edited` event. `422` for another kind, a field the kind does not take, a topic the
+    user does not have, or an edit that changes nothing; `409` for a version that is not its
+    entry's newest, or a retired item, which is restored before it is edited.
+  - `POST /brain/api/items/{id}/retire` and `POST /brain/api/items/{id}/restore`, putting an item
+    away and bringing it back, `200` with it as a single read answers it. Neither takes a body.
+    Retiring sets it `inactive` with `retired`, and records a `retired` event against it, evidence
+    `Retired by hand: "<content>"`, linked to it as `contradicts` evidence; restoring sets it
+    `active` again and records a `restored` event, `Restored by hand: "<content>"`, linked as
+    `supports`. Each evidence is cut to 500 characters, and each change is one transaction. `409`
+    to retire an item already retired or a superseded version, whose newest version is the one to
+    retire, and to restore anything not retired: only a retired item comes back. Retiring is the
+    owner's action alone, as "Nothing is destroyed, and only the owner retires" in
+    `docs/trust-model.md` says: nothing in the brain retires an item for its age or for a score.
+  - `GET /brain/api/items/{id}/versions`, every version of the entry the item is one of, every row
+    of its lineage, oldest first, each as the list answers it, whichever version is asked for. An
+    entry never edited has one. `404` for an id the user does not have.
 
   An item is never changed in place: `brain_app` may insert and read the four tables, and update
-  only an item's `status` and `inactive_reason`. Which kind lives in which store, and its nature,
+  only an item's `status` and `inactive_reason`, which editing, retiring and restoring change with
+  one conditional statement each, so of two requests changing the same item at once the second
+  finds it changed and is `409`. Which kind lives in which store, and its nature,
   is checked by the migration as well as the code, since the store decides who may change a claim.
 - `GET /brain` and `GET /brain/<section>`, the memory centre's `index.html` from the build, see
   "The memory centre" below. Without a valid token, a `303` to the core's

@@ -24,7 +24,7 @@ from psycopg.types.json import Jsonb
 
 from brain import entities, events, topics
 from brain.db import CURRENT_USER_SQL
-from brain.errors import Refused
+from brain.errors import Conflict, NotFound, Refused
 
 type Connection = AsyncConnection[TupleRow]
 
@@ -81,14 +81,37 @@ class NewItem:
     occurred_precision: events.Precision
 
 
-def evidence_for(kind: str, content: str) -> str:
-    """The event's evidence for a hand made entry: a sentence that reads
+# How much of each text an edit's evidence quotes, the old and the new.
+EDIT_QUOTE_MAX = 200
+
+
+def _quoted(said: str, content: str) -> str:
+    """`said` and then `content` in quotation marks, a sentence that reads
     without the item, cut to `EVIDENCE_MAX` characters, and then still a
     quotation, ending in an ellipsis and the closing mark."""
-    sentence = f'Entered by hand as {kind}: "{content}"'
+    sentence = f'{said}: "{content}"'
     if len(sentence) <= EVIDENCE_MAX:
         return sentence
     return sentence[: EVIDENCE_MAX - 2] + '…"'
+
+
+def evidence_for(kind: str, content: str) -> str:
+    """The event's evidence for a hand made entry."""
+    return _quoted(f"Entered by hand as {kind}", content)
+
+
+def _cut(text: str, limit: int) -> str:
+    """`text`, or its first characters and an ellipsis, `limit` in all."""
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+def edit_evidence(old: str, new: str) -> str:
+    """The `edited` event's evidence: both texts, each cut to
+    `EDIT_QUOTE_MAX` characters, so the judgment reads without the items."""
+    return (
+        f'Corrected by hand from "{_cut(old, EDIT_QUOTE_MAX)}"'
+        f' to "{_cut(new, EDIT_QUOTE_MAX)}"'
+    )
 
 
 async def _named_topics(conn: Connection, slugs: tuple[str, ...]) -> list[UUID]:
@@ -116,13 +139,114 @@ async def _named_entities(
 
 
 async def _link_evidence(
-    conn: Connection, item_id: UUID, event_id: UUID, *, now: datetime
+    conn: Connection,
+    item_id: UUID,
+    event_id: UUID,
+    *,
+    now: datetime,
+    kind: Literal["supports", "contradicts"] = "supports",
 ) -> None:
     await conn.execute(
         "INSERT INTO item_evidence (id, user_id, item_id, event_id, kind, created_at)"
-        f" VALUES (%s, {CURRENT_USER_SQL}, %s, %s, 'supports', %s)",
-        (uuid7(), item_id, event_id, now),
+        f" VALUES (%s, {CURRENT_USER_SQL}, %s, %s, %s, %s)",
+        (uuid7(), item_id, event_id, kind, now),
     )
+
+
+async def _link_judgment(
+    conn: Connection, item_id: UUID, event: events.Event, *, now: datetime
+) -> None:
+    """The owner's judgment of an item as evidence on it, for it or against
+    it as its verb's polarity says: `edited` and `retired` against, `restored`
+    for. It is what keeps consolidation from proposing again what the owner
+    corrected, see "Editing changes provenance" in docs/trust-model.md. A
+    neutral verb, such as `rated`, says neither, and is refused rather than
+    read as one of them."""
+    cursor = await conn.execute(
+        "SELECT polarity FROM verbs WHERE verb = %s", (event.verb,)
+    )
+    row = await cursor.fetchone()
+    assert row is not None
+    if row[0] == 0:
+        raise ValueError(f"{event.verb} is neutral, it is no evidence for or against")
+    kind: Literal["supports", "contradicts"] = (
+        "supports" if row[0] > 0 else "contradicts"
+    )
+    await _link_evidence(conn, item_id, event.id, now=now, kind=kind)
+
+
+async def _link_relation(
+    conn: Connection,
+    from_item: UUID,
+    to_item: UUID,
+    kind: str,
+    event_id: UUID,
+    *,
+    now: datetime,
+) -> None:
+    await conn.execute(
+        "INSERT INTO item_relations (id, user_id, from_item, to_item, kind,"
+        " created_at, ended_at, created_by_event)"
+        f" VALUES (%s, {CURRENT_USER_SQL}, %s, %s, %s, %s, NULL, %s)",
+        (uuid7(), from_item, to_item, kind, now, event_id),
+    )
+
+
+async def _insert(
+    conn: Connection,
+    item_id: UUID,
+    *,
+    lineage_id: UUID,
+    kind: str,
+    content: str,
+    value: str | None,
+    category: str | None,
+    details: dict[str, Any],
+    occurred_at: datetime | None,
+    occurred_precision: events.Precision | None,
+    topic_ids: list[UUID],
+    entity_ids: list[UUID],
+    event_id: UUID,
+    now: datetime,
+) -> None:
+    """Inserts one item, active and asserted, made by `event_id`, and what it
+    is about. Its store and nature follow from its kind."""
+    store, nature = PLACES[kind]
+    await conn.execute(
+        "INSERT INTO items (id, user_id, lineage_id, kind, store, nature,"
+        " provenance, content, value, category, details, occurred_at,"
+        " occurred_precision, status, inactive_reason, created_at,"
+        " created_by_event)"
+        f" VALUES (%s, {CURRENT_USER_SQL}, %s, %s, %s, %s, 'asserted', %s, %s,"
+        " %s, %s, %s, %s, 'active', NULL, %s, %s)",
+        (
+            item_id,
+            lineage_id,
+            kind,
+            store,
+            nature,
+            content,
+            value,
+            category,
+            Jsonb(details),
+            occurred_at,
+            occurred_precision,
+            now,
+            event_id,
+        ),
+    )
+    for topic_id in topic_ids:
+        await conn.execute(
+            "INSERT INTO item_subjects (item_id, user_id, topic_id, entity_id)"
+            f" VALUES (%s, {CURRENT_USER_SQL}, %s, NULL)",
+            (item_id, topic_id),
+        )
+    for entity_id in entity_ids:
+        await conn.execute(
+            "INSERT INTO item_subjects (item_id, user_id, topic_id, entity_id)"
+            f" VALUES (%s, {CURRENT_USER_SQL}, NULL, %s)",
+            (item_id, entity_id),
+        )
 
 
 async def write(conn: Connection, new: NewItem, *, now: datetime) -> UUID:
@@ -144,7 +268,6 @@ async def write(conn: Connection, new: NewItem, *, now: datetime) -> UUID:
         raise Refused("a profile entry, and only one, has a category")
     if new.category is not None and new.category not in CATEGORIES:
         raise Refused(f"{new.category} is not a profile category")
-    store, nature = PLACES[new.kind]
     topic_ids = await _named_topics(conn, new.topics)
     entity_ids = await _named_entities(conn, new.entities, now=now)
     item_id = uuid7()
@@ -163,54 +286,38 @@ async def write(conn: Connection, new: NewItem, *, now: datetime) -> UUID:
             occurred_at=new.occurred_at,
             occurred_precision=new.occurred_precision,
             evidence=evidence_for(new.kind, new.content),
-            payload=_payload(item_id, new),
+            payload=_payload(item_id, new.kind, new.category),
             payload_version=1,
             idempotency_key=f"item:{item_id}",
         ),
         now=now,
     )
-    await conn.execute(
-        "INSERT INTO items (id, user_id, lineage_id, kind, store, nature,"
-        " provenance, content, value, category, details, occurred_at,"
-        " occurred_precision, status, inactive_reason, created_at,"
-        " created_by_event)"
-        f" VALUES (%s, {CURRENT_USER_SQL}, %s, %s, %s, %s, 'asserted', %s, NULL,"
-        " %s, %s, NULL, NULL, 'active', NULL, %s, %s)",
-        (
-            item_id,
-            item_id,
-            new.kind,
-            store,
-            nature,
-            new.content,
-            new.category,
-            Jsonb({}),
-            now,
-            event.id,
-        ),
+    await _insert(
+        conn,
+        item_id,
+        lineage_id=item_id,
+        kind=new.kind,
+        content=new.content,
+        value=None,
+        category=new.category,
+        details={},
+        occurred_at=None,
+        occurred_precision=None,
+        topic_ids=topic_ids,
+        entity_ids=entity_ids,
+        event_id=event.id,
+        now=now,
     )
-    for topic_id in topic_ids:
-        await conn.execute(
-            "INSERT INTO item_subjects (item_id, user_id, topic_id, entity_id)"
-            f" VALUES (%s, {CURRENT_USER_SQL}, %s, NULL)",
-            (item_id, topic_id),
-        )
-    for entity_id in entity_ids:
-        await conn.execute(
-            "INSERT INTO item_subjects (item_id, user_id, topic_id, entity_id)"
-            f" VALUES (%s, {CURRENT_USER_SQL}, NULL, %s)",
-            (item_id, entity_id),
-        )
     await _link_evidence(conn, item_id, event.id, now=now)
     return item_id
 
 
-def _payload(item_id: UUID, new: NewItem) -> dict[str, Any]:
-    """What the event carries besides its evidence: which item it made, and
-    as what, so the timeline can lead to it."""
-    payload: dict[str, Any] = {"item": str(item_id), "kind": new.kind}
-    if new.category is not None:
-        payload["category"] = new.category
+def _payload(item_id: UUID, kind: str, category: str | None) -> dict[str, Any]:
+    """What an asserted event carries besides its evidence: which item it
+    made, and as what, so the timeline can lead to it."""
+    payload: dict[str, Any] = {"item": str(item_id), "kind": kind}
+    if category is not None:
+        payload["category"] = category
     return payload
 
 
@@ -334,13 +441,9 @@ async def _items(conn: Connection, rows: list[TupleRow]) -> list[Item]:
 async def get(conn: Connection, item_id: UUID) -> Detail | None:
     """The current user's item with this id, with its evidence and
     relations, or None when they have none."""
-    cursor = await conn.execute(
-        f"SELECT {COLUMNS} FROM items WHERE id = %s", (item_id,)
-    )
-    row = await cursor.fetchone()
-    if row is None:
+    item = await _one(conn, item_id)
+    if item is None:
         return None
-    [item] = await _items(conn, [row])
     cursor = await conn.execute(
         "SELECT ev.id, ev.kind, ev.created_at, e.id, e.verb, e.origin, e.source,"
         " e.evidence, e.occurred_at, e.occurred_precision, e.recorded_at"
@@ -394,3 +497,286 @@ async def listing(
         {"kind": kind, "status": status, "topic": topic, "entity": entity},
     )
     return await _items(conn, await cursor.fetchall())
+
+
+async def _one(conn: Connection, item_id: UUID) -> Item | None:
+    cursor = await conn.execute(
+        f"SELECT {COLUMNS} FROM items WHERE id = %s", (item_id,)
+    )
+    row = await cursor.fetchone()
+    if row is None:
+        return None
+    [item] = await _items(conn, [row])
+    return item
+
+
+async def _set_status(
+    conn: Connection,
+    item_id: UUID,
+    *,
+    was: tuple[Status, str | None],
+    to: tuple[Status, str | None],
+) -> bool:
+    """Moves the item from status and reason `was` to `to`, and says whether
+    it did. One conditional statement: of two requests changing the same item
+    at once, the second waits for the first and then finds it no longer as it
+    was, so it changes nothing."""
+    cursor = await conn.execute(
+        "UPDATE items SET status = %s, inactive_reason = %s"
+        " WHERE id = %s AND status = %s"
+        " AND inactive_reason IS NOT DISTINCT FROM %s RETURNING id",
+        (*to, item_id, *was),
+    )
+    return await cursor.fetchone() is not None
+
+
+def _judgment(
+    verb: str, item_id: UUID, evidence: str, key: str, payload: dict[str, Any]
+) -> events.NewEvent:
+    """What the owner did to an item, as an event against it."""
+    return events.NewEvent(
+        verb=verb,
+        topic=None,
+        entity=None,
+        item=item_id,
+        origin=events.BRAIN_ORIGIN,
+        source=MANUAL_ENTRY,
+        run=None,
+        occurred_at=None,
+        occurred_precision="instant",
+        evidence=evidence,
+        payload=payload,
+        payload_version=1,
+        idempotency_key=key,
+    )
+
+
+@dataclass(frozen=True)
+class Edit:
+    """A correction as the owner makes it: each field None to keep what the
+    item has, and the kind, which an edit never changes, to say what it is
+    meant to correct. Subjects are named as for a new item."""
+
+    kind: str
+    content: str | None
+    category: str | None
+    topics: tuple[str, ...] | None
+    entities: tuple[str, ...] | None
+
+
+async def _canonical(conn: Connection, topic_ids: list[UUID]) -> set[UUID]:
+    """The topics these ids are read as, each through its alias."""
+    cursor = await conn.execute(
+        "SELECT coalesce(alias_of, id) FROM topics WHERE id = ANY(%s)", (topic_ids,)
+    )
+    return {row[0] for row in await cursor.fetchall()}
+
+
+async def _named_subjects(
+    conn: Connection, item_id: UUID
+) -> tuple[list[UUID], list[UUID]]:
+    """The item's topics as they were named, aliases included, and its named
+    things, as stored."""
+    cursor = await conn.execute(
+        "SELECT topic_id, entity_id FROM item_subjects WHERE item_id = %s",
+        (item_id,),
+    )
+    rows = await cursor.fetchall()
+    return (
+        [topic for topic, _ in rows if topic is not None],
+        [entity for _, entity in rows if entity is not None],
+    )
+
+
+async def edit(conn: Connection, item_id: UUID, change: Edit, *, now: datetime) -> UUID:
+    """Corrects the current user's item `item_id` at `now`, and returns the
+    new version's id. Nothing is changed in place, see "Versions" in
+    docs/data-model.md: the new version is inserted with the same lineage,
+    active and asserted whatever the old one was, holding what the edit
+    gives and the old version's everything else, its subjects included; the
+    old one becomes inactive, superseded, and a `supersedes` relation links
+    the new to it. An `edited` event against the old version records the
+    judgment and is evidence against it; an `asserted` event makes the new
+    one and supports it. All of it is in the caller's transaction.
+
+    Not found for an item the user does not have. Refused for a kind that is
+    not the item's, a field the kind does not take, a topic the user does not
+    have, or an edit that changes nothing. A conflict when the item is not
+    the newest version of its entry, or is retired: it is restored first."""
+    old = await _one(conn, item_id)
+    if old is None:
+        raise NotFound
+    if change.kind != old.kind:
+        raise Refused(f"the item is a {old.kind}, not a {change.kind}")
+    if old.inactive_reason == "superseded":
+        raise Conflict("only the newest version of an entry can be edited")
+    if old.inactive_reason == "retired":
+        raise Conflict("a retired item is restored before it is edited")
+    if old.kind in GLOBAL_KINDS and (change.topics or change.entities):
+        raise Refused(f"a {old.kind} is global, it takes no topic or named thing")
+    if change.category is not None:
+        if old.kind != "profile":
+            raise Refused("only a profile entry has a category")
+        if change.category not in CATEGORIES:
+            raise Refused(f"{change.category} is not a profile category")
+    content = change.content if change.content is not None else old.content
+    category = change.category if change.category is not None else old.category
+    old_topics, old_entities = await _named_subjects(conn, item_id)
+    topic_ids = (
+        await _named_topics(conn, change.topics)
+        if change.topics is not None
+        else old_topics
+    )
+    entity_ids = (
+        await _named_entities(conn, change.entities, now=now)
+        if change.entities is not None
+        else old_entities
+    )
+    if (
+        content == old.content
+        and category == old.category
+        and await _canonical(conn, topic_ids) == await _canonical(conn, old_topics)
+        and set(entity_ids) == set(old_entities)
+    ):
+        raise Refused("the edit changes nothing")
+    if not await _set_status(
+        conn, item_id, was=("active", None), to=("inactive", "superseded")
+    ):
+        raise Conflict("the item changed while it was being edited")
+    new_id = uuid7()
+    edited, _ = await events.record(
+        conn,
+        _judgment(
+            "edited",
+            item_id,
+            edit_evidence(old.content, content),
+            f"edited:{new_id}",
+            {"item": str(item_id), "version": str(new_id)},
+        ),
+        now=now,
+    )
+    asserted, _ = await events.record(
+        conn,
+        events.NewEvent(
+            verb="asserted",
+            topic=None,
+            entity=None,
+            item=None,
+            origin=events.BRAIN_ORIGIN,
+            source=MANUAL_ENTRY,
+            run=None,
+            occurred_at=None,
+            occurred_precision="instant",
+            evidence=evidence_for(old.kind, content),
+            payload={
+                **_payload(new_id, old.kind, category),
+                "supersedes": str(item_id),
+            },
+            payload_version=1,
+            idempotency_key=f"item:{new_id}",
+        ),
+        now=now,
+    )
+    await _insert(
+        conn,
+        new_id,
+        lineage_id=old.lineage_id,
+        kind=old.kind,
+        content=content,
+        value=old.value,
+        category=category,
+        details=old.details,
+        occurred_at=old.occurred_at,
+        occurred_precision=old.occurred_precision,
+        topic_ids=list(dict.fromkeys(topic_ids)),
+        entity_ids=list(dict.fromkeys(entity_ids)),
+        event_id=asserted.id,
+        now=now,
+    )
+    await _link_evidence(conn, new_id, asserted.id, now=now)
+    await _link_judgment(conn, item_id, edited, now=now)
+    await _link_relation(conn, new_id, item_id, "supersedes", edited.id, now=now)
+    return new_id
+
+
+async def retire(conn: Connection, item_id: UUID, *, now: datetime) -> None:
+    """Puts the current user's item away at `now`: it becomes inactive,
+    retired, and a `retired` event against it records the judgment and is
+    evidence against it. It stays readable and can be restored. Only the
+    owner retires, see "Nothing is destroyed, and only the owner retires" in
+    docs/trust-model.md: nothing calls this for an item's age or a score.
+
+    Not found for an item the user does not have. A conflict for one already
+    retired, or a superseded version, which is not the entry any more."""
+    item = await _one(conn, item_id)
+    if item is None:
+        raise NotFound
+    if item.inactive_reason == "superseded":
+        raise Conflict("a superseded version is not retired, its newest version is")
+    if item.inactive_reason == "retired":
+        raise Conflict("the item is already retired")
+    if not await _set_status(
+        conn, item_id, was=("active", None), to=("inactive", "retired")
+    ):
+        raise Conflict("the item changed while it was being retired")
+    event, _ = await events.record(
+        conn,
+        _judgment(
+            "retired",
+            item_id,
+            _quoted("Retired by hand", item.content),
+            f"retired:{uuid7()}",
+            {"item": str(item_id)},
+        ),
+        now=now,
+    )
+    await _link_judgment(conn, item_id, event, now=now)
+
+
+async def restore(conn: Connection, item_id: UUID, *, now: datetime) -> None:
+    """Brings the current user's retired item back at `now`: it is active
+    again, and a `restored` event against it records the judgment and
+    supports it.
+
+    Not found for an item the user does not have. A conflict for one that is
+    not retired: an active item has nothing to come back from, and a
+    superseded version stays in its entry's history, behind its newest."""
+    item = await _one(conn, item_id)
+    if item is None:
+        raise NotFound
+    if item.inactive_reason == "superseded":
+        raise Conflict("only a retired item is restored, not a superseded version")
+    if item.status == "active":
+        raise Conflict("the item is active, there is nothing to restore")
+    if not await _set_status(
+        conn, item_id, was=("inactive", "retired"), to=("active", None)
+    ):
+        raise Conflict("the item changed while it was being restored")
+    event, _ = await events.record(
+        conn,
+        _judgment(
+            "restored",
+            item_id,
+            _quoted("Restored by hand", item.content),
+            f"restored:{uuid7()}",
+            {"item": str(item_id)},
+        ),
+        now=now,
+    )
+    await _link_judgment(conn, item_id, event, now=now)
+
+
+async def versions(conn: Connection, item_id: UUID) -> list[Item] | None:
+    """Every version of the entry `item_id` is one of, oldest first, each
+    with its subjects: the whole history of one entry, whichever version is
+    asked for. None when the user has no such item."""
+    cursor = await conn.execute(
+        f"SELECT {COLUMNS} FROM items"
+        " WHERE lineage_id = (SELECT lineage_id FROM items WHERE id = %s)"
+        " ORDER BY created_at, id",
+        (item_id,),
+    )
+    rows = await cursor.fetchall()
+    if not rows:
+        return None
+    return await _items(conn, rows)
