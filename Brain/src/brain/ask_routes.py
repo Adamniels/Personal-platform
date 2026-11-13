@@ -11,7 +11,8 @@ Each is a POST because a question has a body, though none changes anything;
 the origin check applies to it as to any POST. Asking never creates a topic
 or a named thing, and an unknown one is answered with nothing known."""
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Annotated, Any, Literal, Self
 from uuid import UUID
@@ -21,7 +22,7 @@ from fastapi.responses import JSONResponse, Response
 from platform_auth.verify import Claims
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from brain import db, entities, retrieval, topics
+from brain import db, entities, events, retrieval, topics
 from brain.edge import REFUSED, UNAUTHORIZED, authenticated, body_as, documented
 from brain.event_routes import EventEntity, EventTopic, Precision
 from brain.items import Category
@@ -207,8 +208,48 @@ class AnswerItem(BaseModel):
         )
 
 
-def _all(found: Iterable[retrieval.AnswerItem]) -> list[AnswerItem]:
-    return [AnswerItem.of(answered) for answered in found]
+class Conflict(BaseModel):
+    """Two items in this answer the owner marked as contradicting. Both are
+    in the answer; prefer only orders them, asked about now, the preferred
+    one just before the other. Null when their scopes are incomparable,
+    which no order settles."""
+
+    # The two, the one it was marked from first.
+    items: list[UUID]
+    prefer: UUID | None
+    reason: Literal["narrower scope", "newer at equal scope", "incomparable scopes"]
+
+    @classmethod
+    def of(cls, conflict: retrieval.Conflict) -> Conflict:
+        return cls(
+            items=list(conflict.items), prefer=conflict.prefer, reason=conflict.reason
+        )
+
+
+@dataclass(frozen=True)
+class _Shaping:
+    """How one answer's lists are given: asked about now, each ordered by
+    the answer's conflicts as well, `brain.retrieval.ranked`; asked about
+    history, by when each thing happened alone."""
+
+    mode: Mode
+    conflicts: list[retrieval.Conflict]
+
+    def all(self, found: Sequence[retrieval.AnswerItem]) -> list[AnswerItem]:
+        if self.mode == "now":
+            found = retrieval.ranked(found, self.conflicts)
+        return [AnswerItem.of(answered) for answered in found]
+
+    def listed(self) -> list[Conflict]:
+        return [Conflict.of(conflict) for conflict in self.conflicts]
+
+
+async def _shaping(
+    conn: retrieval.Connection, mode: Mode, found: Iterable[retrieval.AnswerItem]
+) -> _Shaping:
+    """The shaping of an answer holding `found`, its conflicts read among
+    them."""
+    return _Shaping(mode, await retrieval.conflicts(conn, found))
 
 
 def _one(answered: retrieval.AnswerItem | None) -> AnswerItem | None:
@@ -225,6 +266,7 @@ class ProfileAnswer(BaseModel):
     # Every category, in the profile's order, an empty one included.
     categories: list[ProfileGroup]
     rules: list[AnswerItem]
+    conflicts: list[Conflict]
 
 
 @router.post(
@@ -243,15 +285,35 @@ async def ask_profile(request: Request, claims: Claims) -> Response:
     now = datetime.now(UTC)
     async with db.transaction(request.app.state.pool, claims.account_id) as conn:
         found = await retrieval.profile(conn, now=now, mode=question.mode)
+        held = [a for _, grouped in found.categories for a in grouped]
+        shaping = await _shaping(conn, question.mode, [*held, *found.rules])
     answer = ProfileAnswer(
         mode=question.mode,
         categories=[
-            ProfileGroup(category=category, items=_all(grouped))
+            ProfileGroup(category=category, items=shaping.all(grouped))
             for category, grouped in found.categories
         ],
-        rules=_all(found.rules),
+        rules=shaping.all(found.rules),
+        conflicts=shaping.listed(),
     )
     return JSONResponse(answer.model_dump(mode="json"))
+
+
+def _topic(topic: events.TopicRef) -> EventTopic:
+    return EventTopic(id=topic.id, slug=topic.slug, name=topic.name)
+
+
+class NarrowerKnowledge(BaseModel):
+    """What is known about one topic under the one asked."""
+
+    topic: EventTopic
+    # The slugs that led to it: the topic asked first, then each on the way,
+    # down to the one it is directly under.
+    via: list[str]
+    level: AnswerItem | None
+    focus: AnswerItem | None
+    misconceptions: list[AnswerItem]
+    history: list[AnswerItem]
 
 
 class TopicAnswer(BaseModel):
@@ -269,12 +331,18 @@ class TopicAnswer(BaseModel):
     misconceptions: list[AnswerItem]
     # Its other history entries.
     history: list[AnswerItem]
+    # Every topic under it, to any depth, nearest first, each once.
+    narrower: list[NarrowerKnowledge]
+    # The slugs of the topics related to it, without what is known of them.
+    related: list[str]
 
 
 class TopicsAnswer(BaseModel):
     mode: Mode
     # One per slug asked, in the order asked.
     topics: list[TopicAnswer]
+    # Among every item above, the topics under each asked one's included.
+    conflicts: list[Conflict]
 
 
 @router.post(
@@ -300,17 +368,32 @@ async def ask_topics(request: Request, claims: Claims) -> Response:
             slug: await topics.by_slug(conn, slug)
             for slug in dict.fromkeys(question.topics)
         }
-        found = await retrieval.knowledge(
+        under: dict[UUID, list[retrieval.Narrower]] = {}
+        beside: dict[UUID, list[events.TopicRef]] = {}
+        for topic in named.values():
+            if topic is not None:
+                under[topic.id] = await retrieval.narrower(conn, topic.id)
+                beside[topic.id] = await retrieval.related(conn, topic.id)
+        wanted = [topic.id for topic in named.values() if topic is not None]
+        wanted += [n.topic.id for found in under.values() for n in found]
+        known_about = await retrieval.knowledge(
+            conn, list(dict.fromkeys(wanted)), now=now, mode=question.mode
+        )
+        shaping = await _shaping(
             conn,
-            [topic.id for topic in named.values() if topic is not None],
-            now=now,
-            mode=question.mode,
+            question.mode,
+            [
+                a
+                for k in known_about.values()
+                for a in (k.level, k.focus, *k.misconceptions, *k.history)
+                if a is not None
+            ],
         )
     entries = []
     for slug in question.topics:
         topic = named[slug]
-        known = found.get(topic.id) if topic is not None else None
-        if known is None:
+        known = known_about.get(topic.id) if topic is not None else None
+        if topic is None or known is None:
             entries.append(
                 TopicAnswer(
                     asked=slug,
@@ -320,24 +403,51 @@ async def ask_topics(request: Request, claims: Claims) -> Response:
                     focus=None,
                     misconceptions=[],
                     history=[],
+                    narrower=[],
+                    related=[],
                 )
             )
             continue
+        narrower = []
+        for below in under[topic.id]:
+            about = known_about[below.topic.id]
+            narrower.append(
+                NarrowerKnowledge(
+                    topic=_topic(below.topic),
+                    via=list(below.via),
+                    level=_one(about.level),
+                    focus=_one(about.focus),
+                    misconceptions=shaping.all(about.misconceptions),
+                    history=shaping.all(about.history),
+                )
+            )
         entries.append(
             TopicAnswer(
                 asked=slug,
-                topic=EventTopic(
-                    id=known.topic.id, slug=known.topic.slug, name=known.topic.name
-                ),
+                topic=_topic(known.topic),
                 known=True,
                 level=_one(known.level),
                 focus=_one(known.focus),
-                misconceptions=_all(known.misconceptions),
-                history=_all(known.history),
+                misconceptions=shaping.all(known.misconceptions),
+                history=shaping.all(known.history),
+                narrower=narrower,
+                related=[t.slug for t in beside[topic.id]],
             )
         )
-    answer = TopicsAnswer(mode=question.mode, topics=entries)
+    answer = TopicsAnswer(
+        mode=question.mode, topics=entries, conflicts=shaping.listed()
+    )
     return JSONResponse(answer.model_dump(mode="json"))
+
+
+class NarrowerHistory(BaseModel):
+    """The records and decisions about one topic under the one asked."""
+
+    topic: EventTopic
+    # The slugs that led to it: the topic asked first, then each on the way,
+    # down to the one it is directly under.
+    via: list[str]
+    items: list[AnswerItem]
 
 
 class HistoryAnswer(BaseModel):
@@ -351,6 +461,14 @@ class HistoryAnswer(BaseModel):
     topic: EventTopic | None
     entity: EventEntity | None
     items: list[AnswerItem]
+    # For a topic, every topic under it, to any depth, nearest first, each
+    # once with its own records and decisions; none for a named thing.
+    narrower: list[NarrowerHistory]
+    # For a topic, the slugs of the topics related to it, without their
+    # items; none for a named thing.
+    related: list[str]
+    # Among every item above, the topics under it included.
+    conflicts: list[Conflict]
 
 
 @router.post(
@@ -393,6 +511,21 @@ async def ask_history(request: Request, claims: Claims) -> Response:
             if subject is not None
             else []
         )
+        under: list[tuple[retrieval.Narrower, list[retrieval.AnswerItem]]] = []
+        related: list[str] = []
+        if subject is not None and subject.kind == "topic":
+            for below in await retrieval.narrower(conn, subject.id):
+                told = await retrieval.history(
+                    conn,
+                    retrieval.Subject("topic", below.topic.id),
+                    now=now,
+                    mode=question.mode,
+                )
+                under.append((below, told))
+            related = [t.slug for t in await retrieval.related(conn, subject.id)]
+        shaping = await _shaping(
+            conn, question.mode, [*found, *(a for _, told in under for a in told)]
+        )
     asked = question.topic if question.topic is not None else question.entity
     assert asked is not None
     answer = HistoryAnswer(
@@ -401,7 +534,15 @@ async def ask_history(request: Request, claims: Claims) -> Response:
         known=subject is not None,
         topic=answered_topic,
         entity=answered_entity,
-        items=_all(found),
+        items=shaping.all(found),
+        narrower=[
+            NarrowerHistory(
+                topic=_topic(below.topic), via=list(below.via), items=shaping.all(told)
+            )
+            for below, told in under
+        ],
+        related=related,
+        conflicts=shaping.listed(),
     )
     return JSONResponse(answer.model_dump(mode="json"))
 
@@ -409,6 +550,7 @@ async def ask_history(request: Request, claims: Claims) -> Response:
 class NowAnswer(BaseModel):
     mode: Mode
     items: list[AnswerItem]
+    conflicts: list[Conflict]
 
 
 @router.post(
@@ -426,5 +568,8 @@ async def ask_now(request: Request, claims: Claims) -> Response:
     now = datetime.now(UTC)
     async with db.transaction(request.app.state.pool, claims.account_id) as conn:
         found = await retrieval.now(conn, now=now, mode=question.mode)
-    answer = NowAnswer(mode=question.mode, items=_all(found))
+        shaping = await _shaping(conn, question.mode, found)
+    answer = NowAnswer(
+        mode=question.mode, items=shaping.all(found), conflicts=shaping.listed()
+    )
     return JSONResponse(answer.model_dump(mode="json"))

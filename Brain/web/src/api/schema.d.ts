@@ -199,6 +199,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/brain/api/item-relations/{id}/end": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * End Contradiction
+         * @description Takes back a contradiction, 200 with the relation, ended. The row
+         *     stays, with the time it ended, and one already ended is answered as it
+         *     is. Takes no body. 404 for an id the user does not have. 422 for a
+         *     relation of any other kind, such as supersedes, which is an entry's
+         *     history and is not taken back.
+         */
+        post: operations["end_contradiction_brain_api_item_relations__id__end_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/brain/api/items": {
         parameters: {
             query?: never;
@@ -282,6 +306,33 @@ export interface paths {
          *     asserts nothing about now. 409 for an item that is not active.
          */
         post: operations["confirm_item_brain_api_items__id__confirm_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/brain/api/items/{id}/contradicts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mark Contradicting
+         * @description Marks two claims as contradicting each other, 201 with the relation,
+         *     a contradicts from this item to the other. A contradicted event about
+         *     this item, which makes the relation, is recorded with it, in one
+         *     transaction; it is evidence on neither. From then on an answer holding
+         *     both lists them as a conflict, both kept. 404 for an id the user does
+         *     not have. 422 for an other item they do not have, the item itself, or
+         *     either being a record. 409 when either is not active, or the two are
+         *     already marked, either way round.
+         */
+        post: operations["mark_contradicting_brain_api_items__id__contradicts_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -578,6 +629,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/brain/api/topics/{id}/related": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add Related
+         * @description Relates the topic to another, a related_to relation from this topic
+         *     to it, read either way round. Asking about one lists the other by slug,
+         *     without what is known about it. 422 when the other topic is not there or
+         *     the two are one topic, read through aliases; 409 when it already holds,
+         *     either way round.
+         */
+        post: operations["add_related_brain_api_topics__id__related_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/brain/api/topics/{id}/same-as": {
         parameters: {
             query?: never;
@@ -710,6 +785,24 @@ export interface components {
             support: components["schemas"]["Support"];
             /** Value */
             value: string | null;
+        };
+        /**
+         * Conflict
+         * @description Two items in this answer the owner marked as contradicting. Both are
+         *     in the answer; prefer only orders them, asked about now, the preferred
+         *     one just before the other. Null when their scopes are incomparable,
+         *     which no order settles.
+         */
+        Conflict: {
+            /** Items */
+            items: string[];
+            /** Prefer */
+            prefer: string | null;
+            /**
+             * Reason
+             * @enum {string}
+             */
+            reason: "narrower scope" | "newer at equal scope" | "incomparable scopes";
         };
         /** Entity */
         Entity: {
@@ -862,6 +955,8 @@ export interface components {
         HistoryAnswer: {
             /** Asked */
             asked: string;
+            /** Conflicts */
+            conflicts: components["schemas"]["Conflict"][];
             entity: components["schemas"]["EventEntity"] | null;
             /** Items */
             items: components["schemas"]["AnswerItem"][];
@@ -872,6 +967,10 @@ export interface components {
              * @enum {string}
              */
             mode: "now" | "history";
+            /** Narrower */
+            narrower: components["schemas"]["NarrowerHistory"][];
+            /** Related */
+            related: string[];
             topic: components["schemas"]["EventTopic"] | null;
         };
         /**
@@ -1147,8 +1246,36 @@ export interface components {
              */
             state: "canonical" | "provisional";
         };
+        /**
+         * NarrowerHistory
+         * @description The records and decisions about one topic under the one asked.
+         */
+        NarrowerHistory: {
+            /** Items */
+            items: components["schemas"]["AnswerItem"][];
+            topic: components["schemas"]["EventTopic"];
+            /** Via */
+            via: string[];
+        };
+        /**
+         * NarrowerKnowledge
+         * @description What is known about one topic under the one asked.
+         */
+        NarrowerKnowledge: {
+            focus: components["schemas"]["AnswerItem"] | null;
+            /** History */
+            history: components["schemas"]["AnswerItem"][];
+            level: components["schemas"]["AnswerItem"] | null;
+            /** Misconceptions */
+            misconceptions: components["schemas"]["AnswerItem"][];
+            topic: components["schemas"]["EventTopic"];
+            /** Via */
+            via: string[];
+        };
         /** NowAnswer */
         NowAnswer: {
+            /** Conflicts */
+            conflicts: components["schemas"]["Conflict"][];
             /** Items */
             items: components["schemas"]["AnswerItem"][];
             /**
@@ -1239,6 +1366,8 @@ export interface components {
         ProfileAnswer: {
             /** Categories */
             categories: components["schemas"]["ProfileGroup"][];
+            /** Conflicts */
+            conflicts: components["schemas"]["Conflict"][];
             /**
              * Mode
              * @enum {string}
@@ -1420,6 +1549,10 @@ export interface components {
             level: components["schemas"]["AnswerItem"] | null;
             /** Misconceptions */
             misconceptions: components["schemas"]["AnswerItem"][];
+            /** Narrower */
+            narrower: components["schemas"]["NarrowerKnowledge"][];
+            /** Related */
+            related: string[];
             topic: components["schemas"]["EventTopic"] | null;
         };
         /** TopicRelation */
@@ -1469,6 +1602,8 @@ export interface components {
         };
         /** TopicsAnswer */
         TopicsAnswer: {
+            /** Conflicts */
+            conflicts: components["schemas"]["Conflict"][];
             /**
              * Mode
              * @enum {string}
@@ -1949,6 +2084,49 @@ export interface operations {
             };
         };
     };
+    end_contradiction_brain_api_item_relations__id__end_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ItemRelation"];
+                };
+            };
+            /** @description No valid token: missing, expired or failing verification, all alike. The body is empty; the caller refreshes and retries. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Nothing of this user's at that address. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description A body that does not parse, or a request breaking a rule. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     list_items_brain_api_items_get: {
         parameters: {
             query?: {
@@ -2278,6 +2456,66 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ItemDetail"];
+                };
+            };
+            /** @description No valid token: missing, expired or failing verification, all alike. The body is empty; the caller refreshes and retries. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Nothing of this user's at that address. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The item is not in the state this needs: a superseded version, or not active or retired as the change asks. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description A body that does not parse, or a request breaking a rule. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    mark_contradicting_brain_api_items__id__contradicts_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /**
+                     * Contradicts
+                     * Format: uuid
+                     */
+                    contradicts: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ItemRelation"];
                 };
             };
             /** @description No valid token: missing, expired or failing verification, all alike. The body is empty; the caller refreshes and retries. */
@@ -2874,6 +3112,66 @@ export interface operations {
             };
             /** @description Nothing of this user's at that address. */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description A body that does not parse, or a request breaking a rule. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    add_related_brain_api_topics__id__related_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /**
+                     * Related Id
+                     * Format: uuid
+                     */
+                    related_id: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TopicRelation"];
+                };
+            };
+            /** @description No valid token: missing, expired or failing verification, all alike. The body is empty; the caller refreshes and retries. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Nothing of this user's at that address. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description It would be the user's second of something unique. */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

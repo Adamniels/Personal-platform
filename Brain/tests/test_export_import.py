@@ -224,7 +224,8 @@ def a_whole_memory(caller: Caller) -> None:
     ended, a named thing, events from a feature, a provisional topic made by
     one, profile entries, a rule, a state, a level and a focus, edited, a
     misconception and a plain history entry, two decisions one replacing the
-    other, an entry retired and one restored, and a claim confirmed."""
+    other, an entry retired and one restored, a claim confirmed, a related
+    topic, and two contradictions between claims, one of them taken back."""
     rust = post(caller, "topics", {"name": "Rust"})
     lang = post(caller, "topics", {"name": "Rust lang"})
     post(caller, f"topics/{lang['id']}/same-as", {"target_id": rust["id"]}, 200)
@@ -306,6 +307,20 @@ def a_whole_memory(caller: Caller) -> None:
         },
     )
     post(caller, f"items/{old['id']}/replace", {"replaced_by": new["id"]}, 200)
+    post(caller, f"topics/{systems['id']}/related", {"related_id": rust["id"]})
+    mornings = post(caller, "items", {"kind": "state", "content": "Works mornings"})
+    evenings = post(caller, "items", {"kind": "state", "content": "Works evenings"})
+    post(
+        caller,
+        f"items/{mornings['id']}/contradicts",
+        {"contradicts": evenings["id"]},
+    )
+    taken_back = post(
+        caller,
+        f"items/{restored['id']}/contradicts",
+        {"contradicts": state["id"]},
+    )
+    post(caller, f"item-relations/{taken_back['id']}/end", None, 200)
     post(
         caller,
         "events",
@@ -743,6 +758,14 @@ async def test_export_then_import_gives_back_the_same_memory(
         "decision",
     }
     assert any(row["subject_item"] for row in document["events"])
+    # What conflicts and related topics added: the verb marking makes, a
+    # related topic, and a contradiction that holds beside one taken back.
+    assert any(row["verb"] == "contradicted" for row in document["events"])
+    assert any(row["kind"] == "related_to" for row in document["topic_relations"])
+    contradictions = [
+        row for row in document["item_relations"] if row["kind"] == "contradicts"
+    ]
+    assert {row["ended_at"] is None for row in contradictions} == {True, False}
     # Only Alice's rows reached the fresh brain.
     assert {
         str(row[1]) for table in rows(fresh_database).values() for row in table

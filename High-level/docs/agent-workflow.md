@@ -170,6 +170,13 @@ earlier findings and the replies. Only blocking findings start another round. Af
 a fourth `changes` verdict ends the loop: the pull request gets `owner-blocked` and the owner a
 mention.
 
+**An approve is settled in the same turn.** When a review ends in `approve` for the head commit,
+the runner sets `review-ok` and asks the merge gate straight away, before it looks for any other
+work: review, then gate, then merged or handed over, as one unit. The pull request is merged, or
+handed to the owner at once with its owner label and a mention, see "What waits for the owner".
+Only a `ci-ok` that has not reported yet postpones this: the turn ends without waiting, and the
+pull request is settled by its `merge` or `owner` item once CI has reported.
+
 ## The merge gate
 
 `scripts/agent/merge-gate.sh` is the only way code reaches `main` unattended, and the merge decision
@@ -240,13 +247,17 @@ An owner label, like `has-decision`, blocks the gate's merge and nothing else: e
 request goes through review and the fix rounds first, so what he reads has already been through
 the reviewer. The gate treats the four alike and only reads them.
 
-Once the reviewer approves a pull request that waits for him, the runner hands it over right away,
-before it resumes or starts a slice: the owner label replaces `in-review`, and he is mentioned,
-once per head commit. The handover waits only for `ci-ok`. Until that has finished on the approved
-commit the gate cannot say whether the pull request is ready or stuck, so it keeps `in-review` and
-the runner looks again every 10 minutes. Until 2026 11 13 the handover was the last thing the
-runner did, and a pull request sat approved under `in-review` for an hour while a new slice was
-built. A pull request whose review rounds ran out is handed over once. He merges it
+Once the reviewer approves a pull request that waits for him, the runner hands it over in the same
+turn, directly after the review and before it looks for other work: it asks the gate, the owner
+label replaces `in-review`, and he is mentioned, once per head commit. The handover waits only for
+`ci-ok`. Until that has finished on the approved commit the gate cannot say whether the pull
+request is ready or stuck, so it keeps `in-review`, the review's turn ends without waiting, and
+the picker's `owner` item is what hands it over: the runner looks again every 10 minutes, before
+it resumes or starts a slice. Until 2026 11 13 the handover was the last thing the runner did, and
+a pull request sat approved under `in-review` for an hour while a new slice was built. After that
+it was still a later item than the review, so #215 sat approved, its button green, under
+`in-review` and with no mention while another pull request was reviewed first.
+A pull request whose review rounds ran out is handed over once. He merges it
 on GitHub, or comments, and a comment newer than the pull request's last handling starts a fix run
 that answers it, followed by a new review. On a pull request whose review rounds ran out, a fix run
 that only replies, with no new commit, gets no new review, and the pull request waits for him again.
@@ -286,11 +297,15 @@ the plan itself.
 `scripts/agent/run.sh` runs in tmux on the Mac mini and loops. Each turn it asks `pending.sh` for
 the most important item: a pull request to fix, one whose rounds ran out, one to review, one to
 merge, an approved pull request to hand to the owner, a slice to resume, and the next Ready slice
-from `next.sh`. So an approved pull request is handed to the owner before the runner resumes or
-starts a slice. That does not hold the queue up: once it carries `owner-merge` or `owner-decision`
-it has been handed over for that head and is not picked again, so the next turn takes the slice.
-While `ci-ok` is still running on it, as on a pull request the gate is about to merge, the runner
-waits and starts nothing new. Last of all comes an approved pull request that carries
+from `next.sh`. A review that ends in `approve` is followed by the gate in the same turn, so the
+pull request is merged, or handed to the owner with its label and a mention, before the picker is
+asked again. The picker's `merge` and `owner` items settle what that turn could not: a pull
+request whose `ci-ok` was still pending when it was approved, one whose handover was interrupted,
+and one approved before 2026 11 13. They come before a slice is resumed or started. That does not hold the queue up: once it carries
+`owner-merge` or `owner-decision` it has been handed over for that head and is not picked again,
+so the next turn takes the slice. While `ci-ok` is still running on it, as on a pull request the
+gate is about to merge, the runner waits on that item and starts nothing new; the review's own
+turn never waits for it. Last of all comes an approved pull request that carries
 `owner-blocked`: it is looked at every turn, since the gate's reasons say whether it has become
 ready, and for that reason only when there is nothing else to do. A slice blocked by a slice still
 waiting for the owner is not picked; the runner takes other work. Implementer and reviewer each run in a fresh `claude -p` session under a
@@ -304,7 +319,8 @@ commit, and pending, "waiting for the reviewer", otherwise. Never failure, since
 verdict is still waiting. The runner reads each pull request's verdict, labels and status and
 writes only what differs, so one that is already right costs no write, and it posts the status
 again right after a review. It calls the gate only for a head it found approved in the same turn,
-so the status is written before the gate's own merge needs it. A label or status write that fails
+at its start or by the review it has just run, so the status is written before the gate's own
+merge needs it. A label or status write that fails
 is an interruption like any other below. This pass is also what carried the open pull requests
 over when the labels changed: one approved earlier got its status and its label without a new
 review, and one opened with `owner-decision` and no approve became `has-decision` and `in-review`.

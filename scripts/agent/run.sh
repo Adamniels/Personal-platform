@@ -24,8 +24,8 @@
 # reviewer", when the latest verdict is approve for that exact sha, and `pending`, "waiting for the reviewer",
 # otherwise. Never `failure`: a changes verdict is still waiting. The ruleset requires it, so GitHub lets nobody
 # merge a commit the reviewer has not approved. Besides the pass above, the runner posts it right after a review
-# run. The merge gate is called only for a head the pass found approved in the same loop, so review-ok is success
-# on it before the gate is called.
+# run. The merge gate is called only for a head found approved in the same loop, by the pass or by a review run
+# that has just posted success on it, so review-ok is success on it before the gate is called.
 #
 # The labels. The runner owns four, and a pull request carries at most one of them:
 #   in-review       an open pull request whose head has no approve. Set by the pass.
@@ -40,10 +40,11 @@
 # takes the owner label off and puts in-review back. owner-blocked stays on such a head, with no in-review beside
 # it, only while it is still true: the latest verdict is for that head (the review rounds ran out on it), or the
 # pull request is recorded in agent-logs/blocked-prs (the runner set its slice Blocked). On an approved head the
-# pass leaves in-review and the owner labels to the head's merge or owner item, which sets them from the gate's
-# reasons: owner-merge or owner-decision replaces in-review and owner-blocked, owner-blocked replaces the other
-# three, and a pull request the gate merges gets no owner label, its in-review taken off after the merge (a
-# failure there is only logged). A failed label write anywhere else is a transient pause.
+# pass leaves in-review and the owner labels to the turn of the review that approved it, or to the head's merge or
+# owner item, which set them from the gate's reasons: owner-merge or owner-decision replaces in-review and
+# owner-blocked, owner-blocked replaces the other three, and a pull request the gate merges gets no owner label,
+# its in-review taken off after the merge (a failure there is only logged). A failed label write anywhere else is
+# a transient pause.
 #
 # After a merge the runner is done with a pull request. One the gate merged, or answered with the single reason
 # `pull request is already merged`, or that GitHub says is merged, is recorded in agent-logs/merged-prs. An item
@@ -65,6 +66,18 @@
 #                        head of a pull request that is still open is a failed run (R32). After it, review-ok is
 #                        posted on the head: success for an approve, pending otherwise (a failed write is a
 #                        transient pause).
+#                        The same turn: when the verdict is approve for the head as it is after the run, and
+#                        review-ok was made success, the pull request is settled at once, before pending.sh is
+#                        asked again. The head is recorded as approved for this loop and handled exactly as a
+#                        merge item is, below, with the head and the labels read after the run, not the ones the
+#                        item was picked with: merged, or handed to the owner with its label and mention, or
+#                        owner-blocked, and a gate error or a failed label or mention write is a transient pause,
+#                        never a count against the slice. One difference: the turn never waits the poll interval.
+#                        With `ci-ok is pending` among the reasons it records nothing, labels nothing and
+#                        returns, and the pull request's merge or owner item settles it once CI has reported;
+#                        and when the mention for this head was made before, it sets the label and goes on.
+#                        Nothing is settled when the run's own accounting paused or set the slice Blocked, or
+#                        when the pull request was merged or closed meanwhile.
 #   merge <pr> <slice>   merge-gate.sh <pr>, only for a head this loop found approved; any other head (it moved
 #                        since pending.sh looked) waits up to a minute and is looked at again, with no gate call.
 #                        Exit 0: merged, and recorded as merged. Exit 3 with the single reason `pull request is
@@ -76,7 +89,9 @@
 #                        reasons: a mention with them and owner-blocked. Exit 1 or another code: a transient pause.
 #   cap <pr> <slice>     a mention that the review rounds ran out, and owner-blocked.
 #   owner <pr> <slice>   a PR with has-decision or owner-blocked approved for its head: handled as merge is. The
-#                        gate cannot merge it, and its reasons say whether it is ready or stuck. pending.sh offers
+#                        gate cannot merge it, and its reasons say whether it is ready or stuck. It is what settles
+#                        a PR the review's own turn could not: ci-ok was pending, or the handover paused, or the
+#                        PR was approved before the same turn existed. pending.sh offers
 #                        it before resume and new, so the owner label and the mention do not wait for the queue,
 #                        and no longer once the PR carries owner-merge or owner-decision without owner-blocked: it
 #                        was handed over for this head, and the next loop goes on to other work with no wait. One
@@ -397,7 +412,8 @@ relabel() {
 # make_true changes on $cur_labels.
 #   owner-decision without has-decision is what the old procedure left, set by the implementer: has-decision is
 #   added, so the decision is kept whatever becomes of owner-decision.
-#   An approved head is left as it is: its merge or owner item sets its label from the gate's reasons.
+#   An approved head is left as it is: the turn of the review that approved it, or its merge or owner item, sets
+#   its label from the gate's reasons.
 #   A head with no approve carries in-review and no owner label, so a new commit takes owner-merge and
 #   owner-decision off. owner-blocked alone can stay, without in-review, while it is still true: the verdict is for
 #   this head (the review rounds ran out on it), or the runner set the slice Blocked and still records the PR.
@@ -440,11 +456,12 @@ tell_owner() {
   comment "$3" "$4" || { log "could not comment on #$3"; return 1; }
   echo "$1 $2" >> "$owner_told"
 }
-# hand_over <pr> <sha> <slice> <body> <label_ready|label_blocked>: tells the owner once for this head, then sets the
-# label; when the mention was made before, waits the poll interval, so a repeated item cannot spin (R43b).
+# hand_over <pr> <sha> <slice> <body> <label_ready|label_blocked> [turn]: tells the owner once for this head, then
+# sets the label; when the mention was made before, waits the poll interval, so a repeated item cannot spin (R43b).
+# With `turn`, in the turn of the review that approved the head, it never waits: no item repeats there.
 hand_over() {
   tell_owner "$1" "$2" "$3" "$4" && "$5" "$1" || return 1
-  [ "$already_told" = 1 ] && nap "$poll"
+  [ "$already_told" = 1 ] && [ "${6:-}" != turn ] && nap "$poll"
   return 0
 }
 # merged_slice: sets $merged to the slice of the most recently merged bot PR, or empty.
@@ -644,6 +661,7 @@ prepare_tree() {
 
 claude_item() { # kind pr slice; the PR's head is $cur_sha
   local kind="$1" pr="$2" slice="$3" sha="$cur_sha" item logf n start rc secs cls short last key vk vs want what status_failed=""
+  local settle_sha="" settle_labels=""
   item="$kind $slice"; [ "$pr" = - ] || item="$kind $pr $slice"
   probe || { pause environment "$probe_reason" "$slice"; return; }
   if [ "$kind" = review ]; then
@@ -698,7 +716,13 @@ claude_item() { # kind pr slice; the PR's head is $cur_sha
     fi
     # review-ok right after the review: success on an approved head, pending on any other.
     want=pending; [ "$vk" = approve ] && [ "$vs" = "$head_sha" ] && want=success
-    review_ok "$head_sha" "$want" || status_failed="$head_sha"
+    if ! review_ok "$head_sha" "$want"; then status_failed="$head_sha"
+    elif [ "$want" = success ]; then
+      # The head is approved and its review-ok is success: recorded for this loop as make_true records it, and
+      # settled below, with the head and the labels just read, not the ones the item was picked with.
+      approved_now "$pr" "$head_sha" || echo "$pr $head_sha" >> "$approved"
+      settle_sha="$head_sha" settle_labels="$head_labels"
+    fi
   fi
   log "claude for $item: $cls ($short; last line: $last)"
 
@@ -716,6 +740,13 @@ claude_item() { # kind pr slice; the PR's head is $cur_sha
   esac
   # The run is accounted for above; the status is written again by the next loop's make_true.
   [ -z "$status_failed" ] || [ "$paused" = 1 ] || pause transient "could not set $STATUS on $status_failed" "$slice"
+  # The same turn: an approved head is settled at once, as its merge or owner item would settle it, before
+  # pending.sh is asked for anything else. Not when the run's accounting paused, set the slice Blocked or left a
+  # Block half done: pending.sh offers nothing but owner input for a Blocked slice.
+  if [ -n "$settle_sha" ] && [ "$paused" = 0 ] && [ "$(failures "$slice")" -lt 2 ] && ! pr_recorded "$pr"; then
+    cur_sha="$settle_sha" cur_labels="$settle_labels"
+    merge_item "$pr" "$slice" turn
+  fi
 }
 
 # pr_gate <kind> <pr> <slice>: R47, R51 and R54 on a PR item. The board decides: a fix item (owner input) for a
@@ -762,11 +793,14 @@ ci_wait() {
 }
 ci_clear() { [ -f "$ci_pending" ] && { grep -v "^$1 " "$ci_pending" > "$ci_pending.new"; mv -f "$ci_pending.new" "$ci_pending"; }; return 0; }
 
-# merge_item <pr> <slice>: a merge item and an owner item alike. For an owner item the gate cannot merge, since the
+# merge_item <pr> <slice> [turn]: a merge item and an owner item alike. For an owner item the gate cannot merge, since the
 # PR carries has-decision or owner-blocked, but its reasons say whether the PR is ready for the owner or stuck, which the label
 # alone does not: an approved PR whose ci-ok failed is not "ready to read and merge".
-merge_item() { # pr slice; head $cur_sha, labels $cur_labels
-  local pr="$1" slice="$2" out rc reasons joined r owner_only=1 decision
+# With `turn` it is called by claude_item, in the turn of the review that approved the head, and differs in one
+# thing: it never waits the poll interval. With ci-ok pending it records nothing and returns, and the PR's merge or
+# owner item settles it once CI has reported.
+merge_item() { # pr slice [turn]; head $cur_sha, labels $cur_labels
+  local pr="$1" slice="$2" turn="${3:-}" out rc reasons joined r owner_only=1 decision
   # Only a head this loop's make_true found approved reaches the gate, so its review-ok is success before the gate
   # is called. Any other head moved after pending.sh looked: nothing is wrong with it, and the next loop reads it.
   if ! approved_now "$pr" "$cur_sha"; then
@@ -786,6 +820,9 @@ merge_item() { # pr slice; head $cur_sha, labels $cur_labels
         log "#$pr is already merged; nothing to do"; note_merged "$pr"; ci_clear "$pr"; end_episode; short_wait; return
       fi
       if grep -qxF "ci-ok is pending" <<<"$reasons"; then
+        if [ "$turn" = turn ]; then
+          log "#$pr is approved and waits for ci-ok ($(tr '\n' ',' <<<"$reasons")); its item settles it"; return
+        fi
         log "#$pr waits for ci-ok ($(tr '\n' ',' <<<"$reasons"))"; ci_wait "$pr" "$cur_sha" "$slice"; nap "$poll"; return
       fi
       ci_clear "$pr"
@@ -797,13 +834,13 @@ merge_item() { # pr slice; head $cur_sha, labels $cur_labels
       log "the merge gate refused #$pr: $joined"
       decision=0; has_label "$LABEL_HAS" && decision=1
       if [ "$owner_only" = 1 ] && [ "$decision" = 1 ]; then
-        hand_over "$pr" "$cur_sha" "$slice" "@$OWNER PR #$pr is approved and waits for your decision: read \"Decisions the agent made\" in its body and \"For the owner\" in the review, then merge it or comment on it to change something ($joined)." label_ready \
+        hand_over "$pr" "$cur_sha" "$slice" "@$OWNER PR #$pr is approved and waits for your decision: read \"Decisions the agent made\" in its body and \"For the owner\" in the review, then merge it or comment on it to change something ($joined)." label_ready "$turn" \
           || pause transient "could not hand #$pr to the owner" "$slice"
       elif [ "$owner_only" = 1 ]; then
-        hand_over "$pr" "$cur_sha" "$slice" "@$OWNER PR #$pr is ready for you to read and merge: the merge gate leaves it to the owner ($joined)." label_ready \
+        hand_over "$pr" "$cur_sha" "$slice" "@$OWNER PR #$pr is ready for you to read and merge: the merge gate leaves it to the owner ($joined)." label_ready "$turn" \
           || pause transient "could not hand #$pr to the owner" "$slice"
       else
-        hand_over "$pr" "$cur_sha" "$slice" "@$OWNER PR #$pr needs you, do not merge it as it is: the merge gate refused it ($joined)." label_blocked \
+        hand_over "$pr" "$cur_sha" "$slice" "@$OWNER PR #$pr needs you, do not merge it as it is: the merge gate refused it ($joined)." label_blocked "$turn" \
           || pause transient "could not hand #$pr to the owner" "$slice"
       fi ;;
     *) pause transient "merge-gate.sh exited $rc for #$pr" "$slice" ;;
