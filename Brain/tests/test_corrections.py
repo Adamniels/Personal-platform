@@ -13,7 +13,7 @@ from typing import Any
 import pytest
 from psycopg_pool import AsyncConnectionPool
 
-from brain import db, items
+from brain import db, events, items
 from brain.errors import Conflict
 from tests.conftest import Caller
 from tests.harness import admin_connection
@@ -642,3 +642,29 @@ async def test_a_change_that_read_the_item_before_another_finds_it_changed(
     # The entry is as the first change left it: never forked into two current
     # versions, and a retired one not brought back by a stale edit.
     assert active == ((0,) if first is _retired else (1,))
+
+
+async def test_a_neutral_judgment_is_not_linked_as_evidence_either_way(
+    pool: AsyncConnectionPool,
+) -> None:
+    now = datetime.now(UTC)
+    new = items.NewItem(
+        kind="rule",
+        content="Concise prose.",
+        category=None,
+        topics=(),
+        entities=(),
+        occurred_at=None,
+        occurred_precision="instant",
+    )
+    with pytest.raises(ValueError, match="rated is neutral"):
+        async with db.transaction(pool, ALICE) as conn:
+            item_id = await items.write(conn, new, now=now)
+            rated, _ = await events.record(
+                conn,
+                items._judgment(
+                    "rated", item_id, "Rated by hand", "rated:1", {"item": str(item_id)}
+                ),
+                now=now,
+            )
+            await items._link_judgment(conn, item_id, rated, now=now)

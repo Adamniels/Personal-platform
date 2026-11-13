@@ -159,12 +159,16 @@ async def _link_judgment(
     """The owner's judgment of an item as evidence on it, for it or against
     it as its verb's polarity says: `edited` and `retired` against, `restored`
     for. It is what keeps consolidation from proposing again what the owner
-    corrected, see "Editing changes provenance" in docs/trust-model.md."""
+    corrected, see "Editing changes provenance" in docs/trust-model.md. A
+    neutral verb, such as `rated`, says neither, and is refused rather than
+    read as one of them."""
     cursor = await conn.execute(
         "SELECT polarity FROM verbs WHERE verb = %s", (event.verb,)
     )
     row = await cursor.fetchone()
     assert row is not None
+    if row[0] == 0:
+        raise ValueError(f"{event.verb} is neutral, it is no evidence for or against")
     kind: Literal["supports", "contradicts"] = (
         "supports" if row[0] > 0 else "contradicts"
     )
