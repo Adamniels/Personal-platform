@@ -1,0 +1,53 @@
+/* An entry list and the form that adds or corrects an entry. Rows in a card
+ * sit --space-3 apart and a control's parts --space-2, as section 2 of
+ * design/DESIGN.md has it. */
+
+.list {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-3);
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+/* The text, then its buttons at its end, which move under it when the row
+ * is too narrow for both. */
+.entry {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: flex-start;
+	column-gap: var(--space-2);
+	min-width: 0;
+}
+
+/* Padded to sit level with the buttons beside it. What was typed keeps its
+ * line breaks, and a long word wraps rather than widening the card. */
+.text {
+	flex: 1 1 200px;
+	min-width: 0;
+	margin: 0;
+	padding-block: calc((var(--control-h) - var(--text-body-line)) / 2);
+	color: var(--text);
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+
+/* A card's line for a category with nothing in it. */
+.none {
+	margin: 0;
+	color: var(--text-2);
+}
+
+.form {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-2);
+	flex: 1 1 100%;
+	min-width: 0;
+}
+
+.formActions {
+	display: flex;
+	gap: var(--space-2);
+}

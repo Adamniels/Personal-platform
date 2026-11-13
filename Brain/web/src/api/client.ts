@@ -63,11 +63,36 @@ export type GetAnswer<P extends GetPath> =
 			: never
 		: never;
 
+type GetParameters<P extends GetPath> =
+	Full<P> extends keyof paths
+		? paths[Full<P>] extends { get: { parameters: infer Q } }
+			? Q
+			: never
+		: never;
+
+/** What fills a GET's address: `path` for each `{name}` in it, and `query`
+ * for its query string, each typed from the schema. A value that is null or
+ * undefined is left out of the query string. */
+export type GetParams<P extends GetPath> = Pick<
+	GetParameters<P>,
+	("path" | "query") & keyof GetParameters<P>
+>;
+
+/** The parameters are optional where the schema requires none. */
+type GetArguments<P extends GetPath> =
+	object extends GetParams<P>
+		? [params?: GetParams<P>]
+		: [params: GetParams<P>];
+
 export type StateChange = "POST" | "PUT" | "PATCH" | "DELETE";
 
 export type Client = {
-	/** A typed GET, its path and answer from the generated schema. */
-	get<P extends GetPath>(path: P): Promise<GetAnswer<P>>;
+	/** A typed GET, its path, parameters and answer from the generated
+	 * schema. */
+	get<P extends GetPath>(
+		path: P,
+		...params: GetArguments<P>
+	): Promise<GetAnswer<P>>;
 	/** A call that changes state, its body sent as JSON. Resolves with the
 	 * answer's JSON, or undefined for a 204. */
 	send<T = unknown>(
@@ -154,13 +179,40 @@ export function createClient(env: ClientEnvironment = browser): Client {
 
 	// The schema types the answer; nothing checks it at runtime.
 	return {
-		get<P extends GetPath>(path: P) {
-			return call("GET", path) as Promise<GetAnswer<P>>;
+		get<P extends GetPath>(path: P, ...[params]: GetArguments<P>) {
+			// Checked against the schema at the call; the address reads it as plain
+			// values.
+			const given = params as Parameters<typeof address>[1];
+			return call("GET", address(path, given)) as Promise<GetAnswer<P>>;
 		},
 		send<T>(method: StateChange, path: string, body?: unknown) {
 			return call(method, path, body) as Promise<T>;
 		},
 	};
+}
+
+type Values = Record<string, string | number | boolean | null | undefined>;
+
+/** The path with each `{name}` filled, encoded, and the query string the
+ * values that are given make. A `{name}` with no value is an error, since
+ * the call would go to the wrong address. */
+function address(
+	path: string,
+	params: { path?: Values; query?: Values } | undefined,
+): string {
+	const filled = path.replace(/\{([^}]+)\}/g, (_, name: string) => {
+		const value = params?.path?.[name];
+		if (value === undefined || value === null) {
+			throw new Error(`${path} needs a value for {${name}}`);
+		}
+		return encodeURIComponent(String(value));
+	});
+	const query = new URLSearchParams();
+	for (const [name, value] of Object.entries(params?.query ?? {})) {
+		if (value !== undefined && value !== null) query.set(name, String(value));
+	}
+	const search = query.toString();
+	return search === "" ? filled : `${filled}?${search}`;
 }
 
 /** A problem document's title and detail, FastAPI's `detail` (a string, or

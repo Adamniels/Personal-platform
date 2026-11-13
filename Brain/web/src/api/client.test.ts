@@ -210,3 +210,37 @@ describe("the client sends a state changing request as JSON and reads errors as 
 		});
 	});
 });
+
+describe("a GET's parameters fill its address", () => {
+	test("a query string from the values given, the empty ones left out", async () => {
+		const { fetch, calls } = fakeFetch([json(200, [])]);
+
+		await createClient(environment(fetch)).get("/items", {
+			query: { kind: "rule", status: null, topic: undefined },
+		});
+
+		expect(calls.map(({ url }) => url)).toEqual(["/brain/api/items?kind=rule"]);
+	});
+
+	test("a path parameter, encoded", async () => {
+		const { fetch, calls } = fakeFetch([json(200, [])]);
+
+		await createClient(environment(fetch)).get("/items/{id}/versions", {
+			path: { id: "a/b c" },
+		});
+
+		expect(calls.map(({ url }) => url)).toEqual([
+			"/brain/api/items/a%2Fb%20c/versions",
+		]);
+	});
+
+	test("a path that needs a parameter refuses to go without it", () => {
+		const { fetch } = fakeFetch([]);
+		const client = createClient(environment(fetch));
+
+		// @ts-expect-error The schema requires the id.
+		expect(() => client.get("/items/{id}/versions")).toThrow(
+			"/items/{id}/versions needs a value for {id}",
+		);
+	});
+});

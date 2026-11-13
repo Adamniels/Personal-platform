@@ -379,10 +379,12 @@ calls that get a `401` together share that refresh. A second `401` sends the bro
 failure, the network's included, is an `ApiError` carrying a typed `Problem`: the status, a title
 and a detail read from a problem document or from FastAPI's `detail`. React Query holds what the
 server answered, and every failed query or change raises an error toast, in one place,
-`src/providers.tsx`.
-
-`src/toast/` is a stand in for the package's toast until #192 adds `ToastProvider` and `useToast` to
-`@platform/ui` with the same shape. It holds errors alone; replace it with the package's then.
+`src/providers.tsx`, with the package's `ToastProvider`. A change whose form shows a `422` on its
+field says so with `meta: { fieldErrors: true }`, and that refusal raises no toast as well. A GET's
+path parameters and query string are typed from the schema too:
+`client.get("/items/{id}/versions", { path: { id } })`. `src/providers.tsx` also holds the one
+client, which `useClient()` returns; a test passes its own, over a fetch it answers, as
+`src/test/fake-brain.ts` answers the item routes.
 
 **The API's types.** `src/api/schema.d.ts` is generated from `contracts/brain/openapi.json` by
 `tools/generate-schema.mjs` and committed, and `src/api/schema.test.ts` fails when it is stale. After

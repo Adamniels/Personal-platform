@@ -27,6 +27,8 @@ SECTIONS = [
     ("Timeline", "/brain/timeline"),
     ("Ask", "/brain/ask"),
 ]
+# The sections whose slice has landed, which no longer say they are empty.
+BUILT = {"Profile"}
 
 
 def links_bar(page: Page) -> Locator:
@@ -73,10 +75,12 @@ def test_memory_opens_from_the_navigation(page: Page, invite_code: str, viewport
     expect(tabs.first).to_have_attribute("aria-selected", "true")
 
 
-def test_each_section_says_it_is_empty(page: Page, invite_code: str):
+def test_each_section_not_yet_built_says_it_is_empty(page: Page, invite_code: str):
     open_memory(page, invite_code)
 
     for name, path in SECTIONS:
+        if name in BUILT:
+            continue
         sections(page).get_by_role("tab", name=name, exact=True).click()
 
         expect(page).to_have_url(f"https://platform.test{path}")
