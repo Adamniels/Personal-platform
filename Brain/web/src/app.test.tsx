@@ -82,7 +82,9 @@ describe("the address decides the section, and a tab changes the address", () =>
 		expect(window.location.pathname).toBe("/brain/rules");
 		expect(selectedTab()?.textContent).toBe("Rules");
 		expect(
-			within(screen.getByRole("tabpanel")).getByText(/Rules/),
+			await within(screen.getByRole("tabpanel")).findByRole("button", {
+				name: "Add rule",
+			}),
 		).toBeTruthy();
 
 		window.history.back();

@@ -367,6 +367,29 @@ no section shows a not found state under the tabs. The brain answers `index.html
 segment under `/brain/` other than `api` and `assets`, so the list of sections lives in
 `src/sections.ts` alone. Until its slice lands, a section shows the package's `EmptyState`.
 
+**Profile and Rules** are where the owner enters by hand who he is and how the platform should work
+with him, `src/profile/` and `src/rules/` over the shared pieces in `src/entries/`:
+
+- **Profile** is one `Card` per category, in the card grid, in the order identity, goals, values,
+  interests, preferences, working style, each listing its active entries, or a line saying it has
+  none. "Add" at a card's foot, secondary, opens a text area in place; "Add entry", the section's
+  one primary button, asks for the category first.
+- **Rules** is one list of the active rules, under the line "How the platform and its agents should
+  work with you. A rule applies everywhere, at once.", with "Add rule" as its primary button.
+- Both list an entry where its first version was made, oldest first, so a correction keeps its
+  place. They fetch every version of their kind, `GET /items?kind=...` with no status, which is also
+  what says whether an entry has earlier versions; `src/entries/entries.ts` holds the queries and
+  the changes. Each entry ends with Edit and Retire, ghost buttons, and Earlier versions when it has
+  more than one version. Edit opens its text in place and saves it with `edit`, a new version; the
+  same text again sends nothing. Earlier versions lists the older ones from `versions`, oldest
+  first, each with when it was made in the mono font. Retire asks first, in the package's `Dialog`,
+  and then a toast "Entry retired" offers Undo, which calls `restore`. Nothing is deleted: a retired
+  entry stays in Everything.
+- Empty text is refused in the form, and a `422` is shown on the text area. Every save, retire and
+  restore refreshes every query under `items`, so each list showing the entry shows it as it now is.
+  Entries are entered without subjects here, and a category is not changed: retire the entry and
+  add it again.
+
 `index.html` is the same shell as every page with the bar: the design files and `nav.js` from the
 proxy, not bundled, and `<platform-nav current="brain">`. Vite builds it with base `/brain/` into
 `web/dist`, git ignored, its files under `dist/assets/`.

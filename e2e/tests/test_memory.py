@@ -28,7 +28,7 @@ SECTIONS = [
     ("Ask", "/brain/ask"),
 ]
 # The sections whose slice has landed, which no longer say they are empty.
-BUILT = {"Profile"}
+BUILT = {"Profile", "Rules"}
 
 
 def links_bar(page: Page) -> Locator:

@@ -2,6 +2,7 @@ import { EmptyState, Tab, TabPanel, Tabs } from "@platform/ui";
 import { navigate, usePathname } from "./address";
 import styles from "./app.module.css";
 import { Profile } from "./profile/profile";
+import { Rules } from "./rules/rules";
 import { SECTIONS, type Section, sectionAt } from "./sections";
 
 /** The memory centre's frame: the page's heading, a tab per section, tied to
@@ -45,6 +46,7 @@ export function App() {
  * is empty. */
 function SectionView({ section }: { section: Section }) {
 	if (section.key === "profile") return <Profile />;
+	if (section.key === "rules") return <Rules />;
 	return (
 		<EmptyState
 			title={`Nothing in ${section.label} yet`}

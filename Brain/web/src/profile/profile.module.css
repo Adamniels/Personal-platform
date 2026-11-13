@@ -1,29 +1,5 @@
-/* The Profile section: its button, the add form when it is open, then the
- * card grid of section 2 of design/DESIGN.md. Sections of the page sit
- * --space-4 apart. */
-
-.section {
-	display: flex;
-	flex-direction: column;
-	gap: var(--space-4);
-	min-width: 0;
-}
-
-.toolbar {
-	display: flex;
-	justify-content: flex-end;
-}
-
-/* The section's add form, on a surface like a card's, at reading width. */
-.panel {
-	box-sizing: border-box;
-	width: 100%;
-	max-width: var(--reading-max);
-	padding: var(--space-4);
-	background: var(--surface);
-	border: 1px solid var(--border);
-	border-radius: var(--radius-lg);
-}
+/* The Profile section's cards, in the card grid of section 2 of
+ * design/DESIGN.md. The section around them is entries/section.module.css. */
 
 .grid {
 	display: grid;
@@ -31,7 +7,7 @@
 	gap: var(--space-4);
 }
 
-/* The entries, then the form when one is being added. */
+/* A card's entries, then the form when one is being added. */
 .body {
 	display: flex;
 	flex-direction: column;

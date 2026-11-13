@@ -1,0 +1,43 @@
+/* A section of entries: its line and its button, the add form when it is
+ * open, then the entries. Sections of the page sit --space-4 apart, as
+ * section 2 of design/DESIGN.md has it. */
+
+.section {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-4);
+	min-width: 0;
+}
+
+/* The section's line on the left, its one primary button on the right, the
+ * button moving under the line when the row is too narrow. */
+.toolbar {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: flex-end;
+	gap: var(--space-3);
+}
+
+.lede {
+	flex: 1 1 280px;
+	min-width: 0;
+	max-width: var(--reading-max);
+	margin: 0;
+	color: var(--text-2);
+}
+
+/* A surface like a card's, for the add form and for a list outside a card. */
+.panel {
+	box-sizing: border-box;
+	width: 100%;
+	padding: var(--space-4);
+	background: var(--surface);
+	border: 1px solid var(--border);
+	border-radius: var(--radius-lg);
+}
+
+/* The add form stands alone at reading width. */
+.form {
+	max-width: var(--reading-max);
+}

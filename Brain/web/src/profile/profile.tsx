@@ -7,6 +7,7 @@ import { type Entry, useAddEntry, useEntries } from "../entries/entries";
 import styles from "../entries/entries.module.css";
 import { EntryForm } from "../entries/entry-form";
 import { EntryList } from "../entries/entry-list";
+import section from "../entries/section.module.css";
 import layout from "./profile.module.css";
 
 /** The profile's categories, in the order of their cards. */
@@ -49,14 +50,14 @@ export function Profile() {
 	}
 
 	return (
-		<div className={layout.section}>
-			<div className={layout.toolbar}>
+		<div className={section.section}>
+			<div className={section.toolbar}>
 				<Button kind="primary" onClick={() => setAdding("section")}>
 					Add entry
 				</Button>
 			</div>
 			{adding === "section" ? (
-				<div className={layout.panel}>
+				<div className={`${section.panel} ${section.form}`}>
 					<AddEntryForm onSave={save} onCancel={() => setAdding(null)} />
 				</div>
 			) : null}
@@ -105,8 +106,12 @@ function CategoryCard({
 					labels={{
 						field: "Entry",
 						emptyError: "Write the entry first",
-						none: `No ${category.label.toLowerCase()} entries yet.`,
 					}}
+					empty={
+						<p className={styles.none}>
+							No {category.label.toLowerCase()} entries yet.
+						</p>
+					}
 				/>
 				{adding ? (
 					<EntryForm

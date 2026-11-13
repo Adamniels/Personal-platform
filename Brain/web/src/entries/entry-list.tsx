@@ -2,7 +2,7 @@
 // changes provenance, and every edit records a judgment" in Brain/docs/trust-model.md has them.
 // Nothing here deletes anything: a retired entry stays in Everything, where it can come back.
 import { Button, Dialog, useToast } from "@platform/ui";
-import { useId, useState } from "react";
+import { type ReactNode, useId, useState } from "react";
 import {
 	type Entry,
 	useEarlierVersions,
@@ -19,8 +19,6 @@ export type EntryLabels = {
 	field: string;
 	/** What is said when one is saved with no text. */
 	emptyError: string;
-	/** The line shown when there are none. */
-	none: string;
 };
 
 /** When a version was made, in the owner's time: "13 Nov 2026, 09:41". */
@@ -36,15 +34,21 @@ export function formatWhen(iso: string): string {
 	return WHEN.format(new Date(iso));
 }
 
-/** The entries in the order given, or the line saying there are none. It
+/** The entries in the order given, or what is shown when there are none. It
  * stays mounted when its last entry is retired, so that entry's Undo still
  * has somewhere to run. */
 export function EntryList({
 	entries,
 	labels,
+	empty,
+	className,
 }: {
 	entries: readonly Entry[];
 	labels: EntryLabels;
+	/** Shown in place of the list when there are no entries. */
+	empty: ReactNode;
+	/** On the list itself, when there are entries. */
+	className?: string;
 }) {
 	const retire = useRetireEntry();
 	const restore = useRestoreEntry();
@@ -58,11 +62,9 @@ export function EntryList({
 		});
 	}
 
-	if (entries.length === 0) {
-		return <p className={styles.none}>{labels.none}</p>;
-	}
+	if (entries.length === 0) return empty;
 	return (
-		<ul className={styles.list}>
+		<ul className={[styles.list, className].filter(Boolean).join(" ")}>
 			{entries.map((entry) => (
 				<EntryRow
 					key={entry.id}
