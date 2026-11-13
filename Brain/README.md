@@ -113,7 +113,8 @@ The schema FastAPI generates from the routes and their models is committed as
 `contracts/brain/openapi.json`, and `tests/test_contract.py` fails when the app no longer generates
 it byte for byte. The memory centre's page routes are left out of it, since they are not API. Changing what the brain serves means regenerating it, with
 `UPDATE_CONTRACTS=1 uv run pytest tests/test_contract.py`, and reviewing the diff, see
-`contracts/README.md`.
+`contracts/README.md`. It needs `BRAIN_APP_DATABASE_URL` set, as every test run does, since
+`brain.app` loads the settings when it is imported; nothing connects to it.
 
 ## Running it
 
