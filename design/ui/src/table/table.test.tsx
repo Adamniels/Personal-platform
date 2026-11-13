@@ -491,6 +491,30 @@ function startEditing(title: string) {
 	fireEvent.click(action);
 }
 
+/** A row that stops editing from a button outside the table. */
+function Outside() {
+	const [state, setState] = useState<TableRowState | undefined>("editing");
+	return (
+		<>
+			<Table
+				label="Sessions"
+				columns={columns.map((c) =>
+					c.key === "title"
+						? { ...c, edit: () => <TextField label="Session" /> }
+						: c,
+				)}
+				rows={sessions.slice(0, 1)}
+				rowKey={id}
+				rowState={() => state}
+				rowAction={() => <Button kind="ghost">Edit</Button>}
+			/>
+			<button type="button" onClick={() => setState(undefined)}>
+				Stop
+			</button>
+		</>
+	);
+}
+
 describe("an editing row shows the caller's fields in place of the cell, with Save and Cancel under them", () => {
 	it("calls each column's edit in place of its cell, and keeps the others", () => {
 		render(<EditingHarness />);
@@ -587,28 +611,6 @@ describe("an editing row shows the caller's fields in place of the cell, with Sa
 	});
 
 	it("leaves focus alone when it is elsewhere as the row leaves editing", () => {
-		function Outside() {
-			const [state, setState] = useState<TableRowState | undefined>("editing");
-			return (
-				<>
-					<Table
-						label="Sessions"
-						columns={columns.map((c) =>
-							c.key === "title"
-								? { ...c, edit: () => <TextField label="Session" /> }
-								: c,
-						)}
-						rows={sessions.slice(0, 1)}
-						rowKey={id}
-						rowState={() => state}
-						rowAction={() => <Button kind="ghost">Edit</Button>}
-					/>
-					<button type="button" onClick={() => setState(undefined)}>
-						Stop
-					</button>
-				</>
-			);
-		}
 		render(<Outside />);
 		const stop = screen.getByRole("button", { name: "Stop" });
 		stop.focus();
