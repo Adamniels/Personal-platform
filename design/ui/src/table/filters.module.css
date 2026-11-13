@@ -1,0 +1,79 @@
+/* The filter row and pill of "Table" in section 4 of design/DESIGN.md.
+ * Colours and sizes are tokens; the 28px pill and the 220px search basis are
+ * the ones that section gives. The focus ring comes from the base rule in
+ * tokens.css and is never overridden here. */
+
+/* The row wraps. Fields carry their label above them, so the row lines up
+ * at the bottom, and what is shorter than a field is centred on it. */
+.row {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: flex-end;
+	gap: var(--space-2);
+	min-width: 0;
+}
+
+.search {
+	flex: 1 1 220px;
+	min-width: 0;
+}
+
+.count {
+	margin: 0 0 calc((var(--control-h) - var(--text-mono-line)) / 2) auto;
+	color: var(--text-2);
+	font-family: var(--font-mono);
+	font-size: var(--text-mono-size);
+	line-height: var(--text-mono-line);
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+}
+
+/* The pill: 28px high, fully round, a 1px strong border. */
+.pill {
+	box-sizing: border-box;
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-1);
+	height: 28px;
+	padding: 0 var(--space-1) 0 var(--space-3);
+	background: var(--surface);
+	color: var(--text);
+	border: 1px solid var(--border-strong);
+	border-radius: var(--radius-full);
+	font-size: var(--text-small-size);
+	line-height: var(--text-small-line);
+	white-space: nowrap;
+}
+
+.row > .pill {
+	margin-bottom: calc((var(--control-h) - 28px) / 2);
+}
+
+/* The remove button is small to look at, and its target reaches 44px around
+ * it (hard rule 10), through the gap beside and between the rows. */
+.remove {
+	position: relative;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 20px;
+	height: 20px;
+	margin: 0;
+	padding: 0;
+	border: 0;
+	border-radius: var(--radius-full);
+	background: transparent;
+	color: var(--text-2);
+	cursor: pointer;
+}
+
+.remove::after {
+	content: "";
+	position: absolute;
+	inset: -12px;
+}
+
+.remove:hover {
+	background: var(--surface-2);
+	color: var(--text);
+}
