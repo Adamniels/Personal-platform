@@ -33,6 +33,27 @@ The page, not the component, loads the values and fonts, from the proxy:
 <link rel="stylesheet" href="/design/fonts.css">
 ```
 
+## The components
+
+Each one is the native element, so everything that element takes passes through to it, the ref
+included, and each follows its entry in section 4 of `DESIGN.md`.
+
+- `Button`: `kind`, one of `primary`, `secondary` (the default), `ghost` and `destructive`.
+  `type` defaults to `button`, so it never submits a form unasked.
+- `TextField`, `TextArea` and `Select`: `label`, required and always shown above the field, as
+  its accessible name; `help`, a line under it read as its description; and `error`, what is
+  wrong, as text. With `error` set, the field shows it as "Error: <error>", without doubling a
+  word the caller already wrote, sets `aria-invalid="true"` and ties the message to the control
+  with `aria-describedby`, read before the help. An `id` or `aria-describedby` the caller passes
+  is kept. `Select` is the native select and menu, its options passed as `option` children.
+  There is no field without a visible label: an icon only control is a `Button` with an
+  `aria-label`.
+- `Checkbox`: `label`, the text of a row that is the box's label, so the whole row is one target;
+  and `done`, the completed to do look. `type` is always `checkbox`.
+
+A field fills the width of what holds it, so a form sizes its fields by its layout. Form state and
+validation are the feature's own.
+
 ## Adding a component
 
 A component is a folder under `src/`: the component, its `*.module.css`, and its test.
