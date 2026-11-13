@@ -166,11 +166,16 @@ def test_buttons_are_44px_tall_on_phone(page: Page):
         assert box is not None and box["height"] == 44, buttons.nth(index)
 
 
+@pytest.mark.parametrize("opened", ["page", "dialog", "toasts"])
 @pytest.mark.parametrize("theme", THEMES)
 def test_the_gallery_passes_the_accessibility_check(
-    page: Page, viewport: str, theme: str
+    page: Page, viewport: str, theme: str, opened: str
 ):
     open_gallery(page, theme)
+    if opened == "dialog":
+        open_dialog(page)
+    elif opened == "toasts":
+        raise_toasts(page)
     page.add_script_tag(path=str(AXE))
 
     violations = page.evaluate(
@@ -1116,3 +1121,229 @@ def test_the_filters_and_paging_read_their_values(page: Page, theme: str):
     paging.get_by_role("button", name="Next").click()
     expect(paging.get_by_text("Rows 9 to 16 of 214")).to_be_visible()
     expect(paging.get_by_role("button", name="Previous")).to_be_enabled()
+
+
+# "Dialog" and "Toast" in section 4 of design/DESIGN.md, the two floating
+# layers and the only components with a shadow (hard rule 3). The gallery's
+# Dialog section opens a destructive dialog and a primary one from a button
+# each, and its Toast section raises a success and an error.
+FLOATING_STYLE = """element => {
+    const style = getComputedStyle(element);
+    const backdrop = getComputedStyle(element, "::backdrop");
+    return {
+        background: style.backgroundColor,
+        borders: [style.borderTopColor, style.borderRightColor,
+                  style.borderBottomColor, style.borderLeftColor],
+        borderWidths: [style.borderTopWidth, style.borderRightWidth,
+                       style.borderBottomWidth, style.borderLeftWidth],
+        radii: [style.borderTopLeftRadius, style.borderTopRightRadius,
+                style.borderBottomRightRadius, style.borderBottomLeftRadius],
+        shadow: style.boxShadow,
+        position: style.position,
+        maxWidth: style.maxWidth,
+        backdrop: backdrop.backgroundColor,
+    };
+}"""
+
+INSIDE = "element => element.contains(document.activeElement)"
+
+
+def dialog_section(page: Page) -> Locator:
+    return page.get_by_role("region", name="Dialog", exact=True)
+
+
+def toast_section(page: Page) -> Locator:
+    return page.get_by_role("region", name="Toast", exact=True)
+
+
+def open_dialog(page: Page, opener: str = "Delete 3 entries…") -> Locator:
+    dialog_section(page).get_by_role("button", name=opener, exact=True).click()
+    dialog = page.get_by_role("dialog")
+    expect(dialog).to_be_visible()
+    return dialog
+
+
+def raise_toasts(page: Page) -> tuple[Locator, Locator]:
+    section = toast_section(page)
+    section.get_by_role("button", name="Show a success", exact=True).click()
+    section.get_by_role("button", name="Show an error", exact=True).click()
+    success = page.get_by_role("status").filter(has_text="Entry saved")
+    error = page.get_by_role("alert").filter(has_text="Error: could not reach")
+    expect(success).to_be_visible()
+    expect(error).to_be_visible()
+    return success, error
+
+
+def rgba(colour: str) -> tuple[float, float, float, float]:
+    """The red, green, blue and alpha of a computed colour, from 0 to 1, in
+    either form the browser writes: `rgb(…)`, `rgba(…)` or `color(srgb …)`."""
+    legacy = re.fullmatch(r"rgba?\((\d+), (\d+), (\d+)(?:, ([\d.]+))?\)", colour)
+    if legacy:
+        red, green, blue = (int(value) / 255 for value in legacy.groups()[:3])
+        return red, green, blue, float(legacy.group(4) or 1)
+    modern = re.fullmatch(
+        r"color\(srgb ([\d.e-]+) ([\d.e-]+) ([\d.e-]+)(?: / ([\d.]+))?\)", colour
+    )
+    assert modern, f"not an sRGB colour: {colour}"
+    red, green, blue = (float(value) for value in modern.groups()[:3])
+    return red, green, blue, float(modern.group(4) or 1)
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_the_dialog_and_the_toast_are_shown(page: Page, viewport: str, theme: str):
+    open_gallery(page, theme)
+
+    dialog = open_dialog(page)
+    expect(dialog.get_by_role("heading", name="Delete 3 entries?")).to_be_visible()
+    capture(page, f"gallery-dialog-{theme}")
+    dialog.get_by_role("button", name="Cancel", exact=True).click()
+    expect(dialog).to_be_hidden()
+
+    raise_toasts(page)
+    capture(page, f"gallery-toast-{theme}")
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_a_dialog_reads_its_values(page: Page, theme: str):
+    open_gallery(page, theme)
+    dialog = open_dialog(page)
+
+    style = dialog.evaluate(FLOATING_STYLE)
+    box = dialog.bounding_box()
+    assert box is not None and box["width"] <= 480
+    assert style["maxWidth"] == "480px"
+    assert style["background"] == resolve(page, "--surface", "background-color")
+    assert style["borders"] == [resolve(page, "--border", "color")] * 4
+    assert style["borderWidths"] == ["1px"] * 4
+    assert style["radii"] == radii(page, "--radius-lg")
+    assert style["shadow"] == resolve(page, "--shadow-2", "box-shadow")
+
+    # The backdrop is --bg at 70 percent.
+    *backdrop, alpha = rgba(style["backdrop"])
+    *bg, _ = rgba(resolve(page, "--bg", "background-color"))
+    assert backdrop == pytest.approx(bg, abs=1 / 255)
+    assert alpha == pytest.approx(0.7, abs=0.01)
+
+    # The actions: right aligned, cancel first, the verb repeated.
+    cancel = dialog.get_by_role("button", name="Cancel", exact=True)
+    confirm = dialog.get_by_role("button", name="Delete entries", exact=True)
+    cancel_box, confirm_box = cancel.bounding_box(), confirm.bounding_box()
+    assert cancel_box is not None and confirm_box is not None
+    assert cancel_box["x"] < confirm_box["x"]
+    right = box["x"] + box["width"]
+    assert right - (confirm_box["x"] + confirm_box["width"]) == pytest.approx(21)
+
+
+def test_on_phone_a_dialog_is_a_sheet_at_the_bottom(page: Page):
+    page.set_viewport_size(VIEWPORTS["phone"])
+    open_gallery(page, "light")
+    dialog = open_dialog(page)
+
+    style = dialog.evaluate(FLOATING_STYLE)
+    box = dialog.bounding_box()
+    width, height = VIEWPORTS["phone"]["width"], VIEWPORTS["phone"]["height"]
+    assert style["position"] == "fixed"
+    assert box is not None
+    assert box["x"] == 0 and box["width"] == width
+    assert box["y"] + box["height"] == pytest.approx(height, abs=0.5)
+    # It stays where it is when the page behind it has scrolled.
+    page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+    moved = dialog.bounding_box()
+    assert moved is not None and moved["y"] == pytest.approx(box["y"], abs=0.5)
+
+
+def test_a_dialog_cancels_and_confirms_in_the_browser(page: Page):
+    open_gallery(page, "light")
+    opener = dialog_section(page).get_by_role(
+        "button", name="Archive the project…", exact=True
+    )
+
+    # Escape cancels, and focus returns to the button that opened it.
+    dialog = open_dialog(page, "Archive the project…")
+    page.keyboard.press("Escape")
+    expect(dialog).to_be_hidden()
+    expect(opener).to_be_focused()
+
+    # A click on the backdrop cancels; a click inside does not.
+    dialog = open_dialog(page, "Archive the project…")
+    dialog.get_by_text("Its sessions stay").click()
+    expect(dialog).to_be_visible()
+    page.mouse.click(4, 4)
+    expect(dialog).to_be_hidden()
+
+    # The confirming button is disabled while the work runs, then it closes.
+    dialog = open_dialog(page, "Archive the project…")
+    confirm = dialog.get_by_role("button", name="Archive project", exact=True)
+    confirm.click()
+    expect(confirm).to_be_disabled()
+    expect(dialog).to_be_hidden()
+    expect(opener).to_be_focused()
+    expect(dialog_section(page).get_by_text("Archived.")).to_be_visible()
+
+
+def test_focus_stays_inside_an_open_dialog(page: Page):
+    open_gallery(page, "light")
+    dialog = open_dialog(page)
+    buttons = dialog.get_by_role("button")
+    count = buttons.count()
+
+    assert dialog.evaluate(INSIDE), "focus did not move into the dialog"
+    seen = set()
+    for _ in range(count * 3):
+        page.keyboard.press("Tab")
+        assert dialog.evaluate(INSIDE), "Tab left the dialog"
+        seen.add(page.evaluate("document.activeElement.textContent"))
+    for _ in range(count * 2):
+        page.keyboard.press("Shift+Tab")
+        assert dialog.evaluate(INSIDE), "Shift+Tab left the dialog"
+    assert seen == {"Cancel", "Delete entries"}
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_a_toast_reads_its_values(page: Page, viewport: str, theme: str):
+    open_gallery(page, theme)
+    success, error = raise_toasts(page)
+
+    for toast in [success, error]:
+        style = toast.evaluate(FLOATING_STYLE)
+        assert style["background"] == resolve(page, "--surface", "background-color")
+        assert style["borders"] == [resolve(page, "--border-strong", "color")] * 4
+        assert style["borderWidths"] == ["1px"] * 4
+        assert style["radii"] == radii(page, "--radius-md")
+        assert style["shadow"] == resolve(page, "--shadow-1", "box-shadow")
+        assert style["maxWidth"] == "400px"
+
+    # The action is a text button in --info, weight 600.
+    action = error.get_by_role("button", name="Retry", exact=True)
+    action_style = action.evaluate(STYLE)
+    assert action_style["color"] == resolve(page, "--info", "color")
+    assert action_style["weight"] == "600"
+
+    # Newest lowest: the error, raised second, is under the success.
+    first, last = success.bounding_box(), error.bounding_box()
+    assert first is not None and last is not None
+    assert first["y"] + first["height"] <= last["y"]
+
+    size = VIEWPORTS[viewport]
+    nav_h = float(resolve(page, "--nav-h", "height").removesuffix("px"))
+    bottom = last["y"] + last["height"]
+    if viewport == "desktop":
+        # Bottom right, a small gap from each edge.
+        assert last["x"] > size["width"] / 2
+        assert 0 < size["width"] - (last["x"] + last["width"]) <= 32
+        assert 0 < size["height"] - bottom <= 32
+    else:
+        # Above the bottom tab bar, and inside the screen.
+        assert bottom <= size["height"] - nav_h
+        assert last["x"] >= 0 and last["x"] + last["width"] <= size["width"]
+        assert no_sideways_scroll(page), "the page scrolls sideways"
+
+
+def test_a_toast_action_dismisses_it_in_the_browser(page: Page):
+    open_gallery(page, "light")
+    success, error = raise_toasts(page)
+
+    error.get_by_role("button", name="Retry", exact=True).click()
+    expect(error).to_have_count(0)
+    success.get_by_role("button", name="Undo", exact=True).click()
+    expect(success).to_have_count(0)
