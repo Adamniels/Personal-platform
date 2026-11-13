@@ -75,13 +75,19 @@
 #                        has-decision, "approved and waits for your decision" and owner-decision; any other
 #                        reasons: a mention with them and owner-blocked. Exit 1 or another code: a transient pause.
 #   cap <pr> <slice>     a mention that the review rounds ran out, and owner-blocked.
-#   owner <pr> <slice>   a PR with an owner label or has-decision approved for its head: handled as merge is. The
-#                        gate cannot merge it, and its reasons say whether it is ready or stuck.
+#   owner <pr> <slice>   a PR with has-decision or owner-blocked approved for its head: handled as merge is. The
+#                        gate cannot merge it, and its reasons say whether it is ready or stuck. pending.sh offers
+#                        it before resume and new, so the owner label and the mention do not wait for the queue,
+#                        and no longer once the PR carries owner-merge or owner-decision without owner-blocked: it
+#                        was handed over for this head, and the next loop goes on to other work with no wait. One
+#                        carrying owner-blocked is offered last, every loop, and waits as below.
 #   (nothing)            idle: one mention per empty queue, on the most recently merged slice (without one, a log
 #                        line), then the poll interval.
 # Mentions go on the slice issue. Every mention about a PR (ready, refused, cap, owner, ci-ok waiting) is made once per
 # PR and head sha: agent-logs/owner-told holds "<pr> <sha>" lines (R42; the ci-ok wait uses "<pr> <sha>:ci", R52), and an item whose mention was already made
-# waits the poll interval instead of looping (R43b). After every item a dirty tree on the slice's own branch left by
+# waits the poll interval instead of looping (R43b). What still reaches that wait is chiefly an approved PR that
+# stays owner-blocked, offered every loop; a PR handed over with owner-merge or owner-decision does not, since
+# pending.sh no longer offers it. After every item a dirty tree on the slice's own branch left by
 # its implementer run is checkpointed, dirt anywhere else after a claude run is stashed with a mention, and a clean
 # tree is switched to main and fast-forwarded to refs/runner/main (a failure is an environment pause).
 #
@@ -757,7 +763,7 @@ ci_wait() {
 ci_clear() { [ -f "$ci_pending" ] && { grep -v "^$1 " "$ci_pending" > "$ci_pending.new"; mv -f "$ci_pending.new" "$ci_pending"; }; return 0; }
 
 # merge_item <pr> <slice>: a merge item and an owner item alike. For an owner item the gate cannot merge, since the
-# PR carries an owner label, but its reasons say whether the PR is ready for the owner or stuck, which the label
+# PR carries has-decision or owner-blocked, but its reasons say whether the PR is ready for the owner or stuck, which the label
 # alone does not: an approved PR whose ci-ok failed is not "ready to read and merge".
 merge_item() { # pr slice; head $cur_sha, labels $cur_labels
   local pr="$1" slice="$2" out rc reasons joined r owner_only=1 decision
