@@ -1,0 +1,88 @@
+{
+  "components": {
+    "schemas": {
+      "Health": {
+        "properties": {
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "WhoAmI": {
+        "properties": {
+          "account_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "account_id"
+        ],
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "title": "review",
+    "version": "0.1.0"
+  },
+  "openapi": "3.1.1",
+  "paths": {
+    "/review/api/health": {
+      "get": {
+        "description": "Needs no token. It answers whenever the process serves, and says nothing about what review depends on.",
+        "operationId": "health",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Health"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "summary": "Whether review serves",
+        "tags": [
+          "Review"
+        ]
+      }
+    },
+    "/review/api/whoami": {
+      "get": {
+        "description": "From the token alone. Without a valid token, 401 with an empty body.",
+        "operationId": "whoami",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WhoAmI"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "summary": "The account the request's token names",
+        "tags": [
+          "Review"
+        ]
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "Review"
+    }
+  ]
+}

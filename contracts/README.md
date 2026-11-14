@@ -74,4 +74,26 @@ UPDATE_CONTRACTS=1 uv run pytest tests/test_contract.py
 Without the variable the test only compares, and a missing or different file fails it. No caller
 tests against it yet; the first feature that calls the brain will.
 
+## review/
+
+Review's HTTP schema, what its page, and any later caller of review, is written against. Review is
+C#, so this is the same pin as `brain/` in another language.
+
+- `openapi.json`: the OpenAPI document review generates with `Microsoft.AspNetCore.OpenApi`, at
+  `GET /review/api/openapi.json`, with keys sorted, a two space indent and a trailing newline. The
+  route is mapped only when `REVIEW_EXPOSE_OPENAPI=1`, for the test and for regenerating this
+  file, so the running service serves it nowhere.
+
+Review's `ContractTests` check that the app still generates exactly these bytes, so a change to a
+route, its summary, its description or a response type fails the test until the file is
+regenerated on purpose and its diff reviewed. From `review/`:
+
+```zsh
+UPDATE_CONTRACTS=1 dotnet test --filter "FullyQualifiedName~ContractTests"
+```
+
+Without the variable the test only compares. The page's types in `review/web/src/api/schema.d.ts`
+are generated from this file, and its `schema.test.ts` fails when they are stale, see
+`review/README.md`.
+
 `scripts/ci/changed-areas.sh` maps a change here to every area that tests against it.

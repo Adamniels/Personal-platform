@@ -25,7 +25,12 @@ public static class ReviewApp
         ArgumentNullException.ThrowIfNull(settings);
         PageEndpoints.CheckBuild(webRoot);
 
-        var builder = WebApplication.CreateBuilder();
+        // Named for this assembly rather than whichever one started the process, a test host
+        // included, so the app is the same app either way: the schema's tags come from it.
+        var builder = WebApplication.CreateBuilder(new WebApplicationOptions
+        {
+            ApplicationName = typeof(ReviewApp).Assembly.GetName().Name,
+        });
         configure?.Invoke(builder);
 
         // snake_case on the wire, as the brain's and canary's JSON is.
@@ -34,6 +39,10 @@ public static class ReviewApp
         // An unhandled error is an RFC 9457 problem document, application/problem+json.
         builder.Services.AddProblemDetails();
         builder.Services.AddPlatformAuth(options => options.CoreUrl = settings.CoreUrl);
+        if (settings.ExposeOpenApi)
+        {
+            builder.Services.AddReviewOpenApi();
+        }
 
         var app = builder.Build();
         app.UseExceptionHandler();
@@ -46,6 +55,11 @@ public static class ReviewApp
 
         app.MapHealth();
         app.MapPages(webRoot);
+        if (settings.ExposeOpenApi)
+        {
+            app.MapOpenApi(ReviewOpenApi.Path);
+        }
+
         return app;
     }
 }
