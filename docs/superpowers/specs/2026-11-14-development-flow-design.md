@@ -250,17 +250,18 @@ Agreed in round 2 so far:
 - **Inside a feature one card runs at a time** (2026 11 14), since its cards build on each other
   and land in one branch. Different features and different projects run at the same time, as far as
   there are workers. Running a feature's independent cards side by side is left for later.
-- **Every card is read before anything is built** (2026 11 14). A fresh agent reads the card and
-  the code it touches and answers ready, has questions, each with its own recommendation, or too
+- **Every card is read before anything is built** (2026 11 14). A fresh agent reads the cards of a
+  feature together, or a card on its own alone, with the code they touch, and answers for each
+  card ready, has questions, each with its own recommendation, or too
   thin, with what is missing. With questions on, a card with questions or one that is too thin
   waits for the owner. With questions off, a card with questions starts and the agent goes with its
-  recommendations and records them, and a card that is too thin is refused: it gets the attention
-  label and a comment listing what is missing. A card that waits or is refused holds back only the
+  recommendations and records them, and a card that is too thin is refused: the card itself gets
+  the attention label and a comment listing what is missing. A card that waits or is refused holds back only the
   cards that depend on it.
 - **All cards of a feature are read at once, when it is switched on** (2026 11 14), not each as its
   turn comes. The owner gets every question in one batch while he is still there, a refusal comes
   before anything is built, and cards that contradict each other are caught. It costs one more run
-  per card, which round 4b weighs.
+  per feature, which round 4b weighs.
 - **Questions are answered on the page of what waits for him** (2026 11 14): each shows the agent's
   recommendation, with one action to accept it and a box for another answer. The answers are added
   to the card as a comment, where the building agent and a later reader find them.
@@ -298,7 +299,7 @@ Agreed in round 2 so far:
   | Preset | Questions | Lands in | Waits for the owner |
   |---|---|---|---|
   | Fully automatic | Off | Feature branch | Never |
-  | Guided, like this repository | Off | Feature branch | Sometimes, all three |
+  | Guided | Off | Feature branch | Sometimes, all three |
   | Only I merge | On | Feature branch | Always |
 
 ### Round 3: trust and safety
@@ -319,8 +320,9 @@ Agreed in round 3:
   catches it. Allowing real secrets and relying on scrubbing was the alternative: scrubbing only
   catches values it knows, and does nothing about an agent using a secret instead of printing it.
 - **Every worker belongs to exactly one project, from the moment it is created** (2026 11 14). A
-  project's cards go only to that project's workers, so no project waits for another's work, and
-  more workers for a project means more of its features built at once. Shared workers, with tags or
+  project's cards go only to that project's workers, so no project waits for another project's
+  worker, and more workers for a project means more of its features built at once. How many agents
+  run at once across all projects is a separate limit, see "Clarified after the builder check". Shared workers, with tags or
   lists to match them to projects, were considered and dropped at the owner's wish: a dedicated
   worker has exactly its project's tools, never holds another project's code, and can keep things
   from one card to the next, which round 4b may use.
@@ -423,9 +425,10 @@ Agreed in round 4:
   with what it chose, the alternative and why, and marked where the owner would want a say; what it
   tested and the result; the pages or screens the change affects; anything it had to install; and
   the follow ups it suggests, which the program can turn into attention issues.
-- **The program does not take the report on trust** (2026 11 14). It runs the project's tests
-  itself and uses its own result, takes the screenshots of the pages the report names itself, and
-  gives the reviewer the report together with the real diff. The report guides the program, and
+- **The software around the agent does not take the report on trust** (2026 11 14). The worker runs
+  the project's tests itself and takes the screenshots of the pages the report names, the program
+  uses those results and not the agent's claim, and it gives the reviewer the report together with
+  the real diff. The report guides the program, and
   nothing merges because an agent said so, which is how the second anti goal is met where nothing
   waits for the owner.
 - **Where the truth is kept** (2026 11 14). GitHub holds the work itself: the cards, their labels,
@@ -434,7 +437,8 @@ Agreed in round 4:
   program's database holds everything about doing the work: projects, settings and workers, the
   queue and the state of every card and run, reports, questions and answers, logs and usage. The
   program leaves a short readable trail on GitHub: a summary of the report on each pull request,
-  attention issues and refusals as real issues, and the owner's answers as a comment on the card. So
+  attention issues as real issues, a refusal or a stop as the attention label and a comment on the
+  card itself, and the owner's answers as a comment on the card. So
   GitHub alone explains what happened, and everything the program did leads back to a card. The
   trail is a copy for reading: for runs the database is right, for cards GitHub is. Everything on
   GitHub, as this repository's runner does it, cannot hold usage, logs or a queue across projects;
@@ -673,7 +677,7 @@ of layout is what was agreed.
 ### Round 8: verification
 
 Held on 2026 11 14 and done. That the worker runs the tests itself, that a fresh reviewer reads
-every pull request and that the program takes the screenshots were agreed in rounds 2 and 4. This
+every pull request and that the worker takes the screenshots were agreed in rounds 2 and 4. This
 round settled what the program checks before it merges.
 
 - **A card merges unattended only when all of this holds** (2026 11 14), the successor of this
@@ -776,6 +780,57 @@ Check these. Each was said to him in passing, and none was asked as a question.
 - **The program keeps the label and comment conventions of the current runner** where it can, so
   the waiting list built first keeps working when the engine arrives. Round 6 confirms it.
 
+## Clarified after the builder check
+
+On 2026 11 14 a fresh reader went through this document as someone who has to plan the build from
+it. What it found unclear is settled here. Each of these is a call made without the owner, for him
+to check, and where one differs from an earlier passage, this one holds.
+
+- **How many agents run at once, and when projects take turns.** There is one limit for the whole
+  installation, two to begin with. When more cards are ready than there are free places, the
+  projects that are active take turns, always, and not only when usage is tight: nothing reports
+  how much of the allowance is left, so the program cannot wait for that. The dispatcher in part 2
+  is built this way from the start.
+- **Reading is one run per feature, and a card is read again when it changes.** The run reads all
+  of a feature's cards and answers for each. The program remembers what each card said when it was
+  read. A card edited or commented on by a trusted account after that is read again before it
+  starts, alone, with the feature's notes; so is a card added to a feature that is already running.
+  "Not edited since it was read" in the merge check compares against the same record.
+- **A stopped or refused card is marked on the card itself**, with the attention label and a
+  comment. A new issue with the attention label is opened only for a decision the agent flagged on
+  a card that has already merged, which is what the owner described for Fodr.
+- **A feature's branch.** The program creates it from `main` when the feature's first card starts,
+  and opens the pull request to `main` at once, as a draft, so GitHub shows the feature growing.
+  When the last card is done the program brings `main` into the branch. If that conflicts, bringing
+  it in is a job for an agent, checked and reviewed like a card. Then the pull request is marked
+  ready and the feature is ready for the owner's review. Merges are merge commits throughout, as in
+  this repository, so one entry on `main` is one feature or one card on its own.
+- **The program watches a feature's branch as it watches `main`.** A commit there that it did not
+  merge itself pauses the project and reaches the owner. A card's own branch needs no watching: the
+  merge check asks for a review of exactly the commit being merged.
+- **The worker's key cannot change a project's CI workflows**, which GitHub guards with a
+  permission of its own. A card that needs to change one stops and says so. Whether a project may
+  allow it is a setting that is off, and can be added when a project needs it.
+- **The trusted checks run on a clean copy of the pushed commit**, in the same container, not in
+  the working copy the agent left. What the agent installed in the container is still there, which
+  is accepted; where a project has CI on GitHub, that is the independent environment.
+- **Units.** The daily budget of a project on the subscription is in tokens. The daily amount for
+  continuing on an API key is in money, by the estimate Claude Code reports for each run.
+- **Who a worker and the program's own loop act as.** Every project belongs to one user. A worker's
+  key leads to its project and so to that user, and the loop that watches GitHub works one user's
+  projects at a time, so every query still runs as a user, as "Multi user, and how isolation is
+  enforced" in `High-level/docs/platform-architecture.md` requires. "How a feature authenticates"
+  in `High-level/docs/feature-contract.md` speaks only of a user's token, so the slice that adds
+  the worker's key also adds this second way to that passage.
+- **What part 1 holds of the real program.** It registers the real GitHub App and links the owner's
+  GitHub account, both kept. It reads this repository's runner through one small piece that knows
+  the runner's labels and comments, which is thrown away in part 10. From the page the owner merges
+  and comments, and a comment starts the runner's own fix run; the page never writes a label the
+  runner owns. Which of the runner's conventions the program keeps for good is decided when part 2
+  is planned.
+- **"Guided" is a preset, not a copy of this repository**, whose cards land in `main` today. How
+  the platform is set up as a project is decided in part 10.
+
 ## How this document is kept
 
 Decided with the owner on 2026 11 14, to be tried on this feature and then written into
@@ -794,6 +849,8 @@ passage changes when this way of working has been tried.
 ## Changes
 
 - 2026 11 14: first version, after rounds 0 and 1.
+- 2026 11 14: builder check. Six passages that contradicted a later round were corrected in place,
+  and its questions are answered under "Clarified after the builder check".
 - 2026 11 14: round 9 added. Every round is done.
 - 2026 11 14: round 8 added.
 - 2026 11 14: round 7 added, with the mockups.
