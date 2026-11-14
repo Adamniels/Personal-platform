@@ -20,6 +20,11 @@ case "${1:-schedule}" in
     load_settings
     run_backup
     ;;
+  restore)
+    shift
+    . "$lib/restore.sh"
+    restore "$@"
+    ;;
   *)
     echo "usage: schedule | now | restore <database> <file> [--as <name>] [--replace] < private-key" >&2
     exit 2

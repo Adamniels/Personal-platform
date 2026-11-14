@@ -356,6 +356,81 @@ else
   bad no_secret_is_printed_or_passed_on_a_command_line "$problems"
 fi
 
+# --- Restoring each database the second backup holds under <name>_restored. ----------------------
+
+restore() {
+  POSTGRES_PASSWORD="$super_password" compose run --rm -T --no-deps -e POSTGRES_PASSWORD \
+    backup restore "$@" < "$tmp/identity"
+}
+
+problems=""
+for file in $run_files; do
+  database="$(printf '%s' "$file" | sed -E 's/^[0-9]{8}T[0-9]{6}Z-(.*)\.dump\.age$/\1/')"
+  if ! restore "$database" "$file" --as "${database}_restored" > "$tmp/restore-$database.log" 2>&1; then
+    problems="$problems $database: restore exited non zero: $(tail -n 3 "$tmp/restore-$database.log" | tr '\n' ' ');"
+    continue
+  fi
+  fingerprint "$database" > "$tmp/$database.original" 2>&1
+  fingerprint "${database}_restored" > "$tmp/$database.restored" 2>&1
+  if [ ! -s "$tmp/$database.original" ]; then
+    problems="$problems $database: no fingerprint;"
+  elif ! diff "$tmp/$database.original" "$tmp/$database.restored" > "$tmp/$database.diff"; then
+    problems="$problems $database differs from its copy: $(head -n 6 "$tmp/$database.diff" | tr '\n' ' ');"
+  fi
+done
+restored_problems="$problems"
+
+# --- a_table_under_forced_row_level_security_is_in_the_dump --------------------------------------
+
+got="$(sql probe_restored 2>&1 << 'SQL'
+SELECT string_agg(id || ':' || user_id, ',' ORDER BY id) FROM scoped
+SQL
+)"
+if [ "$got" = "1:1,2:2" ]; then
+  ok a_table_under_forced_row_level_security_is_in_the_dump
+else
+  bad a_table_under_forced_row_level_security_is_in_the_dump "probe_restored.scoped holds: $got"
+fi
+
+# --- a_restore_brings_back_exactly_what_was_dumped ------------------------------------------------
+
+# The app role logs in to the copy, and sees its own user's rows through the policy, as before.
+app_sees="$(printf '%s\n' 'BEGIN;' "SET LOCAL app.user_id = '2';" 'SELECT count(*) FROM scoped;' 'COMMIT;' |
+  as_role probe_app "$probe_password" probe_restored 2>&1)"
+[ "$app_sees" = 1 ] || restored_problems="$restored_problems probe_app sees $app_sees rows of probe_restored, not 1;"
+[ -n "$run_files" ] || restored_problems="$restored_problems no files to restore;"
+if [ -z "$restored_problems" ]; then
+  ok a_restore_brings_back_exactly_what_was_dumped
+else
+  bad a_restore_brings_back_exactly_what_was_dumped "$restored_problems"
+fi
+
+# --- a_restore_refuses_a_database_that_is_not_empty_without_replace ------------------------------
+
+probe_file="$(printf '%s\n' "$run_files" | grep -- '-probe\.dump\.age$')"
+echo "INSERT INTO scoped VALUES (3, 1, 'written after the backup')" | sql probe_restored > /dev/null 2>&1
+fingerprint probe_restored > "$tmp/refuse.before" 2>&1
+out="$(restore probe "$probe_file" --as probe_restored 2>&1)"
+code=$?
+fingerprint probe_restored > "$tmp/refuse.after" 2>&1
+problems=""
+[ "$code" -ne 0 ] || problems="$problems it exited 0;"
+diff -q "$tmp/refuse.before" "$tmp/refuse.after" > /dev/null || problems="$problems probe_restored changed;"
+printf '%s' "$out" | grep -q -- '--replace' || problems="$problems it does not name --replace: $out;"
+# With --replace, the same restore brings back what was dumped, the row written since gone.
+if restore probe "$probe_file" --as probe_restored --replace > "$tmp/replace.log" 2>&1; then
+  fingerprint probe_restored > "$tmp/replace.after" 2>&1
+  diff -q "$tmp/probe.original" "$tmp/replace.after" > /dev/null ||
+    problems="$problems after --replace probe_restored differs from probe: $(diff "$tmp/probe.original" "$tmp/replace.after" | head -n 4 | tr '\n' ' ');"
+else
+  problems="$problems --replace exited non zero: $(tail -n 3 "$tmp/replace.log" | tr '\n' ' ');"
+fi
+if [ -z "$problems" ]; then
+  ok a_restore_refuses_a_database_that_is_not_empty_without_replace
+else
+  bad a_restore_refuses_a_database_that_is_not_empty_without_replace "$problems"
+fi
+
 # --- a_failed_upload_is_a_failed_backup ---------------------------------------------------------
 
 earlier_success="$(jq -r .last_success_at "$tmp/status.json" 2> /dev/null)"
