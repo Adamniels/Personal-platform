@@ -102,7 +102,7 @@ problems() {
     elif [ "$area" = dotnet ]; then
       printf '%s\n' "$out" | sed -n 's/^dotnet_services=//p' | jq -e --arg n "$name" 'any(.[]; .name == $n)' > /dev/null 2>&1 ||
         echo "$dir: changed-areas.sh does not list $name in dotnet_services for it"
-    elif ! printf '%s\n' "$out" | grep -qx "$area=true"; then
+    elif ! grep -qx "$area=true" <<< "$out"; then
       echo "$dir: changed-areas.sh does not set area $area for it"
     fi
   done < <(jq -r '.services[] | "\(.dir) \(.area) \(.name)"' "$manifest" 2>/dev/null)
@@ -186,16 +186,19 @@ names="$(jq -r '.services[].name' "$repo/infra/services.json" 2>/dev/null | tr '
 if [ "$names" = "core canary brain review " ]; then ok "describes the core, canary, the brain and review, in that order"; else bad "describes the core, canary, the brain and review, in that order" "got: $names"; fi
 
 # Broken copies. expect <name> <pattern> <jq filter on the manifest> [<file in infra/> <sed script>]
-# copies the repository's four files and the services' folders into a fresh root, applies the
-# change, and expects a problem matching <pattern>. A filter jq cannot run is written as the
-# manifest itself, for a manifest that does not parse.
+# copies the repository's four files, its init scripts and the services' folders into a fresh
+# root, applies the change, and expects a problem matching <pattern>, so each copy is broken in the
+# one way its case names. A filter jq cannot run is written as the manifest itself, for a manifest
+# that does not parse. The match reads a here-string, not a pipe: under pipefail, grep -q leaving
+# at its first match can fail the writer, and with it the case.
 expect() {
   local name="$1" pattern="$2" filter="$3" file="${4:-}" script="${5:-}" root
   root="$tmp/$name"
-  mkdir -p "$root/infra" "$root/scripts/ci" "$root/scripts/agent"
+  mkdir -p "$root/infra/postgres/initdb" "$root/scripts/ci" "$root/scripts/agent"
   cp "$repo/scripts/ci/changed-areas.sh" "$root/scripts/ci/"
   cp "$repo/scripts/agent/services.sh" "$root/scripts/agent/"
   cp "$repo/infra/features.toml" "$repo/infra/Caddyfile" "$repo/infra/.env.example" "$root/infra/"
+  cp "$repo"/infra/postgres/initdb/*.sh "$root/infra/postgres/initdb/"
   jq -r '.services[].dir' "$repo/infra/services.json" | while IFS= read -r d; do mkdir -p "$root/$d"; done
   if ! jq "$filter" "$repo/infra/services.json" > "$root/infra/services.json" 2>/dev/null; then
     printf '%s' "$filter" > "$root/infra/services.json"
@@ -204,7 +207,7 @@ expect() {
     sed -E "$script" "$root/infra/$file" > "$root/infra/$file.new" && mv "$root/infra/$file.new" "$root/infra/$file"
   fi
   got="$(problems "$root")"
-  if printf '%s\n' "$got" | grep -qE "$pattern"; then
+  if grep -qE "$pattern" <<< "$got"; then
     ok "refuses $name"
   else
     bad "refuses $name" "expected /$pattern/, got: $(printf '%s' "$got" | tr '\n' ';')"
