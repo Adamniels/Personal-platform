@@ -2,7 +2,6 @@
 // `POST /review/api/cards/{id}/grades`, see "When a card comes back" in review/README.md.
 import { useMutation, useQuery } from "@tanstack/react-query";
 import type { components } from "../api/schema";
-import { relativeDue } from "../cards/when";
 import { useRefreshReview } from "../decks/decks";
 import { REVIEW, useClient } from "../providers";
 
@@ -129,13 +128,4 @@ function byName(groups: Map<string, DueGroup>): DueGroup[] {
 /** "1 card", "12 cards". */
 export function cards(count: number): string {
 	return count === 1 ? "1 card" : `${count} cards`;
-}
-
-/** When the next card is due, from the queue's own time, as a sentence:
- * "The next card is due in 3 days." */
-export function nextDueSentence(nextDue: string, asOf: string): string {
-	const when = relativeDue(nextDue, Date.parse(asOf));
-	return when === "now"
-		? "The next card is due now."
-		: `The next card is due ${when}.`;
 }

@@ -7,13 +7,12 @@ import { Button, Card, Chip, useToast } from "@platform/ui";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { isConflict, useClient } from "../providers";
 import { AppLink } from "./app-link";
-import { interval } from "./intervals";
+import { interval, nextDueSentence } from "./intervals";
 import {
 	cards,
 	type DueCard,
 	GRADES,
 	type Grade,
-	nextDueSentence,
 	type Queue,
 	useGrade,
 } from "./study";

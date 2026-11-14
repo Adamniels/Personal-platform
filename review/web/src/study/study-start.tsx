@@ -4,14 +4,8 @@
 import { Badge, Card, EmptyState } from "@platform/ui";
 import { useId } from "react";
 import { AppLink } from "./app-link";
-import {
-	cards,
-	type DueGroup,
-	groupDue,
-	nextDueSentence,
-	QUEUE_MAX,
-	useDue,
-} from "./study";
+import { nextDueSentence } from "./intervals";
+import { cards, type DueGroup, groupDue, QUEUE_MAX, useDue } from "./study";
 import styles from "./study.module.css";
 
 export function StudyStart() {

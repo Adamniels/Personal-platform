@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { interval } from "./intervals";
+import { interval, nextDueSentence } from "./intervals";
 
 const AS_OF = "2026-11-14T09:00:00.000Z";
 const SECOND = 1000;
@@ -42,5 +42,19 @@ describe("interval", () => {
 
 	it("writes a time already past as now", () => {
 		expect(interval(AS_OF, ahead(-5 * MINUTE))).toBe("now");
+	});
+});
+
+describe("nextDueSentence", () => {
+	it.each([
+		["The next card is due now.", 0],
+		["The next card is due in 1 minute.", 59 * SECOND],
+		["The next card is due in 1 minute.", MINUTE],
+		["The next card is due in 10 minutes.", 9 * MINUTE + 1],
+		["The next card is due in 59 minutes.", 59 * MINUTE],
+		["The next card is due in 2 hours.", 2 * HOUR],
+		["The next card is due in 3 days.", 3 * DAY],
+	])("says %s for a card due that far ahead", (sentence, ms) => {
+		expect(nextDueSentence(ahead(ms), AS_OF)).toBe(sentence);
 	});
 });
