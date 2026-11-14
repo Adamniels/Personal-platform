@@ -116,6 +116,18 @@ same "areas prints each folder and its area" "$rc $out" "0 Alpha core
 beta canary
 Gamma/svc brain"
 
+svc dotnet-services
+same "dotnet-services prints nothing without a C# service" "$rc $out" "0 "
+
+# The same manifest with gamma written in C#, given a CI init script, in a copy of the repository.
+cp -R "$repo" "$tmp/dotnet-repo"
+jq '.services[2].language = "dotnet" | .services[2].area = "dotnet"
+  | .services[2].ci = {"init_script": "infra/postgres/initdb/gamma.sh"}' \
+  "$repo/infra/services.json" > "$tmp/dotnet-repo/infra/services.json"
+out="$(bash "$tmp/dotnet-repo/scripts/agent/services.sh" dotnet-services 2>&1)"
+same "dotnet-services prints each C# service as one line of the fields dotnet.yml takes" "$out" \
+  "{\"name\":\"gamma\",\"dir\":\"Gamma/svc\",\"postgres\":true,\"init_script\":\"infra/postgres/initdb/gamma.sh\",\"migrate\":\"$tmp/record migrate\",\"database\":\"gamma\",\"owner\":\"gamma_owner\",\"app\":\"gamma_app\",\"owner_url\":\"GAMMA_OWNER_DATABASE_URL\",\"app_url\":\"\",\"owner_password\":\"GAMMA_OWNER_PASSWORD\",\"app_password\":\"GAMMA_APP_PASSWORD\"}"
+
 # run <name> migrate.
 svc run alpha migrate
 same "migrate exits with the command's code" "$rc" "0"

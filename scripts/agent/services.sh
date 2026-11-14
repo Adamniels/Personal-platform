@@ -9,7 +9,13 @@
 #   bash scripts/agent/services.sh areas            "<dir> <area>" per service, for changed-areas.sh
 #   bash scripts/agent/services.sh databases        "<database> <owner role> <app role>" per database
 #   bash scripts/agent/services.sh password-vars    every password variable infra/.env must set
+#   bash scripts/agent/services.sh dotnet-services  one compact JSON object per C# service
 #   bash scripts/agent/services.sh run <name> migrate|start
+#
+# A C# service is an entry with "language": "dotnet". `dotnet-services` prints, for each, the
+# fields .github/workflows/dotnet.yml takes, for changed-areas.sh: name, dir, postgres (whether it
+# has a database), init_script (its `ci.init_script`), migrate, the database's name, owner and app
+# roles, and the names of its URL and password variables, each "" when the entry has none.
 #
 # All in manifest order. `run` runs the entry's command from its folder, in the foreground, with
 # bash -c, and exits with the command's code. `migrate` sets the owner's database URL in the
@@ -30,7 +36,7 @@ root="$(cd "$(dirname "$0")/../.." && pwd -P)"
 manifest="$root/infra/services.json"
 
 die() { echo "services: $1" >&2; exit "${2:-1}"; }
-usage() { die "usage: services.sh names|ports|health|areas|databases|password-vars|run <name> migrate|start" 2; }
+usage() { die "usage: services.sh names|ports|health|areas|databases|password-vars|dotnet-services|run <name> migrate|start" 2; }
 
 command -v jq > /dev/null 2>&1 || die "jq is not installed"
 
@@ -66,6 +72,21 @@ case "${1:-}" in
   ports) query '.services[].port' ;;
   health) query '.services[] | .health // empty' ;;
   areas) query '.services[] | "\(.dir) \(.area)"' ;;
+  dotnet-services)
+    query '.services[] | select(.language == "dotnet") | {
+      name, dir,
+      postgres: (.database != null),
+      init_script: (.ci.init_script // ""),
+      migrate: (.migrate // ""),
+      database: (.database.name // ""),
+      owner: (.database.owner // ""),
+      app: (.database.app // ""),
+      owner_url: (.database.owner_url // ""),
+      app_url: (.database.app_url // ""),
+      owner_password: (.database.owner_password // ""),
+      app_password: (.database.app_password // "")
+    }' -c
+    ;;
   databases) query '.services[] | .database // empty | "\(.name) \(.owner) \(.app)"' ;;
   password-vars) query '.services[] | .database // empty | .owner_password, .app_password' ;;
   run)

@@ -1,5 +1,6 @@
 # The shared libraries' checks: lint, format, types and tests, in every Python
-# library under libs/python/. Runs only when libs/ changes. Why shared
+# library under libs/python/, and restore, format, build and tests in every C#
+# library under libs/dotnet/. Runs only when libs/ changes. Why shared
 # libraries exist, and what may go in one, is in "One repository" in
 # High-level/docs/platform-architecture.md.
 name: Libs
@@ -51,4 +52,45 @@ jobs:
             ) || status=1
           done
           [ "$found" = 1 ] || echo "no library under libs/python/, nothing to check"
+          exit "$status"
+
+  dotnet:
+    runs-on: ubuntu-latest
+
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+      DOTNET_NOLOGO: "1"
+
+    steps:
+      - uses: actions/checkout@v7
+
+      # Every C# folder pins the same SDK, which scripts/ci/dotnet-sdk.test.sh
+      # checks, so the library that always exists names it for all of them.
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          global-json-file: libs/dotnet/PlatformAuth/global.json
+
+      # The steps of dotnet.yml, in every library. Every library is checked,
+      # and the job fails if any one fails. The restore fails on a
+      # packages.lock.json that does not match the projects, instead of
+      # updating it, and nothing after it restores again.
+      - name: Restore, format, build and tests
+        run: |
+          set -uo pipefail
+          status=0
+          found=0
+          for dir in libs/dotnet/*/; do
+            ls "$dir"*.slnx > /dev/null 2>&1 || continue
+            found=1
+            echo "== $dir"
+            (
+              cd "$dir" &&
+                { [ ! -f .config/dotnet-tools.json ] || dotnet tool restore; } &&
+                dotnet restore --locked-mode &&
+                dotnet format --verify-no-changes --no-restore &&
+                dotnet build --no-restore -c Release &&
+                dotnet test --no-build --no-restore -c Release
+            ) || status=1
+          done
+          [ "$found" = 1 ] || echo "no library under libs/dotnet/, nothing to check"
           exit "$status"

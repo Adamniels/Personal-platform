@@ -1,0 +1,176 @@
+# One C# folder's checks: restore against the lock files, format, build with the analyzers as the
+# linter, and tests, against a real Postgres when the service has a database. Called by ci.yml once
+# for each C# service in infra/services.json whose code or dependencies changed, with the fields
+# changed-areas.sh reads from its manifest entry, so a C# service is checked by its entry alone.
+# The C# libraries under libs/dotnet/ are checked by libs.yml with the same steps.
+name: .NET
+
+on:
+  workflow_call:
+    inputs:
+      name:
+        description: The service's name in infra/services.json.
+        type: string
+        required: true
+      dir:
+        description: The C# folder, holding global.json and the solution.
+        type: string
+        required: true
+      postgres:
+        description: Whether the service has a database, and so a Postgres to test against.
+        type: boolean
+        default: false
+      init_script:
+        description: The script creating its database and roles, the entry's ci.init_script.
+        type: string
+        default: ""
+      migrate:
+        description: The entry's migrate command, run from dir as the owner.
+        type: string
+        default: ""
+      database:
+        description: The database's name.
+        type: string
+        default: ""
+      owner:
+        description: The owner role.
+        type: string
+        default: ""
+      app:
+        description: The app role.
+        type: string
+        default: ""
+      owner_url:
+        description: The variable the owner's connection string goes in.
+        type: string
+        default: ""
+      app_url:
+        description: The variable the app's connection string goes in.
+        type: string
+        default: ""
+      owner_password:
+        description: The variable the init script reads the owner's password from.
+        type: string
+        default: ""
+      app_password:
+        description: The variable the init script reads the app's password from.
+        type: string
+        default: ""
+
+# Read only: no job here writes to the repository or to GitHub.
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        # Must match the image in infra/compose.yaml. An empty image starts no container, for a
+        # service without a database.
+        image: ${{ inputs.postgres && 'postgres:18' || '' }}
+        env:
+          POSTGRES_PASSWORD: ci-only-superuser
+        ports:
+          - "5432:5432"
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 15
+
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+      DOTNET_NOLOGO: "1"
+
+    defaults:
+      run:
+        working-directory: ${{ inputs.dir }}
+
+    steps:
+      - uses: actions/checkout@v7
+
+      # The SDK the folder's own global.json pins, the newest patch of its feature band.
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          global-json-file: ${{ inputs.dir }}/global.json
+
+      # Throwaway passwords for a database that lives as long as the job. The variable names come
+      # from the manifest entry, so they are set here, for the steps that need them, rather than
+      # written into this file. The owner's string is set only on the migrate step, and the
+      # superuser's only on the test step.
+      - name: Name the database's connection strings
+        if: inputs.postgres
+        env:
+          NAME: ${{ inputs.name }}
+          DATABASE: ${{ inputs.database }}
+          OWNER: ${{ inputs.owner }}
+          APP: ${{ inputs.app }}
+          APP_URL: ${{ inputs.app_url }}
+        run: |
+          set -euo pipefail
+          admin="$(printf '%s' "$NAME" | tr '[:lower:]-' '[:upper:]_')_TEST_ADMIN_DATABASE_URL"
+          {
+            echo "ADMIN_URL_VAR=$admin"
+            echo "OWNER_URL_VALUE=postgres://$OWNER:ci-only-owner@127.0.0.1:5432/$DATABASE"
+            if [ -n "$APP_URL" ]; then
+              echo "$APP_URL=postgres://$APP:ci-only-app@127.0.0.1:5432/$DATABASE"
+            fi
+          } >> "$GITHUB_ENV"
+
+      # Service containers start before the checkout exists, so the init script compose mounts
+      # runs here instead, from the runner, as brain.yml runs brain.sh.
+      - name: Create the database and roles
+        if: inputs.postgres
+        working-directory: .
+        env:
+          PGHOST: 127.0.0.1
+          PGPASSWORD: ci-only-superuser
+          POSTGRES_USER: postgres
+          POSTGRES_DB: postgres
+          INIT_SCRIPT: ${{ inputs.init_script }}
+          OWNER_PASSWORD_VAR: ${{ inputs.owner_password }}
+          APP_PASSWORD_VAR: ${{ inputs.app_password }}
+        run: |
+          set -euo pipefail
+          export "$OWNER_PASSWORD_VAR=ci-only-owner" "$APP_PASSWORD_VAR=ci-only-app"
+          bash "$INIT_SCRIPT"
+
+      - name: Restore the tools
+        run: |
+          if [ -f .config/dotnet-tools.json ]; then
+            dotnet tool restore
+          fi
+
+      # Fails on a packages.lock.json that does not match the projects, instead of updating it,
+      # so the lock files are what gets tested.
+      - name: Restore
+        run: dotnet restore --locked-mode
+
+      - name: Format
+        run: dotnet format --verify-no-changes --no-restore
+
+      # The SDK's analyzers at latest-recommended, with warnings as errors, are the lint.
+      - name: Build
+        run: dotnet build --no-restore -c Release
+
+      # The command itself, on the job's real database, as the owner.
+      - name: Migrate
+        if: inputs.postgres && inputs.migrate != ''
+        env:
+          OWNER_URL_VAR: ${{ inputs.owner_url }}
+          MIGRATE: ${{ inputs.migrate }}
+        run: |
+          set -euo pipefail
+          export "$OWNER_URL_VAR=$OWNER_URL_VALUE"
+          bash -c "$MIGRATE"
+
+      # The superuser, for a test harness that creates a database per test, only on this step.
+      - name: Test
+        run: |
+          set -euo pipefail
+          if [ -n "${ADMIN_URL_VAR:-}" ]; then
+            export "$ADMIN_URL_VAR=postgres://postgres:ci-only-superuser@127.0.0.1:5432/postgres"
+          fi
+          dotnet test --no-build --no-restore -c Release
