@@ -42,9 +42,7 @@ def test_review_is_in_the_navigation_and_opens(
     tabs = page.get_by_role("tablist", name="Review sections").get_by_role("tab")
     expect(tabs).to_have_text(TABS)
     expect(tabs.first).to_have_attribute("aria-selected", "true")
-    expect(
-        page.get_by_role("tabpanel").get_by_text("Nothing to study yet")
-    ).to_be_visible()
+    expect(page.get_by_role("tabpanel").get_by_text("Nothing due")).to_be_visible()
 
     capture(page, "review-shell")
 
@@ -55,7 +53,7 @@ def test_each_tab_has_its_address(page: Page, invite_code: str):
     for path, tab, empty in [
         ("/review/cards", "Cards", "Make a deck first"),
         ("/review/decks", "Decks", "No decks yet"),
-        ("/review/study", "Study", "Nothing to study yet"),
+        ("/review/study", "Study", "Nothing due"),
     ]:
         page.goto(path)
         expect(page.get_by_role("tab", name=tab, exact=True)).to_have_attribute(
