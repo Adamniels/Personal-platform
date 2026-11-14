@@ -220,6 +220,7 @@ async fn connect_database() -> Result<PgPool, Box<dyn Error>> {
 #[template(path = "front.html")]
 struct FrontPage {
     cards: Vec<Card>,
+    now: OffsetDateTime,
 }
 
 // The front page, composed here in one response: every feature with display
@@ -236,6 +237,7 @@ async fn root(State(state): State<AppState>, session: session::Session) -> pages
     .await;
     pages::Page(FrontPage {
         cards: fetched.into_iter().map(Card::from_fetched).collect(),
+        now: OffsetDateTime::now_utc(),
     })
 }
 
@@ -344,4 +346,118 @@ async fn pending_migrations(
         .filter(|migration| !migration.migration_type.is_down_migration())
         .filter(|migration| !applied.contains(&migration.version))
         .collect())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use askama::Template;
+    use cards::{ReviewCard, ReviewDeck};
+
+    // 2027-01-15 08:00:00 UTC.
+    fn now() -> OffsetDateTime {
+        OffsetDateTime::from_unix_timestamp(1_800_000_000).unwrap()
+    }
+
+    fn render(card: ReviewCard) -> String {
+        FrontPage {
+            cards: vec![Card::Review(card)],
+            now: now(),
+        }
+        .render()
+        .unwrap()
+    }
+
+    fn deck(name: &str, due_now: u32) -> ReviewDeck {
+        ReviewDeck {
+            name: name.into(),
+            due_now,
+        }
+    }
+
+    #[test]
+    fn the_review_card_renders_what_is_due() {
+        let body = render(ReviewCard {
+            due_now: 12,
+            due_today: 18,
+            next_due_at: Some(now() + time::Duration::hours(1)),
+            decks: vec![
+                deck("Networks", 1),
+                deck("Real Time Systems", 6),
+                deck("<b>Concurrent</b> Algorithms", 4),
+                deck("Compilers", 1),
+            ],
+        });
+
+        assert!(body.contains(r#"<a href="/review">Review</a>"#), "{body}");
+        assert!(
+            body.contains(r#"<span class="count">12</span> due now"#),
+            "{body}"
+        );
+        assert!(body.contains("6 more later today"), "{body}");
+        // Up to three decks with the most due, ties by name: Compilers
+        // before Networks, which is left out.
+        let real_time = body.find("Real Time Systems").unwrap();
+        let concurrent = body.find("Concurrent").unwrap();
+        let compilers = body.find("Compilers").unwrap();
+        assert!(real_time < concurrent && concurrent < compilers, "{body}");
+        assert!(!body.contains("Networks"), "{body}");
+        // Every value escaped.
+        assert!(!body.contains("<b>"), "{body}");
+        assert!(
+            body.contains("&#60;b&#62;Concurrent&#60;/b&#62; Algorithms"),
+            "{body}"
+        );
+        assert!(
+            body.contains(r#"<a class="action primary" href="/review">Start review</a>"#),
+            "{body}"
+        );
+        // Something due is not nothing due.
+        assert!(!body.contains("Nothing due"), "{body}");
+        assert!(!body.contains("Next in"), "{body}");
+
+        // Nothing later today says nothing about it.
+        let body = render(ReviewCard {
+            due_now: 3,
+            due_today: 3,
+            next_due_at: None,
+            decks: vec![deck("Rust", 3)],
+        });
+        assert!(
+            body.contains(r#"<span class="count">3</span> due now"#),
+            "{body}"
+        );
+        assert!(!body.contains("later today"), "{body}");
+    }
+
+    #[test]
+    fn the_review_card_with_nothing_due_says_when_the_next_comes() {
+        let body = render(ReviewCard {
+            due_now: 0,
+            due_today: 2,
+            next_due_at: Some(now() + time::Duration::hours(3)),
+            decks: vec![],
+        });
+
+        assert!(body.contains("Nothing due"), "{body}");
+        assert!(body.contains("Next in 3 hours"), "{body}");
+        assert!(!body.contains("due now"), "{body}");
+        assert!(!body.contains("Start review"), "{body}");
+        assert!(!body.contains("No cards yet"), "{body}");
+
+        // With no card scheduled at all, there are no cards yet.
+        let body = render(ReviewCard {
+            due_now: 0,
+            due_today: 0,
+            next_due_at: None,
+            decks: vec![],
+        });
+        assert!(body.contains("Nothing due"), "{body}");
+        assert!(body.contains("No cards yet"), "{body}");
+        assert!(
+            body.contains(r#"<a class="action" href="/review/cards">Add cards</a>"#),
+            "{body}"
+        );
+        assert!(!body.contains("Next in"), "{body}");
+    }
 }

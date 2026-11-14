@@ -25,6 +25,33 @@
     <p>Token valid until {{ canary.valid_until() }} UTC</p>
     <p>Key <code>{{ canary.key_id_prefix() }}</code></p>
   </article>
+{%- when Card::Review(review) %}
+  {%- if review.due_now > 0 %}
+  <article class="card review needs-you">
+    <h2><a href="/review">Review</a></h2>
+    <p class="key-fact"><span class="count">{{ review.due_now }}</span> due now</p>
+    {%- if let Some(later) = review.later_today() %}
+    <p class="muted">{{ later }} more later today</p>
+    {%- endif %}
+    <ul class="rows">
+    {%- for deck in review.top_decks() %}
+      <li><span class="name">{{ deck.name }}</span><span class="number">{{ deck.due_now }}</span></li>
+    {%- endfor %}
+    </ul>
+    <a class="action primary" href="/review">Start review</a>
+  </article>
+  {%- else %}
+  <article class="card review">
+    <h2><a href="/review">Review</a></h2>
+    <p class="key-fact">Nothing due</p>
+    {%- if let Some(next) = review.next_due_in(*now) %}
+    <p class="muted">Next {{ next }}</p>
+    {%- else %}
+    <p class="muted">No cards yet</p>
+    <a class="action" href="/review/cards">Add cards</a>
+    {%- endif %}
+  </article>
+  {%- endif %}
 {%- when Card::Unavailable { name } %}
   {#- The empty state rule, on one line: e2e/tests/test_style.py adds the
       same markup to a real page, and tests/front_page.rs pins it. #}
