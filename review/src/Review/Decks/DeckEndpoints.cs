@@ -75,15 +75,16 @@ public static class DeckEndpoints
             return broken.Problem();
         }
 
+        var user = context.UserId();
         var now = time.GetUtcNow();
         var id = Guid.CreateVersion7(now);
         try
         {
-            return TypedResults.Created((string?)null, await db.InUserTransaction(context.UserId(), async transaction =>
+            return TypedResults.Created((string?)null, await db.InUserTransaction(user, async transaction =>
             {
                 await transaction.Connection!.ExecuteAsync(new CommandDefinition(
                     "INSERT INTO decks (id, user_id, name, created_at) VALUES (@id, @user, @name, @now)",
-                    new { id, user = context.UserId(), name, now }, transaction, cancellationToken: cancellationToken));
+                    new { id, user, name, now }, transaction, cancellationToken: cancellationToken));
                 return await Read(transaction, id, cancellationToken);
             }, cancellationToken));
         }
