@@ -158,6 +158,8 @@ is a migration that adds its row.
 | `decided`      | decision   | 3        | 1        |
 | `worked`       | activity   | 1        | 0        |
 | `contradicted` | judgment   | 3        | 0        |
+| `recalled`     | assessment | 2        | 1        |
+| `forgot`       | assessment | 2        | -1       |
 
 `edited`, `retired`, `restored`, `confirmed` and `contradicted` are the brain's own: they record
 what the owner did to an item, with `subject_item` naming it. `contradicted` makes the

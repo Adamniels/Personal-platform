@@ -16,7 +16,7 @@ from psycopg_pool import AsyncConnectionPool
 
 from brain import db
 from tests.conftest import Caller
-from tests.harness import admin_connection
+from tests.harness import admin_connection, owner_connection
 
 ALICE = uuid.UUID("0190a8f0-0000-7000-8000-00000000a11c")
 BOB = uuid.UUID("0190a8f0-0000-7000-8000-000000000b0b")
@@ -565,5 +565,53 @@ def test_every_verb_declares_strength_and_polarity(database: str) -> None:
         }
 
     documented = documented_verbs()
-    assert len(documented) == 17
+    assert len(documented) == 19
     assert seeded == documented
+
+
+def test_the_assessment_verbs_are_seeded(database: str) -> None:
+    # "Seven kinds of event" in event-model.md: a review grade is self graded,
+    # so medium evidence, either way.
+    with admin_connection(database) as conn:
+        seeded = conn.execute(
+            "SELECT verb, kind, strength, polarity FROM verbs"
+            " WHERE kind = 'assessment' ORDER BY verb"
+        ).fetchall()
+
+    assert seeded == [("forgot", "assessment", 2, -1), ("recalled", "assessment", 2, 1)]
+
+
+@pytest.mark.parametrize("verb", ["recalled", "forgot"])
+def test_an_assessment_event_is_recorded(
+    verb: str, calling: Callable[[uuid.UUID], Caller]
+) -> None:
+    alice = calling(ALICE)
+    body = event(
+        verb=verb,
+        topic="postgres-indexing",
+        origin="review",
+        run=...,
+        evidence="Reviewed the card 'What makes an index only scan fall back to the heap?'.",
+        payload={"grade": "good" if verb == "recalled" else "again"},
+    )
+
+    recorded = record(alice, body)
+
+    assert recorded["verb"] == verb
+    assert recorded["origin"] == "review"
+    assert recorded["topic"]["slug"] == "postgres-indexing"
+    assert recorded["evidence"] == body["evidence"]
+    assert recorded["payload"] == body["payload"]
+    assert timeline(alice) == [recorded]
+
+
+def test_a_verb_of_an_unknown_kind_cannot_be_added(database: str) -> None:
+    # The kinds stay closed: widening them is a migration, as this one was.
+    with (
+        owner_connection(database) as conn,
+        pytest.raises(psycopg.errors.CheckViolation, match="verbs_kind_check"),
+    ):
+        conn.execute(
+            "INSERT INTO verbs (verb, kind, strength, polarity)"
+            " VALUES ('quizzed', 'quiz', 2, 1)"
+        )
