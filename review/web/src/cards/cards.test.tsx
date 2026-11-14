@@ -256,6 +256,44 @@ describe("a card is edited in place and deleted after asking", () => {
 		).toEqual([1, 2]);
 	});
 
+	test("after a refusal, Save again in the same form is refused too, so the change made elsewhere is kept", async () => {
+		const deck = platform.addDeck("Real Time Systems");
+		platform.addTopic("Scheduling");
+		const card = platform.addCard(deck, {
+			front: "What is EDF?",
+			back: "Earliest deadline first",
+			topics: [SCHEDULING],
+		});
+		openAt("/review/cards", platform);
+		await rowOf("What is EDF?");
+
+		// Changed in another tab after the list was read.
+		Object.assign(card, { back: "Changed elsewhere", version: 2 });
+
+		fireEvent.click(
+			within(await rowOf("What is EDF?")).getByRole("button", { name: "Edit" }),
+		);
+		const edit = screen.getByRole("form", { name: "Edit card" });
+		await within(edit).findByRole("button", { name: "Remove Scheduling" });
+		fireEvent.click(within(edit).getByRole("button", { name: "Save" }));
+		await screen.findByRole("alert");
+		await settle();
+
+		// The refusal refreshed the list, and the form is still open on the
+		// copy it was opened with. Saving it again must not overwrite.
+		expect(screen.getByRole("form", { name: "Edit card" })).toBe(edit);
+		fireEvent.click(within(edit).getByRole("button", { name: "Save" }));
+		await settle();
+
+		const patches = platform.callsTo("PATCH", "/review/api/cards");
+		expect(
+			patches.map((call) => (call.body as { version: number }).version),
+		).toEqual([1, 1]);
+		expect(card.back).toBe("Changed elsewhere");
+		expect(card.version).toBe(2);
+		expect(screen.getByRole("form", { name: "Edit card" })).toBe(edit);
+	});
+
 	test("Delete asks first, then deletes the card and says so", async () => {
 		const deck = platform.addDeck("Real Time Systems");
 		const card = platform.addCard(deck, {

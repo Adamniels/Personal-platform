@@ -62,6 +62,12 @@ export function CardForm({
 	const [topics, setTopics] = useState<PickedTopic[]>(
 		card?.topics.map(({ slug, name }) => ({ slug, name })) ?? [],
 	);
+	// The card as the form was opened on it, so its version stays the one the
+	// fields above were read at. The card prop is refreshed under an open form,
+	// after a 409 among others, and sending its newer version with these older
+	// fields would overwrite the change that caused the refusal. Editing again
+	// from a fresh form starts from the current card.
+	const [opened] = useState(card);
 	const [errors, setErrors] = useState<Errors>({});
 	const [saving, setSaving] = useState(false);
 
@@ -127,10 +133,10 @@ export function CardForm({
 				back: back.trim(),
 				topics,
 			};
-			if (card) {
+			if (opened) {
 				await editCard.mutateAsync({
-					id: card.id,
-					version: card.version,
+					id: opened.id,
+					version: opened.version,
 					...fields,
 				});
 				toast.success("Card saved");
