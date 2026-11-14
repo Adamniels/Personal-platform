@@ -2,7 +2,7 @@
 
 Status: idea. The shape is described, almost nothing is modelled, and nothing is built.
 
-Last updated: 2026 11 12
+Last updated: 2026 11 14
 
 Desk is where the owner sits down to work through the day: a calendar to plan time in, sessions to
 do the work in, projects to organise it, and a review space to make it stick. This document holds
@@ -37,10 +37,9 @@ Two things follow, and they are the test to hold any later design against:
 
 ## What desk is, and what it is not
 
-**One feature.** Projects, sessions, the calendar view and review reference each other's records
-constantly: a session belongs to a project, a project lists its sessions, a kanban card links to
-the sessions spent on it, and review reads questions written inside sessions. Split across
-features, every one of those links would cross a feature boundary, and
+**One feature.** Projects, sessions and the calendar view reference each other's records
+constantly: a session belongs to a project, a project lists its sessions, and a kanban card links
+to the sessions spent on it. Split across features, every one of those links would cross a feature boundary, and
 `High-level/docs/feature-contract.md` puts a boundary where things reach each other now and then,
 not where they need each other to draw every page: each link would be a call that can fail, with
 nothing kept consistent across two stores. Kept together they are joins inside one domain.
@@ -127,13 +126,8 @@ area, topic, date and so on. Which views exist beyond these two is open.
 
 ## Review
 
-A space of its own for working through the questions written in sessions, closer to flashcards
-than to reading notes back. The owner chooses what to work on: a particular day, one area,
-particular sessions, and other ways still to be found.
-
-The rules are all open: the scheduling, whether review is tracked per question or per session, and
-how due reviews reach the owner. The notification service in
-`High-level/docs/feature-contract.md` is the likely answer to the last one.
+Review is its own feature, planned on 2026-11-13, not a part of desk. It is described in
+`review/README.md`.
 
 ## Open, and deliberately later
 
