@@ -71,6 +71,7 @@ public static class ReviewApp
         app.MapDecks();
         app.MapCards();
         app.MapGrades();
+        app.MapQueue();
         app.MapPages(webRoot);
         if (settings.ExposeOpenApi)
         {

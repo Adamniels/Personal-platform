@@ -142,6 +142,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/review/api/queue": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The cards due now
+         * @description The cards due at or before now, oldest due first, at most 200, each as a single read answers it plus when each grade would bring it back, and total, how many are due in all. Narrowed to a deck by ?deck=<id>, to a topic by ?topic=<slug>, or both, total with them. 422 for a topic that is no slug.
+         */
+        get: operations["getQueue"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/review/api/whoami": {
         parameters: {
             query?: never;
@@ -249,6 +269,11 @@ export interface components {
         };
         DeckInput: {
             name: null | string;
+        };
+        DueCards: {
+            cards: components["schemas"]["CardWithPreviews"][];
+            /** Format: int32 */
+            total: number;
         };
         GradeInput: {
             /** Format: int32 */
@@ -779,6 +804,45 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Health"];
+                };
+            };
+        };
+    };
+    getQueue: {
+        parameters: {
+            query?: {
+                deck?: string;
+                topic?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DueCards"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
                 };
             };
         };
