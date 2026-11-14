@@ -16,9 +16,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
-    # Throwaway values for a stack that lives as long as the job. Each owner's
-    # string is set only on its migrate step, as in core.yml and brain.yml, and
-    # the brain's app string only on the step that starts it.
+    # Throwaway values for a stack that lives as long as the job. Each
+    # service's owner and app strings are built by services.sh from
+    # infra/.env, for its migrate and its start alone. The core's app string
+    # here is only written into Core/.env.
     env:
       CORE_APP_DATABASE_URL: postgres://core_app:ci-only-app@127.0.0.1:5432/core
       # Every compile reads the checked in Core/.sqlx cache. Keygen builds the
@@ -52,9 +53,7 @@ jobs:
         with:
           workspaces: Core
 
-      # 0.0.0.0 because Caddy runs in a container, so its traffic arrives on
-      # the Docker bridge and not on loopback. The runner is thrown away
-      # afterwards, so binding on every interface is safe here.
+      # 0.0.0.0 for the reason given at "Migrate and start every service".
       - name: Write Core/.env
         working-directory: Core
         run: |
@@ -105,58 +104,49 @@ jobs:
           echo "postgres never accepted core_owner over TCP" >&2
           exit 1
 
-      - name: Migrate
-        working-directory: Core
-        env:
-          CORE_OWNER_DATABASE_URL: postgres://core_owner:ci-only-owner@127.0.0.1:5432/core
-        run: cargo run --locked -- migrate
-
-      # The core reads Core/.env from its working directory.
-      - name: Start the core
-        working-directory: Core
-        run: nohup cargo run --locked -q > "$RUNNER_TEMP/core.log" 2>&1 &
-
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           version: "0.12.19"
 
-      - name: Start canary
-        working-directory: canary
-        run: nohup uv run uvicorn canary.app:app --host 0.0.0.0 --port 8081 > "$RUNNER_TEMP/canary.log" 2>&1 &
+      # Every service in infra/services.json, in its order: migrated as its
+      # owner role, then started in the background as its app role, each
+      # database URL built by services.sh from infra/.env above. HOST=0.0.0.0
+      # because Caddy runs in a container, so its traffic arrives on the
+      # Docker bridge and not on loopback; the runner is thrown away
+      # afterwards, so binding on every interface is safe here. The core
+      # reads its address from Core/.env instead.
+      - name: Migrate and start every service
+        run: |
+          for name in $(bash scripts/agent/services.sh names); do
+            echo "== $name"
+            bash scripts/agent/services.sh run "$name" migrate
+            HOST=0.0.0.0 nohup bash scripts/agent/services.sh run "$name" start > "$RUNNER_TEMP/$name.log" 2>&1 &
+          done
 
-      - name: Migrate the brain
-        working-directory: Brain
-        env:
-          BRAIN_OWNER_DATABASE_URL: postgres://brain_owner:ci-only-brain-owner@127.0.0.1:5432/brain
-        run: uv run brain migrate
-
-      # The brain opens its pool at startup, as brain_app, and refuses to
-      # start without it.
-      - name: Start the brain
-        working-directory: Brain
-        env:
-          BRAIN_APP_DATABASE_URL: postgres://brain_app:ci-only-brain-app@127.0.0.1:5432/brain
-        run: nohup uv run uvicorn brain.app:app --host 0.0.0.0 --port 8082 > "$RUNNER_TEMP/brain.log" 2>&1 &
-
-      # /login rather than /, which answers 303 while signed out, and the
-      # brain's health, since nothing else waits for the brain. -k because
-      # Caddy's local CA is not trusted here.
+      # Every service's health path through Caddy, /login for the core
+      # rather than /, which answers 303 while signed out. -k because Caddy's
+      # local CA is not trusted here.
       - name: Wait for the platform
         run: |
+          paths="$(bash scripts/agent/services.sh health)"
           for _ in $(seq 1 180); do
-            if [ "$(curl -ks -o /dev/null -w '%{http_code}' https://platform.test/login)" = 200 ] &&
-              [ "$(curl -ks -o /dev/null -w '%{http_code}' https://platform.test/brain/api/health)" = 200 ]; then
+            up=true
+            for health_path in $paths; do
+              if [ "$(curl -ks -o /dev/null -w '%{http_code}' "https://platform.test$health_path")" != 200 ]; then
+                up=false
+                break
+              fi
+            done
+            if [ "$up" = true ]; then
               exit 0
             fi
             sleep 2
           done
-          echo "platform.test/login or /brain/api/health never answered 200" >&2
-          echo "--- core log" >&2
-          tail -n 50 "$RUNNER_TEMP/core.log" >&2 || true
-          echo "--- canary log" >&2
-          tail -n 50 "$RUNNER_TEMP/canary.log" >&2 || true
-          echo "--- brain log" >&2
-          tail -n 50 "$RUNNER_TEMP/brain.log" >&2 || true
+          echo "platform.test never answered 200 on every one of: $paths" >&2
+          for name in $(bash scripts/agent/services.sh names); do
+            echo "--- $name log" >&2
+            tail -n 50 "$RUNNER_TEMP/$name.log" >&2 || true
+          done
           exit 1
 
       - name: Install the browser
@@ -178,12 +168,10 @@ jobs:
       - name: Show the server logs
         if: failure()
         run: |
-          echo "--- core log"
-          tail -n 100 "$RUNNER_TEMP/core.log" || true
-          echo "--- canary log"
-          tail -n 100 "$RUNNER_TEMP/canary.log" || true
-          echo "--- brain log"
-          tail -n 100 "$RUNNER_TEMP/brain.log" || true
+          for name in $(bash scripts/agent/services.sh names); do
+            echo "--- $name log"
+            tail -n 100 "$RUNNER_TEMP/$name.log" || true
+          done
 
       - name: Upload the screenshots
         if: always()

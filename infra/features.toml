@@ -1,6 +1,8 @@
 # The feature registry: every feature the core knows about, read once when the
 # core starts, so a change here needs a restart. Change it in the same commit
-# as the Caddyfile beside it, which routes each prefix to the same upstream.
+# as the Caddyfile beside it, which routes each prefix to the same upstream,
+# and services.json, which gives the feature's port; scripts/ci/services.test.sh
+# checks the three agree.
 # See "The feature registry" in Core/docs/core-architecture.md, and
 # features.toml in infra/README.md.
 #
