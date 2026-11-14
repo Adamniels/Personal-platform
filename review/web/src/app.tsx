@@ -5,11 +5,11 @@ import styles from "./app.module.css";
 import { CardsSection } from "./cards/cards-section";
 import { DecksSection } from "./decks/decks-section";
 import { SECTIONS, type Section, sectionAt } from "./sections";
-import { StudyStart } from "./study/study-start";
+import { StudySection } from "./study/study-section";
 
 /** What each section shows, by its key. */
 const CONTENT: Record<Section["key"], () => ReactNode> = {
-	study: () => <StudyStart />,
+	study: () => <StudySection />,
 	cards: () => <CardsSection />,
 	decks: () => <DecksSection />,
 };

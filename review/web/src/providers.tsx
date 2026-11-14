@@ -28,6 +28,10 @@ declare module "@tanstack/react-query" {
 			/** The change shows a 409 or a 422 on its form's field, so the
 			 * toast leaves it out. Every other failure still raises one. */
 			fieldErrors?: boolean;
+			/** The change says a 409 itself, as a study session does when a
+			 * card changed elsewhere, so the toast leaves it out. Every other
+			 * failure still raises one. */
+			conflicts?: boolean;
 		};
 	}
 }
@@ -75,6 +79,12 @@ export function isFieldError(error: unknown): error is ApiError {
 	);
 }
 
+/** Whether a failed change was refused because what it was made from has
+ * changed since, a 409. */
+export function isConflict(error: unknown): error is ApiError {
+	return error instanceof ApiError && error.problem.status === 409;
+}
+
 /** A test passes clients over a fetch of its own, and a clock. */
 export function Providers({
 	children,
@@ -113,6 +123,7 @@ function Queries({ children }: { children: ReactNode }) {
 				mutationCache: new MutationCache({
 					onError: (error, _variables, _result, mutation) => {
 						if (mutation.meta?.fieldErrors && isFieldError(error)) return;
+						if (mutation.meta?.conflicts && isConflict(error)) return;
 						toast.error(error.message);
 					},
 				}),

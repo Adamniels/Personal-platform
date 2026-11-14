@@ -74,3 +74,150 @@
 .state {
 	margin-top: var(--space-3);
 }
+
+/* A session: the progress, the card, the grades and the keys, in a
+ * column as wide as reading text. */
+.session {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-3);
+	max-width: var(--reading-max);
+	margin-top: var(--space-3);
+}
+
+/* "3 of 12", in the mono font, hard rule 8. */
+.progress {
+	margin: 0;
+	color: var(--text-2);
+	font-family: var(--font-mono);
+	font-size: var(--text-mono-size);
+	line-height: var(--text-mono-line);
+	font-variant-numeric: tabular-nums;
+}
+
+.study {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-3);
+}
+
+.topics {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-1);
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+/* A front or a back: reading text, its line breaks kept. */
+.side {
+	margin: 0;
+	font-size: var(--text-body-lg-size);
+	line-height: var(--text-body-lg-line);
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+
+/* Focused when it shows, so it is read out; it is not a control, and takes
+ * no ring. */
+.answer {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-3);
+	outline: none;
+}
+
+.divider {
+	width: 100%;
+	margin: 0;
+	border: none;
+	border-top: 1px solid var(--border);
+}
+
+.source {
+	align-self: flex-start;
+	border-radius: var(--radius-sm);
+	color: var(--info);
+	font-weight: 600;
+	overflow-wrap: anywhere;
+}
+
+.grades {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-2);
+}
+
+.keys {
+	margin: 0;
+	color: var(--text-3);
+	font-size: var(--text-small-size);
+	line-height: var(--text-small-line);
+}
+
+.failed {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: var(--space-3);
+}
+
+.done {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-2);
+}
+
+.done p {
+	margin: 0;
+}
+
+.links {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-4);
+}
+
+/* On phone the four grades sit in one row fixed above the bottom tab bar,
+ * within thumb reach, each at least 44px tall, its interval under its
+ * name. The session ends that far higher, so the bar covers none of it,
+ * and the keys, which a phone has none of, are not shown. */
+@media (max-width: 639.98px) {
+	.session {
+		padding-bottom: calc(2 * var(--control-h));
+	}
+
+	.grades {
+		position: fixed;
+		right: 0;
+		bottom: calc(var(--nav-h) + env(safe-area-inset-bottom, 0px));
+		left: 0;
+		z-index: 1;
+		display: grid;
+		grid-template-columns: repeat(4, minmax(0, 1fr));
+		padding: var(--space-2) var(--page-pad);
+		background: var(--surface);
+		border-top: 1px solid var(--border);
+	}
+
+	/* Two classes, to outrank the button's own height and padding. */
+	.grades .grade {
+		flex-direction: column;
+		gap: 0;
+		height: auto;
+		min-height: var(--control-h);
+		padding: var(--space-1) var(--space-2);
+		white-space: normal;
+	}
+
+	/* The button's name holds it; on phone the interval sits under the
+	 * grade instead. */
+	.separator {
+		display: none;
+	}
+
+	.keys {
+		display: none;
+	}
+}

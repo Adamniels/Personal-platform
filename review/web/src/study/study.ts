@@ -1,8 +1,9 @@
 // What studying reads and sends: the queue of due cards, `GET /review/api/queue`, and a grade,
 // `POST /review/api/cards/{id}/grades`, see "When a card comes back" in review/README.md.
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import type { components } from "../api/schema";
 import { relativeDue } from "../cards/when";
+import { useRefreshReview } from "../decks/decks";
 import { REVIEW, useClient } from "../providers";
 
 export type Queue = components["schemas"]["DueCards"];
@@ -43,6 +44,41 @@ export function useDue() {
 		queryKey: [...REVIEW, "queue", "all"],
 		queryFn: () => client.get("/queue"),
 		meta: { ownError: true },
+	});
+}
+
+/** The four grades, in the order of their buttons and keys, each with the
+ * rating it sends and the preview that says when it brings the card back. */
+export const GRADES = [
+	{ rating: 1, label: "Again", preview: "again", kind: "destructive" },
+	{ rating: 2, label: "Hard", preview: "hard", kind: "secondary" },
+	{ rating: 3, label: "Good", preview: "good", kind: "primary" },
+	{ rating: 4, label: "Easy", preview: "easy", kind: "secondary" },
+] as const;
+
+export type Grade = (typeof GRADES)[number];
+
+/** Grades a card from the version it was read at. Everything under REVIEW
+ * is refreshed, so Cards shows the new due. A 409, the card changed
+ * elsewhere, is the session's to say; any other failure raises the toast. */
+export function useGrade() {
+	const client = useClient();
+	const refresh = useRefreshReview();
+	return useMutation({
+		mutationFn: ({
+			card,
+			grade,
+		}: {
+			card: Pick<DueCard, "id" | "version">;
+			grade: Grade;
+		}) =>
+			client.send<DueCard>(
+				"POST",
+				`/cards/${encodeURIComponent(card.id)}/grades`,
+				{ rating: grade.rating, version: card.version },
+			),
+		onSettled: refresh,
+		meta: { conflicts: true },
 	});
 }
 
