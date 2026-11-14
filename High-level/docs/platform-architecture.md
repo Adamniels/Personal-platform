@@ -411,13 +411,15 @@ the cookie and origin model in `Core/docs/core-architecture.md` stays unproven u
 deployed. The other half of not being shaped like a laptop is that configuration arrives as
 environment variables rather than constants, so the same binary runs elsewhere unchanged.
 
-**Deployment and backups are outside the first milestone**, which is worth saying rather than
-leaving implied. Backups become serious the moment the brain holds anything, since that is the
-part of this system that cannot be rebuilt. Until then the brain can be exported and imported by
-hand, one account's whole memory to a file and back into an empty brain, see "Export and import"
-in `Brain/README.md`. That keeps what the owner enters from living in one database on one laptop,
-but it is not a backup plan: nothing runs it on a schedule, and the core's database is not in it. A
-real plan is still deployment work.
+**The hosted copy is backed up every night**, every database in it, encrypted to a key that is
+never on the machine and uploaded to a bucket that cannot delete what it holds for 30 days, with a
+restore that a round trip test proves; see "Backups" in `infra/hosted/README.md`. The brain is the
+part of this system that cannot be rebuilt, and the hosted copy shares its machine with agents that
+run unattended, so the backups are what survives a dead disk or a bad command. The brain's export
+and import remain, as a way to move one account's memory to a file and into another brain, see
+"Export and import" in `Brain/README.md`; they are not the backup. Nothing alerts on a missed
+backup until the notifications service exists: until then the job's status file records each
+attempt.
 
 ---
 

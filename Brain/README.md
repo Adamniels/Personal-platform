@@ -841,8 +841,8 @@ BRAIN_APP_DATABASE_URL="postgres://brain_app:$(grep '^BRAIN_APP_PASSWORD=' ../in
 
 **Keep the file somewhere private.** It holds everything the brain knows about the owner, in plain
 text, unencrypted: treat it like a password manager's export, never in a repository, a shared
-folder or a chat. An export by hand is not a backup plan, see "Deployment and backups are outside
-the first milestone" in `High-level/docs/platform-architecture.md`.
+folder or a chat. An export moves a memory; it is not the backup. The hosted copy backs up every
+database each night, see "Backups" in `infra/hosted/README.md`.
 
 ### Purging
 
