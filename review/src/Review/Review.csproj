@@ -1,4 +1,11 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <!--
+      dotnet run starts review from review/, where infra/services.json starts it and web/dist is,
+      rather than from this project's folder, which the Web SDK would choose.
+    -->
+    <RunWorkingDirectory>$(MSBuildProjectDirectory)/../..</RunWorkingDirectory>
+  </PropertyGroup>
   <ItemGroup>
     <!-- Generates the OpenAPI document contracts/review/openapi.json holds, see review/README.md. -->
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" />

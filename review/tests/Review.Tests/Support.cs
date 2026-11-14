@@ -86,29 +86,47 @@ internal sealed class StubCore : HttpMessageHandler
 }
 
 /// <summary>
-/// Review on a <see cref="TestServer"/>, with a key cache over <see cref="StubCore"/> and a clock
-/// fixed at the fixture token's <c>iat</c> unless a test moves it, so the committed token is valid.
+/// Review on a <see cref="TestServer"/>, over a build folder of its own holding an index.html and
+/// one asset, a key cache over <see cref="StubCore"/>, and a clock fixed at the fixture token's
+/// <c>iat</c> unless a test moves it, so the committed token is valid.
 /// </summary>
 internal sealed class Harness : IAsyncDisposable
 {
+    public const string IndexHtml = "<!doctype html><title>Review</title><div id=\"root\"></div>\n";
+    public const string Asset = "console.log(\"review\");\n";
+    public const string AssetName = "index-abc123.js";
+
     private readonly StubCore _core;
     private readonly WebApplication _app;
+    private readonly string _webRoot;
 
-    private Harness(WebApplication app, StubCore core)
+    private Harness(WebApplication app, StubCore core, string webRoot)
     {
         _app = app;
         _core = core;
+        _webRoot = webRoot;
     }
 
     public TestServer Server => _app.GetTestServer();
 
     public static ReviewSettings Defaults => ReviewSettings.Load(_ => null);
 
+    /// <summary>A folder shaped like web/dist, removed with the harness.</summary>
+    private static string MakeBuild()
+    {
+        var root = Directory.CreateTempSubdirectory("review-web-").FullName;
+        Directory.CreateDirectory(System.IO.Path.Combine(root, "assets"));
+        File.WriteAllText(System.IO.Path.Combine(root, "index.html"), IndexHtml);
+        File.WriteAllText(System.IO.Path.Combine(root, "assets", AssetName), Asset);
+        return root;
+    }
+
     public static async Task<Harness> Start(ReviewSettings? settings = null, long? clockAt = null)
     {
+        var webRoot = MakeBuild();
         var time = new FakeTimeProvider(DateTimeOffset.FromUnixTimeSeconds(clockAt ?? Contract.IssuedAt));
         var core = new StubCore();
-        var app = ReviewApp.Build(settings ?? Defaults, builder =>
+        var app = ReviewApp.Build(settings ?? Defaults, webRoot, builder =>
         {
             builder.WebHost.UseTestServer();
             builder.Services.AddSingleton<TimeProvider>(time);
@@ -116,7 +134,7 @@ internal sealed class Harness : IAsyncDisposable
             builder.Services.AddSingleton(core.Cache(time));
         });
         await app.StartAsync();
-        return new Harness(app, core);
+        return new Harness(app, core, webRoot);
     }
 
     /// <summary>A request as a browser on the platform sends it, with the token in the cookie
@@ -148,5 +166,6 @@ internal sealed class Harness : IAsyncDisposable
     {
         await _app.DisposeAsync();
         _core.Dispose();
+        Directory.Delete(_webRoot, recursive: true);
     }
 }

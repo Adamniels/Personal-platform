@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>Review · Platform</title>
+		<!-- The design files and the nav bar come from the proxy at runtime, as on every page, and
+		     are not bundled. See "Navigation" in High-level/docs/platform-architecture.md. -->
+		<link rel="stylesheet" href="/design/tokens.css" vite-ignore />
+		<link rel="stylesheet" href="/design/fonts.css" vite-ignore />
+		<link rel="stylesheet" href="/design/page.css" vite-ignore />
+		<script src="/design/theme.js" vite-ignore></script>
+		<script src="/design/nav.js" defer vite-ignore></script>
+	</head>
+	<body>
+		<platform-nav current="review"></platform-nav>
+		<div id="root"></div>
+		<script type="module" src="/src/main.tsx"></script>
+	</body>
+</html>

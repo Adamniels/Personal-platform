@@ -1,0 +1,29 @@
+/* The page around the sections. The container, its padding and the h1's type
+ * come from /design/page.css, section 2 of design/DESIGN.md. */
+
+/* The heading and the line under it read as one block, a section gap from
+ * the tabs. Two classes, to outrank page.css's `.page h1` margin. */
+.header {
+	margin-bottom: var(--space-5);
+}
+
+.header .title {
+	margin-bottom: var(--space-1);
+}
+
+.lede {
+	margin: 0;
+	max-width: var(--reading-max);
+	color: var(--text-2);
+}
+
+/* The not found state sits where a section would, under the tabs. */
+.missing {
+	margin-top: var(--space-3);
+}
+
+.link {
+	border-radius: var(--radius-sm);
+	color: var(--info);
+	font-weight: 600;
+}

@@ -3,6 +3,7 @@ using System.Text.Json;
 using PlatformAuth;
 
 using Review.Health;
+using Review.Pages;
 using Review.Settings;
 
 namespace Review;
@@ -14,12 +15,15 @@ namespace Review;
 public static class ReviewApp
 {
     /// <param name="settings">Read once at startup, see <see cref="ReviewSettings.Load"/>.</param>
+    /// <param name="webRoot">The page's build, web/dist from review's folder when it runs.</param>
     /// <param name="configure">Runs before the app is built: <c>Program</c> sets where Kestrel
     /// listens, and tests put the app on a test server, with a key cache and a clock of their
     /// own, which <c>AddPlatformAuth</c> keeps.</param>
-    public static WebApplication Build(ReviewSettings settings, Action<WebApplicationBuilder>? configure = null)
+    /// <exception cref="StartupException"><paramref name="webRoot"/> holds no build.</exception>
+    public static WebApplication Build(ReviewSettings settings, string webRoot, Action<WebApplicationBuilder>? configure = null)
     {
         ArgumentNullException.ThrowIfNull(settings);
+        PageEndpoints.CheckBuild(webRoot);
 
         var builder = WebApplication.CreateBuilder();
         configure?.Invoke(builder);
@@ -35,11 +39,13 @@ public static class ReviewApp
         app.UseExceptionHandler();
         // In front of routing, so every route, one added later included, is covered.
         app.UsePlatformOriginCheck(settings.PublicOrigin);
+        app.UseBuiltFiles(webRoot);
         app.UseRouting();
         app.UseAuthentication();
         app.UseAuthorization();
 
         app.MapHealth();
+        app.MapPages(webRoot);
         return app;
     }
 }
