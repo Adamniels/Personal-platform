@@ -282,7 +282,8 @@ describe("the brain unreachable", () => {
 		const add = await openForm();
 
 		const message = "Topics are unavailable while the brain cannot be reached";
-		expect(within(add).getByText(message)).toBeTruthy();
+		// Waited for: the brain's refusal can land after the form first settles.
+		expect(await within(add).findByText(message)).toBeTruthy();
 		const { field } = picker(add);
 		expect((field as HTMLInputElement).disabled).toBe(true);
 		expect(descriptionOf(field)).toContain(message);
@@ -376,7 +377,8 @@ describe("in the card form", () => {
 		const add = await openCardForm();
 
 		const message = "Topics are unavailable while the brain cannot be reached";
-		expect(within(add).getByText(message)).toBeTruthy();
+		// Waited for: the brain's refusal can land after the form first settles.
+		expect(await within(add).findByText(message)).toBeTruthy();
 		const save = within(add).getByRole("button", {
 			name: "Save",
 		}) as HTMLButtonElement;
