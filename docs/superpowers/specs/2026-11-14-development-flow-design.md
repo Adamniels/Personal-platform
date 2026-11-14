@@ -633,8 +633,42 @@ round 2. What is left is in "Calls made without the owner".
 
 ### Round 7: the pages
 
-Settles each page, what it shows and what the owner can do from it: what waits for him, what is
-running, the queue, history, and usage and cost.
+Held on 2026 11 14 and done. The mockups the owner looked at are in
+`2026-11-14-development-flow-mockups/` beside this file. Their content is made up; what they show
+of layout is what was agreed.
+
+- **Six pages, with what waits for the owner as the home** (2026 11 14): waiting for him; running
+  now; projects, and a project's own page; a feature's page; a card's page; usage and history. The
+  first four are tabs across the top. The platform's front page shows one number from the feature,
+  how many things wait for him, and the nav bar shows its attention dot on the feature's link when
+  that number is not zero.
+- **Waiting for him is one list, acted on in place** (2026 11 14), grouped by kind: questions before
+  starting, pull requests waiting, features ready for his review, and stopped cards. Each item shows
+  the decision and the agent's reasoning with the action beside it, so most are cleared without
+  opening anything. A list with a detail panel beside it was the alternative: more room per
+  decision and a click per item, and two screens on a phone. That fuller detail is the card's page.
+- **A feature's page** (2026 11 14) holds its name and state with "Merge into main" and "Send the
+  whole feature back"; what the agent wants him to know, which is each decision it flagged with the
+  alternative and the reviewer's view, and "Fine as it is" or "Send back" on each; the branch to
+  check out and the screenshots the program took; and the cards, each with its fix rounds, tokens
+  and decisions and a "Send back" that opens a comment box.
+- **Trying a feature is its branch and its screenshots for now** (2026 11 14). The feature is not in
+  `main`, so trying it means checking the branch out. Starting a feature's branch somewhere he can
+  open it would be better, and is a piece of work of its own, left out.
+- **Running now** (2026 11 14) has a panel per busy worker, with the card, its state, the time and
+  tokens so far, the agent's log as it happens and "Stop now", and under them what comes next, each
+  card with the reason it is not running: it waits for another card, it is outside its schedule, or
+  its project has no worker.
+- **A project's page** (2026 11 14) has its state and preset with "Pause" and "Stop now" at the top;
+  its features and cards; every setting in one panel on the page; when it may run, with its
+  schedules and an on and off for each; and its workers, with the command to start another. For a
+  project just connected, the steps of setting it up stand in place of the features until the last
+  is done.
+- **Tokens and time are shown, not cost** (2026 11 14), since on a subscription a cost is an estimate
+  of money that is not paid.
+- **A card's page and the usage page were agreed without a mockup** (2026 11 14). A card's page is
+  its whole story: each run, the report, the decisions, the screenshots and the review's findings.
+  Usage and history is a table per project, feature and card.
 
 ### Round 8: verification
 
@@ -688,6 +722,7 @@ passage changes when this way of working has been tried.
 ## Changes
 
 - 2026 11 14: first version, after rounds 0 and 1.
+- 2026 11 14: round 7 added, with the mockups.
 - 2026 11 14: rounds 5 and 6 closed. Round 6 had no questions of its own.
 - 2026 11 14: round 4b added.
 - 2026 11 14: round 4 added, with the research for round 5. "A worker never talks to the code host"

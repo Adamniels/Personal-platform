@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Waiting for you: two layouts</title>
+<style>
+:root{color-scheme:light;--bg:#F3F4F7;--surface:#FFFFFF;--surface-2:#EBEDF2;--border:#D5D9E2;--border-strong:#8A91A3;--text:#171C2C;--text-2:#4D556B;--text-3:#5F677C;--accent:#E5A23A;--on-accent:#1A1505;--accent-border:#8A5200;--accent-text:#8A5200;--accent-soft:#FBEFD9;--info:#2B55C7;--info-soft:#E3EAFB;--ok:#1F6B45;--ok-soft:#DDF1E6;--danger:#B3261E;--danger-soft:#FBE4E1;}
+@media (prefers-color-scheme:dark){:root{color-scheme:dark;--bg:#0D1220;--surface:#141A2B;--surface-2:#1B2236;--border:#283149;--border-strong:#66739A;--text:#E6E9F2;--text-2:#A3ACC2;--text-3:#8791AA;--accent:#E5A23A;--on-accent:#1A1505;--accent-border:#E5A23A;--accent-text:#F0B85C;--accent-soft:#33280F;--info:#8FB0FF;--info-soft:#1A2748;--ok:#6FCF9A;--ok-soft:#12301F;--danger:#FF8F85;--danger-soft:#3A1614;}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/20px Inter,system-ui,sans-serif}
+.mono{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:12px;line-height:16px;color:var(--text-3)}
+.wrap{max-width:1232px;margin:0 auto;padding:24px 32px 64px}
+.intro{border:1px dashed var(--border-strong);border-radius:10px;padding:16px;margin-bottom:24px}
+.intro h1{font:600 22px/28px "Space Grotesk",system-ui,sans-serif;margin:0 0 4px}
+.intro p{margin:4px 0;color:var(--text-2)}
+.pick{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.pick button{height:36px;padding:0 14px;border-radius:6px;border:1px solid var(--border-strong);background:var(--surface);color:var(--text);font-weight:500;cursor:pointer}
+.pick button.selected{background:var(--accent);color:var(--on-accent);border-color:var(--accent-border);font-weight:600}
+.opt{margin-top:32px}
+.opt>h2{font:600 17px/24px "Space Grotesk",system-ui,sans-serif;margin:0 0 4px}
+.opt>p{margin:0 0 12px;color:var(--text-2)}
+.frame{border:1px solid var(--border);border-radius:10px;overflow:hidden;background:var(--bg)}
+.nav{height:56px;background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:4px;padding:0 24px}
+.mark{width:14px;height:14px;background:var(--accent);border-radius:3px;margin-right:8px}
+.word{font:600 16px/24px "Space Grotesk",system-ui,sans-serif;margin-right:16px}
+.nl{height:36px;padding:0 12px;border-radius:6px;display:flex;align-items:center;color:var(--text-2);font-weight:500;border:1px solid transparent}
+.nl.on{color:var(--text);background:var(--surface-2);border-color:var(--accent-border)}
+.dot{width:6px;height:6px;border-radius:999px;background:var(--accent-text);margin-left:6px;display:inline-block}
+.page{padding:24px}
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--border);padding-bottom:8px;margin-bottom:16px;overflow-x:auto}
+.tab{height:36px;padding:0 12px;border-radius:6px;display:flex;align-items:center;color:var(--text-2);font-weight:500;white-space:nowrap}
+.tab.on{background:var(--surface-2);outline:1px solid var(--accent-border);color:var(--text);font-weight:600}
+h3.pt{font:600 22px/28px "Space Grotesk",system-ui,sans-serif;margin:0}
+.sec{font-size:12px;line-height:16px;font-weight:600;color:var(--text-2);margin:24px 0 8px;display:flex;gap:8px;align-items:center}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px;display:flex;flex-direction:column;gap:12px;margin-bottom:12px}
+.card.need{box-shadow:0 0 0 1px var(--accent-border);border-color:var(--accent-border)}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.badge{height:22px;padding:0 8px;border-radius:4px;background:var(--surface-2);color:var(--text-2);font-size:12px;font-weight:500;display:inline-flex;align-items:center}
+.st{height:22px;padding:0 8px;border-radius:4px;font-size:12px;font-weight:500;display:inline-flex;align-items:center;gap:6px}
+.st::before{content:"";width:6px;height:6px;border-radius:999px;background:currentColor}
+.st.need{background:var(--accent-soft);color:var(--accent-text)}
+.st.run{background:var(--info-soft);color:var(--info)}
+.st.ok{background:var(--ok-soft);color:var(--ok)}
+.st.fail{background:var(--danger-soft);color:var(--danger)}
+.title{font-weight:600}
+.box{background:var(--accent-soft);border:1px solid var(--accent-border);border-radius:10px;padding:12px}
+.box .q{font-weight:600;margin-bottom:4px}
+.box .r{color:var(--text-2);font-size:13px;line-height:18px}
+.btn{height:36px;padding:0 14px;border-radius:6px;font-weight:500;border:1px solid var(--border-strong);background:var(--surface);color:var(--text);display:inline-flex;align-items:center}
+.btn.pri{background:var(--accent);color:var(--on-accent);border-color:var(--accent-border);font-weight:600}
+.btn.ghost{border-color:transparent;background:transparent;color:var(--text-2);padding:0 10px}
+.small{font-size:13px;line-height:18px;color:var(--text-2)}
+.two{display:flex;flex-wrap:wrap;gap:16px}
+.list{flex:1 1 320px;min-width:0}
+.detail{flex:999 1 520px;min-width:0}
+.item{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:10px 12px;margin-bottom:8px}
+.item.sel{box-shadow:0 0 0 1px var(--accent-border);border-color:var(--accent-border)}
+.item .t{font-weight:500;margin:4px 0 2px}
+.shots{display:flex;gap:8px;flex-wrap:wrap}
+.shot{width:150px;height:92px;border:1px dashed var(--border-strong);border-radius:6px;display:flex;align-items:center;justify-content:center;color:var(--text-3);font-size:12px}
+ul.d{margin:0;padding-left:18px}
+ul.d li{margin:4px 0}
+
+table{width:100%;border-collapse:collapse}
+.tw{border:1px solid var(--border);border-radius:10px;overflow-x:auto;background:var(--surface)}
+th{background:var(--surface-2);font-size:12px;font-weight:500;color:var(--text-3);text-align:left;padding:6px 12px;height:36px;white-space:nowrap}
+td{padding:6px 12px;height:36px;border-top:1px solid var(--border);vertical-align:middle}
+td.n,th.n{text-align:right;font-family:"JetBrains Mono",ui-monospace,monospace;font-size:12px}
+tr.open td{background:var(--info-soft)}
+.field{width:100%;min-height:64px;border:1px solid var(--border-strong);border-radius:6px;background:var(--surface);color:var(--text-3);padding:8px 10px}
+.log{background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px 12px;font-family:"JetBrains Mono",ui-monospace,monospace;font-size:13px;line-height:20px;color:var(--text-2);white-space:pre-wrap}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(340px,100%),1fr));gap:16px}
+.crumb{color:var(--text-3);font-size:13px;margin-bottom:4px}
+
+.kv{display:grid;grid-template-columns:minmax(160px,220px) 1fr;gap:8px 16px;align-items:center}
+.kv .k{color:var(--text-2);font-size:13px}
+.sel2{height:36px;padding:0 10px;border:1px solid var(--border-strong);border-radius:6px;background:var(--surface);display:inline-flex;align-items:center;gap:8px}
+.sel2::after{content:"▾";color:var(--text-3)}
+.pill{height:28px;padding:0 10px;border-radius:999px;border:1px solid var(--border-strong);display:inline-flex;align-items:center;font-size:12px;gap:6px}
+.code{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:12px;background:var(--surface-2);border-radius:6px;padding:8px 10px;overflow-x:auto;white-space:nowrap}
+.steps{counter-reset:s;display:flex;flex-direction:column;gap:8px}
+.step{display:flex;gap:10px;align-items:flex-start}
+.step::before{counter-increment:s;content:counter(s);width:22px;height:22px;border-radius:999px;background:var(--surface-2);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;flex:none}
+.step.done::before{background:var(--ok-soft);color:var(--ok);content:"✓"}
+</style></head><body><div class="wrap">
+<div class="intro"><h1>A project's page</h1>
+<p>One proposal. Everything about one project: whether it is running, its features, its settings, when it may run, and its workers. The second frame is the same page for a project that was just connected. The content is made up.</p></div>
+
+<div class="opt"><h2>1. A project that is set up</h2>
+<p>The controls you use often are at the top. Settings are on the page, not hidden in a dialog, since they are few.</p>
+<div class="frame"><div class="nav"><span class="mark"></span><span class="word">Platform</span><span class="nl">Home</span><span class="nl">Memory</span><span class="nl">Review</span><span class="nl on">Dev<span class="dot"></span></span></div><div class="page"><div class="tabs"><span class="tab">Waiting for you · 5</span><span class="tab">Running now · 2</span><span class="tab on">Projects</span><span class="tab">Usage and history</span></div>
+<div class="crumb">Projects</div>
+<div class="row" style="justify-content:space-between"><div class="row"><h3 class="pt">Fodr</h3><span class="st run">Active</span><span class="badge">Fully automatic</span></div>
+<div class="row"><span class="btn">Stop now</span><span class="btn">Pause</span></div></div>
+<div class="mono" style="margin-top:6px">github.com/…/fodr · 1 worker · runs by schedule, next window 22:00 · 3.4 M tokens this week</div>
+
+<div class="sec">FEATURES AND CARDS</div>
+<div class="tw"><table>
+<tr><th>Feature or card</th><th>State</th><th class="n">Cards</th><th>Priority</th><th></th></tr>
+<tr><td>Feeding plan, version 2</td><td><span class="st need">Ready for your review</span></td><td class="n">6 / 6</td><td>High</td><td><span class="btn ghost">Open</span></td></tr>
+<tr><td>Share a plan</td><td><span class="st run">In progress</span></td><td class="n">1 / 4</td><td></td><td><span class="btn ghost">Open</span></td></tr>
+<tr><td>Import from a photo</td><td><span class="st fail">1 card stopped</span></td><td class="n">2 / 5</td><td></td><td><span class="btn ghost">Open</span></td></tr>
+<tr><td><span class="mono">#55</span> Typo on the login page <span class="badge">card on its own</span></td><td><span class="badge">Queued</span></td><td class="n"></td><td>Low</td><td><span class="btn ghost">Open</span></td></tr>
+</table></div>
+
+<div class="grid" style="margin-top:24px">
+<div class="card"><div class="row" style="justify-content:space-between"><span class="title">Settings</span><span class="sel2">Preset: Fully automatic</span></div>
+<div class="kv">
+<span class="k">Questions before starting</span><span class="sel2">Off</span>
+<span class="k">A feature's cards land in</span><span class="sel2">The feature's branch</span>
+<span class="k">A card's pull request waits for you</span><span class="sel2">Never</span>
+<span class="k">Runs on</span><span class="sel2">Subscription</span>
+<span class="k">At the limit</span><span class="sel2">Wait</span>
+<span class="k">Models</span><span class="small">Reading, building, reviewing: strongest</span>
+<span class="k">Labels</span><span class="row"><span class="pill">ai-automate</span><span class="pill">ai-hold</span><span class="pill">ai-attention</span></span>
+<span class="k">Trusted accounts</span><span class="row"><span class="pill">you</span><span class="btn ghost">Add</span></span>
+<span class="k">Daily budget</span><span class="sel2">Off</span>
+</div></div>
+
+<div style="display:flex;flex-direction:column;gap:16px">
+<div class="card"><div class="row" style="justify-content:space-between"><span class="title">When it may run</span><span class="sel2">By schedule</span></div>
+<div class="tw"><table>
+<tr><th>Schedule</th><th>Days</th><th>Hours</th><th>Active</th></tr>
+<tr><td>Nights</td><td>Every day</td><td class="mono">22:00 to 07:00</td><td><span class="st ok">On</span></td></tr>
+<tr><td>Lecture hours</td><td>Mon to Fri</td><td class="mono">10:00 to 12:00</td><td><span class="st ok">On</span></td></tr>
+<tr><td>Weekend days</td><td>Sat, Sun</td><td class="mono">08:00 to 20:00</td><td><span class="badge">Off</span></td></tr>
+</table></div><div class="row"><span class="btn">New schedule</span></div></div>
+
+<div class="card"><div class="row" style="justify-content:space-between"><span class="title">Workers</span><span class="mono">1</span></div>
+<div class="tw"><table>
+<tr><th>Worker</th><th>Machine</th><th>State</th><th>Recipe</th></tr>
+<tr><td>fodr-1</td><td>mac-mini</td><td><span class="st ok">Waiting for work</span></td><td class="mono">up to date</td></tr>
+</table></div>
+<div class="small">To start another, run this on a machine with Docker:</div>
+<div class="code">docker run -d ghcr.io/…/devflow-worker --project fodr --key dfw_••••••••</div>
+<div class="row"><span class="btn">Show the key</span></div></div>
+</div>
+</div>
+</div></div></div>
+
+<div class="opt"><h2>2. A project that was just connected</h2>
+<p>The same page before it is ready. The steps replace the features list until the last one is done.</p>
+<div class="frame"><div class="nav"><span class="mark"></span><span class="word">Platform</span><span class="nl">Home</span><span class="nl">Memory</span><span class="nl">Review</span><span class="nl on">Dev<span class="dot"></span></span></div><div class="page"><div class="tabs"><span class="tab">Waiting for you · 5</span><span class="tab">Running now · 2</span><span class="tab on">Projects</span><span class="tab">Usage and history</span></div>
+<div class="crumb">Projects</div>
+<div class="row"><h3 class="pt">Tick</h3><span class="badge">Setting up</span></div>
+<div class="card" style="margin-top:16px"><div class="steps">
+<div class="step done"><div><strong>Connected to GitHub.</strong> <span class="small">The app is installed on the repository.</span></div></div>
+<div class="step done"><div><strong>The setup run read the repository.</strong> <span class="small">It suggests the preset "Only I merge" and opened pull request #31 with the recipe.</span></div></div>
+<div class="step"><div><strong>Merge the recipe and choose the settings.</strong> <span class="small">Tick needs macOS itself, so its worker is installed directly on a Mac. The setup run found Xcode 17 is needed and did not find it on mac-mini.</span><div class="row" style="margin-top:8px"><span class="btn pri">Open pull request #31</span><span class="btn">Settings</span></div></div></div>
+<div class="step"><div><strong>Check that it builds and its tests pass on a clean copy.</strong> <span class="small">Runs by itself when the recipe is merged.</span></div></div>
+<div class="step"><div><strong>Start a worker.</strong> <span class="small">One command, shown here when the check is green.</span></div></div>
+<div class="step"><div><strong>Put the label on a feature or a card.</strong></div></div>
+</div></div>
+</div></div></div>
+</div></body></html>
