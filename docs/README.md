@@ -93,7 +93,7 @@ features" in `High-level/docs/platform-architecture.md`.
 - `core-architecture.md` — what the core owns, what stays out of it, how authentication gets
   built, the session and token model, the signing key, password reset, the core's own tables and
   the user id, routing, the feature registry, how its frontend is built, what a feature
-  exposes for the front page, and the libraries it is built on
+  exposes for the front page, the backup line on the front page, and the libraries it is built on
 
 **Canary**
 
