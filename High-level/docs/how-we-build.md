@@ -2,7 +2,7 @@
 
 Status: exploratory. The walking skeleton is being built.
 
-Last updated: 2026 11 12
+Last updated: 2026 11 14
 
 How work gets cut up and ordered, as opposed to what gets built. What a particular feature must
 deliver, and the slices that get it there, live on the GitHub Project rather than here, see
@@ -38,7 +38,7 @@ as staying logged in across a restart, and those get attached to the slice that 
 rather than becoming work of their own.
 
 **Acceptance criteria are automated tests, written first.** Each criterion is a named test, a cargo
-test, a pytest test or a Playwright test in `e2e/`, that the agent writes before the code and
+test, a pytest test, an xUnit test or a Playwright test in `e2e/`, that the agent writes before the code and
 watches fail. A slice is done when they pass. Because they are tests, they keep running: the
 Playwright suite runs in continuous integration on every pull request that touches service code, so
 a later slice breaking an earlier one fails its own pull request instead of waiting to be noticed.
@@ -174,7 +174,7 @@ is the one piece of security logic every feature carries, and the ways it gets b
 an expired token, a bad signature, an unknown key id, and a token naming an algorithm it should not,
 `none`, or a symmetric one keyed with the public key. `platform-auth`, the library every Python
 service verifies with, carries these, along with a test verifying a token the core actually
-produced. A feature that installs it still sends them through its own routes, as the brain's
+produced, and so does `PlatformAuth`, its C# twin in `libs/dotnet/PlatformAuth/`. A feature that installs it still sends them through its own routes, as the brain's
 `tests/test_whoami.py` does, since the library cannot tell whether a route is behind it.
 
 **Browser tests drive the real stack.** The suite in `e2e/` is Playwright, run through Caddy on

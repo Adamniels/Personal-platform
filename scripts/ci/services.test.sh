@@ -41,8 +41,17 @@ problems() {
       ("entry \($i)" + (if ($s | type == "object") and ($s.name | str) then " (\($s.name))" else "" end)) as $at |
       if ($s | type) != "object" then "\($at): not an object"
       else
-        (($s | keys) - ["name", "dir", "port", "health", "language", "area", "migrate", "start", "database"]
+        (($s | keys) - ["name", "dir", "port", "health", "language", "area", "migrate", "start", "database", "ci"]
           | .[] | "\($at): unknown field \(.)"),
+        (if ($s | has("language")) and ($s | has("area")) and (($s.language == "dotnet") != ($s.area == "dotnet"))
+          then "\($at): a C# service, and only one, has area dotnet" else empty end),
+        (if ($s | has("ci")) then
+          if ($s.ci | type) != "object" or ($s.ci | keys) != ["init_script"] or ($s.ci.init_script | str | not)
+            or ($s.ci.init_script | test("^infra/postgres/initdb/[A-Za-z0-9_-]+\\.sh$") | not)
+          then "\($at): ci is not {\"init_script\": \"infra/postgres/initdb/<name>.sh\"}"
+          elif ($s | has("database") | not) then "\($at): has ci.init_script but no database"
+          else empty end
+        else empty end),
         (["name", "dir", "port", "language", "area", "start"] - ($s | keys) | .[] | "\($at): missing \(.)"),
         (if ($s | has("name")) and (($s.name | str) and ($s.name | test("^[a-z0-9-]+$")) | not)
           then "\($at): name is not lowercase letters, digits and hyphens" else empty end),
@@ -84,15 +93,25 @@ problems() {
   done
 
   # Each folder's change sets its area, through changed-areas.sh itself, so an area that script
-  # cannot set fails here and not in CI.
-  local area out
-  while read -r dir area; do
+  # cannot set fails here and not in CI. A C# service's folder puts it in dotnet_services instead.
+  local area name out
+  while read -r dir area name; do
     [ -z "$dir" ] && continue
-    if ! out="$(printf '%s/x' "$dir" | bash "$root/scripts/ci/changed-areas.sh" 2>&1)" ||
-      ! printf '%s\n' "$out" | grep -qx "$area=true"; then
+    if ! out="$(printf '%s/x' "$dir" | bash "$root/scripts/ci/changed-areas.sh" 2>&1)"; then
+      echo "$dir: changed-areas.sh does not set area $area for it"
+    elif [ "$area" = dotnet ]; then
+      printf '%s\n' "$out" | sed -n 's/^dotnet_services=//p' | jq -e --arg n "$name" 'any(.[]; .name == $n)' > /dev/null 2>&1 ||
+        echo "$dir: changed-areas.sh does not list $name in dotnet_services for it"
+    elif ! printf '%s\n' "$out" | grep -qx "$area=true"; then
       echo "$dir: changed-areas.sh does not set area $area for it"
     fi
-  done < <(jq -r '.services[] | "\(.dir) \(.area)"' "$manifest" 2>/dev/null)
+  done < <(jq -r '.services[] | "\(.dir) \(.area) \(.name)"' "$manifest" 2>/dev/null)
+
+  # A CI init script exists.
+  local script
+  while IFS= read -r script; do
+    [ -n "$script" ] && [ ! -f "$root/$script" ] && echo "ci.init_script $script does not exist"
+  done < <(jq -r '.services[] | .ci?.init_script? // empty | strings' "$manifest" 2>/dev/null)
 
   # Every folder exists.
   local dir
@@ -213,6 +232,28 @@ expect "a feature without a Caddyfile route" "has no reverse_proxy" '.' \
   features.toml 's#^prefix = "/canary"#prefix = "/elsewhere"#'
 expect "a password variable missing from .env.example" "BRAIN_APP_PASSWORD is not in" '.' \
   .env.example 's/^BRAIN_APP_PASSWORD=$//'
+expect "a C# service with another area" "a C# service, and only one, has area dotnet" '.services[1].language = "dotnet"'
+expect "area dotnet on a Python service" "a C# service, and only one, has area dotnet" '.services[1].area = "dotnet"'
+expect "a ci field of another shape" "ci is not" '.services[2].ci = {"init_script": "brain.sh"}'
+expect "a ci field with more in it" "ci is not" '.services[2].ci = {"init_script": "infra/postgres/initdb/brain.sh", "x": 1}'
+expect "a ci init script without a database" "has ci.init_script but no database" \
+  '.services[1].ci = {"init_script": "infra/postgres/initdb/canary.sh"}'
+expect "a ci init script that does not exist" "ci.init_script infra/postgres/initdb/nowhere.sh does not exist" \
+  '.services[2].ci = {"init_script": "infra/postgres/initdb/nowhere.sh"}'
+
+# A C# service, with its CI init script, is sound: canary's entry rewritten as one.
+root="$tmp/a C# service"
+mkdir -p "$root/infra/postgres/initdb" "$root/scripts/ci" "$root/scripts/agent"
+cp "$repo/scripts/ci/changed-areas.sh" "$root/scripts/ci/"
+cp "$repo/scripts/agent/services.sh" "$root/scripts/agent/"
+cp "$repo/infra/features.toml" "$repo/infra/Caddyfile" "$repo/infra/.env.example" "$root/infra/"
+cp "$repo/infra/postgres/initdb/brain.sh" "$root/infra/postgres/initdb/"
+jq -r '.services[].dir' "$repo/infra/services.json" | while IFS= read -r d; do mkdir -p "$root/$d"; done
+jq '.services[1].language = "dotnet" | .services[1].area = "dotnet"
+  | .services[2].ci = {"init_script": "infra/postgres/initdb/brain.sh"}' \
+  "$repo/infra/services.json" > "$root/infra/services.json"
+got="$(problems "$root")"
+if [ -z "$got" ]; then ok "accepts a C# service and a CI init script"; else bad "accepts a C# service and a CI init script" "$(printf '%s' "$got" | tr '\n' ';')"; fi
 
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]

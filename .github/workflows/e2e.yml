@@ -34,9 +34,12 @@ jobs:
       - uses: actions/checkout@v7
 
       # Unlike the service containers in core.yml and brain.yml, compose
-      # creates the databases and roles itself from these five passwords.
+      # creates the databases and roles itself from these passwords. A
+      # service's database added to infra/services.json later gets a
+      # throwaway password of its own here, named by services.sh.
       - name: Write infra/.env
         run: |
+          set -euo pipefail
           {
             echo POSTGRES_PASSWORD=ci-only-superuser
             echo CORE_OWNER_PASSWORD=ci-only-owner
@@ -44,6 +47,9 @@ jobs:
             echo BRAIN_OWNER_PASSWORD=ci-only-brain-owner
             echo BRAIN_APP_PASSWORD=ci-only-brain-app
           } > infra/.env
+          for var in $(bash scripts/agent/services.sh password-vars); do
+            grep -q "^$var=" infra/.env || echo "$var=ci-only-$(printf '%s' "$var" | tr '[:upper:]_' '[:lower:]-')" >> infra/.env
+          done
 
       - name: Install Rust
         working-directory: Core
@@ -107,6 +113,13 @@ jobs:
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           version: "0.12.19"
+
+      # For every C# service the manifest lists. Every C# folder pins the same
+      # SDK, which scripts/ci/dotnet-sdk.test.sh checks, so the library that
+      # always exists names it.
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          global-json-file: libs/dotnet/PlatformAuth/global.json
 
       # Every service in infra/services.json, in its order: migrated as its
       # owner role, then started in the background as its app role, each

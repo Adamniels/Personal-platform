@@ -2,7 +2,7 @@
 
 Status: exploratory. The walking skeleton is being built.
 
-Last updated: 2026 11 13
+Last updated: 2026 11 14
 
 These are planning notes, not specifications. Everything here is the current best idea with the
 reasoning attached, and it is expected to change as building teaches things planning could not.
@@ -104,6 +104,9 @@ features" in `High-level/docs/platform-architecture.md`.
 - `libs/python/platform-auth/README.md` — checking the core's token and the `Origin` header, the one
   copy every Python service installs: what it holds, what it must never grow into, how to run its
   tests and how a service installs it
+- `libs/dotnet/PlatformAuth/README.md` — the same for every C# service: what it holds, what it must
+  never grow into, how to run its tests, how a service references it, and the libraries and the
+  SDK it is built on
 
 **Contracts**
 

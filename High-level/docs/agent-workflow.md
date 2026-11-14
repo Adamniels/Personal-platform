@@ -2,7 +2,7 @@
 
 Status: exploratory. Built, and not yet run end to end on a real feature.
 
-Last updated: 2026 11 13
+Last updated: 2026 11 14
 
 How agents build this repository and what the owner does around them. How work is cut, features,
 slices, the walking skeleton and what gets tests, is in `how-we-build.md`. This document says who
@@ -432,9 +432,14 @@ runner clears between planning sessions.
    automatic updates off and its memory at 2 to 4 GB (an update quits Docker Desktop, and it does
    not always start again; the runner starts it itself when its probe fails), Node 26 for the
    frontends (`brew install node`, linked into `/opt/homebrew/bin`, with no other Node ahead of it on
-   `PATH`; every run checks `node --version`, see step 4 of `pick-up-slice`), `gh`, `jq`,
-   tmux and Claude Code, with `~/.docker/bin` and `. "$HOME/.cargo/env"` in `~/.zprofile`. Docker
-   Desktop's credential helper needs the login keychain, which a plain SSH session cannot unlock,
+   `PATH`; every run checks `node --version`, see step 4 of `pick-up-slice`), the .NET SDK 10.0.4xx
+   for the C# folders (`brew install dotnet@10`, Homebrew's versioned formula, which stays on major
+   10 through `brew upgrade`, and not the `dotnet-sdk` cask, which follows the newest major; every
+   run checks `dotnet --version`, see step 4 of `pick-up-slice`), `gh`, `jq`, tmux and Claude
+   Code, with `~/.docker/bin` and `. "$HOME/.cargo/env"` in `~/.zprofile`, and for .NET
+   `export DOTNET_ROOT="/opt/homebrew/opt/dotnet@10/libexec"`,
+   `export PATH="$DOTNET_ROOT:$HOME/.dotnet/tools:$PATH"` and `export DOTNET_CLI_TELEMETRY_OPTOUT=1`.
+   Docker Desktop's credential helper needs the login keychain, which a plain SSH session cannot unlock,
    so a new image is pulled by hand once, over `ssh -t` so the unlock can ask for the password,
    with `~/.docker/bin` on `PATH` so docker finds the helper:
    `ssh -t <mac-mini> 'security unlock-keychain ~/Library/Keychains/login.keychain-db && export PATH="$HOME/.docker/bin:$PATH" && docker pull postgres:18 && docker pull caddy:2'`.

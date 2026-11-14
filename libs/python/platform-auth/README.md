@@ -54,8 +54,8 @@ repository; a library that grows is how the drift "One repository" warns about c
 change here changes every Python service at once, so it changes only when the contract does.
 
 Issuing, refreshing and rotating tokens, the cookies and the signing key are the core's, described
-in `Core/docs/core-architecture.md`, and never come here. A C# version arrives with the first C#
-feature, as a library of its own beside this one.
+in `Core/docs/core-architecture.md`, and never come here. The C# version is a library of its own
+beside this one, `libs/dotnet/PlatformAuth/`, see its README.
 
 ## Running its tests
 

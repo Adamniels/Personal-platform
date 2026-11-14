@@ -2,7 +2,7 @@
 
 Status: exploratory. The walking skeleton is being built.
 
-Last updated: 2026 11 13
+Last updated: 2026 11 14
 
 The top of the documentation. What the platform is, what services exist, and the thinking that
 shapes more than one of them. Anything you only need when you sit down to write a particular
@@ -452,8 +452,8 @@ the instructions and configuration for coding agents, since those govern work on
 
 **Two things are shared on purpose, and each is written down as an exception.** Contract fixtures,
 below, and shared libraries under `libs/`: code that must be identical in every service using it,
-owned by no service. Token verification is the first, `libs/python/platform-auth/`, because it is
-the platform's security code and a flaw fixed in one copy and missed in another is a hole nobody
+owned by no service. Token verification is the first, `libs/python/platform-auth/` and its C#
+twin `libs/dotnet/PlatformAuth/`, one per language, because it is the platform's security code and a flaw fixed in one copy and missed in another is a hole nobody
 sees. A library holds one narrow thing and never grows into a place for anything else, which is
 what keeps the drift above from coming back through it. A design system for the feature frontends
 is the second. Its style lives in `design/`, as values and written rules, and those files are shared

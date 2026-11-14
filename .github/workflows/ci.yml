@@ -25,13 +25,14 @@ jobs:
       scripts: ${{ steps.areas.outputs.scripts }}
       web: ${{ steps.areas.outputs.web }}
       e2e: ${{ steps.areas.outputs.e2e }}
+      dotnet_services: ${{ steps.areas.outputs.dotnet_services }}
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
       # A new branch has no previous commit to diff against (before is all zeros), and a manual run
-      # has no diff at all, so both run every area.
+      # has no diff at all, so both run every area and every C# service.
       - id: areas
         env:
           EVENT: ${{ github.event_name }}
@@ -47,7 +48,7 @@ jobs:
           fi
 
           if [ -z "$base" ]; then
-            printf '%s\n' core=true canary=true brain=true libs=true scripts=true web=true e2e=true >> "$GITHUB_OUTPUT"
+            bash scripts/ci/changed-areas.sh --all >> "$GITHUB_OUTPUT"
           else
             # Captured first, so a failing git fails this job instead of feeding changed-areas.sh
             # empty input, which would read as "nothing changed" and pass.
@@ -102,10 +103,34 @@ jobs:
     if: needs.changes.outputs.e2e == 'true'
     uses: ./.github/workflows/e2e.yml
 
+  # One run of dotnet.yml per C# service whose code or dependencies changed, each with the fields
+  # of its manifest entry, so a C# service added later needs no change here.
+  dotnet:
+    needs: changes
+    if: needs.changes.outputs.dotnet_services != '[]'
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJSON(needs.changes.outputs.dotnet_services) }}
+    uses: ./.github/workflows/dotnet.yml
+    with:
+      name: ${{ matrix.service.name }}
+      dir: ${{ matrix.service.dir }}
+      postgres: ${{ matrix.service.postgres }}
+      init_script: ${{ matrix.service.init_script }}
+      migrate: ${{ matrix.service.migrate }}
+      database: ${{ matrix.service.database }}
+      owner: ${{ matrix.service.owner }}
+      app: ${{ matrix.service.app }}
+      owner_url: ${{ matrix.service.owner_url }}
+      app_url: ${{ matrix.service.app_url }}
+      owner_password: ${{ matrix.service.owner_password }}
+      app_password: ${{ matrix.service.app_password }}
+
   # Fails unless every job above succeeded or was skipped. Runs even when one of them failed
   # or was cancelled, which is what `always()` is for.
   ci-ok:
-    needs: [changes, core, canary, brain, libs, scripts, web, e2e]
+    needs: [changes, core, canary, brain, libs, scripts, web, e2e, dotnet]
     if: always()
     runs-on: ubuntu-latest
     steps:

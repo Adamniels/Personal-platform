@@ -128,6 +128,11 @@ with a final line `Stopped: <reason>` and changes nothing (see Stop).
    version ends the run with `ENVIRONMENT: node 26 not on PATH (<what node --version printed>)`;
    never install or switch it yourself. The runbook in `High-level/docs/agent-workflow.md` says how
    it is installed.
+7. **.NET.** `dotnet --version` prints `10.0.4` followed by the rest of the version, the SDK every
+   C# folder's `global.json` pins with `latestPatch`. A `dotnet` that is missing, fails to start or
+   prints another feature band or major ends the run with
+   `ENVIRONMENT: dotnet 10.0.4xx not on PATH (<what dotnet --version printed>)`; never install or
+   switch it yourself. The runbook in `High-level/docs/agent-workflow.md` says how it is installed.
 
 ## 5. Re-read the slice
 
@@ -298,7 +303,17 @@ and in the same order. Read the workflows each run; today they are:
 - **libs** (`libs.yml`): in every directory matching `libs/python/*/` that holds a
   `pyproject.toml`, `UV_LOCKED=1 uv run ruff check`, `UV_LOCKED=1 uv run ruff format --check`,
   `UV_LOCKED=1 uv run mypy` and `UV_LOCKED=1 uv run pytest`, in that order. With no such
-  directory there is nothing to run, and the step passes.
+  directory there is nothing to run, and the step passes. Then, in every directory matching
+  `libs/dotnet/*/` that holds a `.slnx`, the steps of `dotnet.yml` below, without a database.
+- **dotnet** (`dotnet.yml`, called by `ci.yml`): for each C# service in the `dotnet_services` line,
+  from its `dir`: `dotnet tool restore` when `.config/dotnet-tools.json` exists,
+  `dotnet restore --locked-mode`, `dotnet format --verify-no-changes --no-restore`,
+  `dotnet build --no-restore -c Release`; with `"postgres": true`, its migrations from step 6,
+  `bash scripts/agent/services.sh run <name> migrate`; and `dotnet test --no-build --no-restore -c Release`,
+  with `<NAME>_TEST_ADMIN_DATABASE_URL` set as the core's and the brain's are when it has a
+  database, `<NAME>` its name upper cased, and its `app_url` variable set to its app role's string
+  from `infra/.env`. The line is `dotnet_services=[]` while no C# service exists, and then there is
+  nothing to run.
 - **scripts** (`ci.yml`): every `scripts/**/*.test.sh`, as the job's loop does:
   `for t in $(find scripts -name '*.test.sh' | sort); do bash "$t" || echo "FAILED $t"; done`.
 - **web** (`web.yml`): in every folder `bash scripts/ci/frontends.sh` prints, as the job's loop
@@ -433,7 +448,7 @@ last, so the runner can read it.
 
 - **Environment**, never Blocked, and no board status changes: Docker down, a stack that will not
   start, `gh` auth or a network failure, the gh guard not first on PATH, a missing `.env`, no Node
-  26 on PATH, a service's port held by a process you cannot free, a dirty tree on a branch
+  26 on PATH, no .NET SDK 10.0.4xx on PATH, a service's port held by a process you cannot free, a dirty tree on a branch
   other than the slice's, not the bot, `migrate` failing on `main`, a database reset that fails,
   `has-decision` that cannot be added, CI failing outside the branch. The last line is exactly
   `ENVIRONMENT: <reason>`.

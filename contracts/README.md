@@ -28,8 +28,9 @@ exactly, and that the token verifies at its `iat` and at `exp + 5` and is refuse
 verifies `token.jwt` against `jwks.json` at the same times in its `tests/test_verify.py`, and its
 key cache reads `jwks.json` as the core serves it in `tests/test_keys.py`, see
 `libs/python/platform-auth/README.md`. The brain's `tests/test_whoami.py` sends the token, and
-tokens made from it, through its own route. A feature in another language verifies them with that
-language's library.
+tokens made from it, through its own route. `PlatformAuth`, the C# verifier, does the same in its
+`VerifyTests` and `KeyCacheTests`, see `libs/dotnet/PlatformAuth/README.md`. A feature in another
+language verifies them with that language's library.
 
 Ed25519 signatures are deterministic, so the same inputs give the same bytes every time. A change
 that alters them, a dependency reordering the header included, fails the core's test. That is the

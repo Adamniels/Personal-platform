@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Checks that CI tests the committed lockfiles: every cargo command in a workflow that resolves
 # dependencies passes --locked, every job that runs `uv run` sets UV_LOCKED to 1, and npm installs
-# only with `npm ci`. The commands in infra/services.json, which e2e.yml and the agents run through
+# only with `npm ci`, and every `dotnet restore` passes --locked-mode while `dotnet build` and
+# `dotnet test` pass --no-restore, so the one restore is the locked one. The commands in infra/services.json, which e2e.yml and the agents run through
 # scripts/agent/services.sh, are held to the same: cargo with --locked, and `uv run` with
 # UV_LOCKED=1 in front, since they also run outside any job's env. Without them cargo, uv and npm resolve again when a lockfile does not match
 # its manifest, and the push goes green.
@@ -98,6 +99,37 @@ npm_unlocked() {
   ' "$@"
 }
 
+# dotnet_unlocked <file>...: prints one line per `dotnet restore` without --locked-mode and per
+# `dotnet build` or `dotnet test` without --no-restore, then "checked <n>", the commands of the
+# three. Without --locked-mode a restore rewrites a packages.lock.json that does not match the
+# projects, and a build or test without --no-restore restores again, unlocked. A command ends at a
+# shell separator or a redirection. Comment lines are skipped.
+dotnet_unlocked() {
+  awk '
+    function ends(t) { return t ~ /^(;|&&|\|\||\||&)$/ || t ~ /^[0-9]*[<>]/ }
+    /^[ \t]*#/ { next }
+    {
+      n = split($0, t, /[ \t]+/)
+      for (i = 1; i <= n; i++) {
+        if (t[i] !~ /^\(?dotnet$/) continue
+        c = t[i + 1]
+        if (c == "restore") want = "--locked-mode"
+        else if (c == "build" || c == "test") want = "--no-restore"
+        else continue
+        checked++
+        found = 0
+        for (j = i + 2; j <= n && !ends(t[j]); j++) {
+          w = t[j]; sub(/[;)&|]+$/, "", w)
+          if (w == want) found = 1
+          if (t[j] ~ /[;)&|]$/) break
+        }
+        if (!found) printf "%s:%d: dotnet %s without %s: %s\n", FILENAME, FNR, c, want, $0
+      }
+    }
+    END { printf "checked %d\n", checked }
+  ' "$@"
+}
+
 # commands_uv_unlocked <file>...: for a file of commands, one per line, prints one line per command
 # running `uv run` without UV_LOCKED=1 set in front of it, then "checked <n>", the commands that run
 # `uv run`.
@@ -129,6 +161,8 @@ real=("$workflows"/*.yml)
 check "cargo steps pass --locked" "checked 6" cargo_unlocked "${real[@]}"
 check "uv jobs set UV_LOCKED" "checked 4" uv_unlocked "${real[@]}"
 check "npm installs with npm ci" "checked 2" npm_unlocked "${real[@]}"
+# dotnet.yml's restore, build and test, and the same three in libs.yml's C# job.
+check "dotnet restores locked, and builds and tests without restoring" "checked 6" dotnet_unlocked "${real[@]}"
 
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
@@ -231,6 +265,29 @@ checked 5" commands_uv_unlocked "$tmp/commands.txt"
 check "sample npm lines" "$tmp/npm.yml:6: npm install instead of npm ci:       - run: npm install
 $tmp/npm.yml:7: npm i instead of npm ci:       - run: (cd design/ui && npm i)
 checked 3" npm_unlocked "$tmp/npm.yml"
+
+cat > "$tmp/dotnet.yml" <<'EOF'
+jobs:
+  check:
+    steps:
+      # dotnet restore in a comment is not a command
+      - run: dotnet restore --locked-mode
+      - run: dotnet restore
+      - run: dotnet build --no-restore -c Release
+      - run: dotnet build -c Release
+      - run: dotnet test --no-build --no-restore -c Release
+      - run: dotnet test --no-build -c Release
+      - run: (cd x && dotnet restore --locked-mode && dotnet build -c Release)
+      - run: dotnet restore > log --locked-mode
+      - run: dotnet format --verify-no-changes --no-restore
+      - run: dotnet tool restore
+EOF
+check "sample dotnet lines" "$tmp/dotnet.yml:6: dotnet restore without --locked-mode:       - run: dotnet restore
+$tmp/dotnet.yml:8: dotnet build without --no-restore:       - run: dotnet build -c Release
+$tmp/dotnet.yml:10: dotnet test without --no-restore:       - run: dotnet test --no-build -c Release
+$tmp/dotnet.yml:11: dotnet build without --no-restore:       - run: (cd x && dotnet restore --locked-mode && dotnet build -c Release)
+$tmp/dotnet.yml:12: dotnet restore without --locked-mode:       - run: dotnet restore > log --locked-mode
+checked 9" dotnet_unlocked "$tmp/dotnet.yml"
 
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]

@@ -141,10 +141,11 @@ with one entry per service in start order.
 | `port`     | the port it listens on, an integer, unique                                                 |
 | `health`   | optional, a path through Caddy that answers `200` without a token once it is up; a service without one is not waited for |
 | `language` | `rust`, `python` or `dotnet`                                                                |
-| `area`     | the area `scripts/ci/changed-areas.sh` prints for a change under `dir`                     |
+| `area`     | the area `scripts/ci/changed-areas.sh` prints for a change under `dir`; `dotnet` for a C# service, and only for one, which puts it in `dotnet_services` instead |
 | `migrate`  | optional, the command run from `dir` to apply its migrations                               |
 | `start`    | the command run from `dir` to start it in the foreground; it may use `$HOST`, 127.0.0.1 unless the caller sets it, and `$PORT`, the entry's port |
 | `database` | optional: `name`, its `owner` and `app` roles, `owner_password` and `app_password`, the names of their variables in `.env`, `owner_url`, the variable `migrate` reads the owner's URL from, and optionally `app_url`, the one `start` reads the app's URL from |
+| `ci`       | optional, for a C# service with a database: `{"init_script": "infra/postgres/initdb/<name>.sh"}`, the script `.github/workflows/dotnet.yml` creates its database and roles with |
 
 Each `uv run` in a command has `UV_LOCKED=1` in front and each `cargo` command `--locked`, as
 `scripts/ci/workflows-locked.test.sh` checks, since they also run outside CI's environment.
@@ -155,6 +156,8 @@ It is read through `scripts/agent/services.sh` alone, which lists the services a
 - `scripts/agent/reset-db.sh`, which recreates every database it lists;
 - `scripts/ci/changed-areas.sh`, which maps each folder to its CI area, and sets every area when
   `services.json` itself changes, so a pull request cannot drop its own service to skip its checks;
+  and lists each C# service to check in `dotnet_services`, with the fields `dotnet.yml` takes, so
+  `ci.yml` runs `dotnet.yml` once for each;
 - `.github/workflows/e2e.yml`, which migrates, starts and waits for every service;
 - the agents' `pick-up-slice` skill, for its ports, password, migrate, start and health steps.
 

@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <!-- The handler and the middleware are ASP.NET Core's types, from the shared framework. -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="NSec.Cryptography" />
+  </ItemGroup>
+</Project>

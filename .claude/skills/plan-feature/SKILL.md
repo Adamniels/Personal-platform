@@ -100,7 +100,7 @@ request. Propose the whole cut at once: each slice's title, goal, tasks, risk an
 1 to 5 tasks, a few hundred lines excluding tests. Split anything larger. Each task is one commit.
 
 **Tests.** Every acceptance criterion is a named test the agent writes first: a cargo test, a
-pytest test, or a Playwright test in `e2e/`. UI acceptance also names the screenshots to capture,
+pytest test, an xUnit test, or a Playwright test in `e2e/`. UI acceptance also names the screenshots to capture,
 at desktop and at 390px phone width. A slice whose acceptance cannot be written as named tests is
 not Ready: cut it differently or settle what is missing, and otherwise leave it in Backlog.
 
