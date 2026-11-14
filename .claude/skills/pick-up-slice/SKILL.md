@@ -99,19 +99,22 @@ with a final line `Stopped: <reason>` and changes nothing (see Stop).
    On any other branch, a dirty tree ends the run with `ENVIRONMENT: dirty tree on <branch>`.
 3. **Environment.** `infra/.env` and `Core/.env` exist in the clone; they are git ignored, so they
    survive branch switches. If one is missing, end with `ENVIRONMENT: missing <file>`; never create
-   secrets yourself, and never print or read them out. `infra/.env` sets `BRAIN_OWNER_PASSWORD` and
-   `BRAIN_APP_PASSWORD`, checked by name only, as in
-   `grep -q '^BRAIN_APP_PASSWORD=.' infra/.env`; a missing one ends the run with
-   `ENVIRONMENT: missing <name> in infra/.env`.
-4. **Ports.** An interrupted run can leave the core on 8080, canary on 8081 or the brain on 8082.
-   For each port, `lsof -ti tcp:8080 -sTCP:LISTEN` (and `tcp:8081`, `tcp:8082`) lists what listens
+   secrets yourself, and never print or read them out. `infra/.env` sets every variable
+   `bash scripts/agent/services.sh password-vars` prints, the passwords of each service's database
+   in `infra/services.json`, checked by name only, as in
+   `for v in $(bash scripts/agent/services.sh password-vars); do grep -q "^$v=." infra/.env || echo "$v"; done`;
+   a missing one ends the run with `ENVIRONMENT: missing <name> in infra/.env`.
+4. **Ports.** An interrupted run can leave any service in `infra/services.json` listening on its
+   port, which `bash scripts/agent/services.sh ports` prints, the core on 8080, canary on 8081 and
+   the brain on 8082 today. For each port, `lsof -ti tcp:<port> -sTCP:LISTEN` lists what listens
    on it, and `ps -o command= -p <pid>` says what it is. Always with `-sTCP:LISTEN`: without it
    `lsof` also lists every process with a connection to the port, Docker Desktop's
-   `com.docker.backend` among them, and killing those stops Docker. A process from this clone, the
-   core's `target/debug/platform_core` or the `uvicorn` of canary or the brain, is stale:
-   `kill <pid>`, and check the port is free. Never kill a process whose command you have not read.
-   The Mac mini is dedicated, so nothing else should listen on these ports; if something else does,
-   or the port stays held, end with `ENVIRONMENT: port <port> held by <command>`.
+   `com.docker.backend` among them, and killing those stops Docker. A process from this clone
+   running one of the manifest's services, such as the core's `target/debug/platform_core` or the
+   `uvicorn` of canary or the brain, is stale: `kill <pid>`, and check the port is free. Never kill
+   a process whose command you have not read. The Mac mini is dedicated, so nothing else should
+   listen on these ports; if something else does, or the port stays held, end with
+   `ENVIRONMENT: port <port> held by <command>`.
 5. **Stack.** From `infra/`: `docker compose up -d --wait`. If the stack was down for a while, check
    for the expired chain in "After Caddy has been stopped for a while" in `infra/README.md`. Copy
    Caddy's root for `curl`: `docker compose cp caddy:/data/caddy/pki/authorities/local/root.crt ~/caddy-root.crt`.
@@ -181,20 +184,18 @@ database is disposable test data: nothing in it is kept, so each run starts empt
 branch's migrations apply from scratch, never on top of another branch's. Run
 `bash scripts/agent/reset-db.sh`. If it fails, end with `ENVIRONMENT: database reset failed`.
 
-**Migrations**, right after the reset. Apply migrations with the core's
-`migrate` command as the owner role. The owner's connection string is never written to
-`Core/.env`, since the running core must not hold the owner's credentials (see `migrate` in
-`Core/docs/core-architecture.md`), so it is set for that one command, from `Core/`, built from
-`infra/.env` without printing the password, and built from the offline query cache, since on a
-fresh database the tables the query macros check do not exist yet:
-`SQLX_OFFLINE=true CORE_OWNER_DATABASE_URL="postgres://core_owner:$(grep '^CORE_OWNER_PASSWORD=' ../infra/.env | cut -d= -f2-)@127.0.0.1:5432/core" cargo run -- migrate`
+**Migrations**, right after the reset. Apply every service's migrations, in manifest order, from
+the repository root, with each name `bash scripts/agent/services.sh names` prints:
+`bash scripts/agent/services.sh run <name> migrate`. It runs the entry's `migrate` command from its
+folder as the database's owner role, a no op for a service without one. The owner's connection
+string is never written to a file such as `Core/.env`, since a running service must not hold the
+owner's credentials (see `migrate` in `Core/docs/core-architecture.md`); `services.sh` builds it
+from `infra/.env` for that one command, without printing the password. The core's command builds
+from the offline query cache, since on a fresh database the tables the query macros check do not
+exist yet. The reset keeps the roles, so each service's roles must exist; on a volume created
+before a service had a database, "The databases" in `infra/README.md` says how they are made once.
 
-Then the brain's, the same way, as `brain_owner`, from `Brain/`:
-`BRAIN_OWNER_DATABASE_URL="postgres://brain_owner:$(grep '^BRAIN_OWNER_PASSWORD=' ../infra/.env | cut -d= -f2-)@127.0.0.1:5432/brain" UV_LOCKED=1 uv run brain migrate`.
-The reset keeps the roles, so it needs `brain_owner` and `brain_app` to exist; on a volume created
-before the brain had a database, "The databases" in `infra/README.md` says how they are made once.
-
-In new mode the branch equals `main`, so either `migrate` failing there ends the run with
+In new mode the branch equals `main`, so any `migrate` failing there ends the run with
 `ENVIRONMENT: migrate fails on main`. On a resumed or fixed branch it may be the slice's own
 migration, and is fixed as part of the work. After editing a migration this run already applied,
 run `bash scripts/agent/reset-db.sh` again before `migrate`.
@@ -202,7 +203,7 @@ run `bash scripts/agent/reset-db.sh` again before `migrate`.
 **Before screenshots**, in new mode, for a slice that changes a page that exists. Now, before your
 first change, while the branch still equals `main`: start the platform (step 9), run the e2e tests
 that cover that page, and keep the PNGs `capture()` wrote as `<name>-<viewport>-before.png` in
-`<tmp>`. Stop the core, canary and the brain afterwards, as step 9 says to stop them.
+`<tmp>`. Stop the services afterwards, as step 9 says to stop them.
 
 Keep the pull request body in `<tmp>/body.md`. Start it from
 `templates.md`, copy the slice's Tasks checklist into it, and tick each task there as its commit
@@ -282,8 +283,8 @@ git diff --name-only origin/main...HEAD | bash scripts/ci/changed-areas.sh
 For each area printed as `true`, run every step of its workflow under `.github/workflows/`, locally
 and in the same order. Read the workflows each run; today they are:
 
-- **core** (`core.yml`), from `Core/`: `cargo fmt --check`; the `migrate` command from step 6,
-  as `cargo run --locked -- migrate`; `cargo clippy --locked --all-targets -- -D warnings`;
+- **core** (`core.yml`), from `Core/`: `cargo fmt --check`; the core's migrations from step 6,
+  `bash scripts/agent/services.sh run core migrate`; `cargo clippy --locked --all-targets -- -D warnings`;
   `CORE_TEST_ADMIN_DATABASE_URL="postgres://postgres:$(grep '^POSTGRES_PASSWORD=' ../infra/.env | cut -d= -f2-)@127.0.0.1:5432/postgres" cargo test --locked`;
   `CORE_OWNER_DATABASE_URL="postgres://core_owner:$(grep '^CORE_OWNER_PASSWORD=' ../infra/.env | cut -d= -f2-)@127.0.0.1:5432/core" cargo test --locked --test app_roles -- --ignored`;
   and `cargo sqlx prepare --check -- --all-targets --locked`, with sqlx-cli at the version
@@ -291,8 +292,8 @@ and in the same order. Read the workflows each run; today they are:
 - **canary** (`canary.yml`), from `canary/`: `UV_LOCKED=1 uv run ruff check`,
   `UV_LOCKED=1 uv run ruff format --check`, `UV_LOCKED=1 uv run pytest`.
 - **brain** (`brain.yml`), from `Brain/`: `UV_LOCKED=1 uv run ruff check`,
-  `UV_LOCKED=1 uv run ruff format --check`, `UV_LOCKED=1 uv run mypy`; the brain's `migrate`
-  command from step 6; and
+  `UV_LOCKED=1 uv run ruff format --check`, `UV_LOCKED=1 uv run mypy`; the brain's migrations from
+  step 6, `bash scripts/agent/services.sh run brain migrate`; and
   `BRAIN_TEST_ADMIN_DATABASE_URL="postgres://postgres:$(grep '^POSTGRES_PASSWORD=' ../infra/.env | cut -d= -f2-)@127.0.0.1:5432/postgres" BRAIN_APP_DATABASE_URL="postgres://brain_app:$(grep '^BRAIN_APP_PASSWORD=' ../infra/.env | cut -d= -f2-)@127.0.0.1:5432/brain" UV_LOCKED=1 uv run pytest`.
 - **libs** (`libs.yml`): in every directory matching `libs/python/*/` that holds a
   `pyproject.toml`, `UV_LOCKED=1 uv run ruff check`, `UV_LOCKED=1 uv run ruff format --check`,
@@ -309,35 +310,41 @@ and in the same order. Read the workflows each run; today they are:
   `UV_LOCKED=1 uv run pytest`, `UV_LOCKED=1 uv run ruff check`,
   `UV_LOCKED=1 uv run ruff format --check`.
 
-**Starting the platform.** Stop any core, canary or brain you started earlier, so the code as it
-is now runs. Stopping one is always done the way step 4 finds it: the listener on its port, from
-`lsof` with `-sTCP:LISTEN`, and only when its command is the core, canary or the brain. Build every
+**Starting the platform.** Stop any service you started earlier, so the code as it is now runs.
+Stopping one is always done the way step 4 finds it: the listener on its port, from `lsof` with
+`-sTCP:LISTEN`, and only when its command is one of the manifest's services. Build every
 frontend, as `e2e.yml` does, from the repository root:
 `for dir in $(bash scripts/ci/frontends.sh); do (cd "$dir" && npm ci && npm run build); done`;
 a build that fails is a failing step. Recreate Caddy, so it reads the Caddyfile as the branch has
 it, since a change to the mounted file does not reach a running container: from `infra/`,
-`docker compose up -d --wait --force-recreate caddy`. From `Core/`,
-`cargo run --locked -q > <tmp>/core.log 2>&1 &`; from `canary/`,
-`UV_LOCKED=1 uv run uvicorn canary.app:app --host 127.0.0.1 --port 8081 > <tmp>/canary.log 2>&1 &`;
-from `Brain/`, with the app role's string set on the command and written nowhere,
-`BRAIN_APP_DATABASE_URL="postgres://brain_app:$(grep '^BRAIN_APP_PASSWORD=' ../infra/.env | cut -d= -f2-)@127.0.0.1:5432/brain" UV_LOCKED=1 uv run uvicorn brain.app:app --host 127.0.0.1 --port 8082 > <tmp>/brain.log 2>&1 &`.
-Wait at most three minutes for the core and the brain to answer:
+`docker compose up -d --wait --force-recreate caddy`. Then start every service in manifest order,
+from the repository root, each in the background with its own log:
+`for name in $(bash scripts/agent/services.sh names); do bash scripts/agent/services.sh run "$name" start > <tmp>/$name.log 2>&1 & done`.
+`services.sh` runs each entry's `start` from its folder on 127.0.0.1, with its app role's string
+set for that process and written nowhere. Wait at most three minutes for every service with a
+`health` path to answer through Caddy:
 
 ```
 for _ in $(seq 1 90); do
-  [ "$(curl --cacert ~/caddy-root.crt -s -o /dev/null -w '%{http_code}' https://platform.test/login)" = 200 ] &&
-    [ "$(curl --cacert ~/caddy-root.crt -s -o /dev/null -w '%{http_code}' https://platform.test/brain/api/health)" = 200 ] && break
+  up=true
+  for health_path in $(bash scripts/agent/services.sh health); do
+    [ "$(curl --cacert ~/caddy-root.crt -s -o /dev/null -w '%{http_code}' "https://platform.test$health_path")" = 200 ] || { up=false; break; }
+  done
+  [ "$up" = true ] && break
   sleep 2
 done
 ```
 
-If either never answers `200`, read the tail of the three logs. A core, canary or brain that fails
-because of the branch's code is a failing step, fixed like any other. Anything else ends the run
-with `ENVIRONMENT: platform.test never answered 200 (<the log line that says why>)`.
+The loop runs in zsh as well as bash: it splits the command's output, never a variable, and its
+variable is not `path`, which zsh ties to `PATH`.
+
+If one never answers `200`, read the tail of every service's log. A service that fails because of
+the branch's code is a failing step, fixed like any other. Anything else ends the run with
+`ENVIRONMENT: platform.test never answered 200 (<the log line that says why>)`.
 
 A failing step is fixed before going on, never skipped, weakened or marked as expected to fail.
-Loop until every step is green. Keep each command and its result for Verification. Leave the core,
-canary and the brain running when step 10 follows; otherwise stop what you started, the same way.
+Loop until every step is green. Keep each command and its result for Verification. Leave the
+services running when step 10 follows; otherwise stop what you started, the same way.
 Leave Postgres, Caddy and Docker running.
 
 ## 10. Look at it
@@ -350,8 +357,8 @@ After the gate, with the platform still running the branch's current code (start
 `e2e/screenshots/` (git ignored, generated output) and run the suite once more, so `capture()`
 writes fresh PNGs at desktop and 390px phone width. Open each one and look for what a test does not
 catch: overflow, clipped text, overlapping elements, an unreadable phone layout. Fix what you find
-as part of the task it belongs to, and gate again. Then stop the core, canary and the brain you
-started, as step 9 says to stop them; leave Postgres, Caddy and Docker running.
+as part of the task it belongs to, and gate again. Then stop the services you started, as step 9
+says to stop them; leave Postgres, Caddy and Docker running.
 
 ## 11. The pull request
 
@@ -426,7 +433,7 @@ last, so the runner can read it.
 
 - **Environment**, never Blocked, and no board status changes: Docker down, a stack that will not
   start, `gh` auth or a network failure, the gh guard not first on PATH, a missing `.env`, no Node
-  26 on PATH, port 8080, 8081 or 8082 held by a process you cannot free, a dirty tree on a branch
+  26 on PATH, a service's port held by a process you cannot free, a dirty tree on a branch
   other than the slice's, not the bot, `migrate` failing on `main`, a database reset that fails,
   `has-decision` that cannot be added, CI failing outside the branch. The last line is exactly
   `ENVIRONMENT: <reason>`.

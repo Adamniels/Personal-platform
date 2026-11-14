@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Checks that CI tests the committed lockfiles: every cargo command in a workflow that resolves
 # dependencies passes --locked, every job that runs `uv run` sets UV_LOCKED to 1, and npm installs
-# only with `npm ci`. Without them cargo, uv and npm resolve again when a lockfile does not match
+# only with `npm ci`. The commands in infra/services.json, which e2e.yml and the agents run through
+# scripts/agent/services.sh, are held to the same: cargo with --locked, and `uv run` with
+# UV_LOCKED=1 in front, since they also run outside any job's env. Without them cargo, uv and npm resolve again when a lockfile does not match
 # its manifest, and the push goes green.
 # The same checks run on sample workflows, so they cannot pass by matching nothing.
 # Run: bash scripts/ci/workflows-locked.test.sh
@@ -9,6 +11,7 @@ set -uo pipefail
 
 here="$(cd "$(dirname "$0")" && pwd)"
 workflows="$here/../../.github/workflows"
+manifest="$here/../../infra/services.json"
 pass=0
 fail=0
 
@@ -95,6 +98,19 @@ npm_unlocked() {
   ' "$@"
 }
 
+# commands_uv_unlocked <file>...: for a file of commands, one per line, prints one line per command
+# running `uv run` without UV_LOCKED=1 set in front of it, then "checked <n>", the commands that run
+# `uv run`.
+commands_uv_unlocked() {
+  awk '
+    /(^|[^A-Za-z0-9_-])uv run( |$)/ {
+      checked++
+      if ($0 !~ /(^|[ \t])UV_LOCKED=1[ \t]+([A-Z_]+=[^ \t]*[ \t]+)*uv run( |$)/) printf "%s:%d: uv run without UV_LOCKED=1 in front: %s\n", FILENAME, FNR, $0
+    }
+    END { printf "checked %d\n", checked }
+  ' "$@"
+}
+
 # check <name> <expected output, exact> <command...>
 check() {
   local name="$1" want="$2" got
@@ -110,13 +126,20 @@ check() {
 # The workflows as committed. The counts are what they hold today, so a cargo or uv step that
 # moved out of reach of the check, by a rewrite it does not recognise, fails here too.
 real=("$workflows"/*.yml)
-check "cargo steps pass --locked" "checked 8" cargo_unlocked "${real[@]}"
+check "cargo steps pass --locked" "checked 6" cargo_unlocked "${real[@]}"
 check "uv jobs set UV_LOCKED" "checked 4" uv_unlocked "${real[@]}"
 check "npm installs with npm ci" "checked 2" npm_unlocked "${real[@]}"
 
-# Sample workflows, so each check is seen to fail.
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
+
+# The manifest's commands as committed, one per line. The counts are what it holds today: the
+# core's migrate and start, and the brain's migrate and both starts.
+jq -r '.services[] | .migrate // empty, .start' "$manifest" > "$tmp/manifest.txt"
+check "manifest cargo commands pass --locked" "checked 2" cargo_unlocked "$tmp/manifest.txt"
+check "manifest uv commands set UV_LOCKED=1" "checked 3" commands_uv_unlocked "$tmp/manifest.txt"
+
+# Samples, so each check is seen to fail.
 
 cat > "$tmp/cargo.yml" <<'EOF'
 jobs:
@@ -192,6 +215,19 @@ jobs:
       - run: npm run build
       - run: npx vitest run
 EOF
+cat > "$tmp/commands.txt" <<'EOF'
+UV_LOCKED=1 uv run brain migrate
+uv run uvicorn app:app
+UV_LOCKED=0 uv run pytest
+FOO=1 UV_LOCKED=1 BAR=2 uv run x
+NOT_UV_LOCKED=1 uv run y
+cargo run --locked -q
+EOF
+check "sample manifest uv commands" "$tmp/commands.txt:2: uv run without UV_LOCKED=1 in front: uv run uvicorn app:app
+$tmp/commands.txt:3: uv run without UV_LOCKED=1 in front: UV_LOCKED=0 uv run pytest
+$tmp/commands.txt:5: uv run without UV_LOCKED=1 in front: NOT_UV_LOCKED=1 uv run y
+checked 5" commands_uv_unlocked "$tmp/commands.txt"
+
 check "sample npm lines" "$tmp/npm.yml:6: npm install instead of npm ci:       - run: npm install
 $tmp/npm.yml:7: npm i instead of npm ci:       - run: (cd design/ui && npm i)
 checked 3" npm_unlocked "$tmp/npm.yml"
