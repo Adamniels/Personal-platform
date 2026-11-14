@@ -5,23 +5,17 @@ import styles from "./app.module.css";
 import { CardsSection } from "./cards/cards-section";
 import { DecksSection } from "./decks/decks-section";
 import { SECTIONS, type Section, sectionAt } from "./sections";
+import { StudyStart } from "./study/study-start";
 
-/** What each section shows, by its key; a section not here says it is still
- * being built. */
-const CONTENT: Record<string, () => ReactNode> = {
+/** What each section shows, by its key. */
+const CONTENT: Record<Section["key"], () => ReactNode> = {
+	study: () => <StudyStart />,
 	cards: () => <CardsSection />,
 	decks: () => <DecksSection />,
 };
 
 function SectionContent({ section }: { section: Section }) {
-	const content = CONTENT[section.key];
-	if (content) return content();
-	return (
-		<EmptyState
-			title={section.empty}
-			detail="This part of review is still being built."
-		/>
-	);
+	return CONTENT[section.key]();
 }
 
 /** Review's frame: the page's heading, a tab per section, tied to the

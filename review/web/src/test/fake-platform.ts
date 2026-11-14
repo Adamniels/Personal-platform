@@ -7,6 +7,12 @@
 // naming its field. The brain's topics are listed by slug, aliases included, and a new one is
 // canonical, its slug made from its name, 409 when the user has it. With the brain down, every call
 // to it fails as fetch does when nothing answers. Anything else answers 404.
+//
+// The queue and grading keep "When a card comes back" in review/README.md as the page sees it: the
+// cards due at or before the platform's clock, oldest due first, at most 200, narrowed by `?deck=`
+// and `?topic=`, with `total`, `as_of` and `next_due`; and a grade from a version that is not the
+// card's current one refused (409). The schedule is not FSRS's: every grade brings a card back
+// after a fixed interval, PREVIEW below, from the clock, which a test moves with `advance`.
 import type { components as BrainComponents } from "../api/brain-schema";
 import {
 	type ClientEnvironment,
@@ -17,6 +23,8 @@ import type { components } from "../api/schema";
 
 type Deck = components["schemas"]["Deck"];
 type Card = components["schemas"]["Card"];
+type CardWithPreviews = components["schemas"]["CardWithPreviews"];
+type Previews = components["schemas"]["PreviewTimes"];
 type CardTopic = components["schemas"]["CardTopic"];
 export type Topic = BrainComponents["schemas"]["Topic"];
 
@@ -31,6 +39,24 @@ type Refusal = {
 };
 
 const SLUG = /^[a-z0-9][a-z0-9-]{0,79}$/;
+
+const MINUTE = 60_000;
+const DAY = 24 * 60 * MINUTE;
+
+/** How long after a grade the fake brings a card back, by grade. */
+export const PREVIEW: Record<keyof Previews, number> = {
+	again: 10 * MINUTE,
+	hard: 2 * DAY,
+	good: 4 * DAY,
+	easy: 12 * DAY,
+};
+
+const RATINGS: Record<number, keyof Previews> = {
+	1: "again",
+	2: "hard",
+	3: "good",
+	4: "easy",
+};
 
 function problem(status: number, detail: string, errors?: object): Response {
 	return new Response(
@@ -68,8 +94,11 @@ export function fakePlatform({ now = Date.UTC(2026, 10, 14, 9, 0) } = {}) {
 	const topics: Topic[] = [];
 	const calls: Call[] = [];
 	const refusals: Refusal[] = [];
+	const failures: { method: string; path: RegExp }[] = [];
 	let brainDown = false;
 	let minutes = 0;
+	// The platform's clock, what is due is due by; rows are stamped apart from it.
+	let clock = now;
 
 	// Each row made a minute after the one before, so the order is never a tie.
 	function stamp(): string {
@@ -117,11 +146,13 @@ export function fakePlatform({ now = Date.UTC(2026, 10, 14, 9, 0) } = {}) {
 			back = "An answer",
 			topics: named,
 			due,
+			source = null,
 		}: {
 			front: string;
 			back?: string;
 			topics: readonly CardTopic[];
 			due?: string;
+			source?: Card["source"];
 		},
 	): Card {
 		const created = stamp();
@@ -131,7 +162,7 @@ export function fakePlatform({ now = Date.UTC(2026, 10, 14, 9, 0) } = {}) {
 			front,
 			back,
 			topics: [...named],
-			source: null,
+			source,
 			state: "new",
 			due: due ?? created,
 			last_review: null,
@@ -208,11 +239,77 @@ export function fakePlatform({ now = Date.UTC(2026, 10, 14, 9, 0) } = {}) {
 		};
 	}
 
+	function previewsOf(): Previews {
+		const at = (ms: number) => new Date(clock + ms).toISOString();
+		return {
+			again: at(PREVIEW.again),
+			hard: at(PREVIEW.hard),
+			good: at(PREVIEW.good),
+			easy: at(PREVIEW.easy),
+		};
+	}
+
+	function withPreviews(card: Card): CardWithPreviews {
+		return { ...card, previews: previewsOf() };
+	}
+
+	function queue(search: URLSearchParams): Response {
+		const deck = search.get("deck");
+		const topic = search.get("topic");
+		const narrowed = cards.filter(
+			(card) =>
+				(deck === null || card.deck.id === deck) &&
+				(topic === null || card.topics.some(({ slug }) => slug === topic)),
+		);
+		const due = narrowed
+			.filter((card) => Date.parse(card.due) <= clock)
+			.sort(
+				(a, b) =>
+					Date.parse(a.due) - Date.parse(b.due) || a.id.localeCompare(b.id),
+			);
+		const later = narrowed
+			.map((card) => Date.parse(card.due))
+			.filter((at) => at > clock);
+		return json(200, {
+			cards: due.slice(0, 200).map(withPreviews),
+			total: due.length,
+			as_of: new Date(clock).toISOString(),
+			next_due:
+				later.length === 0 ? null : new Date(Math.min(...later)).toISOString(),
+		});
+	}
+
+	function grade(card: Card, body: unknown): Response {
+		const { rating, version } = body as { rating?: unknown; version?: unknown };
+		const grade = RATINGS[Number(rating)];
+		if (grade === undefined) {
+			return problem(422, "must be 1 to 4", { rating: ["must be 1 to 4"] });
+		}
+		if (version !== card.version) {
+			return problem(409, "The card has changed since it was read.");
+		}
+		Object.assign(card, {
+			state: grade === "again" ? "learning" : "review",
+			due: new Date(clock + PREVIEW[grade]).toISOString(),
+			last_review: new Date(clock).toISOString(),
+			version: card.version + 1,
+		});
+		return json(201, withPreviews(card));
+	}
+
 	function review(method: string, path: string, body: unknown): Response {
 		const [route = "", query = ""] = path.split("?");
 		const search = new URLSearchParams(query);
 		const deckId = /^\/decks\/([^/]+)$/.exec(route)?.[1];
 		const cardId = /^\/cards\/([^/]+)$/.exec(route)?.[1];
+		const gradedId = /^\/cards\/([^/]+)\/grades$/.exec(route)?.[1];
+
+		if (method === "GET" && route === "/queue") return queue(search);
+		if (method === "POST" && gradedId !== undefined) {
+			const card = cards.find(({ id }) => id === gradedId);
+			if (!card) return problem(404, "There is no such card.");
+			return grade(card, body);
+		}
 
 		if (method === "GET" && route === "/decks") {
 			countCards();
@@ -315,6 +412,13 @@ export function fakePlatform({ now = Date.UTC(2026, 10, 14, 9, 0) } = {}) {
 			const body =
 				typeof init.body === "string" ? JSON.parse(init.body) : undefined;
 			calls.push({ method, path: url, body });
+			const failure = failures.findIndex(
+				(each) => each.method === method && each.path.test(url),
+			);
+			if (failure !== -1) {
+				failures.splice(failure, 1);
+				throw new TypeError("Failed to fetch");
+			}
 			const refusal = refusals.findIndex(
 				(each) => each.method === method && each.path.test(url),
 			);
@@ -352,6 +456,19 @@ export function fakePlatform({ now = Date.UTC(2026, 10, 14, 9, 0) } = {}) {
 		 * with this status and body. */
 		refuse(method: string, path: RegExp, status: number, body: unknown) {
 			refusals.push({ method, path, status, body });
+		},
+		/** The next call by the method to a path the pattern matches fails as
+		 * fetch does when nothing answers. */
+		fail(method: string, path: RegExp) {
+			failures.push({ method, path });
+		},
+		/** Moves the platform's clock on. */
+		advance(ms: number) {
+			clock += ms;
+		},
+		/** The platform's clock, as an ISO time, moved by `ms`. */
+		at(ms = 0): string {
+			return new Date(clock + ms).toISOString();
 		},
 		/** Whether the brain answers at all. */
 		setBrainDown(down: boolean) {

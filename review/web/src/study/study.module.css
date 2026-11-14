@@ -1,0 +1,76 @@
+/* The Study tab and a study session. Colours, sizes and type are tokens;
+ * the layout is the slice's, see "Studying" in review/README.md. */
+
+/* The start view sits under the tabs, its parts a section gap apart. */
+.start {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-5);
+	margin-top: var(--space-3);
+}
+
+/* The total due and Start everything, on one line while they fit. */
+.summary {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--space-3);
+}
+
+/* By deck and By topic side by side, as the card grid of section 2. */
+.groups {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(min(340px, 100%), 1fr));
+	gap: var(--space-4);
+	align-items: start;
+}
+
+.list {
+	display: flex;
+	flex-direction: column;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+/* A deck or topic: its name, its count and Start, rows a hairline apart. */
+.row {
+	display: flex;
+	align-items: center;
+	gap: var(--space-3);
+	min-height: var(--row-h);
+	padding: var(--space-2) 0;
+	border-top: 1px solid var(--border);
+}
+
+.row:first-child {
+	border-top: none;
+	padding-top: 0;
+}
+
+.name {
+	flex: 1 1 auto;
+	min-width: 0;
+	overflow-wrap: anywhere;
+}
+
+.rowAction {
+	flex: none;
+}
+
+.note {
+	margin: var(--space-3) 0 0;
+	color: var(--text-2);
+	font-size: var(--text-small-size);
+	line-height: var(--text-small-line);
+}
+
+.start .note {
+	margin: 0;
+}
+
+/* Empty and done states sit where the section would, under the tabs. */
+.state {
+	margin-top: var(--space-3);
+}

@@ -151,7 +151,7 @@ export interface paths {
         };
         /**
          * The cards due now
-         * @description The cards due at or before now, oldest due first, at most 200, each as a single read answers it plus when each grade would bring it back, and total, how many are due in all. Narrowed to a deck by ?deck=<id>, to a topic by ?topic=<slug>, or both, total with them. 422 for a topic that is no slug.
+         * @description The cards due at or before now, oldest due first, at most 200, each as a single read answers it plus when each grade would bring it back; total, how many are due in all; as_of, the now every preview is counted from; and next_due, the earliest due after it, or null. Narrowed to a deck by ?deck=<id>, to a topic by ?topic=<slug>, or both, total and next_due with them. 422 for a topic that is no slug.
          */
         get: operations["getQueue"];
         put?: never;
@@ -271,7 +271,11 @@ export interface components {
             name: null | string;
         };
         DueCards: {
+            /** Format: date-time */
+            as_of: string;
             cards: components["schemas"]["CardWithPreviews"][];
+            /** Format: date-time */
+            next_due: null | string;
             /** Format: int32 */
             total: number;
         };

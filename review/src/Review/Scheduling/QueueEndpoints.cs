@@ -10,8 +10,9 @@ using Review.Database;
 namespace Review.Scheduling;
 
 /// <summary>
-/// <c>GET /review/api/queue</c>: the cards due now, oldest due first, each with its previews. See
-/// "When a card comes back" in review/README.md.
+/// <c>GET /review/api/queue</c>: the cards due now, oldest due first, each with its previews, the
+/// time they were counted from, and when the next card not yet due comes back. See "When a card
+/// comes back" in review/README.md.
 /// </summary>
 public static class QueueEndpoints
 {
@@ -22,7 +23,7 @@ public static class QueueEndpoints
     {
         ArgumentNullException.ThrowIfNull(routes);
         routes.MapGet("/review/api/queue", Get)
-            .UserRoute("getQueue", "The cards due now", $"The cards due at or before now, oldest due first, at most {QueueMax}, each as a single read answers it plus when each grade would bring it back, and total, how many are due in all. Narrowed to a deck by ?deck=<id>, to a topic by ?topic=<slug>, or both, total with them. 422 for a topic that is no slug.",
+            .UserRoute("getQueue", "The cards due now", $"The cards due at or before now, oldest due first, at most {QueueMax}, each as a single read answers it plus when each grade would bring it back; total, how many are due in all; as_of, the now every preview is counted from; and next_due, the earliest due after it, or null. Narrowed to a deck by ?deck=<id>, to a topic by ?topic=<slug>, or both, total and next_due with them. 422 for a topic that is no slug.",
                 StatusCodes.Status422UnprocessableEntity);
         return routes;
     }
@@ -38,7 +39,7 @@ public static class QueueEndpoints
         }
 
         var now = GradeEndpoints.Now(time);
-        var (rows, total) = await db.InUserTransaction(context.UserId(), async transaction =>
+        var (rows, total, nextDue) = await db.InUserTransaction(context.UserId(), async transaction =>
         {
             var parameters = new { deck, topic, now };
             var rows = await transaction.Connection!.QueryAsync<CardEndpoints.Row>(new CommandDefinition(
@@ -55,15 +56,24 @@ public static class QueueEndpoints
             var total = await transaction.Connection!.ExecuteScalarAsync<int>(new CommandDefinition(
                 $"SELECT count(*) FROM cards c WHERE c.due <= @now AND {CardEndpoints.Narrowed}",
                 parameters, transaction, cancellationToken: cancellationToken));
-            return (rows, total);
+            // When the queue would next grow, so a page with nothing left to show says when to
+            // come back; null when no card is scheduled after now.
+            var nextDue = await transaction.Connection!.ExecuteScalarAsync<DateTime?>(new CommandDefinition(
+                $"SELECT min(c.due) FROM cards c WHERE c.due > @now AND {CardEndpoints.Narrowed}",
+                parameters, transaction, cancellationToken: cancellationToken));
+            return (rows, total, nextDue);
         }, cancellationToken);
 
         return TypedResults.Ok(new DueCards(
             [.. rows.Select(row => CardWithPreviews.From(row.Card, Fsrs.Preview(row.Schedule, now)))],
-            total));
+            total,
+            now.UtcDateTime,
+            nextDue));
     }
 }
 
 /// <summary>The queue: the cards due now, oldest due first, at most
-/// <see cref="QueueEndpoints.QueueMax"/>, and how many are due in all.</summary>
-public sealed record DueCards(CardWithPreviews[] Cards, int Total);
+/// <see cref="QueueEndpoints.QueueMax"/>; how many are due in all; the time every preview was
+/// counted from, so the page writes each as an interval without its own clock; and the earliest
+/// due after that time, or null when no card is scheduled after it.</summary>
+public sealed record DueCards(CardWithPreviews[] Cards, int Total, DateTime AsOf, DateTime? NextDue);
