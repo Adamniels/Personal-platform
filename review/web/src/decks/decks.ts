@@ -9,12 +9,14 @@ export type Deck = components["schemas"]["Deck"];
 
 export const DECKS = [...REVIEW, "decks"] as const;
 
-/** Every deck, by name without letter case, as review answers them. */
+/** Every deck, by name without letter case, as review answers them. Every view that
+ * reads them says itself when they cannot be loaded. */
 export function useDecks() {
 	const client = useClient();
 	return useQuery({
 		queryKey: DECKS,
 		queryFn: () => client.get("/decks"),
+		meta: { ownError: true },
 	});
 }
 

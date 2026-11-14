@@ -81,6 +81,33 @@ describe("the Cards tab lists every card", () => {
 		).toBe("now");
 	});
 
+	test("a list that cannot be loaded says so once, in place, not as a toast too", async () => {
+		platform.addDeck("Real Time Systems");
+		platform.refuse("GET", /\/review\/api\/cards(\?|$)/, 503, {
+			title: "Service Unavailable",
+		});
+		openAt("/review/cards", platform);
+
+		expect(
+			await screen.findByText("The cards could not be loaded."),
+		).toBeTruthy();
+		await settle();
+		expect(screen.queryByRole("alert")).toBeNull();
+	});
+
+	test("decks that cannot be loaded say so once, in place, not as a toast too", async () => {
+		platform.refuse("GET", /\/review\/api\/decks$/, 503, {
+			title: "Service Unavailable",
+		});
+		openAt("/review/cards", platform);
+
+		expect(
+			await screen.findByText("The decks could not be loaded."),
+		).toBeTruthy();
+		await settle();
+		expect(screen.queryByRole("alert")).toBeNull();
+	});
+
 	test("a long front is cut at 120 characters", async () => {
 		const deck = platform.addDeck("Real Time Systems");
 		const long = "x".repeat(150);

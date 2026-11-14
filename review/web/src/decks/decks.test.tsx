@@ -52,6 +52,19 @@ describe("the Decks tab lists the decks with their card counts", () => {
 		expect(within(rows[1] as HTMLElement).getByText("2 cards")).toBeTruthy();
 	});
 
+	test("a list that cannot be loaded says so once, in place, not as a toast too", async () => {
+		platform.refuse("GET", /\/review\/api\/decks$/, 503, {
+			title: "Service Unavailable",
+		});
+		openAt("/review/decks", platform);
+
+		expect(
+			await screen.findByText("The decks could not be loaded."),
+		).toBeTruthy();
+		await settle();
+		expect(screen.queryByRole("alert")).toBeNull();
+	});
+
 	test("with no decks, it says so", async () => {
 		openAt("/review/decks", platform);
 

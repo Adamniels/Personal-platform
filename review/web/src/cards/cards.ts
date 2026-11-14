@@ -18,12 +18,14 @@ export type CardFields = {
 	topics: PickedTopic[];
 };
 
-/** The cards, newest first, every deck's or one deck's. */
+/** The cards, newest first, every deck's or one deck's. Every view that
+ * reads them says itself when they cannot be loaded. */
 export function useCards(deck: string | undefined) {
 	const client = useClient();
 	return useQuery({
 		queryKey: [...REVIEW, "cards", deck ?? "all"],
 		queryFn: () => client.get("/cards", { query: { deck } }),
+		meta: { ownError: true },
 	});
 }
 
