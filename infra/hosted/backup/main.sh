@@ -11,9 +11,10 @@ lib=/usr/local/lib/backup
 
 case "${1:-schedule}" in
   schedule)
+    . "$lib/backup.sh"
+    . "$lib/schedule.sh"
     load_settings
-    echo "backup: the settings are right; ${1:-schedule} is not built yet" >&2
-    exit 1
+    schedule
     ;;
   now)
     . "$lib/backup.sh"

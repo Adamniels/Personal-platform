@@ -431,13 +431,17 @@ else
   bad a_restore_refuses_a_database_that_is_not_empty_without_replace "$problems"
 fi
 
-# --- a_failed_upload_is_a_failed_backup ---------------------------------------------------------
+# --- a_failed_upload_is_a_failed_backup, and local_copies_older_than_the_limit_are_removed -------
 
+# Two dated files, eight and six days old, which only retention removes.
+old="$(in_backup 'date -u -d "8 days ago" +%Y%m%dT%H%M%SZ')-probe.dump.age"
+recent="$(in_backup 'date -u -d "6 days ago" +%Y%m%dT%H%M%SZ')-probe.dump.age"
+in_backup "printf 'age-encryption.org/v1' > /backups/$old; printf 'age-encryption.org/v1' > /backups/$recent" > /dev/null 2>&1
 earlier_success="$(jq -r .last_success_at "$tmp/status.json" 2> /dev/null)"
 
 compose exec -T s3stub touch /tmp/s3/refuse
 before="$(files)"
-out="$(backup_now 2>&1)"
+out="$(backup_now -e BACKUP_KEEP_LOCAL_DAYS=7 2>&1)"
 failed_code=$?
 after_failure="$(files)"
 status > "$tmp/failed.json" 2>&1
@@ -461,6 +465,48 @@ if [ -z "$problems" ]; then
   ok a_failed_upload_is_a_failed_backup
 else
   bad a_failed_upload_is_a_failed_backup "$problems ($(printf '%s' "$out" | tail -n 2 | tr '\n' ' '))"
+fi
+
+backup_now -e BACKUP_KEEP_LOCAL_DAYS=7 > "$tmp/retention.log" 2>&1
+retention_code=$?
+after_success="$(files)"
+problems=""
+printf '%s\n' "$after_failure" | grep -qx "$old" || problems="$problems the failed run removed the eight day old file;"
+printf '%s\n' "$after_failure" | grep -qx "$recent" || problems="$problems the failed run removed the six day old file;"
+[ "$retention_code" -eq 0 ] || problems="$problems the successful run exited $retention_code: $(tail -n 2 "$tmp/retention.log" | tr '\n' ' ');"
+printf '%s\n' "$after_success" | grep -qx "$old" && problems="$problems the eight day old file is still there;"
+printf '%s\n' "$after_success" | grep -qx "$recent" || problems="$problems the six day old file is gone;"
+if [ -z "$problems" ]; then
+  ok local_copies_older_than_the_limit_are_removed
+else
+  bad local_copies_older_than_the_limit_are_removed "$problems"
+fi
+
+# --- the_schedule_sleeps_until_the_next_time ------------------------------------------------------
+
+# "<now, UTC> <BACKUP_AT> <TZ> <expected seconds>". Stockholm is UTC+1 in winter and UTC+2 in
+# summer; in 2026 the clocks go forward at 01:00 UTC on 29 March and back at 01:00 UTC on
+# 25 October.
+cases="2026-11-15T01:59:59Z 03:00 Europe/Stockholm 1
+2026-11-15T02:00:00Z 03:00 Europe/Stockholm 86400
+2026-11-15T02:00:01Z 03:00 Europe/Stockholm 86399
+2026-03-28T02:00:01Z 03:00 Europe/Stockholm 82799
+2026-03-29T00:59:59Z 03:00 Europe/Stockholm 1
+2026-10-24T01:00:01Z 03:00 Europe/Stockholm 89999
+2026-10-25T01:59:59Z 03:00 Europe/Stockholm 1
+2026-03-28T23:00:00Z 02:30 Europe/Stockholm 9000
+2026-11-15T03:00:00Z 03:00 UTC 86400
+2026-11-15T22:59:30Z 00:00 Europe/Stockholm 30"
+got="$(printf '%s\n' "$cases" | in_backup '
+  . /usr/local/lib/backup/lib.sh
+  while read -r now at zone expected; do
+    printf "%s %s %s %s\n" "$now" "$at" "$zone" "$(seconds_until_next "$(date -u -d "$now" +%s)" "$at" "$zone")"
+  done' 2>&1)"
+want="$(printf '%s\n' "$cases" | awk '{ print $1, $2, $3, $4 }')"
+if [ "$got" = "$want" ]; then
+  ok the_schedule_sleeps_until_the_next_time
+else
+  bad the_schedule_sleeps_until_the_next_time "$(diff <(printf '%s\n' "$want") <(printf '%s\n' "$got") | grep '^[<>]' | tr '\n' ';')"
 fi
 
 echo "$pass passed, $fail failed"

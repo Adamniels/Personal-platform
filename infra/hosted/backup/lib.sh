@@ -1,4 +1,4 @@
-# What the backup job's commands share: its settings. Sourced by main.sh, never run.
+# What the backup job's commands share: its settings and its clock. Sourced by main.sh, never run.
 # See "Backups" in infra/hosted/README.md.
 
 # Where the dumps and the status are, the volumes `backups` and `backup_status`.
@@ -61,4 +61,45 @@ load_settings() {
     echo "backup: stopped, the settings are not right, see infra/hosted/.env.example:$problems" >&2
     exit 1
   fi
+}
+
+# offset_seconds <epoch> <zone>: the zone's offset from UTC at that instant, in seconds.
+offset_seconds() {
+  local z sign hours minutes
+  z="$(TZ="$2" date -d "@$1" +%z)"
+  sign="${z:0:1}"
+  hours="${z:1:2}"
+  minutes="${z:3:2}"
+  local seconds=$((10#$hours * 3600 + 10#$minutes * 60))
+  [ "$sign" = - ] && seconds=$((-seconds))
+  echo "$seconds"
+}
+
+# local_time_epoch <YYYY-MM-DD> <HH:MM> <zone>: the instant that day's HH:MM happens in the zone.
+# A time a change to summer time skips, such as 02:30 on the day clocks go from 02:00 to 03:00,
+# is taken as the same distance past the gap, 03:30; a time an autumn change repeats is taken at
+# its second occurrence. Either way the time happens once that day.
+local_time_epoch() {
+  local naive guess
+  # The day's HH:MM read as UTC, then moved by the zone's offset, twice, so an offset that differs
+  # either side of a change settles.
+  naive="$(date -u -d "$1 $2" +%s)"
+  guess=$((naive - $(offset_seconds "$naive" "$3")))
+  echo $((naive - $(offset_seconds "$guess" "$3")))
+}
+
+# seconds_until_next <now, epoch> <HH:MM> <zone>: how long to sleep until the next HH:MM in the
+# zone strictly after now. The time is an argument, so a test gives it any clock.
+seconds_until_next() {
+  local now="$1" at="$2" zone="$3" today day next i
+  today="$(TZ="$zone" date -d "@$now" +%F)"
+  for i in 0 1 2; do
+    day="$(date -u -d "$today + $i day" +%F)"
+    next="$(local_time_epoch "$day" "$at" "$zone")"
+    if [ "$next" -gt "$now" ]; then
+      echo $((next - now))
+      return 0
+    fi
+  done
+  return 1
 }
