@@ -124,18 +124,91 @@ with its own address:
 | Decks   | `/review/decks` |
 
 `/review/study` is the address of a study session, which a later slice builds, and shows the Study
-tab until then. Each section shows the package's `EmptyState` until its slice lands. The address is
-the state, through the History API and no router library (`src/address.ts`): a tab pushes its
+tab until then, which shows the package's `EmptyState` until its slice lands. The address is the
+state, through the History API and no router library (`src/address.ts`): a tab pushes its
 section's address, Back and Forward come back as `popstate`, and an address that names no section
-shows a not found state under the tabs. The list of sections lives in `src/sections.ts`, and the
-addresses the service answers the page for in `src/Review/Pages/PageEndpoints.cs`; the two change
-together.
+shows a not found state under the tabs. The list of sections lives in `src/sections.ts`, what each
+shows in `src/app.tsx`, and the addresses the service answers the page for in
+`src/Review/Pages/PageEndpoints.cs`; the sections and the addresses change together.
 
-`src/api/client.ts` is the page's one way to call review: every call goes to `/review/api/` with the
-session cookie, a `401` is refreshed once, shared by every call that got one, by posting to
-`/auth/refresh` and repeating the call, and a second `401` sends the browser to
-`/auth/refresh?return_to=<path>`, as the memory centre's client does. Its GETs are typed from
-`src/api/schema.d.ts`.
+### Cards
+
+`src/cards/`. A `Select` "Deck" filter, "All decks" by default, and "Add card", the tab's one
+primary button, above the cards, newest first, in the package's `Table`: Front, its first line cut
+at 120 characters, Deck, Topics as `Chip`s, and Next due, a relative time ("in 3 days", "now" once
+it is due) with the exact time as its title. On phone the table's column priority folds Deck,
+Topics and Next due into one mono line under Front, so each card is a stacked row with the same
+fields. Each row has Edit and Delete, ghost buttons. With no decks the tab says "Make a deck
+first", with a link to Decks; with decks and no cards, "No cards yet" with "Add card".
+
+"Add card" opens the form in a `Card` above the list: `TextArea` "Front", `TextArea` "Back",
+`Select` "Deck" with the owner's decks and "New deck…", which turns into a `TextField` for the
+name and makes the deck when the card is saved, and the topic picker "Topics". Each is required and
+refused empty in the form, before anything is sent, and a `422` from review shows on the field it
+names. Save is the form's primary button and Close a ghost one, and Ctrl or Cmd with Enter saves.
+After a save the form stays open with the deck and topics kept, Front and Back cleared and focus on
+Front, so adding ten cards after a lecture is front, back, save, ten times, see "The capturing
+costs almost nothing" in `desk/docs/desk-architecture.md`. It remembers the last deck and topics in
+`localStorage` under `review-last-card`, a per browser convenience read and written inside `try`
+and ignored when unavailable, and offers them on the next visit, dropping silently a deck or topic
+that no longer exists and offering a topic that has since become an alias as the topic it resolves
+to.
+
+Edit opens the same form in the card's row, which the table draws as selected, and Save sends the
+card's `version`, so a card changed elsewhere since is refused with `409` and said in a toast.
+Delete asks in a `Dialog`, "Delete this card? Its review history goes with it.", then says "Card
+deleted", without undo. One form is open at a time, so the view has one primary button.
+
+### Decks
+
+`src/decks/`. The decks by name, each with its card count as a `Badge`, "Add deck" as the tab's
+primary button, and Rename, in place, and Delete, ghost buttons, Delete asking first in a `Dialog`.
+A duplicate name shows review's `409` on the field. A deck holding cards cannot be deleted, so its
+Delete is disabled, with "Move or delete its cards first." as its description and title.
+
+### The data, and the brain's topics
+
+`src/providers.tsx` wraps the page in the package's `ToastProvider`, the two clients below, and
+React Query, as the memory centre's does: every failed call raises an error toast in one place,
+except a change marked `meta: { fieldErrors: true }`, whose `409` or `422` its form shows on the
+field, and a query marked `meta: { ownError: true }`, whose view says it failed itself. Review's own
+queries live under `["review"]`, and every change refreshes every query under it, so a deck's
+count and a card's deck name are never stale. The page's clock is passed in there too, so a test
+sets the time.
+
+`src/api/client.ts` is the page's one way to call a service, as the memory centre's client is, one
+implementation over a generated schema instantiated twice: review's, rooted at `/review/api/`, and
+the brain's, rooted at `/brain/api/`. Every call goes there with the session cookie, a `401` is
+refreshed once, by posting to `/auth/refresh` and repeating the call, and a second `401` sends the
+browser to `/auth/refresh?return_to=<path>`. The two instances share one refresh, so calls to
+either that get a `401` together wait for the same one. Their GETs are typed from
+`src/api/schema.d.ts` and `src/api/brain-schema.d.ts`, and a problem document's `errors`, the
+fields a `422` names, are read for the form.
+
+A card's topics are the brain's vocabulary, so the page picks them from the brain's own API,
+directly from the browser with the session cookie: the owner holding his token, not review calling
+another feature, see "Display and navigation are composed in the browser" in
+`High-level/docs/feature-contract.md`. Review's backend never calls the brain for topics.
+`GET /brain/api/topics` is read once per opening of a form, cached by React Query under
+`["brain", "topics"]`, and `POST /brain/api/topics` with `{"name"}` creates one, canonical, since
+the owner named it deliberately, and adds it to that cache. A card stores a topic's slug and its
+name at the time, the slug of the topic an alias resolves to when an alias is picked.
+
+The topic picker, `src/topics/topic-picker.tsx`, is the ARIA combobox pattern, a text field that
+controls a listbox, built from the package's `TextField` and `Chip`. Typing filters the owner's
+topics by name and slug, an alias shown as the topic it resolves to; the arrow keys move the active
+option, Enter or a click picks it, and a name no topic has is offered as "Create topic <name>".
+Each picked topic is a `Chip` with a ghost button "Remove <name>", Backspace in the empty field
+removes the last, and a card takes at most five. When the brain cannot be reached the picker says
+"Topics are unavailable while the brain cannot be reached", and the form's Save is disabled with
+that as its description, since a card without a topic cannot be saved; the rest of the page works.
+It stays in review's frontend, not `@platform/ui`, until a second feature needs it, as
+`design/ui/README.md` says.
+
+The tests render the real page at an address over `src/test/fake-platform.ts`, an in-memory stand
+in for review's deck and card routes and the brain's topic routes behind the clients' fetch, which
+keeps the rules the page relies on. The picker's are checked with axe, `axe-core` run against the
+form in jsdom, contrast aside, which jsdom cannot compute.
 
 ## The schema
 
@@ -152,7 +225,9 @@ cd web && npm run generate:api
 ```
 
 The second line writes `web/src/api/schema.d.ts` from the file with `tools/generate-schema.mjs`,
-the memory centre's tool, and `src/api/schema.test.ts` fails when it is stale. The app is named
+the memory centre's tool, and `web/src/api/brain-schema.d.ts` from `contracts/brain/openapi.json`
+the same way, for the brain's topics, and `src/api/schema.test.ts` fails when either is stale. Run
+it after the brain's contract changes too. The app is named
 for its own assembly, so the document is the same under the tests' host as in the service.
 
 ## Running it
@@ -361,6 +436,11 @@ again.
 `Microsoft.Extensions.TimeProvider.Testing` for the clock, the five test packages `PlatformAuth`
 uses, at its versions.
 
-**The page** is the memory centre's stack, React, Vite, Vitest, Biome and TypeScript, at its
-versions, without React Query, which nothing here needs until a section loads data; see
-"Libraries the brain is built on" in `Brain/README.md` for why each was chosen.
+**The page** is the memory centre's stack, React, Vite, Vitest, Biome, TypeScript and
+`@tanstack/react-query` 5.107.1, at its versions; see "Libraries the brain is built on" in
+`Brain/README.md` for why each was chosen. React Query came with the Cards and Decks tabs, the first
+sections to load data.
+
+**axe-core 4.14.0**, a dev dependency at the version `design/ui` pins for the accessibility checks
+in `e2e/`, checks the topic picker's ARIA in its Vitest tests. No new library came with it: both
+were already pinned in the platform.

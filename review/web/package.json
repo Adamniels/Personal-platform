@@ -6,10 +6,11 @@
 	"scripts": {
 		"build": "vite build",
 		"test": "vitest run",
-		"generate:api": "node tools/generate-schema.mjs --write"
+		"generate:api": "node tools/generate-schema.mjs review --write && node tools/generate-schema.mjs brain --write"
 	},
 	"dependencies": {
 		"@platform/ui": "file:../../design/ui",
+		"@tanstack/react-query": "5.107.1",
 		"react": "19.3.1",
 		"react-dom": "19.3.1"
 	},
@@ -20,6 +21,7 @@
 		"@types/react": "19.3.0",
 		"@types/react-dom": "19.3.0",
 		"@vitejs/plugin-react": "6.3.0",
+		"axe-core": "4.14.0",
 		"jsdom": "31.0.0",
 		"openapi-typescript": "7.13.0",
 		"typescript": "7.0.2",

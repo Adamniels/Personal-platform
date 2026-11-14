@@ -1,17 +1,17 @@
 import {
 	cleanup,
 	fireEvent,
-	render,
 	screen,
 	waitFor,
 	within,
 } from "@testing-library/react";
 import { afterEach, describe, expect, test } from "vitest";
-import { App } from "./app";
+import { fakePlatform } from "./test/fake-platform";
+import { openAt as openOver } from "./test/render";
 
+/** The page at the path, for an owner with nothing in review yet. */
 function openAt(path: string) {
-	window.history.pushState(null, "", path);
-	render(<App />);
+	openOver(path, fakePlatform());
 }
 
 function selectedTab() {
@@ -36,14 +36,16 @@ describe("the address decides the tab, and a tab changes the address", () => {
 	test.each([
 		["/review", "Study", "Nothing to study yet"],
 		["/review/study", "Study", "Nothing to study yet"],
-		["/review/cards", "Cards", "No cards yet"],
+		["/review/cards", "Cards", "Make a deck first"],
 		["/review/decks", "Decks", "No decks yet"],
-		["/review/cards/", "Cards", "No cards yet"],
-	])("%s selects %s", (path, tab, empty) => {
+		["/review/cards/", "Cards", "Make a deck first"],
+	])("%s selects %s", async (path, tab, empty) => {
 		openAt(path);
 
 		expect(selectedTab()?.textContent).toBe(tab);
-		expect(within(screen.getByRole("tabpanel")).getByText(empty)).toBeTruthy();
+		expect(
+			await within(screen.getByRole("tabpanel")).findByText(empty),
+		).toBeTruthy();
 	});
 
 	test("a tab changes the address, and Back returns to the previous one", async () => {

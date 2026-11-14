@@ -1,9 +1,10 @@
-// Generates review's API types from the committed schema, so the page is written against
-// what review serves. `npm run generate:api` writes src/api/schema.d.ts with it, and
-// src/api/schema.test.ts runs it to check that file is not stale. The memory centre's tool, written
-// again here. See review/README.md.
+// Generates the page's API types from the committed schemas, so the page is written against what
+// it calls: review's own, into src/api/schema.d.ts, and the brain's, whose topics the page picks
+// from, into src/api/brain-schema.d.ts. `npm run generate:api` writes both, and
+// src/api/schema.test.ts runs it for each to check neither is stale. The memory centre's tool,
+// written again here. See review/README.md.
 //
-// Run: node tools/generate-schema.mjs [--write]
+// Run: node tools/generate-schema.mjs <review|brain> [--write]
 //
 // openapi-typescript builds its output with the TypeScript compiler's JavaScript API, which
 // TypeScript 7 no longer exports, and it declares a peer of typescript ^5. The project type
@@ -24,13 +25,26 @@ registerHooks({
 
 const { default: openapiTS, astToString } = await import("openapi-typescript");
 
+const TARGETS = {
+	review: { contract: "review", output: "schema.d.ts" },
+	brain: { contract: "brain", output: "brain-schema.d.ts" },
+};
+
+const target = TARGETS[process.argv[2]];
+if (!target) {
+	process.stderr.write(
+		"usage: node tools/generate-schema.mjs <review|brain> [--write]\n",
+	);
+	process.exit(2);
+}
+
 const SCHEMA = new URL(
-	"../../../contracts/review/openapi.json",
+	`../../../contracts/${target.contract}/openapi.json`,
 	import.meta.url,
 );
-const OUTPUT = new URL("../src/api/schema.d.ts", import.meta.url);
+const OUTPUT = new URL(`../src/api/${target.output}`, import.meta.url);
 
-const HEADER = `// Generated from contracts/review/openapi.json by tools/generate-schema.mjs, with
+const HEADER = `// Generated from contracts/${target.contract}/openapi.json by tools/generate-schema.mjs, with
 // \`npm run generate:api\`. Do not edit: src/api/schema.test.ts fails when it is stale.
 
 `;

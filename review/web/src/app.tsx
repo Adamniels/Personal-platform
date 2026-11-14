@@ -1,7 +1,28 @@
 import { EmptyState, Tab, TabPanel, Tabs } from "@platform/ui";
+import type { ReactNode } from "react";
 import { navigate, usePathname } from "./address";
 import styles from "./app.module.css";
-import { SECTIONS, sectionAt } from "./sections";
+import { CardsSection } from "./cards/cards-section";
+import { DecksSection } from "./decks/decks-section";
+import { SECTIONS, type Section, sectionAt } from "./sections";
+
+/** What each section shows, by its key; a section not here says it is still
+ * being built. */
+const CONTENT: Record<string, () => ReactNode> = {
+	cards: () => <CardsSection />,
+	decks: () => <DecksSection />,
+};
+
+function SectionContent({ section }: { section: Section }) {
+	const content = CONTENT[section.key];
+	if (content) return content();
+	return (
+		<EmptyState
+			title={section.empty}
+			detail="This part of review is still being built."
+		/>
+	);
+}
 
 /** Review's frame: the page's heading, a tab per section, tied to the
  * address, and the section the address names. */
@@ -32,12 +53,7 @@ export function App() {
 				))}
 				{SECTIONS.map((section) => (
 					<TabPanel key={section.key} value={section.key}>
-						{section === current ? (
-							<EmptyState
-								title={section.empty}
-								detail="This part of review is still being built."
-							/>
-						) : null}
+						{section === current ? <SectionContent section={section} /> : null}
 					</TabPanel>
 				))}
 			</Tabs>
