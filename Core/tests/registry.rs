@@ -25,7 +25,7 @@ fn the_committed_registry_holds_canary_and_review() {
                 name: "Review".into(),
                 prefix: "/review".into(),
                 upstream: "http://127.0.0.1:8083".into(),
-                display: None,
+                display: Some("/review/api/display".into()),
             },
         ]
     );
