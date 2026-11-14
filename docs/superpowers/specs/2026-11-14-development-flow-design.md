@@ -1,8 +1,8 @@
 # Development flow: design
 
-Status: living. The feature is being planned with the owner, round by round, and this document
-grows with each round. It is frozen on the day the slices are cut, and from then on the feature's
-own docs are the truth.
+Status: approved by the owner on 2026 11 14, after nine rounds of planning and a builder's read.
+It stays living, with dated changes, until the slices of the first part are cut. It is frozen on
+that day, and from then on the feature's own docs are the truth.
 
 Last updated: 2026 11 14
 
@@ -215,8 +215,13 @@ Agreed in round 2 so far:
 - **The owner always merges a feature into `main` himself** (2026 11 14), in every setting. That
   merge is his review of the feature. "Who merges" is a setting for card pull requests only: in a
   fully automatic project the program merges every card into the feature's branch. So the branch
-  exists for as long as he might still want a change, and nothing he has not accepted reaches
-  `main`. A fix he thinks of after merging is a card on its own.
+  exists for as long as he might still want a change, and nothing from a feature reaches `main`
+  before he has accepted the feature. A fix he thinks of after merging is a card on its own.
+- **The program may merge a card that belongs to no feature into `main`, where the project's
+  settings allow it** (2026 11 14). In a fully automatic project such a card, a single fix say, is
+  built, reviewed and merged by the program; in a project where only the owner merges it waits for
+  him like everything else. The alternative was that the program never merges into `main` in any
+  project, safer and slower, and right only where `main` publishes straight to real users.
 - **Every run is a fresh agent session** (2026 11 14), as in this repository today. What carries
   over is the card, the branch, the pull request and the comments. Whether related cards should
   share a session to save usage is round 4b.
@@ -849,6 +854,8 @@ passage changes when this way of working has been tried.
 ## Changes
 
 - 2026 11 14: first version, after rounds 0 and 1.
+- 2026 11 14: the owner approved the spec, and settled that the program may merge a card on its
+  own into `main` where a project's settings allow it.
 - 2026 11 14: builder check. Six passages that contradicted a later round were corrected in place,
   and its questions are answered under "Clarified after the builder check".
 - 2026 11 14: round 9 added. Every round is done.
