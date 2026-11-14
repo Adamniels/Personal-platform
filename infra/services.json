@@ -1,0 +1,49 @@
+{
+  "services": [
+    {
+      "name": "core",
+      "dir": "Core",
+      "port": 8080,
+      "health": "/login",
+      "language": "rust",
+      "area": "core",
+      "migrate": "SQLX_OFFLINE=true cargo run --locked -- migrate",
+      "start": "cargo run --locked -q",
+      "database": {
+        "name": "core",
+        "owner": "core_owner",
+        "app": "core_app",
+        "owner_password": "CORE_OWNER_PASSWORD",
+        "app_password": "CORE_APP_PASSWORD",
+        "owner_url": "CORE_OWNER_DATABASE_URL"
+      }
+    },
+    {
+      "name": "canary",
+      "dir": "canary",
+      "port": 8081,
+      "language": "python",
+      "area": "canary",
+      "start": "UV_LOCKED=1 uv run uvicorn canary.app:app --host \"$HOST\" --port \"$PORT\""
+    },
+    {
+      "name": "brain",
+      "dir": "Brain",
+      "port": 8082,
+      "health": "/brain/api/health",
+      "language": "python",
+      "area": "brain",
+      "migrate": "UV_LOCKED=1 uv run brain migrate",
+      "start": "UV_LOCKED=1 uv run uvicorn brain.app:app --host \"$HOST\" --port \"$PORT\"",
+      "database": {
+        "name": "brain",
+        "owner": "brain_owner",
+        "app": "brain_app",
+        "owner_password": "BRAIN_OWNER_PASSWORD",
+        "app_password": "BRAIN_APP_PASSWORD",
+        "owner_url": "BRAIN_OWNER_DATABASE_URL",
+        "app_url": "BRAIN_APP_DATABASE_URL"
+      }
+    }
+  ]
+}
