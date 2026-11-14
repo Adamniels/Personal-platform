@@ -105,7 +105,6 @@ jobs:
         env:
           NAME: ${{ inputs.name }}
           DATABASE: ${{ inputs.database }}
-          OWNER: ${{ inputs.owner }}
           APP: ${{ inputs.app }}
           APP_URL: ${{ inputs.app_url }}
         run: |
@@ -113,7 +112,6 @@ jobs:
           admin="$(printf '%s' "$NAME" | tr '[:lower:]-' '[:upper:]_')_TEST_ADMIN_DATABASE_URL"
           {
             echo "ADMIN_URL_VAR=$admin"
-            echo "OWNER_URL_VALUE=postgres://$OWNER:ci-only-owner@127.0.0.1:5432/$DATABASE"
             if [ -n "$APP_URL" ]; then
               echo "$APP_URL=postgres://$APP:ci-only-app@127.0.0.1:5432/$DATABASE"
             fi
@@ -160,10 +158,12 @@ jobs:
         if: inputs.postgres && inputs.migrate != ''
         env:
           OWNER_URL_VAR: ${{ inputs.owner_url }}
+          DATABASE: ${{ inputs.database }}
+          OWNER: ${{ inputs.owner }}
           MIGRATE: ${{ inputs.migrate }}
         run: |
           set -euo pipefail
-          export "$OWNER_URL_VAR=$OWNER_URL_VALUE"
+          export "$OWNER_URL_VAR=postgres://$OWNER:ci-only-owner@127.0.0.1:5432/$DATABASE"
           bash -c "$MIGRATE"
 
       # The superuser, for a test harness that creates a database per test, only on this step.
