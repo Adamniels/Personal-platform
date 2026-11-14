@@ -49,6 +49,9 @@ public static class QueueEndpoints
                 LIMIT {QueueMax}
                 """,
                 parameters, transaction, cancellationToken: cancellationToken));
+            // A second statement under READ COMMITTED, so a grade landing between the two can leave
+            // total one off the page for that answer. A count shown beside the queue tolerates it;
+            // matching them exactly would mean REPEATABLE READ in the door for one number.
             var total = await transaction.Connection!.ExecuteScalarAsync<int>(new CommandDefinition(
                 $"SELECT count(*) FROM cards c WHERE c.due <= @now AND {CardEndpoints.Narrowed}",
                 parameters, transaction, cancellationToken: cancellationToken));
