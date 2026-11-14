@@ -2,7 +2,7 @@
 
 Status: exploratory. Nothing is built.
 
-Last updated: 2026 11 13
+Last updated: 2026 11 14
 
 Isolation of implementation, coupling through contracts. This is what someone building a feature
 needs to know. The brain's own internals are in `Brain/docs/`, and the platform wide thinking
@@ -236,7 +236,9 @@ A Python feature installs all three rather than writing them: `platform-auth`, t
 `libs/python/platform-auth/`, holds where the token is read and what a request without a valid one
 gets, the verification, the key cache and the `Origin` check, and its README says how a service
 installs it. A feature no longer copies canary's files; canary and the brain install the library
-too.
+too. A C# feature does the same with `PlatformAuth`, in `libs/dotnet/PlatformAuth/`, which holds
+the same three as an ASP.NET Core authentication handler with two policies, one per kind of route,
+and `Origin` middleware; its README says how a service references it.
 
 **One implementation per language**, not a copy per feature, because this is the platform's security
 code and its flaws are silent: a hole found and fixed in one copy stays open in every other, and
@@ -245,7 +247,8 @@ at once, which is right only while the library holds exactly these three things 
 the exception and its limit written in "One repository" in
 `High-level/docs/platform-architecture.md`. A feature in another language gets that language's own
 library when the first such feature arrives, tested against the same token fixture in
-`contracts/token/`, so the implementations agree with the core and with each other.
+`contracts/token/`, so the implementations agree with the core and with each other. Python and C#
+have theirs.
 
 ## The two contracts
 
