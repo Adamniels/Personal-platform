@@ -14,8 +14,10 @@ using NSec.Cryptography;
 
 using PlatformAuth;
 
+using Review.Brain;
 using Review.Database;
 using Review.Settings;
+using Review.Tests.Brain;
 
 namespace Review.Tests;
 
@@ -114,6 +116,9 @@ internal sealed class Harness : IAsyncDisposable
 
     public TestServer Server => _app.GetTestServer();
 
+    /// <summary>What sends grades to the brain, for a test to wait on.</summary>
+    internal GradeSender Sender => _app.Services.GetRequiredService<GradeSender>();
+
     /// <summary>The app's clock, which a test may move, within the token's half hour.</summary>
     public FakeTimeProvider Clock { get; }
 
@@ -138,7 +143,10 @@ internal sealed class Harness : IAsyncDisposable
 
     /// <param name="database">The door the app uses, disposed with the harness. Without one it is
     /// never opened: the test takes no database, and no route it calls uses one.</param>
-    public static async Task<Harness> Start(ReviewSettings? settings = null, long? clockAt = null, ReviewDb? database = null)
+    /// <param name="brain">The brain grades are sent to. Without one it is a brain that never
+    /// answers in time, <see cref="FakeBrain.Down"/>, so no test reaches a real brain and no grade
+    /// is marked sent behind a test's back.</param>
+    public static async Task<Harness> Start(ReviewSettings? settings = null, long? clockAt = null, ReviewDb? database = null, IBrain? brain = null)
     {
         var webRoot = MakeBuild();
         var time = new FakeTimeProvider(DateTimeOffset.FromUnixTimeSeconds(clockAt ?? Contract.IssuedAt));
@@ -151,6 +159,8 @@ internal sealed class Harness : IAsyncDisposable
             builder.Services.AddSingleton<TimeProvider>(time);
             // Registered first, so AddPlatformAuth keeps it rather than reaching a real core.
             builder.Services.AddSingleton(core.Cache(time));
+            // Registered first, so AddBrain keeps it rather than the adapter.
+            builder.Services.AddSingleton(brain ?? FakeBrain.Down());
         });
         await app.StartAsync();
         return new Harness(app, core, database, webRoot, time);
