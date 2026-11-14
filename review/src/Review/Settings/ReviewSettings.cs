@@ -20,17 +20,20 @@ namespace Review.Settings;
 /// <param name="AppDatabase">The database as review_app, from <c>REVIEW_APP_DATABASE_URL</c>,
 /// required, with no default. It holds a password, so <see cref="ToString"/> leaves it out, and
 /// it is read only, by convention, since Npgsql's settings type is not.</param>
+/// <param name="DayZone">Where the day ends, at 04:00 on its wall clock, for what is due today.</param>
 public sealed record ReviewSettings(
     string ListenHost,
     int ListenPort,
     Uri CoreUrl,
     string PublicOrigin,
     bool ExposeOpenApi,
-    NpgsqlConnectionStringBuilder AppDatabase)
+    NpgsqlConnectionStringBuilder AppDatabase,
+    TimeZoneInfo DayZone)
 {
     public const string DefaultListenAddr = "127.0.0.1:8083";
     public const string DefaultCoreUrl = "http://127.0.0.1:8080";
     public const string DefaultPublicOrigin = "https://platform.test";
+    public const string DefaultDayZone = "Europe/Stockholm";
 
     /// <summary>The app role's database URL, which serving requires.</summary>
     public const string AppDatabaseUrl = "REVIEW_APP_DATABASE_URL";
@@ -57,13 +60,14 @@ public sealed record ReviewSettings(
             Setting(read, "REVIEW_CORE_URL", DefaultCoreUrl, ParseCoreUrl),
             Setting(read, "REVIEW_PUBLIC_ORIGIN", DefaultPublicOrigin, ParseOrigin),
             Setting(read, "REVIEW_EXPOSE_OPENAPI", "0", ParseSwitch),
-            Setting(read, AppDatabaseUrl, fallback: null, DatabaseUrl.Parse));
+            Setting(read, AppDatabaseUrl, fallback: null, DatabaseUrl.Parse),
+            Setting(read, "REVIEW_DAY_ZONE", DefaultDayZone, ParseDayZone));
     }
 
     /// <summary>What the record prints, without the database's password, which it holds.</summary>
     public override string ToString() => string.Create(
         CultureInfo.InvariantCulture,
-        $"ReviewSettings {{ ListenHost = {ListenHost}, ListenPort = {ListenPort}, CoreUrl = {CoreUrl}, PublicOrigin = {PublicOrigin}, ExposeOpenApi = {ExposeOpenApi}, AppDatabase = {AppDatabase.Username}@{AppDatabase.Host}:{AppDatabase.Port}/{AppDatabase.Database} }}");
+        $"ReviewSettings {{ ListenHost = {ListenHost}, ListenPort = {ListenPort}, CoreUrl = {CoreUrl}, PublicOrigin = {PublicOrigin}, ExposeOpenApi = {ExposeOpenApi}, AppDatabase = {AppDatabase.Username}@{AppDatabase.Host}:{AppDatabase.Port}/{AppDatabase.Database}, DayZone = {DayZone.Id} }}");
 
     /// <summary>The setting parsed, or <paramref name="fallback"/> parsed when it is unset; with
     /// no fallback, unset is refused.</summary>
@@ -123,6 +127,22 @@ public sealed record ReviewSettings(
         }
 
         return text;
+    }
+
+    /// <summary>An IANA time zone name .NET knows, exactly as the zone names itself, such as
+    /// <c>Europe/Stockholm</c>. A Windows name, which .NET would map to an IANA zone, is
+    /// refused, so the setting means the same on every platform.</summary>
+    internal static TimeZoneInfo ParseDayZone(string text)
+    {
+        if (text.Length > 0
+            && TimeZoneInfo.TryFindSystemTimeZoneById(text, out var zone)
+            && zone.HasIanaId
+            && string.Equals(zone.Id, text, StringComparison.Ordinal))
+        {
+            return zone;
+        }
+
+        throw new FormatException($"'{text}' is not an IANA time zone .NET knows, like {DefaultDayZone}");
     }
 
     /// <summary><c>1</c> for on, <c>0</c> for off, and nothing else.</summary>

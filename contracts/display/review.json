@@ -1,0 +1,9 @@
+{
+  "due_now": 12,
+  "due_today": 18,
+  "next_due_at": "2026-11-14T07:30:00Z",
+  "decks": [
+    { "name": "Real Time Systems", "due_now": 8 },
+    { "name": "Concurrent Algorithms", "due_now": 4 }
+  ]
+}

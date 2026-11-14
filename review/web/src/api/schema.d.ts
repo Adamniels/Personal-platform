@@ -122,6 +122,26 @@ export interface paths {
         patch: operations["renameDeck"];
         trace?: never;
     };
+    "/review/api/display": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What is due, for the front page
+         * @description due_now, the cards due at or before now; due_today, those due before the day ends at 04:00 in the zone REVIEW_DAY_ZONE names, those due now included; next_due_at, the earliest due after now, or null; and decks, every deck with a card due now, at most 20, the most due first, then by name without letter case, each its name and due_now. The core calls it with the user's token in the Authorization header.
+         */
+        get: operations["getDisplay"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/review/api/health": {
         parameters: {
             query?: never;
@@ -270,6 +290,15 @@ export interface components {
         DeckInput: {
             name: null | string;
         };
+        DisplayData: {
+            decks: components["schemas"]["DueDeck"][];
+            /** Format: int32 */
+            due_now: number;
+            /** Format: int32 */
+            due_today: number;
+            /** Format: date-time */
+            next_due_at: null | string;
+        };
         DueCards: {
             /** Format: date-time */
             as_of: string;
@@ -278,6 +307,11 @@ export interface components {
             next_due: null | string;
             /** Format: int32 */
             total: number;
+        };
+        DueDeck: {
+            /** Format: int32 */
+            due_now: number;
+            name: string;
         };
         GradeInput: {
             /** Format: int32 */
@@ -789,6 +823,33 @@ export interface operations {
                 content: {
                     "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
                 };
+            };
+        };
+    };
+    getDisplay: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DisplayData"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

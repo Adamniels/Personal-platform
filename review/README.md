@@ -58,6 +58,18 @@ proposals wait for the owner, see "The review queue" in `Brain/docs/trust-model.
     Hard 2, Good 3, Easy 4. `201` with the card as it now is and its new `previews`. The `version`
     is the one the grade was given from, and one that is not the card's current version is `409`
     and changes nothing, so a grade sent twice counts once. See "When a card comes back" below.
+  - `GET /review/api/display`, what the core's front page shows of review, `{"due_now": n,
+    "due_today": n, "next_due_at": ... | null, "decks": [{"name", "due_now"}]}`: `due_now`, the
+    cards due at or before now; `due_today`, those due before the day ends, those due now
+    included; `next_due_at`, the earliest due after now, in UTC, or null when no card is
+    scheduled after it; and `decks`, every deck with a card due now, at most 20, the most due
+    first, then by name without letter case. The day ends at 04:00 the next morning on the wall
+    clock of `REVIEW_DAY_ZONE`, or at 04:00 the same morning before then, Anki's rule, so a late
+    session does not roll over at midnight; a day holding a change of clocks is 23 or 25 hours
+    long. It is data, never presentation: the core decides what to show, see "What a feature
+    exposes for the front page" in `Core/docs/core-architecture.md`, and the core calls it with
+    the user's token in the `Authorization` header. `contracts/display/review.json` pins its
+    shape, see `contracts/README.md`.
 
   Each answers a problem document when it does not do what was asked: `404` for an id in the path
   the user does not have, another user's included, the same answer either way; `409` for a deck
@@ -428,10 +440,15 @@ since no service imports from another's directory.
   settings' `ToString`, and is set on the command that starts review rather than written to a file.
 - `REVIEW_OWNER_DATABASE_URL`, the same form as `review_owner`, read by `migrate` alone, see
   "Migrating". Serving never reads it, and `services.sh` unsets it for `start`.
+- `REVIEW_DAY_ZONE`, default `Europe/Stockholm`: the time zone whose wall clock says when the day
+  ends, at 04:00, for `due_today` in the display data. An IANA name, exactly as the zone names
+  itself; a name .NET does not know, or a Windows name, which .NET would otherwise map, stops
+  review at startup naming it. One zone for every user until a second user exists, when it
+  belongs in the profile.
 
 The defaults are right on the Mac mini and in CI, so neither sets them, except the listen address,
 which the manifest's `start` sets, and the two database strings, which `services.sh` builds from
-`infra/.env`. Later slices add `REVIEW_DAY_ZONE` and `REVIEW_BRAIN_URL`.
+`infra/.env`. A later slice adds `REVIEW_BRAIN_URL`.
 
 ## The database
 
