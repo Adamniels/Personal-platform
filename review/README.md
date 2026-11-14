@@ -83,8 +83,11 @@ the brain before saving, and a slug the brain does not know is still a valid nam
 an event later makes provisional. So making a card works while the brain is down.
 
 It may have a **source**, the record of another feature it came from, as an address and a
-snapshot: a `path` on the platform, starting with one `/` and never two, which would name another
-host, at most 500 characters, and its `title` then, 1 to 200 characters.
+snapshot: a `path` on the platform, at most 500 characters, and its `title` then, 1 to 200
+characters. The path is held to the core's rule for a return path, "A return path is only ever a
+relative path" in `Core/docs/core-architecture.md`: it starts with one `/` and never two, which
+would name another host, and holds no backslash, control character or whitespace, since a browser
+reads `\` as `/` and drops tabs and newlines, which turns `/\evil` and `/<tab>/evil` into `//evil`.
 
 And it has its **schedule**, FSRS-6's card state as `py-fsrs` 6.3.3's `Card` holds it: `state`
 (`new`, `learning`, `review` or `relearning`), `step`, `stability`, `difficulty`, `due` and

@@ -2,6 +2,8 @@ using System.Text.Json.Nodes;
 
 using Microsoft.AspNetCore.Http;
 
+using Npgsql;
+
 namespace Review.Tests;
 
 /// <summary>
@@ -218,6 +220,9 @@ public sealed class CardTests : IAsyncLifetime
         { "another user's deck", "deck_id" },
         { "relative source", "source.path" },
         { "protocol relative source", "source.path" },
+        { "backslash source", "source.path" },
+        { "control character source", "source.path" },
+        { "spaced source", "source.path" },
         { "long source", "source.path" },
         { "no source path", "source.path" },
         { "empty source title", "source.title" },
@@ -259,6 +264,10 @@ public sealed class CardTests : IAsyncLifetime
             case "another user's deck": body["deck_id"] = bobsDeck.ToString(); break;
             case "relative source": body["source"] = Source("learning/sessions/123", "B trees"); break;
             case "protocol relative source": body["source"] = Source("//evil.test/learning", "B trees"); break;
+            // A browser reads a backslash as / and drops tabs and newlines, so both are //evil.test.
+            case "backslash source": body["source"] = Source("/\\evil.test/learning", "B trees"); break;
+            case "control character source": body["source"] = Source("/\t/evil.test/learning", "B trees"); break;
+            case "spaced source": body["source"] = Source("/learning/sessions 123", "B trees"); break;
             case "long source": body["source"] = Source("/" + new string('p', 500), "B trees"); break;
             case "no source path": body["source"] = Source(null, "B trees"); break;
             case "empty source title": body["source"] = Source("/learning/sessions/123", ""); break;
@@ -313,6 +322,32 @@ public sealed class CardTests : IAsyncLifetime
 
         Assert.Equal(StatusCodes.Status201Created, made.Status);
         Assert.Equal(5, made.Body!["topics"]!.AsArray().Count);
+    }
+
+    [Theory]
+    [InlineData("learning/sessions/123")]
+    [InlineData("//evil.test/learning")]
+    [InlineData("/\\evil.test/learning")]
+    [InlineData("/\t/evil.test/learning")]
+    [InlineData("/\n/evil.test/learning")]
+    [InlineData("/learning/sessions 123")]
+    [InlineData("/learning/sessions\u00a0123")]
+    [InlineData("/learning/sessions\u2028123")]
+    public async Task TheTableRefusesASourcePathThatCouldNameAnotherHost(string path)
+    {
+        // The rule holds in Postgres too, for a write that skipped review's own checks.
+        var deck = await Api.Deck("Databases");
+        const string Insert = """
+            INSERT INTO cards (id, user_id, deck_id, front, back, source_path, source_title, due, created_at, updated_at)
+                VALUES (@id, @user, @deck, 'front', 'back', @path, 'B trees', now(), now(), now())
+            """;
+
+        var refused = await Assert.ThrowsAsync<PostgresException>(() =>
+            Api.AsUser(Api.Me, Insert, new { id = Guid.CreateVersion7(), user = Api.Me, deck, path }));
+        Assert.Equal(PostgresErrorCodes.CheckViolation, refused.SqlState);
+
+        // And a path on the platform, query and fragment included, passes the same check.
+        Assert.Equal(1, await Api.AsUser(Api.Me, Insert, new { id = Guid.CreateVersion7(), user = Api.Me, deck, path = "/learning/sessions/123?tab=notes#b-trees" }));
     }
 
     [Fact]

@@ -46,12 +46,17 @@ CREATE TABLE cards (
     -- Stored trimmed, with the line breaks inside kept.
     front text NOT NULL CHECK (char_length(front) BETWEEN 1 AND 4000),
     back text NOT NULL CHECK (char_length(back) BETWEEN 1 AND 4000),
-    -- A path on the platform, never a URL: it starts with one slash, so it
-    -- cannot name another host.
+    -- A path on the platform, never a URL, by the core's rule for a return
+    -- path: it starts with one slash, and holds no backslash, control
+    -- character or whitespace, since a browser reads \ as / and drops tabs
+    -- and newlines, which turns /\evil and /<tab>/evil into //evil, another
+    -- host. The class lists them by code point, C#'s char.IsControl and
+    -- char.IsWhiteSpace, so it does not depend on the database's locale.
     source_path text NULL CHECK (
         char_length(source_path) <= 500
         AND left(source_path, 1) = '/'
         AND left(source_path, 2) <> '//'
+        AND source_path !~ '[\\\u0001- \u007F-\u009F   -     　]'
     ),
     source_title text NULL CHECK (char_length(source_title) BETWEEN 1 AND 200),
     state text NOT NULL DEFAULT 'new' CHECK (state IN ('new', 'learning', 'review', 'relearning')),

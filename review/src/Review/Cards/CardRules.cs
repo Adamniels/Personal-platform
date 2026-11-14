@@ -25,6 +25,21 @@ internal static partial class CardRules
 
     public static bool IsSlug(string? value) => value is not null && Slug().IsMatch(value);
 
+    /// <summary>
+    /// A path on the platform, never another host: the core's rule for a return path, "A return
+    /// path is only ever a relative path" in Core/docs/core-architecture.md. It starts with one
+    /// <c>/</c>, since two name another host, and holds no backslash, control character or
+    /// whitespace anywhere, since browsers read <c>\</c> as <c>/</c> and drop tabs and newlines,
+    /// which turns <c>/\evil</c> and <c>/&lt;tab&gt;/evil</c> into <c>//evil</c>.
+    /// </summary>
+    public static bool IsPlatformPath(string path)
+    {
+        ArgumentNullException.ThrowIfNull(path);
+        return path.StartsWith('/')
+            && !path.StartsWith("//", StringComparison.Ordinal)
+            && !path.Any(c => c == '\\' || char.IsControl(c) || char.IsWhiteSpace(c));
+    }
+
     public static string? Front(Broken broken, string? value) => broken.Trimmed("front", value, TextMax);
 
     public static string? Back(Broken broken, string? value) => broken.Trimmed("back", value, TextMax);
@@ -109,10 +124,9 @@ internal static partial class CardRules
         {
             broken.Add("source.path", "is required");
         }
-        else if (Broken.Characters(path) is not { } length || length > SourcePathMax || !path.StartsWith('/') || path.StartsWith("//", StringComparison.Ordinal))
+        else if (Broken.Characters(path) is not { } length || length > SourcePathMax || !IsPlatformPath(path))
         {
-            // Two slashes would be another host to a browser, a URL rather than a path.
-            broken.Add("source.path", $"must be a path on the platform, starting with one /, at most {SourcePathMax} characters");
+            broken.Add("source.path", $"must be a path on the platform, starting with one /, with no backslash, control character or whitespace, at most {SourcePathMax} characters");
             path = null;
         }
 
