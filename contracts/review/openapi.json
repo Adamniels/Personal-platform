@@ -340,11 +340,22 @@
       },
       "DueCards": {
         "properties": {
+          "as_of": {
+            "format": "date-time",
+            "type": "string"
+          },
           "cards": {
             "items": {
               "$ref": "#/components/schemas/CardWithPreviews"
             },
             "type": "array"
+          },
+          "next_due": {
+            "format": "date-time",
+            "type": [
+              "null",
+              "string"
+            ]
           },
           "total": {
             "format": "int32",
@@ -353,7 +364,9 @@
         },
         "required": [
           "cards",
-          "total"
+          "total",
+          "as_of",
+          "next_due"
         ],
         "type": "object"
       },
@@ -1120,7 +1133,7 @@
     },
     "/review/api/queue": {
       "get": {
-        "description": "The cards due at or before now, oldest due first, at most 200, each as a single read answers it plus when each grade would bring it back, and total, how many are due in all. Narrowed to a deck by ?deck=<id>, to a topic by ?topic=<slug>, or both, total with them. 422 for a topic that is no slug.",
+        "description": "The cards due at or before now, oldest due first, at most 200, each as a single read answers it plus when each grade would bring it back; total, how many are due in all; as_of, the now every preview is counted from; and next_due, the earliest due after it, or null. Narrowed to a deck by ?deck=<id>, to a topic by ?topic=<slug>, or both, total and next_due with them. 422 for a topic that is no slug.",
         "operationId": "getQueue",
         "parameters": [
           {

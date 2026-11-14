@@ -34,8 +34,8 @@ describe("the address decides the tab, and a tab changes the address", () => {
 	});
 
 	test.each([
-		["/review", "Study", "Nothing to study yet"],
-		["/review/study", "Study", "Nothing to study yet"],
+		["/review", "Study", "Nothing due"],
+		["/review/study", "Study", "Nothing due"],
 		["/review/cards", "Cards", "Make a deck first"],
 		["/review/decks", "Decks", "No decks yet"],
 		["/review/cards/", "Cards", "Make a deck first"],

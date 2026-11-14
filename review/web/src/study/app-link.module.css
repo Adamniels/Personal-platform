@@ -1,0 +1,44 @@
+/* A link drawn as "Button" in section 4 of design/DESIGN.md draws a primary
+ * or a secondary button: the same height, padding, radius, type and fills,
+ * from the tokens. The focus ring comes from the base rule in tokens.css. */
+.button {
+	box-sizing: border-box;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: var(--space-2);
+	height: var(--control-h);
+	padding: 0 14px;
+	border: 1px solid transparent;
+	border-radius: var(--radius-md);
+	font-family: var(--font-ui);
+	font-size: var(--text-body-size);
+	line-height: var(--text-body-line);
+	white-space: nowrap;
+	text-decoration: none;
+}
+
+.primary {
+	background: var(--accent);
+	color: var(--on-accent);
+	border-color: var(--accent-border);
+	font-weight: 600;
+}
+
+.secondary {
+	background: var(--surface);
+	color: var(--text);
+	border-color: var(--border-strong);
+	font-weight: 500;
+}
+
+.secondary:hover {
+	background: var(--surface-2);
+}
+
+/* A link in running text, as the not found state's. */
+.text {
+	border-radius: var(--radius-sm);
+	color: var(--info);
+	font-weight: 600;
+}

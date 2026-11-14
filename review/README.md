@@ -49,9 +49,11 @@ proposals wait for the owner, see "The review queue" in `Brain/docs/trust-model.
   - `DELETE /review/api/cards/{id}`, `204`, its topics and its grades with it.
   - `GET /review/api/queue`, the cards due at or before now, oldest due first, at most 200, each as
     a single read answers it plus `previews`, `{"again", "hard", "good", "easy"}`, each the time
-    that grade, given now, would bring the card back, in `{"cards": [...], "total": n}`, where
-    `total` is how many are due in all. Narrowed to one deck by `?deck=<id>`, to one topic by
-    `?topic=<slug>`, or both, and `total` with them.
+    that grade, given now, would bring the card back, in `{"cards": [...], "total": n, "as_of":
+    ..., "next_due": ... | null}`, where `total` is how many are due in all, `as_of` the now every
+    preview was counted from, and `next_due` the earliest due after it, null when no card is
+    scheduled after it. Narrowed to one deck by `?deck=<id>`, to one topic by `?topic=<slug>`, or
+    both, and `total` and `next_due` with them.
   - `POST /review/api/cards/{id}/grades`, `{"rating": 1-4, "version"}`, grades the card: Again 1,
     Hard 2, Good 3, Easy 4. `201` with the card as it now is and its new `previews`. The `version`
     is the one the grade was given from, and one that is not the card's current version is `409`
@@ -188,13 +190,62 @@ with its own address:
 | Cards   | `/review/cards` |
 | Decks   | `/review/decks` |
 
-`/review/study` is the address of a study session, which a later slice builds, and shows the Study
-tab until then, which shows the package's `EmptyState` until its slice lands. The address is the
-state, through the History API and no router library (`src/address.ts`): a tab pushes its
-section's address, Back and Forward come back as `popstate`, and an address that names no section
-shows a not found state under the tabs. The list of sections lives in `src/sections.ts`, what each
-shows in `src/app.tsx`, and the addresses the service answers the page for in
+`/review/study` is the address of a study session, see "Studying" below, and shows the Study tab.
+The address is the state, through the History API and no router library (`src/address.ts`): a tab
+pushes its section's address, Back and Forward come back as `popstate`, and an address that names no
+section shows a not found state under the tabs. The list of sections lives in `src/sections.ts`,
+what each shows in `src/app.tsx`, and the addresses the service answers the page for in
 `src/Review/Pages/PageEndpoints.cs`; the sections and the addresses change together.
+
+### Studying
+
+`src/study/`. The Study tab, at `/review`, is the start view: an `h2` with how many cards are due
+("12 cards due"), Start everything, the tab's one primary action, then two `Card`s, By deck and By
+topic, each row a deck's or a topic's name, its due count as a `Badge`, and a secondary Start. A
+deck or topic with nothing due is not listed. The counts come from one call, the queue without a
+filter, grouped in the browser, so a card with two topics counts under both; when more than 200
+are due, the queue answers 200 and the lists say they count the first 200. With nothing due the tab
+says so, and when the next card is, with a link to Cards.
+
+Start everything and each Start are links to a session's address, `/review/study`, or
+`?deck=<id>` or `?topic=<slug>`, styled as buttons by `src/study/app-link.tsx`, which follows an
+address of review's in place through `src/address.ts`. It stays in review's frontend, not
+`@platform/ui`, until a second feature needs a link drawn as a button.
+
+A session, `src/study/study-session.tsx`, reads the queue for its filter once at the start, again
+after every 20 grades and again when it runs out, so a card graded Again that is due again within
+the session comes back in it. It shows one card at a time in a `Card` named by its deck, the card's
+topics as `Chip`s above its front, then Show answer, primary. Show answer or Space shows the back
+under a divider, with the card's source as a link under it when it has one, its title as the text
+and its path as the target, and the four grades in one row: Again `destructive`, Hard and Easy
+`secondary`, Good `primary`, each with when it would bring the card back, "Good · 4d". On desktop a
+muted line under them says "Space to show, 1 to 4 to grade". Above the card the progress reads
+"<n> of <total at start>" in the mono font, so a card that comes back after Again can take n past
+the total.
+
+The intervals are the queue's `previews`, never computed in the browser, written by
+`src/study/intervals.ts` as the time from the queue's `as_of` to the preview, rounded down: `now`
+under a minute, then `<n>m`, `<n>h`, `<n>d` under 30 days, `<n>mo` in 30 day months under 365
+days, and `<n>y`. Counting from `as_of` rather than the browser's clock matters because a preview
+is exact, a learning step a minute or a review four days from `as_of`, and any later clock would
+round it down a step.
+
+Keys: Space shows the answer, and 1 to 4 grade, only once it shows; a key held down acts once, and
+a key pressed on another control, such as a tab, is that control's own. Focus moves to Show answer
+for each new card and to the answer once it shows, so it is read out. A grade is sent once, with
+the card's `version`: the buttons and keys are disabled while it is in flight. A `409`, the card
+changed elsewhere, reads the queue again and goes on, with a toast "This card changed elsewhere";
+any other failure keeps the card shown and the buttons enabled, with the error toast from
+`src/providers.tsx`. Every grade refreshes everything under `["review"]`, so Cards shows the new
+next due. Leaving needs no confirmation: every grade is already saved.
+
+Finished, the session says "Done for now", how many were reviewed in it, and when the next card is
+due, the minutes counted up under an hour so a card graded Again a moment ago reads "in 1 minute",
+with links to Study and Cards. A session that finds nothing due at the start says so as the start
+view does.
+
+On a 390px phone the four grades sit in one row fixed above the bottom tab bar, within thumb reach,
+each at least 44px tall with its interval under its name, and the keys line is not shown.
 
 ### Cards
 
@@ -236,10 +287,11 @@ Delete is disabled, with "Move or delete its cards first." as its description an
 `src/providers.tsx` wraps the page in the package's `ToastProvider`, the two clients below, and
 React Query, as the memory centre's does: every failed call raises an error toast in one place,
 except a change marked `meta: { fieldErrors: true }`, whose `409` or `422` its form shows on the
-field, and a query marked `meta: { ownError: true }`, whose view says it failed itself. Review's own
-queries live under `["review"]`, and every change refreshes every query under it, so a deck's
-count and a card's deck name are never stale. The page's clock is passed in there too, so a test
-sets the time.
+field, a change marked `meta: { conflicts: true }`, whose `409` its view says itself, as a study
+session does, and a query marked `meta: { ownError: true }`, whose view says it failed itself.
+Review's own queries live under `["review"]`, and every change refreshes every query under it, so a
+deck's count and a card's deck name are never stale. The page's clock is passed in there too, so a
+test sets the time.
 
 `src/api/client.ts` is the page's one way to call a service, as the memory centre's client is, one
 implementation over a generated schema instantiated twice: review's, rooted at `/review/api/`, and
@@ -270,10 +322,12 @@ that as its description, since a card without a topic cannot be saved; the rest 
 It stays in review's frontend, not `@platform/ui`, until a second feature needs it, as
 `design/ui/README.md` says.
 
-The tests render the real page at an address over `src/test/fake-platform.ts`, an in-memory stand
-in for review's deck and card routes and the brain's topic routes behind the clients' fetch, which
-keeps the rules the page relies on. The picker's are checked with axe, `axe-core` run against the
-form in jsdom, contrast aside, which jsdom cannot compute.
+The tests render the real page at an address over `src/test/fake-platform.ts`, an in-memory stand in
+for review's deck and card routes, its queue and grading, and the brain's topic routes behind the
+clients' fetch, which keeps the rules the page relies on. Its schedule is not FSRS's: each grade
+brings a card back after a fixed interval from a clock the test moves, which is how a card coming
+back within a session is tested without waiting. The picker's are checked with axe, `axe-core` run
+against the form in jsdom, contrast aside, which jsdom cannot compute.
 
 ## The schema
 

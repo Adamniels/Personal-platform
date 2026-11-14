@@ -39,6 +39,9 @@ public sealed class QueueTests : IAsyncLifetime
         return id;
     }
 
+    private async Task<DateTimeOffset> DueOf(Guid card) =>
+        Api.Time((await Api.Get($"/review/api/cards/{card}")).Body!["due"]);
+
     [Fact]
     public async Task TheQueueHoldsEveryDueCardOldestDueFirst()
     {
@@ -46,8 +49,8 @@ public sealed class QueueTests : IAsyncLifetime
         var languages = await Api.Deck("Languages");
         await DueAt(databases, "due a week ago", Now.AddDays(-7), "postgres");
         await DueAt(languages, "due yesterday", Now.AddDays(-1), "rust");
-        await DueAt(databases, "due tomorrow", Now.AddDays(1), "postgres");
-        await DueAt(languages, "due in a minute", Now.AddMinutes(1), "rust");
+        var tomorrow = await DueAt(databases, "due tomorrow", Now.AddDays(1), "postgres");
+        var inAMinute = await DueAt(languages, "due in a minute", Now.AddMinutes(1), "rust");
         await DueAt(databases, "due an hour ago", Now.AddHours(-1), "postgres", "rust");
         var exactly = await DueAt(languages, "due this second", Now.AddSeconds(1), "rust");
         // Another user's due card is never in the queue.
@@ -58,10 +61,13 @@ public sealed class QueueTests : IAsyncLifetime
         var queue = await Api.Get(Queue);
 
         Assert.Equal(StatusCodes.Status200OK, queue.Status);
-        Assert.Equal(["cards", "total"], queue.Body!.AsObject().Select(pair => pair.Key).Order(StringComparer.Ordinal));
+        Assert.Equal(["as_of", "cards", "next_due", "total"], queue.Body!.AsObject().Select(pair => pair.Key).Order(StringComparer.Ordinal));
         // Due at or before now only, the one due this very second included, oldest due first.
         Assert.Equal(["due a week ago", "due yesterday", "due an hour ago", "due this second"], Fronts(queue));
         Assert.Equal(4, (int)queue.Body!["total"]!);
+        // The time every preview is counted from, and when the first card not yet due comes back.
+        Assert.Equal(now, Api.Time(queue.Body!["as_of"]));
+        Assert.Equal(await DueOf(inAMinute), Api.Time(queue.Body!["next_due"]));
 
         // Each as a single read answers it, plus its previews, what grading now would do.
         foreach (var item in queue.Body!["cards"]!.AsArray())
@@ -87,6 +93,9 @@ public sealed class QueueTests : IAsyncLifetime
         var both = await Api.Get($"{Queue}?deck={languages}&topic=rust");
         Assert.Equal(["due yesterday", "due this second"], Fronts(both));
         Assert.Equal(2, (int)both.Body!["total"]!);
+        // The next due is narrowed with them.
+        Assert.Equal(await DueOf(tomorrow), Api.Time((await Api.Get($"{Queue}?deck={databases}")).Body!["next_due"]));
+        Assert.Equal(await DueOf(inAMinute), Api.Time(both.Body!["next_due"]));
         Assert.Empty(Fronts(await Api.Get($"{Queue}?deck={Guid.CreateVersion7()}")));
 
         // A grade takes a card out of the queue until it comes back.
@@ -150,5 +159,30 @@ public sealed class QueueTests : IAsyncLifetime
         Assert.Equal(StatusCodes.Status200OK, empty.Status);
         Assert.Empty(Fronts(empty));
         Assert.Equal(0, (int)empty.Body!["total"]!);
+        // With no card at all, nothing is coming back.
+        Assert.Null(empty.Body!["next_due"]);
+    }
+
+    [Fact]
+    public async Task AGradedCardIsTheNextDue()
+    {
+        var deck = await Api.Deck("Databases");
+        var made = await Api.Card(deck, "What is MVCC?");
+        var graded = Now;
+
+        // Again on a new card: back after its first learning step, a minute.
+        var answer = await Api.Post($"/review/api/cards/{made.Id}/grades", new JsonObject { ["rating"] = 1, ["version"] = 1 });
+        Assert.Equal(StatusCodes.Status201Created, answer.Status);
+
+        var queue = await Api.Get(Queue);
+        Assert.Empty(Fronts(queue));
+        Assert.Equal(graded.AddMinutes(1), Api.Time(queue.Body!["next_due"]));
+
+        // Once that minute has passed it is due again, and nothing else is coming.
+        Api.Review.Clock.Advance(TimeSpan.FromMinutes(1));
+        var back = await Api.Get(Queue);
+        Assert.Equal(["What is MVCC?"], Fronts(back));
+        Assert.Equal(Now, Api.Time(back.Body!["as_of"]));
+        Assert.Null(back.Body!["next_due"]);
     }
 }
