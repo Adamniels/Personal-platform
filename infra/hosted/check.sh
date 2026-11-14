@@ -50,10 +50,10 @@ bad() {
 
 # Every compose command names the project and this run's env file, so neither the caller's
 # environment nor an infra/hosted/.env written for the real copy reaches it. The front's file adds
-# the test HTTPS front, which is not part of the hosted copy.
+# the test HTTPS front, and the tests' file the stand in bucket, neither part of the hosted copy.
 compose() {
   docker compose -p "$project" --env-file "$env_file" \
-    -f "$here/compose.yaml" -f "$here/front/compose.yaml" "$@"
+    -f "$here/compose.yaml" -f "$here/front/compose.yaml" -f "$here/tests/compose.yaml" "$@"
 }
 
 # The one thing ever removed: this project's containers, networks and volumes.

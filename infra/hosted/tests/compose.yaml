@@ -1,0 +1,11 @@
+# The stand in bucket check.sh adds to its project for tests/backup.test.sh, as the service s3stub,
+# reached by the backup job at http://s3stub:9000 and published nowhere. check.sh adds this file
+# with a third -f; it is never part of the hosted copy. Paths here are relative to the first file's
+# folder, infra/hosted/. See "Backups" in README.md there.
+services:
+  s3stub:
+    image: python:3.14-slim-trixie
+    user: "65534:65534"
+    command: ["python", "-I", "/stub/s3_stub.py"]
+    volumes:
+      - ./tests/s3_stub.py:/stub/s3_stub.py:ro

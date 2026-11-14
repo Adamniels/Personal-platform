@@ -10,10 +10,15 @@ lib=/usr/local/lib/backup
 . "$lib/lib.sh"
 
 case "${1:-schedule}" in
-  schedule | now)
+  schedule)
     load_settings
     echo "backup: the settings are right; ${1:-schedule} is not built yet" >&2
     exit 1
+    ;;
+  now)
+    . "$lib/backup.sh"
+    load_settings
+    run_backup
     ;;
   *)
     echo "usage: schedule | now | restore <database> <file> [--as <name>] [--replace] < private-key" >&2

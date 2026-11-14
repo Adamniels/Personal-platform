@@ -39,7 +39,7 @@ bad() { echo "FAIL $1"; [ -n "${2:-}" ] && printf '     %s\n' "$2"; fail=$((fail
 
 compose() {
   docker compose -p "$project" --env-file "$env_file" \
-    -f "$hosted/compose.yaml" -f "$hosted/front/compose.yaml" "$@"
+    -f "$hosted/compose.yaml" -f "$hosted/front/compose.yaml" -f "$hosted/tests/compose.yaml" "$@"
 }
 
 # setting <name>: its value in the env file.
@@ -215,6 +215,177 @@ if [ -z "$problems" ] && [ "$before" = "$after" ]; then
   ok a_missing_setting_stops_the_job_naming_it
 else
   bad a_missing_setting_stops_the_job_naming_it "${problems:-} files before: $(echo $before), after: $(echo $after)"
+fi
+
+# --- The first backup, so the second replaces a status file that exists. -------------------------
+
+first_out="$(backup_now 2>&1)"
+first_code=$?
+first_inode="$(in_backup 'stat -c %i /status/backup.json' 2>&1)"
+
+# --- The second backup, through shims recording the arguments of each program it runs. ----------
+
+mkdir -p "$tmp/shim"
+for program in curl pg_dump psql age; do
+  cat > "$tmp/shim/$program" << 'EOF'
+#!/bin/bash
+# Records its arguments, then runs the real program of the same name.
+printf '%s %s\n' "${0##*/}" "$*" >> /tmp/argv.log
+PATH="${PATH#/shim:}" exec "${0##*/}" "$@"
+EOF
+  chmod 755 "$tmp/shim/$program"
+done
+before="$(files)"
+compose run --rm -T --no-deps -e "BACKUP_AGE_RECIPIENT=$recipient" \
+  -v "$tmp/shim:/shim:ro" --entrypoint bash backup -c '
+    PATH="/shim:$PATH" /usr/local/lib/backup/main.sh now > /tmp/out.log 2>&1
+    code=$?
+    cat /tmp/out.log > /backups/.test-out.log
+    cat /tmp/argv.log > /backups/.test-argv.log 2> /dev/null
+    exit $code' > /dev/null 2>&1
+second_code=$?
+in_backup 'cat /backups/.test-out.log; rm -f /backups/.test-out.log' > "$tmp/second.out" 2>&1
+in_backup 'cat /backups/.test-argv.log; rm -f /backups/.test-argv.log' > "$tmp/argv.log" 2>&1
+after="$(files)"
+run_files="$(new_files "$before" "$after")"
+status > "$tmp/status.json" 2>&1
+second_inode="$(in_backup 'stat -c %i /status/backup.json' 2>&1)"
+status_leftovers="$(in_backup 'ls -A /status | grep -vx backup.json' 2>&1)"
+
+# --- a_backup_dumps_every_database_encrypted ------------------------------------------------------
+
+expected="$(databases)"
+stamps="$(printf '%s\n' "$run_files" | grep . | sed 's/-.*//' | sort -u)"
+names="$(printf '%s\n' "$run_files" | grep . | sed -E 's/^[0-9]{8}T[0-9]{6}Z-(.*)\.dump\.age$/\1/' | sort)"
+heads="$(in_backup "cd /backups && for f in $(echo $run_files); do
+  printf '%s %s %s\n' \"\$f\" \"\$(stat -c %s \"\$f\")\" \"\$(head -c 21 \"\$f\")\"
+done" 2>&1)"
+problems=""
+[ "$first_code" -eq 0 ] || problems="$problems the first backup exited $first_code;"
+[ "$second_code" -eq 0 ] || problems="$problems the second backup exited $second_code: $(tail -n 3 "$tmp/second.out" | tr '\n' ' ');"
+[ "$(printf '%s\n' "$stamps" | grep -c .)" = 1 ] || problems="$problems not one time stamp: $(echo $stamps);"
+[ "$names" = "$expected" ] || problems="$problems databases $(echo $names), expected $(echo $expected);"
+while read -r name size head; do
+  [ -z "$name" ] && continue
+  [ "$size" -gt 0 ] 2> /dev/null || problems="$problems $name is empty;"
+  case "$head" in
+    PGDMP*) problems="$problems $name begins with PGDMP;" ;;
+    age-encryption.org/v1) ;;
+    *) problems="$problems $name begins with '$head';" ;;
+  esac
+done <<< "$heads"
+if [ -z "$problems" ] && [ -n "$names" ]; then
+  ok a_backup_dumps_every_database_encrypted
+else
+  bad a_backup_dumps_every_database_encrypted "$problems"
+fi
+
+# --- every_dump_reaches_the_bucket ---------------------------------------------------------------
+
+local_sums="$(in_backup "cd /backups && sha256sum $(echo $run_files)" 2>&1 | awk '{ print $2, $1 }' | sort)"
+bucket_sums="$(compose exec -T s3stub sh -c "cd /tmp/s3/objects$bucket_prefix && sha256sum $(echo $run_files)" 2>&1 |
+  awk '{ print $2, $1 }' | sort)"
+requests="$(compose exec -T s3stub cat /tmp/s3/requests.jsonl 2>&1)"
+problems=""
+[ -n "$local_sums" ] && [ "$local_sums" = "$bucket_sums" ] ||
+  problems="$problems local: $(echo $local_sums); bucket: $(echo $bucket_sums);"
+for name in $run_files; do
+  line="$(printf '%s\n' "$requests" | jq -c --arg p "$bucket_prefix/$name" 'select(.path == $p and .status == 200)' 2> /dev/null | tail -n 1)"
+  if [ -z "$line" ]; then
+    problems="$problems no stored request for $name;"
+  elif [ "$(printf '%s' "$line" | jq -r '"\(.auth_scheme) \(.md5_ok)"')" != "AWS4-HMAC-SHA256 true" ]; then
+    problems="$problems $name: $line;"
+  fi
+done
+# The stub itself refuses an unsigned request and a wrong Content-MD5, so the case above cannot
+# pass by a stub that stores anything.
+unsigned="$(in_backup 'printf x > /tmp/x; curl -s -o /dev/null -w %{http_code} -T /tmp/x -H "Content-MD5: LZRhbDqmK6NNDuvMwGdiOw==" http://s3stub:9000/b/unsigned' 2>&1)"
+wrong_md5="$(in_backup 'printf x > /tmp/x; curl -s -o /dev/null -w %{http_code} -T /tmp/x -H "Authorization: AWS4-HMAC-SHA256 Credential=x" -H "Content-MD5: AAAAAAAAAAAAAAAAAAAAAA==" http://s3stub:9000/b/wrong' 2>&1)"
+[ "$unsigned $wrong_md5" = "403 403" ] || problems="$problems the stub answered $unsigned unsigned and $wrong_md5 with a wrong Content-MD5;"
+if [ -z "$problems" ]; then
+  ok every_dump_reaches_the_bucket
+else
+  bad every_dump_reaches_the_bucket "$problems"
+fi
+
+# --- a_successful_backup_writes_the_status --------------------------------------------------------
+
+rfc3339='^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$'
+problems=""
+if ! jq -e . "$tmp/status.json" > /dev/null 2>&1; then
+  problems="not JSON: $(cat "$tmp/status.json")"
+else
+  attempt="$(jq -r .last_attempt_at "$tmp/status.json")"
+  [ "$(jq -r .last_attempt_ok "$tmp/status.json")" = true ] || problems="$problems last_attempt_ok is not true;"
+  [ "$(jq -r .last_success_at "$tmp/status.json")" = "$attempt" ] || problems="$problems last_success_at differs from last_attempt_at;"
+  [ "$(jq -r .last_error "$tmp/status.json")" = null ] || problems="$problems last_error is not null;"
+  printf '%s' "$attempt" | grep -Eq "$rfc3339" || problems="$problems last_attempt_at '$attempt' is not RFC 3339 in UTC;"
+  # The attempt's time is the run's, the stamp in every file name.
+  [ "$(printf '%s' "$attempt" | tr -d ':-')" = "$stamps" ] || problems="$problems last_attempt_at $attempt is not the run's stamp $stamps;"
+fi
+# Replaced in one step: a rename gives the file a new inode, and leaves no temporary file behind.
+case "$first_inode" in '' | *[!0-9]*) problems="$problems no status file after the first backup: $first_inode;" ;; esac
+[ "$first_inode" != "$second_inode" ] || problems="$problems the status file kept its inode $first_inode, so it was written in place;"
+[ -z "$status_leftovers" ] || problems="$problems /status also holds: $(echo $status_leftovers);"
+if [ -z "$problems" ]; then
+  ok a_successful_backup_writes_the_status
+else
+  bad a_successful_backup_writes_the_status "$problems"
+fi
+
+# --- no_secret_is_printed_or_passed_on_a_command_line ---------------------------------------------
+
+problems=""
+for secret_name in BACKUP_S3_KEY BACKUP_DB_PASSWORD; do
+  secret="$s3_key"
+  [ "$secret_name" = BACKUP_DB_PASSWORD ] && secret="$db_password"
+  [ -n "$secret" ] || { problems="$problems $secret_name is empty in the env file;"; continue; }
+  grep -qF -- "$secret" "$tmp/second.out" && problems="$problems the output holds $secret_name;"
+  grep -qF -- "$secret" "$tmp/status.json" && problems="$problems the status file holds $secret_name;"
+  grep -qF -- "$secret" "$tmp/argv.log" && problems="$problems an argument list holds $secret_name;"
+done
+curl_lines="$(grep -c '^curl ' "$tmp/argv.log")"
+config_lines="$(grep '^curl ' "$tmp/argv.log" | grep -cE -- '--config /dev/fd/[0-9]+')"
+[ "$curl_lines" -gt 0 ] && [ "$curl_lines" = "$config_lines" ] ||
+  problems="$problems of $curl_lines curl runs, $config_lines read --config from a file descriptor;"
+grep -q '^pg_dump ' "$tmp/argv.log" || problems="$problems no pg_dump run was recorded;"
+grep -E '^curl ' "$tmp/argv.log" | grep -qE -- '(^| )(-u|--user)( |$)' && problems="$problems curl was given --user;"
+if [ -z "$problems" ]; then
+  ok no_secret_is_printed_or_passed_on_a_command_line
+else
+  bad no_secret_is_printed_or_passed_on_a_command_line "$problems"
+fi
+
+# --- a_failed_upload_is_a_failed_backup ---------------------------------------------------------
+
+earlier_success="$(jq -r .last_success_at "$tmp/status.json" 2> /dev/null)"
+
+compose exec -T s3stub touch /tmp/s3/refuse
+before="$(files)"
+out="$(backup_now 2>&1)"
+failed_code=$?
+after_failure="$(files)"
+status > "$tmp/failed.json" 2>&1
+compose exec -T s3stub rm -f /tmp/s3/refuse
+
+problems=""
+[ "$failed_code" -ne 0 ] || problems="$problems it exited 0;"
+if jq -e . "$tmp/failed.json" > /dev/null 2>&1; then
+  [ "$(jq -r .last_attempt_ok "$tmp/failed.json")" = false ] || problems="$problems last_attempt_ok is not false;"
+  [ "$(jq -r .last_error "$tmp/failed.json")" = upload ] || problems="$problems last_error is $(jq -c .last_error "$tmp/failed.json"), not \"upload\";"
+  [ "$(jq -r .last_success_at "$tmp/failed.json")" = "$earlier_success" ] ||
+    problems="$problems last_success_at is $(jq -r .last_success_at "$tmp/failed.json"), not the earlier $earlier_success;"
+  [ "$(jq -r .last_attempt_at "$tmp/failed.json")" != "$earlier_success" ] || problems="$problems last_attempt_at did not move;"
+else
+  problems="$problems the status is not JSON: $(cat "$tmp/failed.json");"
+fi
+# The failed run's own dumps are kept, one per database.
+[ "$(new_files "$before" "$after_failure" | grep -c .)" = "$(databases | grep -c .)" ] ||
+  problems="$problems the failed run kept $(new_files "$before" "$after_failure" | grep -c .) files;"
+if [ -z "$problems" ]; then
+  ok a_failed_upload_is_a_failed_backup
+else
+  bad a_failed_upload_is_a_failed_backup "$problems ($(printf '%s' "$out" | tail -n 2 | tr '\n' ' '))"
 fi
 
 echo "$pass passed, $fail failed"
