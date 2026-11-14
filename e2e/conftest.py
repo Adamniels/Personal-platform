@@ -2,17 +2,20 @@
 
 import base64
 import json
+import os
 import re
+import shlex
 import subprocess
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 
 import pytest
 from playwright.sync_api import Page, expect
 
 ROOT = Path(__file__).parent
-CORE = ROOT.parent / "Core"
+REPOSITORY = ROOT.parent
+CORE = REPOSITORY / "Core"
 SCREENSHOTS = ROOT / "screenshots"
 COMMAND_TIMEOUT_SECONDS = 600
 
@@ -29,16 +32,31 @@ def browser_context_args(browser_context_args):
     return {**browser_context_args, "ignore_https_errors": True}
 
 
+def core_command(
+    args: Sequence[str], environ: Mapping[str, str]
+) -> tuple[list[str], Path]:
+    """The command line that runs one of the core's commands, and the folder
+    it runs from. E2E_CORE_COMMAND, when set, is the command to run instead
+    of the dev core's, split as a shell would and run from the repository
+    root with the arguments appended, such as a docker compose exec into the
+    hosted copy's core. Set but empty counts as unset."""
+    configured = environ.get("E2E_CORE_COMMAND", "")
+    if not configured.strip():
+        return ["cargo", "run", "-q", "--", *args], CORE
+    return [*shlex.split(configured), *args], REPOSITORY
+
+
 def _core_command(*args: str) -> str:
-    """Runs one of the core's commands in Core/ and returns its stdout,
-    stripped. A failure or a hang fails the test, not the whole run."""
-    command = " ".join(args)
+    """Runs one of the core's commands and returns its stdout, stripped. A
+    failure or a hang fails the test, not the whole run."""
+    argv, cwd = core_command(args, os.environ)
+    command = shlex.join(argv)
     # The first call may compile the core, so the timeout is generous. It is
     # there so a hung build fails the test instead of the whole CI job.
     try:
         result = subprocess.run(
-            ["cargo", "run", "-q", "--", *args],
-            cwd=CORE,
+            argv,
+            cwd=cwd,
             capture_output=True,
             text=True,
             check=False,
@@ -46,13 +64,13 @@ def _core_command(*args: str) -> str:
         )
     except subprocess.TimeoutExpired:
         pytest.fail(
-            f"cargo run -- {command} did not finish in {COMMAND_TIMEOUT_SECONDS}s",
+            f"{command} did not finish in {COMMAND_TIMEOUT_SECONDS}s",
             pytrace=False,
         )
     if result.returncode != 0:
         tail = "\n".join(result.stderr.splitlines()[-20:])
         pytest.fail(
-            f"cargo run -- {command} failed, last 20 lines of stderr:\n{tail}",
+            f"{command} failed, last 20 lines of stderr:\n{tail}",
             pytrace=False,
         )
     return result.stdout.strip()
