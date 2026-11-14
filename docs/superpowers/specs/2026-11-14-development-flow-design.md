@@ -563,8 +563,21 @@ Agreed in round 4b:
 
 ### Round 5: where it runs
 
-Settles where the platform is hosted, how a worker is installed and joins, containers per project
-against projects that need macOS itself, subscription against API, and how many runs go at once.
+Held on 2026 11 14 and done. Workers, containers, the recipe, the Claude login and subscription
+against API key were settled in rounds 3 and 4b. This round settled where the platform is hosted.
+
+- **The platform is hosted on the Mac mini to begin with, reachable only by the owner's own
+  devices** (2026 11 14), through a private network between them, such as Tailscale. Its services
+  and database run there apart from the workers' containers. Nothing is exposed to the internet,
+  which matters because the platform's login is its own. So GitHub cannot call the platform, and
+  the program asks GitHub for changes about once a minute, well inside GitHub's limits at this
+  scale. Workers call the program and are never called, so moving the platform to a rented server
+  later changes an address and nothing in the design. What it costs: one machine holds everything,
+  and a platform that stays up holds data that cannot be entered again, so its databases need
+  backing up, which does not exist today. A rented server was the alternative: independent of the
+  owner's home, and on the open internet from the first day.
+- **Hosting the platform and backing it up is a piece of work of its own** (2026 11 14), since
+  every feature needs it. Round 9 places it.
 
 From the owner, 2026 11 14: many repositories, perhaps one agent each. The Mac mini, more machines,
 perhaps cloud. Perhaps a container per project with its tools installed in it. The subscription most
@@ -613,8 +626,10 @@ should be checked on the live pages before the round relies on it, the support a
 
 ### Round 6: the code host
 
-Settles how the program connects to GitHub, as an app or a bot account, by webhooks or polling, how
-it reads boards, labels and dependencies, and what the interface must hold for a second code host.
+Closed on 2026 11 14 without questions of its own, since the earlier rounds settled it: a GitHub
+App, in round 3; asking GitHub for changes, in round 5; features as parent issues with sub-issues,
+dependencies as "blocked by" links, and labels for picking, holding, attention and priority, in
+round 2. What is left is in "Calls made without the owner".
 
 ### Round 7: the pages
 
@@ -638,6 +653,16 @@ the first part through `/plan-feature`.
 
 Check these. Each was said to him in passing, and none was asked as a question.
 
+- **At most two agents run at once across the installation to begin with**, one number on the page
+  that the owner can raise. It protects the Mac mini's memory and the subscription's limits.
+- **A project's database runs inside its own worker container**, installed by the recipe. A project
+  whose tests must start containers of their own, as this platform's do, gets Docker inside its
+  worker, decided per project in its setup run.
+- **Priority is read from labels**, and the program may move a card on a board where one exists.
+- **The code host sits behind one interface with GitHub the only one built.** What the interface
+  needs for a second host is left to the builder.
+- **The research in round 5 is checked against the live pages** before the first slices that depend
+  on it are cut.
 - **A worker reaches the program with ordinary HTTPS requests that it starts itself**, carrying
   its project's key, and sends the agent's log up while a run is going, so the page of what is
   running can show it. A machine at home cannot be reached from a host elsewhere, so the worker
@@ -663,6 +688,7 @@ passage changes when this way of working has been tried.
 ## Changes
 
 - 2026 11 14: first version, after rounds 0 and 1.
+- 2026 11 14: rounds 5 and 6 closed. Round 6 had no questions of its own.
 - 2026 11 14: round 4b added.
 - 2026 11 14: round 4 added, with the research for round 5. "A worker never talks to the code host"
   became: it fetches and pushes code with a short lived key and does nothing else there. The first
