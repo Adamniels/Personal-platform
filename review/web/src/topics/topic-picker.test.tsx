@@ -247,6 +247,16 @@ describe("a name with no match offers to create it", () => {
 		expect(platform.callsTo("GET", "/brain/api/topics")).toHaveLength(1);
 	});
 
+	test("a name that makes the slug of a topic the owner has offers that topic, not creating it", async () => {
+		someTopics();
+		const add = await openForm();
+		const topics = picker(add);
+
+		type(topics.field, "Real-Time  Systems!");
+
+		expect(topics.options()).toEqual(["Real Time Systems"]);
+	});
+
 	test("a name the owner has as a topic already is not offered to create", async () => {
 		someTopics();
 		const add = await openForm();

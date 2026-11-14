@@ -72,10 +72,25 @@ export function resolveSlug(
 /** The most suggestions listed at once. */
 const SHOWN = 8;
 
+/** The slug the brain makes from a name when none is chosen, by its rule in
+ * `slug_from` in Brain/src/brain/topics.py: lowercased, every run of anything
+ * but ASCII letters and digits one hyphen, no hyphen at either end, at most
+ * 80 characters. Only steers what the picker offers; the brain decides. */
+export function slugOf(name: string): string {
+	return name
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, "-")
+		.replace(/^-+|-+$/g, "")
+		.slice(0, 80)
+		.replace(/-+$/, "");
+}
+
 /** What typing offers: the topics whose name or slug holds the text,
- * without letter case, each shown as the topic it resolves to and listed
- * once, by name, leaving out those already picked. `create` is the text to
- * offer creating, when no topic has it as its name or slug. */
+ * without letter case, or whose slug is the one the text would make, each
+ * shown as the topic it resolves to and listed once, by name, leaving out
+ * those already picked. `create` is the text to offer creating, when no
+ * topic has it as its name or slug, nor the slug it would make, which the
+ * brain would refuse. */
 export function suggestionsFor(
 	text: string,
 	topics: readonly Topic[],
@@ -83,12 +98,15 @@ export function suggestionsFor(
 ): { matches: Topic[]; create: string | undefined } {
 	const query = text.trim().toLowerCase();
 	if (query === "") return { matches: [], create: undefined };
+	const made = slugOf(text);
 	const taken = new Set(picked.map(({ slug }) => slug));
 	const seen = new Set<string>();
 	const matches: Topic[] = [];
 	for (const topic of topics) {
 		const hit =
-			topic.name.toLowerCase().includes(query) || topic.slug.includes(query);
+			topic.name.toLowerCase().includes(query) ||
+			topic.slug.includes(query) ||
+			topic.slug === made;
 		if (!hit) continue;
 		const target = canonical(topic, topics);
 		if (taken.has(target.slug) || seen.has(target.id)) continue;
@@ -97,7 +115,10 @@ export function suggestionsFor(
 	}
 	matches.sort((a, b) => a.name.localeCompare(b.name));
 	const exact = topics.some(
-		(topic) => topic.name.toLowerCase() === query || topic.slug === query,
+		(topic) =>
+			topic.name.toLowerCase() === query ||
+			topic.slug === query ||
+			topic.slug === made,
 	);
 	return {
 		matches: matches.slice(0, SHOWN),
