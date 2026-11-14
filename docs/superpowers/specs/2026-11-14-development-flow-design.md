@@ -170,8 +170,9 @@ design.
 
 ### Round 2: the workflow from the owner's seat
 
-Settles the life of a card, every setting and its values, the presets, how he iterates on a result,
-and what waits for him and how he answers.
+Held on 2026 11 14 and done. It settled the life of a card, every setting and its values, the
+presets, how he iterates on a result, and what waits for him and how he answers. What he said going
+in is kept first, and what was agreed follows it.
 
 From the owner, 2026 11 14:
 
@@ -197,6 +198,108 @@ From the owner, 2026 11 14:
   with an attention label instead of waiting. He reads that issue and decides whether the solution
   stands. If not, he plans the fix as a new card and puts it back into the flow.
 
+Agreed in round 2 so far:
+
+- **A decision the owner would want a say in is a setting** (2026 11 14): the pull request waits for
+  him, as in this repository, or the agent goes on and tells him by opening an issue with an
+  attention label, as in Fodr.
+- **Where a finished card lands is a setting, and it follows the card** (2026 11 14). Every card
+  has a short branch and a pull request of its own. A card that belongs to a feature not yet in
+  `main` starts from that feature's branch and lands there; any other card starts from `main` and
+  lands there. The owner never picks a branch, he only says which feature a card belongs to. That
+  is the default for features. The other value sends every card straight to `main`, which suits a
+  new project with no users. A card on its own, such as a single fix in a mature project, always
+  goes to `main` through its own pull request. What it costs: a feature's branch can drift from
+  `main`, and two features built at once can conflict where they meet.
+- **The owner always merges a feature into `main` himself** (2026 11 14), in every setting. That
+  merge is his review of the feature. "Who merges" is a setting for card pull requests only: in a
+  fully automatic project the program merges every card into the feature's branch. So the branch
+  exists for as long as he might still want a change, and nothing he has not accepted reaches
+  `main`. A fix he thinks of after merging is a card on its own.
+- **Every run is a fresh agent session** (2026 11 14), as in this repository today. What carries
+  over is the card, the branch, the pull request and the comments. Whether related cards should
+  share a session to save usage is round 4b.
+- **Work is sent back in three ways, which are one mechanism** (2026 11 14): a card in the pick up
+  state with a new comment from the owner gets a new run, and the rule above picks the branch.
+  Where a card's pull request is still open and waits for him, he comments on it and the run
+  continues on that branch. Where the card has already merged into the feature's branch, he sends
+  it back from the feature's page with a comment, one action, and the program reopens and queues
+  it; the new agent gets the card, what was built for it and the comment. Where the fix needs
+  planning, he adds a new card to the feature. The feature's pull request to `main` stays open
+  until every card of the feature is done again.
+- **A feature is a parent issue with its cards as sub-issues** (2026 11 14), and a card on its own
+  is an issue with no parent. It is what `/plan-feature` already creates, sub-issues carry an order
+  and GitHub's "blocked by" links carry dependencies, the parent links the spec, and the feature's
+  pull request to `main` closes it. A card is added to a feature by creating a sub-issue, on GitHub,
+  from the feature's page or in a planning session. A label was the alternative: simpler to type,
+  but with no order, no dependencies, and a typo makes a new feature.
+- **Cards are picked by a label, and only by a label** (2026 11 14). Each project names its label.
+  On a parent issue it covers every sub-issue, so a planned feature is switched on in one step; on a
+  single card it covers that card. A card carrying the project's hold label is skipped, with
+  everything that depends on it. Taking the label off stops the automation after the card being
+  worked on. A board column was the alternative and was dropped: the label needs no board, which
+  many projects will not have, and every code host has labels. Where a board exists the program may
+  move cards on it, to show status and nothing else.
+- **A card is picked only when it is free to start** (2026 11 14): everything it is blocked by is
+  finished, and inside a feature the cards go in their sub-issue order. A card blocked by one that
+  is not in the automation waits, and the queue says which card it waits for.
+- **The order is priority, then oldest** (2026 11 14), for features and for cards on their own.
+  Priority is read from a small fixed set of labels, high, none and low; round 6 settles where
+  exactly it is read from.
+- **Inside a feature one card runs at a time** (2026 11 14), since its cards build on each other
+  and land in one branch. Different features and different projects run at the same time, as far as
+  there are workers. Running a feature's independent cards side by side is left for later.
+- **Every card is read before anything is built** (2026 11 14). A fresh agent reads the card and
+  the code it touches and answers ready, has questions, each with its own recommendation, or too
+  thin, with what is missing. With questions on, a card with questions or one that is too thin
+  waits for the owner. With questions off, a card with questions starts and the agent goes with its
+  recommendations and records them, and a card that is too thin is refused: it gets the attention
+  label and a comment listing what is missing. A card that waits or is refused holds back only the
+  cards that depend on it.
+- **All cards of a feature are read at once, when it is switched on** (2026 11 14), not each as its
+  turn comes. The owner gets every question in one batch while he is still there, a refusal comes
+  before anything is built, and cards that contradict each other are caught. It costs one more run
+  per card, which round 4b weighs.
+- **Questions are answered on the page of what waits for him** (2026 11 14): each shows the agent's
+  recommendation, with one action to accept it and a box for another answer. The answers are added
+  to the card as a comment, where the building agent and a later reader find them.
+- **A card stops only when the program cannot produce a working result** (2026 11 14): its tests
+  still fail when the fix rounds run out, the card contradicts itself or cannot be built, or
+  something it needs is missing. Only that card and the cards depending on it stop, the rest of the
+  feature goes on, and the owner gets an attention issue saying why. A problem outside the card,
+  such as a usage limit, the network or a broken machine, pauses and retries without reaching him.
+- **Stopping for something missing must be rare, so it is checked before work starts**
+  (2026 11 14). When a project is registered, the program checks that a worker can build and test
+  it on a clean copy: the tools, the secrets it needs, the tests running. Before each card starts,
+  it checks the card can be built from, which is the same check that refuses a thin card. A stop
+  that still happens is a reason to add a check.
+
+- **The settings of one project** (2026 11 14):
+
+  | Setting | Values |
+  |---|---|
+  | Pick up label, hold label, attention label | The three label names |
+  | Questions before starting | On, or off |
+  | Where a feature's cards land | The feature's branch, or straight to `main` |
+  | A card's pull request waits for the owner | Never, sometimes, or always |
+  | What "sometimes" means | Any of: the card is marked for his review, the change touches paths he listed, the agent made a decision he would want a say in |
+
+  A decision he would want a say in makes the pull request wait where that is chosen under
+  "sometimes" or the project is on "always". Otherwise the card merges and he gets an attention
+  issue. A card that waits holds back only the cards that depend on it.
+- **Three things hold in every project and are not settings** (2026 11 14): the agent never asks
+  during the work; a reviewer with fresh context reads every card's pull request, and the developer
+  gets a limited number of rounds to fix what it finds; and the owner merges a feature into `main`
+  himself.
+- **Presets** (2026 11 14). A preset fills in the settings, and any single one can be changed
+  afterwards.
+
+  | Preset | Questions | Lands in | Waits for the owner |
+  |---|---|---|---|
+  | Fully automatic | Off | Feature branch | Never |
+  | Guided, like this repository | Off | Feature branch | Sometimes, all three |
+  | Only I merge | On | Feature branch | Always |
+
 ### Round 3: trust and safety
 
 Settles who may merge and on what evidence, what a run may touch on the machine it runs on,
@@ -210,6 +313,15 @@ the states a card and a run go through, and what is stored against what is read 
 
 From the owner, 2026 11 14: build more around the agent, in a real language, leaning C#. The agent
 reports something the program can act on, such as the pages a change affects.
+
+### Round 4b: cost and efficiency
+
+Settles how usage is kept down without losing quality: whether related cards share a session or a
+handed over summary, how a card's size relates to a run, which model does which job, and what is
+measured so the answer can be checked.
+
+From the owner, 2026 11 14: a completely new session for each small card that builds on the last
+one cannot be the best way.
 
 ### Round 5: where it runs
 
@@ -256,8 +368,6 @@ Check these. Each was said to him in passing, and none was asked as a question.
   it a key. Round 4 confirms it.
 - **The program keeps the label and comment conventions of the current runner** where it can, so
   the waiting list built first keeps working when the engine arrives. Round 6 confirms it.
-- **A pull request exists for every card, in every preset**, also where nothing waits for the
-  owner, since the project's CI runs on it and it is the record of the change. Round 2 confirms it.
 
 ## How this document is kept
 
@@ -277,3 +387,5 @@ passage changes when this way of working has been tried.
 ## Changes
 
 - 2026 11 14: first version, after rounds 0 and 1.
+- 2026 11 14: round 2 added, and round 4b, cost and efficiency, added at the owner's wish. The call
+  that every card has a pull request left "Calls made without the owner", since round 2 agreed it.
