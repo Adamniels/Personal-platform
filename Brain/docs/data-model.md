@@ -4,7 +4,7 @@ Status: decided and built. Every table below exists; `profile`, `rule`, `topic_l
 `topic_focus` and `history`, as misconceptions so far, are written, and `state` and `decision`
 arrive with the slices that write them.
 
-Last updated: 2026 11 13
+Last updated: 2026 11 14
 
 The tables the brain stores its memory in, in their final shape. The reasoning behind the shape is
 in the three documents beside this one and is not repeated here: `event-model.md` for events,
@@ -55,7 +55,8 @@ entities          id, user_id, name, label (free text or null), created_at.
                   unique (user_id, lower(name)).
 
 verbs             GLOBAL, read only to the service. verb (pk), kind ('exposure' |
-                  'engagement' | 'judgment' | 'assertion' | 'decision' | 'activity'),
+                  'engagement' | 'judgment' | 'assertion' | 'decision' | 'activity' |
+                  'assessment'),
                   strength (1 weak, 2 medium, 3 strong), polarity (-1, 0, 1).
 
 events            id, user_id, verb, subject_topic, subject_entity, subject_item
@@ -158,11 +159,16 @@ is a migration that adds its row.
 | `decided`      | decision   | 3        | 1        |
 | `worked`       | activity   | 1        | 0        |
 | `contradicted` | judgment   | 3        | 0        |
+| `recalled`     | assessment | 2        | 1        |
+| `forgot`       | assessment | 2        | -1       |
 
 `edited`, `retired`, `restored`, `confirmed` and `contradicted` are the brain's own: they record
 what the owner did to an item, with `subject_item` naming it. `contradicted` makes the
 `contradicts` relation when the owner marks two claims as disagreeing, and is neutral: it says
 the two disagree and of neither that it is wrong, so it is evidence on neither.
+
+`recalled` and `forgot` are assessments, the owner tested on a topic. Review sends `forgot` for
+its Again grade and `recalled` for Hard, Good and Easy, with the grade in the payload.
 
 ## The memory file
 
