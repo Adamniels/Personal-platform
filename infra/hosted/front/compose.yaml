@@ -1,0 +1,14 @@
+# The test HTTPS front check.sh puts before the proxy, standing in for tailscale serve on the real
+# copy: it terminates TLS for https://platform.test:9443 with Caddy's own authority and proxies to
+# the proxy over the project's network. check.sh adds this file with a second -f; it is never part
+# of the hosted copy. Paths here are relative to the first file's folder, infra/hosted/.
+# See README.md there.
+services:
+  front:
+    image: caddy:2
+    depends_on:
+      - proxy
+    ports:
+      - "127.0.0.1:9443:443"
+    volumes:
+      - ./front/Caddyfile:/etc/caddy/Caddyfile:ro

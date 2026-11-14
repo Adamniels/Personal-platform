@@ -1,0 +1,18 @@
+# The feature registry of the hosted copy, copied into the core's image and read through
+# CORE_FEATURE_REGISTRY. It repeats infra/features.toml, the dev registry, feature for feature and
+# in the same order, with each upstream the feature's compose service by name and its port in
+# infra/services.json. A feature added there is added here in the same commit, with its route in
+# the Caddyfile beside this file; tests/agree.test.sh checks they agree. The fields are the dev
+# registry's, see its header and "The feature registry" in Core/docs/core-architecture.md.
+
+[[feature]]
+name = "Canary"
+prefix = "/canary"
+upstream = "http://canary:8081"
+display = "/canary/api/display"
+
+[[feature]]
+name = "Review"
+prefix = "/review"
+upstream = "http://review:8083"
+display = "/review/api/display"

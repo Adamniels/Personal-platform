@@ -1,0 +1,146 @@
+# The hosted copy of the platform: every service in a container, one compose project apart from
+# the dev stack in infra/compose.yaml. See README.md beside this file.
+#
+# There is deliberately no top level name. The project is always given with -p: the real copy's
+# by the release script, and check.sh's own, hostedcheck. A command typed without -p gets the
+# folder's name, hosted, which is neither, so a command typed in another clone never reaches the
+# real copy by accident.
+#
+# Every image builds from the repository root, since services install libs/ and design/ui by path.
+# Each service reads its settings from the environment, by the names it reads natively; the
+# values come from .env beside this file, see .env.example. Each database URL is
+# postgres://<role>:<password>@postgres:5432/<database>, so the passwords are letters and digits.
+#
+# Each service with a migrate in infra/services.json has a <name>-migrate service in the migrate
+# profile, the same image running its migrate command as the database's owner. No serving
+# container has the owner's URL. tests/agree.test.sh checks this file against the manifest.
+
+services:
+  postgres:
+    # The image infra/compose.yaml and CI run.
+    image: postgres:18
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD, see .env.example}
+      CORE_OWNER_PASSWORD: ${CORE_OWNER_PASSWORD:?set CORE_OWNER_PASSWORD, see .env.example}
+      CORE_APP_PASSWORD: ${CORE_APP_PASSWORD:?set CORE_APP_PASSWORD, see .env.example}
+      BRAIN_OWNER_PASSWORD: ${BRAIN_OWNER_PASSWORD:?set BRAIN_OWNER_PASSWORD, see .env.example}
+      BRAIN_APP_PASSWORD: ${BRAIN_APP_PASSWORD:?set BRAIN_APP_PASSWORD, see .env.example}
+      REVIEW_OWNER_PASSWORD: ${REVIEW_OWNER_PASSWORD:?set REVIEW_OWNER_PASSWORD, see .env.example}
+      REVIEW_APP_PASSWORD: ${REVIEW_APP_PASSWORD:?set REVIEW_APP_PASSWORD, see .env.example}
+    # Published nowhere: only the services on this project's network reach it.
+    volumes:
+      - pgdata:/var/lib/postgresql
+      # The dev stack's init scripts, run when the volume is first created. See "The databases"
+      # in infra/README.md.
+      - ../postgres/initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      # Over TCP, so the server the image runs while the init scripts run, on a socket only, does
+      # not count as ready.
+      test: ["CMD", "pg_isready", "--host", "127.0.0.1", "--username", "postgres"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  core:
+    image: platform-hosted/core:${PLATFORM_RELEASE:-dev}
+    build:
+      context: ../..
+      dockerfile: Core/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      CORE_LISTEN_ADDR: 0.0.0.0:8080
+      CORE_PUBLIC_ORIGIN: ${PLATFORM_PUBLIC_ORIGIN:?set PLATFORM_PUBLIC_ORIGIN, see .env.example}
+      # Without a default, unlike the rest, so `run --rm --no-deps core keygen` can make it before
+      # it exists. The core refuses to start without it.
+      CORE_SIGNING_KEY: ${CORE_SIGNING_KEY:-}
+      CORE_FEATURE_REGISTRY: /app/features.toml
+      CORE_APP_DATABASE_URL: postgres://core_app:${CORE_APP_PASSWORD:?set CORE_APP_PASSWORD, see .env.example}@postgres:5432/core
+
+  core-migrate:
+    image: platform-hosted/core:${PLATFORM_RELEASE:-dev}
+    profiles: ["migrate"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["migrate"]
+    environment:
+      CORE_OWNER_DATABASE_URL: postgres://core_owner:${CORE_OWNER_PASSWORD:?set CORE_OWNER_PASSWORD, see .env.example}@postgres:5432/core
+
+  canary:
+    image: platform-hosted/canary:${PLATFORM_RELEASE:-dev}
+    build:
+      context: ../..
+      dockerfile: canary/Dockerfile
+    restart: unless-stopped
+    command: ["uvicorn", "canary.app:app", "--host", "0.0.0.0", "--port", "8081"]
+    environment:
+      CANARY_CORE_URL: http://core:8080
+      CANARY_PUBLIC_ORIGIN: ${PLATFORM_PUBLIC_ORIGIN:?set PLATFORM_PUBLIC_ORIGIN, see .env.example}
+
+  brain:
+    image: platform-hosted/brain:${PLATFORM_RELEASE:-dev}
+    build:
+      context: ../..
+      dockerfile: Brain/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["uvicorn", "brain.app:app", "--host", "0.0.0.0", "--port", "8082"]
+    environment:
+      BRAIN_CORE_URL: http://core:8080
+      BRAIN_PUBLIC_ORIGIN: ${PLATFORM_PUBLIC_ORIGIN:?set PLATFORM_PUBLIC_ORIGIN, see .env.example}
+      BRAIN_APP_DATABASE_URL: postgres://brain_app:${BRAIN_APP_PASSWORD:?set BRAIN_APP_PASSWORD, see .env.example}@postgres:5432/brain
+
+  brain-migrate:
+    image: platform-hosted/brain:${PLATFORM_RELEASE:-dev}
+    profiles: ["migrate"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["brain", "migrate"]
+    environment:
+      BRAIN_OWNER_DATABASE_URL: postgres://brain_owner:${BRAIN_OWNER_PASSWORD:?set BRAIN_OWNER_PASSWORD, see .env.example}@postgres:5432/brain
+
+  review:
+    image: platform-hosted/review:${PLATFORM_RELEASE:-dev}
+    build:
+      context: ../..
+      dockerfile: review/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      REVIEW_LISTEN_ADDR: 0.0.0.0:8083
+      REVIEW_CORE_URL: http://core:8080
+      REVIEW_BRAIN_URL: http://brain:8082
+      REVIEW_PUBLIC_ORIGIN: ${PLATFORM_PUBLIC_ORIGIN:?set PLATFORM_PUBLIC_ORIGIN, see .env.example}
+      REVIEW_APP_DATABASE_URL: postgres://review_app:${REVIEW_APP_PASSWORD:?set REVIEW_APP_PASSWORD, see .env.example}@postgres:5432/review
+
+  review-migrate:
+    image: platform-hosted/review:${PLATFORM_RELEASE:-dev}
+    profiles: ["migrate"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["migrate"]
+    environment:
+      REVIEW_OWNER_DATABASE_URL: postgres://review_owner:${REVIEW_OWNER_PASSWORD:?set REVIEW_OWNER_PASSWORD, see .env.example}@postgres:5432/review
+
+  proxy:
+    image: platform-hosted/proxy:${PLATFORM_RELEASE:-dev}
+    build:
+      context: ../..
+      dockerfile: infra/hosted/proxy/Dockerfile
+    restart: unless-stopped
+    # The only port published, plain HTTP on the loopback; HTTPS is terminated in front of it.
+    ports:
+      - "${HOSTED_HTTP_BIND:-127.0.0.1:9080}:80"
+
+volumes:
+  pgdata:

@@ -397,9 +397,12 @@ rather than a preference: the application connects as a role that does not own i
 the isolation section above already requires, so it is not permitted to migrate. Two roles, two
 connection strings, and only one of them is ever used from a terminal.
 
-**Everything runs on one laptop for now.** Postgres and the proxy in a compose file, since they
-are infrastructure that never gets rebuilt, and the services themselves run natively, where the
-edit and rebuild loop actually is.
+**Development runs on one laptop, with the services native.** Postgres and the proxy in a compose
+file, since they are infrastructure that never gets rebuilt, and the services themselves run
+natively, where the edit and rebuild loop actually is. **The hosted copy runs in containers**, from
+`infra/hosted/`: every service built into an image and started as one compose project of its own,
+the same Postgres with a database per service, migrations as a command, and configuration as the
+same environment variables. See `infra/hosted/README.md`.
 
 **It runs under a real hostname with real HTTPS from the first day**, with the proxy issuing a
 certificate from its own local authority. Without that, `Secure` cookies do not behave normally

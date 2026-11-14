@@ -1,0 +1,22 @@
+# What every image build leaves out of its context, the repository root. Each Dockerfile copies
+# what it needs from the rest by path. Build output, installed dependencies and local settings
+# would make a build depend on the machine it ran on, and .env files hold secrets. See
+# infra/hosted/README.md.
+.git
+**/target/
+**/node_modules/
+**/.venv/
+**/bin/
+**/obj/
+**/dist/
+**/.env
+**/.env.*
+!**/.env.example
+e2e/screenshots/
+
+# Caches the tools write beside the code, never read by a build.
+**/__pycache__/
+**/.pytest_cache/
+**/.ruff_cache/
+**/.mypy_cache/
+**/.DS_Store

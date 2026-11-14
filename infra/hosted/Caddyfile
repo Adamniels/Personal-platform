@@ -1,0 +1,63 @@
+{
+	# Plain HTTP: HTTPS is terminated in front of this proxy, by tailscale
+	# serve on the real copy and by a test front in check.sh. See README.md.
+	auto_https off
+	# Nothing reloads the configuration at runtime; a change is a new image.
+	admin off
+}
+
+:80 {
+	# The dev Caddyfile's routes, infra/Caddyfile, with each upstream the
+	# service's compose name and its port in services.json. Each feature's
+	# route has its entry in features.toml beside this file.
+	# tests/agree.test.sh checks the two Caddyfiles route and serve the same
+	# paths the same way, so a route changes in both, in the same commit.
+	#
+	# /canary and everything under it, but not /canaryfoo. handle rather
+	# than handle_path, so canary receives the prefix.
+	@canary path /canary /canary/*
+	handle @canary {
+		reverse_proxy canary:8081
+	}
+
+	# Review, the same way.
+	@review path /review /review/*
+	handle @review {
+		reverse_proxy review:8083
+	}
+
+	# The brain, the same way.
+	@brain path /brain /brain/*
+	handle @brain {
+		reverse_proxy brain:8082
+	}
+
+	# The design folder's served files, copied into this image at /srv/design
+	# by proxy/Dockerfile, exactly these paths and nothing else under
+	# /design/. no-cache so a browser revalidates. See infra/README.md.
+	@design path /design/tokens.css /design/fonts.css /design/fonts/* /design/sprites/* /design/page.css /design/theme.js /design/nav.js
+	handle @design {
+		root * /srv
+		header Cache-Control no-cache
+		file_server
+	}
+
+	# The component gallery, built into the image by proxy/Dockerfile.
+	@gallery path /design/gallery /design/gallery/*
+	handle @gallery {
+		redir /design/gallery /design/gallery/ 308
+		uri strip_prefix /design/gallery
+		root * /srv/design/ui/gallery/dist
+		header Cache-Control no-cache
+		file_server
+	}
+
+	@design_other path /design /design/*
+	handle @design_other {
+		respond 404
+	}
+
+	handle {
+		reverse_proxy core:8080
+	}
+}
