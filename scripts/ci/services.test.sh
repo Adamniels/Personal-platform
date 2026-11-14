@@ -17,13 +17,10 @@ fail=0
 ok() { echo "ok   $1"; pass=$((pass + 1)); }
 bad() { echo "FAIL $1"; [ -n "${2:-}" ] && echo "     $2"; fail=$((fail + 1)); }
 
-# The areas changed-areas.sh can print, read from its output on no input, so this list is not a
-# second copy of it.
-areas="$(printf '' | bash "$here/changed-areas.sh" | cut -d= -f1 | tr '\n' ' ')"
-
 # problems <root>: prints one line per problem found in <root>'s manifest, nothing when it is
 # sound. <root> holds infra/services.json, infra/features.toml, infra/Caddyfile,
-# infra/.env.example and the services' folders.
+# infra/.env.example, the services' folders, scripts/ci/changed-areas.sh and
+# scripts/agent/services.sh.
 problems() {
   local root="$1" manifest="$1/infra/services.json"
 
@@ -33,7 +30,7 @@ problems() {
   fi
 
   # Shape and types, one line per problem, from jq.
-  jq -r --arg areas "$areas" '
+  jq -r '
     def str: type == "string" and length > 0;
     def ident: str and test("^[a-z_][a-z0-9_]*$");
     def var: str and test("^[A-Z_][A-Z0-9_]*$");
@@ -57,8 +54,7 @@ problems() {
           then "\($at): health is not a path" else empty end),
         (if ($s | has("language")) and (["rust", "python", "dotnet"] | index([$s.language]) | not)
           then "\($at): language is not rust, python or dotnet" else empty end),
-        (if ($s | has("area")) and (($s.area | str) and ($areas | split(" ") | index([$s.area]) != null) | not)
-          then "\($at): area is not one changed-areas.sh prints" else empty end),
+        (if ($s | has("area")) and ($s.area | str | not) then "\($at): area is not a string" else empty end),
         (if ($s | has("migrate")) and ($s.migrate | str | not) then "\($at): migrate is not a command" else empty end),
         (if ($s | has("start")) and ($s.start | str | not) then "\($at): start is not a command" else empty end),
         (if ($s | has("database")) then
@@ -86,6 +82,17 @@ problems() {
     dupes="$(jq -r ".services[] | $field // empty" "$manifest" 2>/dev/null | sort | uniq -d)"
     [ -n "$dupes" ] && echo "${field#.} not unique: $(echo "$dupes" | tr '\n' ' ')"
   done
+
+  # Each folder's change sets its area, through changed-areas.sh itself, so an area that script
+  # cannot set fails here and not in CI.
+  local area out
+  while read -r dir area; do
+    [ -z "$dir" ] && continue
+    if ! out="$(printf '%s/x' "$dir" | bash "$root/scripts/ci/changed-areas.sh" 2>&1)" ||
+      ! printf '%s\n' "$out" | grep -qx "$area=true"; then
+      echo "$dir: changed-areas.sh does not set area $area for it"
+    fi
+  done < <(jq -r '.services[] | "\(.dir) \(.area)"' "$manifest" 2>/dev/null)
 
   # Every folder exists.
   local dir
@@ -166,7 +173,9 @@ if [ "$names" = "core canary brain " ]; then ok "describes the core, canary and 
 expect() {
   local name="$1" pattern="$2" filter="$3" file="${4:-}" script="${5:-}" root
   root="$tmp/$name"
-  mkdir -p "$root/infra"
+  mkdir -p "$root/infra" "$root/scripts/ci" "$root/scripts/agent"
+  cp "$repo/scripts/ci/changed-areas.sh" "$root/scripts/ci/"
+  cp "$repo/scripts/agent/services.sh" "$root/scripts/agent/"
   cp "$repo/infra/features.toml" "$repo/infra/Caddyfile" "$repo/infra/.env.example" "$root/infra/"
   jq -r '.services[].dir' "$repo/infra/services.json" | while IFS= read -r d; do mkdir -p "$root/$d"; done
   if ! jq "$filter" "$repo/infra/services.json" > "$root/infra/services.json" 2>/dev/null; then
@@ -188,7 +197,8 @@ expect "a missing field" "missing start" 'del(.services[1].start)'
 expect "a port that is a string" "port is not an integer" '.services[0].port = "8080"'
 expect "a name with capitals" "name is not lowercase" '.services[0].name = "Core"'
 expect "an unknown language" "language is not" '.services[0].language = "go"'
-expect "an area changed-areas.sh does not print" "area is not one" '.services[0].area = "nowhere"'
+expect "an area changed-areas.sh does not print" "does not set area nowhere" '.services[0].area = "nowhere"'
+expect "an area changed-areas.sh prints but never sets for a folder" "does not set area web" '.services[0].area = "web"'
 expect "a misspelt field" "unknown field heath" '.services[2].heath = "/x"'
 expect "a database without its owner's variable" "database misses owner_url" 'del(.services[0].database.owner_url)'
 expect "a database role that is not an identifier" "database owner is not" '.services[0].database.owner = "core owner; drop"'

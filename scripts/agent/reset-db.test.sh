@@ -66,5 +66,55 @@ FAKE_DOCKER_EXIT=127 run
 rc=$?
 if [ "$rc" -eq 1 ]; then ok "exits 1 when docker is missing"; else bad "exits 1 when docker is missing" "rc=$rc"; fi
 
+# The databases come from the manifest, through services.sh: a fake repository with a copy of both
+# scripts and a manifest of its own.
+fake="$tmp/repo"
+mkdir -p "$fake/scripts/agent" "$fake/infra"
+cp "$here/reset-db.sh" "$here/services.sh" "$fake/scripts/agent/"
+db() { printf '"database": {"name": "%s", "owner": "%s", "app": "%s", "owner_password": "X_OWNER_PASSWORD", "app_password": "X_APP_PASSWORD", "owner_url": "X_OWNER_DATABASE_URL"}' "$1" "$2" "$3"; }
+manifest() {
+  cat > "$fake/infra/services.json" <<EOF
+{"services": [
+  {"name": "zeta", "dir": "zeta", "port": 1, "language": "rust", "area": "core", "start": "true", "migrate": "true", $(db zeta zeta_owner zeta_app)},
+  {"name": "plain", "dir": "plain", "port": 2, "language": "python", "area": "canary", "start": "true"},
+  {"name": "alpha", "dir": "alpha", "port": 3, "language": "python", "area": "brain", "start": "true", "migrate": "true", $(db "$1" "$2" alpha_app)}
+]}
+EOF
+}
+fake_run() {
+  rm -f "$tmp/args" "$tmp/sql" "$tmp/cwd"
+  (cd /tmp && FAKE_DIR="$tmp" PATH="$tmp/bin:$PATH" bash "$fake/scripts/agent/reset-db.sh" > "$tmp/out" 2>&1)
+}
+
+manifest alpha alpha_owner
+FAKE_DOCKER_EXIT=0 fake_run
+rc=$?
+sql="$(grep -v '^[[:space:]]*\(--.*\)\?$' "$tmp/sql" 2>/dev/null)"
+want_sql='DROP DATABASE IF EXISTS zeta WITH (FORCE);
+CREATE DATABASE zeta OWNER zeta_owner;
+REVOKE ALL ON DATABASE zeta FROM PUBLIC;
+GRANT CONNECT ON DATABASE zeta TO zeta_app;
+DROP DATABASE IF EXISTS alpha WITH (FORCE);
+CREATE DATABASE alpha OWNER alpha_owner;
+REVOKE ALL ON DATABASE alpha FROM PUBLIC;
+GRANT CONNECT ON DATABASE alpha TO alpha_app;'
+if [ "$rc" -eq 0 ] && [ "$sql" = "$want_sql" ]; then ok "resets each database in the manifest, in manifest order, skipping a service without one"; else bad "resets each database in the manifest, in manifest order, skipping a service without one" "rc=$rc got: $(echo "$sql" | tr '\n' ' ')"; fi
+
+# A name that is not a plain identifier never reaches psql.
+manifest 'alpha; DROP DATABASE zeta' alpha_owner
+FAKE_DOCKER_EXIT=0 fake_run
+rc=$?
+if [ "$rc" -eq 1 ] && [ ! -e "$tmp/sql" ]; then ok "refuses a database name that is not an identifier, before docker runs"; else bad "refuses a database name that is not an identifier, before docker runs" "rc=$rc, sql: $(cat "$tmp/sql" 2>/dev/null | tr '\n' ' ')"; fi
+
+manifest alpha 'Alpha-Owner'
+FAKE_DOCKER_EXIT=0 fake_run
+rc=$?
+if [ "$rc" -eq 1 ] && [ ! -e "$tmp/sql" ]; then ok "refuses a role that is not an identifier, before docker runs"; else bad "refuses a role that is not an identifier, before docker runs" "rc=$rc"; fi
+
+echo 'not json' > "$fake/infra/services.json"
+FAKE_DOCKER_EXIT=0 fake_run
+rc=$?
+if [ "$rc" -eq 1 ] && [ ! -e "$tmp/sql" ] && grep -q 'database reset failed' "$tmp/out"; then ok "fails, before docker runs, when the manifest cannot be read"; else bad "fails, before docker runs, when the manifest cannot be read" "rc=$rc: $(cat "$tmp/out")"; fi
+
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]

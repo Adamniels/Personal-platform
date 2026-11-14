@@ -51,5 +51,48 @@ check "frontend of a service without an area" "core=false canary=false brain=fal
 check "web deeper is not a frontend" "core=false canary=true brain=false libs=false scripts=false web=false e2e=true" "canary/app/web/x.py"
 check "empty input" "core=false canary=false brain=false libs=false scripts=false web=false e2e=false" ""
 
+# The service manifest.
+check "the service manifest sets all" "core=true canary=true brain=true libs=true scripts=true web=true e2e=true" "infra/services.json"
+check "a core path, from the manifest" "core=true canary=false brain=false libs=false scripts=false web=false e2e=true" "Core/x"
+check "a canary path, from the manifest" "core=false canary=true brain=false libs=false scripts=false web=false e2e=true" "canary/x"
+check "a brain path, from the manifest" "core=false canary=false brain=true libs=false scripts=false web=false e2e=true" "Brain/x"
+check "brain docs still set nothing" "core=false canary=false brain=false libs=false scripts=false web=false e2e=false" "Brain/docs/x"
+check "a folder whose name starts like a service's is not it" "core=false canary=false brain=false libs=false scripts=false web=false e2e=false" "Corefoo/x"
+
+# The folders and areas are read from the manifest: a fake repository holding a copy of the script
+# and services.sh, with a manifest of its own.
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+mkdir -p "$tmp/scripts/ci" "$tmp/scripts/agent" "$tmp/infra"
+cp "$here/changed-areas.sh" "$tmp/scripts/ci/"
+cp "$here/../agent/services.sh" "$tmp/scripts/agent/"
+cat > "$tmp/infra/services.json" <<'EOF'
+{"services": [
+  {"name": "review", "dir": "Review", "port": 1, "language": "dotnet", "area": "canary", "start": "true"},
+  {"name": "core", "dir": "Services/core", "port": 2, "language": "rust", "area": "core", "start": "true"}
+]}
+EOF
+fake() {
+  local name="$1" expected="$2" paths="$3" got
+  got="$(printf '%s' "$paths" | bash "$tmp/scripts/ci/changed-areas.sh" 2>/dev/null | tr '\n' ' ' | sed 's/ $//')"
+  if [ "$got" = "$expected" ]; then
+    echo "ok   $name"; pass=$((pass + 1))
+  else
+    echo "FAIL $name"; echo "     expected: $expected"; echo "     got:      $got"; fail=$((fail + 1))
+  fi
+}
+fake "a manifest's folder sets its area" "core=false canary=true brain=false libs=false scripts=false web=false e2e=true" "Review/src/x.cs"
+fake "a nested folder sets its area" "core=true canary=false brain=false libs=false scripts=false web=false e2e=true" "Services/core/x"
+fake "a folder not in the manifest sets nothing" "core=false canary=false brain=false libs=false scripts=false web=false e2e=false" "Core/x"
+
+echo 'not json' > "$tmp/infra/services.json"
+printf 'Core/x' | bash "$tmp/scripts/ci/changed-areas.sh" > "$tmp/out" 2>&1
+rc=$?
+if [ "$rc" -ne 0 ] && ! grep -q '=' "$tmp/out"; then
+  echo "ok   fails, printing no area, when the manifest cannot be read"; pass=$((pass + 1))
+else
+  echo "FAIL fails, printing no area, when the manifest cannot be read"; echo "     rc=$rc: $(cat "$tmp/out")"; fail=$((fail + 1))
+fi
+
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]
