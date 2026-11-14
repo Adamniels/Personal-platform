@@ -510,12 +510,56 @@ Agreed in round 4:
 
 ### Round 4b: cost and efficiency
 
-Settles how usage is kept down without losing quality: whether related cards share a session or a
-handed over summary, how a card's size relates to a run, which model does which job, and what is
-measured so the answer can be checked.
+Held on 2026 11 14 and done. It settled how context is carried between a feature's cards, where
+card size is decided, which model does which job, subscription against API key, and when a project
+may run.
 
 From the owner, 2026 11 14: a completely new session for each small card that builds on the last
 one cannot be the best way.
+
+Agreed in round 4b:
+
+- **A fresh session per card, with a handover note, is the default** (2026 11 14). Each card's
+  report ends with a short note for the next card: what was built, where it lives and what to watch
+  out for. The next card's brief holds the notes from the feature's earlier cards. The reading step,
+  which reads all of a feature's cards at once, also writes down which parts of the code the feature
+  touches, and that goes into every brief. The agent still reads the code it changes, but no longer
+  has to search for it.
+- **One session kept through a whole feature is a switch to try later** (2026 11 14). The agent
+  then remembers everything, but resuming sends the whole conversation again each time, cheaper
+  only while a cache that lasts an hour holds, and it grows with every card. An early mistake also
+  stays with it. Whether it saves anything depends on the size of the cards and how soon one follows
+  another, so it is tried on one feature and judged by the numbers. Dedicated workers make it
+  possible. The reviewer is a fresh session either way, since its worth is that it has not seen the
+  developer's reasoning.
+- **Card size belongs to planning, not to the program** (2026 11 14). The owner wants cards of a
+  good size, not too small, since fewer and larger cards mean fewer fresh starts, against being
+  harder to review and to send back one at a time. The usage page shows per card the tokens, the fix
+  rounds and whether it was sent back, so the size that works is found by trying and goes back into
+  the planning skill.
+- **The model is a setting per job, per project** (2026 11 14), for the three jobs reading, building
+  and reviewing, and every job starts on the strongest model. A cheaper model on a job only saves
+  anything if the result stays good, which is found by changing it for one project and reading the
+  usage page. The reviewer is the last job to weaken, since in a fully automatic project it is the
+  last judge before a card merges; reading is the likelier first candidate. A reviewer on another
+  company's model is left out for now: the narrow interface allows it, at the cost of another
+  subscription and login per worker.
+- **The Claude login is held by the program, like any other secret** (2026 11 14). The owner runs
+  `claude setup-token` once and gives the token to the platform; it lasts a year. The program hands
+  it to each run, so a new worker needs no login step, and it warns him a month before it runs out.
+- **Each project runs on the subscription or on an API key** (2026 11 14), the subscription by
+  default. The key is also the safety net: if the subscription login ever stops working for
+  unattended runs, a project is switched to the key and nothing else changes.
+- **At the subscription's limit the default is to wait** (2026 11 14) until it resets, which costs
+  nothing. A project can instead continue on an API key, up to an amount per day the owner sets.
+- **A project runs always or by schedule** (2026 11 14). Unattended runs and the owner's own use
+  draw from one allowance, and nothing reports how much of it is left, so hours are what the program
+  can enforce. A project has any number of schedules, each a name, the days of the week and a from
+  and to time, and he chooses which are active; night and a few hours in the day are two active
+  schedules. A project on "by schedule" works only inside its active schedules, and with none
+  active does nothing. Outside a schedule the card in progress finishes and nothing new starts.
+  "Run now anyway" overrides it for one feature. One setting of active hours for the whole
+  installation was proposed first, and he chose schedules per project instead.
 
 ### Round 5: where it runs
 
@@ -619,6 +663,7 @@ passage changes when this way of working has been tried.
 ## Changes
 
 - 2026 11 14: first version, after rounds 0 and 1.
+- 2026 11 14: round 4b added.
 - 2026 11 14: round 4 added, with the research for round 5. "A worker never talks to the code host"
   became: it fetches and pushes code with a short lived key and does nothing else there. The first
   anti goal now reads "never only by rules".
