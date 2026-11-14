@@ -68,20 +68,22 @@ role must not own its tables, is in "Databases, migrations, and running it" and 
 how isolation is enforced" in `High-level/docs/platform-architecture.md`.
 
 The scripts in `postgres/initdb/` create them, one per service, `core.sh` for `core` with
-`core_owner` and `core_app`, and `brain.sh` for `brain` with `brain_owner` and `brain_app`. Their
+`core_owner` and `core_app`, `brain.sh` for `brain` with `brain_owner` and `brain_app`, and
+`review.sh` for `review` with `review_owner` and `review_app`. Their
 passwords come from `.env`, see `.env.example`, through `compose.yaml`, which refuses to start
 without them. Postgres runs every script there once, when the volume is first created, and never
-again. Neither creates a table or grants on one: that is each service's migrations.
+again. None creates a table or grants on one: that is each service's migrations.
 
-`brain.sh` is safe to run again: it creates each role and the database only when missing, so it
-never changes a password, and applies the database's privileges every time. A volume created
-before the brain had a database, or one whose `brain` database was dropped, gets it by running the
-script by hand, from this directory, after adding the two passwords to `.env` and recreating the
-container so it has them:
+`brain.sh` and `review.sh` are safe to run again: each creates its roles and its database only
+when missing, so it never changes a password, and applies the database's privileges every time. A
+volume created before the brain or review had a database, or one whose database was dropped, gets
+it by running that service's script by hand, from this directory, after adding its two passwords to
+`.env` and recreating the container so it has them:
 
 ```zsh
 docker compose up -d --wait
 docker compose exec -T postgres bash /docker-entrypoint-initdb.d/brain.sh
+docker compose exec -T postgres bash /docker-entrypoint-initdb.d/review.sh
 ```
 
 It prints `CREATE ROLE`, `CREATE DATABASE` and the rest for what it created, and only `REVOKE` and
