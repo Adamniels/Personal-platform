@@ -233,6 +233,26 @@ check_locked() {
   return 0
 }
 
+# Each dev init script is mounted into the hosted Postgres's init directory under its own name, and
+# the backup role's script last, since it grants CONNECT on the databases the others create. One
+# mount per file, since a file cannot be mounted inside a folder mounted read only.
+check_initdb() {
+  local root="$1" b file name last
+  b="$(block "$root/infra/hosted/compose.yaml" postgres)"
+  for file in "$root"/infra/postgres/initdb/*; do
+    [ -f "$file" ] || continue
+    name="${file##*/}"
+    grep -Fqx -- "      - ../postgres/initdb/$name:/docker-entrypoint-initdb.d/$name:ro" <<< "$b" ||
+      echo "infra/postgres/initdb/$name is not mounted into the hosted Postgres"
+  done
+  grep -Fqx -- "      - ./postgres/backup-role.sh:/docker-entrypoint-initdb.d/zz-backup-role.sh:ro" <<< "$b" ||
+    echo "postgres/backup-role.sh is not mounted as zz-backup-role.sh"
+  last="$(grep -Eo '/docker-entrypoint-initdb\.d/[^:]+' <<< "$b" | LC_ALL=C sort | tail -n 1)"
+  [ "$last" = /docker-entrypoint-initdb.d/zz-backup-role.sh ] ||
+    echo "the last init script is ${last:-none}, not zz-backup-role.sh"
+  return 0
+}
+
 # The compose file names no project, and platform-hosted is in it only as each image's prefix.
 check_no_project() {
   local compose="$1/infra/hosted/compose.yaml" all images
@@ -261,6 +281,8 @@ expect() {
     mkdir -p "$root/$(dirname "$f")"
     [ -f "$repo/$f" ] && cp "$repo/$f" "$root/$f"
   done
+  mkdir -p "$root/infra/postgres"
+  cp -R "$repo/infra/postgres/initdb" "$root/infra/postgres/"
   sed -E "$script" "$root/$file" > "$root/$file.new" && mv "$root/$file.new" "$root/$file"
   got="$("$check" "$root" 2>&1)"
   if grep -qE "$pattern" <<< "$got"; then
@@ -278,6 +300,7 @@ run the_proxy_image_holds_every_design_path_it_serves check_proxy_files
 run every_variable_the_compose_file_reads_is_in_the_example check_env
 run no_dockerfile_installs_unlocked check_locked
 run the_compose_file_names_no_project check_no_project
+run every_init_script_is_mounted_and_the_backup_role_last check_initdb
 
 expect "a service missing from compose" check_services "canary: no compose service" \
   infra/hosted/compose.yaml 's/^  canary:$/  kanary:/'
@@ -318,6 +341,11 @@ expect "dotnet restore without --locked-mode" check_locked "dotnet restore witho
   review/Dockerfile 's/ --locked-mode//'
 expect "dotnet publish that restores again" check_locked "dotnet publish restores again" \
   review/Dockerfile 's/ --no-restore//'
+expect "a dev init script not mounted" check_initdb "infra/postgres/initdb/brain.sh is not mounted" \
+  infra/hosted/compose.yaml '\#/docker-entrypoint-initdb.d/brain.sh:ro#d'
+expect "an init script after the backup role's" check_initdb "the last init script is .*zzz-late.sh" \
+  infra/hosted/compose.yaml 's#(/docker-entrypoint-initdb.d/zz-backup-role.sh:ro)#\1\
+      - ./x.sh:/docker-entrypoint-initdb.d/zzz-late.sh:ro#'
 expect "a top level name" check_no_project "has a top level name" \
   infra/hosted/compose.yaml '1i\
 name: hosted'

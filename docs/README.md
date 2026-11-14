@@ -76,7 +76,7 @@ features" in `High-level/docs/platform-architecture.md`.
 
 - `platform-architecture.md` — the brain as a service, dependency and extraction, languages,
   multi user and isolation, the user id, the core's frontend, notifications, databases and
-  migrations, the one repository, the first milestone, memory layers, where candidate features
+  migrations, the hosted copy's backups, the one repository, the first milestone, memory layers, where candidate features
   are kept, and what is deliberately not being done
 - `feature-contract.md` — what a feature is, what it owns, what it may depend on, how it
   authenticates a request, the two contracts, and where reminders sit
@@ -149,8 +149,9 @@ features" in `High-level/docs/platform-architecture.md`.
   databases and the scripts that create them, the design folder and the paths Caddy serves from
   it, the feature registry, the service manifest, the hosted copy, and trusting Caddy's root
 - `infra/hosted/README.md` — the hosted copy: every service in a container as one compose project
-  apart from the dev stack, its files, the images, and `check.sh`, which proves on a throwaway copy
-  that it builds and every service answers
+  apart from the dev stack, its files, the images, its nightly backups, the bucket and the key they
+  need and restoring one, and `check.sh`, which proves on a throwaway copy that it builds, every
+  service answers and a backup restores
 
 **Brain**
 

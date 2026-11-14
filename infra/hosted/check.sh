@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Proves the hosted stack works, end to end, on a throwaway copy: it builds every image, starts the
 # compose project hostedcheck with secrets made for this run, runs every migration, puts a test
-# HTTPS front before the proxy, checks what the cases below say through it, runs the acceptance
-# suite in e2e/ against it, and takes the project down again, volumes included, whatever happened.
+# HTTPS front before the proxy and a stand in bucket beside the backup job, checks what the cases
+# below say through it, runs tests/backup.test.sh and the acceptance suite in e2e/ against it, and
+# takes the project down again, volumes included, whatever happened.
 # It runs agree.test.sh first. It needs Docker, and for the suite uv and Playwright's Chromium,
 # which it never installs; it works while the dev stack is up, since it uses neither its ports nor
 # its project.
@@ -49,10 +50,10 @@ bad() {
 
 # Every compose command names the project and this run's env file, so neither the caller's
 # environment nor an infra/hosted/.env written for the real copy reaches it. The front's file adds
-# the test HTTPS front, which is not part of the hosted copy.
+# the test HTTPS front, and the tests' file the stand in bucket, neither part of the hosted copy.
 compose() {
   docker compose -p "$project" --env-file "$env_file" \
-    -f "$here/compose.yaml" -f "$here/front/compose.yaml" "$@"
+    -f "$here/compose.yaml" -f "$here/front/compose.yaml" -f "$here/tests/compose.yaml" "$@"
 }
 
 # The one thing ever removed: this project's containers, networks and volumes.
@@ -73,7 +74,8 @@ leftovers() {
 
 # Every variable .env.example lists is unset here, so none set by the caller overrides the env
 # file. Each password is made the way .env.example says; the signing key is made by the core's
-# own keygen once its image is built.
+# own keygen once its image is built, and the backup's recipient by age-keygen in the backup image.
+# The bucket is tests/s3_stub.py, which checks no signature, so its key is any random one.
 vars="$(sed -nE 's/^(# )?([A-Z_][A-Z0-9_]*)=.*/\2/p' "$here/.env.example")"
 for var in $vars; do unset "$var"; done
 {
@@ -81,6 +83,11 @@ for var in $vars; do unset "$var"; done
     echo "$var=$(openssl rand -hex 24)"
   done
   echo "PLATFORM_PUBLIC_ORIGIN=$origin"
+  echo "BACKUP_S3_ENDPOINT=http://s3stub:9000"
+  echo "BACKUP_S3_REGION=eu-north-1"
+  echo "BACKUP_S3_BUCKET=$project"
+  echo "BACKUP_S3_KEY_ID=$(openssl rand -hex 10)"
+  echo "BACKUP_S3_KEY=$(openssl rand -hex 20)"
   echo "HOSTED_HTTP_BIND=127.0.0.1:9081"
   # Its own tag, so a check never retags an image the real copy runs.
   echo "PLATFORM_RELEASE=check"
@@ -137,6 +144,20 @@ keygen() {
   local line
   line="$(compose run --rm --no-deps -T core keygen 2> "$tmp/keygen.err")" || return 1
   case "$line" in CORE_SIGNING_KEY=?*) echo "$line" >> "$env_file" ;; *) return 1 ;; esac
+}
+
+# recipient: a recipient for the running backup job to encrypt to, whose private key is thrown
+# away at once. tests/backup.test.sh makes its own pair for the backups it restores.
+recipient() {
+  local line
+  line="$(compose run --rm --no-deps -T --entrypoint sh backup -c 'age-keygen 2> /dev/null | age-keygen -y')" || return 1
+  case "$line" in age1?*) echo "BACKUP_AGE_RECIPIENT=$line" >> "$env_file" ;; *) return 1 ;; esac
+}
+
+# backup_role: the backup role's script, run again after the migrations, as a release will, so it
+# grants CONNECT on every database that exists, inside the postgres container over its socket.
+backup_role() {
+  compose exec -T postgres bash /docker-entrypoint-initdb.d/zz-backup-role.sh
 }
 
 migrate() {
@@ -203,8 +224,10 @@ stack() {
 
   if step build compose build &&
     step keygen keygen &&
+    step recipient recipient &&
     step postgres compose up -d --wait postgres &&
     step migrate migrate &&
+    step backup_role backup_role &&
     step up compose up -d &&
     step health wait_healthy; then
     reached=1
@@ -212,7 +235,7 @@ stack() {
   if [ "$reached" -ne 1 ]; then
     for line in the_stack_builds_and_every_service_answers the_design_files_and_the_gallery_are_served \
       nothing_but_the_proxy_is_published no_container_runs_as_root \
-      the_acceptance_suite_passes_against_the_containers; do
+      the_acceptance_suite_passes_against_the_containers backup_test; do
       bad "$line" "not reached, a step above failed"
     done
     compose ps -a > "$tmp/ps.log" 2>&1
@@ -293,11 +316,22 @@ stack() {
   fi
 
   # the_acceptance_suite_passes_against_the_containers: every e2e test but those marked
-  # dev_stack_only passes against the front, last, so the cases above have the stack fresh.
+  # dev_stack_only passes against the front, after the cases above, so they have the stack fresh.
   if suite; then
     ok the_acceptance_suite_passes_against_the_containers
   else
     bad the_acceptance_suite_passes_against_the_containers "$(cat "$tmp/suite.reason")"
+  fi
+
+  # backup_test: tests/backup.test.sh passes against this project, its output shown as it runs.
+  # After the suite, so the databases it dumps and restores hold the suite's accounts and data
+  # rather than only what the migrations wrote.
+  echo "-- tests/backup.test.sh"
+  if HOSTED_PROJECT="$project" HOSTED_ENV_FILE="$env_file" bash "$here/tests/backup.test.sh" |
+    tee "$tmp/backup.log"; then
+    ok backup_test
+  else
+    bad backup_test "$(grep -E '^FAIL' "$tmp/backup.log" | tr '\n' ' ')"
   fi
 }
 

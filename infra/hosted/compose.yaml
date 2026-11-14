@@ -14,6 +14,9 @@
 # Each service with a migrate in infra/services.json has a <name>-migrate service in the migrate
 # profile, the same image running its migrate command as the database's owner. No serving
 # container has the owner's URL. tests/agree.test.sh checks this file against the manifest.
+#
+# The backup service dumps every database each night as platform_backup, encrypted to a public
+# key, and uploads it; see "Backups" in README.md.
 
 services:
   postgres:
@@ -28,12 +31,18 @@ services:
       BRAIN_APP_PASSWORD: ${BRAIN_APP_PASSWORD:?set BRAIN_APP_PASSWORD, see .env.example}
       REVIEW_OWNER_PASSWORD: ${REVIEW_OWNER_PASSWORD:?set REVIEW_OWNER_PASSWORD, see .env.example}
       REVIEW_APP_PASSWORD: ${REVIEW_APP_PASSWORD:?set REVIEW_APP_PASSWORD, see .env.example}
+      BACKUP_DB_PASSWORD: ${BACKUP_DB_PASSWORD:?set BACKUP_DB_PASSWORD, see .env.example}
     # Published nowhere: only the services on this project's network reach it.
     volumes:
       - pgdata:/var/lib/postgresql
-      # The dev stack's init scripts, run when the volume is first created. See "The databases"
-      # in infra/README.md.
-      - ../postgres/initdb:/docker-entrypoint-initdb.d:ro
+      # The dev stack's init scripts, run in name order when the volume is first created, see
+      # "The databases" in infra/README.md; then the backup role's, last, since it grants CONNECT
+      # on the databases they create. One file each, since a file cannot be mounted inside a
+      # folder mounted read only; tests/agree.test.sh checks each dev script is here.
+      - ../postgres/initdb/brain.sh:/docker-entrypoint-initdb.d/brain.sh:ro
+      - ../postgres/initdb/core.sh:/docker-entrypoint-initdb.d/core.sh:ro
+      - ../postgres/initdb/review.sh:/docker-entrypoint-initdb.d/review.sh:ro
+      - ./postgres/backup-role.sh:/docker-entrypoint-initdb.d/zz-backup-role.sh:ro
     healthcheck:
       # Over TCP, so the server the image runs while the init scripts run, on a socket only, does
       # not count as ready.
@@ -142,5 +151,37 @@ services:
     ports:
       - "${HOSTED_HTTP_BIND:-127.0.0.1:9080}:80"
 
+  backup:
+    image: platform-hosted/backup:${PLATFORM_RELEASE:-dev}
+    build:
+      context: ../..
+      dockerfile: infra/hosted/backup/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # `schedule`, the image's default. `docker compose run --rm backup now` runs one backup, and
+    # `restore` one restore, see README.md. Each setting is checked by the job, which names the one
+    # missing or malformed, so none stops the rest of the stack from starting. The defaults are
+    # the job's. POSTGRES_PASSWORD is never here: a restore is given it by the person running it.
+    environment:
+      BACKUP_DB_PASSWORD: ${BACKUP_DB_PASSWORD:-}
+      BACKUP_AGE_RECIPIENT: ${BACKUP_AGE_RECIPIENT:-}
+      BACKUP_S3_ENDPOINT: ${BACKUP_S3_ENDPOINT:-}
+      BACKUP_S3_REGION: ${BACKUP_S3_REGION:-}
+      BACKUP_S3_BUCKET: ${BACKUP_S3_BUCKET:-}
+      BACKUP_S3_KEY_ID: ${BACKUP_S3_KEY_ID:-}
+      BACKUP_S3_KEY: ${BACKUP_S3_KEY:-}
+      BACKUP_S3_PREFIX: ${BACKUP_S3_PREFIX:-}
+      BACKUP_AT: ${BACKUP_AT:-}
+      TZ: ${TZ:-}
+      BACKUP_KEEP_LOCAL_DAYS: ${BACKUP_KEEP_LOCAL_DAYS:-}
+    volumes:
+      - backups:/backups
+      # Read only by the core in a later slice, for the front page.
+      - backup_status:/status
+
 volumes:
   pgdata:
+  backups:
+  backup_status:
