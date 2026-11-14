@@ -5,6 +5,7 @@ using Dapper;
 
 using Microsoft.AspNetCore.Http;
 
+using Review.Brain;
 using Review.Database;
 
 namespace Review.Tests;
@@ -46,11 +47,12 @@ internal sealed class Api : IAsyncDisposable
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
-    public static async Task<Api> Start()
+    /// <param name="brain">The brain grades are sent to, see <see cref="Harness.Start"/>.</param>
+    public static async Task<Api> Start(IBrain? brain = null)
     {
         var database = await TestDatabase.Migrated(Ct);
         var door = await ReviewDb.Open(database.App(), Ct);
-        var review = await Harness.Start(database: door);
+        var review = await Harness.Start(database: door, brain: brain);
         return new Api(database, door, review);
     }
 

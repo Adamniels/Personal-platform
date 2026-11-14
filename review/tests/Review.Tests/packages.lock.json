@@ -353,6 +353,64 @@
         "resolved": "10.0.15",
         "contentHash": "NjzLiZ1/bYx8VwLqHxNnCfDTQQbCY7P1dwT7JM5FiANiaSfI6UKHi0/sla+jyRbOIbPAMJkhWQ/9pH3tMf+IrQ=="
       },
+      "Microsoft.IO.RecyclableMemoryStream": {
+        "type": "Transitive",
+        "resolved": "3.0.1",
+        "contentHash": "s/s20YTVY9r9TPfTrN5g8zPF1YhwxyqO6PxUkrYTGI2B+OGPe9AdajWZrLhFqXIvqIW23fnUE4+ztrUWNU1+9g=="
+      },
+      "Microsoft.Kiota.Abstractions": {
+        "type": "Transitive",
+        "resolved": "2.1.6",
+        "contentHash": "Erl8w0ccrZnXxm+cFMbkMyJqJHAbtDyMF9hSxn/vMbvruun2TFZ6EBbQiETV6HJl8nm9h1IqK/NyL/xVVsh4bw==",
+        "dependencies": {
+          "Std.UriTemplate": "2.0.12"
+        }
+      },
+      "Microsoft.Kiota.Http.HttpClientLibrary": {
+        "type": "Transitive",
+        "resolved": "2.1.6",
+        "contentHash": "2WqLn450LzS9weAuPBTx4X3/xCQ8KJ1J9tfoiVBaUDUEW8X/1wl16xZYPCNtJ3xvI3V1viiRiz1tyMW3SfKxFA==",
+        "dependencies": {
+          "Microsoft.Extensions.DependencyInjection.Abstractions": "8.0.0",
+          "Microsoft.Kiota.Abstractions": "2.1.6"
+        }
+      },
+      "Microsoft.Kiota.Serialization.Form": {
+        "type": "Transitive",
+        "resolved": "2.1.6",
+        "contentHash": "ljycgGnrb6DtEV7vOkm9Rcaku5HItW8yaLGlVo/DMSYbjn53mDcBuUUzXQNffVi+PP1MYcfc4oO309xf2dp+2A==",
+        "dependencies": {
+          "Microsoft.IO.RecyclableMemoryStream": "3.0.1",
+          "Microsoft.Kiota.Abstractions": "2.1.6"
+        }
+      },
+      "Microsoft.Kiota.Serialization.Json": {
+        "type": "Transitive",
+        "resolved": "2.1.6",
+        "contentHash": "MSJgDKfIQjVwfPmc0I0FUA5t//mOvCi38qF9ptz0899LhxkB0UfayBKGayrwJ0MO2+/wWsqMAdl088CBjSEtcw==",
+        "dependencies": {
+          "Microsoft.IO.RecyclableMemoryStream": "3.0.1",
+          "Microsoft.Kiota.Abstractions": "2.1.6"
+        }
+      },
+      "Microsoft.Kiota.Serialization.Multipart": {
+        "type": "Transitive",
+        "resolved": "2.1.6",
+        "contentHash": "kYThnhnBISsCUgz+xLqgZBxOCdGhfj0ItYf9Ha5qD9XT6x00TKi1y3DVK9xW8mDCJnZLbzRUFvcbzAuvcO+lsw==",
+        "dependencies": {
+          "Microsoft.IO.RecyclableMemoryStream": "3.0.1",
+          "Microsoft.Kiota.Abstractions": "2.1.6"
+        }
+      },
+      "Microsoft.Kiota.Serialization.Text": {
+        "type": "Transitive",
+        "resolved": "2.1.6",
+        "contentHash": "tUjrFAueDN15IMXj4f6FXqCqgXgYNnrqcSHFbOsL8Ypl3/tkIypSvs430i0ytwyTl74vBAGEZYp0aKW6KLNTLw==",
+        "dependencies": {
+          "Microsoft.IO.RecyclableMemoryStream": "3.0.1",
+          "Microsoft.Kiota.Abstractions": "2.1.6"
+        }
+      },
       "Microsoft.OpenApi": {
         "type": "Transitive",
         "resolved": "2.13.0",
@@ -413,6 +471,11 @@
         "dependencies": {
           "libsodium": "[1.0.22, 1.0.23)"
         }
+      },
+      "Std.UriTemplate": {
+        "type": "Transitive",
+        "resolved": "2.0.12",
+        "contentHash": "b/w8GfmVjf5c+8sTtGRVuwj6uC5KoPIn8+795xKlnGBBtph4FIVvgJVnh+x9dbDOkrst7XivIDJgyZSDFNsOYA=="
       },
       "System.Diagnostics.EventLog": {
         "type": "Transitive",
@@ -503,6 +566,7 @@
         "dependencies": {
           "Dapper": "[2.1.89, )",
           "Microsoft.AspNetCore.OpenApi": "[10.0.15, )",
+          "Microsoft.Kiota.Bundle": "[2.1.6, )",
           "Npgsql": "[10.0.3, )",
           "PlatformAuth": "[1.0.0, )"
         }
@@ -520,6 +584,20 @@
         "contentHash": "pptFDPMWyPDDtt68s/HsvLYeHJ0WQtntjyve6ztp/5MrLOEzdZvafYIyWSeErtexIGaB8XGYCnnUK8T/Vn4MwQ==",
         "dependencies": {
           "Microsoft.OpenApi": "[2.13.0, 3.0.0)"
+        }
+      },
+      "Microsoft.Kiota.Bundle": {
+        "type": "CentralTransitive",
+        "requested": "[2.1.6, )",
+        "resolved": "2.1.6",
+        "contentHash": "vWVbnFBqXzZyoEgaRSWoohkosoaUJtWY1WuuE8J6TwAyfpYRoGAkLpGRnw/pS2l3MX/ThVnJT6MpHkoPI/u4hw==",
+        "dependencies": {
+          "Microsoft.Kiota.Abstractions": "2.1.6",
+          "Microsoft.Kiota.Http.HttpClientLibrary": "2.1.6",
+          "Microsoft.Kiota.Serialization.Form": "2.1.6",
+          "Microsoft.Kiota.Serialization.Json": "2.1.6",
+          "Microsoft.Kiota.Serialization.Multipart": "2.1.6",
+          "Microsoft.Kiota.Serialization.Text": "2.1.6"
         }
       },
       "Npgsql": {

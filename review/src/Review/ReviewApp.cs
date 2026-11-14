@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 
 using PlatformAuth;
 
+using Review.Brain;
 using Review.Cards;
 using Review.Database;
 using Review.Decks;
@@ -54,6 +55,7 @@ public static class ReviewApp
         builder.Services.AddPlatformAuth(options => options.CoreUrl = settings.CoreUrl);
         // Registered as an instance, so the container hands it out and never disposes it.
         builder.Services.AddSingleton(database);
+        builder.Services.AddBrain(settings);
         if (settings.ExposeOpenApi)
         {
             builder.Services.AddReviewOpenApi();
@@ -67,6 +69,7 @@ public static class ReviewApp
         app.UseRouting();
         app.UseAuthentication();
         app.UseAuthorization();
+        app.UseBrainSending();
 
         app.MapHealth();
         app.MapDecks();

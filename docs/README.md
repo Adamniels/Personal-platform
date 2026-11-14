@@ -102,7 +102,7 @@ features" in `High-level/docs/platform-architecture.md`.
 
 **Review**
 
-- `review/README.md` — what review serves, what a card is, when a card comes back by FSRS and the grade log, its page and its sections, the schema it pins, how to run
+- `review/README.md` — what review serves, what a card is, when a card comes back by FSRS and the grade log, what it tells the brain of each grade and through which client, its page and its sections, the schema it pins, how to run
   it and its tests, its settings, its database and roles, migrating, the one door every query goes
   through, how it authenticates a request with `PlatformAuth`, and the libraries it is built on
 

@@ -1,0 +1,37 @@
+{
+  "descriptionHash": "7FD5DFE32A76FD5A0CDEA57C32D137BB93A54D496816E3A270D5D764218C74E6F976E56D1BBC9EC6207D485CFECF7A9699771C53F56F4867B00D7447C2E63A8B",
+  "descriptionLocation": "../../../../../contracts/brain/openapi.json",
+  "lockFileVersion": "1.0.0",
+  "kiotaVersion": "1.38.0",
+  "clientClassName": "BrainClient",
+  "typeAccessModifier": "Public",
+  "clientNamespaceName": "Review.Brain.Generated",
+  "language": "CSharp",
+  "usesBackingStore": false,
+  "excludeBackwardCompatible": true,
+  "includeAdditionalData": true,
+  "disableSSLValidation": false,
+  "serializers": [
+    "Microsoft.Kiota.Serialization.Json.JsonSerializationWriterFactory",
+    "Microsoft.Kiota.Serialization.Text.TextSerializationWriterFactory",
+    "Microsoft.Kiota.Serialization.Form.FormSerializationWriterFactory",
+    "Microsoft.Kiota.Serialization.Multipart.MultipartSerializationWriterFactory"
+  ],
+  "deserializers": [
+    "Microsoft.Kiota.Serialization.Json.JsonParseNodeFactory",
+    "Microsoft.Kiota.Serialization.Text.TextParseNodeFactory",
+    "Microsoft.Kiota.Serialization.Form.FormParseNodeFactory"
+  ],
+  "structuredMimeTypes": [
+    "application/json",
+    "text/plain;q=0.9",
+    "application/x-www-form-urlencoded;q=0.2",
+    "multipart/form-data;q=0.1"
+  ],
+  "includePatterns": [
+    "/brain/api/events#POST"
+  ],
+  "excludePatterns": [],
+  "disabledValidationRules": [],
+  "allowedExternalOrigins": []
+}

@@ -1,7 +1,9 @@
 """Studying in review: the Study tab's start view and a session at
 /review/study. Cards are made through review's API, and nothing waits on real
 time: a card coming back within a session is covered by Vitest against a fake
-API. See "Studying" in review/README.md."""
+API. See "Studying" in review/README.md. A grade also reaches the owner's
+brain, sent by review's backend after the grade's response, see "What Review
+tells the brain" there."""
 
 import re
 import time
@@ -146,3 +148,42 @@ def test_studying_with_the_keyboard(page: Page, invite_code: str):
 
     expect(page.get_by_role("heading", name="Done for now")).to_be_visible()
     expect(page.get_by_text("You reviewed 3 cards.")).to_be_visible()
+
+
+INDEXES = {"slug": "indexes", "name": "Indexes"}
+
+
+def assessments(page: Page) -> list[dict]:
+    """The owner's events from review, newest first, as the brain lists them."""
+    answer = page.request.get("/brain/api/events?limit=200")
+    assert answer.status == 200, answer.text()
+    return [event for event in answer.json() if event["origin"] == "review"]
+
+
+def test_grading_a_card_records_an_assessment_in_the_brain(
+    page: Page, invite_code: str
+):
+    register_and_log_in(page, invite_code)
+    deck = add_deck(page, "Databases")
+    add_card(page, deck, "What does a B tree keep sorted?", "Its keys", INDEXES)
+
+    page.goto(f"/review/study?deck={deck}")
+    page.get_by_role("button", name="Show answer").click()
+    page.get_by_role("button", name=re.compile(r"^Good · ")).click()
+    expect(page.get_by_role("heading", name="Done for now")).to_be_visible()
+
+    deadline = time.monotonic() + 10
+    while not (found := assessments(page)) and time.monotonic() < deadline:
+        time.sleep(0.25)
+
+    assert len(found) == 1, found
+    event = found[0]
+    assert event["verb"] == "recalled"
+    assert event["source"] == "grade"
+    assert event["topic"]["slug"] == "indexes"
+    assert event["evidence"] == (
+        'Reviewed a card in "Databases": "What does a B tree keep sorted?", '
+        "recalled it (Good), its first review."
+    )
+    assert event["payload"]["rating_name"] == "good"
+    assert event["idempotency_key"] == f"{event['run']}:indexes"
