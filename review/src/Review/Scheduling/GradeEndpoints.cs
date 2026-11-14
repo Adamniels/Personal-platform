@@ -66,16 +66,14 @@ public static class GradeEndpoints
                 return Outcome.Missing;
             }
 
-            if (row.Version != version)
-            {
-                return Outcome.Stale;
-            }
-
+            // The read gives the schedule to grade from; it does not decide whether the grade
+            // counts. Only the conditional update below does, for a stale version as for two grades
+            // racing from the same one, so the tests that send a stale grade exercise it.
             var before = row.Schedule;
             var after = Fsrs.Grade(before, rating, now);
-            // Only from the version named: if the card moved on since it was read, nothing changes
-            // and nothing is logged. Every change to a card moves its version, so the state graded
-            // from is the state replaced.
+            // Only from the version named: if the card is at another version, nothing changes and
+            // nothing is logged. Every change to a card moves its version, so when a row changes,
+            // the state graded from is the state replaced.
             var changed = await transaction.Connection!.ExecuteAsync(new CommandDefinition(
                 """
                 UPDATE cards

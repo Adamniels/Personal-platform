@@ -165,7 +165,9 @@ public sealed class GradeTests : IAsyncLifetime
         Assert.Equal(StatusCodes.Status201Created, first.Status);
 
         // The same grade again, as a double click or a retry sends it, and one from the future:
-        // the card moved on, so neither changes it, nor logs.
+        // the card moved on, so neither changes it, nor logs. Nothing but the endpoint's own
+        // conditional update refuses them, so this is the guarantee that a grade counts once,
+        // and two grades racing from the same version meet the same statement.
         foreach (var version in new[] { 1, 7 })
         {
             var stale = await Api.Post(Grades(id), Grade(3, version));
@@ -186,15 +188,6 @@ public sealed class GradeTests : IAsyncLifetime
         // Editing a card never touches its schedule.
         Assert.Equal(read["due"]!.ToJsonString(), edited.Body!["due"]!.ToJsonString());
         Assert.Equal(read["state"]!.ToJsonString(), edited.Body!["state"]!.ToJsonString());
-
-        // The conditional update itself, run twice from the same version: the second changes no row.
-        var updates = new List<int>();
-        for (var i = 0; i < 2; i++)
-        {
-            updates.Add(await Api.AsUser(Api.Me, "UPDATE cards SET version = version + 1 WHERE id = @id AND version = 3", new { id }));
-        }
-
-        Assert.Equal([1, 0], updates);
     }
 
     [Theory]
