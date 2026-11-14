@@ -82,6 +82,12 @@ brain's topics, `review/web/src/api/brain-schema.d.ts`, whose `schema.test.ts` f
 stale. After regenerating this file, run `npm run generate:api` in `review/web/` as well, see "The
 data, and the brain's topics" in `review/README.md`.
 
+Review's backend calls the brain too, through a client Kiota generates from this file into
+`review/src/Review/Brain/Generated/`. `BrainClientTests.TheGeneratedClientIsCurrent` in review's
+tests regenerates it and fails when the committed client is stale, so after regenerating this file,
+regenerate that client as well, with the command in "What Review tells the brain" in
+`review/README.md`.
+
 ## review/
 
 Review's HTTP schema, what its page, and any later caller of review, is written against. Review is

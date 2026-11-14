@@ -117,8 +117,18 @@ browser. A backend call is for when the backend itself needs the answer.
 
 ### Declared calls
 
-None yet, since no feature that calls another is built. Each one is added here when its feature is
-planned, as caller, callee, what is asked for, and what the caller does without an answer.
+Every backend call from one service to another, to the brain included, is listed here, as caller,
+callee, what is asked for, and what the caller does without an answer. Each one is added when its
+feature is planned.
+
+```
+Review → brain: POST /brain/api/events, one assessment event per topic of a graded card,
+with the owner's token. Without an answer the grade is kept unsent and sent again after that
+owner's next request to Review; a refusal is logged and not sent again.
+```
+
+The direction has no circle: the brain calls no feature. How Review sends it is "What Review tells
+the brain" in `review/README.md`.
 
 Nothing enforces any of this cryptographically today. The session is one cookie valid at every
 feature, so a feature backend receives a credential it could replay against any other one. Per

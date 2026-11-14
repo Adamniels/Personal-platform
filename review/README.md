@@ -58,6 +58,7 @@ proposals wait for the owner, see "The review queue" in `Brain/docs/trust-model.
     Hard 2, Good 3, Easy 4. `201` with the card as it now is and its new `previews`. The `version`
     is the one the grade was given from, and one that is not the card's current version is `409`
     and changes nothing, so a grade sent twice counts once. See "When a card comes back" below.
+    After the response, the grade reaches the owner's brain, see "What Review tells the brain".
   - `GET /review/api/display`, what the core's front page shows of review, `{"due_now": n,
     "due_today": n, "next_due_at": ... | null, "decks": [{"name", "due_now"}]}`: `due_now`, the
     cards due at or before now; `due_today`, those due before the day ends, those due now
@@ -176,13 +177,92 @@ first, and the card's state, stability and difficulty before and after, with its
 what later fits FSRS's parameters to the owner's memory, and a review's history cannot be
 recreated, so it is history: `review_app` inserts a grade and never changes or deletes one, which
 the migration enforces by taking `UPDATE` and `DELETE` back, leaving only `UPDATE` of the
-`brain_*` columns, which mark whether the brain has the grade, a later slice. Deleting a card
+`brain_*` columns, which mark whether the brain has the grade, see "What Review tells the brain"
+below. Deleting a card
 deletes its grades, since the cascade runs as the table's owner. Like every reference here, a
 grade points at its card with `user_id`.
 
 **The queue**, `GET /review/api/queue`, is the cards due at or before now, oldest due first, with
 each one's previews, so the page can show on each button when that grade would bring the card back.
 A new card is due when it is made, so it is in the queue at once.
+
+## What Review tells the brain
+
+Every grade tells the owner's brain what he recalled and what he forgot, on each of the card's
+topics. A grade is direct evidence of what he knows about each, which is what passes the brain's
+filter, see `Brain/docs/knowledge-model.md`, and the brain's `assessment` kind was added for it.
+It is Review's one call to another service's backend, listed under "Declared calls" in
+`High-level/docs/feature-contract.md`.
+
+**The event**, one per topic of the graded card, in the card's topic order, sent as
+`POST /brain/api/events`, built in `src/Review/Brain/AssessmentEvents.cs`:
+
+- `verb`: `forgot` for Again, `recalled` for Hard, Good and Easy.
+- `topic`: the slug on the card. One the brain does not know becomes a provisional topic there,
+  the brain's rule.
+- `origin` `review`, `source` `grade`, and `run` the grade's id, so consolidation sees the events
+  of one grade as one observation and does not count it once per topic.
+- `occurred_at`: the grade's `reviewed_at`, with `occurred_precision` `instant`.
+- `evidence`: `Reviewed a card in "<deck>": "<front>", recalled it (Good), 3 days after the last
+  review.`, or `forgot it`, with the front cut to 200 characters, the last of them `…`, counted so
+  an emoji is never cut in half. A card's first grade ends `its first review.` instead, and one
+  less than a day after the last `the same day as the last review.` Days are rounded down.
+- `payload_version` 1, and `payload`: `card_id`, `deck_id`, `rating` 1 to 4, `rating_name`
+  (`again`, `hard`, `good` or `easy`), `elapsed_days` with its fraction, `state_before`,
+  `stability_before` (null for a first grade), `stability_after`, `difficulty_after` and
+  `due_after`.
+- `idempotency_key`: `<grade id>:<slug>`, so sending an event the brain already has is harmless:
+  it answers `200` with the one it holds.
+
+The deck's name, the front and the topics are the card's as they are when the grade is sent, which
+for a grade sent at once is the card as it was graded.
+
+**When it is sent.** Grading never waits for the brain: the grade's transaction commits and the
+response goes first. Then, with `HttpContext.Response.OnCompleted`, Review sends the user's unsent
+grades in the background, with the token the request was verified with, from `IPlatformToken`,
+since the brain accepts only a user's token and a job of Review's own has none. The same happens
+after any authenticated request under `/review/api/`, so the grades left unsent while the brain
+was down go after the owner's next request, the core's call for the front page included. Each send
+takes the user's oldest unsent grades, at most 50, each with its own events, and runs through the
+door as that user, so another user's grades are never sent with this one's token. One send per
+user runs at a time; a request during one asks for another after it, with the newer token. The
+sending is `src/Review/Brain/GradeSender.cs`, hooked in by `BrainSending.cs`.
+
+**What each answer does**, per grade, in `brain_sent_at`, `brain_refused_at` and
+`brain_refused_status` of `grades`:
+
+- every event `201` or `200`: the grade is marked sent;
+- a `422`, or any other `4xx` but `401` and `429`: the grade is marked refused with the first such
+  status and logged once, with its id and the status, never the token, and is not sent again,
+  since it would be refused again. Its other topics' events are still sent;
+- a `401`, a `429`, a `5xx`, a timeout of 2 seconds, no connection, or any other answer: the grade
+  stays unsent and the send stops there, since the next grade would meet the same brain. The next
+  request tries again.
+
+The brain being down changes nothing the owner sees in Review.
+
+**The port and the client.** Everything Review asks the brain goes through `IBrain`, in
+`src/Review/Brain/IBrain.cs`, one method, `RecordEvent(token, event, ct)`, answering recorded,
+refused with a status, or unavailable. `BrainAdapter` is its one implementation, and the tests
+outside it use a fake. The adapter calls the brain's own address, `REVIEW_BRAIN_URL`, never
+Caddy's, with `Authorization: Bearer <the user's token>`, the only header carrying it, and the
+platform's `Origin`, without which the brain answers `403` to any request that changes state. It
+follows no redirect and retries nothing.
+
+It does so through a client generated from `contracts/brain/openapi.json`, as condition 1 of "How
+features reach each other" requires, by Kiota 1.38.0, a .NET local tool in
+`.config/dotnet-tools.json`, into `src/Review/Brain/Generated/`, which is committed; its types
+never leave the adapter. After the brain's schema changes, regenerate it from `review/`:
+
+```zsh
+dotnet tool restore
+dotnet kiota generate --openapi ../contracts/brain/openapi.json --language CSharp --include-path '/brain/api/events#POST' --class-name BrainClient --namespace-name Review.Brain.Generated --output src/Review/Brain/Generated --exclude-backward-compatible --clean-output
+```
+
+`BrainClientTests.TheGeneratedClientIsCurrent` runs the same command into a temporary folder and
+compares every file, so a stale client fails the tests. The lock file's `descriptionLocation`, the
+schema's path relative to the output folder, is the one thing it does not compare, and Kiota's
+`.kiota.log` is git ignored.
 
 ## The page
 
@@ -445,10 +525,13 @@ since no service imports from another's directory.
   itself; a name .NET does not know, or a Windows name, which .NET would otherwise map, stops
   review at startup naming it. One zone for every user until a second user exists, when it
   belongs in the profile.
+- `REVIEW_BRAIN_URL`, default `http://127.0.0.1:8082`: the brain's own address, never the
+  proxy's, by the rule of `REVIEW_CORE_URL`, where grades are sent, see "What Review tells the
+  brain".
 
 The defaults are right on the Mac mini and in CI, so neither sets them, except the listen address,
 which the manifest's `start` sets, and the two database strings, which `services.sh` builds from
-`infra/.env`. A later slice adds `REVIEW_BRAIN_URL`.
+`infra/.env`.
 
 ## The database
 
@@ -546,7 +629,8 @@ on" in `libs/dotnet/PlatformAuth/README.md`.
 
 **One web project, not layered projects.** `src/Review/` is the whole service, organised in
 feature folders: `Settings`, `Database` (the door and the migrations), `Health` (health and whoami),
-`Pages`, `Decks`, `Cards`, `Scheduling` (FSRS, grading and the queue), and `Api`, what the routes
+`Pages`, `Decks`, `Cards`, `Scheduling` (FSRS, grading and the queue), `Brain` (the port to the
+brain, its adapter and generated client, and sending grades), and `Api`, what the routes
 over the user's data share (who is asking, the problem documents, and the rule collector a 422 is
 made from), more with later slices. The service is small, and folders inside one project keep it
 readable without Clean Architecture's ceremony.
@@ -564,6 +648,12 @@ the brain, so the query a policy guards is visible. EF Core was the alternative 
 down: migrations here are plain SQL, so its migrations would go unused, its row level security
 setting would sit in an interceptor rather than in one visible door, and its generated SQL makes
 "which query does the policy guard" harder to read.
+
+**Kiota 1.38.0 for the brain's client**, as a .NET local tool, with **Microsoft.Kiota.Bundle
+2.1.6** as the client's runtime. NSwag was rejected, since its OpenAPI 3.1 support is partial and
+the brain's optional fields are `anyOf` with `null`, which it mishandles, and a hand written client
+by condition 1 of "How features reach each other". The adapter hands Kiota a plain `HttpClient`, so
+none of Kiota's own handlers, its retries and redirects among them, are in the way.
 
 **A migrator of its own, not DbUp.** DbUp's journal does not refuse an applied file that was
 renamed or removed, which forward only depends on, and the brain's rules are short enough to write
