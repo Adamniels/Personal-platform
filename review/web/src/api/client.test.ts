@@ -1,5 +1,7 @@
 import { describe, expect, test, vi } from "vitest";
-import { ApiError, type ClientEnvironment, createClient } from "./client";
+import { ApiError, type ClientEnvironment, createClients } from "./client";
+
+const createClient = (env: ClientEnvironment) => createClients(env).review;
 
 type Call = { url: string; init: RequestInit };
 
@@ -170,6 +172,7 @@ describe("the client sends a state changing request as JSON and reads errors as 
 			status: 409,
 			title: "Conflict",
 			detail: "The card is already in that deck.",
+			errors: {},
 		});
 	});
 
@@ -182,6 +185,7 @@ describe("the client sends a state changing request as JSON and reads errors as 
 			status: 502,
 			title: "The request failed (502)",
 			detail: null,
+			errors: {},
 		});
 		expect(
 			await problemOf(() => {
@@ -191,6 +195,7 @@ describe("the client sends a state changing request as JSON and reads errors as 
 			status: 0,
 			title: "Review could not be reached",
 			detail: null,
+			errors: {},
 		});
 	});
 });
@@ -205,6 +210,86 @@ describe("a GET goes to its path under /review/api/", () => {
 		expect(calls.map(({ url }) => url)).toEqual(["/review/api/health"]);
 		expect(new Headers(calls[0]?.init.headers).get("accept")).toBe(
 			"application/json",
+		);
+	});
+});
+
+describe("a 422 names its fields", () => {
+	test("review's errors are read by the field they name", async () => {
+		const { fetch } = fakeFetch([
+			json(
+				422,
+				{
+					title: "One or more validation errors occurred.",
+					status: 422,
+					detail: "The front is empty.",
+					errors: { front: ["The front is empty."], "topics[1].slug": [1] },
+				},
+				"application/problem+json",
+			),
+		]);
+
+		const error = await createClient(environment(fetch))
+			.send("POST", "/cards", {})
+			.catch((caught: unknown) => caught);
+
+		expect((error as ApiError).problem.errors).toEqual({
+			front: ["The front is empty."],
+		});
+	});
+});
+
+describe("a GET fills its address from its parameters", () => {
+	test("a query value is added, and an undefined one left out", async () => {
+		const { fetch, calls } = fakeFetch([json(200, []), json(200, [])]);
+		const client = createClient(environment(fetch));
+
+		await client.get("/cards", { query: { deck: "d 1" } });
+		await client.get("/cards", { query: { deck: undefined } });
+
+		expect(calls.map(({ url }) => url)).toEqual([
+			"/review/api/cards?deck=d+1",
+			"/review/api/cards",
+		]);
+	});
+});
+
+describe("the brain's client", () => {
+	test("calls under /brain/api/, and says the brain could not be reached", async () => {
+		const { fetch, calls } = fakeFetch([
+			json(200, []),
+			() => {
+				throw new TypeError("Failed to fetch");
+			},
+		]);
+		const { brain } = createClients(environment(fetch));
+
+		await brain.get("/topics");
+		const error = await brain.get("/topics").catch((caught: unknown) => caught);
+
+		expect(calls.map(({ url }) => url)).toEqual([
+			"/brain/api/topics",
+			"/brain/api/topics",
+		]);
+		expect((error as ApiError).problem.title).toBe(
+			"The brain could not be reached",
+		);
+	});
+
+	test("shares one refresh with review's", async () => {
+		const { fetch, calls } = fakeFetch([
+			empty(401),
+			empty(401),
+			empty(200),
+			json(200, { account_id: "a" }),
+			json(200, []),
+		]);
+		const { review, brain } = createClients(environment(fetch));
+
+		await Promise.all([review.get("/whoami"), brain.get("/topics")]);
+
+		expect(calls.filter((call) => call.url === "/auth/refresh")).toHaveLength(
+			1,
 		);
 	});
 });

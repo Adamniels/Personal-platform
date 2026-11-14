@@ -5,7 +5,10 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "vitest";
 
-test("the generated types match the committed schema", () => {
+test.each([
+	["review", "schema.d.ts"],
+	["brain", "brain-schema.d.ts"],
+])("the generated types match the committed %s schema", (target, file) => {
 	// The same script `npm run generate:api` writes the file with, printing
 	// instead of writing.
 	const generated = execFileSync(
@@ -14,15 +17,16 @@ test("the generated types match the committed schema", () => {
 			fileURLToPath(
 				new URL("../../tools/generate-schema.mjs", import.meta.url),
 			),
+			target,
 		],
 		{ encoding: "utf8" },
 	);
-	const committed = readFileSync(new URL("./schema.d.ts", import.meta.url), {
+	const committed = readFileSync(new URL(`./${file}`, import.meta.url), {
 		encoding: "utf8",
 	});
 
 	expect(
 		generated === committed,
-		"src/api/schema.d.ts is stale: run npm run generate:api and review the diff",
+		`src/api/${file} is stale: run npm run generate:api and review the diff`,
 	).toBe(true);
 });
