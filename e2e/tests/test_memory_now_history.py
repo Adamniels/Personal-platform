@@ -23,8 +23,8 @@ NOW_LINE = (
 )
 
 
-def open_section(page: Page, invite_code: str, path: str) -> None:
-    register_and_log_in(page, invite_code)
+def open_section(page: Page, invite_code: str, base_url: str, path: str) -> None:
+    register_and_log_in(page, invite_code, base_url)
     page.goto(path)
     expect(page.get_by_role("tablist", name="Memory sections")).to_be_visible()
 
@@ -137,8 +137,8 @@ def fact(page: Page, term: str) -> Locator:
     return history(page).locator(f"dt:text-is('{term}') + dd")
 
 
-def test_i_can_add_what_is_going_on_now(page: Page, invite_code: str):
-    open_section(page, invite_code, "/brain/now")
+def test_i_can_add_what_is_going_on_now(page: Page, invite_code: str, base_url: str):
+    open_section(page, invite_code, base_url, "/brain/now")
     expect(now(page).get_by_text(NOW_LINE, exact=True)).to_be_visible()
 
     add_now(page, "Writing the memory centre's Now section")
@@ -158,9 +158,9 @@ def test_i_can_add_what_is_going_on_now(page: Page, invite_code: str):
 
 
 def test_an_old_entry_is_flagged_and_one_press_confirms_it(
-    page: Page, invite_code: str
+    page: Page, invite_code: str, base_url: str
 ):
-    open_section(page, invite_code, "/brain/now")
+    open_section(page, invite_code, base_url, "/brain/now")
     said = datetime.now(UTC) - timedelta(days=90)
     call(
         page,
@@ -188,8 +188,10 @@ def test_an_old_entry_is_flagged_and_one_press_confirms_it(
     expect(held.get_by_text("Still true?")).to_have_count(0)
 
 
-def test_i_can_record_something_that_happened_years_ago(page: Page, invite_code: str):
-    open_section(page, invite_code, "/brain/history")
+def test_i_can_record_something_that_happened_years_ago(
+    page: Page, invite_code: str, base_url: str
+):
+    open_section(page, invite_code, base_url, "/brain/history")
     this_year = date.today().replace(month=1, day=2).isoformat()
     add_happened(page, "Started the platform", day=this_year)
 
@@ -209,9 +211,9 @@ def test_i_can_record_something_that_happened_years_ago(page: Page, invite_code:
 
 
 def test_i_can_record_a_decision_with_its_reasoning_and_what_i_rejected(
-    page: Page, invite_code: str
+    page: Page, invite_code: str, base_url: str
 ):
-    open_section(page, invite_code, "/brain/history")
+    open_section(page, invite_code, base_url, "/brain/history")
 
     add_decision(
         page,
@@ -239,9 +241,9 @@ def test_i_can_record_a_decision_with_its_reasoning_and_what_i_rejected(
 
 
 def test_i_can_replace_a_decision_and_still_read_the_old_one(
-    page: Page, invite_code: str
+    page: Page, invite_code: str, base_url: str
 ):
-    open_section(page, invite_code, "/brain/history")
+    open_section(page, invite_code, base_url, "/brain/history")
     add_decision(page, "One database per feature", "Isolation")
     add_decision(page, "One Postgres, a database per service", "Fewer moving parts")
 
@@ -297,9 +299,9 @@ def test_i_can_replace_a_decision_and_still_read_the_old_one(
 
 
 def test_history_can_be_narrowed_to_a_topic_or_a_named_thing(
-    page: Page, invite_code: str
+    page: Page, invite_code: str, base_url: str
 ):
-    open_section(page, invite_code, "/brain/history")
+    open_section(page, invite_code, base_url, "/brain/history")
     call(page, "POST", "/topics", {"name": "Rust"})
     page.reload()
     add_happened(page, "Read the Rust book", topic="Rust")
@@ -345,9 +347,9 @@ def rested(page: Page) -> None:
 
 @pytest.mark.parametrize("theme", THEMES)
 def test_now_and_history_pass_the_accessibility_check(
-    page: Page, invite_code: str, viewport: str, theme: str
+    page: Page, invite_code: str, base_url: str, viewport: str, theme: str
 ):
-    open_section(page, invite_code, "/brain/now")
+    open_section(page, invite_code, base_url, "/brain/now")
     page.evaluate(f"localStorage.setItem('{STORAGE_KEY}', '{theme}')")
     call(page, "POST", "/topics", {"name": "Rust"})
     call(

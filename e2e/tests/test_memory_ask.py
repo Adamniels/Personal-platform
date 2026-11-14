@@ -21,8 +21,8 @@ STORAGE_KEY = "platform-theme"
 DISAGREE = "The brain holds things that disagree"
 
 
-def open_ask(page: Page, invite_code: str) -> None:
-    register_and_log_in(page, invite_code)
+def open_ask(page: Page, invite_code: str, base_url: str) -> None:
+    register_and_log_in(page, invite_code, base_url)
     page.goto("/brain/ask")
     expect(ask(page)).to_be_visible()
 
@@ -151,8 +151,10 @@ def two_decisions(page: Page) -> tuple[dict, dict]:
     return broad, narrow
 
 
-def test_asking_who_i_am_returns_my_profile_and_rules(page: Page, invite_code: str):
-    open_ask(page, invite_code)
+def test_asking_who_i_am_returns_my_profile_and_rules(
+    page: Page, invite_code: str, base_url: str
+):
+    open_ask(page, invite_code, base_url)
     expect(
         ask(page).get_by_text(
             "Ask what a feature would ask, and see exactly what it gets.", exact=True
@@ -205,9 +207,9 @@ def test_asking_who_i_am_returns_my_profile_and_rules(page: Page, invite_code: s
 
 
 def test_asking_about_a_topic_returns_its_level_focus_and_history(
-    page: Page, invite_code: str
+    page: Page, invite_code: str, base_url: str
 ):
-    open_ask(page, invite_code)
+    open_ask(page, invite_code, base_url)
     what_i_know(page)
     topic(page, "Haskell")
     page.reload()
@@ -237,9 +239,9 @@ def test_asking_about_a_topic_returns_its_level_focus_and_history(
 
 
 def test_asking_about_a_broad_topic_includes_the_narrower_ones_and_says_through_which(
-    page: Page, invite_code: str
+    page: Page, invite_code: str, base_url: str
 ):
-    open_ask(page, invite_code)
+    open_ask(page, invite_code, base_url)
     databases = topic(page, "Databases")
     postgres = topic(page, "Postgres")
     indexing = topic(page, "Postgres indexing")
@@ -287,9 +289,9 @@ def test_asking_about_a_broad_topic_includes_the_narrower_ones_and_says_through_
 
 
 def test_asking_about_now_flags_a_stale_entry_and_asking_about_history_does_not(
-    page: Page, invite_code: str
+    page: Page, invite_code: str, base_url: str
 ):
-    open_ask(page, invite_code)
+    open_ask(page, invite_code, base_url)
     add(
         page,
         {
@@ -315,9 +317,9 @@ def test_asking_about_now_flags_a_stale_entry_and_asking_about_history_does_not(
 
 
 def test_two_contradicting_decisions_come_back_as_a_conflict(
-    page: Page, invite_code: str
+    page: Page, invite_code: str, base_url: str
 ):
-    open_ask(page, invite_code)
+    open_ask(page, invite_code, base_url)
     topic(page, "Postgres")
     two_decisions(page)
     page.reload()
@@ -347,8 +349,8 @@ def test_two_contradicting_decisions_come_back_as_a_conflict(
     expect(page.locator(":target")).to_contain_text("Use Postgres for every service")
 
 
-def test_a_retired_item_never_comes_back(page: Page, invite_code: str):
-    open_ask(page, invite_code)
+def test_a_retired_item_never_comes_back(page: Page, invite_code: str, base_url: str):
+    open_ask(page, invite_code, base_url)
     add(page, {"kind": "state", "content": "Writing the Ask section"})
     gone = add(page, {"kind": "state", "content": "Learning Haskell"})
     call(page, "POST", f"/items/{gone['id']}/retire")
@@ -361,11 +363,13 @@ def test_a_retired_item_never_comes_back(page: Page, invite_code: str):
         expect(panel.get_by_text("Learning Haskell")).to_have_count(0)
 
 
-def test_the_raw_answer_can_be_shown_and_copied(page: Page, invite_code: str):
+def test_the_raw_answer_can_be_shown_and_copied(
+    page: Page, invite_code: str, base_url: str
+):
     page.context.grant_permissions(
-        ["clipboard-read", "clipboard-write"], origin="https://platform.test"
+        ["clipboard-read", "clipboard-write"], origin=base_url
     )
-    open_ask(page, invite_code)
+    open_ask(page, invite_code, base_url)
     add(page, {"kind": "state", "content": "Writing the Ask section"})
 
     panel = question(page, "What is going on now?")
@@ -410,9 +414,9 @@ def rested(page: Page) -> None:
 
 @pytest.mark.parametrize("theme", THEMES)
 def test_ask_passes_the_accessibility_check(
-    page: Page, invite_code: str, viewport: str, theme: str
+    page: Page, invite_code: str, viewport: str, theme: str, base_url: str
 ):
-    open_ask(page, invite_code)
+    open_ask(page, invite_code, base_url)
     page.evaluate(f"localStorage.setItem('{STORAGE_KEY}', '{theme}')")
     who_i_am(page)
     what_i_know(page)

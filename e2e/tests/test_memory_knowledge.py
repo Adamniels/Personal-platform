@@ -21,8 +21,8 @@ PROVISIONAL = "Topics that arrived on their own"
 WHEN = re.compile(r"^\d{1,2} [A-Z][a-z]{2,3} \d{4}, \d{2}:\d{2}$")
 
 
-def open_knowledge(page: Page, invite_code: str) -> None:
-    register_and_log_in(page, invite_code)
+def open_knowledge(page: Page, invite_code: str, base_url: str) -> None:
+    register_and_log_in(page, invite_code, base_url)
     page.goto("/brain/knowledge")
     expect(knowledge(page)).to_be_visible()
 
@@ -143,8 +143,10 @@ def record_event(page: Page, topic: str) -> None:
     assert status == 201
 
 
-def test_i_can_add_a_topic_and_set_its_level_and_focus(page: Page, invite_code: str):
-    open_knowledge(page, invite_code)
+def test_i_can_add_a_topic_and_set_its_level_and_focus(
+    page: Page, invite_code: str, base_url: str
+):
+    open_knowledge(page, invite_code, base_url)
     expect(knowledge(page).get_by_text("No topics yet", exact=True)).to_be_visible()
 
     add_topic(page, "Postgres", level="Working", focus="Learning")
@@ -174,11 +176,13 @@ def test_i_can_add_a_topic_and_set_its_level_and_focus(page: Page, invite_code: 
     expect(row(page, "Rust").get_by_role("cell").nth(1)).to_have_text("Shallow")
 
 
-def test_changing_a_level_keeps_the_earlier_one(page: Page, invite_code: str):
-    open_knowledge(page, invite_code)
+def test_changing_a_level_keeps_the_earlier_one(
+    page: Page, invite_code: str, base_url: str
+):
+    open_knowledge(page, invite_code, base_url)
     add_topic(page, "Postgres", level="Working")
     open_topic(page, "Postgres")
-    expect(page).to_have_url("https://platform.test/brain/knowledge/postgres")
+    expect(page).to_have_url(f"{base_url}/brain/knowledge/postgres")
 
     set_on_page(page, level="Solid")
 
@@ -198,8 +202,8 @@ def test_changing_a_level_keeps_the_earlier_one(page: Page, invite_code: str):
     expect(row(page, "Postgres").get_by_role("cell").nth(1)).to_have_text("Solid")
 
 
-def test_i_can_filter_by_level_and_focus(page: Page, invite_code: str):
-    open_knowledge(page, invite_code)
+def test_i_can_filter_by_level_and_focus(page: Page, invite_code: str, base_url: str):
+    open_knowledge(page, invite_code, base_url)
     add_topic(page, "Postgres", level="Working", focus="Learning")
     add_topic(page, "Rust", level="Working", focus="Steady")
     add_topic(page, "Haskell", level="Shallow", focus="Not pursuing")
@@ -224,9 +228,9 @@ def test_i_can_filter_by_level_and_focus(page: Page, invite_code: str):
 
 
 def test_i_can_mark_two_topics_as_the_same_and_separate_them_again(
-    page: Page, invite_code: str
+    page: Page, invite_code: str, base_url: str
 ):
-    open_knowledge(page, invite_code)
+    open_knowledge(page, invite_code, base_url)
     add_topic(page, "Postgres", level="Solid")
     add_topic(page, "PostgreSQL")
     open_topic(page, "PostgreSQL")
@@ -255,9 +259,9 @@ def test_i_can_mark_two_topics_as_the_same_and_separate_them_again(
 
 
 def test_i_can_place_a_topic_under_another_and_take_it_out(
-    page: Page, invite_code: str
+    page: Page, invite_code: str, base_url: str
 ):
-    open_knowledge(page, invite_code)
+    open_knowledge(page, invite_code, base_url)
     add_topic(page, "Databases")
     add_topic(page, "Postgres")
     open_topic(page, "Postgres")
@@ -283,8 +287,10 @@ def test_i_can_place_a_topic_under_another_and_take_it_out(
     expect(item(card(page, "Under"), "Databases")).to_have_count(0)
 
 
-def test_i_can_record_a_misconception_on_a_topic(page: Page, invite_code: str):
-    open_knowledge(page, invite_code)
+def test_i_can_record_a_misconception_on_a_topic(
+    page: Page, invite_code: str, base_url: str
+):
+    open_knowledge(page, invite_code, base_url)
     add_topic(page, "Postgres")
     open_topic(page, "Postgres")
     misconceptions = card(page, "Misconceptions")
@@ -315,8 +321,10 @@ def test_i_can_record_a_misconception_on_a_topic(page: Page, invite_code: str):
     expect(row(page, "Postgres").get_by_role("cell").nth(3)).to_have_text("1")
 
 
-def test_provisional_topics_have_their_own_list(page: Page, invite_code: str):
-    open_knowledge(page, invite_code)
+def test_provisional_topics_have_their_own_list(
+    page: Page, invite_code: str, base_url: str
+):
+    open_knowledge(page, invite_code, base_url)
     add_topic(page, "Postgres")
     expect(card(page, PROVISIONAL)).to_have_count(0)
 
@@ -350,11 +358,11 @@ def test_provisional_topics_have_their_own_list(page: Page, invite_code: str):
 
 
 def test_a_provisional_topics_page_offers_promote_and_no_level(
-    page: Page, invite_code: str, viewport: str
+    page: Page, invite_code: str, base_url: str, viewport: str
 ):
     # Only canonical topics carry a level, "Topic vocabulary" in
     # Brain/docs/event-model.md, so the page offers Promote in Edit's place.
-    open_knowledge(page, invite_code)
+    open_knowledge(page, invite_code, base_url)
     add_topic(page, "Postgres")
     record_event(page, "rust")
     page.reload()
@@ -371,10 +379,10 @@ def test_a_provisional_topics_page_offers_promote_and_no_level(
 
 
 def test_on_phone_the_table_shows_the_topic_with_level_and_focus_under_it(
-    page: Page, invite_code: str
+    page: Page, invite_code: str, base_url: str
 ):
     page.set_viewport_size({"width": 390, "height": 844})
-    open_knowledge(page, invite_code)
+    open_knowledge(page, invite_code, base_url)
     add_topic(page, "Postgres", level="Working", focus="Learning")
     add_topic(page, "Distributed systems and consensus", level="Shallow")
 
@@ -416,9 +424,9 @@ def rested(page: Page) -> None:
 
 @pytest.mark.parametrize("theme", THEMES)
 def test_knowledge_passes_the_accessibility_check(
-    page: Page, invite_code: str, viewport: str, theme: str
+    page: Page, invite_code: str, base_url: str, viewport: str, theme: str
 ):
-    open_knowledge(page, invite_code)
+    open_knowledge(page, invite_code, base_url)
     page.evaluate(f"localStorage.setItem('{STORAGE_KEY}', '{theme}')")
     page.reload()
     expect(page.locator("html")).to_have_attribute("data-theme", theme)

@@ -12,5 +12,13 @@ dev = [
 ]
 
 [tool.pytest.ini_options]
+# The one address the suite uses; --base-url points it at another copy.
 base_url = "https://platform.test"
 testpaths = ["tests"]
+# A plain run is against the dev stack, so hosted_only tests are left out;
+# infra/hosted/check.sh passes its own -m, which replaces this one.
+addopts = "--strict-markers -m 'not hosted_only'"
+markers = [
+    "dev_stack_only(reason): cannot hold against the hosted copy; the reason says why",
+    "hosted_only: needs something only the hosted copy has",
+]

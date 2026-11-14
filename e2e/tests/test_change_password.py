@@ -22,19 +22,19 @@ def test_change_password_keeps_this_session_and_ends_the_other(
 ):
     email, old_password = register(page, invite_code)
     log_in(page, email, old_password)
-    expect(page).to_have_url("https://platform.test/")
+    expect(page).to_have_url(f"{base_url}/")
 
     other = browser.new_context(ignore_https_errors=True, base_url=base_url)
     elsewhere = other.new_page()
     elsewhere.goto("/login")
     log_in(elsewhere, email, old_password)
-    expect(elsewhere).to_have_url("https://platform.test/")
+    expect(elsewhere).to_have_url(f"{base_url}/")
 
     nav = page.get_by_role("navigation")
     nav.get_by_role("button", name=email, exact=True).click()
     nav.get_by_role("link", name="Change password", exact=True).click()
 
-    expect(page).to_have_url("https://platform.test/settings/password")
+    expect(page).to_have_url(f"{base_url}/settings/password")
     expect(page.get_by_role("heading", name="Change your password")).to_be_visible()
     scroll_width = page.evaluate("document.documentElement.scrollWidth")
     assert scroll_width <= page.viewport_size["width"]
@@ -45,7 +45,7 @@ def test_change_password_keeps_this_session_and_ends_the_other(
     page.get_by_label("New password").fill(new_password)
     page.get_by_role("button", name="Change password").click()
 
-    expect(page).to_have_url("https://platform.test/settings/password?changed=1")
+    expect(page).to_have_url(f"{base_url}/settings/password?changed=1")
     expect(page.get_by_role("status")).to_have_text(
         "Password changed. Your other sessions were signed out."
     )
@@ -54,11 +54,11 @@ def test_change_password_keeps_this_session_and_ends_the_other(
     # This session goes on, and can still refresh once its access token is
     # gone, since its family was kept.
     page.goto("/")
-    expect(page).to_have_url("https://platform.test/")
+    expect(page).to_have_url(f"{base_url}/")
     expect(page.get_by_role("heading", name="Platform")).to_be_visible()
     page.context.clear_cookies(name=ACCESS)
     page.goto("/")
-    expect(page).to_have_url("https://platform.test/")
+    expect(page).to_have_url(f"{base_url}/")
     expect(page.get_by_role("heading", name="Platform")).to_be_visible()
 
     # The other cannot refresh, so without its access token it ends up
@@ -72,5 +72,5 @@ def test_change_password_keeps_this_session_and_ends_the_other(
         "Error: Email or password is incorrect."
     )
     log_in(elsewhere, email, new_password)
-    expect(elsewhere).to_have_url("https://platform.test/")
+    expect(elsewhere).to_have_url(f"{base_url}/")
     other.close()

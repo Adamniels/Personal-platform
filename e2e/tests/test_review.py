@@ -18,16 +18,16 @@ def test_review_health_through_the_proxy(page: Page):
 
 
 def test_review_is_in_the_navigation_and_opens(
-    page: Page, invite_code: str, viewport: str
+    page: Page, invite_code: str, base_url: str, viewport: str
 ):
-    register_and_log_in(page, invite_code)
+    register_and_log_in(page, invite_code, base_url)
     links = page.locator("platform-nav .links")
     review = links.get_by_role("link", name="Review", exact=True)
     expect(review).to_have_attribute("href", "/review")
 
     review.click()
 
-    expect(page).to_have_url("https://platform.test/review")
+    expect(page).to_have_url(f"{base_url}/review")
     expect(
         page.locator("platform-nav .links").get_by_role(
             "link", name="Review", exact=True
@@ -47,8 +47,8 @@ def test_review_is_in_the_navigation_and_opens(
     capture(page, "review-shell")
 
 
-def test_each_tab_has_its_address(page: Page, invite_code: str):
-    register_and_log_in(page, invite_code)
+def test_each_tab_has_its_address(page: Page, invite_code: str, base_url: str):
+    register_and_log_in(page, invite_code, base_url)
 
     for path, tab, empty in [
         ("/review/cards", "Cards", "Make a deck first"),
@@ -65,7 +65,7 @@ def test_each_tab_has_its_address(page: Page, invite_code: str):
 def test_review_knows_who_i_am(
     page: Page, browser: Browser, base_url: str, invite_code: str
 ):
-    register_and_log_in(page, invite_code)
+    register_and_log_in(page, invite_code, base_url)
 
     whoami = page.request.get("/review/api/whoami")
 
@@ -97,14 +97,16 @@ def _card_row(page: Page, front: str) -> Locator:
     )
 
 
-def test_adding_a_card_by_hand(page: Page, invite_code: str, viewport: str):
-    register_and_log_in(page, invite_code)
+def test_adding_a_card_by_hand(
+    page: Page, invite_code: str, base_url: str, viewport: str
+):
+    register_and_log_in(page, invite_code, base_url)
     page.goto("/review/decks")
     _add_deck(page, "Real Time Systems")
     _add_deck(page, "Compilers")
 
     page.get_by_role("tab", name="Cards").click()
-    expect(page).to_have_url("https://platform.test/review/cards")
+    expect(page).to_have_url(f"{base_url}/review/cards")
     page.get_by_role("button", name="Add card").click()
     form = page.get_by_role("form", name="New card")
     form.get_by_role("textbox", name="Front").fill("What does EDF schedule by?")

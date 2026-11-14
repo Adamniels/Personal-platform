@@ -18,7 +18,7 @@ def test_brain_health_through_the_proxy(page: Page):
 def test_brain_knows_who_i_am(
     page: Page, browser: Browser, base_url: str, invite_code: str
 ):
-    register_and_log_in(page, invite_code)
+    register_and_log_in(page, invite_code, base_url)
 
     whoami = page.request.get("/brain/api/whoami")
 
