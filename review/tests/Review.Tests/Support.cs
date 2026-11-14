@@ -14,6 +14,7 @@ using NSec.Cryptography;
 
 using PlatformAuth;
 
+using Review.Database;
 using Review.Settings;
 
 namespace Review.Tests;
@@ -98,18 +99,27 @@ internal sealed class Harness : IAsyncDisposable
 
     private readonly StubCore _core;
     private readonly WebApplication _app;
+    private readonly ReviewDb _database;
     private readonly string _webRoot;
 
-    private Harness(WebApplication app, StubCore core, string webRoot)
+    private Harness(WebApplication app, StubCore core, ReviewDb database, string webRoot)
     {
         _app = app;
         _core = core;
+        _database = database;
         _webRoot = webRoot;
     }
 
     public TestServer Server => _app.GetTestServer();
 
-    public static ReviewSettings Defaults => ReviewSettings.Load(_ => null);
+    /// <summary>The smallest environment the settings load from: the one required setting, the
+    /// app's database URL, which nothing here connects to.</summary>
+    public static readonly IReadOnlyDictionary<string, string> MinimalEnvironment = new Dictionary<string, string>
+    {
+        ["REVIEW_APP_DATABASE_URL"] = "postgres://review_app:secret-a1b2@127.0.0.1:5432/review",
+    };
+
+    public static ReviewSettings Defaults => ReviewSettings.Load(name => MinimalEnvironment.GetValueOrDefault(name));
 
     /// <summary>A folder shaped like web/dist, removed with the harness.</summary>
     private static string MakeBuild()
@@ -126,7 +136,10 @@ internal sealed class Harness : IAsyncDisposable
         var webRoot = MakeBuild();
         var time = new FakeTimeProvider(DateTimeOffset.FromUnixTimeSeconds(clockAt ?? Contract.IssuedAt));
         var core = new StubCore();
-        var app = ReviewApp.Build(settings ?? Defaults, webRoot, builder =>
+        settings ??= Defaults;
+        // Never opened: these tests take no database, and no route they call uses one.
+        var database = ReviewDb.Unopened(settings.AppDatabase);
+        var app = ReviewApp.Build(settings, database, webRoot, builder =>
         {
             builder.WebHost.UseTestServer();
             builder.Services.AddSingleton<TimeProvider>(time);
@@ -134,7 +147,7 @@ internal sealed class Harness : IAsyncDisposable
             builder.Services.AddSingleton(core.Cache(time));
         });
         await app.StartAsync();
-        return new Harness(app, core, webRoot);
+        return new Harness(app, core, database, webRoot);
     }
 
     /// <summary>A request as a browser on the platform sends it, with the token in the cookie
@@ -165,6 +178,7 @@ internal sealed class Harness : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         await _app.DisposeAsync();
+        await _database.DisposeAsync();
         _core.Dispose();
         Directory.Delete(_webRoot, recursive: true);
     }

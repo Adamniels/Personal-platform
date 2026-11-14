@@ -8,9 +8,15 @@ namespace Review.Tests;
 /// </summary>
 public sealed class SettingsTests
 {
+    /// <summary>The settings from the minimal environment with <paramref name="set"/> on top.</summary>
     private static ReviewSettings Load(params (string Name, string Value)[] set)
     {
-        var values = set.ToDictionary(pair => pair.Name, pair => pair.Value);
+        var values = new Dictionary<string, string>(Harness.MinimalEnvironment);
+        foreach (var (name, value) in set)
+        {
+            values[name] = value;
+        }
+
         return ReviewSettings.Load(name => values.GetValueOrDefault(name));
     }
 
@@ -66,6 +72,7 @@ public sealed class SettingsTests
         ("REVIEW_EXPOSE_OPENAPI", "true"),
         ("REVIEW_EXPOSE_OPENAPI", "yes"),
         ("REVIEW_EXPOSE_OPENAPI", " 1"),
+        ("REVIEW_APP_DATABASE_URL", ""),
     ];
 
     [Theory]
@@ -104,5 +111,57 @@ public sealed class SettingsTests
     public void TheSchemaIsExposedOnlyWhenAskedFor(string value, bool exposed)
     {
         Assert.Equal(exposed, Load(("REVIEW_EXPOSE_OPENAPI", value)).ExposeOpenApi);
+    }
+
+    [Fact]
+    public void TheAppDatabaseIsRequired()
+    {
+        var refused = Assert.Throws<StartupException>(() => ReviewSettings.Load(_ => null));
+
+        Assert.StartsWith("REVIEW_APP_DATABASE_URL: ", refused.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("postgres://review_app:secret-a1b2@127.0.0.1:5432/review", "127.0.0.1", 5432, "review_app", "secret-a1b2", "review")]
+    [InlineData("postgresql://review_app:secret-a1b2@db.internal/review", "db.internal", 5432, "review_app", "secret-a1b2", "review")]
+    [InlineData("postgres://review_app:p%40ss%3Aw%2Fd@[::1]:6543/review", "::1", 6543, "review_app", "p@ss:w/d", "review")]
+    public void TheAppDatabaseIsAPostgresUrl(string value, string host, int port, string user, string password, string database)
+    {
+        var settings = Load(("REVIEW_APP_DATABASE_URL", value)).AppDatabase;
+
+        Assert.Equal((host, port, user, password, database), (settings.Host, settings.Port, settings.Username, settings.Password, settings.Database));
+    }
+
+    [Theory]
+    [InlineData("review_app:secret-a1b2@127.0.0.1:5432/review")]
+    [InlineData("http://review_app:secret-a1b2@127.0.0.1:5432/review")]
+    [InlineData("POSTGRES://review_app:secret-a1b2@127.0.0.1:5432/review")]
+    [InlineData("postgres://review_app@127.0.0.1:5432/review")]
+    [InlineData("postgres://:secret-a1b2@127.0.0.1:5432/review")]
+    [InlineData("postgres://review_app:secret-a1b2@127.0.0.1:5432")]
+    [InlineData("postgres://review_app:secret-a1b2@127.0.0.1:5432/")]
+    [InlineData("postgres://review_app:secret-a1b2@127.0.0.1:5432/review/more")]
+    [InlineData("postgres://review_app:secret-a1b2@127.0.0.1:5432/review?sslmode=disable")]
+    [InlineData("postgres://review_app:secret-a1b2@127.0.0.1:5432/review#here")]
+    [InlineData("postgres://review_app:secret-a1b2@127.0.0.1:0/review")]
+    [InlineData("postgres://review_app:secret-a1b2@127.0.0.1:99999/review")]
+    [InlineData(" postgres://review_app:secret-a1b2@127.0.0.1:5432/review")]
+    [InlineData("postgres://review_app:secret a1b2@127.0.0.1:5432/review")]
+    public void AMalformedAppDatabaseStopsStartupWithoutShowingIt(string value)
+    {
+        var refused = Assert.Throws<StartupException>(() => Load(("REVIEW_APP_DATABASE_URL", value)));
+
+        Assert.StartsWith("REVIEW_APP_DATABASE_URL: ", refused.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("secret", refused.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("review_app", refused.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TheSettingsNeverShowThePassword()
+    {
+        var settings = Load(("REVIEW_APP_DATABASE_URL", "postgres://review_app:secret-a1b2@127.0.0.1:5432/review"));
+
+        Assert.DoesNotContain("secret-a1b2", settings.ToString(), StringComparison.Ordinal);
+        Assert.Contains("review_app@127.0.0.1:5432/review", settings.ToString(), StringComparison.Ordinal);
     }
 }

@@ -1,0 +1,1 @@
+[assembly: AssemblyFixture(typeof(Review.Tests.Templates))]

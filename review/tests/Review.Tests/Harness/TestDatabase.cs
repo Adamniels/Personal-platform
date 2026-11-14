@@ -3,6 +3,7 @@ using System.Text.RegularExpressions;
 
 using Npgsql;
 
+using Review.Database.Migrations;
 using Review.Settings;
 
 namespace Review.Tests;
@@ -41,6 +42,7 @@ internal sealed partial class TestDatabase : IAsyncDisposable
     private static readonly TimeSpan SweepAfter = TimeSpan.FromMinutes(10);
     private static readonly long StartedMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
     private static readonly Lazy<Task> Swept = new(Sweep);
+    private static readonly Lazy<Task<string>> Template = new(CreateTemplate);
     private static int _counter;
 
     private TestDatabase(string name) => Name = name;
@@ -55,6 +57,27 @@ internal sealed partial class TestDatabase : IAsyncDisposable
         var name = UniqueName("empty");
         await Create(name, template: null, cancellationToken);
         return new TestDatabase(name);
+    }
+
+    /// <summary>This test's own copy of the template, which is migrated once per run, as the
+    /// owner, from the files the assembly embeds, so every migration in review/migrations/ has
+    /// run on it.</summary>
+    public static async Task<TestDatabase> Migrated(CancellationToken cancellationToken)
+    {
+        var template = await Template.Value;
+        var name = UniqueName("test");
+        await Create(name, template, cancellationToken);
+        return new TestDatabase(name);
+    }
+
+    /// <summary>Drops the template, if this run made one. <see cref="Templates"/> calls it once
+    /// every test has run.</summary>
+    internal static async Task DropTemplate()
+    {
+        if (Template.IsValueCreated && Template.Value.IsCompletedSuccessfully)
+        {
+            await Drop(await Template.Value);
+        }
     }
 
     /// <summary>The superuser's settings, on <paramref name="database"/>. Unpooled, so a closed
@@ -144,6 +167,21 @@ internal sealed partial class TestDatabase : IAsyncDisposable
         await Execute(admin, $"GRANT CONNECT ON DATABASE \"{name}\" TO review_app", cancellationToken);
     }
 
+    private static async Task<string> CreateTemplate()
+    {
+        await Swept.Value;
+        var name = UniqueName("tpl");
+        await Create(name, template: null, CancellationToken.None);
+        // Closed before the first copy, since a template cannot be copied while anyone is
+        // connected to it, and unpooled, so closing it ends its session.
+        await using (var owner = await new TestDatabase(name).OpenOwner(CancellationToken.None))
+        {
+            await Migrator.Run(owner, Migrator.Embedded(), CancellationToken.None);
+        }
+
+        return name;
+    }
+
     internal static async Task Drop(string name)
     {
         await using var admin = await Open(Admin(), CancellationToken.None);
@@ -179,4 +217,13 @@ internal sealed partial class TestDatabase : IAsyncDisposable
 
     [GeneratedRegex(@"^review_[a-z]+_([0-9]+)_", RegexOptions.CultureInvariant)]
     private static partial Regex Stamp();
+}
+
+/// <summary>
+/// Drops the run's template once every test has run. An assembly fixture, created for every run,
+/// that does nothing until then, so a run of tests that need no database needs no database.
+/// </summary>
+internal sealed class Templates : IAsyncDisposable
+{
+    public async ValueTask DisposeAsync() => await TestDatabase.DropTemplate();
 }
