@@ -128,8 +128,9 @@ public static class DeckEndpoints
             return deleted == 0 ? Problems.NotFound("the deck") : TypedResults.NoContent();
         }
         // The cards' key refuses it, ON DELETE RESTRICT, in the same statement, so a card added
-        // meanwhile cannot slip past a count read first.
-        catch (PostgresException holding) when (holding is { SqlState: PostgresErrorCodes.ForeignKeyViolation, ConstraintName: "cards_user_id_deck_id_fkey" })
+        // meanwhile cannot slip past a count read first. RESTRICT raises its own code, not the
+        // foreign key violation NO ACTION would.
+        catch (PostgresException holding) when (holding is { SqlState: PostgresErrorCodes.RestrictViolation, ConstraintName: "cards_user_id_deck_id_fkey" })
         {
             return Problems.Conflict("the deck holds cards: move or delete them first");
         }

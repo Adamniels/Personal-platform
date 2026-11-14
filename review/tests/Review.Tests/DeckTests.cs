@@ -90,6 +90,26 @@ public sealed class DeckTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task ADeckWithCardsCannotBeDeleted()
+    {
+        var deck = await Api.Deck("Databases");
+        var card = await Api.Card(deck, "What is MVCC?");
+
+        var refused = await Api.Delete($"{Decks}/{deck}");
+
+        Assert.Equal(StatusCodes.Status409Conflict, refused.Status);
+        Assert.StartsWith("application/problem+json", refused.ContentType, StringComparison.Ordinal);
+        Assert.Equal(1, (int)(await Api.Get(Decks)).Body!.AsArray().Single()!["card_count"]!);
+        Assert.Equal(StatusCodes.Status200OK, (await Api.Get($"/review/api/cards/{card.Id}")).Status);
+        Assert.Equal(["card What is MVCC? v1 postgres", "deck Databases"], await Api.RowsOf(Api.Me));
+
+        // Empty, it goes.
+        Assert.Equal(StatusCodes.Status204NoContent, (await Api.Delete($"/review/api/cards/{card.Id}")).Status);
+        Assert.Equal(StatusCodes.Status204NoContent, (await Api.Delete($"{Decks}/{deck}")).Status);
+        Assert.Empty(await Api.RowsOf(Api.Me));
+    }
+
+    [Fact]
     public async Task ABodyThatIsNotADeckIs400()
     {
         // Not JSON, or JSON of the wrong shape, is the framework's 400 before any rule is read: a

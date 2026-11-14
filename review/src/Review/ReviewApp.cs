@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 
 using PlatformAuth;
 
+using Review.Cards;
 using Review.Database;
 using Review.Decks;
 using Review.Health;
@@ -67,6 +68,7 @@ public static class ReviewApp
 
         app.MapHealth();
         app.MapDecks();
+        app.MapCards();
         app.MapPages(webRoot);
         if (settings.ExposeOpenApi)
         {
