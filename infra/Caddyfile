@@ -21,6 +21,12 @@ platform.test {
 		reverse_proxy host.docker.internal:8081
 	}
 
+	# Review, the same way.
+	@review path /review /review/*
+	handle @review {
+		reverse_proxy host.docker.internal:8083
+	}
+
 	# The brain, the same way.
 	@brain path /brain /brain/*
 	handle @brain {

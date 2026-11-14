@@ -82,11 +82,12 @@ def test_nav_shows_home_features_and_user(page: Page, invite_code: str, viewport
     expect(brand).to_have_attribute("href", "/")
     links = links_bar(page).get_by_role("link")
     # Home and Memory, which are fixed, then one link per registered feature
-    # in registry order, which infra/features.toml makes Canary alone.
-    expect(links).to_have_text(["Home", "Memory", "Canary"])
+    # in registry order, which infra/features.toml makes Canary and Review.
+    expect(links).to_have_text(["Home", "Memory", "Canary", "Review"])
     expect(links.nth(0)).to_have_attribute("href", "/")
     expect(links.nth(1)).to_have_attribute("href", "/brain")
     expect(links.nth(2)).to_have_attribute("href", "/canary")
+    expect(links.nth(3)).to_have_attribute("href", "/review")
     expect(nav.get_by_role("button", name=email, exact=True)).to_be_visible()
     expect(page.get_by_role("heading", name="Platform", level=1)).to_be_visible()
 

@@ -1,5 +1,7 @@
 """Fixtures shared by the acceptance tests. See README.md."""
 
+import base64
+import json
 import re
 import subprocess
 import uuid
@@ -131,3 +133,18 @@ def register_and_log_in(page: Page, invite_code: str) -> str:
     log_in(page, email, password)
     expect(page).to_have_url("https://platform.test/")
     return email
+
+
+def account_in_access_cookie(page: Page) -> str:
+    """The `sub` of the access token the core set on this browser, read
+    without verifying it: the reference for who this browser is, taken from
+    the core rather than from the library a service verifies with."""
+    (token,) = [
+        cookie["value"]
+        for cookie in page.context.cookies()
+        if cookie["name"] == "__Host-access"
+    ]
+    payload = token.split(".")[1]
+    return json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))[
+        "sub"
+    ]

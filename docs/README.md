@@ -60,6 +60,7 @@ features" in `High-level/docs/platform-architecture.md`.
 | `design/`           | The platform's visual style, its fonts and sprites, and the shared nav bar, served at `/design/` |
 | `design/ui/`        | `@platform/ui`, the React components every frontend installs, and their gallery |
 | `canary/`           | Canary, the Python feature proving another language can verify the token     |
+| `review/`           | Review, the C# feature of cards that come back, with its page in `review/web/` |
 | `desk/docs/`        | Desk, the feature for working through the day, described but not yet built   |
 | `infra/`            | The Caddyfile, the compose file and the feature registry                     |
 | `contracts/`        | Contract fixtures, the bytes services in two languages test against          |
@@ -98,6 +99,12 @@ features" in `High-level/docs/platform-architecture.md`.
 
 - `canary/README.md` — what canary serves, how to run canary and its tests, its settings, how it
   authenticates a request with `platform-auth`, and the libraries it is built on
+
+**Review**
+
+- `review/README.md` — what review serves, its page and its sections, the schema it pins, how to run
+  it and its tests, its settings, how it authenticates a request with `PlatformAuth`, and the
+  libraries it is built on
 
 **Libs**
 
