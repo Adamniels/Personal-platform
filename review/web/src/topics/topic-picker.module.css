@@ -1,0 +1,84 @@
+/* The topic picker: the package's text field, its listbox floating under it
+ * as a menu, which hard rule 3 of design/DESIGN.md gives --shadow-1, and the
+ * picked topics as tool chips under the field, each with its remove button.
+ * Every colour and size is a token. */
+
+.picker {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-2);
+	min-width: 0;
+}
+
+.combo {
+	position: relative;
+	min-width: 0;
+}
+
+.list {
+	position: absolute;
+	z-index: 1;
+	top: calc(100% + var(--space-1));
+	left: 0;
+	right: 0;
+	max-height: calc(var(--row-h) * 6);
+	overflow-y: auto;
+	margin: 0;
+	padding: var(--space-1) 0;
+	list-style: none;
+	border: 1px solid var(--border-strong);
+	border-radius: var(--radius-md);
+	background: var(--surface);
+	box-shadow: var(--shadow-1);
+}
+
+.option {
+	display: flex;
+	align-items: center;
+	min-height: var(--row-h);
+	padding: 0 10px;
+	color: var(--text);
+	cursor: pointer;
+	overflow-wrap: anywhere;
+}
+
+/* The active option, the one Enter picks, in the selected row's fill of the
+ * table, so it is not told apart by colour alone: the field names it too. */
+.option[aria-selected="true"] {
+	background: var(--info-soft);
+}
+
+.option:hover {
+	background: var(--surface-2);
+}
+
+.unavailable {
+	margin: 0;
+	color: var(--text-2);
+	font-size: var(--text-caption-size);
+	line-height: var(--text-caption-line);
+	font-weight: 500;
+}
+
+.picked {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-1) var(--space-2);
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.pick {
+	display: inline-flex;
+	align-items: center;
+	min-width: 0;
+}
+
+/* The remove button sits tight against its chip, a square the control's
+ * height, so the target stays 44px on phone. */
+.remove {
+	width: var(--control-h);
+	padding: 0;
+	justify-content: center;
+}
