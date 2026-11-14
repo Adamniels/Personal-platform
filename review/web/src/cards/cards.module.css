@@ -1,0 +1,103 @@
+/* The Cards tab and the card form. Page sections sit --space-4 apart, a
+ * form's rows --space-3, and a control's parts --space-2, as section 2 of
+ * design/DESIGN.md has it. Every colour and size is a token. */
+
+.section {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-4);
+	margin-top: var(--space-4);
+}
+
+.empty {
+	margin-top: var(--space-4);
+}
+
+.note {
+	margin: var(--space-4) 0 0;
+	color: var(--text-2);
+}
+
+.link {
+	border-radius: var(--radius-sm);
+	color: var(--info);
+	font-weight: 600;
+}
+
+/* The Deck filter on the left, Add card on the right, both on the field's
+ * baseline. */
+.toolbar {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: flex-end;
+	justify-content: space-between;
+	gap: var(--space-2);
+}
+
+.filter {
+	flex: 0 1 240px;
+	min-width: 0;
+}
+
+/* A front as typed may hold a long word; it wraps rather than widening the
+ * table. */
+.front {
+	color: var(--text);
+	overflow-wrap: anywhere;
+}
+
+.chips {
+	display: inline-flex;
+	flex-wrap: wrap;
+	gap: var(--space-1);
+}
+
+.rowActions {
+	display: inline-flex;
+	gap: var(--space-1);
+}
+
+.form {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-3);
+	min-width: 0;
+}
+
+/* Front and Back side by side where there is room, stacked on phone. */
+.sides,
+.about {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr));
+	gap: var(--space-3);
+	align-items: start;
+}
+
+.newDeck {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: var(--space-1);
+	min-width: 0;
+}
+
+.newDeck > :first-child {
+	align-self: stretch;
+}
+
+.formActions {
+	display: flex;
+	gap: var(--space-2);
+}
+
+/* In a card's row, the form takes the room of the row's cells it stands in
+ * for, so its fields are not squeezed into the Front column. */
+.inRow {
+	padding-block: var(--space-2);
+}
+
+@media (min-width: 640px) {
+	.inRow {
+		min-width: min(40rem, 70vw);
+	}
+}

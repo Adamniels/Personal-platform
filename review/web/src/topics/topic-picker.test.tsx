@@ -10,7 +10,14 @@ import { useId, useState } from "react";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { Providers } from "../providers";
 import { type FakePlatform, fakePlatform } from "../test/fake-platform";
-import { descriptionOf, form, picker, settle, type } from "../test/render";
+import {
+	descriptionOf,
+	form,
+	openAt,
+	picker,
+	settle,
+	type,
+} from "../test/render";
 import { TopicPicker } from "./topic-picker";
 import type { PickedTopic } from "./topics";
 
@@ -330,5 +337,58 @@ describe("the ARIA combobox pattern", () => {
 				targets: nodes.map((node) => node.target.join(" ")),
 			})),
 		).toEqual([]);
+	});
+});
+
+describe("in the card form", () => {
+	async function openCardForm() {
+		openAt("/review/cards", platform);
+		fireEvent.click(await screen.findByRole("button", { name: "Add card" }));
+		await settle();
+		return form("New card");
+	}
+
+	test("picking an alias saves the topic it resolves to", async () => {
+		const deck = platform.addDeck("Real Time Systems");
+		const systems = someTopics();
+		const add = await openCardForm();
+		type(within(add).getByRole("textbox", { name: "Front" }), "What is RTS?");
+		type(within(add).getByRole("textbox", { name: "Back" }), "Real time");
+		fireEvent.change(within(add).getByRole("combobox", { name: "Deck" }), {
+			target: { value: deck.id },
+		});
+		const topics = picker(add);
+		type(topics.field, "rts");
+		fireEvent.keyDown(topics.field, { key: "Enter" });
+		fireEvent.click(within(add).getByRole("button", { name: "Save" }));
+		await settle();
+
+		expect(
+			platform
+				.callsTo("POST", "/review/api/cards")
+				.map((call) => (call.body as { topics: unknown }).topics),
+		).toEqual([[{ slug: systems.slug, name: systems.name }]]);
+	});
+
+	test("the brain unreachable, the card cannot be saved, and the rest of the page works", async () => {
+		platform.addDeck("Real Time Systems");
+		platform.setBrainDown(true);
+		const add = await openCardForm();
+
+		const message = "Topics are unavailable while the brain cannot be reached";
+		expect(within(add).getByText(message)).toBeTruthy();
+		const save = within(add).getByRole("button", {
+			name: "Save",
+		}) as HTMLButtonElement;
+		expect(save.disabled).toBe(true);
+		expect(descriptionOf(save)).toBe(message);
+		expect(screen.queryByRole("alert")).toBeNull();
+
+		fireEvent.click(screen.getByRole("tab", { name: "Decks" }));
+		expect(
+			await within(
+				await screen.findByRole("list", { name: "Decks" }),
+			).findByText("Real Time Systems"),
+		).toBeTruthy();
 	});
 });

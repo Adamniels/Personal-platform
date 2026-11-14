@@ -2,12 +2,14 @@ import { EmptyState, Tab, TabPanel, Tabs } from "@platform/ui";
 import type { ReactNode } from "react";
 import { navigate, usePathname } from "./address";
 import styles from "./app.module.css";
+import { CardsSection } from "./cards/cards-section";
 import { DecksSection } from "./decks/decks-section";
 import { SECTIONS, type Section, sectionAt } from "./sections";
 
 /** What each section shows, by its key; a section not here says it is still
  * being built. */
 const CONTENT: Record<string, () => ReactNode> = {
+	cards: () => <CardsSection />,
 	decks: () => <DecksSection />,
 };
 

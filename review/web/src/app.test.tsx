@@ -36,9 +36,9 @@ describe("the address decides the tab, and a tab changes the address", () => {
 	test.each([
 		["/review", "Study", "Nothing to study yet"],
 		["/review/study", "Study", "Nothing to study yet"],
-		["/review/cards", "Cards", "No cards yet"],
+		["/review/cards", "Cards", "Make a deck first"],
 		["/review/decks", "Decks", "No decks yet"],
-		["/review/cards/", "Cards", "No cards yet"],
+		["/review/cards/", "Cards", "Make a deck first"],
 	])("%s selects %s", async (path, tab, empty) => {
 		openAt(path);
 
