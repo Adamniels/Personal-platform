@@ -139,7 +139,7 @@ public sealed class IsolationTests
     {
         // A foreign key is checked without row level security, so each reference carries user_id:
         // even a query that skipped review's own checks cannot file a card in another user's deck,
-        // or give another user's card a topic.
+        // give another user's card a topic, or log a grade of it.
         await using var database = await TestDatabase.Migrated(Ct);
         await using var door = await ReviewDb.Open(database.App(), Ct);
         var (deck, card) = (Guid.CreateVersion7(), Guid.CreateVersion7());
@@ -158,6 +158,11 @@ public sealed class IsolationTests
                 VALUES (gen_random_uuid(), @bob, @deck, 'front', 'back', now(), now(), now())
             """,
             "INSERT INTO card_topics (card_id, user_id, position, slug, name) VALUES (@card, @bob, 0, 'planted', 'Planted')",
+            """
+            INSERT INTO grades (id, user_id, card_id, rating, reviewed_at, elapsed_days, state_before, state_after,
+                                stability_after, difficulty_after, due_after)
+                VALUES (gen_random_uuid(), @bob, @card, 3, now(), 0, 'new', 'learning', 2.3065, 2.1181, now())
+            """,
         })
         {
             var refused = await Assert.ThrowsAsync<PostgresException>(() => door.InUserTransaction(Bob, transaction =>
@@ -167,7 +172,7 @@ public sealed class IsolationTests
 
         await using var admin = await database.OpenAdmin(Ct);
         Assert.Equal(0, await admin.QuerySingleAsync<long>(new CommandDefinition(
-            "SELECT (SELECT count(*) FROM cards WHERE user_id = @bob) + (SELECT count(*) FROM card_topics WHERE user_id = @bob)",
+            "SELECT (SELECT count(*) FROM cards WHERE user_id = @bob) + (SELECT count(*) FROM card_topics WHERE user_id = @bob) + (SELECT count(*) FROM grades WHERE user_id = @bob)",
             new { bob = Bob }, cancellationToken: Ct)));
     }
 

@@ -8,6 +8,7 @@ using Review.Database;
 using Review.Decks;
 using Review.Health;
 using Review.Pages;
+using Review.Scheduling;
 using Review.Settings;
 
 namespace Review;
@@ -69,6 +70,7 @@ public static class ReviewApp
         app.MapHealth();
         app.MapDecks();
         app.MapCards();
+        app.MapGrades();
         app.MapPages(webRoot);
         if (settings.ExposeOpenApi)
         {

@@ -10,6 +10,7 @@ using Npgsql;
 
 using Review.Api;
 using Review.Database;
+using Review.Scheduling;
 
 namespace Review.Cards;
 
@@ -24,15 +25,24 @@ public static class CardEndpoints
     public const int ListMax = 500;
 
     // A card as answered, its deck's name and its topics in order beside it, in one statement; the
-    // policies narrow every table to the user. Each column is named for a property of Row.
-    private const string Select = """
+    // policies narrow every table to the user. Each column is named for a property of Row. The
+    // queue and grading read cards with it too.
+    internal const string Select = """
         SELECT c.id AS Id, c.deck_id AS DeckId, d.name AS DeckName, c.front AS Front, c.back AS Back,
-               c.source_path AS SourcePath, c.source_title AS SourceTitle, c.state AS State, c.due AS Due,
-               c.last_review AS LastReview, c.version AS Version, c.created_at AS CreatedAt, c.updated_at AS UpdatedAt,
+               c.source_path AS SourcePath, c.source_title AS SourceTitle, c.state AS State, c.step AS Step,
+               c.stability AS Stability, c.difficulty AS Difficulty, c.due AS Due, c.last_review AS LastReview, c.version AS Version, c.created_at AS CreatedAt, c.updated_at AS UpdatedAt,
                ARRAY(SELECT t.slug FROM card_topics t WHERE t.user_id = c.user_id AND t.card_id = c.id ORDER BY t.position) AS TopicSlugs,
                ARRAY(SELECT t.name FROM card_topics t WHERE t.user_id = c.user_id AND t.card_id = c.id ORDER BY t.position) AS TopicNames
         FROM cards c
         JOIN decks d ON d.user_id = c.user_id AND d.id = c.deck_id
+        """;
+
+    /// <summary>The cards of one deck, <c>@deck</c>, about one topic, <c>@topic</c>, both or
+    /// neither, each null for any; the queue narrows the same way.</summary>
+    internal const string Narrowed = """
+        (@deck::uuid IS NULL OR c.deck_id = @deck)
+          AND (@topic::text IS NULL OR EXISTS (
+              SELECT FROM card_topics t WHERE t.user_id = c.user_id AND t.card_id = c.id AND t.slug = @topic))
         """;
 
     public static IEndpointRouteBuilder MapCards(this IEndpointRouteBuilder routes)
@@ -76,9 +86,7 @@ public static class CardEndpoints
         var rows = await db.InUserTransaction(context.UserId(), transaction => transaction.Connection!.QueryAsync<Row>(new CommandDefinition(
             $"""
             {Select}
-            WHERE (@deck::uuid IS NULL OR c.deck_id = @deck)
-              AND (@topic::text IS NULL OR EXISTS (
-                  SELECT FROM card_topics t WHERE t.user_id = c.user_id AND t.card_id = c.id AND t.slug = @topic))
+            WHERE {Narrowed}
             ORDER BY c.created_at DESC, c.id DESC
             LIMIT {ListMax}
             """,
@@ -206,9 +214,13 @@ public static class CardEndpoints
         return deleted == 0 ? Problems.NotFound("the card") : TypedResults.NoContent();
     }
 
+    /// <summary>One card's row, its schedule included, or null for one the user does not have.</summary>
+    internal static Task<Row?> ReadRow(NpgsqlTransaction transaction, Guid id, CancellationToken cancellationToken) =>
+        transaction.Connection!.QuerySingleOrDefaultAsync<Row>(new CommandDefinition(
+            $"{Select} WHERE c.id = @id", new { id }, transaction, cancellationToken: cancellationToken));
+
     private static async Task<Card?> Read(NpgsqlTransaction transaction, Guid id, CancellationToken cancellationToken) =>
-        (await transaction.Connection!.QuerySingleOrDefaultAsync<Row>(new CommandDefinition(
-            $"{Select} WHERE c.id = @id", new { id }, transaction, cancellationToken: cancellationToken)))?.Card;
+        (await ReadRow(transaction, id, cancellationToken))?.Card;
 
     private static Task<int> WriteTopics(NpgsqlTransaction transaction, Guid user, Guid card, CardTopic[] topics, CancellationToken cancellationToken) =>
         transaction.Connection!.ExecuteAsync(new CommandDefinition(
@@ -249,6 +261,12 @@ public static class CardEndpoints
 
         public string State { get; init; } = "";
 
+        public int? Step { get; init; }
+
+        public double? Stability { get; init; }
+
+        public double? Difficulty { get; init; }
+
         public DateTime Due { get; init; }
 
         public DateTime? LastReview { get; init; }
@@ -276,5 +294,14 @@ public static class CardEndpoints
             Version,
             CreatedAt,
             UpdatedAt);
+
+        /// <summary>Its schedule, as the scheduler reads it. Npgsql reads a timestamptz as UTC.</summary>
+        public CardState Schedule => new(
+            CardState.ParseState(State),
+            Step,
+            Stability,
+            Difficulty,
+            new DateTimeOffset(Due, TimeSpan.Zero),
+            LastReview is { } last ? new DateTimeOffset(last, TimeSpan.Zero) : null);
     }
 }
