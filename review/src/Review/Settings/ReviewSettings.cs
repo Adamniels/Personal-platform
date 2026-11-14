@@ -21,6 +21,9 @@ namespace Review.Settings;
 /// required, with no default. It holds a password, so <see cref="ToString"/> leaves it out, and
 /// it is read only, by convention, since Npgsql's settings type is not.</param>
 /// <param name="DayZone">Where the day ends, at 04:00 on its wall clock, for what is due today.</param>
+/// <param name="BrainUrl">The brain's own address, never the proxy's, by the rule of
+/// <paramref name="CoreUrl"/>, where grades are sent, see "What Review tells the brain" in
+/// review/README.md.</param>
 public sealed record ReviewSettings(
     string ListenHost,
     int ListenPort,
@@ -28,12 +31,14 @@ public sealed record ReviewSettings(
     string PublicOrigin,
     bool ExposeOpenApi,
     NpgsqlConnectionStringBuilder AppDatabase,
-    TimeZoneInfo DayZone)
+    TimeZoneInfo DayZone,
+    Uri BrainUrl)
 {
     public const string DefaultListenAddr = "127.0.0.1:8083";
     public const string DefaultCoreUrl = "http://127.0.0.1:8080";
     public const string DefaultPublicOrigin = "https://platform.test";
     public const string DefaultDayZone = "Europe/Stockholm";
+    public const string DefaultBrainUrl = "http://127.0.0.1:8082";
 
     /// <summary>The app role's database URL, which serving requires.</summary>
     public const string AppDatabaseUrl = "REVIEW_APP_DATABASE_URL";
@@ -57,17 +62,18 @@ public sealed record ReviewSettings(
         return new ReviewSettings(
             host,
             port,
-            Setting(read, "REVIEW_CORE_URL", DefaultCoreUrl, ParseCoreUrl),
+            Setting(read, "REVIEW_CORE_URL", DefaultCoreUrl, ParseServiceUrl),
             Setting(read, "REVIEW_PUBLIC_ORIGIN", DefaultPublicOrigin, ParseOrigin),
             Setting(read, "REVIEW_EXPOSE_OPENAPI", "0", ParseSwitch),
             Setting(read, AppDatabaseUrl, fallback: null, DatabaseUrl.Parse),
-            Setting(read, "REVIEW_DAY_ZONE", DefaultDayZone, ParseDayZone));
+            Setting(read, "REVIEW_DAY_ZONE", DefaultDayZone, ParseDayZone),
+            Setting(read, "REVIEW_BRAIN_URL", DefaultBrainUrl, ParseServiceUrl));
     }
 
     /// <summary>What the record prints, without the database's password, which it holds.</summary>
     public override string ToString() => string.Create(
         CultureInfo.InvariantCulture,
-        $"ReviewSettings {{ ListenHost = {ListenHost}, ListenPort = {ListenPort}, CoreUrl = {CoreUrl}, PublicOrigin = {PublicOrigin}, ExposeOpenApi = {ExposeOpenApi}, AppDatabase = {AppDatabase.Username}@{AppDatabase.Host}:{AppDatabase.Port}/{AppDatabase.Database}, DayZone = {DayZone.Id} }}");
+        $"ReviewSettings {{ ListenHost = {ListenHost}, ListenPort = {ListenPort}, CoreUrl = {CoreUrl}, PublicOrigin = {PublicOrigin}, ExposeOpenApi = {ExposeOpenApi}, AppDatabase = {AppDatabase.Username}@{AppDatabase.Host}:{AppDatabase.Port}/{AppDatabase.Database}, DayZone = {DayZone.Id}, BrainUrl = {BrainUrl} }}");
 
     /// <summary>The setting parsed, or <paramref name="fallback"/> parsed when it is unset; with
     /// no fallback, unset is refused.</summary>
@@ -100,8 +106,9 @@ public sealed record ReviewSettings(
     }
 
     /// <summary>A scheme, a host and an optional port, with nothing after it, such as
-    /// <c>http://127.0.0.1:8080</c>, so that the key set's path can be appended.</summary>
-    internal static Uri ParseCoreUrl(string text)
+    /// <c>http://127.0.0.1:8080</c>, so that a path can be appended: the core's key set's, or the
+    /// brain's events'.</summary>
+    internal static Uri ParseServiceUrl(string text)
     {
         if (Split(text) is null)
         {

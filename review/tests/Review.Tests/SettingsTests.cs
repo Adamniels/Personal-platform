@@ -30,6 +30,7 @@ public sealed class SettingsTests
         Assert.Equal("https://platform.test", defaults.PublicOrigin);
         Assert.False(defaults.ExposeOpenApi);
         Assert.Equal("Europe/Stockholm", defaults.DayZone.Id);
+        Assert.Equal(new Uri("http://127.0.0.1:8082"), defaults.BrainUrl);
 
         foreach (var (name, value) in Malformed)
         {
@@ -61,6 +62,11 @@ public sealed class SettingsTests
         ("REVIEW_CORE_URL", "http://user@127.0.0.1:8080"),
         ("REVIEW_CORE_URL", "http://127.0.0.1:"),
         ("REVIEW_CORE_URL", " http://127.0.0.1:8080"),
+        ("REVIEW_BRAIN_URL", ""),
+        ("REVIEW_BRAIN_URL", "127.0.0.1:8082"),
+        ("REVIEW_BRAIN_URL", "http://127.0.0.1:8082/"),
+        ("REVIEW_BRAIN_URL", "http://127.0.0.1:8082/brain"),
+        ("REVIEW_BRAIN_URL", "http://user@127.0.0.1:8082"),
         ("REVIEW_PUBLIC_ORIGIN", ""),
         ("REVIEW_PUBLIC_ORIGIN", "https://platform.test/"),
         ("REVIEW_PUBLIC_ORIGIN", "https://Platform.test"),
@@ -100,6 +106,14 @@ public sealed class SettingsTests
     public void TheCoreUrlIsASchemeAHostAndAPort(string value)
     {
         Assert.Equal(new Uri(value), Load(("REVIEW_CORE_URL", value)).CoreUrl);
+    }
+
+    [Theory]
+    [InlineData("http://127.0.0.1:8082")]
+    [InlineData("http://localhost:9999")]
+    public void TheBrainUrlIsASchemeAHostAndAPort(string value)
+    {
+        Assert.Equal(new Uri(value), Load(("REVIEW_BRAIN_URL", value)).BrainUrl);
     }
 
     [Theory]
