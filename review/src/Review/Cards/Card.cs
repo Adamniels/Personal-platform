@@ -3,8 +3,9 @@ using System.Text.Json.Serialization;
 namespace Review.Cards;
 
 /// <summary>
-/// A card as the API answers it, a single read and each item of the list alike. See "What a card
-/// is" in review/README.md.
+/// A card as the API answers it, a single read and each item of the list alike, and with its
+/// previews, <see cref="Review.Scheduling.CardWithPreviews"/>, in the queue and after a grade. See
+/// "What a card is" in review/README.md.
 /// </summary>
 /// <param name="Topics">In the card's order.</param>
 /// <param name="Source">Where it came from, or null.</param>

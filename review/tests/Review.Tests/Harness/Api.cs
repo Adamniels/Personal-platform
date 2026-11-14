@@ -133,6 +133,14 @@ internal sealed class Api : IAsyncDisposable
         return (deck, card);
     }
 
+    /// <summary>Rows read as the superuser, past every policy, as a test checks what was
+    /// written.</summary>
+    public async Task<List<T>> AsAdmin<T>(string sql, object? parameters = null)
+    {
+        await using var admin = await _database.OpenAdmin(Ct);
+        return [.. await admin.QueryAsync<T>(new CommandDefinition(sql, parameters, cancellationToken: Ct))];
+    }
+
     /// <summary>What a user's rows are, read as the superuser past every policy: each deck's name
     /// and each card's front, version and topics, in one line each, ordered.</summary>
     public async Task<List<string>> RowsOf(Guid user)

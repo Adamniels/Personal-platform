@@ -54,6 +54,26 @@ export interface paths {
         patch: operations["changeCard"];
         trace?: never;
     };
+    "/review/api/cards/{id}/grades": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Grade a card
+         * @description Again 1, Hard 2, Good 3 or Easy 4, from the card's version: schedules when it comes back, logs the grade, and answers 201 with the card as it now is and its new previews. 404 for a card the user does not have, 409 for a version that is not the card's, 422 naming the field for a rule it breaks.
+         */
+        post: operations["gradeCard"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/review/api/decks": {
         parameters: {
             query?: never;
@@ -114,6 +134,26 @@ export interface paths {
          * @description Needs no token. It answers whenever the process serves, and says nothing about what review depends on.
          */
         get: operations["health"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/review/api/queue": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The cards due now
+         * @description The cards due at or before now, oldest due first, at most 200, each as a single read answers it plus when each grade would bring it back, and total, how many are due in all. Narrowed to a deck by ?deck=<id>, to a topic by ?topic=<slug>, or both, total with them. 422 for a topic that is no slug.
+         */
+        get: operations["getQueue"];
         put?: never;
         post?: never;
         delete?: never;
@@ -197,6 +237,27 @@ export interface components {
             name: string;
             slug: string;
         };
+        CardWithPreviews: {
+            back: string;
+            /** Format: date-time */
+            created_at: string;
+            deck: components["schemas"]["CardDeck"];
+            /** Format: date-time */
+            due: string;
+            front: string;
+            /** Format: uuid */
+            id: string;
+            /** Format: date-time */
+            last_review: null | string;
+            previews: components["schemas"]["PreviewTimes"];
+            source: null | components["schemas"]["CardSource"];
+            state: string;
+            topics: components["schemas"]["CardTopic"][];
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: int32 */
+            version: number;
+        };
         Deck: {
             /** Format: int32 */
             card_count: number;
@@ -208,6 +269,17 @@ export interface components {
         };
         DeckInput: {
             name: null | string;
+        };
+        DueCards: {
+            cards: components["schemas"]["CardWithPreviews"][];
+            /** Format: int32 */
+            total: number;
+        };
+        GradeInput: {
+            /** Format: int32 */
+            rating: null | number;
+            /** Format: int32 */
+            version: null | number;
         };
         Health: {
             status: string;
@@ -222,6 +294,16 @@ export interface components {
             status?: null | number;
             title?: null | string;
             type?: null | string;
+        };
+        PreviewTimes: {
+            /** Format: date-time */
+            again: string;
+            /** Format: date-time */
+            easy: string;
+            /** Format: date-time */
+            good: string;
+            /** Format: date-time */
+            hard: string;
         };
         ProblemDetails: {
             detail?: null | string;
@@ -465,6 +547,66 @@ export interface operations {
             };
         };
     };
+    gradeCard: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GradeInput"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CardWithPreviews"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
     listDecks: {
         parameters: {
             query?: never;
@@ -662,6 +804,45 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Health"];
+                };
+            };
+        };
+    };
+    getQueue: {
+        parameters: {
+            query?: {
+                deck?: string;
+                topic?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DueCards"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
                 };
             };
         };
