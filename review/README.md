@@ -24,12 +24,80 @@ proposals wait for the owner, see "The review queue" in `Brain/docs/trust-model.
   `/auth/refresh?return_to=<the path and query as received, URL encoded>`.
 - `GET /review/assets/*`, the page's built files from `web/dist/assets/`, without a token, as the
   brain serves its own: they are the same for everyone and hold no data.
+- The user's decks and cards, see "What a card is" below, each route needing a valid token, without
+  which it answers `401` with an empty body, and reaching only the user's own rows, through the
+  door:
+  - `GET /review/api/decks`, every deck, by name without letter case: `id`, `name`, `card_count`
+    and `created_at`.
+  - `POST /review/api/decks`, `{"name": ...}`, a new deck, `201`.
+  - `PATCH /review/api/decks/{id}`, `{"name": ...}`, renames it, `200` with the deck.
+  - `DELETE /review/api/decks/{id}`, `204`, or `409` while it holds cards.
+  - `GET /review/api/cards`, the cards, newest first, at most 500, each as a single read answers
+    it, narrowed to one deck by `?deck=<id>`, to one topic by `?topic=<slug>`, or both.
+  - `POST /review/api/cards`, `{"deck_id", "front", "back", "topics": [{"slug", "name"}],
+    "source": {"path", "title"} | null}`, a new card, `201`, with `Location` its address. `source`
+    may be left out. It is `new` and due at its creation time.
+  - `GET /review/api/cards/{id}`: `id`, `deck` (`id` and `name`), `front`, `back`, `topics` in their
+    order, `source` or null, `state`, `due`, `last_review`, `version`, `created_at` and
+    `updated_at`.
+  - `PATCH /review/api/cards/{id}`, `{"version", "deck_id"?, "front"?, "back"?, "topics"?,
+    "source"?}`, `200` with the card. It changes the fields given and leaves the rest: a field
+    left out stays, and one given as null is changed, so `"source": null` takes the source away.
+    Topics are replaced whole. It never touches the schedule, and moves `version` on. `version`,
+    the one the change was made from, is required, and one that is not the card's current version
+    is `409` and changes nothing, so two tabs cannot silently overwrite each other.
+  - `DELETE /review/api/cards/{id}`, `204`, its topics with it.
+
+  Each answers a problem document when it does not do what was asked: `404` for an id in the path
+  the user does not have, another user's included, the same answer either way; `409` for a deck
+  name the user has in any letter case, a deck holding cards, or a stale `version`; and `422` for a
+  rule broken, a `deck_id` the user does not have included, with `errors` naming each field as it is
+  on the wire, such as `front`, `topics[1].slug` or `source.path`, and `detail` saying why. A body
+  that is not JSON, or JSON of the wrong shape, such as a number where text belongs, is ASP.NET
+  Core's own `400`, before any rule is read. Numbers are JSON numbers, never strings holding one.
 
 Everything else is `404`, and any request that changes state from another origin is `403`, before
 routing, see "How review authenticates a request" below. An error the service did not plan for is
 an RFC 9457 problem document, `application/problem+json` with `status`, `title` and `detail`,
 through ASP.NET Core's `AddProblemDetails`, which the page's client reads as the memory centre's
 reads the brain's.
+
+## What a card is
+
+A card is something worth remembering, a question and its answer: a **front** and a **back**, both
+plain text, each 1 to 4000 characters once surrounding whitespace is trimmed, stored trimmed with
+the line breaks inside kept. Characters are counted as Postgres counts them, so an emoji is one.
+
+It lives in exactly one **deck**, review's own organisation, which is how the owner chooses what to
+study. A deck has a name, 1 to 100 characters, stored trimmed, unique among the user's decks in any
+letter case. A deck holding cards cannot be deleted; its cards are moved or deleted first.
+
+It is about one to five **topics**, the brain's vocabulary, so a grade can later tell the brain
+what the owner knows. Review never keeps topic tags of its own. Each topic is the brain's slug, by
+the brain's rule, lowercase letters, digits and hyphens, starting with a letter or digit, 1 to 80
+characters, with the brain's name for it when the card was saved, 1 to 200 characters, kept as
+given: a snapshot, as "A reference to another feature's record is an address plus a snapshot" in
+`High-level/docs/feature-contract.md` describes. The slugs on a card are distinct, and kept in the
+order given. Review does not ask the brain whether a topic exists: the page picks or creates it in
+the brain before saving, and a slug the brain does not know is still a valid name for one, which
+an event later makes provisional. So making a card works while the brain is down.
+
+It may have a **source**, the record of another feature it came from, as an address and a
+snapshot: a `path` on the platform, starting with one `/` and never two, which would name another
+host, at most 500 characters, and its `title` then, 1 to 200 characters.
+
+And it has its **schedule**, FSRS-6's card state as `py-fsrs` 6.3.3's `Card` holds it: `state`
+(`new`, `learning`, `review` or `relearning`), `step`, `stability`, `difficulty`, `due` and
+`last_review`. A new card is `new` and due at its creation time; grading, a later slice, reads and
+writes the rest, and changing a card never touches it. Its `version` moves on with every change.
+
+The tables are `decks`, `cards` and `card_topics`, in `migrations/0002_decks_and_cards.sql`, which
+checks the same rules again. Each is scoped as "The door" below describes, and every reference
+between them carries `user_id`, as the brain's do: a foreign key is checked without row level
+security, so one on the id alone would let a card sit in another user's deck.
+`IsolationTests.ARowCannotPointAtAnotherUsersRow` checks it. Time comes from the injected
+`TimeProvider`, never the clock, and ids are UUIDv7s made by review with `Guid.CreateVersion7`, from
+that time.
 
 The routes under `/review/api/` are pinned by `contracts/review/openapi.json`, see "The schema"
 below.
@@ -241,7 +309,7 @@ and does three things with it, in `src/Review/ReviewApp.cs`:
   policies. The pages take `PlatformAuthPolicies.Page` and `whoami` takes
   `PlatformAuthPolicies.Api`; health and the built files take neither.
 - `UsePlatformOriginCheck` with `REVIEW_PUBLIC_ORIGIN`, before routing, so every route, one added
-  later included, is covered. Review has no route that changes state yet.
+  later included, is covered: the decks' and cards' `POST`, `PATCH` and `DELETE` among them.
 - `ReviewApp.Build(settings, webRoot, configure)` builds the app; `configure` runs before it is
   built, which is where `Program` sets the listen address and where the tests put the app on a
   test server, with a key cache over the committed key set answered from memory and a clock fixed
@@ -263,8 +331,9 @@ copies rather than shared files, since each C# folder builds from its own direct
 on" in `libs/dotnet/PlatformAuth/README.md`.
 
 **One web project, not layered projects.** `src/Review/` is the whole service, organised in
-feature folders: `Settings`, `Database` (the door and the migrations), `Health` (health and whoami)
-and `Pages` today, more with later slices. The service is small, and folders inside one project keep it readable without Clean
+feature folders: `Settings`, `Database` (the door and the migrations), `Health` (health and whoami),
+`Pages`, `Decks`, `Cards`, and `Api`, what the routes over the user's data share (who is asking, the
+problem documents, and the rule collector a 422 is made from), more with later slices. The service is small, and folders inside one project keep it readable without Clean
 Architecture's ceremony.
 
 **ASP.NET Core minimal APIs**, from the shared framework, for routing, static files and problem
