@@ -31,12 +31,12 @@ and never reads the hosts file, so it reports `NXDOMAIN`, which is expected.
 
 ## Caddy
 
-Caddy serves `https://platform.test`, routing `/canary` and everything under it to canary and
-`/brain` and everything under it to the brain, prefix kept in both, serving a few files of the
-design folder itself under `/design/` (see "The design folder" below), and routing the rest to the
-core. Why Caddy, rather than Traefik or nginx, is in "Routing" in
-`Core/docs/core-architecture.md`. The core, canary and the brain run natively, on 8080, 8081 and
-8082, and Caddy runs in compose. From this directory:
+Caddy serves `https://platform.test`, routing `/canary` and everything under it to canary,
+`/review` and everything under it to review, and `/brain` and everything under it to the brain,
+prefix kept in each, serving a few files of the design folder itself under `/design/` (see "The
+design folder" below), and routing the rest to the core. Why Caddy, rather than Traefik or nginx,
+is in "Routing" in `Core/docs/core-architecture.md`. The core, canary, the brain and review run
+natively, on 8080, 8081, 8082 and 8083, and Caddy runs in compose. From this directory:
 
 ```zsh
 docker compose up -d caddy

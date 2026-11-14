@@ -6,7 +6,7 @@ use platform_core::registry::{Feature, Registry};
 use std::path::Path;
 
 #[test]
-fn the_committed_registry_holds_canary() {
+fn the_committed_registry_holds_canary_and_review() {
     // Through the manifest directory, so the test does not depend on where
     // cargo test runs from.
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../infra/features.toml");
@@ -14,12 +14,20 @@ fn the_committed_registry_holds_canary() {
 
     assert_eq!(
         registry.features(),
-        [Feature {
-            name: "Canary".into(),
-            prefix: "/canary".into(),
-            upstream: "http://127.0.0.1:8081".into(),
-            display: Some("/canary/api/display".into()),
-        }]
+        [
+            Feature {
+                name: "Canary".into(),
+                prefix: "/canary".into(),
+                upstream: "http://127.0.0.1:8081".into(),
+                display: Some("/canary/api/display".into()),
+            },
+            Feature {
+                name: "Review".into(),
+                prefix: "/review".into(),
+                upstream: "http://127.0.0.1:8083".into(),
+                display: None,
+            },
+        ]
     );
 }
 
