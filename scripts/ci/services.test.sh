@@ -247,7 +247,8 @@ mkdir -p "$root/infra/postgres/initdb" "$root/scripts/ci" "$root/scripts/agent"
 cp "$repo/scripts/ci/changed-areas.sh" "$root/scripts/ci/"
 cp "$repo/scripts/agent/services.sh" "$root/scripts/agent/"
 cp "$repo/infra/features.toml" "$repo/infra/Caddyfile" "$repo/infra/.env.example" "$root/infra/"
-cp "$repo/infra/postgres/initdb/brain.sh" "$root/infra/postgres/initdb/"
+# Every init script, so a service whose entry names one of its own needs no change here.
+cp "$repo"/infra/postgres/initdb/*.sh "$root/infra/postgres/initdb/"
 jq -r '.services[].dir' "$repo/infra/services.json" | while IFS= read -r d; do mkdir -p "$root/$d"; done
 jq '.services[1].language = "dotnet" | .services[1].area = "dotnet"
   | .services[2].ci = {"init_script": "infra/postgres/initdb/brain.sh"}' \
