@@ -12,6 +12,11 @@
     <!-- The database: the driver, and rows mapped to records with the SQL written out. -->
     <PackageReference Include="Npgsql" />
     <PackageReference Include="Dapper" />
+    <!--
+      The runtime of the brain's client, which Kiota generates into Brain/Generated/ from
+      contracts/brain/openapi.json. See "What Review tells the brain" in review/README.md.
+    -->
+    <PackageReference Include="Microsoft.Kiota.Bundle" />
   </ItemGroup>
   <ItemGroup>
     <!--

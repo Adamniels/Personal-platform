@@ -1,3 +1,6 @@
 # Build output, made by every dotnet build and never committed.
 bin/
 obj/
+
+# What Kiota logs beside the brain's client each time it generates it.
+.kiota.log
