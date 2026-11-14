@@ -5,9 +5,8 @@ project of its own, apart from the dev stack in `infra/compose.yaml`. It is the 
 on the Mac mini, reached over Tailscale. Development still runs natively on a laptop, see
 "Databases, migrations, and running it" in `High-level/docs/platform-architecture.md`.
 
-This folder makes the containers and proves they start. Releasing to the real copy and backups
-arrive in later slices, as does running the acceptance suite against the containers and running
-`check.sh` in CI.
+This folder makes the containers, proves they start, and runs the acceptance suite against them.
+Releasing to the real copy and backups arrive in later slices, as does running `check.sh` in CI.
 
 ## What runs
 
@@ -90,7 +89,9 @@ see "The databases" in `infra/README.md`.
 ## check.sh
 
 `check.sh` proves the stack works, on a throwaway copy. From the repository root, with Docker
-running:
+running, and `uv` and Playwright's Chromium installed for the acceptance suite, which it never
+installs (from `e2e/`, `uv run playwright install chromium`), and `platform.test` resolving to
+`127.0.0.1`, as for the dev suite:
 
 ```zsh
 bash infra/hosted/check.sh
@@ -118,6 +119,12 @@ It prints `ok <name>` or `FAIL <name>` for each case and exits non zero if any f
   publish a port, both on `127.0.0.1`;
 - `no_container_runs_as_root`: every process of each service in `compose.yaml` runs as a user id
   other than 0. The front, which is not one of them, runs as Caddy's image does;
+- `the_acceptance_suite_passes_against_the_containers`: the whole suite in `e2e/`, every test but
+  those marked `dev_stack_only`, passes against `https://platform.test:9443`, with invite codes and
+  reset tokens made in the core's container through `E2E_CORE_COMMAND`. Its output is shown as it
+  runs, and it says so when `uv` or Chromium is missing. A test that fails here because of the
+  hosted shape is fixed in the image or the compose file, never marked; see "Markers" in
+  `e2e/README.md`. Its screenshots land in `e2e/screenshots/` and are not published;
 - `it_leaves_nothing_behind`: after the run, and after a run made to fail once Postgres is up, no
   container, network or volume of the project exists.
 
@@ -134,6 +141,9 @@ reads is in `.env.example`, every install in a Dockerfile is locked, and the com
 project. Each check also runs on a broken copy, so it cannot pass by matching nothing.
 
 Neither runs in CI yet; a later slice adds that.
+
+The suite runs last, after the cases above, and takes as long as a dev run of it, several minutes,
+on top of the build.
 
 ## Resources
 

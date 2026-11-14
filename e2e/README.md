@@ -2,7 +2,8 @@
 
 The platform's acceptance suite. Every planned acceptance criterion that has a UI is a test here,
 written with Playwright (Python) and run against `https://platform.test`, the way a person would use
-the platform. A slice is not done until its criteria pass here.
+the platform. A slice is not done until its criteria pass here. The same suite also runs against the
+hosted copy's containers, from `infra/hosted/check.sh`, see "Against the hosted copy" below.
 
 ## Running it
 
@@ -32,24 +33,61 @@ Screenshots land in `screenshots/`, which is git ignored.
 
 ## Fixtures
 
-- `base_url` is `https://platform.test` (set in `pyproject.toml`), and the browser context ignores
-  HTTPS errors, so the suite does not depend on the laptop's keychain trusting Caddy's local CA.
-- `invite_code` runs `cargo run -q -- invite` in `Core/` and returns the code. Each test gets its own.
+- `base_url` is the one address the suite uses: `https://platform.test` by default, set in
+  `pyproject.toml`, and another with pytest's `--base-url`. A test that needs the address takes the
+  `base_url` fixture and compares against it, as in `expect(page).to_have_url(f"{base_url}/review")`;
+  none spells it out, which `tests/test_base_url.py` checks, and none reads it from an environment
+  variable. The browser context ignores HTTPS errors, so the suite does not depend on the laptop's
+  keychain trusting Caddy's local CA, nor on the hosted check's test front's.
+- `invite_code` runs the core's `invite` command and returns the code. Each test gets its own.
   `another_invite_code` is a second one, for a test that registers two accounts.
-- `reset_token` is a function: `reset_token(email)` runs `cargo run -q -- reset <email>` in `Core/`
-  and returns the token. A function rather than a value, since the account usually exists only once
+- `reset_token` is a function: `reset_token(email)` runs the core's `reset <email>` command and
+  returns the token. A function rather than a value, since the account usually exists only once
   the test has registered it.
+- The core's command is `cargo run -q --` in `Core/`, the dev core's. With `E2E_CORE_COMMAND` set it
+  is that value instead, split as a shell would and run from the repository root with the command's
+  arguments appended; `check.sh` sets it to a `docker compose ... exec -T core platform_core` into
+  the hosted copy's core. Set but empty counts as unset. A command that fails or takes more than ten
+  minutes fails the test, with the command line in the message.
 - `viewport` runs the test twice, `[desktop]` (1280x800) and `[phone]` (390x844), and sizes the page.
 - `capture(page, name)` writes a full page screenshot to `screenshots/<name>-<viewport>.png` and
   returns the path. It needs the page to be sized by the `viewport` fixture.
 
-`register_and_log_in(page, invite_code)` registers a fresh account with the code, logs in and
+`register_and_log_in(page, invite_code, base_url)` registers a fresh account with the code, logs in and
 returns its email, ending on the front page, for a test that only needs to be logged in. Its two
 halves are there for a test that logs in from somewhere else: `register(page, invite_code)` returns
 the email and password and ends on the login page, not logged in, and `log_in(page, email,
 password)` submits the login form the page is on, which ends wherever its return path says.
 
 `/register` does not prefill the code from a query string, so tests fill the `code` field.
+
+## Markers
+
+Two markers, registered in `pyproject.toml`, which runs with `--strict-markers` so a misspelt one
+fails:
+
+- `dev_stack_only(reason=...)`, for a test that cannot hold against the hosted copy. The reason says
+  why. A test that fails against the containers because of the hosted shape, a file missing from an
+  image or a wrong setting in the compose file, is fixed there and never marked. No test carries it
+  today.
+- `hosted_only`, for a test that needs something only the hosted copy has.
+
+A plain `uv run pytest` is against the dev stack and leaves `hosted_only` out, through `addopts`.
+A `-m` on the command line replaces that one.
+
+## Against the hosted copy
+
+`bash infra/hosted/check.sh`, from the repository root, starts a throwaway hosted copy and runs, from
+this folder:
+
+```zsh
+E2E_CORE_COMMAND="docker compose -p hostedcheck --env-file <its env file> -f infra/hosted/compose.yaml exec -T core platform_core" \
+  uv run pytest --base-url https://platform.test:9443 -m "not dev_stack_only"
+```
+
+It installs nothing: `uv` and Playwright's Chromium must be there, as for a dev run, and it says so
+when one is missing. `platform.test` must resolve to `127.0.0.1`, as for a dev run; the port is the
+test front's. See "check.sh" in `infra/hosted/README.md`.
 
 A test simulates an expired access token by deleting the `__Host-access` cookie with
 `context.clear_cookies(name="__Host-access")`. The cookie's `Max-Age` matches the token's

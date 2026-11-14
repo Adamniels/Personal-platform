@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # Proves the hosted stack works, end to end, on a throwaway copy: it builds every image, starts the
 # compose project hostedcheck with secrets made for this run, runs every migration, puts a test
-# HTTPS front before the proxy, checks what the cases below say through it, and takes the project
-# down again, volumes included, whatever happened. It runs agree.test.sh first. It needs Docker,
-# and works while the dev stack is up, since it uses neither its ports nor its project.
+# HTTPS front before the proxy, checks what the cases below say through it, runs the acceptance
+# suite in e2e/ against it, and takes the project down again, volumes included, whatever happened.
+# It runs agree.test.sh first. It needs Docker, and for the suite uv and Playwright's Chromium,
+# which it never installs; it works while the dev stack is up, since it uses neither its ports nor
+# its project.
 # See infra/hosted/README.md.
 #
 # Run from the repository root: bash infra/hosted/check.sh
@@ -161,6 +163,34 @@ wait_healthy() {
   done
 }
 
+# suite: the acceptance suite in e2e/ against the front, its output shown as it runs. Invite codes
+# and reset tokens are made in the core's container, through E2E_CORE_COMMAND, see e2e/README.md.
+# It installs nothing: uv and Chromium must be there, as the dev gate expects them, and a missing
+# one is written to suite.reason. A test marked dev_stack_only is left out.
+suite() {
+  if ! command -v uv > /dev/null 2>&1; then
+    echo "uv is not on PATH, see e2e/README.md" > "$tmp/suite.reason"
+    return 1
+  fi
+  if ! (cd "$repo/e2e" && UV_LOCKED=1 uv run python -c '
+import os, sys
+from playwright.sync_api import sync_playwright
+with sync_playwright() as p:
+    sys.exit(0 if os.path.exists(p.chromium.executable_path) else 1)
+') > "$tmp/chromium.log" 2>&1; then
+    echo "Playwright's Chromium is not installed: from e2e/, uv run playwright install chromium" \
+      > "$tmp/suite.reason"
+    return 1
+  fi
+  echo "-- the acceptance suite, against $origin"
+  if ! (cd "$repo/e2e" &&
+    E2E_CORE_COMMAND="docker compose -p $project --env-file '$env_file' -f infra/hosted/compose.yaml exec -T core platform_core" \
+      UV_LOCKED=1 uv run pytest --base-url "$origin" -m "not dev_stack_only"); then
+    echo "uv run pytest exited non zero, its output is above" > "$tmp/suite.reason"
+    return 1
+  fi
+}
+
 # The cases that need the stack up. A step that fails ends the run, and every case it did not
 # reach fails.
 stack() {
@@ -181,7 +211,8 @@ stack() {
   fi
   if [ "$reached" -ne 1 ]; then
     for line in the_stack_builds_and_every_service_answers the_design_files_and_the_gallery_are_served \
-      nothing_but_the_proxy_is_published no_container_runs_as_root; do
+      nothing_but_the_proxy_is_published no_container_runs_as_root \
+      the_acceptance_suite_passes_against_the_containers; do
       bad "$line" "not reached, a step above failed"
     done
     compose ps -a > "$tmp/ps.log" 2>&1
@@ -259,6 +290,14 @@ stack() {
     ok no_container_runs_as_root
   else
     bad no_container_runs_as_root "$bad_lines"
+  fi
+
+  # the_acceptance_suite_passes_against_the_containers: every e2e test but those marked
+  # dev_stack_only passes against the front, last, so the cases above have the stack fresh.
+  if suite; then
+    ok the_acceptance_suite_passes_against_the_containers
+  else
+    bad the_acceptance_suite_passes_against_the_containers "$(cat "$tmp/suite.reason")"
   fi
 }
 
