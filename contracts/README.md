@@ -71,8 +71,11 @@ until the file is regenerated on purpose and its diff reviewed. From `Brain/`:
 UPDATE_CONTRACTS=1 uv run pytest tests/test_contract.py
 ```
 
-Without the variable the test only compares, and a missing or different file fails it. No caller
-tests against it yet; the first feature that calls the brain will.
+Without the variable the test only compares, and a missing or different file fails it. The pages
+that call the brain generate their types from this file: the memory centre's, and review's for the
+brain's topics, `review/web/src/api/brain-schema.d.ts`, whose `schema.test.ts` fails when it is
+stale. After regenerating this file, run `npm run generate:api` in `review/web/` as well, see "The
+data, and the brain's topics" in `review/README.md`.
 
 ## review/
 
