@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Waiting for you: two layouts</title>
+<style>
+:root{color-scheme:light;--bg:#F3F4F7;--surface:#FFFFFF;--surface-2:#EBEDF2;--border:#D5D9E2;--border-strong:#8A91A3;--text:#171C2C;--text-2:#4D556B;--text-3:#5F677C;--accent:#E5A23A;--on-accent:#1A1505;--accent-border:#8A5200;--accent-text:#8A5200;--accent-soft:#FBEFD9;--info:#2B55C7;--info-soft:#E3EAFB;--ok:#1F6B45;--ok-soft:#DDF1E6;--danger:#B3261E;--danger-soft:#FBE4E1;}
+@media (prefers-color-scheme:dark){:root{color-scheme:dark;--bg:#0D1220;--surface:#141A2B;--surface-2:#1B2236;--border:#283149;--border-strong:#66739A;--text:#E6E9F2;--text-2:#A3ACC2;--text-3:#8791AA;--accent:#E5A23A;--on-accent:#1A1505;--accent-border:#E5A23A;--accent-text:#F0B85C;--accent-soft:#33280F;--info:#8FB0FF;--info-soft:#1A2748;--ok:#6FCF9A;--ok-soft:#12301F;--danger:#FF8F85;--danger-soft:#3A1614;}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/20px Inter,system-ui,sans-serif}
+.mono{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:12px;line-height:16px;color:var(--text-3)}
+.wrap{max-width:1232px;margin:0 auto;padding:24px 32px 64px}
+.intro{border:1px dashed var(--border-strong);border-radius:10px;padding:16px;margin-bottom:24px}
+.intro h1{font:600 22px/28px "Space Grotesk",system-ui,sans-serif;margin:0 0 4px}
+.intro p{margin:4px 0;color:var(--text-2)}
+.pick{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.pick button{height:36px;padding:0 14px;border-radius:6px;border:1px solid var(--border-strong);background:var(--surface);color:var(--text);font-weight:500;cursor:pointer}
+.pick button.selected{background:var(--accent);color:var(--on-accent);border-color:var(--accent-border);font-weight:600}
+.opt{margin-top:32px}
+.opt>h2{font:600 17px/24px "Space Grotesk",system-ui,sans-serif;margin:0 0 4px}
+.opt>p{margin:0 0 12px;color:var(--text-2)}
+.frame{border:1px solid var(--border);border-radius:10px;overflow:hidden;background:var(--bg)}
+.nav{height:56px;background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:4px;padding:0 24px}
+.mark{width:14px;height:14px;background:var(--accent);border-radius:3px;margin-right:8px}
+.word{font:600 16px/24px "Space Grotesk",system-ui,sans-serif;margin-right:16px}
+.nl{height:36px;padding:0 12px;border-radius:6px;display:flex;align-items:center;color:var(--text-2);font-weight:500;border:1px solid transparent}
+.nl.on{color:var(--text);background:var(--surface-2);border-color:var(--accent-border)}
+.dot{width:6px;height:6px;border-radius:999px;background:var(--accent-text);margin-left:6px;display:inline-block}
+.page{padding:24px}
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--border);padding-bottom:8px;margin-bottom:16px;overflow-x:auto}
+.tab{height:36px;padding:0 12px;border-radius:6px;display:flex;align-items:center;color:var(--text-2);font-weight:500;white-space:nowrap}
+.tab.on{background:var(--surface-2);outline:1px solid var(--accent-border);color:var(--text);font-weight:600}
+h3.pt{font:600 22px/28px "Space Grotesk",system-ui,sans-serif;margin:0}
+.sec{font-size:12px;line-height:16px;font-weight:600;color:var(--text-2);margin:24px 0 8px;display:flex;gap:8px;align-items:center}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px;display:flex;flex-direction:column;gap:12px;margin-bottom:12px}
+.card.need{box-shadow:0 0 0 1px var(--accent-border);border-color:var(--accent-border)}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.badge{height:22px;padding:0 8px;border-radius:4px;background:var(--surface-2);color:var(--text-2);font-size:12px;font-weight:500;display:inline-flex;align-items:center}
+.st{height:22px;padding:0 8px;border-radius:4px;font-size:12px;font-weight:500;display:inline-flex;align-items:center;gap:6px}
+.st::before{content:"";width:6px;height:6px;border-radius:999px;background:currentColor}
+.st.need{background:var(--accent-soft);color:var(--accent-text)}
+.st.run{background:var(--info-soft);color:var(--info)}
+.st.ok{background:var(--ok-soft);color:var(--ok)}
+.st.fail{background:var(--danger-soft);color:var(--danger)}
+.title{font-weight:600}
+.box{background:var(--accent-soft);border:1px solid var(--accent-border);border-radius:10px;padding:12px}
+.box .q{font-weight:600;margin-bottom:4px}
+.box .r{color:var(--text-2);font-size:13px;line-height:18px}
+.btn{height:36px;padding:0 14px;border-radius:6px;font-weight:500;border:1px solid var(--border-strong);background:var(--surface);color:var(--text);display:inline-flex;align-items:center}
+.btn.pri{background:var(--accent);color:var(--on-accent);border-color:var(--accent-border);font-weight:600}
+.btn.ghost{border-color:transparent;background:transparent;color:var(--text-2);padding:0 10px}
+.small{font-size:13px;line-height:18px;color:var(--text-2)}
+.two{display:flex;flex-wrap:wrap;gap:16px}
+.list{flex:1 1 320px;min-width:0}
+.detail{flex:999 1 520px;min-width:0}
+.item{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:10px 12px;margin-bottom:8px}
+.item.sel{box-shadow:0 0 0 1px var(--accent-border);border-color:var(--accent-border)}
+.item .t{font-weight:500;margin:4px 0 2px}
+.shots{display:flex;gap:8px;flex-wrap:wrap}
+.shot{width:150px;height:92px;border:1px dashed var(--border-strong);border-radius:6px;display:flex;align-items:center;justify-content:center;color:var(--text-3);font-size:12px}
+ul.d{margin:0;padding-left:18px}
+ul.d li{margin:4px 0}
+
+table{width:100%;border-collapse:collapse}
+.tw{border:1px solid var(--border);border-radius:10px;overflow-x:auto;background:var(--surface)}
+th{background:var(--surface-2);font-size:12px;font-weight:500;color:var(--text-3);text-align:left;padding:6px 12px;height:36px;white-space:nowrap}
+td{padding:6px 12px;height:36px;border-top:1px solid var(--border);vertical-align:middle}
+td.n,th.n{text-align:right;font-family:"JetBrains Mono",ui-monospace,monospace;font-size:12px}
+tr.open td{background:var(--info-soft)}
+.field{width:100%;min-height:64px;border:1px solid var(--border-strong);border-radius:6px;background:var(--surface);color:var(--text-3);padding:8px 10px}
+.log{background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px 12px;font-family:"JetBrains Mono",ui-monospace,monospace;font-size:13px;line-height:20px;color:var(--text-2);white-space:pre-wrap}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(340px,100%),1fr));gap:16px}
+.crumb{color:var(--text-3);font-size:13px;margin-bottom:4px}
+</style></head><body><div class="wrap">
+<div class="intro"><h1>The feature's page, and "Running now"</h1>
+<p>One proposal for each, not a choice between two. The content is made up. Read them as: is this what you want to see and do here, and what is missing or in the way?</p></div>
+
+<div class="opt"><h2>1. A feature's page</h2>
+<p>Where you land from "Features ready for your review". You see what was built, read what the agent wants you to know, send single cards back, and merge the feature into main.</p>
+<div class="frame"><div class="nav"><span class="mark"></span><span class="word">Platform</span><span class="nl">Home</span><span class="nl">Memory</span><span class="nl">Review</span><span class="nl on">Dev<span class="dot"></span></span></div><div class="page"><div class="tabs"><span class="tab">Waiting for you · 5</span><span class="tab">Running now · 2</span><span class="tab on">Projects</span><span class="tab">Usage and history</span></div>
+<div class="crumb">Projects / Fodr / Features</div>
+<div class="row" style="justify-content:space-between"><div class="row"><h3 class="pt">Feeding plan, version 2</h3><span class="st need">Ready for your review</span></div>
+<div class="row"><span class="btn">Send the whole feature back</span><span class="btn pri">Merge into main</span></div></div>
+<div class="mono" style="margin-top:6px">feature/38-feeding-plan-v2 · 6 of 6 cards done · built in 5 h 12 min · 1.9 M tokens · pull request #52</div>
+
+<div class="sec">THE AGENT WANTS YOU TO KNOW <span class="mono">2</span></div>
+<div class="card need">
+<div class="box"><div class="q">#45: hay amounts are rounded to 0.5 kg, not 0.1 kg</div><div class="r">The card did not say. SLU's tables give 0.5 kg steps and a scale in a stable is not finer than that. The alternative was 0.1 kg, as the old plan showed. <strong>Reviewer:</strong> agrees.</div>
+<div class="row" style="margin-top:8px"><span class="btn">Fine as it is</span><span class="btn">Send #45 back</span></div></div>
+<div class="box"><div class="q">#46: a horse with no analysis gets a plan from typical values, with a warning</div><div class="r">The card said "handle missing analysis". Refusing to make a plan was the alternative. <strong>Reviewer:</strong> sees no problem, notes that the warning text is the agent's own wording.</div>
+<div class="row" style="margin-top:8px"><span class="btn">Fine as it is</span><span class="btn">Send #46 back</span></div></div>
+</div>
+
+<div class="sec">TRY IT</div>
+<div class="card"><div class="small">The feature is not in main. To try it, check out the branch, or look at what the program captured.</div>
+<div class="shots"><div class="shot">plan, desktop</div><div class="shot">plan, phone</div><div class="shot">edit horse</div><div class="shot">no analysis</div><div class="shot">+ 10 more</div></div></div>
+
+<div class="sec">CARDS <span class="mono">6</span></div>
+<div class="tw"><table>
+<tr><th>Card</th><th>State</th><th class="n">Fix rounds</th><th class="n">Tokens</th><th class="n">Decisions</th><th></th></tr>
+<tr><td><span class="mono">#39</span> Plan model and its rules</td><td><span class="st ok">Done</span></td><td class="n">0</td><td class="n">210 k</td><td class="n">1</td><td><span class="btn ghost">Send back</span></td></tr>
+<tr><td><span class="mono">#40</span> Calculation by SLU's tables</td><td><span class="st ok">Done</span></td><td class="n">2</td><td class="n">540 k</td><td class="n">3</td><td><span class="btn ghost">Send back</span></td></tr>
+<tr class="open"><td><span class="mono">#44</span> The plan page</td><td><span class="st ok">Done</span></td><td class="n">1</td><td class="n">380 k</td><td class="n">0</td><td><span class="btn ghost">Cancel</span></td></tr>
+<tr class="open"><td colspan="6"><div class="field">What should change? For example: the table should show the newest week first.</div><div class="row" style="margin-top:8px"><span class="btn">Send #44 back</span><span class="small">A new agent continues on the feature's branch with this card, what was built, and your comment.</span></div></td></tr>
+<tr><td><span class="mono">#45</span> Amounts and rounding</td><td><span class="st ok">Done</span></td><td class="n">0</td><td class="n">190 k</td><td class="n">1</td><td><span class="btn ghost">Send back</span></td></tr>
+<tr><td><span class="mono">#46</span> A horse without an analysis</td><td><span class="st ok">Done</span></td><td class="n">1</td><td class="n">310 k</td><td class="n">1</td><td><span class="btn ghost">Send back</span></td></tr>
+<tr><td><span class="mono">#48</span> Print layout</td><td><span class="st ok">Done</span></td><td class="n">0</td><td class="n">270 k</td><td class="n">0</td><td><span class="btn ghost">Send back</span></td></tr>
+</table></div>
+</div></div></div>
+
+<div class="opt"><h2>2. Running now</h2>
+<p>One panel per worker that is busy, with what the agent is doing as it happens. Under it, what comes next and why each card is not running yet.</p>
+<div class="frame"><div class="nav"><span class="mark"></span><span class="word">Platform</span><span class="nl">Home</span><span class="nl">Memory</span><span class="nl">Review</span><span class="nl on">Dev<span class="dot"></span></span></div><div class="page"><div class="tabs"><span class="tab">Waiting for you · 5</span><span class="tab on">Running now · 2</span><span class="tab">Projects</span><span class="tab">Usage and history</span></div>
+<div class="row" style="justify-content:space-between"><h3 class="pt">Running now</h3><div class="row"><span class="mono">2 of 2 agents busy</span><span class="btn">Pause everything</span></div></div>
+<div class="grid" style="margin-top:16px">
+<div class="card"><div class="row"><span class="badge">Fodr</span><span class="mono">#51</span><span class="title">Share a plan by link</span><span class="st run" style="margin-left:auto">Building</span></div>
+<div class="mono">worker fodr-1 on mac-mini · 14 min · strongest model · 120 k tokens</div>
+<div class="log">Reading app/routes/plan.ts
+Writing the failing test: a shared link shows the plan without login
+Running npm test: 1 failed, as expected
+Adding the share token to the plan table</div>
+<div class="row"><span class="btn ghost">Open card</span><span class="btn ghost">Stop now</span></div></div>
+<div class="card"><div class="row"><span class="badge">Personal-platform</span><span class="mono">#235</span><span class="title">Decks and cards, the pages</span><span class="st run" style="margin-left:auto">Reviewing</span></div>
+<div class="mono">worker platform-1 on mac-mini · 6 min · strongest model · 85 k tokens</div>
+<div class="log">Reading the card and the diff, 14 files
+Checking the screenshots at 390px against the design rules
+Finding: the empty state has two buttons, the rule allows one</div>
+<div class="row"><span class="btn ghost">Open card</span><span class="btn ghost">Stop now</span></div></div>
+</div>
+<div class="sec">NEXT UP <span class="mono">4</span></div>
+<div class="tw"><table>
+<tr><th>Card</th><th>Project</th><th>State</th><th>Why it is not running</th></tr>
+<tr><td><span class="mono">#52</span> Revoke a shared link</td><td>Fodr</td><td><span class="badge">Queued</span></td><td>Waits for #51, which it depends on</td></tr>
+<tr><td><span class="mono">#236</span> Scheduling</td><td>Personal-platform</td><td><span class="badge">Queued</span></td><td>Next for platform-1, after the review</td></tr>
+<tr><td><span class="mono">#12</span> Dark mode</td><td>Portfolio</td><td><span class="badge">Queued</span></td><td>Outside its schedule, starts 22:00</td></tr>
+<tr><td><span class="mono">#9</span> Sync conflict on wake</td><td>Tick</td><td><span class="badge">Queued</span></td><td>No worker is running for Tick</td></tr>
+</table></div>
+</div></div></div>
+</div></body></html>

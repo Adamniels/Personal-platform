@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Waiting for you: two layouts</title>
+<style>
+:root{color-scheme:light;--bg:#F3F4F7;--surface:#FFFFFF;--surface-2:#EBEDF2;--border:#D5D9E2;--border-strong:#8A91A3;--text:#171C2C;--text-2:#4D556B;--text-3:#5F677C;--accent:#E5A23A;--on-accent:#1A1505;--accent-border:#8A5200;--accent-text:#8A5200;--accent-soft:#FBEFD9;--info:#2B55C7;--info-soft:#E3EAFB;--ok:#1F6B45;--ok-soft:#DDF1E6;--danger:#B3261E;--danger-soft:#FBE4E1;}
+@media (prefers-color-scheme:dark){:root{color-scheme:dark;--bg:#0D1220;--surface:#141A2B;--surface-2:#1B2236;--border:#283149;--border-strong:#66739A;--text:#E6E9F2;--text-2:#A3ACC2;--text-3:#8791AA;--accent:#E5A23A;--on-accent:#1A1505;--accent-border:#E5A23A;--accent-text:#F0B85C;--accent-soft:#33280F;--info:#8FB0FF;--info-soft:#1A2748;--ok:#6FCF9A;--ok-soft:#12301F;--danger:#FF8F85;--danger-soft:#3A1614;}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/20px Inter,system-ui,sans-serif}
+.mono{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:12px;line-height:16px;color:var(--text-3)}
+.wrap{max-width:1232px;margin:0 auto;padding:24px 32px 64px}
+.intro{border:1px dashed var(--border-strong);border-radius:10px;padding:16px;margin-bottom:24px}
+.intro h1{font:600 22px/28px "Space Grotesk",system-ui,sans-serif;margin:0 0 4px}
+.intro p{margin:4px 0;color:var(--text-2)}
+.pick{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.pick button{height:36px;padding:0 14px;border-radius:6px;border:1px solid var(--border-strong);background:var(--surface);color:var(--text);font-weight:500;cursor:pointer}
+.pick button.selected{background:var(--accent);color:var(--on-accent);border-color:var(--accent-border);font-weight:600}
+.opt{margin-top:32px}
+.opt>h2{font:600 17px/24px "Space Grotesk",system-ui,sans-serif;margin:0 0 4px}
+.opt>p{margin:0 0 12px;color:var(--text-2)}
+.frame{border:1px solid var(--border);border-radius:10px;overflow:hidden;background:var(--bg)}
+.nav{height:56px;background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:4px;padding:0 24px}
+.mark{width:14px;height:14px;background:var(--accent);border-radius:3px;margin-right:8px}
+.word{font:600 16px/24px "Space Grotesk",system-ui,sans-serif;margin-right:16px}
+.nl{height:36px;padding:0 12px;border-radius:6px;display:flex;align-items:center;color:var(--text-2);font-weight:500;border:1px solid transparent}
+.nl.on{color:var(--text);background:var(--surface-2);border-color:var(--accent-border)}
+.dot{width:6px;height:6px;border-radius:999px;background:var(--accent-text);margin-left:6px;display:inline-block}
+.page{padding:24px}
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--border);padding-bottom:8px;margin-bottom:16px;overflow-x:auto}
+.tab{height:36px;padding:0 12px;border-radius:6px;display:flex;align-items:center;color:var(--text-2);font-weight:500;white-space:nowrap}
+.tab.on{background:var(--surface-2);outline:1px solid var(--accent-border);color:var(--text);font-weight:600}
+h3.pt{font:600 22px/28px "Space Grotesk",system-ui,sans-serif;margin:0}
+.sec{font-size:12px;line-height:16px;font-weight:600;color:var(--text-2);margin:24px 0 8px;display:flex;gap:8px;align-items:center}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px;display:flex;flex-direction:column;gap:12px;margin-bottom:12px}
+.card.need{box-shadow:0 0 0 1px var(--accent-border);border-color:var(--accent-border)}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.badge{height:22px;padding:0 8px;border-radius:4px;background:var(--surface-2);color:var(--text-2);font-size:12px;font-weight:500;display:inline-flex;align-items:center}
+.st{height:22px;padding:0 8px;border-radius:4px;font-size:12px;font-weight:500;display:inline-flex;align-items:center;gap:6px}
+.st::before{content:"";width:6px;height:6px;border-radius:999px;background:currentColor}
+.st.need{background:var(--accent-soft);color:var(--accent-text)}
+.st.run{background:var(--info-soft);color:var(--info)}
+.st.ok{background:var(--ok-soft);color:var(--ok)}
+.st.fail{background:var(--danger-soft);color:var(--danger)}
+.title{font-weight:600}
+.box{background:var(--accent-soft);border:1px solid var(--accent-border);border-radius:10px;padding:12px}
+.box .q{font-weight:600;margin-bottom:4px}
+.box .r{color:var(--text-2);font-size:13px;line-height:18px}
+.btn{height:36px;padding:0 14px;border-radius:6px;font-weight:500;border:1px solid var(--border-strong);background:var(--surface);color:var(--text);display:inline-flex;align-items:center}
+.btn.pri{background:var(--accent);color:var(--on-accent);border-color:var(--accent-border);font-weight:600}
+.btn.ghost{border-color:transparent;background:transparent;color:var(--text-2);padding:0 10px}
+.small{font-size:13px;line-height:18px;color:var(--text-2)}
+.two{display:flex;flex-wrap:wrap;gap:16px}
+.list{flex:1 1 320px;min-width:0}
+.detail{flex:999 1 520px;min-width:0}
+.item{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:10px 12px;margin-bottom:8px}
+.item.sel{box-shadow:0 0 0 1px var(--accent-border);border-color:var(--accent-border)}
+.item .t{font-weight:500;margin:4px 0 2px}
+.shots{display:flex;gap:8px;flex-wrap:wrap}
+.shot{width:150px;height:92px;border:1px dashed var(--border-strong);border-radius:6px;display:flex;align-items:center;justify-content:center;color:var(--text-3);font-size:12px}
+ul.d{margin:0;padding-left:18px}
+ul.d li{margin:4px 0}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<div class="intro">
+  <h1>The home page: "Waiting for you"</h1>
+  <p>Two ways to lay out the same five things. The content is made up, from Fodr and from this repository, so there is something real to look at. Colours and components are the platform's own.</p>
+  <p><strong>The question:</strong> do you want to act straight from one long list (A), or pick an item on the left and read it fully on the right (B)?</p>
+  <div class="pick">
+    <button data-choice="a" onclick="window.toggleSelect&&toggleSelect(this)">A. One list, act in place</button>
+    <button data-choice="b" onclick="window.toggleSelect&&toggleSelect(this)">B. List and detail</button>
+  </div>
+</div>
+
+<div class="opt">
+  <h2>A. One list, act in place</h2>
+  <p>Everything is open on the page, grouped by what kind of thing it is. You read and answer without clicking into anything. Longest to scroll, fastest to clear.</p>
+  <div class="frame">
+    <div class="nav"><span class="mark"></span><span class="word">Platform</span><span class="nl">Home</span><span class="nl">Memory</span><span class="nl">Review</span><span class="nl on">Dev<span class="dot"></span></span></div>
+    <div class="page">
+      <div class="tabs"><span class="tab on">Waiting for you · 5</span><span class="tab">Running now · 2</span><span class="tab">Projects</span><span class="tab">Usage and history</span></div>
+      <div class="row" style="justify-content:space-between"><h3 class="pt">Waiting for you</h3><span class="mono">5 things · 2 projects</span></div>
+
+      <div class="sec">QUESTIONS BEFORE STARTING <span class="mono">2</span></div>
+      <div class="card need">
+        <div class="row"><span class="badge">Fodr</span><span class="mono">#41</span><span class="title">Export a feeding plan as PDF</span><span class="st need" style="margin-left:auto">Needs answers</span></div>
+        <div class="box"><div class="q">Should the PDF include the horse's analysis values, or only the plan?</div><div class="r">Agent recommends: include them on a second page. The plan refers to them, and a vet reading the PDF has no access to the app.</div></div>
+        <div class="row"><span class="btn pri">Accept recommendation</span><span class="btn">Answer differently</span><span class="btn ghost">Open card</span></div>
+      </div>
+      <div class="card need">
+        <div class="row"><span class="badge">Fodr</span><span class="mono">#43</span><span class="title">Remember the last used horse</span><span class="st need" style="margin-left:auto">Needs answers</span></div>
+        <div class="box"><div class="q">Per device, or per account across devices?</div><div class="r">Agent recommends: per account. The card says "when I come back", and you use both phone and laptop.</div></div>
+        <div class="row"><span class="btn">Accept recommendation</span><span class="btn">Answer differently</span><span class="btn ghost">Open card</span></div>
+      </div>
+
+      <div class="sec">PULL REQUESTS WAITING <span class="mono">1</span></div>
+      <div class="card need">
+        <div class="row"><span class="badge">Personal-platform</span><span class="mono">#248</span><span class="title">Decks and cards, the API</span><span class="st need" style="margin-left:auto">Waiting for you</span></div>
+        <div class="small">The agent made 2 decisions you would want a say in. The reviewer approved.</div>
+        <ul class="d">
+          <li><strong>A deck id the user does not have answers 422, not 404.</strong> <span class="small">The card's acceptance contradicted itself. Reviewer: agrees, it matches the brain.</span></li>
+          <li><strong>References between rows carry the user id.</strong> <span class="small">Stricter than the card wrote. Reviewer: agrees, the brain does the same.</span></li>
+        </ul>
+        <div class="row"><span class="btn">Merge</span><span class="btn">Send back with a comment</span><span class="btn ghost">Open card</span></div>
+      </div>
+
+      <div class="sec">FEATURES READY FOR YOUR REVIEW <span class="mono">1</span></div>
+      <div class="card need">
+        <div class="row"><span class="badge">Fodr</span><span class="title">Feeding plan, version 2</span><span class="st ok" style="margin-left:auto">6 of 6 cards done</span></div>
+        <div class="small">Built overnight in 5 h 12 min. 2 attention notes from the agent. Tests pass, 14 screenshots.</div>
+        <div class="row"><span class="btn">Open the feature</span></div>
+      </div>
+
+      <div class="sec">STOPPED <span class="mono">1</span></div>
+      <div class="card">
+        <div class="row"><span class="badge">Fodr</span><span class="mono">#47</span><span class="title">Import analysis from a photo</span><span class="st fail" style="margin-left:auto">Stopped</span></div>
+        <div class="small">The tests still fail after 3 fix rounds. The reviewer and the developer disagree on how a blurry photo should be handled. 2 cards wait for this one.</div>
+        <div class="row"><span class="btn">Open card</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="opt">
+  <h2>B. List and detail</h2>
+  <p>A short list on the left, one item open on the right with everything about it: the full reasoning, the screenshots, the review. More room per decision, one click per item. On phone the detail opens as its own screen.</p>
+  <div class="frame">
+    <div class="nav"><span class="mark"></span><span class="word">Platform</span><span class="nl">Home</span><span class="nl">Memory</span><span class="nl">Review</span><span class="nl on">Dev<span class="dot"></span></span></div>
+    <div class="page">
+      <div class="tabs"><span class="tab on">Waiting for you · 5</span><span class="tab">Running now · 2</span><span class="tab">Projects</span><span class="tab">Usage and history</span></div>
+      <div class="two">
+        <div class="list">
+          <div class="item"><div class="row"><span class="badge">Fodr</span><span class="mono">#41</span><span class="st need" style="margin-left:auto">Needs answers</span></div><div class="t">Export a feeding plan as PDF</div><div class="mono">1 question</div></div>
+          <div class="item"><div class="row"><span class="badge">Fodr</span><span class="mono">#43</span><span class="st need" style="margin-left:auto">Needs answers</span></div><div class="t">Remember the last used horse</div><div class="mono">1 question</div></div>
+          <div class="item sel"><div class="row"><span class="badge">Personal-platform</span><span class="mono">#248</span><span class="st need" style="margin-left:auto">Waiting for you</span></div><div class="t">Decks and cards, the API</div><div class="mono">2 decisions · approved</div></div>
+          <div class="item"><div class="row"><span class="badge">Fodr</span><span class="st ok" style="margin-left:auto">Ready for review</span></div><div class="t">Feeding plan, version 2</div><div class="mono">6 of 6 cards · 2 notes</div></div>
+          <div class="item"><div class="row"><span class="badge">Fodr</span><span class="mono">#47</span><span class="st fail" style="margin-left:auto">Stopped</span></div><div class="t">Import analysis from a photo</div><div class="mono">3 fix rounds used</div></div>
+        </div>
+        <div class="detail">
+          <div class="card need">
+            <div class="row"><span class="badge">Personal-platform</span><span class="mono">#248</span><span class="st need" style="margin-left:auto">Waiting for you</span></div>
+            <h3 class="pt" style="font-size:17px;line-height:24px">Decks and cards, the API</h3>
+            <div class="small">Review's decks and cards can be created, read, changed and deleted through its API. Nothing visible changes yet. Tests: 133 passed. Reviewer: approved after 1 fix round.</div>
+            <div class="box"><div class="q">Decision 1: a deck id the user does not have answers 422, not 404</div><div class="r">The card's acceptance said both. Another user's deck and a deck nobody has look the same to Review, so one answer had to go. The alternative was 404 everywhere. <strong>Reviewer:</strong> agrees, the brain already reads it this way.</div></div>
+            <div class="box"><div class="q">Decision 2: references between rows carry the user id</div><div class="r">Stricter than the card wrote. A plain reference is checked without the isolation rule, so a card could be filed in another user's deck. <strong>Reviewer:</strong> agrees, the brain's tables do exactly this.</div></div>
+            <div class="shots"><div class="shot">no screenshots, API only</div></div>
+            <div class="row"><span class="btn pri">Merge, confirms both</span><span class="btn">Send back with a comment</span><span class="btn ghost">Open on GitHub</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+</div>
+</body>
+</html>
