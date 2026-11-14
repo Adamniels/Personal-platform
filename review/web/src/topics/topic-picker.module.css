@@ -1,6 +1,6 @@
-/* The topic picker: the package's text field, its listbox floating under it
- * as a menu, which hard rule 3 of design/DESIGN.md gives --shadow-1, and the
- * picked topics as tool chips under the field, each with its remove button.
+/* The topic picker: the package's text field, its listbox under it in the
+ * flow of the form, so it never covers the topics already picked, and the
+ * picked topics as tool chips under that, each with its remove button.
  * Every colour and size is a token. */
 
 .picker {
@@ -11,25 +11,19 @@
 }
 
 .combo {
-	position: relative;
 	min-width: 0;
 }
 
+/* Bordered like the field, with no shadow, since it is not a floating
+ * layer (hard rule 3 of design/DESIGN.md). */
 .list {
-	position: absolute;
-	z-index: 1;
-	top: calc(100% + var(--space-1));
-	left: 0;
-	right: 0;
+	margin: var(--space-1) 0 0;
 	max-height: calc(var(--row-h) * 6);
 	overflow-y: auto;
-	margin: 0;
 	padding: var(--space-1) 0;
-	list-style: none;
 	border: 1px solid var(--border-strong);
 	border-radius: var(--radius-md);
 	background: var(--surface);
-	box-shadow: var(--shadow-1);
 }
 
 .option {
