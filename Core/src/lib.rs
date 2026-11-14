@@ -2,6 +2,7 @@
 //! calls into it, and the tests in tests/ import what they test.
 
 pub mod accounts;
+pub mod backup_status;
 pub mod cards;
 pub mod change_password;
 pub mod claims;
@@ -21,6 +22,7 @@ pub mod password;
 pub mod refresh;
 pub mod registration;
 pub mod registry;
+pub mod relative;
 pub mod reset;
 pub mod reset_token;
 pub mod return_path;
@@ -44,6 +46,7 @@ use std::collections::HashSet;
 use std::env;
 use std::error::Error;
 use std::net::SocketAddr;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use time::OffsetDateTime;
@@ -76,6 +79,10 @@ pub struct AppState {
     /// `display::DISPLAY_DEADLINE`, and shorter in tests, which set it after
     /// `new`. See src/display.rs.
     pub display_deadline: Duration,
+    /// The backup job's status file, from `CORE_BACKUP_STATUS_FILE`, read
+    /// on every load of the front page; None when unset, and then nothing
+    /// is read or shown. Set after `new`. See src/backup_status.rs.
+    pub backup_status_file: Option<PathBuf>,
 }
 
 impl AppState {
@@ -97,6 +104,7 @@ impl AppState {
             registry: Arc::new(registry),
             http,
             display_deadline: display::DISPLAY_DEADLINE,
+            backup_status_file: None,
         })
     }
 }
@@ -125,6 +133,11 @@ pub async fn serve() -> Result<(), Box<dyn Error>> {
     println!("signing with key id {}", signing_key.key_id());
     let access_token_lifetime = access_token_lifetime()?;
     println!("access tokens last {access_token_lifetime}");
+    let backup_status_file = backup_status::setting(env::var_os(backup_status::SETTING))?;
+    match &backup_status_file {
+        Some(path) => println!("backup status from {}", path.display()),
+        None => println!("no backup status, {} is unset", backup_status::SETTING),
+    }
     let registry_path = registry::path(env::var_os("CORE_FEATURE_REGISTRY"));
     let registry = Registry::load(&registry_path)
         .map_err(|err| format!("could not load the feature registry: {err}"))?;
@@ -137,7 +150,8 @@ pub async fn serve() -> Result<(), Box<dyn Error>> {
     let pool = connect_database().await?;
     println!("connected to the database");
 
-    let state = AppState::new(pool, signing_key, access_token_lifetime, registry).await?;
+    let mut state = AppState::new(pool, signing_key, access_token_lifetime, registry).await?;
+    state.backup_status_file = backup_status_file;
     let app = app(state, origin);
 
     let listener = TcpListener::bind(addr)
