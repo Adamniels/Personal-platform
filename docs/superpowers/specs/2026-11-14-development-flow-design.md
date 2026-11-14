@@ -302,9 +302,103 @@ Agreed in round 2 so far:
 
 ### Round 3: trust and safety
 
-Settles who may merge and on what evidence, what a run may touch on the machine it runs on,
-credentials and bot identities per project, how text an agent reads is kept as data, and how each
-anti goal is met when nothing waits for the owner.
+Held on 2026 11 14 and done. It settled which secrets a run may have, what a run may reach on the
+machine it runs on, the worker model, whose words count as instructions, what keeps usage from
+being burned, and who the program acts as on the code host.
+
+Agreed in round 3:
+
+- **A run never gets a real secret** (2026 11 14). A project must be testable with throwaway
+  values: a local database with a made up password, fake keys, or outside services mocked. Where a
+  test truly needs a real service, the project gets a key made for the automation, with a low
+  spending limit, that can be cancelled without touching production. The program holds these values
+  and hands them to a run, so they are in no repository and are never copied to a machine by hand.
+  It removes known secret values from everything it stores or posts. A project that can only be
+  tested against production cannot be connected until that is fixed, and the check at registration
+  catches it. Allowing real secrets and relying on scrubbing was the alternative: scrubbing only
+  catches values it knows, and does nothing about an agent using a secret instead of printing it.
+- **Every worker belongs to exactly one project, from the moment it is created** (2026 11 14). A
+  project's cards go only to that project's workers, so no project waits for another's work, and
+  more workers for a project means more of its features built at once. Shared workers, with tags or
+  lists to match them to projects, were considered and dropped at the owner's wish: a dedicated
+  worker has exactly its project's tools, never holds another project's code, and can keep things
+  from one card to the next, which round 4b may use.
+- **Where a worker is installed decides what a run can reach** (2026 11 14), the owner's idea. The
+  normal worker runs in a Linux container and reaches only what is in it. A project that needs
+  macOS itself, such as Tick or Operation Rollout, has its worker installed directly on a Mac, with
+  weaker separation, accepted since it is the owner's own code on his own machine. One machine holds
+  several workers, limited by memory. The program hands a run nothing beyond its working copy and
+  the values it needs.
+- **A container is kept between cards, and each card gets a clean working copy** (2026 11 14). The
+  installed tools and downloaded packages stay, which makes the next card faster.
+- **The program watches the code host, and a worker only asks the program for work** (2026 11 14).
+  A worker never talks to the code host.
+- **A project's tools come from a recipe in its own repository** (2026 11 14), a Dockerfile, built
+  on top of a base image holding the worker and Claude Code. It follows the code: a card that makes
+  the project need a new tool adds it to the recipe in the same pull request, and a changed recipe
+  rebuilds the worker. Inside a container the agent may install what it is missing so it does not
+  get stuck, and must then add it to the recipe. On a worker installed directly on a Mac the agent
+  installs no system tools: the check at registration says what is missing and the owner installs
+  it.
+- **Connecting a project starts with a setup run** (2026 11 14). An agent reads the repository,
+  opens a pull request with the recipe and suggests the settings. The owner merges it and accepts or
+  changes the settings, the program builds the recipe and runs the project's tests in it, which is
+  the check at registration, and he starts a worker. The setup run happens in a plain container from
+  the base image.
+- **A worker is started by one command the page shows**, with the project's key in it, run on the
+  machine (2026 11 14). The step beyond it is a machine program, installed once per machine, that
+  builds, starts, stops and rebuilds workers when the page asks, so no terminal is needed and adding
+  a machine is installing it once. The owner confirmed the order on 2026 11 14: the command is built first, and
+  the machine program is designed for from the start so it is not forgotten. Round 9 places it.
+- **The worker and the machine program are part of this feature and live in this repository**
+  (2026 11 14), since they and the program must agree on how they talk. They reach a machine as
+  published packages, the base image and the machine program, so nothing is cloned there.
+- **Pausing is a switch on the project** (2026 11 14). Paused, the program hands out no more of its
+  cards: the card in progress finishes and nothing new starts. "Stop now" ends the running card at
+  once and keeps its work on the branch. One switch pauses every project. A worker that asks and
+  gets nothing spends no usage.
+- **Only a project's trusted accounts give instructions** (2026 11 14). Each project has a list of
+  them, by default only the owner; a shared project such as Operation Rollout can add a teammate. A
+  card is picked up only if a trusted account wrote it and nobody outside the list has edited it.
+  Only a trusted account's label switches the automation on, and only its comment sends work back
+  or answers a question. Everything else is data: an agent may read a stranger's comment, the code,
+  a log or a web page as information, never as something to obey. A card ignored for this reason
+  says so in the queue.
+- **A run and a card have stops that are on by default** (2026 11 14), taken from this
+  repository's runner: a time limit per run, a limit on fix rounds per card, and a card that comes
+  back twice with nothing new stops instead of trying again. A stopped card gets an attention
+  issue. A problem outside the card never counts against it.
+- **Every run is measured from the first day** (2026 11 14): how long it took and the tokens it
+  used, per card, feature and project. The usage page shows it, and no limit can be set sensibly
+  without it.
+- **A project can have a daily budget, and it starts switched off** (2026 11 14). When it is
+  reached the project pauses itself and tells the owner. It stays off until there are real numbers
+  to set it from.
+- **Active projects share the allowance by taking equal turns** (2026 11 14). When usage is tight
+  they take turns starting a run, and a project with nothing to do gives its turn away. The owner
+  controls the split by choosing which projects are active. Priority between projects was proposed
+  and dropped by him, since a low priority project could then starve. Priority labels order
+  features and cards inside one project only, which narrows the order agreed in round 2.
+- **The program acts on GitHub as a GitHub App** (2026 11 14), installed on each connected
+  repository from GitHub's own screen. Its permissions are narrow and per repository, it holds no
+  long lived password, since it makes itself a short lived key when it needs one, and what it does
+  is marked as the app's. GitHub Apps are free on a personal account, private repositories
+  included, checked against GitHub's pricing page on 2026 11 14. A bot user, as this repository has
+  today, was the alternative: each repository needs an invitation by hand, and its login is a long
+  lived secret.
+- **What the owner does from the page is recorded on GitHub as done by him** (2026 11 14). He
+  connects his own GitHub account to the platform once. So "the owner merges a feature into `main`"
+  is true in GitHub's own history.
+- **Developer and reviewer share the app's identity** (2026 11 14). No agent has access to the code
+  host, the program posts for both, and it knows which run wrote what, so the guards this
+  repository needs against an agent approving its own work have nothing to guard.
+- **Nothing depends on branch protection** (2026 11 14). Rulesets and protected branches on a
+  private repository need a paid GitHub plan, so the program enforces its rules itself: that only
+  the owner merges a feature into `main` holds because the program never performs that merge. A
+  project that has branch protection keeps it as an extra layer.
+- **Which addresses a run may call is not restricted for now** (2026 11 14). It needs the network
+  for packages and the model, and while a run holds no real secret there is little to gain. The
+  Claude login is the one credential a run must hold; round 5 looks at how to narrow it.
 
 ### Round 4: architecture
 
@@ -363,9 +457,6 @@ the first part through `/plan-feature`.
 
 Check these. Each was said to him in passing, and none was asked as a question.
 
-- **A worker connects outward and asks the program for work.** A machine at home cannot be reached
-  from a host elsewhere, and it makes adding a machine a matter of installing the worker and giving
-  it a key. Round 4 confirms it.
 - **The program keeps the label and comment conventions of the current runner** where it can, so
   the waiting list built first keeps working when the engine arrives. Round 6 confirms it.
 
@@ -387,5 +478,7 @@ passage changes when this way of working has been tried.
 ## Changes
 
 - 2026 11 14: first version, after rounds 0 and 1.
+- 2026 11 14: round 3 added. Every worker is dedicated to one project, which replaced an earlier
+  draft with shared workers and tags.
 - 2026 11 14: round 2 added, and round 4b, cost and efficiency, added at the owner's wish. The call
   that every card has a pull request left "Calls made without the owner", since round 2 agreed it.
