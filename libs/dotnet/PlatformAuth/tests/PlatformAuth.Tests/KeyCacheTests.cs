@@ -246,6 +246,36 @@ public sealed class KeyCacheTests : IDisposable
     }
 
     [Fact]
+    public async Task ALookupCancelledMidFetchDoesNotAbandonTheFetch()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var release = new TaskCompletionSource();
+        _core.Answer = async (_, token) =>
+        {
+            // Honours the token it is given, as a real connection would.
+            await release.Task.WaitAsync(token);
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(Contract.Jwks) };
+        };
+
+        // A request whose client hangs up while its lookup is fetching the set.
+        using var hangUp = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var cancelled = _cache.FindAsync(FixtureKid, hangUp.Token);
+        while (_core.Count == 0)
+        {
+            await Task.Yield();
+        }
+
+        await hangUp.CancelAsync();
+        release.SetResult();
+        _ = await Record.ExceptionAsync(() => cancelled);
+
+        // Inside the cooldown, the next request finds the key the fetch brought.
+        Advance(1);
+        Assert.NotNull(await _cache.FindAsync(FixtureKid, ct));
+        Assert.Equal(1, _core.Count);
+    }
+
+    [Fact]
     public async Task OneFetchRunsAtATime()
     {
         var release = new TaskCompletionSource();

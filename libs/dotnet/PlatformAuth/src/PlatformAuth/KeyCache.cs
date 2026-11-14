@@ -55,6 +55,12 @@ public sealed partial class KeyCache : IDisposable
     /// last fetch, successful or not, was not inside the cooldown. Null if the set, as last
     /// fetched, does not hold it.
     /// </summary>
+    /// <param name="keyId">The token's <c>kid</c>.</param>
+    /// <param name="cancellationToken">
+    /// Cancels waiting for another lookup's fetch, never a fetch once it has started: the fetch is
+    /// shared and counts for the cooldown, so one caller hanging up must not abandon it for every
+    /// caller. A started fetch is bounded by <see cref="FetchTimeout"/> alone.
+    /// </param>
     public async Task<PublicKey?> FindAsync(string keyId, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(keyId);
@@ -79,7 +85,7 @@ public sealed partial class KeyCache : IDisposable
             }
 
             _lastFetch = now;
-            if (await FetchAsync(cancellationToken).ConfigureAwait(false) is { } fetched)
+            if (await FetchAsync().ConfigureAwait(false) is { } fetched)
             {
                 _keys = fetched;
             }
@@ -128,29 +134,28 @@ public sealed partial class KeyCache : IDisposable
     public void Dispose() => _fetching.Dispose();
 
     // The set the core serves now, or null if it could not be had: the network, the timeout, a
-    // status other than 200, or a body that is not a key set. Cancellation by the caller is not a
-    // failed fetch and is passed on.
-    private async Task<Dictionary<string, PublicKey>?> FetchAsync(CancellationToken cancellationToken)
+    // status other than 200, or a body that is not a key set. It takes no caller's token, so it
+    // always ends in one of those or a set, within the timeout.
+    private async Task<Dictionary<string, PublicKey>?> FetchAsync()
     {
         using var timeout = new CancellationTokenSource(FetchTimeout, _time);
-        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeout.Token);
         try
         {
-            using var response = await _client.GetAsync(_url, linked.Token).ConfigureAwait(false);
+            using var response = await _client.GetAsync(_url, timeout.Token).ConfigureAwait(false);
             if (response.StatusCode != System.Net.HttpStatusCode.OK)
             {
                 return null;
             }
 
-            var body = await response.Content.ReadAsStreamAsync(linked.Token).ConfigureAwait(false);
+            var body = await response.Content.ReadAsStreamAsync(timeout.Token).ConfigureAwait(false);
             await using (body.ConfigureAwait(false))
             {
-                using var json = await JsonDocument.ParseAsync(body, default, linked.Token).ConfigureAwait(false);
+                using var json = await JsonDocument.ParseAsync(body, default, timeout.Token).ConfigureAwait(false);
                 return ParseKeySet(json.RootElement);
             }
         }
         catch (Exception e) when (e is HttpRequestException or JsonException or IOException
-            || (e is OperationCanceledException && !cancellationToken.IsCancellationRequested))
+            or OperationCanceledException)
         {
             return null;
         }
