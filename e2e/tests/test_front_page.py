@@ -10,8 +10,10 @@ from playwright.sync_api import Locator, Page, expect
 from conftest import capture, register_and_log_in
 
 
-def test_front_page_shows_canarys_card(page: Page, invite_code: str, viewport: str):
-    register_and_log_in(page, invite_code)
+def test_front_page_shows_canarys_card(
+    page: Page, invite_code: str, viewport: str, base_url: str
+):
+    register_and_log_in(page, invite_code, base_url)
 
     # Canary's own API, asked with the page's cookies, is the reference for
     # who this is, so the test does not trust the card to say it.
@@ -72,11 +74,11 @@ def review_card(page: Page) -> Locator:
 
 
 def test_the_home_page_shows_what_is_due_in_review(
-    page: Page, invite_code: str, viewport: str
+    page: Page, invite_code: str, viewport: str, base_url: str
 ):
     """Review comes to the owner: the home page, the first thing seen after
     logging in, says how many cards are due and in which decks."""
-    register_and_log_in(page, invite_code)
+    register_and_log_in(page, invite_code, base_url)
     compilers = add_deck(page, "Compilers")
     databases = add_deck(page, "Databases")
     # A new card is due at once.
@@ -103,9 +105,9 @@ def test_the_home_page_shows_what_is_due_in_review(
 
 
 def test_the_home_page_says_when_nothing_is_due_in_review(
-    page: Page, invite_code: str, viewport: str
+    page: Page, invite_code: str, viewport: str, base_url: str
 ):
-    register_and_log_in(page, invite_code)
+    register_and_log_in(page, invite_code, base_url)
     page.goto("/")
 
     # With no cards at all, the card offers to add some.

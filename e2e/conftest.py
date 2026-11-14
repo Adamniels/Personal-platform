@@ -123,7 +123,7 @@ def log_in(page: Page, email: str, password: str) -> None:
     page.click("button[type=submit]")
 
 
-def register_and_log_in(page: Page, invite_code: str) -> str:
+def register_and_log_in(page: Page, invite_code: str, base_url: str) -> str:
     """Registers a fresh account with the code, logs in, and returns its email.
 
     Ends on the front page. test_registration.py walks the same steps as the
@@ -131,7 +131,7 @@ def register_and_log_in(page: Page, invite_code: str) -> str:
     """
     email, password = register(page, invite_code)
     log_in(page, email, password)
-    expect(page).to_have_url("https://platform.test/")
+    expect(page).to_have_url(f"{base_url}/")
     return email
 
 

@@ -183,9 +183,9 @@ def test_a_form_error_is_announced_and_styled(page: Page):
 
 @pytest.mark.parametrize("theme", THEMES)
 def test_the_home_page_cards_follow_the_card_rule(
-    page: Page, invite_code: str, theme: str
+    page: Page, invite_code: str, base_url: str, theme: str
 ):
-    register_and_log_in(page, invite_code)
+    register_and_log_in(page, invite_code, base_url)
     use_theme(page, theme)
 
     card = page.get_by_role("article").filter(
@@ -228,7 +228,9 @@ def test_the_home_page_cards_follow_the_card_rule(
     assert line["color"] == resolve(page, "--text-2", "color")
 
 
-def test_every_core_page_has_one_primary_button_at_most(page: Page, invite_code: str):
+def test_every_core_page_has_one_primary_button_at_most(
+    page: Page, invite_code: str, base_url: str
+):
     accent = None
     for path in OPEN_PAGES.values():
         open_page(page, path)
@@ -237,7 +239,7 @@ def test_every_core_page_has_one_primary_button_at_most(page: Page, invite_code:
         submit = page.locator("form button[type=submit]")
         assert style(submit)["background"] == accent, path
 
-    register_and_log_in(page, invite_code)
+    register_and_log_in(page, invite_code, base_url)
     for path in SIGNED_IN_PAGES.values():
         open_page(page, path)
         accent = resolve(page, "--accent", "background-color")
@@ -248,7 +250,7 @@ def test_every_core_page_has_one_primary_button_at_most(page: Page, invite_code:
 
 @pytest.mark.parametrize("theme", THEMES)
 def test_every_core_page_passes_the_accessibility_check(
-    page: Page, invite_code: str, theme: str
+    page: Page, invite_code: str, base_url: str, theme: str
 ):
     def check(path: str) -> None:
         page.add_script_tag(path=str(AXE))
@@ -265,13 +267,15 @@ def test_every_core_page_passes_the_accessibility_check(
     expect(page.get_by_role("alert")).to_be_visible()
     check("/login refused")
 
-    register_and_log_in(page, invite_code)
+    register_and_log_in(page, invite_code, base_url)
     for path in SIGNED_IN_PAGES.values():
         open_page(page, path)
         check(path)
 
 
-def test_fields_are_16px_and_44px_tall_on_phone(page: Page, invite_code: str):
+def test_fields_are_16px_and_44px_tall_on_phone(
+    page: Page, invite_code: str, base_url: str
+):
     page.set_viewport_size(VIEWPORTS["phone"])
 
     def check(path: str) -> None:
@@ -287,13 +291,15 @@ def test_fields_are_16px_and_44px_tall_on_phone(page: Page, invite_code: str):
     for path in OPEN_PAGES.values():
         open_page(page, path)
         check(path)
-    register_and_log_in(page, invite_code)
+    register_and_log_in(page, invite_code, base_url)
     open_page(page, "/settings/password")
     check("/settings/password")
 
 
-def test_canary_page_uses_the_platform_values(page: Page, invite_code: str):
-    register_and_log_in(page, invite_code)
+def test_canary_page_uses_the_platform_values(
+    page: Page, invite_code: str, base_url: str
+):
+    register_and_log_in(page, invite_code, base_url)
     open_page(page, "/canary")
     page.evaluate("document.fonts.ready.then(() => null)")
 
@@ -320,7 +326,7 @@ def test_canary_page_uses_the_platform_values(page: Page, invite_code: str):
 
 @pytest.mark.parametrize("theme", THEMES)
 def test_each_page_in_each_theme(
-    page: Page, invite_code: str, viewport: str, theme: str
+    page: Page, invite_code: str, base_url: str, viewport: str, theme: str
 ):
     """Screenshots of every restyled page, in both themes, for the owner to
     look at: <page>-<theme>-<viewport>.png."""
@@ -337,7 +343,7 @@ def test_each_page_in_each_theme(
 
     email, password = register(page, invite_code)
     log_in(page, email, password)
-    expect(page).to_have_url("https://platform.test/")
+    expect(page).to_have_url(f"{base_url}/")
     for name, path in {**SIGNED_IN_PAGES, "canary": "/canary"}.items():
         open_page(page, path)
         expect(page.get_by_role("navigation").first).to_be_visible()

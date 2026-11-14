@@ -74,8 +74,10 @@ def remember_theme(page: Page, theme: str) -> None:
     expect(page.locator("html")).to_have_attribute("data-theme", theme)
 
 
-def test_nav_shows_home_features_and_user(page: Page, invite_code: str, viewport: str):
-    email = register_and_log_in(page, invite_code)
+def test_nav_shows_home_features_and_user(
+    page: Page, invite_code: str, base_url: str, viewport: str
+):
+    email = register_and_log_in(page, invite_code, base_url)
 
     nav = page.get_by_role("navigation")
     brand = nav.get_by_role("link", name="Platform", exact=True)
@@ -98,8 +100,8 @@ def test_nav_shows_home_features_and_user(page: Page, invite_code: str, viewport
     capture(page, "front-signed-in")
 
 
-def test_the_active_link_is_marked(page: Page, invite_code: str):
-    register_and_log_in(page, invite_code)
+def test_the_active_link_is_marked(page: Page, invite_code: str, base_url: str):
+    register_and_log_in(page, invite_code, base_url)
 
     home = links_bar(page).get_by_role("link", name="Home", exact=True)
     canary = links_bar(page).get_by_role("link", name="Canary", exact=True)
@@ -119,8 +121,8 @@ def test_the_active_link_is_marked(page: Page, invite_code: str):
     assert other["color"] == resolve(page, "--text-2", "color")
 
 
-def test_changing_current_moves_the_mark(page: Page, invite_code: str):
-    register_and_log_in(page, invite_code)
+def test_changing_current_moves_the_mark(page: Page, invite_code: str, base_url: str):
+    register_and_log_in(page, invite_code, base_url)
     home = links_bar(page).get_by_role("link", name="Home", exact=True)
     canary = links_bar(page).get_by_role("link", name="Canary", exact=True)
     expect(canary).to_be_visible()
@@ -132,9 +134,9 @@ def test_changing_current_moves_the_mark(page: Page, invite_code: str):
 
 
 def test_the_user_menu_holds_password_and_log_out(
-    page: Page, invite_code: str, viewport: str
+    page: Page, invite_code: str, base_url: str, viewport: str
 ):
-    email = register_and_log_in(page, invite_code)
+    email = register_and_log_in(page, invite_code, base_url)
     nav = page.get_by_role("navigation")
     button = nav.get_by_role("button", name=email, exact=True)
     change = nav.get_by_role("link", name="Change password", exact=True)
@@ -174,10 +176,10 @@ def test_the_user_menu_holds_password_and_log_out(
 
 
 def test_the_theme_toggle_overrides_the_system_and_is_remembered(
-    page: Page, invite_code: str
+    page: Page, invite_code: str, base_url: str
 ):
     page.emulate_media(color_scheme="light")
-    email = register_and_log_in(page, invite_code)
+    email = register_and_log_in(page, invite_code, base_url)
     root = page.locator("html")
     expect(root).not_to_have_attribute("data-theme", re.compile("."))
     # The bar draws once more when /api/nav answers; press after that.
@@ -201,9 +203,9 @@ def test_the_theme_toggle_overrides_the_system_and_is_remembered(
     expect(root).to_have_attribute("data-theme", "light")
 
 
-def test_no_flash_of_the_wrong_theme(page: Page, invite_code: str):
+def test_no_flash_of_the_wrong_theme(page: Page, invite_code: str, base_url: str):
     page.emulate_media(color_scheme="light")
-    register_and_log_in(page, invite_code)
+    register_and_log_in(page, invite_code, base_url)
     page.evaluate(f"localStorage.setItem('{STORAGE_KEY}', 'dark')")
     # Runs before any script of the page's own, so what it reads at
     # DOMContentLoaded was set by a script in the head, before the body.
@@ -218,9 +220,11 @@ def test_no_flash_of_the_wrong_theme(page: Page, invite_code: str):
     assert page.evaluate("window.themeAtLoad") == "dark"
 
 
-def test_on_phone_the_links_are_a_bar_at_the_bottom(page: Page, invite_code: str):
+def test_on_phone_the_links_are_a_bar_at_the_bottom(
+    page: Page, invite_code: str, base_url: str
+):
     page.set_viewport_size(VIEWPORTS["phone"])
-    email = register_and_log_in(page, invite_code)
+    email = register_and_log_in(page, invite_code, base_url)
     # The bar draws once more when /api/nav answers, replacing what a box
     # measured before it would read; measure after that.
     expect(page.get_by_role("button", name=email, exact=True)).to_be_visible()
@@ -267,9 +271,11 @@ def test_on_phone_the_links_are_a_bar_at_the_bottom(page: Page, invite_code: str
     assert canary["borders"][0] != active["borders"][0]
 
 
-def test_more_than_five_links_fold_into_more(page: Page, invite_code: str):
+def test_more_than_five_links_fold_into_more(
+    page: Page, invite_code: str, base_url: str
+):
     page.set_viewport_size(VIEWPORTS["phone"])
-    register_and_log_in(page, invite_code)
+    register_and_log_in(page, invite_code, base_url)
     features = [{"name": f"Feature {i}", "path": f"/feature{i}"} for i in range(1, 7)]
     page.route("**/api/nav", lambda route: route.fulfill(json=nav_answer(features)))
     page.reload()
@@ -305,9 +311,9 @@ def test_more_than_five_links_fold_into_more(page: Page, invite_code: str):
     expect(more).to_be_hidden()
 
 
-def test_five_links_need_no_more(page: Page, invite_code: str):
+def test_five_links_need_no_more(page: Page, invite_code: str, base_url: str):
     page.set_viewport_size(VIEWPORTS["phone"])
-    register_and_log_in(page, invite_code)
+    register_and_log_in(page, invite_code, base_url)
     # Home, Memory and three features.
     features = [{"name": f"Feature {i}", "path": f"/feature{i}"} for i in range(1, 4)]
     page.route("**/api/nav", lambda route: route.fulfill(json=nav_answer(features)))
@@ -319,9 +325,9 @@ def test_five_links_need_no_more(page: Page, invite_code: str):
 
 
 def test_the_page_content_is_not_covered_by_either_bar(
-    page: Page, invite_code: str, viewport: str
+    page: Page, invite_code: str, base_url: str, viewport: str
 ):
-    register_and_log_in(page, invite_code)
+    register_and_log_in(page, invite_code, base_url)
     # Content taller than the screen, so the last element is only reached by
     # scrolling, where the tab bar would cover it.
     page.locator("main").evaluate(
@@ -356,9 +362,9 @@ def test_the_page_content_is_not_covered_by_either_bar(
 
 
 def test_the_page_keeps_the_bars_height_before_the_script_runs(
-    page: Page, invite_code: str
+    page: Page, invite_code: str, base_url: str
 ):
-    register_and_log_in(page, invite_code)
+    register_and_log_in(page, invite_code, base_url)
     nav_h = float(resolve(page, "--nav-h", "height").removesuffix("px"))
     page.route("**/design/nav.js", lambda route: route.abort())
     page.reload()
@@ -368,9 +374,9 @@ def test_the_page_keeps_the_bars_height_before_the_script_runs(
 
 
 def test_the_bar_shows_home_and_memory_alone_when_the_nav_endpoint_fails(
-    page: Page, invite_code: str
+    page: Page, invite_code: str, base_url: str
 ):
-    register_and_log_in(page, invite_code)
+    register_and_log_in(page, invite_code, base_url)
 
     # A 401, a server error, and a request that never gets an answer. Each
     # waits for /api/nav to settle, since the bar shows the fixed links alone
@@ -392,11 +398,13 @@ def test_the_bar_shows_home_and_memory_alone_when_the_nav_endpoint_fails(
         expect(nav.get_by_role("link")).to_have_count(3)
         expect(nav.get_by_role("button", name=re.compile("@"))).to_have_count(0)
         # Never sent anywhere: the bar fails quietly where the page is.
-        expect(page).to_have_url("https://platform.test/")
+        expect(page).to_have_url(f"{base_url}/")
 
 
-def test_a_link_from_the_endpoint_must_be_a_local_path(page: Page, invite_code: str):
-    register_and_log_in(page, invite_code)
+def test_a_link_from_the_endpoint_must_be_a_local_path(
+    page: Page, invite_code: str, base_url: str
+):
+    register_and_log_in(page, invite_code, base_url)
     features = [
         {"name": "Local", "path": "/local"},
         {"name": "Offsite", "path": "//example.com/"},
@@ -414,8 +422,10 @@ def test_a_link_from_the_endpoint_must_be_a_local_path(page: Page, invite_code: 
         expect(page.get_by_text(name, exact=True)).to_have_count(0)
 
 
-def test_names_and_the_email_are_written_as_text(page: Page, invite_code: str):
-    register_and_log_in(page, invite_code)
+def test_names_and_the_email_are_written_as_text(
+    page: Page, invite_code: str, base_url: str
+):
+    register_and_log_in(page, invite_code, base_url)
     markup = '<img src="x" onerror="window.injected = true">'
     email = "<b>someone</b>@example.com"
     page.route(
@@ -436,8 +446,10 @@ def test_names_and_the_email_are_written_as_text(page: Page, invite_code: str):
     assert page.evaluate("window.injected") is None
 
 
-def test_a_feature_that_needs_you_shows_the_dot(page: Page, invite_code: str):
-    register_and_log_in(page, invite_code)
+def test_a_feature_that_needs_you_shows_the_dot(
+    page: Page, invite_code: str, base_url: str
+):
+    register_and_log_in(page, invite_code, base_url)
     features = [
         {"name": "Quiet", "path": "/quiet"},
         {"name": "Waiting", "path": "/waiting", "attention": True},
@@ -479,9 +491,9 @@ def test_the_bar_files_are_served(page: Page):
 
 @pytest.mark.parametrize("theme", THEMES)
 def test_the_bar_passes_the_accessibility_check(
-    page: Page, invite_code: str, viewport: str, theme: str
+    page: Page, invite_code: str, base_url: str, viewport: str, theme: str
 ):
-    email = register_and_log_in(page, invite_code)
+    email = register_and_log_in(page, invite_code, base_url)
     remember_theme(page, theme)
     page.evaluate("document.fonts.ready.then(() => null)")
     page.add_script_tag(path=str(AXE))

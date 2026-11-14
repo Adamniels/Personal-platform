@@ -21,8 +21,8 @@ STORAGE_KEY = "platform-theme"
 DAY = re.compile(r"^\d{1,2} [A-Z][a-z]{2} \d{4}$")
 
 
-def open_everything(page: Page, invite_code: str) -> None:
-    register_and_log_in(page, invite_code)
+def open_everything(page: Page, invite_code: str, base_url: str) -> None:
+    register_and_log_in(page, invite_code, base_url)
     page.goto("/brain/everything")
     expect(page.get_by_role("tablist", name="Memory sections")).to_be_visible()
 
@@ -130,8 +130,10 @@ def head(page: Page) -> Locator:
     return everything(page).get_by_role("heading", level=2).locator("..")
 
 
-def test_everything_lists_every_kind_i_entered(page: Page, invite_code: str):
-    open_everything(page, invite_code)
+def test_everything_lists_every_kind_i_entered(
+    page: Page, invite_code: str, base_url: str
+):
+    open_everything(page, invite_code, base_url)
     one_of_each(page)
     page.reload()
 
@@ -157,9 +159,9 @@ def test_everything_lists_every_kind_i_entered(page: Page, invite_code: str):
 
 
 def test_retired_and_replaced_items_show_only_when_asked_for(
-    page: Page, invite_code: str
+    page: Page, invite_code: str, base_url: str
 ):
-    open_everything(page, invite_code)
+    open_everything(page, invite_code, base_url)
     retired = rule(page, "Keep answers short")
     call(page, "POST", f"/items/{retired['id']}/retire")
     first = rule(page, "Answer in English")
@@ -188,9 +190,9 @@ def test_retired_and_replaced_items_show_only_when_asked_for(
 
 
 def test_still_true_shows_on_a_state_not_confirmed_for_sixty_days(
-    page: Page, invite_code: str
+    page: Page, invite_code: str, base_url: str
 ):
-    open_everything(page, invite_code)
+    open_everything(page, invite_code, base_url)
     said = datetime.now(UTC) - timedelta(days=90)
     add(
         page,
@@ -211,8 +213,10 @@ def test_still_true_shows_on_a_state_not_confirmed_for_sixty_days(
     expect(entries(page)).to_have_text(["Finishing the draft"])
 
 
-def test_i_can_search_by_a_word_in_the_evidence(page: Page, invite_code: str):
-    open_everything(page, invite_code)
+def test_i_can_search_by_a_word_in_the_evidence(
+    page: Page, invite_code: str, base_url: str
+):
+    open_everything(page, invite_code, base_url)
     held = add(page, {"kind": "state", "content": "Writing the thesis"})
     add(page, {"kind": "state", "content": "Reading about compilers"})
     # Confirming records an event whose evidence says so: the word is in
@@ -236,9 +240,9 @@ def test_i_can_search_by_a_word_in_the_evidence(page: Page, invite_code: str):
 
 
 def test_i_can_narrow_by_kind_and_subject_and_remove_a_filter(
-    page: Page, invite_code: str
+    page: Page, invite_code: str, base_url: str
 ):
-    open_everything(page, invite_code)
+    open_everything(page, invite_code, base_url)
     one_of_each(page)
     page.reload()
     filters = everything(page).get_by_role("search", name="Filter everything")
@@ -266,8 +270,10 @@ def test_i_can_narrow_by_kind_and_subject_and_remove_a_filter(
     ).to_have_count(0)
 
 
-def test_an_item_shows_where_it_came_from_and_why(page: Page, invite_code: str):
-    open_everything(page, invite_code)
+def test_an_item_shows_where_it_came_from_and_why(
+    page: Page, invite_code: str, base_url: str
+):
+    open_everything(page, invite_code, base_url)
     call(page, "POST", "/topics", {"name": "Rust"})
     add(
         page,
@@ -311,9 +317,9 @@ def test_an_item_shows_where_it_came_from_and_why(page: Page, invite_code: str):
 
 
 def test_i_can_correct_retire_and_bring_back_from_an_items_page(
-    page: Page, invite_code: str
+    page: Page, invite_code: str, base_url: str
 ):
-    open_everything(page, invite_code)
+    open_everything(page, invite_code, base_url)
     rule(page, "Answer in English")
     page.reload()
     open_item(page, "Answer in English")
@@ -370,9 +376,9 @@ def test_i_can_correct_retire_and_bring_back_from_an_items_page(
 
 
 def test_i_can_mark_two_decisions_as_contradicting_and_take_it_back(
-    page: Page, invite_code: str
+    page: Page, invite_code: str, base_url: str
 ):
-    open_everything(page, invite_code)
+    open_everything(page, invite_code, base_url)
     decision(page, "Write the brain in Python")
     decision(page, "Write the brain in Rust")
     page.reload()
@@ -407,8 +413,10 @@ def test_i_can_mark_two_decisions_as_contradicting_and_take_it_back(
     expect(section(page, "Related")).to_have_count(0)
 
 
-def test_nothing_on_the_page_is_called_delete(page: Page, invite_code: str):
-    open_everything(page, invite_code)
+def test_nothing_on_the_page_is_called_delete(
+    page: Page, invite_code: str, base_url: str
+):
+    open_everything(page, invite_code, base_url)
     one_of_each(page)
     page.reload()
     expect(entries(page)).to_have_count(6)
@@ -429,10 +437,10 @@ def test_nothing_on_the_page_is_called_delete(page: Page, invite_code: str):
 
 
 def test_on_phone_the_table_folds_and_the_page_does_not_scroll_sideways(
-    page: Page, invite_code: str
+    page: Page, invite_code: str, base_url: str
 ):
     page.set_viewport_size({"width": 390, "height": 844})
-    open_everything(page, invite_code)
+    open_everything(page, invite_code, base_url)
     one_of_each(page)
     rule(
         page,
@@ -483,9 +491,9 @@ def rested(page: Page) -> None:
 
 @pytest.mark.parametrize("theme", THEMES)
 def test_everything_passes_the_accessibility_check(
-    page: Page, invite_code: str, viewport: str, theme: str
+    page: Page, invite_code: str, base_url: str, viewport: str, theme: str
 ):
-    open_everything(page, invite_code)
+    open_everything(page, invite_code, base_url)
     page.evaluate(f"localStorage.setItem('{STORAGE_KEY}', '{theme}')")
     one_of_each(page)
     decision(page, "Write the brain in Rust")

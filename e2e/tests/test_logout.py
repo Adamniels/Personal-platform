@@ -17,15 +17,17 @@ def _cookie_names(context: BrowserContext) -> set[str]:
     return {cookie["name"] for cookie in context.cookies()}
 
 
-def test_log_out_from_the_nav(page: Page, invite_code: str, viewport: str):
-    email = register_and_log_in(page, invite_code)
+def test_log_out_from_the_nav(
+    page: Page, invite_code: str, viewport: str, base_url: str
+):
+    email = register_and_log_in(page, invite_code, base_url)
     assert {ACCESS, REFRESH} <= _cookie_names(page.context)
 
     nav = page.get_by_role("navigation")
     nav.get_by_role("button", name=email, exact=True).click()
     nav.get_by_role("link", name="Log out", exact=True).click()
 
-    expect(page).to_have_url("https://platform.test/auth/logout")
+    expect(page).to_have_url(f"{base_url}/auth/logout")
     expect(page.get_by_role("heading", name="Log out")).to_be_visible()
     expect(page.get_by_role("link", name="Cancel", exact=True)).to_have_attribute(
         "href", "/"
@@ -38,7 +40,7 @@ def test_log_out_from_the_nav(page: Page, invite_code: str, viewport: str):
 
     page.get_by_role("main").get_by_role("button", name="Log out").click()
 
-    expect(page).to_have_url("https://platform.test/login")
+    expect(page).to_have_url(f"{base_url}/login")
     names = _cookie_names(page.context)
     assert ACCESS not in names, "the access cookie survived the logout"
     assert REFRESH not in names, "the refresh cookie survived the logout"

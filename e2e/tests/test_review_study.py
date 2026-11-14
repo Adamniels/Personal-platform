@@ -71,8 +71,8 @@ def due_row(page: Page, front: str) -> Locator:
     )
 
 
-def test_studying_a_deck(page: Page, invite_code: str, viewport: str):
-    register_and_log_in(page, invite_code)
+def test_studying_a_deck(page: Page, invite_code: str, base_url: str, viewport: str):
+    register_and_log_in(page, invite_code, base_url)
     compilers = add_deck(page, "Compilers")
     databases = add_deck(page, "Databases")
     first = "What does an LL(1) parser look ahead at?"
@@ -92,7 +92,7 @@ def test_studying_a_deck(page: Page, invite_code: str, viewport: str):
         "link", name="Start"
     ).click()
 
-    expect(page).to_have_url(f"https://platform.test/review/study?deck={compilers}")
+    expect(page).to_have_url(f"{base_url}/review/study?deck={compilers}")
     card = page.get_by_role("article", name="Compilers")
     expect(page.get_by_text("1 of 2", exact=True)).to_be_visible()
     expect(card.get_by_text(first)).to_be_visible()
@@ -123,7 +123,7 @@ def test_studying_a_deck(page: Page, invite_code: str, viewport: str):
     # width; on phone it folds into a relative line.
     page.set_viewport_size(VIEWPORTS["desktop"])
     page.get_by_role("link", name="Go to Cards").click()
-    expect(page).to_have_url("https://platform.test/review/cards")
+    expect(page).to_have_url(f"{base_url}/review/cards")
     for front, (pressed, said) in [(first, graded_first), (second, graded_second)]:
         shown = due_row(page, front).locator("time")
         expect(shown).to_be_visible()
@@ -131,8 +131,8 @@ def test_studying_a_deck(page: Page, invite_code: str, viewport: str):
         assert abs(due.timestamp() - (pressed + said)) < 60, (front, due, said)
 
 
-def test_studying_with_the_keyboard(page: Page, invite_code: str):
-    register_and_log_in(page, invite_code)
+def test_studying_with_the_keyboard(page: Page, invite_code: str, base_url: str):
+    register_and_log_in(page, invite_code, base_url)
     deck = add_deck(page, "Compilers")
     fronts = ["What is a token?", "What is a lexeme?", "What is a grammar?"]
     for front in fronts:
@@ -161,9 +161,9 @@ def assessments(page: Page) -> list[dict]:
 
 
 def test_grading_a_card_records_an_assessment_in_the_brain(
-    page: Page, invite_code: str
+    page: Page, invite_code: str, base_url: str
 ):
-    register_and_log_in(page, invite_code)
+    register_and_log_in(page, invite_code, base_url)
     deck = add_deck(page, "Databases")
     add_card(page, deck, "What does a B tree keep sorted?", "Its keys", INDEXES)
 

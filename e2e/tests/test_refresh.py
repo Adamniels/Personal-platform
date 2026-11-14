@@ -33,14 +33,14 @@ def _expire_access_token(context: BrowserContext) -> str:
 
 
 def test_browsing_continues_after_the_access_token_is_gone(
-    page: Page, invite_code: str
+    page: Page, invite_code: str, base_url: str
 ):
-    register_and_log_in(page, invite_code)
+    register_and_log_in(page, invite_code, base_url)
     refresh = _expire_access_token(page.context)
 
     page.goto("/?a=1")
 
-    expect(page).to_have_url("https://platform.test/?a=1")
+    expect(page).to_have_url(f"{base_url}/?a=1")
     expect(page.get_by_role("heading", name="Platform")).to_be_visible()
     assert _cookie(page.context, REFRESH) not in (None, refresh), (
         "the refresh token did not rotate"
@@ -60,22 +60,20 @@ def test_refresh_works_without_javascript(
     )
     try:
         page = context.new_page()
-        register_and_log_in(page, invite_code)
+        register_and_log_in(page, invite_code, base_url)
         refresh = _expire_access_token(context)
 
         page.goto("/?a=1")
 
         # Without scripts the page stays put until the button is pressed.
-        expect(page).to_have_url(
-            "https://platform.test/auth/refresh?return_to=%2F%3Fa%3D1"
-        )
+        expect(page).to_have_url(f"{base_url}/auth/refresh?return_to=%2F%3Fa%3D1")
         button = page.get_by_role("button", name="Continue")
         expect(button).to_be_visible()
         capture(page, "refresh-no-script")
 
         button.click()
 
-        expect(page).to_have_url("https://platform.test/?a=1")
+        expect(page).to_have_url(f"{base_url}/?a=1")
         expect(page.get_by_role("heading", name="Platform")).to_be_visible()
         assert _cookie(context, REFRESH) not in (None, refresh), (
             "the refresh token did not rotate"

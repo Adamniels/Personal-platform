@@ -8,11 +8,9 @@ from urllib.parse import urlparse
 
 from playwright.sync_api import Page
 
-HOST = "platform.test"
-
 # A page no service serves: the test fulfils it itself, so it has the
 # platform's origin while its stylesheets and fonts come from the proxy.
-FONT_PAGE = f"https://{HOST}/e2e-font-check"
+FONT_PAGE = "/e2e-font-check"
 FONT_PAGE_HTML = """<!doctype html>
 <html lang="sv">
 <head>
@@ -35,10 +33,10 @@ FONT_PAGE_HTML = """<!doctype html>
 """
 
 
-def _open_font_page(page: Page) -> list[str]:
+def _open_font_page(page: Page, base_url: str) -> list[str]:
     """Opens the font page and returns every URL it requested."""
     page.route(
-        FONT_PAGE,
+        f"{base_url}{FONT_PAGE}",
         lambda route: route.fulfill(
             content_type="text/html; charset=utf-8", body=FONT_PAGE_HTML
         ),
@@ -65,13 +63,13 @@ def test_the_values_file_is_served(page: Page):
     assert "--accent" in response.text()
 
 
-def test_the_fonts_are_served_and_load(page: Page):
+def test_the_fonts_are_served_and_load(page: Page, base_url: str):
     response = page.request.get("/design/fonts.css")
     assert response.status == 200
     assert response.headers["content-type"].startswith("text/css")
     _assert_no_cache(response)
 
-    _open_font_page(page)
+    _open_font_page(page, base_url)
 
     loaded = page.evaluate(
         """() => [...document.fonts]
@@ -81,12 +79,14 @@ def test_the_fonts_are_served_and_load(page: Page):
     assert {"Inter", "Space Grotesk", "JetBrains Mono"} <= set(loaded), loaded
 
 
-def test_no_page_asks_an_outside_host_for_a_font(page: Page):
-    requested = _open_font_page(page)
+def test_no_page_asks_an_outside_host_for_a_font(page: Page, base_url: str):
+    requested = _open_font_page(page, base_url)
 
     # The page did ask for fonts, so the check below is about something.
     assert any(url.endswith(".woff2") for url in requested), requested
-    outside = [url for url in requested if urlparse(url).hostname != HOST]
+    # Another host, or another port of this one, is another origin.
+    platform = urlparse(base_url).netloc
+    outside = [url for url in requested if urlparse(url).netloc != platform]
     assert outside == []
 
 
@@ -98,14 +98,17 @@ def test_a_sprite_is_served(page: Page):
     _assert_no_cache(response)
 
 
-def _raw_status(path: str) -> int:
+def _raw_status(base_url: str, path: str) -> int:
     """Sends the path exactly as written. A browser, and Playwright's request
     context, resolve ".." before sending, so they cannot ask for it."""
     # Certificate checks off, as the browser context has them, see conftest.
     context = ssl.create_default_context()
     context.check_hostname = False
     context.verify_mode = ssl.CERT_NONE
-    connection = http.client.HTTPSConnection(HOST, context=context, timeout=10)
+    address = urlparse(base_url)
+    connection = http.client.HTTPSConnection(
+        address.hostname, address.port, context=context, timeout=10
+    )
     try:
         connection.request("GET", path)
         return connection.getresponse().status
@@ -113,7 +116,7 @@ def _raw_status(path: str) -> int:
         connection.close()
 
 
-def test_nothing_else_under_design_is_served(page: Page):
+def test_nothing_else_under_design_is_served(page: Page, base_url: str):
     for path in [
         "/design/DESIGN.md",
         "/design/reference/home-desktop-light.png",
@@ -122,13 +125,13 @@ def test_nothing_else_under_design_is_served(page: Page):
     ]:
         assert page.request.get(path).status == 404, path
 
-    assert _raw_status("/design/../Caddyfile") == 404
-    assert _raw_status("/design/fonts/../../Caddyfile") == 404
-    assert _raw_status("/design/fonts/%2e%2e/DESIGN.md") == 404
+    assert _raw_status(base_url, "/design/../Caddyfile") == 404
+    assert _raw_status(base_url, "/design/fonts/../../Caddyfile") == 404
+    assert _raw_status(base_url, "/design/fonts/%2e%2e/DESIGN.md") == 404
 
 
-def test_swedish_letters_use_the_real_font(page: Page):
-    _open_font_page(page)
+def test_swedish_letters_use_the_real_font(page: Page, base_url: str):
+    _open_font_page(page, base_url)
 
     assert page.evaluate("document.fonts.check('16px Inter', 'åäö')")
 

@@ -35,8 +35,8 @@ MONTHS = [
 CLOCK = re.compile(r"^\d{2}:\d{2}$")
 
 
-def open_memory(page: Page, invite_code: str) -> None:
-    register_and_log_in(page, invite_code)
+def open_memory(page: Page, invite_code: str, base_url: str) -> None:
+    register_and_log_in(page, invite_code, base_url)
     page.goto("/brain/timeline")
     expect(page.get_by_role("tablist", name="Memory sections")).to_be_visible()
 
@@ -116,8 +116,8 @@ def enter_correct_and_retire(page: Page) -> dict:
     return newer
 
 
-def test_what_i_do_shows_on_the_timeline(page: Page, invite_code: str):
-    open_memory(page, invite_code)
+def test_what_i_do_shows_on_the_timeline(page: Page, invite_code: str, base_url: str):
+    open_memory(page, invite_code, base_url)
     enter_correct_and_retire(page)
     page.reload()
 
@@ -145,8 +145,10 @@ def test_what_i_do_shows_on_the_timeline(page: Page, invite_code: str):
     expect(timeline(page).get_by_role("button")).to_have_count(0)
 
 
-def test_an_event_links_to_the_item_it_is_about(page: Page, invite_code: str):
-    open_memory(page, invite_code)
+def test_an_event_links_to_the_item_it_is_about(
+    page: Page, invite_code: str, base_url: str
+):
+    open_memory(page, invite_code, base_url)
     rule = call(page, "POST", "/items", {"kind": "rule", "content": "Answer briefly"})
     call(page, "POST", f"/items/{rule['id']}/retire")
     page.reload()
@@ -159,15 +161,15 @@ def test_an_event_links_to_the_item_it_is_about(page: Page, invite_code: str):
 
     retired.click()
 
-    expect(page).to_have_url(f"https://platform.test/brain/everything/{rule['id']}")
+    expect(page).to_have_url(f"{base_url}/brain/everything/{rule['id']}")
     everything = page.get_by_role("tabpanel", name="Everything")
     expect(
         everything.get_by_role("heading", name="Answer briefly", level=2)
     ).to_be_visible()
 
 
-def test_older_events_load_on_request(page: Page, invite_code: str):
-    open_memory(page, invite_code)
+def test_older_events_load_on_request(page: Page, invite_code: str, base_url: str):
+    open_memory(page, invite_code, base_url)
     # Sixty events, one after another, so each is recorded after the last.
     page.evaluate(
         """async () => {
@@ -212,8 +214,10 @@ def test_older_events_load_on_request(page: Page, invite_code: str):
     expect(more).to_have_count(0)
 
 
-def test_an_event_from_a_feature_names_the_feature(page: Page, invite_code: str):
-    open_memory(page, invite_code)
+def test_an_event_from_a_feature_names_the_feature(
+    page: Page, invite_code: str, base_url: str
+):
+    open_memory(page, invite_code, base_url)
     sent(page, topic="postgres-indexing")
     sent(
         page,
@@ -255,7 +259,7 @@ def test_another_account_sees_none_of_it(
     invite_code: str,
     another_invite_code: str,
 ):
-    open_memory(page, invite_code)
+    open_memory(page, invite_code, base_url)
     enter_correct_and_retire(page)
     sent(page)
     page.reload()
@@ -264,7 +268,7 @@ def test_another_account_sees_none_of_it(
     other = browser.new_context(ignore_https_errors=True, base_url=base_url)
     try:
         stranger = other.new_page()
-        open_memory(stranger, another_invite_code)
+        open_memory(stranger, another_invite_code, base_url)
         expect(
             timeline(stranger).get_by_text("Nothing recorded yet", exact=True)
         ).to_be_visible()
@@ -293,9 +297,9 @@ def violations(page: Page) -> list[dict]:
 
 @pytest.mark.parametrize("theme", THEMES)
 def test_the_timeline_passes_the_accessibility_check(
-    page: Page, invite_code: str, viewport: str, theme: str
+    page: Page, invite_code: str, base_url: str, viewport: str, theme: str
 ):
-    open_memory(page, invite_code)
+    open_memory(page, invite_code, base_url)
     page.evaluate(f"localStorage.setItem('{STORAGE_KEY}', '{theme}')")
     enter_correct_and_retire(page)
     sent(page, topic="postgres-indexing")

@@ -19,7 +19,9 @@ NAV_H = """() => {
 }"""
 
 
-def test_canary_knows_who_i_am(page: Page, invite_code: str, viewport: str):
+def test_canary_knows_who_i_am(
+    page: Page, invite_code: str, viewport: str, base_url: str
+):
     email, password = register(page, invite_code)
 
     # Not logged in: canary sends the browser to the core, which sends it on
@@ -28,7 +30,7 @@ def test_canary_knows_who_i_am(page: Page, invite_code: str, viewport: str):
     expect(page).to_have_url(re.compile(r"/login\?return_to=%2Fcanary$"))
 
     log_in(page, email, password)
-    expect(page).to_have_url("https://platform.test/canary")
+    expect(page).to_have_url(f"{base_url}/canary")
 
     # The API, asked with the page's own cookies, is the reference for who
     # this is, so the test does not depend on what the core's pages print.

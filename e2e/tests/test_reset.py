@@ -14,6 +14,7 @@ from conftest import capture, log_in, register
 def test_reset_then_log_in_with_the_new_password(
     page: Page,
     invite_code: str,
+    base_url: str,
     reset_token: Callable[[str], str],
     viewport: str,
 ):
@@ -31,7 +32,7 @@ def test_reset_then_log_in_with_the_new_password(
     page.get_by_label("New password").fill(new_password)
     page.get_by_role("button", name="Set password").click()
 
-    expect(page).to_have_url("https://platform.test/login")
+    expect(page).to_have_url(f"{base_url}/login")
     names = {cookie["name"] for cookie in page.context.cookies()}
     assert not names & {"__Host-access", "__Secure-refresh"}, "the reset logged in"
 
@@ -41,4 +42,4 @@ def test_reset_then_log_in_with_the_new_password(
     )
 
     log_in(page, email, new_password)
-    expect(page).to_have_url("https://platform.test/")
+    expect(page).to_have_url(f"{base_url}/")

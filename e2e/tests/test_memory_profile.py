@@ -22,8 +22,10 @@ RULES_LINE = (
 DATE = re.compile(r"^\d{1,2} [A-Z][a-z]{2,3} \d{4}, \d{2}:\d{2}$")
 
 
-def open_memory(page: Page, invite_code: str, path: str = "/brain") -> None:
-    register_and_log_in(page, invite_code)
+def open_memory(
+    page: Page, invite_code: str, base_url: str, path: str = "/brain"
+) -> None:
+    register_and_log_in(page, invite_code, base_url)
     page.goto(path)
     expect(page.get_by_role("tablist", name="Memory sections")).to_be_visible()
 
@@ -93,8 +95,10 @@ def retire_and_undo(page: Page, scope: Locator, text: str) -> None:
     expect(entry(scope, text)).to_be_visible()
 
 
-def test_i_can_add_a_profile_entry_and_it_stays(page: Page, invite_code: str):
-    open_memory(page, invite_code)
+def test_i_can_add_a_profile_entry_and_it_stays(
+    page: Page, invite_code: str, base_url: str
+):
+    open_memory(page, invite_code, base_url)
 
     add_profile_entry(page, "Values", "Honesty over comfort")
 
@@ -106,9 +110,9 @@ def test_i_can_add_a_profile_entry_and_it_stays(page: Page, invite_code: str):
 
 
 def test_i_can_correct_an_entry_and_see_its_earlier_version(
-    page: Page, invite_code: str
+    page: Page, invite_code: str, base_url: str
 ):
-    open_memory(page, invite_code)
+    open_memory(page, invite_code, base_url)
     add_profile_entry(page, "Values", "Honesty over comfort")
     values = card(page, "Values")
     # An entry never edited has no earlier versions to show.
@@ -131,8 +135,10 @@ def test_i_can_correct_an_entry_and_see_its_earlier_version(
     expect(entry(card(page, "Values"), "Honesty, said kindly")).to_be_visible()
 
 
-def test_i_can_retire_an_entry_and_bring_it_back(page: Page, invite_code: str):
-    open_memory(page, invite_code)
+def test_i_can_retire_an_entry_and_bring_it_back(
+    page: Page, invite_code: str, base_url: str
+):
+    open_memory(page, invite_code, base_url)
     add_profile_entry(page, "Goals", "Finish the degree")
 
     retire_and_undo(page, card(page, "Goals"), "Finish the degree")
@@ -141,8 +147,10 @@ def test_i_can_retire_an_entry_and_bring_it_back(page: Page, invite_code: str):
     expect(entry(card(page, "Goals"), "Finish the degree")).to_be_visible()
 
 
-def test_i_can_add_correct_and_retire_a_rule(page: Page, invite_code: str):
-    open_memory(page, invite_code, "/brain/rules")
+def test_i_can_add_correct_and_retire_a_rule(
+    page: Page, invite_code: str, base_url: str
+):
+    open_memory(page, invite_code, base_url, "/brain/rules")
     rules = panel(page, "Rules")
     expect(rules.get_by_text(RULES_LINE, exact=True)).to_be_visible()
 
@@ -175,7 +183,7 @@ def test_another_account_sees_none_of_it(
     invite_code: str,
     another_invite_code: str,
 ):
-    open_memory(page, invite_code)
+    open_memory(page, invite_code, base_url)
     add_profile_entry(page, "Identity", "A student in Uppsala")
     page.get_by_role("tab", name="Rules", exact=True).click()
     add_rule(page, "Answer in English")
@@ -183,7 +191,7 @@ def test_another_account_sees_none_of_it(
     other = browser.new_context(ignore_https_errors=True, base_url=base_url)
     try:
         stranger = other.new_page()
-        open_memory(stranger, another_invite_code)
+        open_memory(stranger, another_invite_code, base_url)
         for name in ["Identity", "Goals", "Values"]:
             expect(card(stranger, name)).to_be_visible()
         expect(panel(stranger, "Profile").get_by_role("listitem")).to_have_count(0)
@@ -214,9 +222,9 @@ def violations(page: Page) -> list[dict]:
 
 @pytest.mark.parametrize("theme", THEMES)
 def test_profile_and_rules_pass_the_accessibility_check(
-    page: Page, invite_code: str, viewport: str, theme: str
+    page: Page, invite_code: str, base_url: str, viewport: str, theme: str
 ):
-    open_memory(page, invite_code)
+    open_memory(page, invite_code, base_url)
     page.evaluate(f"localStorage.setItem('{STORAGE_KEY}', '{theme}')")
     page.reload()
     expect(page.locator("html")).to_have_attribute("data-theme", theme)
