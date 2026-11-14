@@ -475,9 +475,10 @@ on" in `libs/dotnet/PlatformAuth/README.md`.
 
 **One web project, not layered projects.** `src/Review/` is the whole service, organised in
 feature folders: `Settings`, `Database` (the door and the migrations), `Health` (health and whoami),
-`Pages`, `Decks`, `Cards`, `Scheduling` (FSRS, grading and the queue), and `Api`, what the routes over the user's data share (who is asking, the
-problem documents, and the rule collector a 422 is made from), more with later slices. The service is small, and folders inside one project keep it readable without Clean
-Architecture's ceremony.
+`Pages`, `Decks`, `Cards`, `Scheduling` (FSRS, grading and the queue), and `Api`, what the routes
+over the user's data share (who is asking, the problem documents, and the rule collector a 422 is
+made from), more with later slices. The service is small, and folders inside one project keep it
+readable without Clean Architecture's ceremony.
 
 **ASP.NET Core minimal APIs**, from the shared framework, for routing, static files and problem
 details, with no MVC. JSON is snake case on the wire, as the brain's and canary's is.
