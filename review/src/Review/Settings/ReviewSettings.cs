@@ -1,5 +1,7 @@
 using System.Globalization;
 
+using Npgsql;
+
 namespace Review.Settings;
 
 /// <summary>
@@ -15,16 +17,26 @@ namespace Review.Settings;
 /// <param name="PublicOrigin">The platform's origin as a browser sends it, for the <c>Origin</c> check.</param>
 /// <param name="ExposeOpenApi">Whether <c>GET /review/api/openapi.json</c> is mapped, for the
 /// contract test and regenerating the schema only.</param>
+/// <param name="AppDatabase">The database as review_app, from <c>REVIEW_APP_DATABASE_URL</c>,
+/// required, with no default. It holds a password, so <see cref="ToString"/> leaves it out, and
+/// it is read only, by convention, since Npgsql's settings type is not.</param>
 public sealed record ReviewSettings(
     string ListenHost,
     int ListenPort,
     Uri CoreUrl,
     string PublicOrigin,
-    bool ExposeOpenApi)
+    bool ExposeOpenApi,
+    NpgsqlConnectionStringBuilder AppDatabase)
 {
     public const string DefaultListenAddr = "127.0.0.1:8083";
     public const string DefaultCoreUrl = "http://127.0.0.1:8080";
     public const string DefaultPublicOrigin = "https://platform.test";
+
+    /// <summary>The app role's database URL, which serving requires.</summary>
+    public const string AppDatabaseUrl = "REVIEW_APP_DATABASE_URL";
+
+    /// <summary>The owner's database URL, which <c>migrate</c> reads and nothing else does.</summary>
+    public const string OwnerDatabaseUrl = "REVIEW_OWNER_DATABASE_URL";
 
     /// <summary>The address Kestrel listens on.</summary>
     public string ListenUrl => $"http://{ListenHost}:{ListenPort.ToString(CultureInfo.InvariantCulture)}";
@@ -44,17 +56,28 @@ public sealed record ReviewSettings(
             port,
             Setting(read, "REVIEW_CORE_URL", DefaultCoreUrl, ParseCoreUrl),
             Setting(read, "REVIEW_PUBLIC_ORIGIN", DefaultPublicOrigin, ParseOrigin),
-            Setting(read, "REVIEW_EXPOSE_OPENAPI", "0", ParseSwitch));
+            Setting(read, "REVIEW_EXPOSE_OPENAPI", "0", ParseSwitch),
+            Setting(read, AppDatabaseUrl, fallback: null, DatabaseUrl.Parse));
     }
 
-    private static T Setting<T>(Func<string, string?> read, string name, string fallback, Func<string, T> parse)
+    /// <summary>What the record prints, without the database's password, which it holds.</summary>
+    public override string ToString() => string.Create(
+        CultureInfo.InvariantCulture,
+        $"ReviewSettings {{ ListenHost = {ListenHost}, ListenPort = {ListenPort}, CoreUrl = {CoreUrl}, PublicOrigin = {PublicOrigin}, ExposeOpenApi = {ExposeOpenApi}, AppDatabase = {AppDatabase.Username}@{AppDatabase.Host}:{AppDatabase.Port}/{AppDatabase.Database} }}");
+
+    /// <summary>The setting parsed, or <paramref name="fallback"/> parsed when it is unset; with
+    /// no fallback, unset is refused.</summary>
+    private static T Setting<T>(Func<string, string?> read, string name, string? fallback, Func<string, T> parse)
     {
+        var value = read(name) ?? fallback ?? throw new StartupException($"{name}: is not set, and review cannot serve without it");
         try
         {
-            return parse(read(name) ?? fallback);
+            return parse(value);
         }
         catch (FormatException refused)
         {
+            // The other parsers repeat the value, to help, but DatabaseUrl.Parse never does, since
+            // a database URL holds a password.
             throw new StartupException($"{name}: {refused.Message}");
         }
     }

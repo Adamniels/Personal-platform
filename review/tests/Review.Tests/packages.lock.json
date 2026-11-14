@@ -501,9 +501,17 @@
       "review": {
         "type": "Project",
         "dependencies": {
+          "Dapper": "[2.1.89, )",
           "Microsoft.AspNetCore.OpenApi": "[10.0.15, )",
+          "Npgsql": "[10.0.3, )",
           "PlatformAuth": "[1.0.0, )"
         }
+      },
+      "Dapper": {
+        "type": "CentralTransitive",
+        "requested": "[2.1.89, )",
+        "resolved": "2.1.89",
+        "contentHash": "1VjFE664wnxvuhlgP8kS4PeFFF4jqD3VkbIHW6Zlc52zuibgcz5ICnIHcQXlTp6pURpPNGLV0ZpNe5x9KePJnA=="
       },
       "Microsoft.AspNetCore.OpenApi": {
         "type": "CentralTransitive",
@@ -512,6 +520,15 @@
         "contentHash": "pptFDPMWyPDDtt68s/HsvLYeHJ0WQtntjyve6ztp/5MrLOEzdZvafYIyWSeErtexIGaB8XGYCnnUK8T/Vn4MwQ==",
         "dependencies": {
           "Microsoft.OpenApi": "[2.13.0, 3.0.0)"
+        }
+      },
+      "Npgsql": {
+        "type": "CentralTransitive",
+        "requested": "[10.0.3, )",
+        "resolved": "10.0.3",
+        "contentHash": "7nb5YzXuvWWJxB0J8DiyL3we+X4FOctZrt0fIBnucOIaIevFEEwGQVZKtiu9olXdlNAK1eNgqSral6r/jlhI4w==",
+        "dependencies": {
+          "Microsoft.Extensions.Logging.Abstractions": "10.0.0"
         }
       }
     }
