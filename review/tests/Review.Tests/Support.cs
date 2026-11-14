@@ -89,7 +89,8 @@ internal sealed class StubCore : HttpMessageHandler
 /// <summary>
 /// Review on a <see cref="TestServer"/>, over a build folder of its own holding an index.html and
 /// one asset, a key cache over <see cref="StubCore"/>, and a clock fixed at the fixture token's
-/// <c>iat</c> unless a test moves it, so the committed token is valid.
+/// <c>iat</c> unless a test moves it, so the committed token is valid. A test that calls a route
+/// using the database hands it a door over a database of its own, see <see cref="Api"/>.
 /// </summary>
 internal sealed class Harness : IAsyncDisposable
 {
@@ -102,15 +103,19 @@ internal sealed class Harness : IAsyncDisposable
     private readonly ReviewDb _database;
     private readonly string _webRoot;
 
-    private Harness(WebApplication app, StubCore core, ReviewDb database, string webRoot)
+    private Harness(WebApplication app, StubCore core, ReviewDb database, string webRoot, FakeTimeProvider clock)
     {
         _app = app;
         _core = core;
         _database = database;
         _webRoot = webRoot;
+        Clock = clock;
     }
 
     public TestServer Server => _app.GetTestServer();
+
+    /// <summary>The app's clock, which a test may move, within the token's half hour.</summary>
+    public FakeTimeProvider Clock { get; }
 
     /// <summary>The smallest environment the settings load from: the one required setting, the
     /// app's database URL, which nothing here connects to.</summary>
@@ -131,14 +136,15 @@ internal sealed class Harness : IAsyncDisposable
         return root;
     }
 
-    public static async Task<Harness> Start(ReviewSettings? settings = null, long? clockAt = null)
+    /// <param name="database">The door the app uses, disposed with the harness. Without one it is
+    /// never opened: the test takes no database, and no route it calls uses one.</param>
+    public static async Task<Harness> Start(ReviewSettings? settings = null, long? clockAt = null, ReviewDb? database = null)
     {
         var webRoot = MakeBuild();
         var time = new FakeTimeProvider(DateTimeOffset.FromUnixTimeSeconds(clockAt ?? Contract.IssuedAt));
         var core = new StubCore();
         settings ??= Defaults;
-        // Never opened: these tests take no database, and no route they call uses one.
-        var database = ReviewDb.Unopened(settings.AppDatabase);
+        database ??= ReviewDb.Unopened(settings.AppDatabase);
         var app = ReviewApp.Build(settings, database, webRoot, builder =>
         {
             builder.WebHost.UseTestServer();
@@ -147,7 +153,7 @@ internal sealed class Harness : IAsyncDisposable
             builder.Services.AddSingleton(core.Cache(time));
         });
         await app.StartAsync();
-        return new Harness(app, core, database, webRoot);
+        return new Harness(app, core, database, webRoot, time);
     }
 
     /// <summary>A request as a browser on the platform sends it, with the token in the cookie

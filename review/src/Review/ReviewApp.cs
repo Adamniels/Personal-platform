@@ -1,8 +1,11 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 using PlatformAuth;
 
+using Review.Cards;
 using Review.Database;
+using Review.Decks;
 using Review.Health;
 using Review.Pages;
 using Review.Settings;
@@ -37,9 +40,13 @@ public static class ReviewApp
         });
         configure?.Invoke(builder);
 
-        // snake_case on the wire, as the brain's and canary's JSON is.
+        // snake_case on the wire, as the brain's and canary's JSON is. A number is a JSON number,
+        // never a string holding one, which the web defaults would accept, and the schema says so.
         builder.Services.ConfigureHttpJsonOptions(options =>
-            options.SerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower);
+        {
+            options.SerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower;
+            options.SerializerOptions.NumberHandling = JsonNumberHandling.Strict;
+        });
         // An unhandled error is an RFC 9457 problem document, application/problem+json.
         builder.Services.AddProblemDetails();
         builder.Services.AddPlatformAuth(options => options.CoreUrl = settings.CoreUrl);
@@ -60,6 +67,8 @@ public static class ReviewApp
         app.UseAuthorization();
 
         app.MapHealth();
+        app.MapDecks();
+        app.MapCards();
         app.MapPages(webRoot);
         if (settings.ExposeOpenApi)
         {

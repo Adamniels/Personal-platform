@@ -14,9 +14,9 @@ namespace Review.Tests;
 /// of the migrated database, as review_app, the role review serves as. See "The door" in
 /// review/README.md.
 ///
-/// Review has no table of its own yet, so the tests make a probe table, as review_owner, the way
-/// every scoped table is made: <c>user_id</c>, row level security enabled and forced, and the one
-/// policy.
+/// The tests of the door itself make a probe table, as review_owner, the way every scoped table is
+/// made: <c>user_id</c>, row level security enabled and forced, and the one policy, so they hold
+/// whatever review's own tables become. <see cref="EveryTableIsGuarded"/> checks review's own.
 /// </summary>
 public sealed class IsolationTests
 {
@@ -132,6 +132,43 @@ public sealed class IsolationTests
         }
 
         Assert.Empty(await Unguarded(database));
+    }
+
+    [Fact]
+    public async Task ARowCannotPointAtAnotherUsersRow()
+    {
+        // A foreign key is checked without row level security, so each reference carries user_id:
+        // even a query that skipped review's own checks cannot file a card in another user's deck,
+        // or give another user's card a topic.
+        await using var database = await TestDatabase.Migrated(Ct);
+        await using var door = await ReviewDb.Open(database.App(), Ct);
+        var (deck, card) = (Guid.CreateVersion7(), Guid.CreateVersion7());
+        await door.InUserTransaction(Alice, transaction => transaction.Connection!.ExecuteAsync(new CommandDefinition(
+            """
+            INSERT INTO decks (id, user_id, name, created_at) VALUES (@deck, @alice, 'Alice''s', now());
+            INSERT INTO cards (id, user_id, deck_id, front, back, due, created_at, updated_at)
+                VALUES (@card, @alice, @deck, 'front', 'back', now(), now(), now());
+            """,
+            new { deck, card, alice = Alice }, transaction, cancellationToken: Ct)), Ct);
+
+        foreach (var sql in new[]
+        {
+            """
+            INSERT INTO cards (id, user_id, deck_id, front, back, due, created_at, updated_at)
+                VALUES (gen_random_uuid(), @bob, @deck, 'front', 'back', now(), now(), now())
+            """,
+            "INSERT INTO card_topics (card_id, user_id, position, slug, name) VALUES (@card, @bob, 0, 'planted', 'Planted')",
+        })
+        {
+            var refused = await Assert.ThrowsAsync<PostgresException>(() => door.InUserTransaction(Bob, transaction =>
+                transaction.Connection!.ExecuteAsync(new CommandDefinition(sql, new { deck, card, bob = Bob }, transaction, cancellationToken: Ct)), Ct));
+            Assert.Equal(PostgresErrorCodes.ForeignKeyViolation, refused.SqlState);
+        }
+
+        await using var admin = await database.OpenAdmin(Ct);
+        Assert.Equal(0, await admin.QuerySingleAsync<long>(new CommandDefinition(
+            "SELECT (SELECT count(*) FROM cards WHERE user_id = @bob) + (SELECT count(*) FROM card_topics WHERE user_id = @bob)",
+            new { bob = Bob }, cancellationToken: Ct)));
     }
 
     [Fact]
