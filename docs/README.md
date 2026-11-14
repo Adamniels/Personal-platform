@@ -118,7 +118,8 @@ features" in `High-level/docs/platform-architecture.md`.
 **Contracts**
 
 - `contracts/README.md` — what a contract fixture is, the token fixture's three files, that they
-  hold public material only, canary's display data, the brain's schema, and how each is regenerated
+  hold public material only, canary's and review's display data, the brain's schema, and how each
+  is regenerated
 
 **Desk**
 
