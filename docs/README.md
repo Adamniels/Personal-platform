@@ -62,7 +62,7 @@ features" in `High-level/docs/platform-architecture.md`.
 | `canary/`           | Canary, the Python feature proving another language can verify the token     |
 | `review/`           | Review, the C# feature of cards that come back, with its page in `review/web/` |
 | `desk/docs/`        | Desk, the feature for working through the day, described but not yet built   |
-| `infra/`            | The Caddyfile, the compose file and the feature registry                     |
+| `infra/`            | The Caddyfile, the compose file and the feature registry, and `hosted/`, the platform in containers |
 | `contracts/`        | Contract fixtures, the bytes services in two languages test against          |
 | `e2e/`              | The acceptance suite, Playwright against the running stack                   |
 | `scripts/agent/`    | The runner, the merge gate and the other scripts the agents' workflow runs   |
@@ -147,7 +147,10 @@ features" in `High-level/docs/platform-architecture.md`.
 
 - `infra/README.md` — the local hostname, running Caddy and what its data volume holds, the
   databases and the scripts that create them, the design folder and the paths Caddy serves from
-  it, the feature registry, the service manifest, and trusting Caddy's root
+  it, the feature registry, the service manifest, the hosted copy, and trusting Caddy's root
+- `infra/hosted/README.md` — the hosted copy: every service in a container as one compose project
+  apart from the dev stack, its files, the images, and `check.sh`, which proves on a throwaway copy
+  that it builds and every service answers
 
 **Brain**
 

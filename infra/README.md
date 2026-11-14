@@ -74,11 +74,11 @@ passwords come from `.env`, see `.env.example`, through `compose.yaml`, which re
 without them. Postgres runs every script there once, when the volume is first created, and never
 again. None creates a table or grants on one: that is each service's migrations.
 
-`brain.sh` and `review.sh` are safe to run again: each creates its roles and its database only
-when missing, so it never changes a password, and applies the database's privileges every time. A
-volume created before the brain or review had a database, or one whose database was dropped, gets
-it by running that service's script by hand, from this directory, after adding its two passwords to
-`.env` and recreating the container so it has them:
+Every script is safe to run again: each creates its roles and its database only when missing, so
+it never changes a password, and applies the database's privileges every time. A volume created
+before a service had a database, or one whose database was dropped, gets it by running that
+service's script by hand, from this directory, after adding its two passwords to `.env` and
+recreating the container so it has them:
 
 ```zsh
 docker compose up -d --wait
@@ -87,8 +87,8 @@ docker compose exec -T postgres bash /docker-entrypoint-initdb.d/review.sh
 ```
 
 It prints `CREATE ROLE`, `CREATE DATABASE` and the rest for what it created, and only `REVOKE` and
-`GRANT` when everything was there. `core.sh` is not safe to run twice; the core's database already
-exists wherever the volume does.
+`GRANT` when everything was there. The hosted copy mounts the same scripts, see
+`hosted/README.md`.
 
 ## The design folder
 
@@ -174,6 +174,18 @@ upstream port is a service's, the Caddyfile routes its prefix to that port, ever
 Caddyfile proxies to is a service's, and every database's password variables are in
 `.env.example`. A new database also needs its init script in `postgres/initdb/`, see "The
 databases" above.
+
+The hosted copy repeats them, so a feature or a service also changes `hosted/compose.yaml`,
+`hosted/features.toml`, `hosted/Caddyfile` and, for a new password, `hosted/.env.example`, with a
+Dockerfile in the service's folder; `hosted/tests/agree.test.sh` checks those agree with the files
+here. See `hosted/README.md`.
+
+## The hosted copy
+
+`hosted/` holds the platform built into images and started as one compose project of its own,
+apart from this dev stack: its compose file, its Caddyfile and registry, and `check.sh`, which
+proves on a throwaway copy that it builds and every service answers. The Dockerfiles are in each
+service's folder. See `hosted/README.md`.
 
 ## Trusting Caddy's root
 
