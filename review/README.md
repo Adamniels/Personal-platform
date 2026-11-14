@@ -46,7 +46,16 @@ proposals wait for the owner, see "The review queue" in `Brain/docs/trust-model.
     Topics are replaced whole. It never touches the schedule, and moves `version` on. `version`,
     the one the change was made from, is required, and one that is not the card's current version
     is `409` and changes nothing, so two tabs cannot silently overwrite each other.
-  - `DELETE /review/api/cards/{id}`, `204`, its topics with it.
+  - `DELETE /review/api/cards/{id}`, `204`, its topics and its grades with it.
+  - `GET /review/api/queue`, the cards due at or before now, oldest due first, at most 200, each as
+    a single read answers it plus `previews`, `{"again", "hard", "good", "easy"}`, each the time
+    that grade, given now, would bring the card back, in `{"cards": [...], "total": n}`, where
+    `total` is how many are due in all. Narrowed to one deck by `?deck=<id>`, to one topic by
+    `?topic=<slug>`, or both, and `total` with them.
+  - `POST /review/api/cards/{id}/grades`, `{"rating": 1-4, "version"}`, grades the card: Again 1,
+    Hard 2, Good 3, Easy 4. `201` with the card as it now is and its new `previews`. The `version`
+    is the one the grade was given from, and one that is not the card's current version is `409`
+    and changes nothing, so a grade sent twice counts once. See "When a card comes back" below.
 
   Each answers a problem document when it does not do what was asked: `404` for an id in the path
   the user does not have, another user's included, the same answer either way; `409` for a deck
@@ -91,8 +100,9 @@ reads `\` as `/` and drops tabs and newlines, which turns `/\evil` and `/<tab>/e
 
 And it has its **schedule**, FSRS-6's card state as `py-fsrs` 6.3.3's `Card` holds it: `state`
 (`new`, `learning`, `review` or `relearning`), `step`, `stability`, `difficulty`, `due` and
-`last_review`. A new card is `new` and due at its creation time; grading, a later slice, reads and
-writes the rest, and changing a card never touches it. Its `version` moves on with every change.
+`last_review`. A new card is `new` and due at its creation time; grading reads and writes the rest,
+see "When a card comes back" below, and changing a card never touches it, nor does moving it to
+another deck. Its `version` moves on with every change, a grade included.
 
 The tables are `decks`, `cards` and `card_topics`, in `migrations/0002_decks_and_cards.sql`, which
 checks the same rules again. Each is scoped as "The door" below describes, and every reference
@@ -104,6 +114,61 @@ that time.
 
 The routes under `/review/api/` are pinned by `contracts/review/openapi.json`, see "The schema"
 below.
+
+## When a card comes back
+
+Grading a card schedules it by FSRS-6, the Free Spaced Repetition Scheduler, Anki's default since
+2023, chosen over SM-2 and Leitner boxes with the owner: it predicts forgetting better, and avoids
+SM-2's ease hell, where a card failed a few times stays too frequent for good. FSRS models each
+card's memory by a stability, the days until the chance of recall falls to 90%, and a difficulty
+from 1 to 10. A new card goes through two learning steps, 1 and 10 minutes, before it is scheduled
+in whole days by its stability; a card forgotten in review goes through one relearning step of 10
+minutes. Each of the four grades moves stability and difficulty by FSRS's formulas, and the next
+interval is the one at which recall is predicted to fall to 90%.
+
+It is written here, `src/Review/Scheduling/Fsrs.cs`, because no .NET port is
+trusted as a dependency, and it ports `py-fsrs` 6.3.3's `Scheduler`
+(https://github.com/open-spaced-repetition/py-fsrs) expression by expression. It is pure:
+`Fsrs.Grade(state, rating, now)` gives the next state and `Fsrs.Preview(state, now)` the four
+dues, from `Grade` four times, and neither reads the clock. `FsrsTests.EveryReferenceVectorIsReproduced`
+holds it to `py-fsrs` value for value, through `tests/Review.Tests/Scheduling/fsrs-vectors.json`,
+which `tests/tools/fsrs_vectors.py` writes from `py-fsrs` itself. From the repository root:
+
+```zsh
+uv run --with fsrs==6.3.3 python review/tests/tools/fsrs_vectors.py \
+  > review/tests/Review.Tests/Scheduling/fsrs-vectors.json
+```
+
+It is not run in CI, since the reference changes only when the version does, and adds nothing to
+any lockfile.
+
+**The settings** are `py-fsrs` 6.3.3's defaults, as constants in `Fsrs`: its 21 parameters, desired
+retention 0.9, the learning and relearning steps above, a maximum interval of 36,500 days, and
+fuzzing off. Fuzzing spreads due dates at random so cards learnt together do not stay together; it
+is off so intervals are deterministic and testable, and adding it later means an injected random
+source. The parameters are FSRS's defaults, fitted to many people's reviews; fitting them to the
+owner's own needs hundreds of his grades first, which is why they are kept.
+
+**Grading**, `POST /review/api/cards/{id}/grades`, reads the card, runs `Fsrs.Grade` at the
+request's time from the injected `TimeProvider`, and in one transaction updates the card only
+`WHERE id = @id AND version = @version`, writing its schedule, `last_review` and `version + 1`, and
+logs the grade only when that update changed a row. Every change to a card moves its version, so
+the state graded from is the state replaced, and a stale or repeated grade is a `409` that changes
+nothing. `updated_at` stays: it says when the card itself was last edited.
+
+**The grade log**, `grades` in `migrations/0003_grades.sql`, keeps every grade from the first: the
+rating, when it was given, the days since the card's last grade with their fraction, 0 for the
+first, and the card's state, stability and difficulty before and after, with its due after. It is
+what later fits FSRS's parameters to the owner's memory, and a review's history cannot be
+recreated, so it is history: `review_app` inserts a grade and never changes or deletes one, which
+the migration enforces by taking `UPDATE` and `DELETE` back, leaving only `UPDATE` of the
+`brain_*` columns, which mark whether the brain has the grade, a later slice. Deleting a card
+deletes its grades, since the cascade runs as the table's owner. Like every reference here, a
+grade points at its card with `user_id`.
+
+**The queue**, `GET /review/api/queue`, is the cards due at or before now, oldest due first, with
+each one's previews, so the page can show on each button when that grade would bring the card back.
+A new card is due when it is made, so it is in the queue at once.
 
 ## The page
 
@@ -410,7 +475,7 @@ on" in `libs/dotnet/PlatformAuth/README.md`.
 
 **One web project, not layered projects.** `src/Review/` is the whole service, organised in
 feature folders: `Settings`, `Database` (the door and the migrations), `Health` (health and whoami),
-`Pages`, `Decks`, `Cards`, and `Api`, what the routes over the user's data share (who is asking, the
+`Pages`, `Decks`, `Cards`, `Scheduling` (FSRS, grading and the queue), and `Api`, what the routes over the user's data share (who is asking, the
 problem documents, and the rule collector a 422 is made from), more with later slices. The service is small, and folders inside one project keep it readable without Clean
 Architecture's ceremony.
 
