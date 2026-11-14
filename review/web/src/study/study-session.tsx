@@ -223,7 +223,10 @@ export function StudySession({
 			);
 		}
 		return (
-			<Card title="Done for now" className={styles.state}>
+			<Card
+				title="Done for now"
+				className={`${styles.state} ${styles.finished}`}
+			>
 				<div className={styles.done}>
 					<p>{`You reviewed ${cards(state.reviewed)}.`}</p>
 					<p>
@@ -290,9 +293,12 @@ export function StudySession({
 								disabled={inFlight}
 								onClick={() => void gradeWith(each)}
 							>
-								{each.label}
-								<span className={styles.separator}> · </span>
-								{after}
+								{/* Each part its own element, so the phone layout can stack
+								 * them; text runs either side of a hidden separator would
+								 * join into one. */}
+								<span>{each.label}</span>
+								<span className={styles.separator}>·</span>
+								<span>{after}</span>
 							</Button>
 						);
 					})}

@@ -163,6 +163,11 @@
 	gap: var(--space-3);
 }
 
+/* As wide as the session it ends. */
+.finished {
+	max-width: var(--reading-max);
+}
+
 .done {
 	display: flex;
 	flex-direction: column;

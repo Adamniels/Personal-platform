@@ -86,7 +86,7 @@ describe("a study session", () => {
 
 		expect(within(card).getByText("Answer 1")).toBeTruthy();
 		expect(screen.queryByRole("button", { name: "Show answer" })).toBeNull();
-		expect(gradeButtons().map((button) => button.textContent)).toEqual([
+		expect(gradeButtons().map(name)).toEqual([
 			"Again · 10m",
 			"Hard · 2d",
 			"Good · 4d",
