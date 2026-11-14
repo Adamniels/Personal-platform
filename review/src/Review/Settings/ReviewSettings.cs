@@ -26,6 +26,9 @@ public sealed record ReviewSettings(
     public const string DefaultCoreUrl = "http://127.0.0.1:8080";
     public const string DefaultPublicOrigin = "https://platform.test";
 
+    /// <summary>The owner's database URL, which <c>migrate</c> reads and nothing else does.</summary>
+    public const string OwnerDatabaseUrl = "REVIEW_OWNER_DATABASE_URL";
+
     /// <summary>The address Kestrel listens on.</summary>
     public string ListenUrl => $"http://{ListenHost}:{ListenPort.ToString(CultureInfo.InvariantCulture)}";
 

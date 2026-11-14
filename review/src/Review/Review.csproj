@@ -9,6 +9,16 @@
   <ItemGroup>
     <!-- Generates the OpenAPI document contracts/review/openapi.json holds, see review/README.md. -->
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
+    <!-- The database: the driver, and rows mapped to records with the SQL written out. -->
+    <PackageReference Include="Npgsql" />
+    <PackageReference Include="Dapper" />
+  </ItemGroup>
+  <ItemGroup>
+    <!--
+      review/migrations/*.sql, embedded so `migrate` reads them from the assembly wherever it runs,
+      each under migrations/<file name>. See "Migrating" in review/README.md.
+    -->
+    <EmbeddedResource Include="../../migrations/*.sql" LogicalName="migrations/%(Filename)%(Extension)" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../../libs/dotnet/PlatformAuth/src/PlatformAuth/PlatformAuth.csproj" />
