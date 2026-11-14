@@ -60,4 +60,12 @@
 {%- endfor %}
 </div>
 {%- endif %}
+{%- if let Some(backup) = backup %}
+{#- The backup line, last in the content: when the last backup succeeded, and
+    in the attention state, with its dot from /assets/core.css, when it is
+    stale, failed or cannot be read. See src/backup_status.rs. #}
+<p class="backup{% if backup.attention %} attention{% endif %}">{{ backup.before }}
+{%- if let Some(at) = backup.at %} <time datetime="{{ at.datetime }}" title="{{ at.title }}">{{ at.ago }}</time>{% endif %}
+{{- backup.after }}</p>
+{%- endif %}
 {% endblock %}

@@ -295,3 +295,35 @@ input[aria-invalid="true"] {
   line-height: var(--text-small-line);
   color: var(--text-2);
 }
+
+/* The backup line, the last thing on the front page: one quiet line in
+   secondary text, its time in the mono font. When the backup needs the
+   owner it turns amber and starts with the status dot, so it is a dot plus
+   words and never colour alone. */
+.backup {
+  margin: var(--space-6) 0 0;
+  font-size: var(--text-caption-size);
+  line-height: var(--text-caption-line);
+  color: var(--text-2);
+}
+
+.backup time {
+  font-family: var(--font-mono);
+  font-size: var(--text-mono-size);
+  font-variant-numeric: tabular-nums;
+}
+
+.backup.attention {
+  color: var(--accent-text);
+}
+
+.backup.attention::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: var(--space-2);
+  border-radius: 50%;
+  background: var(--accent-text);
+  vertical-align: middle;
+}

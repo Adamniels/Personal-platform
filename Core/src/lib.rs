@@ -235,12 +235,16 @@ async fn connect_database() -> Result<PgPool, Box<dyn Error>> {
 struct FrontPage {
     cards: Vec<Card>,
     now: OffsetDateTime,
+    /// The backup line, None when `CORE_BACKUP_STATUS_FILE` is unset.
+    backup: Option<backup_status::BackupLine>,
 }
 
 // The front page, composed here in one response: every feature with display
 // data is asked for it with the user's token, all at once, and each becomes
 // its card or a placeholder. A feature that is down or slow costs at most the
 // display deadline, and all of them together about one, see src/display.rs.
+// The backup status file, when set, is read on every load and never fails
+// the page, see src/backup_status.rs.
 async fn root(State(state): State<AppState>, session: session::Session) -> pages::Page<FrontPage> {
     let fetched = display::fetch_all(
         &state.http,
@@ -249,9 +253,15 @@ async fn root(State(state): State<AppState>, session: session::Session) -> pages
         state.display_deadline,
     )
     .await;
+    let now = OffsetDateTime::now_utc();
+    let backup = match &state.backup_status_file {
+        Some(path) => Some(backup_status::read(path, now).await.line(now)),
+        None => None,
+    };
     pages::Page(FrontPage {
         cards: fetched.into_iter().map(Card::from_fetched).collect(),
-        now: OffsetDateTime::now_utc(),
+        now,
+        backup,
     })
 }
 
@@ -377,6 +387,7 @@ mod tests {
         FrontPage {
             cards: vec![Card::Review(card)],
             now: now(),
+            backup: None,
         }
         .render()
         .unwrap()
