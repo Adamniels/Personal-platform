@@ -176,6 +176,59 @@ describe("a card is edited in place and deleted after asking", () => {
 		]);
 	});
 
+	test("a card changed since it was read is refused, and editing it again starts from the current card", async () => {
+		const deck = platform.addDeck("Real Time Systems");
+		platform.addTopic("Scheduling");
+		const card = platform.addCard(deck, {
+			front: "What is EDF?",
+			back: "Earliest deadline first",
+			topics: [SCHEDULING],
+		});
+		openAt("/review/cards", platform);
+		await rowOf("What is EDF?");
+
+		// Changed in another tab after the list was read.
+		Object.assign(card, { back: "Changed elsewhere", version: 2 });
+
+		fireEvent.click(
+			within(await rowOf("What is EDF?")).getByRole("button", { name: "Edit" }),
+		);
+		let edit = screen.getByRole("form", { name: "Edit card" });
+		await within(edit).findByRole("button", { name: "Remove Scheduling" });
+		fireEvent.click(within(edit).getByRole("button", { name: "Save" }));
+
+		const refused = await screen.findByRole("alert");
+		expect(refused.textContent).toContain(
+			"This card changed since it was opened",
+		);
+		await settle();
+
+		fireEvent.click(within(edit).getByRole("button", { name: "Close" }));
+		fireEvent.click(
+			within(await rowOf("What is EDF?")).getByRole("button", { name: "Edit" }),
+		);
+		edit = screen.getByRole("form", { name: "Edit card" });
+		expect(
+			(
+				within(edit).getByRole("textbox", {
+					name: "Back",
+				}) as HTMLTextAreaElement
+			).value,
+		).toBe("Changed elsewhere");
+		await within(edit).findByRole("button", { name: "Remove Scheduling" });
+		type(
+			within(edit).getByRole("textbox", { name: "Front" }),
+			"What does EDF schedule by?",
+		);
+		fireEvent.click(within(edit).getByRole("button", { name: "Save" }));
+
+		expect(await rowOf("What does EDF schedule by?")).toBeTruthy();
+		const patches = platform.callsTo("PATCH", "/review/api/cards");
+		expect(
+			patches.map((call) => (call.body as { version: number }).version),
+		).toEqual([1, 2]);
+	});
+
 	test("Delete asks first, then deletes the card and says so", async () => {
 		const deck = platform.addDeck("Real Time Systems");
 		const card = platform.addCard(deck, {

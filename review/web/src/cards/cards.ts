@@ -2,6 +2,7 @@
 // serves" in review/README.md. Every change refreshes every query under REVIEW, so the decks' card
 // counts follow.
 import { useMutation, useQuery } from "@tanstack/react-query";
+import { ApiError } from "../api/client";
 import type { components } from "../api/schema";
 import { useRefreshReview } from "../decks/decks";
 import { REVIEW, useClient } from "../providers";
@@ -38,7 +39,9 @@ export function useAddCard() {
 }
 
 /** Changes a card from the version it was read at. A 422 is the form's to
- * show on its field, and a 409, a card changed since, the form's to say. */
+ * show on its field, and a 409, a card changed since, the form's to say. A
+ * 409 also refreshes, since it proves the cached card stale, so editing it
+ * again starts from the current version. */
 export function useEditCard() {
 	const client = useClient();
 	const refresh = useRefreshReview();
@@ -50,6 +53,11 @@ export function useEditCard() {
 		}: CardFields & { id: string; version: number }) =>
 			client.send<Card>("PATCH", cardPath(id), { version, ...fields }),
 		onSuccess: refresh,
+		onError: (failure) => {
+			if (failure instanceof ApiError && failure.problem.status === 409) {
+				return refresh();
+			}
+		},
 		meta: { fieldErrors: true },
 	});
 }
