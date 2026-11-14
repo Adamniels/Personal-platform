@@ -4,7 +4,10 @@ sent with the user's token. See "What a feature exposes for the front page"
 in Core/docs/core-architecture.md."""
 
 import re
+from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
 
+import pytest
 from playwright.sync_api import Locator, Page, expect
 
 from conftest import capture, register_and_log_in
@@ -129,3 +132,92 @@ def test_the_home_page_says_when_nothing_is_due_in_review(
     expect(card.get_by_text(re.compile(r"^Next in \d+ minutes?$"))).to_be_visible()
     expect(card.get_by_role("link", name="Start review")).to_have_count(0)
     capture(page, "home-review-nothing")
+
+
+# The backup line. On the dev stack CORE_BACKUP_STATUS_FILE is unset, as on
+# the laptop and in CI; the hosted copy sets it and mounts the backup job's
+# status. See "The backup line on the front page" in
+# Core/docs/core-architecture.md.
+
+UTC_TITLE = re.compile(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} UTC$")
+
+
+def status_dot(line: Locator) -> dict:
+    """The width and colour of the line's ::before, the status dot."""
+    return line.evaluate(
+        """element => {
+            const dot = getComputedStyle(element, "::before");
+            return {content: dot.content, width: dot.width, colour: dot.backgroundColor};
+        }"""
+    )
+
+
+@pytest.mark.dev_stack_only(
+    reason="the hosted copy sets CORE_BACKUP_STATUS_FILE, so its home page has the line"
+)
+def test_the_home_page_says_nothing_about_backups_without_the_setting(
+    page: Page, invite_code: str, base_url: str
+):
+    register_and_log_in(page, invite_code, base_url)
+
+    expect(page.locator(".backup")).to_have_count(0)
+    expect(page.get_by_text(re.compile("backup", re.IGNORECASE))).to_have_count(0)
+
+
+@pytest.mark.hosted_only
+def test_the_home_page_shows_the_last_backup(
+    page: Page, invite_code: str, viewport: str, base_url: str
+):
+    """check.sh runs `backup now` before the suite, so the real status file
+    holds a success from minutes ago."""
+    register_and_log_in(page, invite_code, base_url)
+
+    line = page.locator("main p.backup")
+    expect(line).to_have_count(1)
+    expect(line).to_have_text(
+        re.compile(r"^Last backup (just now|\d+ (minute|hour)s? ago)$")
+    )
+    expect(line).not_to_have_class(re.compile(r"\battention\b"))
+    expect(line.locator("time")).to_have_attribute("title", UTC_TITLE)
+    assert status_dot(line)["content"] == "none"
+    scroll_width = page.evaluate("document.documentElement.scrollWidth")
+    assert scroll_width <= page.viewport_size["width"]
+
+    capture(page, "home-backup-fine")
+
+
+@pytest.mark.hosted_only
+def test_the_home_page_warns_when_the_backup_is_stale(
+    page: Page,
+    invite_code: str,
+    viewport: str,
+    base_url: str,
+    backup_status: Callable[[dict], None],
+):
+    two_days_ago = (datetime.now(UTC) - timedelta(days=2)).replace(microsecond=0)
+    stamp = two_days_ago.strftime("%Y-%m-%dT%H:%M:%SZ")
+    backup_status(
+        {
+            "last_attempt_at": stamp,
+            "last_attempt_ok": True,
+            "last_success_at": stamp,
+            "last_error": None,
+        }
+    )
+    register_and_log_in(page, invite_code, base_url)
+
+    line = page.locator("main p.backup")
+    expect(line).to_have_class(re.compile(r"\battention\b"))
+    expect(line).to_have_text("Last backup 2 days ago, none since")
+    expect(line.locator("time")).to_have_attribute(
+        "title", two_days_ago.strftime("%Y-%m-%d %H:%M:%S UTC")
+    )
+    # A dot and words, never colour alone: the 6px dot in the line's own
+    # amber.
+    dot = status_dot(line)
+    assert dot["width"] == "6px", dot
+    assert dot["colour"] == line.evaluate("element => getComputedStyle(element).color")
+    scroll_width = page.evaluate("document.documentElement.scrollWidth")
+    assert scroll_width <= page.viewport_size["width"]
+
+    capture(page, "home-backup-stale")

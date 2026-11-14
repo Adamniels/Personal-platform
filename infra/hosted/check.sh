@@ -184,8 +184,10 @@ wait_healthy() {
   done
 }
 
-# suite: the acceptance suite in e2e/ against the front, its output shown as it runs. Invite codes
-# and reset tokens are made in the core's container, through E2E_CORE_COMMAND, see e2e/README.md.
+# suite: one `backup now`, then the acceptance suite in e2e/ against the front, its output shown as
+# it runs. Invite codes and reset tokens are made in the core's container, through E2E_CORE_COMMAND,
+# and the backup status file is read and replaced in the backup's container, through
+# E2E_BACKUP_STATUS_READ and E2E_BACKUP_STATUS_WRITE, see e2e/README.md.
 # It installs nothing: uv and Chromium must be there, as the dev gate expects them, and a missing
 # one is written to suite.reason. A test marked dev_stack_only is left out.
 suite() {
@@ -203,9 +205,17 @@ with sync_playwright() as p:
       > "$tmp/suite.reason"
     return 1
   fi
+  # One backup first, so the status file the home page's backup line reads exists and is fresh.
+  if ! step backup_now compose run --rm -T --no-deps backup now; then
+    echo "backup now failed, its log is above" > "$tmp/suite.reason"
+    return 1
+  fi
   echo "-- the acceptance suite, against $origin"
+  local exec="docker compose -p $project --env-file '$env_file' -f infra/hosted/compose.yaml exec -T"
   if ! (cd "$repo/e2e" &&
-    E2E_CORE_COMMAND="docker compose -p $project --env-file '$env_file' -f infra/hosted/compose.yaml exec -T core platform_core" \
+    E2E_CORE_COMMAND="$exec core platform_core" \
+      E2E_BACKUP_STATUS_READ="$exec backup cat /status/backup.json" \
+      E2E_BACKUP_STATUS_WRITE="$exec backup sh -c 'cat > /status/backup.json.tmp && mv /status/backup.json.tmp /status/backup.json'" \
       UV_LOCKED=1 uv run pytest --base-url "$origin" -m "not dev_stack_only"); then
     echo "uv run pytest exited non zero, its output is above" > "$tmp/suite.reason"
     return 1
