@@ -75,7 +75,8 @@ the owner's machines.
 What would make it a failure even if it works. Later decisions are tested against these.
 
 1. **An agent gets around a project's settings**, for example by merging where only the owner may
-   merge. This is prevented by how the thing is built, never by rules an agent is asked to follow.
+   merge. This is prevented by how the thing is built, and never only by rules an agent is asked to
+   follow.
 2. **Something merges unchecked** in a project whose settings say it must be checked.
 3. **A secret leaks** into a pull request, a log or a page.
 4. **It burns usage silently.** A stuck run loops for hours without anyone being told.
@@ -154,9 +155,9 @@ agent working on a connected project cannot reach rules that live in the program
 
 What is left of that problem, and the answer to each:
 
-- **The agent has no access to the code host.** The program creates branches, pushes, opens pull
-  requests, comments and merges. The agent only edits files in a working copy, so it cannot merge
-  or touch a card even if it tried.
+- **The agent has no access to the code host.** The software around it creates branches, pushes,
+  opens pull requests, comments and merges. The agent edits files in a working copy and may save
+  its work there as commits, which are local, so it cannot merge or touch a card even if it tried.
 - **A project's own tests and CI are in its repository**, so an agent can weaken a test in the
   change that test should judge. That is not forbidden. The reviewer reads the diff, and a project
   may set paths whose changes wait for the owner. A fully automatic project leaves that empty.
@@ -332,7 +333,8 @@ Agreed in round 3:
 - **A container is kept between cards, and each card gets a clean working copy** (2026 11 14). The
   installed tools and downloaded packages stay, which makes the next card faster.
 - **The program watches the code host, and a worker only asks the program for work** (2026 11 14).
-  A worker never talks to the code host.
+  The one thing a worker does on the code host is fetch and push code, see "How code reaches a
+  worker and comes back" under round 4.
 - **A project's tools come from a recipe in its own repository** (2026 11 14), a Dockerfile, built
   on top of a base image holding the worker and Claude Code. It follows the code: a card that makes
   the project need a new tool adds it to the recipe in the same pull request, and a changed recipe
@@ -402,11 +404,109 @@ Agreed in round 3:
 
 ### Round 4: architecture
 
-Settles the program's parts, the brief a developer agent gets and the structured report it returns,
-the states a card and a run go through, and what is stored against what is read from the code host.
+Held on 2026 11 14 and done. It settled the program and the worker and what each does, the brief a
+developer agent gets and the report it returns, where the truth is kept, what it is built in, how
+code reaches a worker, and the states of a card.
 
 From the owner, 2026 11 14: build more around the agent, in a real language, leaning C#. The agent
 reports something the program can act on, such as the pages a change affects.
+
+Agreed in round 4:
+
+- **The brief a developer agent gets** (2026 11 14): the card, with the owner's answers to its
+  questions; the feature it belongs to, with the link to the spec and a short account of what the
+  earlier cards built; where the project's own facts are, its `CLAUDE.md` and how it is built and
+  tested; how to work, tests first and one commit per task, which comes from the program and is the
+  same for every project; and for work sent back, what was built before and the owner's comment.
+- **The report it hands back is a fixed form the program reads** (2026 11 14), not free text: the
+  outcome, done or stopped with the reason; what was done, task by task; the decisions it made, each
+  with what it chose, the alternative and why, and marked where the owner would want a say; what it
+  tested and the result; the pages or screens the change affects; anything it had to install; and
+  the follow ups it suggests, which the program can turn into attention issues.
+- **The program does not take the report on trust** (2026 11 14). It runs the project's tests
+  itself and uses its own result, takes the screenshots of the pages the report names itself, and
+  gives the reviewer the report together with the real diff. The report guides the program, and
+  nothing merges because an agent said so, which is how the second anti goal is met where nothing
+  waits for the owner.
+- **Where the truth is kept** (2026 11 14). GitHub holds the work itself: the cards, their labels,
+  which feature each belongs to and what blocks what, and the code, branches and pull requests. The
+  owner edits those there, so the program reads them and never keeps a copy as the authority. The
+  program's database holds everything about doing the work: projects, settings and workers, the
+  queue and the state of every card and run, reports, questions and answers, logs and usage. The
+  program leaves a short readable trail on GitHub: a summary of the report on each pull request,
+  attention issues and refusals as real issues, and the owner's answers as a comment on the card. So
+  GitHub alone explains what happened, and everything the program did leads back to a card. The
+  trail is a copy for reading: for runs the database is right, for cards GitHub is. Everything on
+  GitHub, as this repository's runner does it, cannot hold usage, logs or a queue across projects;
+  everything in the database would leave GitHub unable to explain itself.
+- **The first part reads this repository's labels and comments straight from GitHub** (2026 11 14),
+  since the current runner has no database. It is the same reading the program does for cards.
+- **The page can do everything, and GitHub works for what is naturally a GitHub action**
+  (2026 11 14). Answering a question is done on the page, where the answer is tied to the exact
+  question; a comment from the owner on a waiting card counts as more information, and the program
+  reads the card again. Work is sent back from the page, or by commenting on the open pull request,
+  or by reopening the card with a comment. Merging works from the page and with GitHub's own button,
+  which the program notices. A feature is switched on and a card held from the page or by the label.
+  Pausing a project, settings, runs and usage exist only in the program.
+- **What it is built in** (2026 11 14). The program is C# on ASP.NET Core, as the owner wants so he
+  can read and control it, following the pattern Review set: a database of its own in Postgres,
+  `PlatformAuth` for who is asking, the same way of testing. The worker and the later machine
+  program are C# too, so they share with the program the definitions of what they say to each other,
+  and a change that breaks that fails when it is compiled. The worker is published as a single file
+  carrying its own .NET runtime, so a project's recipe needs no .NET. The pages are React with
+  `@platform/ui`, like the other features' pages. A smaller language for the worker was the
+  alternative and was dropped: its size does not matter beside a running agent, and a second
+  language costs the shared definitions.
+- **The program is the manager and a worker is the hands at one workbench** (2026 11 14). The
+  program, one and always on, knows the projects, settings and trusted accounts, watches the code
+  host, decides which card is next and what kind of job it is, writes the brief, judges every result
+  by the project's settings, counts fix rounds and usage, does everything on the code host except
+  moving code, and serves the pages. A worker asks for work, gets one job, fetches the code into a
+  clean working copy, starts the agent with the brief and watches the time limit, then runs the
+  project's tests, takes the screenshots, pushes the branch, sends the report and the results back,
+  and forgets everything. It knows nothing of settings or of what comes next, and it does not loop
+  over a card: a fix is a new job the program hands out. This repository's `run.sh` does both in
+  one script on one machine; they are split because the platform and the machines are different
+  places.
+- **How code reaches a worker and comes back** (2026 11 14). For each job the program gives the
+  worker a key made by the GitHub App. It lasts an hour, which is GitHub's own limit, reaches one
+  repository, and can only read and push code: it cannot merge, edit a card or change a label. The
+  worker asks for a fresh one when it fetches and when it pushes, so the length of a run does not
+  matter. The agent runs as a different user in the container and cannot read it. The program
+  watches `main`: anything landing there that neither it nor the owner put there pauses the project
+  and reaches him. A repository with branch protection has it as one more layer. The alternative
+  kept every key out of the container, with the program passing code in and commits out as git
+  bundles and checking them before pushing. It is safer and was first recommended, then dropped as
+  more to build than the risk is worth: for a bad push to `main` the agent must misbehave and the
+  wall between the two users must fail together, and the result is a commit the owner can see and
+  revert. The worker's fetching and handing back are one small place, so it can be changed later.
+- **The states of a card** (2026 11 14), which are what the pages show:
+
+  | State | What it means | Whose turn |
+  |---|---|---|
+  | Reading | The reading step is queued or running | The program |
+  | Needs answers | It has questions, and the project has questions on | The owner |
+  | Refused | Too thin to build, with what is missing listed | The owner |
+  | Queued | Ready, and waiting for its turn, a free worker or a card it depends on; the page says which | The program |
+  | Building | An agent is writing the code | The program |
+  | Checking | The worker is running the tests and taking screenshots | The program |
+  | Reviewing | The reviewer is reading it | The program |
+  | Fixing | Back with the developer after a review, in round 1, 2 or 3 | The program |
+  | Waiting for the owner | The pull request waits for him, by the project's settings | The owner |
+  | Done | Merged into the feature's branch or `main` | Nobody |
+  | Stopped | It could not produce a working result, and an attention issue says why | The owner |
+
+  A feature is in progress, ready for the owner's review, which is every card done and the pull
+  request to `main` open, or merged. On top of any state a card can be held and a project paused.
+  The page of what waits for him is every card and feature whose turn is his, across all projects.
+- **The agent runs behind one narrow interface** (2026 11 14): the worker starts a program, gives it
+  the brief and reads the report in its fixed form. Two things are built behind it: Claude Code run
+  headless with `claude -p`, and a fake agent returning a prepared report, so the worker's own tests
+  spend no usage. The Agent SDK is not used now: it exists for Python and TypeScript, and the
+  subscription login is documented for Claude Code itself. The interface keeps it possible later, as
+  a small side program in one of those languages taking the same brief and returning the same
+  report, at the cost of that language in the base image. It would give control from code during a
+  run, such as tools of the owner's own, and the same slot takes another agent altogether.
 
 ### Round 4b: cost and efficiency
 
@@ -426,9 +526,46 @@ From the owner, 2026 11 14: many repositories, perhaps one agent each. The Mac m
 perhaps cloud. Perhaps a container per project with its tools installed in it. The subscription most
 of the time, the API possible.
 
-Needs checking against current documentation first: what a Claude subscription allows for
-unattended runs, whether cloud hosted sessions can be started and read by a program, and running
-Claude Code in a Linux container on a Mac.
+Research done on 2026 11 14, read from the official Claude Code documentation and support
+articles through a tool that summarises pages. Nothing here is decided, and the exact wording
+should be checked on the live pages before the round relies on it, the support article first.
+
+- **Headless runs do what the design needs.** `claude -p` takes a JSON schema and returns the
+  result in a field of its own, which fits the fixed form of the report, and a session can be
+  resumed by id. A worker must check both the exit status and the answer, since a failure is
+  printed as the result. Source: `code.claude.com/docs/en/headless.md`.
+- **A subscription login works in a container.** `claude setup-token` makes a token that lasts a
+  year and is given to the run as `CLAUDE_CODE_OAUTH_TOKEN`, with no keychain or browser. It can
+  only make model requests. It needs rotating and a warning before it runs out. Source:
+  `code.claude.com/docs/en/authentication.md`.
+- **Whether unattended sessions started by a program are allowed on a subscription is not
+  stated.** The worker is always on but uses no Claude while it waits; a session starts for a card
+  and ends with it. The terms say the login is for "ordinary use" and "ordinary, individual usage",
+  do not define it, and reserve enforcement without notice. One person's own sessions on his own
+  subscription are not what they aim at, but many in a row through a night are a grey zone, the
+  same one this repository's runner is already in. Source:
+  `code.claude.com/docs/en/legal-and-compliance.md`. So the design keeps an API key as a second way
+  to run, per project or as a fallback.
+- **An API key in the environment silently wins** over the subscription in a headless run, and the
+  run is then billed to the API. The worker must control which credential a run has and check it.
+- **Bare mode cannot use the subscription**, and the documentation says it will become the default
+  for headless runs. The worker must set the mode itself and check at start that the login works.
+- **Runs on a subscription draw from the plan's limits**, and there is no separate allowance for
+  them. Max plans are said to include monthly API credits for runs made with an API key through a
+  linked Console organisation; the amounts were not confirmed. Source:
+  `support.claude.com/en/articles/15036540`.
+- **Usage per run can be read**, tokens and an estimated cost, from the JSON answer. It is an
+  estimate, and nothing says how much of the subscription's limit a run used. So the usage page
+  shows tokens and estimates, never a share of the allowance.
+- **Running without permission prompts is documented only for an isolated container, as a user that
+  is not root.** Code in the container can read the Claude login stored there, which is the one
+  credential a run holds, as round 3 said.
+- **Cloud hosted sessions are not a fit yet.** A program can start one, but the documentation gives
+  no way to read its result, and the one way to trigger them by API is a research preview.
+- **Resuming a session sends the whole conversation again.** What is unchanged is read from a
+  cache that lasts an hour on a subscription, and a session resumed after a longer gap is paid for
+  in full. Two runs in different directories share no cache. The documentation gives no break even
+  between resuming and starting fresh. This is input to round 4b.
 
 ### Round 6: the code host
 
@@ -457,6 +594,10 @@ the first part through `/plan-feature`.
 
 Check these. Each was said to him in passing, and none was asked as a question.
 
+- **A worker reaches the program with ordinary HTTPS requests that it starts itself**, carrying
+  its project's key, and sends the agent's log up while a run is going, so the page of what is
+  running can show it. A machine at home cannot be reached from a host elsewhere, so the worker
+  always calls and is never called. Round 5 confirms it.
 - **The program keeps the label and comment conventions of the current runner** where it can, so
   the waiting list built first keeps working when the engine arrives. Round 6 confirms it.
 
@@ -478,6 +619,9 @@ passage changes when this way of working has been tried.
 ## Changes
 
 - 2026 11 14: first version, after rounds 0 and 1.
+- 2026 11 14: round 4 added, with the research for round 5. "A worker never talks to the code host"
+  became: it fetches and pushes code with a short lived key and does nothing else there. The first
+  anti goal now reads "never only by rules".
 - 2026 11 14: round 3 added. Every worker is dedicated to one project, which replaced an earlier
   draft with shared workers and tags.
 - 2026 11 14: round 2 added, and round 4b, cost and efficiency, added at the owner's wish. The call
