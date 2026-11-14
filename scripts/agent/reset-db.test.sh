@@ -42,15 +42,15 @@ cwd="$(cat "$tmp/cwd" 2>/dev/null)"
 if [ "$cwd" = "$root" ]; then ok "runs from the repository root, wherever it is called from"; else bad "runs from the repository root" "got: $cwd"; fi
 
 sql="$(grep -v '^[[:space:]]*\(--.*\)\?$' "$tmp/sql" 2>/dev/null)"
-want_sql='DROP DATABASE IF EXISTS core WITH (FORCE);
-CREATE DATABASE core OWNER core_owner;
-REVOKE ALL ON DATABASE core FROM PUBLIC;
-GRANT CONNECT ON DATABASE core TO core_app;
-DROP DATABASE IF EXISTS brain WITH (FORCE);
-CREATE DATABASE brain OWNER brain_owner;
-REVOKE ALL ON DATABASE brain FROM PUBLIC;
-GRANT CONNECT ON DATABASE brain TO brain_app;'
-if [ "$sql" = "$want_sql" ]; then ok "feeds exactly the reset statements for core and brain, in order"; else bad "feeds exactly the reset statements for core and brain, in order" "got: $(echo "$sql" | tr '\n' ' ')"; fi
+# The real manifest's databases, read here with jq rather than through services.sh, so a service
+# that gains a database needs no change to this test. The exact statements and their order are
+# pinned below, against a manifest of the test's own.
+want_sql="$(jq -r '.services[] | .database // empty
+  | "DROP DATABASE IF EXISTS \(.name) WITH (FORCE);",
+    "CREATE DATABASE \(.name) OWNER \(.owner);",
+    "REVOKE ALL ON DATABASE \(.name) FROM PUBLIC;",
+    "GRANT CONNECT ON DATABASE \(.name) TO \(.app);"' "$root/infra/services.json")"
+if [ -n "$want_sql" ] && [ "$sql" = "$want_sql" ]; then ok "feeds exactly the reset statements for every database in the manifest, in order"; else bad "feeds exactly the reset statements for every database in the manifest, in order" "got: $(echo "$sql" | tr '\n' ' ')"; fi
 
 if grep -qi 'role' "$tmp/sql"; then bad "keeps the roles" "the SQL touches a role"; else ok "keeps the roles"; fi
 
