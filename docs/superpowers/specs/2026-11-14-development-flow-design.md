@@ -672,14 +672,86 @@ of layout is what was agreed.
 
 ### Round 8: verification
 
-Settles which checks exist and which of them a project's settings can require: the project's tests,
-the reviewer, and screenshots of the pages a change affects.
+Held on 2026 11 14 and done. That the worker runs the tests itself, that a fresh reviewer reads
+every pull request and that the program takes the screenshots were agreed in rounds 2 and 4. This
+round settled what the program checks before it merges.
+
+- **A card merges unattended only when all of this holds** (2026 11 14), the successor of this
+  repository's merge gate:
+  1. the project's checks passed when the worker ran them, the build, the tests and the linters as
+     one command the project defines, by the worker's own result and not the agent's claim;
+  2. the project's own CI passed on the pull request, where the project has CI;
+  3. the reviewer approved exactly this commit, so a commit pushed after the review needs a new one;
+  4. the card is still valid: written by a trusted account, not held, and not edited by anyone
+     outside the list since it was read;
+  5. the project's settings do not make it wait for the owner.
+
+  Anything that fails or cannot be read means no merge. The program never guesses in favour of
+  merging.
+- **Three things are deliberately not on that list** (2026 11 14). Screenshots are evidence for the
+  reviewer and the owner: the reviewer looks at them and can fail a card for them, but the program
+  cannot judge a picture. Whether a card had tests written for it is the reviewer's to judge, by
+  whether the card's acceptance is covered, since counting tests rewards the wrong thing. And the
+  agent's report guides and never decides.
+- **A project's commands live in a small file in its repository** (2026 11 14), written by the setup
+  run with the recipe: the one command that checks it, and how to start it so its pages can be
+  opened for screenshots. A project with no pages, such as Tick, leaves the second empty.
 
 ### Round 9: parts and order
 
-Settles the cut into parts by the three tests in "What is built now" in
-`High-level/docs/how-we-build.md`, the order, how the platform moves over, and then the slices of
-the first part through `/plan-feature`.
+Held on 2026 11 14 and done.
+
+- **An experiment comes before the parts** (2026 11 14). The engine rests on one claim nobody has
+  tried: a worker in a container on the Mac mini can run Claude Code on the owner's subscription
+  token and get a report back in the fixed form. It is tried by hand, on Fodr, and thrown away. It
+  is also the check of the research in round 5 against the real thing.
+- **The parts, in order** (2026 11 14). Each ends in something the owner can use, and each becomes a
+  feature issue with slices of its own when its turn comes.
+
+  | # | Part | What he can do when it is done |
+  |---|---|---|
+  | 0 | Host the platform on the Mac mini, with backups | Open the platform from his laptop and phone at any time |
+  | 1 | Connect and see | Connect this repository and use the page of what waits for him against the current runner: read decisions, merge, send back |
+  | 2 | One card, end to end | Label a single Fodr card and get a pull request, built by a worker in a container |
+  | 3 | Review, fixing and merging | That card is reviewed, fixed and merged by the program, with the stops in place |
+  | 4 | Features | Label a parent issue: cards built in order into a feature's branch, the feature's page, sending back, and his merge into `main` |
+  | 5 | Reading, questions and settings | The reading step, questions and refusals, every setting and the three presets |
+  | 6 | Setup run and recipe | Connect a new project without writing its recipe by hand |
+  | 7 | Running now, usage and history | Watch runs as they happen and see what everything used |
+  | 8 | Schedules, pausing and limits | Schedules per project, the budget, the API key at the limit, turns between projects |
+  | 9 | The machine program | Start and stop workers from the page |
+  | 10 | The platform moves over | This repository is built by the program, and `scripts/agent/` is retired |
+
+  Parts 0 and 1 give the daily benefit first, on this repository. Part 2 is the riskiest thing built
+  as thinly as it can be. Fodr is useful from part 4. Measuring starts in part 2, though its pages
+  come in part 7, so no numbers are lost.
+- **Part 0 is planned in a session of its own** (2026 11 14). The Mac mini's current runner uses
+  fixed ports for its test copy of the platform, and a copy that stays up on the same machine would
+  collide with it. It is solvable, for example by an address and ports of its own, and it is a
+  different kind of work from the rest.
+- **Four batches, each built without the owner, with a short real use between them** (2026 11 14).
+  The feature's automated tests must use a fake GitHub and a fake agent, since real ones cost usage
+  and need secrets, so every test can pass while the real thing has never run. Waiting until all
+  eleven parts are done would build ten parts on an assumption nobody tried, which is what the
+  third test in "What is built now" in `High-level/docs/how-we-build.md` exists to prevent. He does
+  not review code at a check, he uses the thing for half an hour.
+
+  | Batch | Parts | His check afterwards |
+  |---|---|---|
+  | 1 | 0 and 1 | Open the page on his phone and merge a real pull request from it |
+  | 2 | 2 and 3 | Label one real Fodr card and watch it built, reviewed and merged |
+  | 3 | 4, 5 and 6 | Label one real Fodr feature in the evening and review it in the morning |
+  | 4 | 7 to 10 | Use it normally, then move the platform over |
+
+  Each batch is planned when the one before it has been used, so its plan can use what was learned.
+- **The current runner builds all of it, and it still stops for the owner in three places**
+  (2026 11 14), since it is not the fully automatic mode designed here: setup only he can do, such
+  as registering the GitHub App, making the Claude token, and creating a database on the Mac mini
+  before the slice that needs it, collected per batch so he does it in one sitting before the cards
+  go in; changes under `.github/` or `scripts/`, which wait for his merge and are gathered into as
+  few slices as possible, early; and the three cases where an agent may not decide alone.
+- **Left out of every part** (2026 11 14): one session kept through a feature, a place to try a
+  feature's branch, a second code host, and a login for other people.
 
 ---
 
@@ -722,6 +794,8 @@ passage changes when this way of working has been tried.
 ## Changes
 
 - 2026 11 14: first version, after rounds 0 and 1.
+- 2026 11 14: round 9 added. Every round is done.
+- 2026 11 14: round 8 added.
 - 2026 11 14: round 7 added, with the mockups.
 - 2026 11 14: rounds 5 and 6 closed. Round 6 had no questions of its own.
 - 2026 11 14: round 4b added.
