@@ -1,0 +1,13 @@
+{
+	# The front lives as long as one check.sh run; nothing trusts its root.
+	skip_install_trust
+	admin off
+}
+
+# platform.test on 443 in the container, published on 127.0.0.1:9443. A host
+# matcher ignores the port, so a request for platform.test:9443 is served here.
+platform.test {
+	# .test is not a name Caddy treats as local; its own authority signs.
+	tls internal
+	reverse_proxy proxy:80
+}
