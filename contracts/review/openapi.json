@@ -338,6 +338,38 @@
         ],
         "type": "object"
       },
+      "DisplayData": {
+        "properties": {
+          "decks": {
+            "items": {
+              "$ref": "#/components/schemas/DueDeck"
+            },
+            "type": "array"
+          },
+          "due_now": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "due_today": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "next_due_at": {
+            "format": "date-time",
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "required": [
+          "due_now",
+          "due_today",
+          "next_due_at",
+          "decks"
+        ],
+        "type": "object"
+      },
       "DueCards": {
         "properties": {
           "as_of": {
@@ -367,6 +399,22 @@
           "total",
           "as_of",
           "next_due"
+        ],
+        "type": "object"
+      },
+      "DueDeck": {
+        "properties": {
+          "due_now": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "due_now"
         ],
         "type": "object"
       },
@@ -1104,6 +1152,31 @@
           }
         },
         "summary": "Rename a deck",
+        "tags": [
+          "Review"
+        ]
+      }
+    },
+    "/review/api/display": {
+      "get": {
+        "description": "due_now, the cards due at or before now; due_today, those due before the day ends at 04:00 in the zone REVIEW_DAY_ZONE names, those due now included; next_due_at, the earliest due after now, or null; and decks, every deck with a card due now, at most 20, the most due first, then by name without letter case, each its name and due_now. The core calls it with the user's token in the Authorization header.",
+        "operationId": "getDisplay",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DisplayData"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "summary": "What is due, for the front page",
         "tags": [
           "Review"
         ]

@@ -29,6 +29,7 @@ public sealed class SettingsTests
         Assert.Equal(new Uri("http://127.0.0.1:8080"), defaults.CoreUrl);
         Assert.Equal("https://platform.test", defaults.PublicOrigin);
         Assert.False(defaults.ExposeOpenApi);
+        Assert.Equal("Europe/Stockholm", defaults.DayZone.Id);
 
         foreach (var (name, value) in Malformed)
         {
@@ -73,6 +74,11 @@ public sealed class SettingsTests
         ("REVIEW_EXPOSE_OPENAPI", "yes"),
         ("REVIEW_EXPOSE_OPENAPI", " 1"),
         ("REVIEW_APP_DATABASE_URL", ""),
+        ("REVIEW_DAY_ZONE", ""),
+        ("REVIEW_DAY_ZONE", "Mars/Olympus_Mons"),
+        ("REVIEW_DAY_ZONE", " Europe/Stockholm"),
+        // A Windows name, which .NET would map to an IANA zone: only an IANA name is accepted.
+        ("REVIEW_DAY_ZONE", "W. Europe Standard Time"),
     ];
 
     [Theory]
@@ -111,6 +117,23 @@ public sealed class SettingsTests
     public void TheSchemaIsExposedOnlyWhenAskedFor(string value, bool exposed)
     {
         Assert.Equal(exposed, Load(("REVIEW_EXPOSE_OPENAPI", value)).ExposeOpenApi);
+    }
+
+    [Theory]
+    [InlineData("Europe/Stockholm")]
+    [InlineData("America/New_York")]
+    [InlineData("UTC")]
+    public void TheDayZoneIsAnIanaName(string value)
+    {
+        Assert.Equal(value, Load(("REVIEW_DAY_ZONE", value)).DayZone.Id);
+    }
+
+    [Fact]
+    public void AnUnknownDayZoneIsNamedWhenStartupStops()
+    {
+        var refused = Assert.Throws<StartupException>(() => Load(("REVIEW_DAY_ZONE", "Mars/Olympus_Mons")));
+
+        Assert.Contains("Mars/Olympus_Mons", refused.Message, StringComparison.Ordinal);
     }
 
     [Fact]

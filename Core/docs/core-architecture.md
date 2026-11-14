@@ -666,9 +666,11 @@ logged once with the feature's name and the reason, never the token, and the use
 placeholder whatever the reason. The fetching is `display::fetch_all` in `src/display.rs`, with
 the deadline, `DISPLAY_DEADLINE`, as a parameter so the tests can pass a short one.
 
-**Canary is the first feature on the page.** A feature's card is two pieces of the core: a type in
-`src/cards.rs` that its display data deserialises into, and its branch of `templates/front.html`
-that renders it. `Card::from_fetched` picks the type by the feature's registry prefix, which is
+**Canary and review are the features on the page.** Canary was the first, proving the pattern;
+review's card is how review comes to the owner, the count due now and its decks, until a
+notifications service exists. A feature's card is two pieces of the core: a type in
+`src/cards.rs` that its display data deserialises into, `CanaryCard` and `ReviewCard`, and its
+branch of `templates/front.html` that renders it. `Card::from_fetched` picks the type by the feature's registry prefix, which is
 unique, rather than by its name. A type refuses any other shape, an unknown field included, and
 only a JSON object reads at all, since serde would otherwise fill a struct from an array by
 position. Every value goes through askama's escaping; nothing a feature sends is marked safe.

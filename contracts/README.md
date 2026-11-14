@@ -53,8 +53,13 @@ exposes for the front page" in `Core/docs/core-architecture.md`.
   same JSON type; the values differ per request, so they are not compared. The core reads it into
   the type canary's card renders, `CanaryCard`, in `the_committed_canary_fixture_reads_into_the_card`
   in `Core/src/cards.rs`.
+- `review.json`: review's data, an example response, pretty printed, with a trailing newline.
+  Review's `DisplayTests.TheResponseMatchesTheCommittedFixture` checks that its real response has
+  the same keys, each with the same JSON type, those of a deck in `decks` included. The core reads
+  it into `ReviewCard` in `the_committed_review_fixture_reads_into_the_card` in
+  `Core/src/cards.rs`.
 
-The file is written by hand and changed together with the feature that serves it.
+Each file is written by hand and changed together with the feature that serves it.
 
 ## brain/
 

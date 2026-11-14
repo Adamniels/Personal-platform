@@ -6,6 +6,7 @@ using PlatformAuth;
 using Review.Cards;
 using Review.Database;
 using Review.Decks;
+using Review.Display;
 using Review.Health;
 using Review.Pages;
 using Review.Scheduling;
@@ -72,6 +73,7 @@ public static class ReviewApp
         app.MapCards();
         app.MapGrades();
         app.MapQueue();
+        app.MapDisplay(settings.DayZone);
         app.MapPages(webRoot);
         if (settings.ExposeOpenApi)
         {

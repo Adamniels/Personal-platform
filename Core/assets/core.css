@@ -173,6 +173,97 @@ input[aria-invalid="true"] {
   margin: 0;
 }
 
+/* A card whose content needs the user, such as cards due in review: the
+   2px amber outline of section 4. */
+.card.needs-you {
+  border-color: var(--accent-border);
+  box-shadow: 0 0 0 1px var(--accent-border);
+}
+
+/* The card's one key fact, a number large in the heading font with its
+   words beside it. */
+.card .key-fact {
+  font-weight: 600;
+}
+
+.card .key-fact .count {
+  font-family: var(--font-heading);
+  font-size: var(--text-display-size);
+  line-height: var(--text-display-line);
+  font-variant-numeric: tabular-nums;
+  margin-right: var(--space-1);
+}
+
+.card .muted {
+  font-size: var(--text-small-size);
+  line-height: var(--text-small-line);
+  color: var(--text-2);
+}
+
+/* At most three rows, a name on the left and its number on the right. */
+.card .rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.card .rows li {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.card .rows .name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.card .rows .number {
+  font-family: var(--font-mono);
+  font-size: var(--text-mono-size);
+  line-height: var(--text-body-line);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-2);
+}
+
+/* The card's one action, a link drawn as a button and pushed to the bottom
+   so cards in a row align: secondary, or the page's one primary. */
+.card .action {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  height: var(--control-h);
+  margin-top: auto;
+  padding: 0 14px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--text);
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.card .action:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.card .action.primary {
+  background: var(--accent);
+  border-color: var(--accent-border);
+  color: var(--on-accent);
+  font-weight: 600;
+}
+
+.card .action.primary:hover {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
 /* The empty state rule: a feature that could not be shown, or a front page
    with nothing on it. */
 .card.unavailable,
