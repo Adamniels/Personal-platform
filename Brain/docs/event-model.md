@@ -3,7 +3,7 @@
 Working document. Covers the shape of memory events. Companion to `knowledge-model.md`, which
 covers what the brain is trying to know. This one covers how evidence gets in.
 
-Last updated: 2026 11 12
+Last updated: 2026 11 14
 
 **Read this as multi user.** The platform is multi user and every user has their own
 isolated brain. The event kinds, the shape, the verbs and the consolidation rules are generic.
@@ -11,7 +11,7 @@ Where the text says "Adam" in a rule rather than an example, read "the owner".
 
 ---
 
-## Six kinds of event
+## Seven kinds of event
 
 Distinguished by what the brain can learn from them, not by which feature emits them.
 
@@ -24,6 +24,14 @@ Implicit preference signal, and the high volume layer.
 
 **Judgment.** He evaluated something explicitly. Rated it, marked it too basic or too
 advanced, accepted or rejected a proposal. Lower volume, much stronger signal.
+
+**Assessment.** He was tested on what he knows. A review grade, a quiz. Measured rather than
+inferred, which is why it beats any behavioural proxy, see "Granularity is a per feature
+decision". It is its own kind rather than a judgment because it points the other way: in a
+judgment Adam evaluates something, in an assessment something evaluates him. Folded together,
+consolidation would read "rated this" and "knows this" as one kind of evidence. A grade he gives
+himself, as Review's is, is strength 2, good evidence but self reported; a quiz graded by the
+feature that set it can declare verbs of its own at 3.
 
 **Assertion.** He told the system something directly. Profile input, a correction, "I did
 this course three years ago." Lands in whichever store the claim belongs to, and authority
