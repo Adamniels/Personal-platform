@@ -62,6 +62,9 @@
         "app_password": "REVIEW_APP_PASSWORD",
         "owner_url": "REVIEW_OWNER_DATABASE_URL",
         "app_url": "REVIEW_APP_DATABASE_URL"
+      },
+      "ci": {
+        "init_script": "infra/postgres/initdb/review.sh"
       }
     }
   ]

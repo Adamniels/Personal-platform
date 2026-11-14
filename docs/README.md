@@ -103,8 +103,8 @@ features" in `High-level/docs/platform-architecture.md`.
 **Review**
 
 - `review/README.md` — what review serves, its page and its sections, the schema it pins, how to run
-  it and its tests, its settings, how it authenticates a request with `PlatformAuth`, and the
-  libraries it is built on
+  it and its tests, its settings, its database and roles, migrating, the one door every query goes
+  through, how it authenticates a request with `PlatformAuth`, and the libraries it is built on
 
 **Libs**
 
