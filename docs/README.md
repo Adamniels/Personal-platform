@@ -136,7 +136,7 @@ features" in `High-level/docs/platform-architecture.md`.
 
 - `infra/README.md` — the local hostname, running Caddy and what its data volume holds, the
   databases and the scripts that create them, the design folder and the paths Caddy serves from
-  it, the feature registry, and trusting Caddy's root
+  it, the feature registry, the service manifest, and trusting Caddy's root
 
 **Brain**
 

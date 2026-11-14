@@ -354,9 +354,9 @@ it was.
 
 ## One agent at a time
 
-Slices are worked one at a time. The gate needs the whole stack, Caddy on 80 and 443, the core on
-8080, canary on 8081, the brain on 8082 and Postgres on 5432, and two runs would collide on every
-one of them. Running
+Slices are worked one at a time. The gate needs the whole stack, Caddy on 80 and 443, Postgres on
+5432 and every service on the port `infra/services.json` gives it, and two runs would collide on
+every one of them. Running
 several at once would need a stack per run, separate ports and compose projects, and a git worktree
 each with its own copy of the git ignored `.env` files. A serial runner that never idles while work
 waits is enough until that changes.
@@ -455,7 +455,9 @@ runner clears between planning sessions.
 7. **Stack.** From `infra/`, `docker compose up -d --wait`. Each run resets the databases and
    applies the migrations itself. A volume created before `infra/.env` had the brain's two
    passwords has no brain database yet: run `brain.sh` once by hand, as "The databases" in
-   `infra/README.md` says, or the reset fails.
+   `infra/README.md` says, or the reset fails. The same holds for every service that brings a
+   database into `infra/services.json` later: add its two passwords to `infra/.env`, then run its
+   init script once on the existing volume, before the first run that resets it.
 8. **Browser.** From `e2e/`, `uv run playwright install chromium`.
 9. **Caddy's root.** Not trusted in the keychain here, since an SSH session cannot change trust. The
    agent copies the root out of the volume and passes it to `curl` with `--cacert`, see "Trusting

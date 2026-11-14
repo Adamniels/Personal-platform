@@ -131,8 +131,8 @@ jobs:
           paths="$(bash scripts/agent/services.sh health)"
           for _ in $(seq 1 180); do
             up=true
-            for path in $paths; do
-              if [ "$(curl -ks -o /dev/null -w '%{http_code}' "https://platform.test$path")" != 200 ]; then
+            for health_path in $paths; do
+              if [ "$(curl -ks -o /dev/null -w '%{http_code}' "https://platform.test$health_path")" != 200 ]; then
                 up=false
                 break
               fi

@@ -121,11 +121,54 @@ Caddyfile, a new path for instance, needs Caddy recreated, as above.
 routes to it, the upstream the core calls it at directly, and its display endpoint if it has one.
 The core reads it once at startup, so a change needs a restart, and refuses to start if the file
 is broken. Adding, moving or removing a feature changes `features.toml` and the Caddyfile in the
-same commit, since the two describe the same routes and nothing checks that they agree. Why it is
-a file and not a table is in "The feature registry" in `Core/docs/core-architecture.md`.
+same commit, since the two describe the same routes, and `services.json` gives the port the feature
+listens on; `scripts/ci/services.test.sh` checks that the three agree, see "The service manifest"
+below. Why it is a file and not a table is in "The feature registry" in
+`Core/docs/core-architecture.md`.
 
 The brain's route has no entry, since the brain is a service and not a feature: the core neither
 lists it in the nav nor asks it for front page data, see `Brain/README.md`.
+
+## The service manifest
+
+`services.json` describes every service the platform runs, once: one object, `{"services": [...]}`,
+with one entry per service in start order.
+
+| Field      | Holds                                                                                     |
+| ---------- | ----------------------------------------------------------------------------------------- |
+| `name`     | lowercase letters, digits and hyphens, unique, such as `brain`                             |
+| `dir`      | its folder, relative to the repository root, such as `Brain`                               |
+| `port`     | the port it listens on, an integer, unique                                                 |
+| `health`   | optional, a path through Caddy that answers `200` without a token once it is up; a service without one is not waited for |
+| `language` | `rust`, `python` or `dotnet`                                                                |
+| `area`     | the area `scripts/ci/changed-areas.sh` prints for a change under `dir`                     |
+| `migrate`  | optional, the command run from `dir` to apply its migrations                               |
+| `start`    | the command run from `dir` to start it in the foreground; it may use `$HOST`, 127.0.0.1 unless the caller sets it, and `$PORT`, the entry's port |
+| `database` | optional: `name`, its `owner` and `app` roles, `owner_password` and `app_password`, the names of their variables in `.env`, `owner_url`, the variable `migrate` reads the owner's URL from, and optionally `app_url`, the one `start` reads the app's URL from |
+
+Each `uv run` in a command has `UV_LOCKED=1` in front and each `cargo` command `--locked`, as
+`scripts/ci/workflows-locked.test.sh` checks, since they also run outside CI's environment.
+
+It is read through `scripts/agent/services.sh` alone, which lists the services and runs one's
+`migrate` or `start` with its database URL built from `.env`, never printed. Its readers:
+
+- `scripts/agent/reset-db.sh`, which recreates every database it lists;
+- `scripts/ci/changed-areas.sh`, which maps each folder to its CI area, and sets every area when
+  `services.json` itself changes, so a pull request cannot drop its own service to skip its checks;
+- `.github/workflows/e2e.yml`, which migrates, starts and waits for every service;
+- the agents' `pick-up-slice` skill, for its ports, password, migrate, start and health steps.
+
+So a new service in a language the platform already has is an entry here and nothing under
+`.github/`, `scripts/` or `.claude/`. It is not part of `features.toml`: that is the core's
+registry of features, and the brain, a service, is not one. It is JSON so that `jq` and GitHub
+Actions can read it.
+
+A feature changes `services.json`, `features.toml` and the Caddyfile in the same commit.
+`scripts/ci/services.test.sh` checks that they agree, which nothing did before: every feature's
+upstream port is a service's, the Caddyfile routes its prefix to that port, every port the
+Caddyfile proxies to is a service's, and every database's password variables are in
+`.env.example`. A new database also needs its init script in `postgres/initdb/`, see "The
+databases" above.
 
 ## Trusting Caddy's root
 

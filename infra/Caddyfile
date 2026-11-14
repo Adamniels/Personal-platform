@@ -10,8 +10,9 @@ platform.test {
 	tls internal
 
 	# Each feature's route here has its entry in features.toml beside this
-	# file, and the two change in the same commit. The brain is a service,
-	# not a feature, and has none.
+	# file, and its port in services.json, and the three change in the same
+	# commit. The brain is a service, not a feature, and has no entry in
+	# features.toml.
 	#
 	# /canary and everything under it, but not /canaryfoo. handle rather
 	# than handle_path, so canary receives the prefix.
