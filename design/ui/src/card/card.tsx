@@ -3,7 +3,7 @@ import hidden from "../visually-hidden.module.css";
 import styles from "./card.module.css";
 
 export type CardProps = Omit<ComponentProps<"article">, "title"> & {
-	/** The card's heading, an h2, and the card's accessible name. */
+	/** The card's label, its h2 and its accessible name. */
 	title: string;
 	/** A caption or a status label, on the right of the title. */
 	aside?: ReactNode;

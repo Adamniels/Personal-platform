@@ -749,6 +749,7 @@ BOX_STYLE = """element => {
         fontSize: style.fontSize,
         lineHeight: style.lineHeight,
         textAlign: style.textAlign,
+        textTransform: style.textTransform,
         overflowX: style.overflowX,
         flexWrap: style.flexWrap,
         whiteSpace: style.whiteSpace,
@@ -954,7 +955,7 @@ def test_a_track_that_wraps_takes_the_large_corners(page: Page):
 
 
 @pytest.mark.parametrize("theme", THEMES)
-def test_a_card_reads_its_values(page: Page, theme: str):
+def test_a_card_has_the_card_padding_and_a_label_for_a_title(page: Page, theme: str):
     open_gallery(page, theme)
 
     style = card(page, "Plain").evaluate(BOX_STYLE)
@@ -962,15 +963,24 @@ def test_a_card_reads_its_values(page: Page, theme: str):
     assert style["borders"] == [resolve(page, "--border", "color")] * 4
     assert style["borderWidths"] == ["1px"] * 4
     assert style["radii"] == radii(page, "--radius-lg")
-    assert style["padding"] == [resolve(page, "--space-4", "padding-top")] * 4
-    assert style["rowGap"] == resolve(page, "--space-3", "row-gap")
+    assert style["padding"] == [resolve(page, "--card-pad", "padding-top")] * 4
+    assert style["rowGap"] == resolve(page, "--space-4", "row-gap")
     assert style["shadow"] == "none"
 
+    # The title is the card's label: still its h2, but in the UI font and
+    # quiet, so the heading font stays for the page title and section headings.
     heading = card(page, "Plain").get_by_role("heading", level=2).evaluate(BOX_STYLE)
-    assert heading["fontFamily"] == resolve(page, "--font-heading", "font-family")
-    assert heading["fontSize"] == resolve(page, "--text-h2-size", "font-size")
-    assert heading["lineHeight"] == resolve(page, "--text-h2-line", "line-height")
-    assert heading["weight"] == "600"
+    assert heading["fontFamily"] == resolve(page, "--font-ui", "font-family")
+    assert heading["fontSize"] == resolve(page, "--text-label-size", "font-size")
+    assert heading["lineHeight"] == resolve(page, "--text-label-line", "line-height")
+    assert heading["weight"] == "500"
+    assert heading["color"] == resolve(page, "--text-2", "color")
+    assert heading["textTransform"] == "none"
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_a_card_that_needs_you_has_the_accent_outline(page: Page, theme: str):
+    open_gallery(page, theme)
 
     # The needs you outline: the 1px border and a 1px ring outside it, both
     # in the accent border, so it reads as 2px.
@@ -985,7 +995,7 @@ def test_a_card_reads_its_values(page: Page, theme: str):
     assert box is not None and box["width"] <= 1 and box["height"] <= 1
 
 
-def test_cards_in_a_row_align_their_footers(page: Page):
+def test_cards_in_a_row_align_their_actions(page: Page):
     open_gallery(page, "light")
     region = page.get_by_role("region", name="Card")
 
@@ -1010,6 +1020,7 @@ def test_an_empty_state_reads_its_values(page: Page, theme: str):
     region = page.get_by_role("region", name="Empty state")
 
     title = region.get_by_text("No cards due", exact=True)
+
     root = title.locator("..")
     style = root.evaluate(BOX_STYLE)
     assert style["borderStyles"] == ["dashed"] * 4
