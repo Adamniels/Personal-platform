@@ -196,3 +196,102 @@ def test_i_unlink_my_github_account(page: Page, invite_code: str, base_url: str)
     # And it stays so on a fresh load.
     page.reload()
     expect(page.get_by_role("button", name="Link GitHub")).to_be_visible()
+
+
+RUNNER_LINE = "Read the way this repository's runner writes."
+NOT_INSTALLED = "The GitHub App is not installed on any repository you can reach."
+
+
+def _choose(page: Page) -> None:
+    """Opens the list of repositories to connect, under the GitHub link."""
+    page.get_by_role("button", name="Connect a repository").click()
+
+
+def test_i_connect_a_repository(
+    page: Page, invite_code: str, base_url: str, viewport: str, devflow_world
+):
+    register_and_log_in(page, invite_code, base_url)
+    devflow_world(one_repository())
+    page.goto("/devflow/projects")
+    expect(page.get_by_text("No project connected yet")).to_be_visible()
+    # Connecting is offered only once GitHub is linked.
+    expect(page.get_by_role("button", name="Connect a repository")).to_be_disabled()
+    _link_github(page, base_url)
+
+    _choose(page)
+
+    account = page.get_by_role("region", name="Adamniels")
+    expect(account.get_by_text("Adamniels/Personal-platform")).to_be_visible()
+    capture(page, "devflow-projects-choose")
+    account.get_by_role("button", name="Connect Adamniels/Personal-platform").click()
+
+    projects = page.get_by_role("region", name="Projects")
+    expect(projects.get_by_text("Adamniels/Personal-platform")).to_be_visible()
+    expect(projects.get_by_text(RUNNER_LINE)).to_be_visible()
+    expect(page.get_by_role("region", name="Adamniels")).to_have_count(0)
+    expect(page.get_by_text("No project connected yet")).to_have_count(0)
+    capture(page, "devflow-projects-connected")
+    # It is a project, and stays one on a fresh load.
+    listed = page.request.get("/devflow/api/projects").json()["projects"]
+    assert [(p["owner"], p["name"]) for p in listed] == [
+        ("Adamniels", "Personal-platform")
+    ]
+    page.reload()
+    expect(
+        page.get_by_role("region", name="Projects").get_by_text(
+            "Adamniels/Personal-platform"
+        )
+    ).to_be_visible()
+    # And it is marked as connected when choosing again.
+    _choose(page)
+    account = page.get_by_role("region", name="Adamniels")
+    expect(account.get_by_text("Connected", exact=True)).to_be_visible()
+    expect(
+        account.get_by_role("button", name="Connect Adamniels/Personal-platform")
+    ).to_have_count(0)
+
+
+def test_i_disconnect_a_project(
+    page: Page, invite_code: str, base_url: str, devflow_world
+):
+    register_and_log_in(page, invite_code, base_url)
+    devflow_world(one_repository())
+    page.goto("/devflow/projects")
+    _link_github(page, base_url)
+    _choose(page)
+    page.get_by_role("button", name="Connect Adamniels/Personal-platform").click()
+    projects = page.get_by_role("region", name="Projects")
+    expect(projects.get_by_text("Adamniels/Personal-platform")).to_be_visible()
+
+    projects.get_by_role("button", name="Disconnect Adamniels/Personal-platform").click()
+    dialog = page.get_by_role("dialog", name="Disconnect Adamniels/Personal-platform?")
+    expect(dialog).to_be_visible()
+    expect(dialog).to_contain_text("Nothing changes on GitHub.")
+    dialog.get_by_role("button", name="Disconnect", exact=True).click()
+
+    expect(dialog).to_be_hidden()
+    expect(page.get_by_text("No project connected yet")).to_be_visible()
+    expect(page.get_by_role("region", name="Projects")).to_have_count(0)
+    assert page.request.get("/devflow/api/projects").json() == {"projects": []}
+    page.reload()
+    expect(page.get_by_text("No project connected yet")).to_be_visible()
+
+
+def test_without_an_installation_i_am_told_to_install_the_app(
+    page: Page, invite_code: str, base_url: str
+):
+    # Nothing staged: the app is installed nowhere this account can reach.
+    register_and_log_in(page, invite_code, base_url)
+    page.goto("/devflow/projects")
+    _link_github(page, base_url)
+
+    _choose(page)
+
+    expect(page.get_by_text(NOT_INSTALLED)).to_be_visible()
+    install = page.get_by_role("link", name="Install it on GitHub")
+    expect(install).to_have_attribute(
+        "href", f"{base_url}/devflow/fake-github/install"
+    )
+    # The fake's address is a harmless page of its own.
+    install.click()
+    expect(page.get_by_role("heading", name="Fake GitHub", level=1)).to_be_visible()
