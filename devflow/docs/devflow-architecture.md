@@ -2,7 +2,7 @@
 
 Status: living. It describes what is built, and changes in the same pull request as the code.
 
-Last updated: 2026 11 15
+Last updated: 2026 11 16
 
 ## What Dev flow is
 
@@ -25,24 +25,28 @@ The service, `devflow/`, a C# minimal API app like `review/`, and its page, `dev
 two tabs, "Waiting for you" at `/devflow` and "Projects" at `/devflow/projects`, each still empty.
 It answers through the proxy under `/devflow` in the dev stack and in the hosted copy, verifies the
 core's token itself through `PlatformAuth`, and has a database of its own, `devflow`, migrated by
-its `migrate` command. Its one table is the vault's, `secrets`, which seals a secret for a user and
-holds nothing yet. Everything it will ask of a code host goes through one interface, with an in
-memory fake behind it and a GitHub adapter that reads as the app, see "The code host seam" and
-"GitHub" below. What it serves, its settings, its database, the vault, the code host and how it
+its `migrate` command. Its tables are the vault's, `secrets`, which seals a secret for a user, and
+the GitHub link's, see "Acting as the owner" below. Everything it will ask of a code host goes
+through one interface, with an in memory fake behind it and a GitHub adapter that reads as the app,
+see "The code host seam" and "GitHub" below. On the Projects tab the owner links his GitHub
+account, and Dev flow then holds a token that acts as him, sealed in the vault and renewed by
+itself. What it serves, its settings, its database, the vault, the code host and how it
 authenticates are in `devflow/README.md`. Whether a pull request waits for the owner, and why, is
 read by one pure function that knows this repository's runner, see "Reading this repository's
 runner" below.
 
-It stores nothing in the vault, and nothing calls the adapter or that reader yet: signing a user
-in, the poll that reads GitHub, and everything the tabs will show arrive with the later slices of
-the first part.
+Nothing uses the owner's token yet, and nothing calls the adapter's reads or that reader yet:
+connecting a repository, the poll that reads GitHub, merging and commenting as the owner, and
+everything the tabs will show arrive with the later slices of the first part.
 
 ## The code host seam
 
 Everything Dev flow asks of a code host goes through `ICodeHost`, in `src/DevFlow/CodeHost/`:
 today the reads the waiting list needs, open pull requests, one pull request, a conversation's
-comments, a commit's statuses and check runs, and a file on a branch; later, signing in, listing
-what a user can connect, merging and commenting. It names things as the spec does, so a second
+comments, a commit's statuses and check runs, and a file on a branch; later, listing what a user
+can connect, merging and commenting. Signing a person in is a second interface beside it,
+`ICodeHostSignIn`, since its reads are as the app and signing in is as a person; both
+implementations implement both. It names things as the spec does, so a second
 host can sit behind it, and GitHub is the only one built. Every operation answers its value or one
 of two failures the caller must handle, not found and unavailable, so a page or the poll can say
 what went wrong instead of failing on an exception it did not expect. What each operation returns
@@ -66,8 +70,9 @@ his phone, is the first time the two meet for real.
 
 ## GitHub
 
-Dev flow acts on GitHub as a GitHub App, as the spec's round 3 decided. Today it only reads, as the
-app; signing a user in, and writing as him, come with the next slices. The adapter,
+Dev flow acts on GitHub as a GitHub App, as the spec's round 3 decided. It reads as the app, and
+signs the owner in so it holds a token that acts as him, see "Acting as the owner" below; writing
+as him comes with a later slice. The adapter,
 `GitHubCodeHost` in `src/DevFlow/CodeHost/GitHub/`, is written by hand on .NET's `HttpClient`,
 since its calls are few, and no automated test touches GitHub: its tests run against GitHub's real
 answers, recorded once in `contracts/github/`. Its addresses and settings are in
@@ -106,6 +111,33 @@ time. Nothing is retried inside the adapter: its caller is a loop that comes bac
 the app is installed on can be read through it, whatever platform account asks. Which account may
 ask about which repository is decided by the callers the next slices add, from the repositories
 that account connected, which the database keeps per account under row level security.
+
+## Acting as the owner
+
+What the owner does from Dev flow's pages is recorded on GitHub as done by him, round 3 of the
+spec. That is also a requirement of this repository's runner, which starts a fix run only on a
+comment whose author is the login `Adamniels`. So Dev flow holds a token that acts as him: a GitHub
+App's user access token, which GitHub documents as attributing what it does to the user, and which
+has only the permissions both the user and the app have. How it is got and kept is "Linking
+GitHub" in `devflow/README.md`; this is why it is built so.
+
+**Linking is the OAuth web flow with PKCE**, as GitHub documents it and strongly recommends: Dev
+flow keeps a random verifier and sends GitHub only its SHA-256, the S256 challenge, so a code the
+browser comes back with can be spent only with the verifier, which never leaves the database. The
+state that comes back with it is random, single use, bound to the platform user who started the
+link and ten minutes old at most, and only its SHA-256 is stored. Nothing prints a code, a
+verifier, a state or a token.
+
+**The tokens expire, and Dev flow renews them.** With "Expire user authorization tokens" on, an
+access token lasts eight hours and a refresh token six months, and a refresh token is taken once:
+after it, it and the access token before it stop working. `UserTokens.For` is the one way to a
+usable token, and renews under a lock on the account's row, so two requests at once never spend
+one refresh token and lose the link. A renewal GitHub refuses ends the link, `needs_relink`, and
+the page asks the owner to link again; GitHub not answering ends nothing.
+
+**One GitHub account per platform user.** The link is a row per user, under row level security
+like every table, and its tokens are sealed in the vault under that user, so one user's token is
+never reachable as another's.
 
 ## Reading this repository's runner
 
@@ -191,13 +223,41 @@ its reason, or a risk accepted on purpose; each slice adds the ones it builds.
 - **The app holds write access to code, and the program's own keys never use it.** Merging needs
   the app to hold `contents: write`, so the app as GitHub sees it can write. Every key the program
   makes for itself is narrowed, in the request for it, to read access on one repository, see
-  "GitHub" above, and only a linked user's own token, which the next slices add, writes, so what is
-  written is recorded on GitHub as done by him. "Only the owner writes" is so by construction, not
+  "GitHub" above, and only a linked user's own token, see "Acting as the owner" above, which a later
+  slice writes with, so what is written is recorded on GitHub as done by him. "Only the owner writes" is so by construction, not
   by care, and the test of that request's body, `InstallationTokenTests`, is what keeps it. Someone
   who holds the app's private key could still make a key that writes; the key is a file on the
   machine, outside the repository, mounted read only into Dev flow's container alone, and on the
   shared Mac mini it is exposed to the runner's agents like the vault's key, the risk the first
   entry accepts.
+- **The return from the code host is a GET that changes state.** "How a feature authenticates" in
+  `High-level/docs/feature-contract.md` says never to change state on a GET, and
+  `GET /devflow/github/callback` is the one exception, since GitHub sends the browser back with a
+  GET. What makes it safe is not the `Origin` header, which a redirect from another site cannot
+  carry, but the state: random, single use, looked up only among the logged in user's own sign
+  ins, and ten minutes old at most, with PKCE so a code is useless without the verifier Dev flow
+  kept. A forged return names no state of the victim's and stores nothing; an attacker's own code
+  sent to the victim's browser fails the same way, so the victim's account cannot be linked to the
+  attacker's GitHub. It needs the platform session, under the `Page` policy, and answers only with
+  a redirect to Dev flow's own page.
+- **A refresh token is single use, and renewed under a lock.** GitHub takes a refresh token once,
+  so two requests renewing at once would spend it twice and end the link. `UserTokens.For` renews
+  inside one transaction holding `SELECT ... FOR UPDATE` on the account's row: the second request
+  waits, then finds the first's new token fresh. `TokenTests.TwoRequestsAtOnceSpendOneRefreshToken`
+  keeps it, with the second request seen waiting on the lock in Postgres. The cost is that the row
+  stays locked for one renewal, at most the adapter's 20 seconds, which only that user's own
+  requests wait on.
+- **Unlinking forgets, and revokes nothing at GitHub.** It deletes the account and both tokens
+  from Dev flow, which is all Dev flow holds, so nothing of the link can be used through Dev flow
+  afterwards. The authorization stays on GitHub until the owner revokes it there, under his
+  Settings, Applications, Authorized GitHub Apps, which "Registering the GitHub App" in
+  `devflow/README.md` says. Revoking it from Dev flow would need the client secret sent to delete
+  the grant, and adds nothing while Dev flow is the only holder of the tokens.
+- **The app is registered for one account.** "Only on this account" means only the owner's account
+  can install it. Installing it on an organisation needs it opened to any account first, and then
+  any stranger could install it on their own repositories too; that gains them nothing, since
+  installing it gives Dev flow's app access to their repositories, not them access to the owner's,
+  and which repositories Dev flow reads is decided by what each platform user connects.
 - **The fake code host must never be on where real data is.** It answers whatever an account
   staged, so a page in the fake mode can show a pull request that does not exist, and every
   signed in user can replace their own world through `/devflow/api/fake/`. It is the default, so

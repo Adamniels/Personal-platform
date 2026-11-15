@@ -26,7 +26,7 @@ namespace DevFlow.CodeHost.GitHub;
 /// are, and the token is narrowed to its id, so a name that no longer matches the id is not found
 /// rather than another repository read.
 /// </remarks>
-public sealed partial class GitHubCodeHost : ICodeHost, IDisposable
+public sealed partial class GitHubCodeHost : ICodeHost, ICodeHostSignIn, IDisposable
 {
     /// <summary>The name of the <see cref="HttpClient"/> every request is sent with.</summary>
     public const string HttpClientName = "github";
@@ -47,6 +47,7 @@ public sealed partial class GitHubCodeHost : ICodeHost, IDisposable
     private readonly IHttpClientFactory _factory;
     private readonly TimeProvider _time;
     private readonly InstallationTokens _tokens;
+    private readonly GitHubSettings _settings;
 
     /// <summary>The last <c>ETag</c> and answer per installation, media type and address, in memory
     /// only, for conditional requests.</summary>
@@ -59,6 +60,7 @@ public sealed partial class GitHubCodeHost : ICodeHost, IDisposable
         ArgumentNullException.ThrowIfNull(time);
         _factory = factory;
         _time = time;
+        _settings = settings;
         _tokens = new InstallationTokens(factory, settings, time);
     }
 

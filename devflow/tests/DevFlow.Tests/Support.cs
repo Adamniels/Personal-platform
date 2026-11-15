@@ -105,13 +105,21 @@ internal sealed class Harness : IAsyncDisposable
     private readonly UserDb _database;
     private readonly string _webRoot;
 
-    private Harness(WebApplication app, StubCore core, UserDb database, string webRoot)
+    private Harness(WebApplication app, StubCore core, UserDb database, string webRoot, FakeTimeProvider time)
     {
         _app = app;
         _core = core;
         _database = database;
         _webRoot = webRoot;
+        Time = time;
     }
+
+    /// <summary>The app's clock, which a test moves.</summary>
+    public FakeTimeProvider Time { get; }
+
+    /// <summary>A clock at the fixture token's <c>iat</c>, for a test that makes what it hands the
+    /// harness on the same clock.</summary>
+    public static FakeTimeProvider Clock(long? at = null) => new(DateTimeOffset.FromUnixTimeSeconds(at ?? Contract.IssuedAt));
 
     public TestServer Server => _app.GetTestServer();
 
@@ -138,10 +146,21 @@ internal sealed class Harness : IAsyncDisposable
     /// never opened: the test takes no database, and no route it calls uses one.</param>
     /// <param name="codeHost">A code host registered before the app's own, which it keeps, so a
     /// test can put a code host of its own behind the app.</param>
-    public static async Task<Harness> Start(DevFlowSettings? settings = null, long? clockAt = null, UserDb? database = null, ICodeHost? codeHost = null)
+    /// <param name="signIn">A sign in registered before the app's own, which it keeps.</param>
+    /// <param name="time">The app's clock, made by <see cref="Clock"/> unless the test made it
+    /// first, for a code host on the same clock.</param>
+    /// <param name="configure">More, run after the harness's own, such as a log provider.</param>
+    public static async Task<Harness> Start(
+        DevFlowSettings? settings = null,
+        long? clockAt = null,
+        UserDb? database = null,
+        ICodeHost? codeHost = null,
+        ICodeHostSignIn? signIn = null,
+        FakeTimeProvider? time = null,
+        Action<WebApplicationBuilder>? configure = null)
     {
         var webRoot = MakeBuild();
-        var time = new FakeTimeProvider(DateTimeOffset.FromUnixTimeSeconds(clockAt ?? Contract.IssuedAt));
+        time ??= Clock(clockAt);
         var core = new StubCore();
         settings ??= Defaults;
         database ??= UserDb.Unopened(DevFlowSettings.Service, settings.AppDatabase);
@@ -158,6 +177,13 @@ internal sealed class Harness : IAsyncDisposable
                 {
                     builder.Services.AddSingleton(codeHost);
                 }
+
+                if (signIn is not null)
+                {
+                    builder.Services.AddSingleton(signIn);
+                }
+
+                configure?.Invoke(builder);
             });
         }
         catch
@@ -169,7 +195,7 @@ internal sealed class Harness : IAsyncDisposable
         }
 
         await app.StartAsync();
-        return new Harness(app, core, database, webRoot);
+        return new Harness(app, core, database, webRoot, time);
     }
 
     /// <summary>A request as a browser on the platform sends it, with the token in the cookie

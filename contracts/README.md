@@ -162,6 +162,18 @@ Recorded once, on 2026 11 15, from this repository with `gh api` as the bot, fro
 `POST /app/installations/{installation_id}/access_tokens`, with a made up token. The tests set its
 `expires_at` from their clock.
 
+Signing a person in cannot be recorded without a real authorization, so its three are written by
+hand from GitHub's documented shapes, with made up values, and read by
+`devflow/tests/DevFlow.Tests/GitHub/GitHubSignInTests.cs`:
+
+- `oauth-token.json`: the answer to `POST https://github.com/login/oauth/access_token` exchanging a
+  code, with expiring tokens: `access_token`, `expires_in` of eight hours, `refresh_token`,
+  `refresh_token_expires_in` of six months, `scope` and `token_type`.
+- `oauth-refresh.json`: the answer to the same address renewing with a refresh token, the same
+  shape with new tokens.
+- `user.json`: the answer to `GET /user`, a made up account, `octo-owner`, of which the adapter
+  reads `login` and `id`.
+
 To record one again, run its command from the repository root into the file, with the same `jq`,
 and run Dev flow's tests: a field GitHub renamed or dropped fails `ReadTests`.
 

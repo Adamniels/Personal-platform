@@ -14,6 +14,13 @@ internal static class GitHubHttp
     /// <summary>GitHub's API, a constant: a test replaces the handler, never the address.</summary>
     public static readonly Uri BaseAddress = new("https://api.github.com/");
 
+    /// <summary>Where a person signs in to GitHub, and where their tokens are made: GitHub's site,
+    /// not its API.</summary>
+    public static readonly Uri WebAddress = new("https://github.com/");
+
+    /// <summary>What the token address is asked for, its answer as plain JSON.</summary>
+    public const string PlainJsonMediaType = "application/json";
+
     /// <summary>GitHub's JSON, which every request but a file's asks for.</summary>
     public const string JsonMediaType = "application/vnd.github+json";
 

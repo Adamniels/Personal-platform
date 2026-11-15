@@ -10,10 +10,28 @@ namespace DevFlow.CodeHost;
 /// <c>GET</c> gives back, shaped as <see cref="ICodeHost"/>'s records, so staging something is
 /// writing what the interface would answer. See "The code host" in devflow/README.md.
 /// </summary>
-public sealed record FakeWorld(IReadOnlyList<FakeInstallation> Installations)
+/// <param name="Installations">The installations of Dev flow's app the account reaches.</param>
+/// <param name="User">Who the account is at the fake code host, the one person its sign in page
+/// shows and its tokens act as; <see cref="FakeUser.Default"/> when it is left out, the one field
+/// a world may leave out, and left out when it is written back.</param>
+public sealed record FakeWorld(
+    IReadOnlyList<FakeInstallation> Installations,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] FakeUser? User = null)
 {
     /// <summary>The world of an account that has staged nothing.</summary>
     public static FakeWorld Empty { get; } = new([]);
+
+    /// <summary>Who the account is at the fake code host. Not part of the document.</summary>
+    [JsonIgnore]
+    public FakeUser SignedInUser => User ?? FakeUser.Default;
+}
+
+/// <summary>A person at the fake code host, as its sign in page shows them and as
+/// <see cref="ICodeHostSignIn.WhoIs"/> answers.</summary>
+public sealed record FakeUser(string Login, long Id)
+{
+    /// <summary>Who an account is when its world does not say: <c>octo-owner</c>.</summary>
+    public static FakeUser Default { get; } = new("octo-owner", 70000001);
 }
 
 /// <summary>An installation of Dev flow's app, and the repositories it reaches.</summary>

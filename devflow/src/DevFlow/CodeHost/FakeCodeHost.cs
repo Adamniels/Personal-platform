@@ -11,8 +11,24 @@ namespace DevFlow.CodeHost;
 /// <c>DEVFLOW_CODE_HOST=fake</c>, the default; it must never be on where real data is. See "The
 /// code host seam" in devflow/docs/devflow-architecture.md.
 /// </summary>
-public sealed class FakeCodeHost : ICodeHost
+public sealed partial class FakeCodeHost : ICodeHost, ICodeHostSignIn
 {
+    private readonly TimeProvider _time;
+
+    /// <summary>A fake on the system's clock.</summary>
+    public FakeCodeHost()
+        : this(TimeProvider.System)
+    {
+    }
+
+    /// <param name="time">Decides when its codes and tokens expire, a test's own clock in the
+    /// tests.</param>
+    public FakeCodeHost(TimeProvider time)
+    {
+        ArgumentNullException.ThrowIfNull(time);
+        _time = time;
+    }
+
     /// <summary>An account's world, and whether every operation answers unavailable. Replaced
     /// whole, never changed in place, so a reader sees one or the other.</summary>
     private sealed record Account(FakeWorld World, bool Unavailable);
