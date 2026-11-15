@@ -17,6 +17,7 @@ mkdir -p "$tmp/bin"
 cat > "$tmp/bin/docker" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "$*" > "$FAKE_DIR/args"
+printf '%s\n' "$*" >> "$FAKE_DIR/calls"
 pwd > "$FAKE_DIR/cwd"
 cat > "$FAKE_DIR/sql"
 exit "${FAKE_DOCKER_EXIT:-0}"
@@ -24,7 +25,7 @@ EOF
 chmod +x "$tmp/bin/docker"
 
 run() {
-  rm -f "$tmp/args" "$tmp/sql" "$tmp/cwd"
+  rm -f "$tmp/args" "$tmp/sql" "$tmp/cwd" "$tmp/calls"
   (cd /tmp && FAKE_DIR="$tmp" PATH="$tmp/bin:$PATH" bash "$here/reset-db.sh" "$@" > "$tmp/out" 2>&1)
 }
 
@@ -51,6 +52,16 @@ want_sql="$(jq -r '.services[] | .database // empty
     "REVOKE ALL ON DATABASE \(.name) FROM PUBLIC;",
     "GRANT CONNECT ON DATABASE \(.name) TO \(.app);"' "$root/infra/services.json")"
 if [ -n "$want_sql" ] && [ "$sql" = "$want_sql" ]; then ok "feeds exactly the reset statements for every database in the manifest, in order"; else bad "feeds exactly the reset statements for every database in the manifest, in order" "got: $(echo "$sql" | tr '\n' ' ')"; fi
+
+# the_reset_only_ever_addresses_the_dev_project: every docker call is the dev compose project's,
+# found by --project-directory infra, and none names the hosted copy, whose databases are real.
+calls="$(cat "$tmp/calls" 2>/dev/null)"
+if [ -n "$calls" ] && ! printf '%s\n' "$calls" | grep -qv '^compose --project-directory infra ' &&
+  ! printf '%s\n' "$calls" | grep -q 'hosted'; then
+  ok the_reset_only_ever_addresses_the_dev_project
+else
+  bad the_reset_only_ever_addresses_the_dev_project "calls: $(printf '%s\n' "$calls" | tr '\n' ';')"
+fi
 
 if grep -qi 'role' "$tmp/sql"; then bad "keeps the roles" "the SQL touches a role"; else ok "keeps the roles"; fi
 
