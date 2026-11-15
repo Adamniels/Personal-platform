@@ -2,15 +2,15 @@
  * status label in its five tones, and the tool chip. Colours and sizes are
  * tokens; the heights and paddings are the ones that section gives. */
 
-/* What a badge and a status label share: 22px, padding 0 8px, radius-sm,
+/* What a badge and a status label share: 26px, padding 0 10px, radius-full,
  * caption style. */
 .label {
 	box-sizing: border-box;
 	display: inline-flex;
 	align-items: center;
-	height: 22px;
-	padding: 0 8px;
-	border-radius: var(--radius-sm);
+	height: 26px;
+	padding: 0 10px;
+	border-radius: var(--radius-full);
 	font-family: var(--font-ui);
 	font-size: var(--text-caption-size);
 	line-height: var(--text-caption-line);
@@ -20,7 +20,7 @@
 }
 
 .badge {
-	background: var(--surface-2);
+	background: var(--surface-3);
 	color: var(--text-2);
 }
 
@@ -58,7 +58,7 @@
 }
 
 .idle {
-	background: var(--surface-2);
+	background: var(--surface-3);
 	color: var(--text-2);
 }
 
