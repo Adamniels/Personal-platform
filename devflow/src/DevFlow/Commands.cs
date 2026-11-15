@@ -30,8 +30,8 @@ internal static class Commands
         }
     }
 
-    /// <summary>The settings from the environment, the door to the database as devflow_app, then
-    /// the app over the page's build in web/dist, listening where DEVFLOW_LISTEN_ADDR says. A
+    /// <summary>The settings from the environment, the door to the database as devflow_app, a line
+    /// saying so when the vault made its key in memory, then the app over the page's build in web/dist, listening where DEVFLOW_LISTEN_ADDR says. A
     /// setting that does not parse, a database it cannot reach, or a missing build stops it here,
     /// naming what is wrong. It runs from devflow/, as infra/services.json starts it.</summary>
     private static async Task<int> Serve(Func<string, string?> read, TextWriter stderr, CancellationToken cancellationToken)
@@ -40,6 +40,13 @@ internal static class Commands
         {
             var settings = DevFlowSettings.Load(read);
             await using var database = await UserDb.Open(DevFlowSettings.Service, settings.AppDatabase, DevFlowSettings.AppDatabaseUrl, cancellationToken);
+            if (settings.Vault.Generated)
+            {
+                // Said once, and never with the key. See "The vault" in devflow/README.md.
+                await stderr.WriteLineAsync(
+                    $"devflow: {VaultSettings.KeySetting} is not set, so the vault seals with a key made for this process alone, and what it seals is lost when it stops");
+            }
+
             var webRoot = Path.Combine(Directory.GetCurrentDirectory(), "web", "dist");
             await using var app = DevFlowApp.Build(settings, database, webRoot, builder => builder.WebHost.UseUrls(settings.ListenUrl));
             await app.RunAsync(cancellationToken);

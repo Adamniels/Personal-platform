@@ -23,13 +23,20 @@ namespace DevFlow.Settings;
 /// <param name="AppDatabase">The database as devflow_app, from <c>DEVFLOW_APP_DATABASE_URL</c>,
 /// required, with no default. It holds a password, so <see cref="ToString"/> leaves it out, and
 /// it is read only, by convention, since Npgsql's settings type is not.</param>
+/// <param name="CodeHost">The code host, from <c>DEVFLOW_CODE_HOST</c>, <c>fake</c> unless set. The
+/// vault reads it for whether a key is required; the code host slice owns the rest of it.</param>
+/// <param name="Vault">The vault's keys, from <c>DEVFLOW_VAULT_KEY</c> and
+/// <c>DEVFLOW_VAULT_OLD_KEYS</c>, see <see cref="VaultSettings"/>. They are secret, so
+/// <see cref="ToString"/> names their ids alone.</param>
 public sealed record DevFlowSettings(
     string ListenHost,
     int ListenPort,
     Uri CoreUrl,
     string PublicOrigin,
     bool ExposeOpenApi,
-    NpgsqlConnectionStringBuilder AppDatabase)
+    NpgsqlConnectionStringBuilder AppDatabase,
+    CodeHost CodeHost,
+    VaultSettings Vault)
 {
     public const string DefaultListenAddr = "127.0.0.1:8084";
     public const string DefaultCoreUrl = "http://127.0.0.1:8080";
@@ -62,19 +69,23 @@ public sealed record DevFlowSettings(
     {
         ArgumentNullException.ThrowIfNull(read);
         var (host, port) = Setting(read, "DEVFLOW_LISTEN_ADDR", DefaultListenAddr, ParseListenAddr);
+        var codeHost = Setting(read, "DEVFLOW_CODE_HOST", "fake", ParseCodeHost);
         return new DevFlowSettings(
             host,
             port,
             Setting(read, "DEVFLOW_CORE_URL", DefaultCoreUrl, ParseCoreUrl),
             Setting(read, "DEVFLOW_PUBLIC_ORIGIN", DefaultPublicOrigin, ParseOrigin),
             Setting(read, "DEVFLOW_EXPOSE_OPENAPI", "0", ParseSwitch),
-            Setting(read, AppDatabaseUrl, fallback: null, DatabaseUrl.Parse));
+            Setting(read, AppDatabaseUrl, fallback: null, DatabaseUrl.Parse),
+            codeHost,
+            VaultSettings.Load(read, codeHost));
     }
 
-    /// <summary>What the record prints, without the database's password, which it holds.</summary>
+    /// <summary>What the record prints, without the database's password or the vault's keys,
+    /// which it holds.</summary>
     public override string ToString() => string.Create(
         CultureInfo.InvariantCulture,
-        $"DevFlowSettings {{ ListenHost = {ListenHost}, ListenPort = {ListenPort}, CoreUrl = {CoreUrl}, PublicOrigin = {PublicOrigin}, ExposeOpenApi = {ExposeOpenApi}, AppDatabase = {AppDatabase.Username}@{AppDatabase.Host}:{AppDatabase.Port}/{AppDatabase.Database} }}");
+        $"DevFlowSettings {{ ListenHost = {ListenHost}, ListenPort = {ListenPort}, CoreUrl = {CoreUrl}, PublicOrigin = {PublicOrigin}, ExposeOpenApi = {ExposeOpenApi}, AppDatabase = {AppDatabase.Username}@{AppDatabase.Host}:{AppDatabase.Port}/{AppDatabase.Database}, CodeHost = {CodeHost}, Vault = {Vault} }}");
 
     /// <summary>The setting parsed, or <paramref name="fallback"/> parsed when it is unset; with
     /// no fallback, unset is refused.</summary>
@@ -135,6 +146,14 @@ public sealed record DevFlowSettings(
 
         return text;
     }
+
+    /// <summary><c>fake</c> or <c>github</c>, and nothing else.</summary>
+    internal static CodeHost ParseCodeHost(string text) => text switch
+    {
+        "fake" => CodeHost.Fake,
+        "github" => CodeHost.GitHub,
+        _ => throw new FormatException($"'{text}' is not fake or github"),
+    };
 
     /// <summary><c>1</c> for on, <c>0</c> for off, and nothing else.</summary>
     internal static bool ParseSwitch(string text) => text switch
