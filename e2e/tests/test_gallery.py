@@ -1115,7 +1115,8 @@ def test_a_timeline_entry_reads_its_values(page: Page, theme: str):
 # table has columns of all three priorities: Session and Status are 1,
 # Project and Hours (numeric) are 2, Notes is 3. It is sorted by Session, the
 # second row is selected and the third is editing. "Hours by month" is a wide
-# table of priority 1 columns, wider than a phone.
+# table of twelve months: Project is priority 1, January to June 2 and July
+# to December 3, so it fits the page at both widths.
 TABLE_STYLE = """element => {
     const style = getComputedStyle(element);
     return {
@@ -1185,33 +1186,45 @@ def test_the_table_is_shown(page: Page, viewport: str, theme: str):
 
 
 @pytest.mark.parametrize("theme", THEMES)
-def test_a_table_reads_its_values(page: Page, theme: str):
+def test_the_table_header_has_no_fill(page: Page, theme: str):
     open_gallery(page, theme)
     table = sessions(page)
-    rows = body_rows(table)
+    transparent = resolve(page, None, "background-color")
 
-    # The wrapper: 1px border, the large radius, the surface, and it scrolls.
-    wrapper = table.locator("..").evaluate(TABLE_STYLE)
-    assert wrapper["borders"] == [resolve(page, "--border", "color")] * 4
-    assert wrapper["borderWidths"] == ["1px"] * 4
-    assert wrapper["radii"] == radii(page, "--radius-lg")
-    assert wrapper["background"] == resolve(page, "--surface", "background-color")
-    assert wrapper["overflowX"] == "auto"
+    # The frame: the surface, 1px border and the large radius, and it keeps
+    # its scroll for a table too wide for it.
+    frame = table.locator("..").evaluate(TABLE_STYLE)
+    assert frame["background"] == resolve(page, "--surface", "background-color")
+    assert frame["borders"] == [resolve(page, "--border", "color")] * 4
+    assert frame["borderWidths"] == ["1px"] * 4
+    assert frame["radii"] == radii(page, "--radius-lg")
+    assert frame["overflowX"] == "auto"
 
-    # Header cells: surface-2, caption style, text-3; the sorted one is text
-    # at 600.
-    plain = table.locator("thead th", has_text="Project").evaluate(TABLE_STYLE)
-    assert plain["background"] == resolve(page, "--surface-2", "background-color")
-    assert plain["color"] == resolve(page, "--text-3", "color")
-    assert_caption(page, plain)
+    # The header row and its cells: no fill, caption style, text-3.
+    assert table.locator("thead tr").evaluate(TABLE_STYLE)["background"] == transparent
+    for name in ["Project", "Hours", "Status", "Notes"]:
+        plain = table.locator("thead th", has_text=name).evaluate(TABLE_STYLE)
+        assert plain["background"] == transparent, name
+        assert plain["color"] == resolve(page, "--text-3", "color"), name
+        assert_caption(page, plain)
+
+    # The sorted column: text at 600, with its arrow and aria-sort.
     sorted_header = table.locator("thead th[aria-sort]")
     expect(sorted_header).to_have_count(1)
     expect(sorted_header).to_have_text("Session")
     expect(sorted_header).to_have_attribute("aria-sort", "ascending")
+    expect(sorted_header.locator("svg")).to_have_count(1)
     style = sorted_header.evaluate(TABLE_STYLE)
-    assert style["background"] == resolve(page, "--surface-2", "background-color")
+    assert style["background"] == transparent
     assert style["color"] == resolve(page, "--text", "color")
     assert style["weight"] == "600"
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_a_table_row_reads_its_values(page: Page, theme: str):
+    open_gallery(page, theme)
+    table = sessions(page)
+    rows = body_rows(table)
 
     # Body rows: row-h tall, padding 6px 12px, and a 1px border line between
     # them, drawn inside the row so a row holding a button is still row-h.
@@ -1308,16 +1321,46 @@ def test_below_640px_only_priority_one_columns_show(page: Page):
     assert no_sideways_scroll(page), "the page scrolls sideways"
 
 
-def test_a_wide_table_scrolls_inside_its_wrapper(page: Page):
-    page.set_viewport_size(VIEWPORTS["phone"])
+def test_no_table_in_the_gallery_scrolls_sideways(page: Page, viewport: str):
+    open_gallery(page, "light")
+    tables = page.locator("table")
+    assert tables.count() >= 2, "the gallery shows its tables"
+
+    # Each table is planned, through column priority, to fit its frame.
+    for index in range(tables.count()):
+        frame = tables.nth(index).locator("..")
+        name = tables.nth(index).get_attribute("aria-label")
+        widths = frame.evaluate("e => [e.scrollWidth, e.clientWidth]")
+        assert widths[0] <= widths[1], f"{name} scrolls sideways: {widths}"
+
+    assert no_sideways_scroll(page), "the page scrolls sideways"
+
+
+def test_a_table_too_wide_scrolls_in_its_frame(page: Page):
+    page.set_viewport_size(VIEWPORTS["desktop"])
     open_gallery(page, "light")
     wide = table_section(page).get_by_role("table", name="Hours by month")
-    wrapper = wide.locator("..")
+    frame = wide.locator("..")
 
-    assert wrapper.evaluate("e => e.scrollWidth > e.clientWidth"), "it does not scroll"
-    assert wrapper.evaluate(TABLE_STYLE)["overflowX"] == "auto"
-    wrapper.evaluate("e => { e.scrollLeft = e.scrollWidth; }")
-    assert wrapper.evaluate("e => e.scrollLeft") > 0
+    # A column wider than the page, added to the gallery's wide table.
+    page_width = page.evaluate("() => window.innerWidth")
+    wide.evaluate(
+        """(table, width) => {
+            const header = document.createElement("th");
+            const content = document.createElement("div");
+            content.style.width = `${width}px`;
+            content.textContent = "Too wide";
+            header.append(content);
+            table.querySelector("thead tr").append(header);
+        }""",
+        page_width + 200,
+    )
+
+    # It scrolls inside its frame, and the page does not.
+    assert frame.evaluate(TABLE_STYLE)["overflowX"] == "auto"
+    assert frame.evaluate("e => e.scrollWidth > e.clientWidth"), "it does not scroll"
+    frame.evaluate("e => { e.scrollLeft = e.scrollWidth; }")
+    assert frame.evaluate("e => e.scrollLeft") > 0
     assert no_sideways_scroll(page), "the page scrolls sideways"
 
 
@@ -1328,20 +1371,16 @@ def test_rows_are_the_row_height_on_phone(page: Page):
     row_h = float(resolve(page, "--row-h", "height").removesuffix("px"))
     assert row_h >= 44, "a row on phone is a touch target"
 
-    # A row of one line is exactly --row-h; one with the folded line under
-    # its first cell is taller, never shorter.
+    # The header row is exactly --row-h; a body row, with the folded line
+    # under its first cell, is taller, never shorter.
     wide = section.get_by_role("table", name="Hours by month")
-    for table, exact in [(wide, True), (sessions(page), False)]:
+    for table in [wide, sessions(page)]:
         header = table.locator("thead tr").bounding_box()
         assert header is not None and header["height"] == row_h
         rows = body_rows(table)
         for index in range(rows.count()):
             box = rows.nth(index).bounding_box()
-            assert box is not None
-            if exact:
-                assert box["height"] == row_h, index
-            else:
-                assert box["height"] >= row_h, index
+            assert box is not None and box["height"] >= row_h, index
 
     # The controls in the table are touch targets too.
     for name in ["Session", "Edit Review the merge gate", "Save", "Cancel"]:
@@ -1349,31 +1388,104 @@ def test_rows_are_the_row_height_on_phone(page: Page):
         assert box is not None and box["height"] >= 44, name
 
 
+def remove_target_reaches(page: Page, remove: Locator, reach: float) -> bool:
+    """Whether a press `reach` pixels above, below, left and right of the
+    remove button's centre still lands on the button. `elementFromPoint`
+    sees only the viewport, so the button is scrolled into it first."""
+    remove.scroll_into_view_if_needed()
+    return page.evaluate(
+        """([element, reach]) => {
+            const box = element.getBoundingClientRect();
+            const x = box.left + box.width / 2;
+            const y = box.top + box.height / 2;
+            return [[0, -reach], [0, reach], [-reach, 0], [reach, 0]].every(
+                ([dx, dy]) => element.contains(document.elementFromPoint(x + dx, y + dy))
+            );
+        }""",
+        [remove.element_handle(), reach],
+    )
+
+
 @pytest.mark.parametrize("theme", THEMES)
-def test_the_filters_and_paging_read_their_values(page: Page, theme: str):
+def test_a_filter_pill_is_filled_and_32px(page: Page, viewport: str, theme: str):
     open_gallery(page, theme)
     section = table_section(page)
 
+    # The pill: 32px high, fully round, the third surface, no border, 13px in
+    # text, 14px on the left and 4px on the right.
     pill = section.get_by_text("Status: Done", exact=True).locator("..")
     style = pill.evaluate(TABLE_STYLE)
-    assert pill.evaluate("e => e.getBoundingClientRect().height") == 28
+    assert pill.evaluate("e => e.getBoundingClientRect().height") == 32
     assert style["radii"] == radii(page, "--radius-full")
-    assert style["borders"] == [resolve(page, "--border-strong", "color")] * 4
-    assert style["borderWidths"] == ["1px"] * 4
+    assert style["background"] == resolve(page, "--surface-3", "background-color")
+    assert style["borderWidths"] == ["0px"] * 4
+    assert style["fontSize"] == resolve(page, "--text-small-size", "font-size")
+    assert style["color"] == resolve(page, "--text", "color")
+    assert style["padding"][1] == "4px" and style["padding"][3] == "14px"
+
+    # Its remove button: a 26px round ghost button inside it, named as before.
+    remove = section.get_by_role("button", name="Remove filter Status: Done")
+    box, outer = remove.bounding_box(), pill.bounding_box()
+    assert box is not None and outer is not None
+    assert box["width"] == 26 and box["height"] == 26
+    assert (
+        outer["x"] <= box["x"]
+        and box["x"] + box["width"] <= outer["x"] + outer["width"]
+    )
+    assert (
+        outer["y"] <= box["y"]
+        and box["y"] + box["height"] <= outer["y"] + outer["height"]
+    )
+    button_style = remove.evaluate(TABLE_STYLE)
+    assert button_style["radii"] == radii(page, "--radius-full")
+    assert button_style["background"] == resolve(page, None, "background-color")
+    assert button_style["color"] == resolve(page, "--text-2", "color")
+
+    # On phone its target reaches 44px (hard rule 10).
+    if viewport == "phone":
+        assert remove_target_reaches(page, remove, 21.5), "the target is under 44px"
 
     count = section.get_by_text("8 of 214", exact=True).evaluate(TABLE_STYLE)
     assert count["fontFamily"] == resolve(page, "--font-mono", "font-family")
 
-    remove = section.get_by_role("button", name="Remove filter Status: Done")
     remove.click()
     expect(section.get_by_text("Status: Done", exact=True)).to_have_count(0)
 
-    paging = section.get_by_role("navigation", name="Pages")
-    expect(paging.get_by_text("Rows 1 to 8 of 214")).to_be_visible()
-    expect(paging.get_by_role("button", name="Previous")).to_be_disabled()
-    paging.get_by_role("button", name="Next").click()
-    expect(paging.get_by_text("Rows 9 to 16 of 214")).to_be_visible()
-    expect(paging.get_by_role("button", name="Previous")).to_be_enabled()
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_paging_reads_its_values(page: Page, theme: str):
+    open_gallery(page, theme)
+    paging = table_section(page).get_by_role("navigation", name="Pages")
+    previous = paging.get_by_role("button", name="Previous")
+    next_button = paging.get_by_role("button", name="Next")
+
+    # The line on the left in text-2.
+    where = paging.get_by_text("Rows 1 to 8 of 214", exact=True)
+    expect(where).to_be_visible()
+    assert where.evaluate(TABLE_STYLE)["color"] == resolve(page, "--text-2", "color")
+    where_box, next_box = where.bounding_box(), next_button.bounding_box()
+    assert where_box is not None and next_box is not None
+    assert where_box["x"] < next_box["x"], "the line is not on the left"
+
+    # Previous and Next are secondary buttons, read as the gallery's own
+    # Secondary and Disabled buttons are; Previous is disabled on page one.
+    def assert_kind(target: Locator, kind: str) -> None:
+        expected = button(page, KINDS[kind][0]).evaluate(STYLE)
+        actual = target.evaluate(STYLE)
+        for key in ["background", "color", "borders", "borderWidths", "height"]:
+            assert actual[key] == expected[key], (kind, key)
+        assert actual["radii"] == radii(page, "--radius-full")
+        assert actual["padding"] == [BUTTON_PADDING["secondary"]] * 2
+
+    expect(previous).to_be_disabled()
+    assert_kind(previous, "disabled")
+    assert_kind(next_button, "secondary")
+
+    next_button.click()
+    expect(paging.get_by_text("Rows 9 to 16 of 214", exact=True)).to_be_visible()
+    expect(previous).to_be_enabled()
+    page.mouse.move(0, 0)
+    assert_kind(previous, "secondary")
 
 
 # "Dialog" and "Toast" in section 4 of design/DESIGN.md, the two floating

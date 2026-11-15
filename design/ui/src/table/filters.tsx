@@ -45,8 +45,8 @@ export type FilterPillProps = Omit<ComponentProps<"span">, "children"> & {
 	onRemove: () => void;
 };
 
-/** A removable filter pill: 28px high, fully round, outlined, with a remove
- * button named for the filter. */
+/** A removable filter pill: 32px high, fully round, filled with the third
+ * surface, with a 26px round remove button inside it named for the filter. */
 export function FilterPill({
 	label,
 	onRemove,

@@ -1,6 +1,7 @@
 /* The filter row and pill of "Table" in section 4 of design/DESIGN.md.
- * Colours and sizes are tokens; the 28px pill and the 220px search basis are
- * the ones that section gives. The focus ring comes from the base rule in
+ * Colours and sizes are tokens; the 32px pill, the 26px remove button and the
+ * 220px search basis are the ones that section gives, and the pill's 14px
+ * side is a ghost button's. The focus ring comes from the base rule in
  * tokens.css and is never overridden here. */
 
 /* The row wraps. Fields carry their label above them, so the row lines up
@@ -28,17 +29,19 @@
 	white-space: nowrap;
 }
 
-/* The pill: 28px high, fully round, a 1px strong border. */
+/* The pill: 32px high, fully round, filled with the third surface and no
+ * border, 13px in text, 14px on the left and 4px on the right, where the
+ * remove button sits inside it. */
 .pill {
 	box-sizing: border-box;
 	display: inline-flex;
 	align-items: center;
 	gap: var(--space-1);
-	height: 28px;
-	padding: 0 var(--space-1) 0 var(--space-3);
-	background: var(--surface);
+	height: 32px;
+	padding: 0 var(--space-1) 0 14px;
+	background: var(--surface-3);
 	color: var(--text);
-	border: 1px solid var(--border-strong);
+	border: 0;
 	border-radius: var(--radius-full);
 	font-size: var(--text-small-size);
 	line-height: var(--text-small-line);
@@ -46,18 +49,21 @@
 }
 
 .row > .pill {
-	margin-bottom: calc((var(--control-h) - 28px) / 2);
+	margin-bottom: calc((var(--control-h) - 32px) / 2);
 }
 
-/* The remove button is small to look at, and its target reaches 44px around
- * it (hard rule 10), through the gap beside and between the rows. */
+/* The remove button: a 26px round ghost button, no fill and text-2, filled
+ * with surface-2 under the pointer as a ghost button is. Its target reaches
+ * 44px around it (hard rule 10), through the gap beside and between the
+ * rows. */
 .remove {
 	position: relative;
 	display: inline-flex;
+	flex: none;
 	align-items: center;
 	justify-content: center;
-	width: 20px;
-	height: 20px;
+	width: 26px;
+	height: 26px;
 	margin: 0;
 	padding: 0;
 	border: 0;
@@ -70,10 +76,9 @@
 .remove::after {
 	content: "";
 	position: absolute;
-	inset: -12px;
+	inset: -9px;
 }
 
 .remove:hover {
 	background: var(--surface-2);
-	color: var(--text);
 }
