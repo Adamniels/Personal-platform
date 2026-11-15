@@ -24,7 +24,9 @@ COPY libs/dotnet/PlatformAuth libs/dotnet/PlatformAuth
 COPY devflow/global.json devflow/Directory.Build.props devflow/Directory.Packages.props devflow/.editorconfig devflow/
 COPY devflow/src/DevFlow devflow/src/DevFlow
 WORKDIR /src/devflow
-RUN --mount=type=cache,target=/root/.nuget/packages \
+# sharing=locked: every C# image restores into this one cache, and NuGet's package folder is not
+# safe for two restores at once, which compose's parallel builds would otherwise run.
+RUN --mount=type=cache,target=/root/.nuget/packages,sharing=locked \
     dotnet restore src/DevFlow/DevFlow.csproj --locked-mode && \
     dotnet publish src/DevFlow/DevFlow.csproj -c Release --no-restore -o /out
 
