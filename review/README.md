@@ -474,13 +474,16 @@ REVIEW_APP_DATABASE_URL="postgres://review_app:$(grep '^REVIEW_APP_PASSWORD=' ..
   dotnet test --no-build --no-restore -c Release
 ```
 
-The tests that need a database each get one of their own, from
-`tests/Review.Tests/Harness/TestDatabase.cs`: once per run it creates a template database,
-migrated as `review_owner`, and each test a copy of it, through the Postgres superuser's string,
+The tests that need a database each get one of their own, from `Databases.Review` in
+`tests/Review.Tests/Harness/TestDatabase.cs`, the harness `PlatformData.Testing` holds, see
+`libs/dotnet/PlatformData/README.md`: once per run it creates a template database, migrated as
+`review_owner`, and each test a copy of it, through the Postgres superuser's string,
 `REVIEW_TEST_ADMIN_DATABASE_URL`, which only the test step holds, the pattern of the brain's
 `tests/harness.py`. Tests that act as review does connect as `review_app`, through
 `REVIEW_APP_DATABASE_URL` pointed at their copy. Both are required, and unset is a failure, never a
-skip. Tests that need no database take none, and run without either.
+skip. Tests that need no database take none, and run without either. `MigrateTests` and
+`IsolationTests` are also where the shared library's migrator and door are tested on a real
+database, so they run whenever `libs/dotnet/` changes.
 
 and the page's, from `web/`, the steps `.github/workflows/web.yml` runs for every frontend:
 
@@ -514,9 +517,9 @@ since no service imports from another's directory.
   regenerating the file, see "The schema". Nothing else is accepted.
 - `REVIEW_APP_DATABASE_URL`, required to serve, with no default: review's database as
   `review_app`, `postgres://review_app:<password>@127.0.0.1:5432/review`, the password percent
-  encoded. It is parsed once, by `src/Review/Settings/DatabaseUrl.cs`, into Npgsql's settings: a
-  `postgres` or `postgresql` scheme, a user and a password, a host, a port, 5432 when left out, and
-  the database, with no query. It holds a password, so it is never shown, in an error or in the
+  encoded. It is parsed once, by `DatabaseUrl.Parse` from `libs/dotnet/PlatformData/`, into
+  Npgsql's settings: a `postgres` or `postgresql` scheme, a user and a password, a host, a port,
+  5432 when left out, and the database, with no query. It holds a password, so it is never shown, in an error or in the
   settings' `ToString`, and is set on the command that starts review rather than written to a file.
 - `REVIEW_OWNER_DATABASE_URL`, the same form as `review_owner`, read by `migrate` alone, see
   "Migrating". Serving never reads it, and `services.sh` unsets it for `start`.
@@ -560,39 +563,39 @@ REVIEW_OWNER_DATABASE_URL="postgres://review_owner:<password>@127.0.0.1:5432/rev
   dotnet run --project src/Review -c Release --no-launch-profile -- migrate
 ```
 
-The command, `src/Review/Database/Migrations/`, is the brain's `brain migrate` written again in C#,
-with the same rules. It reads `REVIEW_OWNER_DATABASE_URL` and nothing else, takes a session
-advisory lock, whose key is the first 8 bytes of SHA-256 of `review.migrate` as a big endian
-signed 64 bit integer, so two runs cannot overlap, and records each file in `schema_migrations
-(version, name, applied_at)`. Each new file runs in its own transaction with its ledger row, so a
-failing file leaves nothing behind and stops the run before any later file. It prints `applied
-<version> <name>` per file, or `nothing to do, every migration is applied`. It refuses, applying
-nothing, when the files and the ledger disagree: a file name it cannot order, two files with one
-version, an applied file renamed or gone, or a new file numbered below one already applied. With
-no argument review serves, and any argument but `migrate` is refused with the usage.
+The command is the shared library's, `MigrateCommand` and `Migrator` in
+`libs/dotnet/PlatformData/`, which `src/Review/Commands.cs` runs with review's name,
+`REVIEW_OWNER_DATABASE_URL` and the files review's assembly embeds; what it does, the lock, the
+ledger and every refusal, is in "What it holds" in `libs/dotnet/PlatformData/README.md`. What is
+review's own: it reads `REVIEW_OWNER_DATABASE_URL` and nothing else, its lock's key is the first 8
+bytes of SHA-256 of `review.migrate`, the key review's migrator had before it moved, and its
+files are `migrations/`, embedded by `src/Review/Review.csproj`. With no argument review serves,
+and any argument but `migrate` is refused with the usage.
 
 ### The door
 
-Every query goes through `ReviewDb.InUserTransaction(userId, work, cancellationToken)`, in
-`src/Review/Database/ReviewDb.cs`, which takes a connection from the pool, opens a transaction,
-sets `review.user_id` for that transaction alone with `set_config('review.user_id', @id, true)`,
-the `SET LOCAL` the isolation section requires, runs the work with the transaction, and commits,
-or rolls back if the work throws. It refuses the empty user id, which names nobody. The work writes
-its SQL out, mapped to records with Dapper, so the query a policy guards is the one in the code.
+Every query goes through `UserDb.InUserTransaction(userId, work, cancellationToken)`, the shared
+library's door, which sets `review.user_id` for that transaction alone; how, and why it must be
+transaction scoped, is in "What it holds" in `libs/dotnet/PlatformData/README.md`. Review
+registers one `UserDb`, opened at startup in `src/Review/Commands.cs` with the name `review`,
+`ReviewSettings.Service`, as `review_app`, so a database it cannot reach, or a wrong password,
+stops review there, naming `REVIEW_APP_DATABASE_URL` and never its password. The work writes its
+SQL out, mapped to records with Dapper, so the query a policy guards is the one in review's code.
 
-`ReviewDb` holds one `NpgsqlDataSource` as `review_app`, opened at startup with one connection,
-so a database it cannot reach, or a wrong password, stops review there, naming
-`REVIEW_APP_DATABASE_URL` and never its password. It opens every connection review makes, the
-owner's one for `migrate` included, and `IsolationTests.OnlyTheDoorOpensConnections` checks by
-reflection that no other type in the assembly holds a connection or a data source in a member.
+Review opens no connection of its own: the door opens every one, the owner's one for `migrate`
+included, and `IsolationTests.OnlyTheDoorOpensConnections` checks by reflection that no type in
+review's assembly holds a connection or a data source in a member.
 
 Every scoped table has `user_id uuid NOT NULL`, row level security enabled and forced, and one
 policy, `USING (user_id = nullif(current_setting('review.user_id', true), '')::uuid)` with the same
-`WITH CHECK`, the expression `ReviewDb.Guard` holds. With no user set it is null, so a query
-outside the door returns nothing rather than everything, and a row written for another user is
-refused. `tests/Review.Tests/IsolationTests.cs` proves it on a probe table, and fails for any table a
-later migration adds to `public` without exactly that one policy, `schema_migrations` aside. There
-is no path around the policies yet: purging and exporting, if review needs them, are planned later.
+`WITH CHECK`, the expression `UserDb.GuardFor("review")` returns. With no user set it is null, so a
+query outside the door returns nothing rather than everything, and a row written for another user
+is refused. `tests/Review.Tests/IsolationTests.cs` proves it on a probe table, and fails for any
+table a later migration adds to `public` without exactly that one policy, `schema_migrations`
+aside; review leaves no table unguarded on purpose. `migrations/0002_decks_and_cards.sql` still
+names the expression `ReviewDb.Guard`, the door's name when it was applied, since an applied
+migration is never edited. There is no path around the policies yet: purging and exporting, if
+review needs them, are planned later.
 
 ## How review authenticates a request
 
@@ -628,11 +631,12 @@ copies rather than shared files, since each C# folder builds from its own direct
 on" in `libs/dotnet/PlatformAuth/README.md`.
 
 **One web project, not layered projects.** `src/Review/` is the whole service, organised in
-feature folders: `Settings`, `Database` (the door and the migrations), `Health` (health and whoami),
+feature folders: `Settings`, `Health` (health and whoami),
 `Pages`, `Decks`, `Cards`, `Scheduling` (FSRS, grading and the queue), `Brain` (the port to the
 brain, its adapter and generated client, and sending grades), and `Api`, what the routes
 over the user's data share (who is asking, the problem documents, and the rule collector a 422 is
-made from), more with later slices. The service is small, and folders inside one project keep it
+made from), more with later slices. The door and the migrations' code are the shared library's,
+`libs/dotnet/PlatformData/`. The service is small, and folders inside one project keep it
 readable without Clean Architecture's ceremony.
 
 **ASP.NET Core minimal APIs**, from the shared framework, for routing, static files and problem
@@ -643,7 +647,8 @@ Core, so the document follows the routes and their types without annotations of 
 Swashbuckle was the alternative, which ASP.NET Core no longer includes by default.
 
 **Npgsql 10.0.3**, the PostgreSQL driver for .NET, **with Dapper 2.1.89** for mapping rows to
-records, with the SQL written out where it runs, the same shape as sqlx in the core and psycopg in
+records, both through `PlatformData`'s reference and at its versions, with the SQL written out
+where it runs, the same shape as sqlx in the core and psycopg in
 the brain, so the query a policy guards is visible. EF Core was the alternative and was turned
 down: migrations here are plain SQL, so its migrations would go unused, its row level security
 setting would sit in an interceptor rather than in one visible door, and its generated SQL makes
@@ -655,9 +660,9 @@ the brain's optional fields are `anyOf` with `null`, which it mishandles, and a 
 by condition 1 of "How features reach each other". The adapter hands Kiota a plain `HttpClient`, so
 none of Kiota's own handlers, its retries and redirects among them, are in the way.
 
-**A migrator of its own, not DbUp.** DbUp's journal does not refuse an applied file that was
-renamed or removed, which forward only depends on, and the brain's rules are short enough to write
-again.
+**The migrator and the door from `libs/dotnet/PlatformData/`**, which review wrote and which
+moved there so every C# service with a database shares one copy of the code that keeps users
+apart; why a migrator of the platform's own rather than DbUp is in its README.
 
 **xUnit v3 for the tests**, with `Microsoft.AspNetCore.Mvc.Testing` for `TestServer` and
 `Microsoft.Extensions.TimeProvider.Testing` for the clock, the five test packages `PlatformAuth`

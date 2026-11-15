@@ -56,7 +56,7 @@ features" in `High-level/docs/platform-architecture.md`.
 | `Brain/`            | The brain's code, a Python service, with its docs in `Brain/docs/`           |
 | `Brain/docs/`       | The brain: memory, the trust model, events, retrieval, and its tables        |
 | `Brain/web/`        | The memory centre, the brain's own React application, served at `/brain`     |
-| `libs/`             | Shared libraries owned by no service, token verification first              |
+| `libs/`             | Shared libraries owned by no service: token verification, and the C# services' database code |
 | `design/`           | The platform's visual style, its fonts and sprites, and the shared nav bar, served at `/design/` |
 | `design/ui/`        | `@platform/ui`, the React components every frontend installs, and their gallery |
 | `canary/`           | Canary, the Python feature proving another language can verify the token     |
@@ -115,6 +115,10 @@ features" in `High-level/docs/platform-architecture.md`.
 - `libs/dotnet/PlatformAuth/README.md` — the same for every C# service: what it holds, what it must
   never grow into, how to run its tests, how a service references it, and the libraries and the
   SDK it is built on
+- `libs/dotnet/PlatformData/README.md` — the database code every C# service with a database
+  shares: the door, the guard, the migrator and the migrate command, the test harness and the
+  isolation checks, what it must never grow into, how to run its tests and why the ones needing a
+  database live in the services, how a service references it, and the libraries it is built on
 
 **Contracts**
 

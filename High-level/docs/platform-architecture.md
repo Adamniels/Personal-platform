@@ -468,9 +468,12 @@ the instructions and configuration for coding agents, since those govern work on
 below, and shared libraries under `libs/`: code that must be identical in every service using it,
 owned by no service. Token verification is the first, `libs/python/platform-auth/` and its C#
 twin `libs/dotnet/PlatformAuth/`, one per language, because it is the platform's security code and a flaw fixed in one copy and missed in another is a hole nobody
-sees. A library holds one narrow thing and never grows into a place for anything else, which is
+sees. The database code of the C# services is the second, `libs/dotnet/PlatformData/`: the
+migrator, the door that sets the user for each transaction, and the test harness, since the door is
+what enforces isolation between users, and two copies of it would drift. There is no Python twin,
+since the brain is the only Python service with a database. A library holds one narrow thing and never grows into a place for anything else, which is
 what keeps the drift above from coming back through it. A design system for the feature frontends
-is the second. Its style lives in `design/`, as values and written rules, and those files are shared
+is the third. Its style lives in `design/`, as values and written rules, and those files are shared
 at runtime rather than imported: the proxy serves its values, fonts and sprites at `/design/`, so a
 page from any service links them by URL and no service reads another's directory. "The design
 folder" in `infra/README.md` lists what is served. Its components are imported, like a library:
