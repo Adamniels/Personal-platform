@@ -20,12 +20,13 @@
 	display: flex;
 	align-items: center;
 	gap: var(--space-2);
-	max-width: 400px;
-	padding: 8px 12px;
+	max-width: 420px;
+	padding: 6px 6px 6px 16px;
 	background: var(--surface);
 	color: var(--text);
 	border: 1px solid var(--border-strong);
-	border-radius: var(--radius-md);
+	/* A pill, and still one when its text wraps onto two lines. */
+	border-radius: var(--radius-full);
 	box-shadow: var(--shadow-1);
 	pointer-events: auto;
 }
@@ -53,14 +54,16 @@
 	overflow-wrap: anywhere;
 }
 
-/* A text action. Its target reaches 44px around it on phone (hard rule 10),
- * through the toast's padding. */
+/* A text action with its own padding, so its label sits clear of the
+ * pill's end, as the reference screen draws it. Its target reaches 44px on
+ * phone (hard rule 10) through the ring around it. */
 .action {
 	position: relative;
 	flex: none;
-	margin: 0 0 0 var(--space-2);
-	padding: 0;
+	margin: 0;
+	padding: var(--space-2) var(--space-3);
 	border: 0;
+	border-radius: var(--radius-full);
 	background: transparent;
 	color: var(--info);
 	font-weight: 600;
@@ -70,7 +73,7 @@
 .action::after {
 	content: "";
 	position: absolute;
-	inset: -12px -12px;
+	inset: calc(var(--space-1) * -1);
 }
 
 .action:hover {

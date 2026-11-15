@@ -31,6 +31,16 @@ export function ToastSection() {
 				<Button onClick={() => toast.error("the file is too large")}>
 					Show an error without an action
 				</Button>
+				<Button
+					onClick={() =>
+						toast.success(
+							"Twelve entries moved to the topic Running, and their links to the old topic were kept",
+							{ label: "Undo", onAction: () => undefined },
+						)
+					}
+				>
+					Show a success that wraps
+				</Button>
 			</Row>
 			<Note>
 				A success leaves after 5 seconds; an error stays until its action or

@@ -1696,24 +1696,51 @@ def test_focus_stays_inside_an_open_dialog(page: Page):
 
 
 @pytest.mark.parametrize("theme", THEMES)
-def test_a_toast_reads_its_values(page: Page, viewport: str, theme: str):
+def test_a_toast_is_a_pill(page: Page, viewport: str, theme: str):
     open_gallery(page, theme)
     success, error = raise_toasts(page)
+    toast_section(page).get_by_role(
+        "button", name="Show a success that wraps", exact=True
+    ).click()
+    wrapped = page.get_by_role("status").filter(has_text="Twelve entries moved")
+    expect(wrapped).to_be_visible()
 
-    for toast in [success, error]:
+    for toast in [success, error, wrapped]:
         style = toast.evaluate(FLOATING_STYLE)
         assert style["background"] == resolve(page, "--surface", "background-color")
         assert style["borders"] == [resolve(page, "--border-strong", "color")] * 4
         assert style["borderWidths"] == ["1px"] * 4
-        assert style["radii"] == radii(page, "--radius-md")
+        assert style["radii"] == radii(page, "--radius-full")
         assert style["shadow"] == resolve(page, "--shadow-1", "box-shadow")
-        assert style["maxWidth"] == "400px"
+        assert style["maxWidth"] == "420px"
+        box = toast.evaluate(BOX_STYLE)
+        assert box["padding"] == ["6px", "6px", "6px", "16px"]
+
+        # An 8px status dot.
+        dot = toast.locator("span[aria-hidden='true']").evaluate(BOX_STYLE)
+        assert dot["width"] == dot["height"] == "8px"
+
+    # A text that wraps onto two lines keeps the pill's corners, checked
+    # above, and does wrap: its text is taller than one line.
+    text = wrapped.locator("p").evaluate(
+        """element => ({
+            height: element.getBoundingClientRect().height,
+            line: parseFloat(getComputedStyle(element).lineHeight),
+        })"""
+    )
+    assert text["height"] >= 2 * text["line"] - 1, "the long toast does not wrap"
 
     # The action is a text button in --info, weight 600.
     action = error.get_by_role("button", name="Retry", exact=True)
     action_style = action.evaluate(STYLE)
     assert action_style["color"] == resolve(page, "--info", "color")
     assert action_style["weight"] == "600"
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_where_the_toasts_sit(page: Page, viewport: str, theme: str):
+    open_gallery(page, theme)
+    success, error = raise_toasts(page)
 
     # Newest lowest: the error, raised second, is under the success.
     first, last = success.bounding_box(), error.bounding_box()
