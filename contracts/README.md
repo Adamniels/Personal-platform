@@ -165,4 +165,36 @@ Recorded once, on 2026 11 15, from this repository with `gh api` as the bot, fro
 To record one again, run its command from the repository root into the file, with the same `jq`,
 and run Dev flow's tests: a field GitHub renamed or dropped fails `ReadTests`.
 
+### runner/
+
+Four real pull requests by the bot, each in a folder named by its number, which
+`devflow/tests/DevFlow.Tests/Runner/RecordedTests.cs` reads through the GitHub adapter and gives to
+the reader of the runner's conventions, see "Reading this repository's runner" in
+`devflow/docs/devflow-architecture.md`. Each shows one case: 267 `owner-decision` with
+`has-decision`, a decision marked for the owner and a verdict with "For the owner"; 266
+`owner-merge`; 210 `owner-blocked`; and 265 no owner label. They are merged, so their state is
+closed and their labels are those they carried when they merged; the tests read them as open.
+
+Recorded once, on 2026 11 15, from this repository with `gh api` as the bot, `<n>` the pull
+request, `<sha>` its head commit and `<slice>` the issue its body closes:
+
+- `pull.json`: `gh api repos/Adamniels/Personal-platform/pulls/<n>`, cut with
+  `jq 'del(.head.repo, .base.repo, ._links)'`, the long parts the adapter does not read.
+- `comments.json`: `gh api repos/Adamniels/Personal-platform/issues/<n>/comments --paginate`,
+  joined with `jq -s add`, with each verdict's first line dropped from its body, as in
+  `issue-comments.json` above.
+- `markers.json`: what each dropped line said, `[{"comment": <id>, "kind": "approve" or "changes",
+  "sha": <40 hex>}]`, read from it before it was dropped. The tests put the line back in memory,
+  built from these three, so the reader sees the comment as GitHub has it.
+- `statuses.json`: the `statuses` array of
+  `gh api repos/Adamniels/Personal-platform/commits/<sha>/status`, as `statuses.json` above.
+- `check-runs.json`: `gh api repos/Adamniels/Personal-platform/commits/<sha>/check-runs`, cut with
+  `jq '.check_runs |= map(select(.name == "ci-ok")) | .total_count = (.check_runs | length)'` to
+  the runs the reader reads.
+- `slice-comments.json`: `gh api repos/Adamniels/Personal-platform/issues/<slice>/comments
+  --paginate`, joined with `jq -s add`.
+
+Recording one again can change what its test sees, a label or a comment added since; if one no
+longer shows its case, record another pull request by the bot that does, and name it here.
+
 `scripts/ci/changed-areas.sh` maps a change here to every area that tests against it.

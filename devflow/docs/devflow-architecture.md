@@ -29,10 +29,13 @@ its `migrate` command. Its one table is the vault's, `secrets`, which seals a se
 holds nothing yet. Everything it will ask of a code host goes through one interface, with an in
 memory fake behind it and a GitHub adapter that reads as the app, see "The code host seam" and
 "GitHub" below. What it serves, its settings, its database, the vault, the code host and how it
-authenticates are in `devflow/README.md`.
+authenticates are in `devflow/README.md`. Whether a pull request waits for the owner, and why, is
+read by one pure function that knows this repository's runner, see "Reading this repository's
+runner" below.
 
-It stores nothing in the vault, and nothing calls the adapter yet: signing a user in, the poll that
-reads GitHub, and everything the tabs will show arrive with the later slices of the first part.
+It stores nothing in the vault, and nothing calls the adapter or that reader yet: signing a user
+in, the poll that reads GitHub, and everything the tabs will show arrive with the later slices of
+the first part.
 
 ## The code host seam
 
@@ -103,6 +106,49 @@ time. Nothing is retried inside the adapter: its caller is a loop that comes bac
 the app is installed on can be read through it, whatever platform account asks. Which account may
 ask about which repository is decided by the callers the next slices add, from the repositories
 that account connected, which the database keeps per account under row level security.
+
+## Reading this repository's runner
+
+The first part's list of what waits for the owner is read from this repository's runner,
+`scripts/agent/`, which records everything on GitHub. The one piece that knows its conventions is
+`RunnerReader.Read`, in `src/DevFlow/Runner/`: given one pull request, its comments, its head
+commit's statuses and check runs, the comments on its slice issue, the bot's login and the owner's,
+it answers an item when the pull request is the owner's turn, and nothing otherwise. It is pure:
+no database, no network, no clock, and it never throws for what it reads, so a field it cannot
+understand becomes text or is left out. Fetching what it reads, and keeping the list, belong to
+its caller. What an item holds is in `src/DevFlow/Runner/RunnerItem.cs`; every text in it is
+plain text as read, which a page shows as text.
+
+It knows these conventions, each defined where the runner keeps it:
+
+- **The verdict**, by `scripts/agent/verdict.sh`'s rule exactly: the latest comment by the bot,
+  by creation time and then id, that was never edited and whose first line is the marker and
+  nothing else. Its `## For the owner` section, as `.claude/agents/reviewer.md` lays a verdict
+  out, is the reviewer's view.
+- **Whose turn it is**, from the labels `scripts/agent/run.sh` sets, described in "What waits for
+  the owner" in `High-level/docs/agent-workflow.md`: `owner-merge` or `owner-decision` is waiting,
+  `owner-blocked` is stopped, and only an open pull request by the bot that is not a draft counts.
+- **Whether merging may be offered**, from the merge gate's checks, `ci-ok` made by GitHub Actions
+  and the runner's `review-ok` status, both green on the head, and only for a waiting item.
+- **The pull request body**, as `.claude/skills/pick-up-slice/templates.md` lays it out: the
+  summary, the slice from its `Closes` line, and the decisions, each split into what was chosen,
+  the alternative and why. One is the owner's when it carries a bold mark starting
+  `**owner-decision`, in each form the agents have written it, `**owner-decision**`,
+  `**owner-decision.**` and `**owner-decision: what was decided**`.
+- **The reason**, from the runner's mentions in `run.sh`: a handover on the slice issue, with the
+  merge gate's reason lines in parentheses, each made a sentence, the review rounds used up, or a
+  Blocked notice on the pull request. Its tests hold the reader to the reason lines
+  `scripts/agent/merge-gate.sh` prints and to the mentions `run.sh` writes, so a change there fails
+  them.
+
+**An owner label alone is never trusted.** The runner corrects its labels once a turn, so for a
+moment after a new commit an `owner-merge` can sit on a head nobody approved. A waiting item needs
+the latest verdict to approve the head commit as well, and the page must never offer anything
+else for merging.
+
+It goes when the runner does, part 10 of the development flow, since the program then records the
+same things in its own tables. Its tests run against real pull requests of this repository,
+recorded in `contracts/github/runner/`.
 
 ## Security decisions and accepted risks
 

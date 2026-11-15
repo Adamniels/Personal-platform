@@ -1,0 +1,49 @@
+[
+  {
+    "url": "https://api.github.com/repos/Adamniels/Personal-platform/issues/comments/6891212665",
+    "html_url": "https://github.com/Adamniels/Personal-platform/issues/260#issuecomment-6891212665",
+    "issue_url": "https://api.github.com/repos/Adamniels/Personal-platform/issues/260",
+    "id": 6891212665,
+    "node_id": "IC_kwDOUMYTdc8AAAABmr-PeQ",
+    "user": {
+      "login": "mac-mini-agent",
+      "id": 340709305,
+      "node_id": "U_kgDOFE7PuQ",
+      "avatar_url": "https://avatars.githubusercontent.com/u/340709305?v=4",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/mac-mini-agent",
+      "html_url": "https://github.com/mac-mini-agent",
+      "followers_url": "https://api.github.com/users/mac-mini-agent/followers",
+      "following_url": "https://api.github.com/users/mac-mini-agent/following{/other_user}",
+      "gists_url": "https://api.github.com/users/mac-mini-agent/gists{/gist_id}",
+      "starred_url": "https://api.github.com/users/mac-mini-agent/starred{/owner}{/repo}",
+      "subscriptions_url": "https://api.github.com/users/mac-mini-agent/subscriptions",
+      "organizations_url": "https://api.github.com/users/mac-mini-agent/orgs",
+      "repos_url": "https://api.github.com/users/mac-mini-agent/repos",
+      "events_url": "https://api.github.com/users/mac-mini-agent/events{/privacy}",
+      "received_events_url": "https://api.github.com/users/mac-mini-agent/received_events",
+      "type": "User",
+      "user_view_type": "public",
+      "site_admin": false
+    },
+    "created_at": "2026-11-15T07:42:16Z",
+    "updated_at": "2026-11-15T07:42:16Z",
+    "body": "@Adamniels PR #267 is approved and waits for your decision: read \"Decisions the agent made\" in its body and \"For the owner\" in the review, then merge it or comment on it to change something (touches protected paths, risk is not low, an owner label is set).",
+    "author_association": "COLLABORATOR",
+    "pin": null,
+    "reactions": {
+      "url": "https://api.github.com/repos/Adamniels/Personal-platform/issues/comments/6891212665/reactions",
+      "total_count": 0,
+      "+1": 0,
+      "-1": 0,
+      "laugh": 0,
+      "hooray": 0,
+      "confused": 0,
+      "heart": 0,
+      "rocket": 0,
+      "eyes": 0
+    },
+    "performed_via_github_app": null,
+    "minimized": null
+  }
+]

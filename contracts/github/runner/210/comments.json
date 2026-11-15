@@ -1,0 +1,48 @@
+[
+  {
+    "url": "https://api.github.com/repos/Adamniels/Personal-platform/issues/comments/6850382434",
+    "html_url": "https://github.com/Adamniels/Personal-platform/pull/210#issuecomment-6850382434",
+    "issue_url": "https://api.github.com/repos/Adamniels/Personal-platform/issues/210",
+    "id": 6850382434,
+    "node_id": "IC_kwDOUMYTdc8AAAABmFCKYg",
+    "user": {
+      "login": "mac-mini-agent",
+      "id": 340709305,
+      "node_id": "U_kgDOFE7PuQ",
+      "avatar_url": "https://avatars.githubusercontent.com/u/340709305?v=4",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/mac-mini-agent",
+      "html_url": "https://github.com/mac-mini-agent",
+      "followers_url": "https://api.github.com/users/mac-mini-agent/followers",
+      "following_url": "https://api.github.com/users/mac-mini-agent/following{/other_user}",
+      "gists_url": "https://api.github.com/users/mac-mini-agent/gists{/gist_id}",
+      "starred_url": "https://api.github.com/users/mac-mini-agent/starred{/owner}{/repo}",
+      "subscriptions_url": "https://api.github.com/users/mac-mini-agent/subscriptions",
+      "organizations_url": "https://api.github.com/users/mac-mini-agent/orgs",
+      "repos_url": "https://api.github.com/users/mac-mini-agent/repos",
+      "events_url": "https://api.github.com/users/mac-mini-agent/events{/privacy}",
+      "received_events_url": "https://api.github.com/users/mac-mini-agent/received_events",
+      "type": "User",
+      "user_view_type": "public",
+      "site_admin": false
+    },
+    "created_at": "2026-11-13T10:32:40Z",
+    "updated_at": "2026-11-13T10:32:40Z",
+    "body": "Slice #167, \"What I know\", round 1: approved. Every Acceptance criterion holds in the code and is tested through the API against a real Postgres, and I found nothing blocking.\n\n## Blocking\n\nNone.\n\n## Nits\n\n- `Brain/tests/test_knowledge.py`, `test_two_levels_set_at_once_make_one_entry`: the `assert not second.done()` after a 0.3 s sleep is timing based. It cannot fail falsely with the lock in place, and without the lock the final lineage assertion fails no matter the timing, so the test does prove the guarantee. It just reads as a race test when the check that carries it is the deterministic one at the end. A comment saying so would help a reader in a year.\n- `Brain/src/brain/items.py`, `set_on_topic`: the alias is resolved before `_lock_topic` is taken, so a `same-as` running at the same moment could still leave two active levels on one topic. This is the same gap the PR already accepts for two topics that each had a level and are then marked the same, where the view and `set_on_topic` take the newest. Noting it so the limit is known, not asking for a change.\n- `Brain/src/brain/knowledge.py`: `history_count` counts every active `history` item, not only misconceptions. That matches the README and the Settled wording (\"the count of history entries on it\"). It will matter once other history entries exist, and that later slice should decide whether the view splits them.\n\n## For the owner\n\nNone. The decisions listed in the body are on brain item semantics within Settled, such as storing the alias's target as a level's subject, `409` on restoring beside an active entry, and `422` on a no-op set. None of them touches auth, a migration's shape or a cross-service contract, and I agree with each on the reasons given.\n\n## Replies\n\nNone.\n",
+    "author_association": "COLLABORATOR",
+    "reactions": {
+      "url": "https://api.github.com/repos/Adamniels/Personal-platform/issues/comments/6850382434/reactions",
+      "total_count": 0,
+      "+1": 0,
+      "-1": 0,
+      "laugh": 0,
+      "hooray": 0,
+      "confused": 0,
+      "heart": 0,
+      "rocket": 0,
+      "eyes": 0
+    },
+    "performed_via_github_app": null,
+    "minimized": null
+  }
+]
