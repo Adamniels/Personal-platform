@@ -66,6 +66,15 @@
       "ci": {
         "init_script": "infra/postgres/initdb/review.sh"
       }
+    },
+    {
+      "name": "devflow",
+      "dir": "devflow",
+      "port": 8084,
+      "health": "/devflow/api/health",
+      "language": "dotnet",
+      "area": "dotnet",
+      "start": "DEVFLOW_LISTEN_ADDR=\"$HOST:$PORT\" dotnet run --project src/DevFlow -c Release --no-launch-profile"
     }
   ]
 }

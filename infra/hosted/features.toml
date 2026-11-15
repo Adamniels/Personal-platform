@@ -16,3 +16,8 @@ name = "Review"
 prefix = "/review"
 upstream = "http://review:8083"
 display = "/review/api/display"
+
+[[feature]]
+name = "Dev flow"
+prefix = "/devflow"
+upstream = "http://devflow:8084"

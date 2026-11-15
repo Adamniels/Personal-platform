@@ -110,7 +110,7 @@ dotnet() { # dotnet <name> <expected names> <changed-areas.sh> <paths> [args...]
 }
 
 real="$here/changed-areas.sh"
-dotnet "the C# library sets the manifest's C# service" "review" "$real" "libs/dotnet/PlatformAuth/x"
+dotnet "the C# library sets the manifest's C# services" "review devflow" "$real" "libs/dotnet/PlatformAuth/x"
 line="$(printf 'docs/README.md' | bash "$real" | grep '^dotnet_services=')"
 if [ "$line" = "dotnet_services=[]" ]; then
   echo "ok   the empty list is written []"; pass=$((pass + 1))

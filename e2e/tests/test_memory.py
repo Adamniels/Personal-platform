@@ -48,7 +48,7 @@ def test_memory_opens_from_the_navigation(
     register_and_log_in(page, invite_code, base_url)
     links = links_bar(page).get_by_role("link")
     # Memory is fixed, after Home and before the features.
-    expect(links).to_have_text(["Home", "Memory", "Canary", "Review"])
+    expect(links).to_have_text(["Home", "Memory", "Canary", "Review", "Dev flow"])
     memory = links_bar(page).get_by_role("link", name="Memory", exact=True)
     expect(memory).to_have_attribute("href", "/brain")
     expect(memory).not_to_have_attribute("aria-current", "page")

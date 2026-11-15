@@ -26,6 +26,12 @@
 		reverse_proxy review:8083
 	}
 
+	# Dev flow, the same way.
+	@devflow path /devflow /devflow/*
+	handle @devflow {
+		reverse_proxy devflow:8084
+	}
+
 	# The brain, the same way.
 	@brain path /brain /brain/*
 	handle @brain {
