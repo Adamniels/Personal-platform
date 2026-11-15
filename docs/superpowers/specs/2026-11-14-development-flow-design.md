@@ -2,7 +2,9 @@
 
 Status: approved by the owner on 2026 11 14, after nine rounds of planning and a builder's read.
 It stays living, with dated changes, until the slices of the first part are cut. It is frozen on
-that day, and from then on the feature's own docs are the truth.
+that day, and from then on the feature's own docs are the truth. It was frozen on 2026 11 15, when
+the slices of the first part were cut, and `devflow/docs/devflow-architecture.md` is the living
+description from then on.
 
 Last updated: 2026 11 14
 

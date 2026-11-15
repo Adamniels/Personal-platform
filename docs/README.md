@@ -61,6 +61,7 @@ features" in `High-level/docs/platform-architecture.md`.
 | `design/ui/`        | `@platform/ui`, the React components every frontend installs, and their gallery |
 | `canary/`           | Canary, the Python feature proving another language can verify the token     |
 | `review/`           | Review, the C# feature of cards that come back, with its page in `review/web/` |
+| `devflow/`          | Dev flow, the C# feature for automating development on connected repositories, with its page in `devflow/web/` |
 | `desk/docs/`        | Desk, the feature for working through the day, described but not yet built   |
 | `infra/`            | The Caddyfile, the compose file and the feature registry, and `hosted/`, the platform in containers |
 | `contracts/`        | Contract fixtures, the bytes services in two languages test against          |
@@ -106,6 +107,17 @@ features" in `High-level/docs/platform-architecture.md`.
 - `review/README.md` — what review serves, what a card is, when a card comes back by FSRS and the grade log, what it tells the brain of each grade and through which client, its page and its sections, the schema it pins, how to run
   it and its tests, its settings, its database and roles, migrating, the one door every query goes
   through, how it authenticates a request with `PlatformAuth`, and the libraries it is built on
+
+**Dev flow**
+
+- `devflow/README.md` — what Dev flow serves, its page and its two tabs, the schema it pins, how to
+  run it and its tests, its settings, how it authenticates a request with `PlatformAuth`, and the
+  libraries it is built on
+- `devflow/docs/devflow-architecture.md` — what Dev flow is, what of it exists, and its security
+  decisions and accepted risks, kept for an audit
+- `docs/superpowers/specs/2026-11-14-development-flow-design.md` — the design of the whole
+  development flow, frozen on 2026 11 15 when the slices of its first part were cut; the
+  architecture document above is the living description from then on
 
 **Libs**
 

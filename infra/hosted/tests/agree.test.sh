@@ -21,7 +21,8 @@ bad() { echo "FAIL $1"; [ -n "${2:-}" ] && echo "     $2"; fail=$((fail + 1)); }
 # The files every check reads, relative to a root.
 FILES="infra/services.json infra/features.toml infra/Caddyfile
 infra/hosted/compose.yaml infra/hosted/Caddyfile infra/hosted/features.toml infra/hosted/.env.example
-Core/Dockerfile canary/Dockerfile Brain/Dockerfile review/Dockerfile infra/hosted/proxy/Dockerfile"
+Core/Dockerfile canary/Dockerfile Brain/Dockerfile review/Dockerfile devflow/Dockerfile
+infra/hosted/proxy/Dockerfile"
 
 # block <compose file> <service>: prints the lines of one service's entry under `services:`,
 # without its first line, nothing when there is no such service.
@@ -203,7 +204,7 @@ check_env() {
 check_locked() {
   local root="$1" out
   out="$(cd "$root" && bash "$repo/scripts/ci/dockerfile.sh" unlocked Core/Dockerfile canary/Dockerfile \
-    Brain/Dockerfile review/Dockerfile infra/hosted/proxy/Dockerfile)"
+    Brain/Dockerfile review/Dockerfile devflow/Dockerfile infra/hosted/proxy/Dockerfile)"
   grep -v '^checked ' <<< "$out"
   [ "$(sed -n 's/^checked //p' <<< "$out")" = 0 ] && echo "no install found in any Dockerfile"
   return 0

@@ -27,6 +27,12 @@ platform.test {
 		reverse_proxy host.docker.internal:8083
 	}
 
+	# Dev flow, the same way.
+	@devflow path /devflow /devflow/*
+	handle @devflow {
+		reverse_proxy host.docker.internal:8084
+	}
+
 	# The brain, the same way.
 	@brain path /brain /brain/*
 	handle @brain {

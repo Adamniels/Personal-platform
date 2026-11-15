@@ -110,4 +110,25 @@ Without the variable the test only compares. The page's types in `review/web/src
 are generated from this file, and its `schema.test.ts` fails when they are stale, see
 `review/README.md`.
 
+## devflow/
+
+Dev flow's HTTP schema, what its page, and any later caller of Dev flow, is written against. Dev
+flow is C#, so this is the same pin as `review/`.
+
+- `openapi.json`: the OpenAPI document Dev flow generates with `Microsoft.AspNetCore.OpenApi`, at
+  `GET /devflow/api/openapi.json`, with keys sorted, a two space indent and a trailing newline. The
+  route is mapped only when `DEVFLOW_EXPOSE_OPENAPI=1`, for the test and for regenerating this
+  file, so the running service serves it nowhere.
+
+Dev flow's `ContractTests` check that the app still generates exactly these bytes, as review's do.
+From `devflow/`:
+
+```zsh
+UPDATE_CONTRACTS=1 dotnet test --filter "FullyQualifiedName~ContractTests"
+```
+
+Without the variable the test only compares. The page's types in
+`devflow/web/src/api/schema.d.ts` are generated from this file, and its `schema.test.ts` fails when
+they are stale, see `devflow/README.md`.
+
 `scripts/ci/changed-areas.sh` maps a change here to every area that tests against it.

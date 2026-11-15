@@ -181,9 +181,9 @@ else
   bad "the manifest is sound and agrees with features.toml, the Caddyfile and .env.example" "$(printf '%s' "${got:-no infra/services.json}" | tr '\n' ';')"
 fi
 
-# The four services the platform runs today, in start order.
+# The five services the platform runs today, in start order.
 names="$(jq -r '.services[].name' "$repo/infra/services.json" 2>/dev/null | tr '\n' ' ')"
-if [ "$names" = "core canary brain review " ]; then ok "describes the core, canary, the brain and review, in that order"; else bad "describes the core, canary, the brain and review, in that order" "got: $names"; fi
+if [ "$names" = "core canary brain review devflow " ]; then ok "describes the core, canary, the brain, review and devflow, in that order"; else bad "describes the core, canary, the brain, review and devflow, in that order" "got: $names"; fi
 
 # Broken copies. expect <name> <pattern> <jq filter on the manifest> [<file in infra/> <sed script>]
 # copies the repository's four files, its init scripts and the services' folders into a fresh

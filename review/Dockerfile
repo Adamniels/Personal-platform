@@ -26,7 +26,9 @@ COPY review/global.json review/Directory.Build.props review/Directory.Packages.p
 COPY review/migrations review/migrations
 COPY review/src/Review review/src/Review
 WORKDIR /src/review
-RUN --mount=type=cache,target=/root/.nuget/packages \
+# sharing=locked: every C# image restores into this one cache, and NuGet's package folder is not
+# safe for two restores at once, which compose's parallel builds would otherwise run.
+RUN --mount=type=cache,target=/root/.nuget/packages,sharing=locked \
     dotnet restore src/Review/Review.csproj --locked-mode && \
     dotnet publish src/Review/Review.csproj -c Release --no-restore -o /out
 
