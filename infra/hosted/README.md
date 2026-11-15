@@ -103,8 +103,9 @@ and its settings `infra/hosted/.env` in that clone.
    ```
 
    Fill in each value in `infra/hosted/.env` as its comment says: each of the ten passwords from
-   its own run of `openssl rand -hex 24`, `PLATFORM_PUBLIC_ORIGIN` from step 4, and the backup
-   settings from step 2. Then make the signing key in the core's own image, which appends its line
+   its own run of `openssl rand -hex 24`, Dev flow's vault key, `DEVFLOW_VAULT_KEY`, from
+   `printf 'k1:%s\n' "$(openssl rand -base64 32)"` and saved in the password manager at once,
+   `PLATFORM_PUBLIC_ORIGIN` from step 4, and the backup settings from step 2. Then make the signing key in the core's own image, which appends its line
    to the file:
 
    ```zsh
@@ -252,9 +253,12 @@ down until someone logs in there, unless automatic login is on, which FileVault 
 ## What to keep elsewhere
 
 The `age` private key, in the password manager and one offline copy, and the bucket's account, its
-endpoint, region and name, so a new machine can find the backups. Nothing else: the passwords and
-the signing key in `.env` are made again on a new machine, which only logs everyone out, see "What
-is backed up".
+endpoint, region and name, so a new machine can find the backups. And Dev flow's vault key,
+`DEVFLOW_VAULT_KEY` from `.env`, in the password manager: the backups hold Dev flow's secrets sealed
+with it and never the key, so without it they cannot be opened and each is entered again, a GitHub
+link by linking again, see "The vault" in `devflow/README.md`. Nothing else: the passwords and the
+signing key in `.env` are made again on a new machine, which only logs everyone out, see "What is
+backed up".
 
 ## Backups
 
@@ -270,8 +274,9 @@ Every database in the hosted Postgres except `postgres` and the templates, found
 Postgres at each run, so a database added later can never be forgotten. Nothing else: not the
 volumes of the other services, which hold nothing of their own, and not the hosted `.env`.
 Passwords can be set again, and a lost signing key only logs everyone out. Keep these outside the
-machine, in a password manager: the `age` private key, which is the only way to read a backup, and
-the bucket's details, its endpoint, region and name, so a new machine can find the files.
+machine, in a password manager: the `age` private key, which is the only way to read a backup, the
+bucket's details, its endpoint, region and name, so a new machine can find the files, and Dev
+flow's vault key, without which the secrets in its backed up database stay sealed.
 
 A backup succeeds only when every database was dumped and every file uploaded. Anything else makes
 the run exit non zero, records the step that failed, and keeps the files it made.

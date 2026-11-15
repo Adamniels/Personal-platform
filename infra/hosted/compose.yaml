@@ -164,6 +164,9 @@ services:
       DEVFLOW_CORE_URL: http://core:8080
       DEVFLOW_PUBLIC_ORIGIN: ${PLATFORM_PUBLIC_ORIGIN:?set PLATFORM_PUBLIC_ORIGIN, see .env.example}
       DEVFLOW_APP_DATABASE_URL: postgres://devflow_app:${DEVFLOW_APP_PASSWORD:?set DEVFLOW_APP_PASSWORD, see .env.example}@postgres:5432/devflow
+      # The vault's keys, passed empty when unset, so Dev flow is what refuses, naming the setting.
+      DEVFLOW_VAULT_KEY: ${DEVFLOW_VAULT_KEY:-}
+      DEVFLOW_VAULT_OLD_KEYS: ${DEVFLOW_VAULT_OLD_KEYS:-}
 
   devflow-migrate:
     image: platform-hosted/devflow:${PLATFORM_RELEASE:-dev}

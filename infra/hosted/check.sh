@@ -84,8 +84,9 @@ leftovers() {
 # --- Secrets for this run only. ------------------------------------------------------------------
 
 # Every variable .env.example lists is unset here, so none set by the caller overrides the env
-# file. Each password is made the way .env.example says; the signing key is made by the core's
-# own keygen once its image is built, and the backup's recipient by age-keygen in the backup image.
+# file. Each password, and Dev flow's vault key, is made the way .env.example says; the signing
+# key is made by the core's own keygen once its image is built, and the backup's recipient by
+# age-keygen in the backup image.
 # The bucket is tests/s3_stub.py, which checks no signature, so its key is any random one.
 vars="$(sed -nE 's/^(# )?([A-Z_][A-Z0-9_]*)=.*/\2/p' "$here/.env.example")"
 for var in $vars; do unset "$var"; done
@@ -93,6 +94,7 @@ for var in $vars; do unset "$var"; done
   for var in $(printf '%s\n' "$vars" | grep '_PASSWORD$'); do
     echo "$var=$(openssl rand -hex 24)"
   done
+  echo "DEVFLOW_VAULT_KEY=k1:$(openssl rand -base64 32)"
   echo "PLATFORM_PUBLIC_ORIGIN=$origin"
   echo "BACKUP_S3_ENDPOINT=http://s3stub:9000"
   echo "BACKUP_S3_REGION=eu-north-1"

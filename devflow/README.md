@@ -6,8 +6,8 @@ meant to grow is in `docs/devflow-architecture.md`, and its scope and slices are
 issue, #268. "Dev flow" is its name in the nav and in headings, and `devflow` everywhere technical.
 
 It is a C# feature on .NET 10, an ASP.NET Core minimal API app, built the way `review/` is. Today it
-is the service, its page and its database, which has no table yet: the tables, the code host and
-everything the tabs will show arrive with later slices.
+is the service, its page and its database, which holds the vault: the other tables, the code host
+and everything the tabs will show arrive with later slices.
 
 ## What it serves
 
@@ -152,11 +152,19 @@ shared, since no service imports from another's directory.
   of what it prints.
 - `DEVFLOW_OWNER_DATABASE_URL`, the same form as `devflow_owner`: read by `migrate` alone, never
   by Dev flow while it serves, see "Migrating".
+- `DEVFLOW_CODE_HOST`, default `fake`: `fake` or `github`, nothing else. Today it decides one thing,
+  whether the vault needs a key; the code host's slice, #273, gives it the rest of its meaning.
+- `DEVFLOW_VAULT_KEY`, the vault's current key, `<id>:<base64 of 32 bytes>`, see "The vault". Unset
+  or empty, Dev flow makes one in memory with the fake code host and refuses to start with
+  `github`. A key that does not parse stops it, naming the setting and never repeating the value.
+- `DEVFLOW_VAULT_OLD_KEYS`, unset or empty for none: keys rows may still be sealed with, comma
+  separated in the same form, each with an id of its own that is not the current key's.
 
 The defaults are right on the Mac mini and in CI, so neither sets them, except the listen address,
 which the manifest's `start` sets, and the database URLs, which `scripts/agent/services.sh` and
-`.github/workflows/dotnet.yml` build. The hosted copy sets the four it needs to serve in
-`infra/hosted/compose.yaml`, and the owner's URL only on `devflow-migrate`.
+`.github/workflows/dotnet.yml` build. The hosted copy sets the four it needs to serve and passes the
+vault's two in `infra/hosted/compose.yaml`, from its `.env`, and the owner's URL only on
+`devflow-migrate`.
 
 ## The database
 
@@ -173,7 +181,7 @@ what it holds; what is Dev flow's own is below.
   `DELETE` on every table the owner creates and `USAGE` on every sequence, never `TRUNCATE`, and
   takes `CREATE` on `public` from everyone but its owner, as review's first migration does.
 
-It has no table yet; the slices that need one add it.
+Its one table is the vault's, `secrets`, from `migrations/0002_secrets.sql`, see "The vault".
 
 ### Migrating
 
@@ -201,11 +209,61 @@ library's door, which sets `devflow.user_id` for that transaction alone. Dev flo
 stops Dev flow there, naming `DEVFLOW_APP_DATABASE_URL` and never its password. It opens no
 connection of its own, which `IsolationTests.OnlyTheDoorOpensConnections` checks by reflection.
 
-Every scoped table, from the next slice on, has `user_id uuid NOT NULL`, row level security enabled
+Every scoped table has `user_id uuid NOT NULL`, row level security enabled
 and forced, and one policy using `UserDb.GuardFor("devflow")` for `USING` and `WITH CHECK`.
 `tests/DevFlow.Tests/IsolationTests.cs` proves the policy on a probe table, and fails for any table
 a later migration adds to `public` without exactly that one policy, `schema_migrations` aside; Dev
 flow leaves no table unguarded on purpose, and has no path around the policies.
+
+## The vault
+
+The vault keeps a secret for a user, such as their GitHub token, in the database, sealed so that a
+copy of the database does not reveal it. It is `Vault`, in `src/DevFlow/Vault/`, one instance the
+app registers beside the door, with three operations that each take the door's transaction, so a
+secret is only ever touched as its user:
+
+- `Put(transaction, userId, purpose, value, cancellationToken)` seals the value, bytes, and stores
+  it, replacing any before it;
+- `Get(transaction, userId, purpose, cancellationToken)` gives the value, or null when there is
+  none;
+- `Delete(transaction, userId, purpose, cancellationToken)` removes it, saying whether there was
+  one.
+
+A purpose is a short fixed name the caller chooses, such as `github.access`, matching
+`^[a-z][a-z0-9.]*$`; anything else is an `ArgumentException`.
+
+Each row of `secrets` is one user's secret for one purpose: `key_id`, `nonce` and `ciphertext`,
+with `updated_at`. A put seals with AES-256-GCM, from .NET's own `AesGcm`, under the current key, a
+random 12 byte nonce every time and the 16 byte tag appended to the ciphertext. The associated data
+is the UTF-8 of `devflow:v1:<user id>:<purpose>`, so a row moved to another user or purpose does
+not open, and neither does one with any byte changed. The table is guarded like every scoped one,
+so a user's transaction never sees another's rows. A get that cannot open its row throws
+`VaultException`, naming the purpose and, for a key that is not configured, the key's id.
+
+Nothing prints a value or a key: not a log line, not an exception's message, not a problem
+document. `DevFlowSettings`, `VaultSettings` and `VaultKey` print key ids alone.
+
+**The key** is `DEVFLOW_VAULT_KEY`, `<id>:<base64 of 32 random bytes>`, the id 1 to 16 lowercase
+letters and digits. Make one with:
+
+```zsh
+printf 'k1:%s\n' "$(openssl rand -base64 32)"
+```
+
+A put records the id of the key it sealed with, and a get opens with the key its row names, the
+current one or one listed in `DEVFLOW_VAULT_OLD_KEYS`; a row naming a key that is not configured is
+refused with its id. So a key is changed by making a new one current and listing the old one until
+every row has been put again, which happens as each secret is next written. Nothing rewrites every
+row at once yet.
+
+Without a key, with the fake code host, Dev flow makes a random key in memory at startup and says so
+in one line on stderr, without the key: the tests, CI and the runner's stack need nothing set, and
+what is sealed there is lost at a restart, which is right for a throwaway stack. With
+`DEVFLOW_CODE_HOST=github` a missing key stops startup. The hosted copy's key is in its `.env`, and
+the owner's password manager, never in the backups; see `infra/hosted/README.md`.
+
+What it protects against, and what it does not, is in "Security decisions and accepted risks" in
+`docs/devflow-architecture.md`.
 
 ## How Dev flow authenticates a request
 
@@ -243,6 +301,9 @@ in `libs/dotnet/PlatformAuth/README.md`.
 **One web project, not layered projects.** `src/DevFlow/` is the whole service, organised in
 feature folders: `Settings`, `Health` (health and whoami), `Pages` and `Api` today, more with later
 slices, as `review/` is.
+
+**The vault's cipher is .NET's own `AesGcm`**, AES-256-GCM from `System.Security.Cryptography`, the
+standard authenticated cipher, which the framework has, so no library is added for it.
 
 **ASP.NET Core minimal APIs**, from the shared framework, for routing, static files and problem
 details, with no MVC. JSON is snake case on the wire, as review's, the brain's and canary's is.

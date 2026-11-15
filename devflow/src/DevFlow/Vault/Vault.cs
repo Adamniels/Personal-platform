@@ -14,7 +14,8 @@ namespace DevFlow;
 /// <summary>
 /// Keeps a secret for a user, sealed in <c>secrets</c> so that a copy of the database does not reveal
 /// it. Each value is sealed with AES-256-GCM from .NET's own <see cref="AesGcm"/>, under the current
-/// key, a random 12 byte nonce per put and a 16 byte tag appended to the ciphertext, with
+/// key, whose id the row records so it still opens once a newer key is current, with a random 12
+/// byte nonce per put, a 16 byte tag appended to the ciphertext, and
 /// <c>devflow:v1:&lt;user id&gt;:&lt;purpose&gt;</c> as the associated data, so a row moved to another
 /// user or purpose does not open. Every operation takes the door's transaction, so a secret is only
 /// ever touched as its user, under row level security. See "The vault" in devflow/README.md.
@@ -116,8 +117,11 @@ public sealed partial class Vault(VaultSettings keys)
     /// <summary>The key ids alone, never a key.</summary>
     public override string ToString() => $"Vault {{ {_keys} }}";
 
-    /// <summary>The key a row names, by its id.</summary>
-    private VaultKey? KeyFor(string id) => id == _keys.Current.Id ? _keys.Current : null;
+    /// <summary>The key a row names, by its id: the current one, or one listed as old, which a
+    /// get opens with and a put never seals with. So a key is changed by making a new one current
+    /// and listing the old one until every row has been put again.</summary>
+    private VaultKey? KeyFor(string id) =>
+        id == _keys.Current.Id ? _keys.Current : _keys.Old.FirstOrDefault(key => key.Id == id);
 
     /// <summary>What binds a sealed value to its user and its purpose. The version lets a later
     /// format change what is bound without opening an older row as the newer.</summary>
