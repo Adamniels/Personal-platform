@@ -1639,6 +1639,9 @@ def test_on_phone_a_dialog_is_a_sheet_at_the_bottom(page: Page):
     assert box is not None
     assert box["x"] == 0 and box["width"] == width
     assert box["y"] + box["height"] == pytest.approx(height, abs=0.5)
+    # A sheet rounds its top corners only, with the large radius.
+    top = resolve(page, "--radius-xl", "border-top-left-radius")
+    assert style["radii"] == [top, top, "0px", "0px"]
     # It stays where it is when the page behind it has scrolled.
     page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
     moved = dialog.bounding_box()

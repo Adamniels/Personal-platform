@@ -56,13 +56,14 @@
 	gap: var(--space-2);
 }
 
-/* Phone: a full width sheet fixed to the bottom edge. */
+/* Phone: a full width sheet fixed to the bottom edge, its top corners
+ * rounded and its bottom ones square against the edge. */
 @media (max-width: 639.98px) {
 	.dialog {
 		max-width: 100%;
 		max-height: 100%;
 		margin: auto 0 0;
 		border-bottom-width: 0;
-		border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+		border-radius: var(--radius-xl) var(--radius-xl) 0 0;
 	}
 }
