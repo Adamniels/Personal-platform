@@ -51,6 +51,9 @@ public static class DevFlowApp
         builder.Services.AddPlatformAuth(options => options.CoreUrl = settings.CoreUrl);
         // The one door every query goes through, as the caller. See "The door" in devflow/README.md.
         builder.Services.AddSingleton(database);
+        // Seals and opens a user's secrets, through the door's transaction. See "The vault" in
+        // devflow/README.md.
+        builder.Services.AddSingleton(new Vault(settings.Vault));
         if (settings.ExposeOpenApi)
         {
             builder.Services.AddDevFlowOpenApi();
