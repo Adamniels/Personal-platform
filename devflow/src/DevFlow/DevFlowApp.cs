@@ -74,6 +74,13 @@ public static class DevFlowApp
 
         app.MapHealth();
         app.MapPages(webRoot);
+        if (settings.CodeHost == CodeHostMode.Fake)
+        {
+            // Only in the fake mode: in the GitHub mode none of them exists. See "The code host"
+            // in devflow/README.md.
+            app.MapFakeCodeHost();
+        }
+
         if (settings.ExposeOpenApi)
         {
             app.MapOpenApi(DevFlowOpenApi.Path);
@@ -94,10 +101,19 @@ public static class DevFlowApp
             return;
         }
 
-        if (mode == CodeHostMode.GitHub)
+        switch (mode)
         {
-            throw new StartupException(
-                "DEVFLOW_CODE_HOST: github needs the GitHub adapter, which is not built yet; it comes with the next slice of Dev flow, #268");
+            case CodeHostMode.Fake:
+                // Registered as itself too, for the addresses that stage its worlds.
+                var fake = new FakeCodeHost();
+                services.AddSingleton(fake);
+                services.AddSingleton<ICodeHost>(fake);
+                break;
+            case CodeHostMode.GitHub:
+                throw new StartupException(
+                    "DEVFLOW_CODE_HOST: github needs the GitHub adapter, which is not built yet; it comes with the next slice of Dev flow, #268");
+            default:
+                throw new ArgumentOutOfRangeException(nameof(mode), mode, "not a code host mode");
         }
     }
 }
