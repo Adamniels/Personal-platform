@@ -23,6 +23,7 @@
 	font-size: var(--text-h2-size);
 	line-height: var(--text-h2-line);
 	font-weight: 600;
+	text-transform: uppercase;
 }
 
 .row {

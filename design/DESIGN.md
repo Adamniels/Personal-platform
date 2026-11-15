@@ -9,12 +9,10 @@ The product is a private web application used for hours every day. The look is q
 As of 2026-11-15. The values, the fonts and this file are in place. The parts below still have the shape they were first built with, and each is brought to this file by the feature "Redesign: apply the new look". Until its slice has merged, the code is what a page gets, and a slice that touches one of these follows this file, not the code beside it. The last slice of that feature removes this section.
 
 * **Hard rule 11.** `Tabs` marks what is active with an amber outline, not an inverted fill.
-* **Hard rule 12.** The heading font is set without capitals in `Card` and `Dialog` titles, and in the gallery's and the feature pages' own headings. Only the page title and the core's card titles are in capitals.
+* **Hard rule 12.** The heading font is set without capitals in `Card` and `Dialog` titles, and in the feature pages' own headings. Only the page title and the core's card titles are in capitals.
 * **Hard rule 13.** `Tabs` scrolls sideways on phone, and the `Table` wrapper scrolls sideways when the table is wider than it.
 * **Components, section 4, in `ui/`.** Each takes the new values, so colours, fonts and radii have changed, but not its shape:
-  * `Button`, `TextField`, `TextArea` and `Select` have `--radius-md` corners, not pill corners, with 14px and 10px side padding.
   * `Status` and `Badge` are 22px high and `Chip` 20px, with `--radius-sm` corners, and the badge and the idle status use `--surface-2`.
-  * `Checkbox` has a 16px box.
   * `Tabs` is an underlined row, not a segmented track.
   * `Card` has its title as an h2 in the heading font, `--space-4` padding and a footer action, and no arrow link or numeral.
   * `Table` has a `--surface-2` header row, and its filter pill is 28px high and outlined, not filled.

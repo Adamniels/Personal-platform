@@ -190,6 +190,36 @@ def test_buttons_are_44px_tall_on_phone(page: Page):
         assert box is not None and box["height"] == 44, buttons.nth(index)
 
 
+HEADING_STYLE = """element => {
+    const style = getComputedStyle(element);
+    return {
+        family: style.fontFamily,
+        weight: style.fontWeight,
+        transform: style.textTransform,
+    };
+}"""
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_gallery_headings_are_capitals(page: Page, theme: str):
+    """Hard rule 12 of design/DESIGN.md, for the gallery's own headings: its
+    title and the heading of each component's section. A component's own
+    heading, such as a card's title, is its slice's to test."""
+    open_gallery(page, theme)
+    family = resolve(page, "--font-heading", "font-family")
+
+    headings = page.locator("h1, main > section > h2")
+    assert headings.count() == 1 + page.locator("main > section").count()
+    for index in range(headings.count()):
+        heading = headings.nth(index)
+        style = heading.evaluate(HEADING_STYLE)
+        assert style == {
+            "family": family,
+            "weight": "600",
+            "transform": "uppercase",
+        }, heading.text_content()
+
+
 @pytest.mark.parametrize("opened", ["page", "dialog", "toasts"])
 @pytest.mark.parametrize("theme", THEMES)
 def test_the_gallery_passes_the_accessibility_check(
