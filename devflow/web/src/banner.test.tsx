@@ -1,24 +1,15 @@
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, test } from "vitest";
-import type { Status } from "./banner";
 import { CodeHostBanner } from "./banner";
 
 const TEXT = "Fake GitHub. Nothing here is real.";
+const UNLINKED = { state: "none", login: null } as const;
 
 afterEach(cleanup);
 
-/** Renders the banner over a status that answers with `answer`, and waits
- * for it to settle. */
-async function renderWith(answer: Promise<Status>) {
-	render(<CodeHostBanner loadStatus={() => answer} />);
-	await act(async () => {
-		await answer.catch(() => undefined);
-	});
-}
-
 describe("the banner says when GitHub is faked", () => {
-	test("it shows in the fake mode", async () => {
-		await renderWith(Promise.resolve({ code_host: "fake" }));
+	test("it shows in the fake mode", () => {
+		render(<CodeHostBanner status={{ code_host: "fake", github: UNLINKED }} />);
 
 		const banner = screen.getByRole("note");
 		expect(banner.textContent).toBe(TEXT);
@@ -26,19 +17,18 @@ describe("the banner says when GitHub is faked", () => {
 		expect(screen.queryByRole("button")).toBeNull();
 	});
 
-	test("it does not show with GitHub", async () => {
-		await renderWith(Promise.resolve({ code_host: "github" }));
+	test("it does not show with GitHub", () => {
+		render(
+			<CodeHostBanner status={{ code_host: "github", github: UNLINKED }} />,
+		);
 
 		expect(screen.queryByRole("note")).toBeNull();
 		expect(screen.queryByText(TEXT)).toBeNull();
 	});
 
-	test("it does not show before the status answers, or when it fails", async () => {
-		render(<CodeHostBanner loadStatus={() => new Promise<Status>(() => {})} />);
-		expect(screen.queryByText(TEXT)).toBeNull();
-		cleanup();
+	test("it does not show before the status answers, or when it cannot be read", () => {
+		render(<CodeHostBanner status={undefined} />);
 
-		await renderWith(Promise.reject(new Error("unreachable")));
 		expect(screen.queryByText(TEXT)).toBeNull();
 	});
 });

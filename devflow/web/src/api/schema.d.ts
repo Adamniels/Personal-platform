@@ -54,8 +54,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Which code host Dev flow talks to
-         * @description fake when GitHub is faked, which every Dev flow page then says in a banner, and github otherwise. Without a valid token, 401 with an empty body.
+         * Which code host Dev flow talks to, and the caller's GitHub link
+         * @description code_host is fake when GitHub is faked, which every Dev flow page then says in a banner, and github otherwise. github.state is none, linked or needs_relink, with the login it was linked as, null with none. Without a valid token, 401 with an empty body.
          */
         get: operations["status"];
         put?: never;
@@ -94,6 +94,13 @@ export interface components {
         CodeHostMode: "fake" | "github";
         DevFlowStatus: {
             code_host: components["schemas"]["CodeHostMode"];
+            github: components["schemas"]["GitHubLinkStatus"];
+        };
+        /** @enum {unknown} */
+        GitHubLinkState: "none" | "linked" | "needs_relink";
+        GitHubLinkStatus: {
+            login: null | string;
+            state: components["schemas"]["GitHubLinkState"];
         };
         Health: {
             status: string;

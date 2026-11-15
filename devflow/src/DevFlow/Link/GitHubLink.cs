@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json.Serialization;
 
 using Dapper;
 
@@ -11,11 +12,37 @@ using PlatformData;
 
 namespace DevFlow.Link;
 
+/// <summary>Whether a user has linked their GitHub account, as the status and the page say it.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter<GitHubLinkState>))]
+public enum GitHubLinkState
+{
+    /// <summary>Nothing linked, or unlinked since.</summary>
+    [JsonStringEnumMemberName("none")]
+    None,
+
+    /// <summary>Linked, with tokens Dev flow can use.</summary>
+    [JsonStringEnumMemberName("linked")]
+    Linked,
+
+    /// <summary>Linked once, and GitHub refused to renew it: the tokens are gone, and the person
+    /// links again.</summary>
+    [JsonStringEnumMemberName("needs_relink")]
+    NeedsRelink,
+}
+
+/// <summary>A user's GitHub link, as <c>GET /devflow/api/status</c> answers it.</summary>
+/// <param name="State">Whether it is linked.</param>
+/// <param name="Login">The GitHub login it was linked as, null with <see cref="GitHubLinkState.None"/>.</param>
+public sealed record GitHubLinkStatus(GitHubLinkState State, string? Login)
+{
+    public static GitHubLinkStatus Unlinked { get; } = new(GitHubLinkState.None, Login: null);
+}
+
 /// <summary>
 /// Linking a user's GitHub account: starting it, which remembers a single use state and a PKCE
 /// verifier and gives the address to send the browser to; the return from the code host, which
 /// spends the state, exchanges the code and stores the account with its two tokens sealed in the
-/// vault; and unlinking. Every query goes through the door as the user, so a
+/// vault; unlinking; and the link's state. Every query goes through the door as the user, so a
 /// state, an account or a token is only ever touched as its own user. Getting a usable token is
 /// <see cref="UserTokens"/>. See "Linking GitHub" in devflow/README.md.
 /// </summary>
@@ -154,6 +181,23 @@ public sealed class GitHubLink(UserDb database, Vault vault, ICodeHostSignIn hos
             return 0;
         }, cancellationToken);
 
+    /// <summary>Whether the user has linked GitHub, and as whom.</summary>
+    public async Task<GitHubLinkStatus> Status(Guid userId, CancellationToken cancellationToken)
+    {
+        var row = await database.InUserTransaction(userId, transaction => transaction.Connection!.QuerySingleOrDefaultAsync<StatusRow>(new CommandDefinition(
+            "SELECT state AS State, login AS Login FROM github_accounts WHERE user_id = @userId",
+            new { userId },
+            transaction,
+            cancellationToken: cancellationToken)), cancellationToken);
+        return row switch
+        {
+            null => GitHubLinkStatus.Unlinked,
+            { State: "linked" } => new GitHubLinkStatus(GitHubLinkState.Linked, row.Login),
+            { State: "needs_relink" } => new GitHubLinkStatus(GitHubLinkState.NeedsRelink, row.Login),
+            _ => throw new InvalidOperationException("github_accounts holds a state its check does not allow"),
+        };
+    }
+
     /// <summary>Both tokens into the vault, replacing those before them.</summary>
     internal static async Task PutTokens(Vault vault, NpgsqlTransaction transaction, Guid userId, UserTokenPair tokens, CancellationToken cancellationToken)
     {
@@ -181,4 +225,6 @@ public sealed class GitHubLink(UserDb database, Vault vault, ICodeHostSignIn hos
     {
         public override string ToString() => $"SignIn {{ CreatedAt = {CreatedAt:O} }}";
     }
+
+    private sealed record StatusRow(string State, string Login);
 }

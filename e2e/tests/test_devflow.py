@@ -2,6 +2,8 @@
 repositories, reached through the proxy under /devflow and opened from the
 nav bar. See devflow/README.md."""
 
+import re
+
 from playwright.sync_api import Browser, Page, expect
 
 from conftest import account_in_access_cookie, capture, register_and_log_in
@@ -120,3 +122,77 @@ def test_a_test_can_stage_a_pull_request(
     read = page.request.get("/devflow/api/fake/world")
     assert read.status == 200
     assert read.json() == world
+
+
+LINK_INVITE = (
+    "Link your GitHub account to connect repositories and to merge and comment "
+    "as yourself."
+)
+
+
+def _link_github(page: Page, base_url: str) -> None:
+    """From the Projects tab, through the fake's sign in page and back."""
+    page.get_by_role("article", name="GitHub").get_by_role(
+        "button", name="Link GitHub"
+    ).click()
+    expect(page).to_have_url(re.compile(r"/devflow/fake-github/authorize\?"))
+    expect(page.get_by_role("heading", name="Fake GitHub", level=1)).to_be_visible()
+    expect(page.get_by_text("@octo-owner")).to_be_visible()
+    page.get_by_role("button", name="Authorize").click()
+    expect(page).to_have_url(f"{base_url}/devflow/projects")
+
+
+def test_i_link_my_github_account(
+    page: Page, invite_code: str, base_url: str, viewport: str
+):
+    register_and_log_in(page, invite_code, base_url)
+    page.goto("/devflow/projects")
+    card = page.get_by_role("article", name="GitHub")
+    expect(card.get_by_text(LINK_INVITE)).to_be_visible()
+    capture(page, "devflow-projects-unlinked")
+
+    _link_github(page, base_url)
+
+    expect(
+        page.get_by_role("article", name="GitHub").get_by_text("Linked as @octo-owner")
+    ).to_be_visible()
+    expect(page.get_by_text(LINK_INVITE)).to_have_count(0)
+    capture(page, "devflow-projects-linked")
+    status = page.request.get("/devflow/api/status")
+    assert status.json()["github"] == {"state": "linked", "login": "octo-owner"}
+
+
+def test_denying_the_link_says_so(page: Page, invite_code: str, base_url: str):
+    register_and_log_in(page, invite_code, base_url)
+    page.goto("/devflow/projects")
+    page.get_by_role("button", name="Link GitHub").click()
+
+    page.get_by_role("button", name="Deny").click()
+
+    expect(page).to_have_url(f"{base_url}/devflow/projects?link=failed")
+    expect(page.get_by_role("alert")).to_have_text("GitHub was not linked. Try again.")
+    expect(page.get_by_role("button", name="Link GitHub")).to_be_visible()
+    assert page.request.get("/devflow/api/status").json()["github"]["state"] == "none"
+
+
+def test_i_unlink_my_github_account(page: Page, invite_code: str, base_url: str):
+    register_and_log_in(page, invite_code, base_url)
+    page.goto("/devflow/projects")
+    _link_github(page, base_url)
+    card = page.get_by_role("article", name="GitHub")
+
+    card.get_by_role("button", name="Unlink").click()
+    dialog = page.get_by_role("dialog", name="Unlink GitHub?")
+    expect(dialog).to_be_visible()
+    dialog.get_by_role("button", name="Unlink GitHub").click()
+
+    expect(dialog).to_be_hidden()
+    expect(card.get_by_text(LINK_INVITE)).to_be_visible()
+    expect(page.get_by_text("Linked as @octo-owner")).to_have_count(0)
+    assert page.request.get("/devflow/api/status").json()["github"] == {
+        "state": "none",
+        "login": None,
+    }
+    # And it stays so on a fresh load.
+    page.reload()
+    expect(page.get_by_role("button", name="Link GitHub")).to_be_visible()

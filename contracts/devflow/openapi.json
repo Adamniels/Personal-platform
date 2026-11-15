@@ -11,10 +11,39 @@
         "properties": {
           "code_host": {
             "$ref": "#/components/schemas/CodeHostMode"
+          },
+          "github": {
+            "$ref": "#/components/schemas/GitHubLinkStatus"
           }
         },
         "required": [
-          "code_host"
+          "code_host",
+          "github"
+        ],
+        "type": "object"
+      },
+      "GitHubLinkState": {
+        "enum": [
+          "none",
+          "linked",
+          "needs_relink"
+        ]
+      },
+      "GitHubLinkStatus": {
+        "properties": {
+          "login": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "state": {
+            "$ref": "#/components/schemas/GitHubLinkState"
+          }
+        },
+        "required": [
+          "state",
+          "login"
         ],
         "type": "object"
       },
@@ -132,7 +161,7 @@
     },
     "/devflow/api/status": {
       "get": {
-        "description": "fake when GitHub is faked, which every Dev flow page then says in a banner, and github otherwise. Without a valid token, 401 with an empty body.",
+        "description": "code_host is fake when GitHub is faked, which every Dev flow page then says in a banner, and github otherwise. github.state is none, linked or needs_relink, with the login it was linked as, null with none. Without a valid token, 401 with an empty body.",
         "operationId": "status",
         "responses": {
           "200": {
@@ -149,7 +178,7 @@
             "description": "Unauthorized"
           }
         },
-        "summary": "Which code host Dev flow talks to",
+        "summary": "Which code host Dev flow talks to, and the caller's GitHub link",
         "tags": [
           "DevFlow"
         ]
