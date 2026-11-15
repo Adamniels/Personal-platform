@@ -495,7 +495,9 @@ canary, the brain and the acceptance suite.
 continuous integration runs only what a change touches. `.github/workflows/ci.yml` is the single
 entry point: it works out from the diff which areas changed, with `scripts/ci/changed-areas.sh`,
 runs each changed area's workflow, and ends in `ci-ok`, a job that always runs and passes only when
-every job it judged passed or was skipped. That one check is what branch protection requires, since
+every job it judged passed or was skipped. Among them is `hosted`, which builds the hosted images
+and checks a throwaway copy of them, run only when a change reaches what the images are built from,
+see "In CI" in `infra/hosted/README.md`. That one check is what branch protection requires, since
 a required check that only runs on some paths would block every pull request outside them. The
 number of languages is not itself a cost, since each directory keeps its own toolchain and lockfile
 and nothing tries to build them as one graph. Continuous integration runs cargo with `--locked`,

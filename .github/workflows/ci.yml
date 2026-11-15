@@ -26,6 +26,7 @@ jobs:
       web: ${{ steps.areas.outputs.web }}
       e2e: ${{ steps.areas.outputs.e2e }}
       dotnet_services: ${{ steps.areas.outputs.dotnet_services }}
+      hosted: ${{ steps.areas.outputs.hosted }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -127,10 +128,17 @@ jobs:
       owner_password: ${{ matrix.service.owner_password }}
       app_password: ${{ matrix.service.app_password }}
 
+  # The hosted images built and checked, only when the change reaches what they are built from, as
+  # changed-areas.sh decides, since the build adds minutes to every run that has it.
+  hosted:
+    needs: changes
+    if: needs.changes.outputs.hosted == 'true'
+    uses: ./.github/workflows/hosted.yml
+
   # Fails unless every job above succeeded or was skipped. Runs even when one of them failed
   # or was cancelled, which is what `always()` is for.
   ci-ok:
-    needs: [changes, core, canary, brain, libs, scripts, web, e2e, dotnet]
+    needs: [changes, core, canary, brain, libs, scripts, web, e2e, dotnet, hosted]
     if: always()
     runs-on: ubuntu-latest
     steps:

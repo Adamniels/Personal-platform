@@ -5,7 +5,9 @@
 # `dotnet test` pass --no-restore, so the one restore is the locked one. The commands in infra/services.json, which e2e.yml and the agents run through
 # scripts/agent/services.sh, are held to the same: cargo with --locked, and `uv run` with
 # UV_LOCKED=1 in front, since they also run outside any job's env. Without them cargo, uv and npm resolve again when a lockfile does not match
-# its manifest, and the push goes green.
+# its manifest, and the push goes green. Every Dockerfile in the repository is held to the rules
+# infra/hosted/tests/agree.test.sh holds them to, through the same scripts/ci/dockerfile.sh, so
+# the scripts job checks them on every pull request and not only when the hosted check runs.
 # The same checks run on sample workflows, so they cannot pass by matching nothing.
 # Run: bash scripts/ci/workflows-locked.test.sh
 set -uo pipefail
@@ -159,8 +161,8 @@ check() {
 # moved out of reach of the check, by a rewrite it does not recognise, fails here too.
 real=("$workflows"/*.yml)
 check "cargo steps pass --locked" "checked 6" cargo_unlocked "${real[@]}"
-check "uv jobs set UV_LOCKED" "checked 4" uv_unlocked "${real[@]}"
-check "npm installs with npm ci" "checked 2" npm_unlocked "${real[@]}"
+check "uv jobs set UV_LOCKED" "checked 5" uv_unlocked "${real[@]}"
+check "npm installs with npm ci" "checked 3" npm_unlocked "${real[@]}"
 # dotnet.yml's restore, build and test, and the same three in libs.yml's C# job.
 check "dotnet restores locked, and builds and tests without restoring" "checked 6" dotnet_unlocked "${real[@]}"
 
@@ -173,7 +175,31 @@ jq -r '.services[] | .migrate // empty, .start' "$manifest" > "$tmp/manifest.txt
 check "manifest cargo commands pass --locked" "checked 2" cargo_unlocked "$tmp/manifest.txt"
 check "manifest uv commands set UV_LOCKED=1" "checked 3" commands_uv_unlocked "$tmp/manifest.txt"
 
+# Every Dockerfile git tracks. The count is the installs they hold today, each a cargo build, a uv
+# sync, an npm ci or a dotnet restore, so one moved out of reach of the check fails here too: the
+# core's cargo build, canary's and the brain's uv sync, two npm ci each in the brain's and review's
+# images and one in the proxy's, and review's dotnet restore.
+dockerfiles=()
+while IFS= read -r f; do dockerfiles+=("$here/../../$f"); done < <(git -C "$here/../.." ls-files ':(glob)**/Dockerfile')
+check "Dockerfiles install locked" "checked 9" bash "$here/dockerfile.sh" unlocked "${dockerfiles[@]}"
+
 # Samples, so each check is seen to fail.
+
+cat > "$tmp/Dockerfile" <<'EOF2'
+FROM rust AS build
+# RUN cargo build in a comment is not a command
+RUN cargo build --release
+RUN --mount=type=cache,target=/x \
+    cargo build --release --locked && cp a b
+RUN uv sync --no-dev
+RUN npm install && npm ci
+RUN dotnet restore --locked-mode && dotnet publish -c Release
+EOF2
+check "sample Dockerfile lines" "$tmp/Dockerfile: cargo build without --locked: RUN cargo build --release
+$tmp/Dockerfile: uv sync without --locked: RUN uv sync --no-dev
+$tmp/Dockerfile: npm installs other than npm ci: RUN npm install 
+$tmp/Dockerfile: dotnet publish restores again without --no-restore:  dotnet publish -c Release
+checked 5" bash "$here/dockerfile.sh" unlocked "$tmp/Dockerfile"
 
 cat > "$tmp/cargo.yml" <<'EOF'
 jobs:

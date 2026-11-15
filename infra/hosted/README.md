@@ -7,8 +7,8 @@ on the Mac mini, reached over Tailscale. Development still runs natively on a la
 
 This folder makes the containers, proves they start, runs the acceptance suite against them, and
 backs up every database each night, see "Backups". The owner sets the real copy up once, see
-"Setting it up", and releases a version into it with one command, see "Releasing". Running
-`check.sh` in CI arrives in a later slice.
+"Setting it up", and releases a version into it with one command, see "Releasing". CI runs
+`check.sh` on a pull request that changes what the images are built from, see "In CI".
 
 ## What runs
 
@@ -450,9 +450,10 @@ of that.
 ## check.sh
 
 `check.sh` proves the stack works, on a throwaway copy. From the repository root, with Docker
-running, and `uv` and Playwright's Chromium installed for the acceptance suite, which it never
-installs (from `e2e/`, `uv run playwright install chromium`), and `platform.test` resolving to
-`127.0.0.1`, as for the dev suite:
+running, and `uv`, Playwright's Chromium and `design/ui`'s packages installed for the acceptance
+suite, which it never installs (from `e2e/`, `uv run playwright install chromium`, and from
+`design/ui/`, `npm ci`, for the `axe-core` its accessibility checks inject), and `platform.test`
+resolving to `127.0.0.1`, as for the dev suite:
 
 ```zsh
 bash infra/hosted/check.sh
@@ -498,7 +499,13 @@ It prints `ok <name>` or `FAIL <name>` for each case and exits non zero if any f
 - `backup_test`, `tests/backup.test.sh` passes, after the suite so the databases it backs up hold
   the suite's data, see "Testing the backups";
 - `it_leaves_nothing_behind`: after the run, and after a run made to fail once Postgres is up, no
-  container, network or volume of the project exists.
+  container, network or volume of the project exists;
+- `it_saves_the_logs_of_a_failed_run`: that failed run wrote Postgres's log and its container's
+  state to a directory before its teardown, as a failed case does to `HOSTED_CHECK_LOGS`.
+
+With `HOSTED_CHECK_LOGS` naming a directory, a run in which any case failed writes the project's
+`docker compose ps -a`, as `ps.log`, and `docker compose logs`, as `compose.log`, there before the
+teardown removes the containers. CI's hosted job sets it and uploads the directory, see "In CI".
 
 It always ends with `docker compose down -v` for its project, by a trap, and removes nothing else:
 images and Docker's build cache stay, so a second run builds only what changed. `HOSTED_PROJECT`
@@ -509,14 +516,39 @@ uses neither its ports, 80, 443 and 5432, nor its project. Later slices add thei
 `scripts/ci/services.test.sh`: each manifest entry is a compose service on its port with its
 `-migrate` service, no serving service has an owner's URL, the hosted registry and Caddyfile match
 the dev ones, the proxy's image holds every design path it serves, every variable the compose file
-reads is in `.env.example`, every install in a Dockerfile is locked, the compose file names no
+reads is in `.env.example`, every install in a Dockerfile is locked, by the rules in
+`scripts/ci/dockerfile.sh`, which `scripts/ci/workflows-locked.test.sh` also holds every Dockerfile
+to on every pull request, the compose file names no
 project, and each script in `infra/postgres/initdb/` is mounted into the hosted Postgres with the
 backup role's last. Each check also runs on a broken copy, so it cannot pass by matching nothing.
 
-Neither runs in CI yet; a later slice adds that.
-
 The suite runs after the cases above, and takes as long as a dev run of it, several minutes, on top
 of the build; the backup tests take about a minute more.
+
+### In CI
+
+`.github/workflows/hosted.yml` runs `check.sh` on GitHub's runner, called by `ci.yml` as the job
+`hosted` whenever `scripts/ci/changed-areas.sh` prints `hosted=true`, and `ci-ok` fails when it
+fails. That is a change under `infra/hosted/`, `scripts/deploy/`, `infra/postgres/` or
+`.github/workflows/`, to `infra/services.json`, to any `Dockerfile` or `.dockerignore`, or to any
+dependency manifest, lockfile or toolchain pin: `Cargo.toml`, `Cargo.lock`, `rust-toolchain.toml`,
+`pyproject.toml`, `uv.lock`, `.python-version`, `package.json`, `package-lock.json`,
+`.node-version`, `*.csproj`, `Directory.Packages.props`, `Directory.Build.props`,
+`packages.lock.json` and `global.json`. Source code alone does not run it, since building every
+image adds minutes to a queue the runner waits on.
+
+What that leaves to a release, knowingly: a source change that breaks an image without touching
+any of those, such as a new file a service reads at runtime that its Dockerfile does not copy. The
+release's build or health check fails, and the release changes nothing, see "Releasing". Running the
+check on every pull request waits for the runner's retirement, as the hosting feature records.
+
+The job points `platform.test` at the runner, installs uv, Playwright's Chromium and `design/ui`'s
+packages for the suite, and no Rust or .NET, since the images bring their own toolchains. It has no
+Docker layer cache, so each run builds every image from nothing, within its 45 minute timeout. On a
+failure it uploads `HOSTED_CHECK_LOGS` as the artifact `hosted-logs`.
+
+GitHub's runner is `linux/amd64` and the Mac mini `linux/arm64`, so the same Dockerfiles build on
+both: CI checks the first, and the implementer's own run of `check.sh` on the Mac mini, the second.
 
 ## Resources
 

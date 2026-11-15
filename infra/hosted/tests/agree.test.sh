@@ -78,15 +78,8 @@ shape() {
 }
 
 # commands <Dockerfile>: its lines with each backslash continuation joined, comments dropped, and
-# split at && and ; into one command per line.
-commands() {
-  awk '
-    /^[ \t]*#/ { next }
-    { line = line $0 }
-    /\\$/ { sub(/\\$/, "", line); next }
-    { gsub(/&&|;/, "\n", line); print line; line = "" }
-  ' "$1"
-}
+# split at && and ; into one command per line, by scripts/ci/dockerfile.sh.
+commands() { bash "$repo/scripts/ci/dockerfile.sh" commands "$1"; }
 
 # --- The checks. Each takes a root and prints one line per problem, nothing when sound. --------
 
@@ -205,31 +198,14 @@ check_env() {
   done
 }
 
-# Every install in a Dockerfile is the locked one.
+# Every install in a Dockerfile is the locked one, by the rules in scripts/ci/dockerfile.sh, which
+# scripts/ci/workflows-locked.test.sh also holds every Dockerfile to.
 check_locked() {
-  local root="$1" file checked=0
-  for file in Core/Dockerfile canary/Dockerfile Brain/Dockerfile review/Dockerfile infra/hosted/proxy/Dockerfile; do
-    [ -f "$root/$file" ] || { echo "$file does not exist"; continue; }
-    commands "$root/$file" | awk -v f="$file" '
-      function has(flag,  i) { for (i = 1; i <= NF; i++) if ($i == flag) return 1; return 0 }
-      {
-        for (i = 1; i < NF; i++) {
-          if ($i == "cargo" && $(i + 1) == "build") { n++; if (!has("--locked")) print f ": cargo build without --locked: " $0 }
-          if ($i == "uv" && $(i + 1) == "sync") { n++; if (!has("--locked")) print f ": uv sync without --locked: " $0 }
-          if ($i == "uv" && $(i + 1) == "pip") print f ": uv pip installs outside the lock: " $0
-          if ($i ~ /^pip3?$/ && $(i + 1) == "install") print f ": pip install installs outside the lock: " $0
-          if ($i == "npm" && $(i + 1) ~ /^(i|in|ins|inst|insta|instal|install|isnt|isntall|add|update|up|upgrade|udpate)$/) print f ": npm installs other than npm ci: " $0
-          if ($i == "npm" && $(i + 1) == "ci") n++
-          if ($i == "dotnet" && $(i + 1) == "restore") { n++; if (!has("--locked-mode")) print f ": dotnet restore without --locked-mode: " $0 }
-          if ($i == "dotnet" && $(i + 1) ~ /^(build|publish|test)$/ && !has("--no-restore")) print f ": dotnet " $(i + 1) " restores again without --no-restore: " $0
-        }
-      }
-      END { print "checked " n + 0 }
-    ' > "$tmp/locked.out"
-    grep -v '^checked ' "$tmp/locked.out"
-    checked=$((checked + $(sed -n 's/^checked //p' "$tmp/locked.out")))
-  done
-  [ "$checked" -eq 0 ] && echo "no install found in any Dockerfile"
+  local root="$1" out
+  out="$(cd "$root" && bash "$repo/scripts/ci/dockerfile.sh" unlocked Core/Dockerfile canary/Dockerfile \
+    Brain/Dockerfile review/Dockerfile infra/hosted/proxy/Dockerfile)"
+  grep -v '^checked ' <<< "$out"
+  [ "$(sed -n 's/^checked //p' <<< "$out")" = 0 ] && echo "no install found in any Dockerfile"
   return 0
 }
 

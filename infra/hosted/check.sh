@@ -13,6 +13,8 @@
 # Run from the repository root: bash infra/hosted/check.sh
 # HOSTED_PROJECT names the project, hostedcheck unless set. It is never platform-hosted, the
 # real copy, and the script refuses that before running any docker command.
+# HOSTED_CHECK_LOGS, when set, names a directory: if a case has failed, the project's compose logs
+# and its containers' states are written there before the teardown, as CI's hosted job uploads them.
 #
 # Each case prints `ok <name>` or `FAIL <name>`, and the script exits non zero if any failed.
 # Written for bash 3.2, the one macOS ships.
@@ -61,6 +63,14 @@ compose() {
 teardown() {
   compose --profile migrate down -v --remove-orphans > "$tmp/down.log" 2>&1 ||
     { echo "check.sh: docker compose down failed:" >&2; tail -n 20 "$tmp/down.log" >&2; }
+}
+
+# save_logs <dir>: the project's containers, with their states, and every container's log, written
+# to <dir>, made if missing, so they outlive the teardown.
+save_logs() {
+  mkdir -p "$1" || return 0
+  compose ps -a > "$1/ps.log" 2>&1
+  compose logs --no-color --timestamps > "$1/compose.log" 2>&1
 }
 
 # leftovers: prints what of the project still exists, nothing when it is all gone.
@@ -220,7 +230,7 @@ with sync_playwright() as p:
 # The cases that need the stack up. A step that fails ends the run, and every case it did not
 # reach fails.
 stack() {
-  trap teardown EXIT
+  trap 'if [ -n "${HOSTED_CHECK_LOGS:-}" ] && grep -q "^FAIL " "$results"; then save_logs "$HOSTED_CHECK_LOGS"; fi; teardown' EXIT
   trap 'exit 130' INT TERM
   local reached=0 released=0 got service id line published ports bad_lines
 
@@ -357,9 +367,19 @@ stack() {
 ( stack )
 after_run="$(leftovers)"
 
-# The same teardown when a step fails: start Postgres, fail, and see what is left.
-( trap teardown EXIT; compose up -d --wait postgres > "$tmp/failing.log" 2>&1; exit 1 )
+# The same teardown when a step fails: start Postgres, fail, and see what is left. The logs are
+# saved first, as a failed case in stack has them saved.
+( trap 'save_logs "$tmp/failed-logs"; teardown' EXIT; compose up -d --wait postgres > "$tmp/failing.log" 2>&1; exit 1 )
 after_failure="$(leftovers)"
+
+# it_saves_the_logs_of_a_failed_run: the failed run above left Postgres's log and its container's
+# state behind, after the teardown removed the container.
+if grep -q '^postgres-1 ' "$tmp/failed-logs/compose.log" 2>/dev/null &&
+  grep -q 'postgres' "$tmp/failed-logs/ps.log" 2>/dev/null; then
+  ok it_saves_the_logs_of_a_failed_run
+else
+  bad it_saves_the_logs_of_a_failed_run "compose.log: $(head -c 200 "$tmp/failed-logs/compose.log" 2>/dev/null | tr '\n' ' ')"
+fi
 
 if [ -z "$after_run" ] && [ -z "$after_failure" ]; then
   ok it_leaves_nothing_behind
