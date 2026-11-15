@@ -18,6 +18,11 @@ public sealed partial class FakeCodeHost
     /// <summary>The fake's sign in page, under Dev flow, mapped only in the fake mode.</summary>
     public const string AuthorizePath = "/devflow/fake-github/authorize";
 
+    /// <summary>The fake's page for installing the app, where <see cref="InstallAddress"/> sends a
+    /// person, mapped only in the fake mode. It installs nothing: a test stages installations in
+    /// its world.</summary>
+    public const string InstallPath = "/devflow/fake-github/install";
+
     /// <summary>How long a code may wait to be exchanged, GitHub's ten minutes.</summary>
     public static readonly TimeSpan CodeLifetime = TimeSpan.FromMinutes(10);
 
@@ -109,6 +114,11 @@ public sealed partial class FakeCodeHost
                 ? new SignInResult<CodeHostAccount>.Granted(new CodeHostAccount(signIns.User!.Login, signIns.User.Id))
                 : new SignInResult<CodeHostAccount>.Refused());
     }
+
+    /// <summary>Whether <paramref name="accessToken"/> is the account's current access token and
+    /// still works, as <see cref="WhoIs"/> decides it.</summary>
+    private bool TakesAccessToken(Guid userId, string accessToken) =>
+        Of(userId, signIns => signIns.Current is { } current && current.AccessToken == accessToken && _time.GetUtcNow() < current.AccessExpiresAt);
 
     /// <summary>Ends the account's current access token now, for a test of what follows; its
     /// refresh token still works.</summary>

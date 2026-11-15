@@ -1,0 +1,85 @@
+{
+  "total_count": 2,
+  "installations": [
+    {
+      "id": 41,
+      "client_id": "Iv23liMadeUpClientId0001",
+      "account": {
+        "login": "octo-owner",
+        "id": 5830001,
+        "node_id": "MDQ6VXNlcj5830001",
+        "avatar_url": "https://avatars.githubusercontent.com/u/5830001?v=4",
+        "gravatar_id": "",
+        "url": "https://api.github.com/users/octo-owner",
+        "html_url": "https://github.com/octo-owner",
+        "type": "User",
+        "user_view_type": "public",
+        "site_admin": false
+      },
+      "repository_selection": "selected",
+      "access_tokens_url": "https://api.github.com/app/installations/41/access_tokens",
+      "repositories_url": "https://api.github.com/installation/repositories",
+      "html_url": "https://github.com/settings/installations/41",
+      "app_id": 1000001,
+      "app_slug": "platform-devflow",
+      "target_id": 5830001,
+      "target_type": "User",
+      "permissions": {
+        "checks": "read",
+        "contents": "write",
+        "issues": "write",
+        "metadata": "read",
+        "pull_requests": "write",
+        "statuses": "read"
+      },
+      "events": [],
+      "created_at": "2026-11-15T10:00:00.000Z",
+      "updated_at": "2026-11-15T10:00:00.000Z",
+      "single_file_name": null,
+      "has_multiple_single_files": false,
+      "single_file_paths": [],
+      "suspended_by": null,
+      "suspended_at": null
+    },
+    {
+      "id": 52,
+      "client_id": "Iv23liMadeUpClientId0001",
+      "account": {
+        "login": "octo-lab",
+        "id": 5830002,
+        "node_id": "MDQ6VXNlcj5830002",
+        "avatar_url": "https://avatars.githubusercontent.com/u/5830002?v=4",
+        "gravatar_id": "",
+        "url": "https://api.github.com/users/octo-lab",
+        "html_url": "https://github.com/octo-lab",
+        "type": "Organization",
+        "user_view_type": "public",
+        "site_admin": false
+      },
+      "repository_selection": "all",
+      "access_tokens_url": "https://api.github.com/app/installations/52/access_tokens",
+      "repositories_url": "https://api.github.com/installation/repositories",
+      "html_url": "https://github.com/organizations/octo-lab/settings/installations/52",
+      "app_id": 1000001,
+      "app_slug": "platform-devflow",
+      "target_id": 5830002,
+      "target_type": "Organization",
+      "permissions": {
+        "checks": "read",
+        "contents": "write",
+        "issues": "write",
+        "metadata": "read",
+        "pull_requests": "write",
+        "statuses": "read"
+      },
+      "events": [],
+      "created_at": "2026-11-15T10:00:00.000Z",
+      "updated_at": "2026-11-15T10:00:00.000Z",
+      "single_file_name": null,
+      "has_multiple_single_files": false,
+      "single_file_paths": [],
+      "suspended_by": null,
+      "suspended_at": null
+    }
+  ]
+}

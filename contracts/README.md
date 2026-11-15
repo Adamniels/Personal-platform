@@ -174,6 +174,18 @@ hand from GitHub's documented shapes, with made up values, and read by
 - `user.json`: the answer to `GET /user`, a made up account, `octo-owner`, of which the adapter
   reads `login` and `id`.
 
+Listing what a person can connect is read with their token for the app, which the bot's `gh` does
+not hold, so these two are written by hand the same way, from the shapes GitHub documents, and read
+by `devflow/tests/DevFlow.Tests/GitHub/GitHubConnectTests.cs`:
+
+- `user-installations.json`: the answer to `GET /user/installations`, `total_count` and
+  `installations`, two installations of a made up app, 41 on the person `octo-owner` and 52 on the
+  organisation `octo-lab`, of which the adapter reads `id` and `account.login`.
+- `user-installation-repositories.json`: the answer to
+  `GET /user/installations/41/repositories`, `total_count`, `repository_selection` and
+  `repositories`, two repositories of `octo-owner`, of which the adapter reads `id`, `name` and
+  `owner.login`.
+
 To record one again, run its command from the repository root into the file, with the same `jq`,
 and run Dev flow's tests: a field GitHub renamed or dropped fails `ReadTests`.
 

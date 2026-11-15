@@ -123,4 +123,22 @@ public sealed partial class GitHubCodeHost
     private sealed record CheckRunAnswer(string Name, string Status, string? Conclusion, AppAnswer App);
 
     private sealed record CheckRunsAnswer(IReadOnlyList<CheckRunAnswer> CheckRuns);
+
+    /// <summary>The account an installation is on: a person or an organisation, with a login, or
+    /// an enterprise, with a slug instead. GitHub's schema lets it be null.</summary>
+    private sealed record AccountAnswer(string? Login = null, string? Slug = null);
+
+    private sealed record InstallationAnswer(long Id, AccountAnswer? Account);
+
+    private sealed record InstallationsAnswer(IReadOnlyList<InstallationAnswer> Installations);
+
+    private sealed record OwnerAnswer(string Login);
+
+    private sealed record RepositoryAnswer(long Id, string Name, OwnerAnswer Owner);
+
+    private sealed record RepositoriesAnswer(IReadOnlyList<RepositoryAnswer> Repositories);
+
+    /// <summary>The account's login, or an enterprise's slug, and the ghost's login when GitHub
+    /// gives neither, since it is only ever shown.</summary>
+    private static string AccountName(AccountAnswer? account) => account?.Login ?? account?.Slug ?? Ghost;
 }
