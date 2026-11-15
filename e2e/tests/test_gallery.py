@@ -650,7 +650,7 @@ def test_a_badge_is_a_26px_pill_on_the_third_surface(page: Page, theme: str):
 
 
 @pytest.mark.parametrize("theme", THEMES)
-def test_a_chip_reads_its_values(page: Page, theme: str):
+def test_the_tool_chip_is_a_22px_outlined_pill(page: Page, theme: str):
     open_gallery(page, theme)
 
     region = page.get_by_role("region", name="Tool chip")
@@ -660,8 +660,10 @@ def test_a_chip_reads_its_values(page: Page, theme: str):
     assert style["color"] == resolve(page, "--text-2", "color")
     assert style["borders"] == [resolve(page, "--border-strong", "color")] * 4
     assert style["borderWidths"] == ["1px"] * 4
-    assert style["height"] == "20px"
-    assert style["radii"] == radii(page, "--radius-sm")
+    assert style["height"] == "22px"
+    assert style["paddings"] == ["10px", "10px"]
+    assert style["radii"] == radii(page, "--radius-full")
+    assert style["children"] == 0, "a chip is its text alone"
     assert_caption(page, style)
 
 

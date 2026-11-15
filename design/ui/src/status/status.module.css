@@ -62,16 +62,16 @@
 	color: var(--text-2);
 }
 
-/* The tool chip: 20px, padding 0 6px, radius-sm, 1px border-strong, no fill,
- * caption style, text-2. */
+/* The tool chip: 22px, padding 0 10px, radius-full, 1px border-strong, no
+ * fill, caption style, text-2. */
 .chip {
 	box-sizing: border-box;
 	display: inline-flex;
 	align-items: center;
-	height: 20px;
-	padding: 0 6px;
+	height: 22px;
+	padding: 0 10px;
 	border: 1px solid var(--border-strong);
-	border-radius: var(--radius-sm);
+	border-radius: var(--radius-full);
 	background: transparent;
 	color: var(--text-2);
 	font-family: var(--font-ui);
