@@ -112,10 +112,11 @@ features" in `High-level/docs/platform-architecture.md`.
 
 - `devflow/README.md` — what Dev flow serves, its page and its two tabs, the schema it pins, how to
   run it and its tests, its settings, its database and roles, migrating, the door, the vault that
-  seals a user's secrets and its key, how it authenticates a request with `PlatformAuth`, and the
-  libraries it is built on
-- `devflow/docs/devflow-architecture.md` — what Dev flow is, what of it exists, and its security
-  decisions and accepted risks, kept for an audit, the vault's among them
+  seals a user's secrets and its key, the code host's interface, its fake and how a test stages a
+  world in it, how it authenticates a request with `PlatformAuth`, and the libraries it is built on
+- `devflow/docs/devflow-architecture.md` — what Dev flow is, what of it exists, the code host seam
+  and why its fake sits there, and its security decisions and accepted risks, kept for an audit,
+  the vault's and the fake's among them
 - `docs/superpowers/specs/2026-11-14-development-flow-design.md` — the design of the whole
   development flow, frozen on 2026 11 15 when the slices of its first part were cut; the
   architecture document above is the living description from then on
