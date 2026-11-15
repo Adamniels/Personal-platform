@@ -31,6 +31,8 @@ services:
       BRAIN_APP_PASSWORD: ${BRAIN_APP_PASSWORD:?set BRAIN_APP_PASSWORD, see .env.example}
       REVIEW_OWNER_PASSWORD: ${REVIEW_OWNER_PASSWORD:?set REVIEW_OWNER_PASSWORD, see .env.example}
       REVIEW_APP_PASSWORD: ${REVIEW_APP_PASSWORD:?set REVIEW_APP_PASSWORD, see .env.example}
+      DEVFLOW_OWNER_PASSWORD: ${DEVFLOW_OWNER_PASSWORD:?set DEVFLOW_OWNER_PASSWORD, see .env.example}
+      DEVFLOW_APP_PASSWORD: ${DEVFLOW_APP_PASSWORD:?set DEVFLOW_APP_PASSWORD, see .env.example}
       BACKUP_DB_PASSWORD: ${BACKUP_DB_PASSWORD:?set BACKUP_DB_PASSWORD, see .env.example}
     # Published nowhere: only the services on this project's network reach it.
     volumes:
@@ -41,6 +43,7 @@ services:
       # folder mounted read only; tests/agree.test.sh checks each dev script is here.
       - ../postgres/initdb/brain.sh:/docker-entrypoint-initdb.d/brain.sh:ro
       - ../postgres/initdb/core.sh:/docker-entrypoint-initdb.d/core.sh:ro
+      - ../postgres/initdb/devflow.sh:/docker-entrypoint-initdb.d/devflow.sh:ro
       - ../postgres/initdb/review.sh:/docker-entrypoint-initdb.d/review.sh:ro
       - ./postgres/backup-role.sh:/docker-entrypoint-initdb.d/zz-backup-role.sh:ro
     healthcheck:
