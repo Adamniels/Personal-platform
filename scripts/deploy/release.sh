@@ -74,6 +74,7 @@ cd "$root" || {
 }
 example=infra/hosted/.env.example
 compose_file=infra/hosted/compose.yaml
+record=infra/hosted/.release
 
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
@@ -193,6 +194,7 @@ fi
 
 # --- 2. Fetch and choose. -------------------------------------------------------------------------
 
+previous=""
 if [ "$local_mode" -eq 1 ]; then
   step "2. Fetch and choose: skipped, --local builds the tree as it is"
   sha=""
@@ -220,7 +222,18 @@ else
     exit 1
   fi
   tag="$(printf '%s' "$sha" | cut -c 1-12)"
-  say "releasing $sha"
+  if [ -f "$record" ]; then
+    previous="$(head -n 1 "$record")"
+    [[ "$previous" =~ ^[0-9a-f]{40}$ ]] || {
+      say "$record does not hold a commit; it is treated as no earlier release"
+      previous=""
+    }
+  fi
+  if [ -n "$previous" ]; then
+    say "releasing $sha, after $previous"
+  else
+    say "releasing $sha, the first release recorded"
+  fi
 fi
 export PLATFORM_RELEASE="$tag"
 
@@ -286,10 +299,74 @@ else
 fi
 
 if [ "$healthy" -eq 0 ]; then
-  say "the release did not answer; the containers are left up, for reading their logs:"
-  say "  docker compose -p $project --env-file $env_file -f $compose_file logs <service>"
+  logs="docker compose -p $project --env-file $env_file -f $compose_file logs <service>"
+  if [ "$local_mode" -eq 1 ]; then
+    say "the stack did not answer; --local rolls nothing back, and the containers are left up:"
+    say "  $logs"
+    exit 1
+  fi
+  if [ -z "$previous" ]; then
+    say "the release did not answer, and there is nothing to roll back to: no earlier release is"
+    say "recorded in $record. The containers are left up, for reading their logs:"
+    say "  $logs"
+    exit 1
+  fi
+  git diff --quiet "$previous" "$sha" -- ':(glob)**/migrations/**'
+  diff_status=$?
+  if [ "$diff_status" -eq 0 ]; then
+    say "the release did not answer, and no migration changed since $previous: rolling back"
+    git checkout --quiet --detach "$previous" || say "could not check out $previous; starting its images anyway"
+    export PLATFORM_RELEASE="$(printf '%s' "$previous" | cut -c 1-12)"
+    if compose up -d && wait_healthy; then
+      say "rolled back: $previous is serving again, and $sha is not recorded as released"
+    else
+      say "rolled back to $previous, but the previous release did not answer either; read the logs:"
+      say "  $logs"
+    fi
+    exit 1
+  fi
+  if [ "$diff_status" -eq 1 ]; then
+    say "the release did not answer, and the database is ahead of the previous version: a migration"
+    say "changed since $previous, and migrations only go forward, so the old code may not fit the new"
+    say "schema. Nothing is rolled back, and the new containers are left up, for reading their logs:"
+  else
+    say "the release did not answer, and git diff could not tell whether a migration changed since"
+    say "$previous (it exited $diff_status), so nothing is rolled back; the containers are left up:"
+  fi
+  say "  $logs"
+  say "the backup taken at the start is $backup_shown, one file per database,"
+  say "$backup_name-<database>.dump.age. To go back to it, restore each database with --replace, as"
+  say "\"Restoring\" in infra/hosted/README.md says, then release $previous again:"
+  say "  pbpaste | docker compose -p $project --env-file $env_file -f $compose_file run --rm -T -e POSTGRES_PASSWORD backup restore <database> $backup_name-<database>.dump.age --replace"
   exit 1
 fi
 
-step "9. Running as $tag:"
+# --- 9. Record. -----------------------------------------------------------------------------------
+
+if [ "$local_mode" -eq 1 ]; then
+  step "9. Record: skipped, --local records nothing; running as $tag:"
+  compose ps --format 'table {{.Service}}\t{{.Image}}\t{{.Status}}'
+  exit 0
+fi
+
+step "9. Record"
+if ! { printf '%s\n' "$sha" > "$record.tmp" && mv -f "$record.tmp" "$record"; }; then
+  rm -f "$record.tmp"
+  say "$sha is serving, but writing $record failed; write the commit into it by hand"
+  exit 1
+fi
+say "released $sha, running:"
 compose ps --format 'table {{.Service}}\t{{.Image}}\t{{.Status}}'
+
+# Images of releases older than the previous one, tagged by a commit, never the one serving or the
+# one a rollback would start, and never check's or dev's. Only for the real copy, since every
+# project's images share the platform-hosted/ names. One still used by a container is not removed.
+if [ "$project" = platform-hosted ]; then
+  keep_previous="$(printf '%s' "$previous" | cut -c 1-12)"
+  for image in $(docker image ls --filter 'reference=platform-hosted/*' --format '{{.Repository}}:{{.Tag}}'); do
+    image_tag="${image##*:}"
+    [[ "$image_tag" =~ ^[0-9a-f]{12}$ ]] || continue
+    [ "$image_tag" = "$tag" ] || [ "$image_tag" = "$keep_previous" ] && continue
+    docker image rm "$image" > /dev/null 2>&1 && echo "removed $image" || say "could not remove $image"
+  done
+fi

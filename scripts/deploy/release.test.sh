@@ -183,7 +183,8 @@ for step in \
   prev_line="$line"
 done
 headers="$(grep -E '^==> ' "$tmp/out" | sed -E 's/^==> ([0-9]+)\..*/\1/' | tr '\n' ' ')"
-if [ "$rc" -eq 0 ] && [ "$in_order" -eq 1 ] && [ "$headers" = "1 2 3 4 5 6 7 8 9 " ]; then
+if [ "$rc" -eq 0 ] && [ "$in_order" -eq 1 ] && [ "$headers" = "1 2 3 4 5 6 7 8 9 " ] &&
+  [ "$(cat "$repo/infra/hosted/.release" 2> /dev/null)" = "$MAIN" ]; then
   ok the_steps_run_in_order
 else
   bad the_steps_run_in_order "rc=$rc, lines:$order, headers: $headers; $(out | tail -n 5 | tr '\n' ' ')"
@@ -339,10 +340,94 @@ export FAKE_DOCKER_FAIL="compose * run --rm -T brain-migrate"
 run
 if [ "$rc" -ne 0 ] && ! grep -qE ' up -d$' "$tmp/log" && ! grep -q 'review-migrate' "$tmp/log" &&
   [ -z "$(started_or_stopped | grep -v 'up -d --wait postgres')" ] &&
-  grep -q 'brain-migrate failed' "$tmp/out" && grep -q '^git checkout --quiet main' "$tmp/log"; then
+  grep -q 'brain-migrate failed' "$tmp/out" &&
+  [ "$(cat "$repo/infra/hosted/.release")" = "$PREV" ] && grep -q '^git checkout --quiet main' "$tmp/log"; then
   ok a_failed_migration_leaves_the_old_containers_serving
 else
   bad a_failed_migration_leaves_the_old_containers_serving "rc=$rc; $(started_or_stopped | tr '\n' ' '); $(out | tail -n 3 | tr '\n' ' ')"
+fi
+
+# --- A failed health check. -----------------------------------------------------------------------
+
+reset_state
+echo "$PREV" > "$repo/infra/hosted/.release"
+export FAKE_HEALTH_CODE=502 FAKE_HEALTH_CODE_AFTER_ROLLBACK=200 FAKE_DIFF_EXIT=0 FAKE_PREV_TAG=222222222222
+run
+if [ "$rc" -ne 0 ] && grep -qE "^git diff --quiet $PREV $MAIN -- .*migrations" "$tmp/log" &&
+  grep -q "^git checkout --quiet --detach $PREV" "$tmp/log" &&
+  grep -qE '^docker PLATFORM_RELEASE=222222222222 compose .* up -d$' "$tmp/log" &&
+  [ "$(cat "$repo/infra/hosted/.release")" = "$PREV" ] && grep -q 'rolled back' "$tmp/out"; then
+  ok a_failed_health_check_rolls_back_when_no_migration_changed
+else
+  bad a_failed_health_check_rolls_back_when_no_migration_changed "rc=$rc; $(out | tail -n 4 | tr '\n' ' ')"
+fi
+
+# The rollback's own health failing is said, and still exits non zero.
+reset_state
+echo "$PREV" > "$repo/infra/hosted/.release"
+export FAKE_HEALTH_CODE=502 FAKE_DIFF_EXIT=0 FAKE_PREV_TAG=222222222222
+run
+if [ "$rc" -ne 0 ] && grep -q 'previous release did not answer either' "$tmp/out" &&
+  [ "$(cat "$repo/infra/hosted/.release")" = "$PREV" ]; then
+  ok a_rollback_that_fails_its_health_check_says_so
+else
+  bad a_rollback_that_fails_its_health_check_says_so "rc=$rc; $(out | tail -n 4 | tr '\n' ' ')"
+fi
+
+reset_state
+echo "$PREV" > "$repo/infra/hosted/.release"
+export FAKE_HEALTH_CODE=502 FAKE_DIFF_EXIT=1 FAKE_PREV_TAG=222222222222
+run
+if [ "$rc" -ne 0 ] && [ ! -e "$tmp/rolled-back" ] && ! grep -q "^git checkout --quiet --detach $PREV" "$tmp/log" &&
+  grep -q 'database is ahead of the previous version' "$tmp/out" &&
+  grep -q '20261115T020004Z' "$tmp/out" && grep -q 'restore' "$tmp/out" &&
+  [ "$(cat "$repo/infra/hosted/.release")" = "$PREV" ] && [ -z "$(grep -E ' (down|stop)( |$)' "$tmp/log")" ]; then
+  ok a_failed_health_check_does_not_roll_back_across_a_migration
+else
+  bad a_failed_health_check_does_not_roll_back_across_a_migration "rc=$rc; $(out | tail -n 6 | tr '\n' ' ')"
+fi
+
+# A diff that cannot be read is not taken for no change.
+reset_state
+echo "$PREV" > "$repo/infra/hosted/.release"
+export FAKE_HEALTH_CODE=502 FAKE_DIFF_EXIT=128 FAKE_PREV_TAG=222222222222
+run
+if [ "$rc" -ne 0 ] && [ ! -e "$tmp/rolled-back" ] && grep -q '20261115T020004Z' "$tmp/out"; then
+  ok a_migration_diff_that_fails_is_not_rolled_back_across
+else
+  bad a_migration_diff_that_fails_is_not_rolled_back_across "rc=$rc; $(out | tail -n 4 | tr '\n' ' ')"
+fi
+
+reset_state
+export FAKE_HEALTH_CODE=502
+run
+if [ "$rc" -ne 0 ] && grep -q 'nothing to roll back to' "$tmp/out" && grep -q ' logs' "$tmp/out" &&
+  [ -z "$(grep -E ' (down|stop|rm)( |$)' "$tmp/log")" ] && [ ! -e "$repo/infra/hosted/.release" ]; then
+  ok the_first_release_has_nothing_to_roll_back_to
+else
+  bad the_first_release_has_nothing_to_roll_back_to "rc=$rc; $(out | tail -n 4 | tr '\n' ' ')"
+fi
+
+# --- A successful release. ------------------------------------------------------------------------
+
+reset_state
+echo "$PREV" > "$repo/infra/hosted/.release"
+export FAKE_IMAGES="platform-hosted/core:111111111111 platform-hosted/core:222222222222 platform-hosted/core:333333333333 platform-hosted/core:check platform-hosted/brain:333333333333"
+run
+named=1
+for s in $FAKE_SERVICES; do grep -q "$s" "$tmp/out" || named=0; done
+if [ "$rc" -eq 0 ] && [ "$(cat "$repo/infra/hosted/.release")" = "$MAIN" ] && grep -q "$MAIN" "$tmp/out" &&
+  [ "$named" -eq 1 ]; then
+  ok a_successful_release_is_recorded_and_printed
+else
+  bad a_successful_release_is_recorded_and_printed "rc=$rc; $(out | tail -n 10 | tr '\n' ' ')"
+fi
+
+removed="$(grep -E '^docker .* image rm' "$tmp/log" | sed -E 's/.* image rm //' | tr '\n' ' ')"
+if [ "$removed" = "platform-hosted/core:333333333333 platform-hosted/brain:333333333333 " ]; then
+  ok only_images_older_than_the_previous_release_are_removed
+else
+  bad only_images_older_than_the_previous_release_are_removed "removed: $removed"
 fi
 
 # --- --local. -------------------------------------------------------------------------------------
@@ -364,7 +449,8 @@ HOSTED_PROJECT=hostedcheck HOSTED_ENV_FILE="$tmp/check.env" run --local
 wrong="$(grep -E '^docker .* compose ' "$tmp/log" |
   grep -vE "^docker PLATFORM_RELEASE=check compose -p hostedcheck --env-file $tmp/check.env -f infra/hosted/compose.yaml( |$)")"
 if [ "$rc" -eq 0 ] && [ -z "$wrong" ] && ! grep -qE '^git (fetch|checkout|diff)' "$tmp/log" &&
-  grep -qE ' up -d$' "$tmp/log"; then
+  ! grep -q 'image rm' "$tmp/log" && grep -qE ' up -d$' "$tmp/log" &&
+  [ "$(cat "$repo/infra/hosted/.release")" = "$PREV" ]; then
   ok local_mode_builds_the_tree_as_it_is_under_its_own_project_and_tag
 else
   bad local_mode_builds_the_tree_as_it_is_under_its_own_project_and_tag "rc=$rc; $wrong; $(out | tail -n 3 | tr '\n' ' ')"
@@ -402,8 +488,9 @@ reset_state
 run
 check_secrets success
 reset_state
-FAKE_HEALTH_CODE=502 run
-check_secrets unhealthy
+echo "$PREV" > "$repo/infra/hosted/.release"
+FAKE_HEALTH_CODE=502 FAKE_DIFF_EXIT=1 run
+check_secrets no-rollback
 reset_state
 FAKE_DOCKER_FAIL="compose * run --rm -T core-migrate" run
 check_secrets migration
