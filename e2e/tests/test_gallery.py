@@ -22,10 +22,18 @@ AXE = Path(__file__).parents[2] / "design/ui/node_modules/axe-core/axe.min.js"
 # gallery gives it, and the token each property takes. None is transparent.
 KINDS = {
     "primary": ("Primary", "--accent", "--on-accent", "--accent-border", "600"),
-    "secondary": ("Secondary", "--surface", "--text", "--border-strong", "500"),
+    "secondary": ("Secondary", None, "--text", "--border-strong", "500"),
     "ghost": ("Ghost", None, "--text-2", None, "500"),
     "destructive": ("Destructive", "--danger-soft", "--danger", "--danger", "600"),
-    "disabled": ("Disabled", "--surface-2", "--text-3", "--border", None),
+    "disabled": ("Disabled", None, "--text-3", "--border", None),
+}
+
+# The side padding of each kind that sets one, from the same section.
+BUTTON_PADDING = {
+    "primary": "18px",
+    "secondary": "18px",
+    "ghost": "14px",
+    "destructive": "18px",
 }
 
 # Resolves a token through a probe element in the page, so the value is the
@@ -46,6 +54,9 @@ STYLE = """element => {
         color: style.color,
         borders: [style.borderTopColor, style.borderRightColor,
                   style.borderBottomColor, style.borderLeftColor],
+        borderWidths: [style.borderTopWidth, style.borderRightWidth,
+                       style.borderBottomWidth, style.borderLeftWidth],
+        padding: [style.paddingLeft, style.paddingRight],
         weight: style.fontWeight,
         height: style.height,
         radii: [style.borderTopLeftRadius, style.borderTopRightRadius,
@@ -90,23 +101,26 @@ def test_the_gallery_is_served(page: Page, viewport: str, theme: str):
 
 
 @pytest.mark.parametrize("theme", THEMES)
-def test_the_primary_button_uses_the_accent_values(page: Page, theme: str):
+@pytest.mark.parametrize("kind", list(KINDS))
+def test_a_button_is_a_pill(page: Page, theme: str, kind: str):
+    label = KINDS[kind][0]
     open_gallery(page, theme)
 
-    style = button(page, "Primary").evaluate(STYLE)
+    style = button(page, label).evaluate(STYLE)
 
-    assert style["background"] == resolve(page, "--accent", "background-color")
-    assert style["color"] == resolve(page, "--on-accent", "color")
-    assert style["borders"] == [resolve(page, "--accent-border", "color")] * 4
     assert style["height"] == resolve(page, "--control-h", "height")
     assert (
-        style["radii"] == [resolve(page, "--radius-md", "border-top-left-radius")] * 4
+        style["radii"] == [resolve(page, "--radius-full", "border-top-left-radius")] * 4
     )
+    if kind in BUTTON_PADDING:
+        assert style["padding"] == [BUTTON_PADDING[kind]] * 2
+    if kind != "ghost":
+        assert style["borderWidths"] == ["1px"] * 4
 
 
 @pytest.mark.parametrize("theme", THEMES)
-@pytest.mark.parametrize("kind", ["secondary", "ghost", "destructive", "disabled"])
-def test_each_button_kind_reads_its_own_values(page: Page, theme: str, kind: str):
+@pytest.mark.parametrize("kind", list(KINDS))
+def test_a_button_reads_its_values(page: Page, theme: str, kind: str):
     label, fill, text, border, weight = KINDS[kind]
     open_gallery(page, theme)
 
@@ -115,24 +129,34 @@ def test_each_button_kind_reads_its_own_values(page: Page, theme: str, kind: str
     assert style["background"] == resolve(page, fill, "background-color")
     assert style["color"] == resolve(page, text, "color")
     assert style["borders"] == [resolve(page, border, "color")] * 4
-    assert style["height"] == resolve(page, "--control-h", "height")
-    assert (
-        style["radii"] == [resolve(page, "--radius-md", "border-top-left-radius")] * 4
-    )
     if weight is not None:
         assert style["weight"] == weight
 
 
+@pytest.mark.parametrize("theme", THEMES)
+@pytest.mark.parametrize("kind", ["secondary", "ghost"])
+def test_a_secondary_or_ghost_button_fills_on_hover(page: Page, theme: str, kind: str):
+    open_gallery(page, theme)
+    target = button(page, KINDS[kind][0])
+
+    target.hover()
+
+    assert target.evaluate(STYLE)["background"] == resolve(
+        page, "--surface-2", "background-color"
+    )
+
+
 def test_the_button_kinds_differ(page: Page):
     """Guards the test above: were the gallery to render every kind alike,
-    the comparisons could all pass against one shared token."""
+    the comparisons could all pass against one shared token. Three kinds are
+    transparent, so a kind is told apart by its fill, text and border."""
     open_gallery(page, "light")
 
-    backgrounds = {
-        kind: button(page, label).evaluate(STYLE)["background"]
-        for kind, (label, *_rest) in KINDS.items()
-    }
-    assert len(set(backgrounds.values())) == len(KINDS), backgrounds
+    looks = {}
+    for kind, (label, *_rest) in KINDS.items():
+        style = button(page, label).evaluate(STYLE)
+        looks[kind] = (style["background"], style["color"], style["borders"][0])
+    assert len(set(looks.values())) == len(KINDS), looks
 
 
 def test_a_focused_button_shows_the_ring(page: Page):
@@ -164,6 +188,36 @@ def test_buttons_are_44px_tall_on_phone(page: Page):
     for index in range(buttons.count()):
         box = buttons.nth(index).bounding_box()
         assert box is not None and box["height"] == 44, buttons.nth(index)
+
+
+HEADING_STYLE = """element => {
+    const style = getComputedStyle(element);
+    return {
+        family: style.fontFamily,
+        weight: style.fontWeight,
+        transform: style.textTransform,
+    };
+}"""
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_gallery_headings_are_capitals(page: Page, theme: str):
+    """Hard rule 12 of design/DESIGN.md, for the gallery's own headings: its
+    title and the heading of each component's section. A component's own
+    heading, such as a card's title, is its slice's to test."""
+    open_gallery(page, theme)
+    family = resolve(page, "--font-heading", "font-family")
+
+    headings = page.locator("h1, main > section > h2")
+    assert headings.count() == 1 + page.locator("main > section").count()
+    for index in range(headings.count()):
+        heading = headings.nth(index)
+        style = heading.evaluate(HEADING_STYLE)
+        assert style == {
+            "family": family,
+            "weight": "600",
+            "transform": "uppercase",
+        }, heading.text_content()
 
 
 @pytest.mark.parametrize("opened", ["page", "dialog", "toasts"])
@@ -208,6 +262,9 @@ FIELD_STYLE = """element => {
                        style.borderBottomWidth, style.borderLeftWidth],
         height: style.height,
         fontSize: style.fontSize,
+        lineHeight: style.lineHeight,
+        padding: [style.paddingTop, style.paddingRight,
+                  style.paddingBottom, style.paddingLeft],
         radii: [style.borderTopLeftRadius, style.borderTopRightRadius,
                 style.borderBottomRightRadius, style.borderBottomLeftRadius],
         placeholder: placeholder.color,
@@ -261,10 +318,6 @@ def test_a_field_reads_its_values(page: Page, theme: str, kind: str):
     assert style["color"] == resolve(page, "--text", "color")
     assert style["borders"] == [resolve(page, "--border-strong", "color")] * 4
     assert style["borderWidths"] == ["1px"] * 4
-    assert (
-        style["radii"] == [resolve(page, "--radius-md", "border-top-left-radius")] * 4
-    )
-    assert style["fontSize"] == resolve(page, "--input-font-size", "font-size")
     if kind == "text area":
         # A text area is as tall as its rows, and never shorter than a field.
         assert float(style["height"].removesuffix("px")) >= float(
@@ -296,16 +349,80 @@ def test_a_field_reads_its_values(page: Page, theme: str, kind: str):
 
 
 @pytest.mark.parametrize("theme", THEMES)
+@pytest.mark.parametrize("kind", ["text field", "select"])
+def test_a_field_is_a_pill(page: Page, theme: str, kind: str):
+    open_gallery(page, theme)
+
+    style = field(page, kind, "Empty").evaluate(FIELD_STYLE)
+
+    assert style["height"] == resolve(page, "--control-h", "height")
+    assert (
+        style["radii"] == [resolve(page, "--radius-full", "border-top-left-radius")] * 4
+    )
+    assert [style["padding"][1], style["padding"][3]] == ["16px"] * 2
+    assert style["borders"] == [resolve(page, "--border-strong", "color")] * 4
+    assert style["borderWidths"] == ["1px"] * 4
+    assert style["background"] == resolve(page, "--surface", "background-color")
+    assert style["fontSize"] == resolve(page, "--input-font-size", "font-size")
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_a_text_area_has_inset_corners(page: Page, theme: str):
+    open_gallery(page, theme)
+
+    style = field(page, "text area", "Empty").evaluate(FIELD_STYLE)
+
+    assert (
+        style["radii"] == [resolve(page, "--radius-md", "border-top-left-radius")] * 4
+    )
+    assert style["padding"] == ["12px", "16px", "12px", "16px"]
+    assert style["fontSize"] == resolve(page, "--text-body-lg-size", "font-size")
+    assert style["lineHeight"] == resolve(page, "--text-body-lg-line", "line-height")
+
+
+# Where a control's text starts, measured from its border box: the left edge
+# of its content box, and its top for a text area, which starts its text at
+# the top, or its middle for a one line field, which centres its text.
+TEXT_ORIGIN = """element => {
+    const style = getComputedStyle(element);
+    const px = value => parseFloat(value);
+    const top = px(style.borderTopWidth) + px(style.paddingTop);
+    const bottom = px(style.borderBottomWidth) + px(style.paddingBottom);
+    const height = element.getBoundingClientRect().height;
+    return {
+        height,
+        left: px(style.borderLeftWidth) + px(style.paddingLeft),
+        top,
+        middle: (top + height - bottom) / 2,
+    };
+}"""
+
+
+@pytest.mark.parametrize("theme", THEMES)
+@pytest.mark.parametrize("kind", list(FIELDS))
+def test_a_field_with_an_error_keeps_its_size(page: Page, theme: str, kind: str):
+    open_gallery(page, theme)
+    plain = field(page, kind, "Empty")
+    wrong = field(page, kind, "With an error")
+
+    style = wrong.evaluate(FIELD_STYLE)
+    assert style["borders"] == [resolve(page, "--danger", "color")] * 4
+    assert style["borderWidths"] == ["2px"] * 4
+
+    before, after = plain.evaluate(TEXT_ORIGIN), wrong.evaluate(TEXT_ORIGIN)
+    assert after["height"] == before["height"]
+    assert after["left"] == before["left"]
+    where = "top" if kind == "text area" else "middle"
+    assert after[where] == before[where]
+
+
+@pytest.mark.parametrize("theme", THEMES)
 @pytest.mark.parametrize("kind", list(FIELDS))
 def test_a_field_with_an_error_reads_its_values(page: Page, theme: str, kind: str):
     open_gallery(page, theme)
     control = field(page, kind, "With an error")
 
     expect(control).to_have_attribute("aria-invalid", "true")
-    style = control.evaluate(FIELD_STYLE)
-    assert style["borders"] == [resolve(page, "--danger", "color")] * 4
-    assert style["borderWidths"] == ["2px"] * 4
-
     message = described_by(control)
     expect(message).to_have_text(re.compile(r"^Error: "))
     text = message.evaluate(TEXT_STYLE)
@@ -334,16 +451,13 @@ def test_fields_are_16px_and_44px_on_phone(page: Page, kind: str):
 
 
 @pytest.mark.parametrize("theme", THEMES)
-def test_a_checkbox_reads_its_values(page: Page, theme: str):
+def test_the_checkbox_is_18px(page: Page, theme: str):
     open_gallery(page, theme)
     region = page.get_by_role("region", name="Checkbox")
     box = region.get_by_role("checkbox", name="Unchecked", exact=True)
 
     size = box.bounding_box()
-    assert size is not None and size["width"] == 16 and size["height"] == 16
-    assert box.evaluate(FIELD_STYLE)["accent"] == resolve(
-        page, "--info", "accent-color"
-    )
+    assert size is not None and size["width"] == 18 and size["height"] == 18
 
     # `has` is matched inside each label, so it is not scoped to the region.
     row = region.locator(
@@ -352,6 +466,17 @@ def test_a_checkbox_reads_its_values(page: Page, theme: str):
     row_box = row.bounding_box()
     assert row_box is not None
     assert f"{row_box['height']:g}px" == resolve(page, "--row-h", "height")
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_a_checkbox_reads_its_values(page: Page, theme: str):
+    open_gallery(page, theme)
+    region = page.get_by_role("region", name="Checkbox")
+    box = region.get_by_role("checkbox", name="Unchecked", exact=True)
+
+    assert box.evaluate(FIELD_STYLE)["accent"] == resolve(
+        page, "--info", "accent-color"
+    )
 
     done = region.locator("label", has_text="Done").evaluate(TEXT_STYLE)
     assert done["color"] == resolve(page, "--text-3", "color")

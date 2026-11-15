@@ -1,8 +1,9 @@
 /* "Text field, textarea, select" in section 4 of design/DESIGN.md. Colours
  * and sizes are tokens; the paddings are the ones that section gives. The
  * focus ring comes from the base rule in tokens.css and is never overridden
- * here, and the font size is --input-font-size, which grows to 16px on
- * phone, so no field sets its own. */
+ * here. A text field and a select take --input-font-size, which grows to
+ * 16px on phone; the text area is body large, for notes, which is 16px at
+ * every width, so no field falls under 16px on phone. */
 
 .field {
 	display: flex;
@@ -22,9 +23,9 @@
 	box-sizing: border-box;
 	width: 100%;
 	margin: 0;
-	padding: 0 10px;
+	padding: 0 16px;
 	border: 1px solid var(--border-strong);
-	border-radius: var(--radius-md);
+	border-radius: var(--radius-full);
 	background: var(--surface);
 	color: var(--text);
 	font-family: var(--font-ui);
@@ -45,7 +46,10 @@
 .textarea {
 	display: block;
 	min-height: var(--control-h);
-	padding: 8px 10px;
+	padding: 12px 16px;
+	border-radius: var(--radius-md);
+	font-size: var(--text-body-lg-size);
+	line-height: var(--text-body-lg-line);
 	resize: vertical;
 }
 
@@ -53,11 +57,11 @@
  * 1px, so the padding gives that pixel back and the text does not move. */
 .control[aria-invalid="true"] {
 	border: 2px solid var(--danger);
-	padding: 0 9px;
+	padding: 0 15px;
 }
 
 .textarea[aria-invalid="true"] {
-	padding: 7px 9px;
+	padding: 11px 15px;
 }
 
 .control:disabled {
