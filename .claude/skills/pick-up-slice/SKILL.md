@@ -324,6 +324,11 @@ and in the same order. Read the workflows each run; today they are:
   `UV_LOCKED=1 uv run playwright install chromium` (a no op once installed),
   `UV_LOCKED=1 uv run pytest`, `UV_LOCKED=1 uv run ruff check`,
   `UV_LOCKED=1 uv run ruff format --check`.
+- **hosted** (`hosted.yml`): whenever `hosted=true`, run `bash infra/hosted/check.sh` from the
+  repository root, with Docker running; it uses its own project and ports, so the dev stack stays
+  up. Its suite needs Playwright's Chromium and `design/ui`'s packages, which it never installs:
+  from `e2e/`, `UV_LOCKED=1 uv run playwright install chromium`, and from `design/ui/`, `npm ci`,
+  first, when the e2e step did not run. It is listed after e2e, since it is the slowest.
 
 **Starting the platform.** Stop any service you started earlier, so the code as it is now runs.
 Stopping one is always done the way step 4 finds it: the listener on its port, from `lsof` with

@@ -163,8 +163,9 @@ It is read through `scripts/agent/services.sh` alone, which lists the services a
 - `.github/workflows/e2e.yml`, which migrates, starts and waits for every service;
 - the agents' `pick-up-slice` skill, for its ports, password, migrate, start and health steps.
 
-So a new service in a language the platform already has is an entry here and nothing under
-`.github/`, `scripts/` or `.claude/`. It is not part of `features.toml`: that is the core's
+So a new service in a language the platform already has is an entry here, and its Dockerfile and
+entries in `infra/hosted/`, which `agree.test.sh` holds it to, and nothing under `.github/`,
+`scripts/` or `.claude/`. It is not part of `features.toml`: that is the core's
 registry of features, and the brain, a service, is not one. It is JSON so that `jq` and GitHub
 Actions can read it.
 
