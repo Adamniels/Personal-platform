@@ -74,8 +74,14 @@ included, and each follows its entry in section 4 of `DESIGN.md`.
   and the panels after it, ties each panel to its tab, and hides the panels of the others. It
   follows the keyboard pattern for tabs: the selected tab alone is in the tab order (the first,
   when the value names none), Left and Right move and wrap, Home and End go to the ends, and
-  activation follows focus. The row scrolls sideways when the tabs are wider than it, and never
-  wraps. Give every `Tab` its `TabPanel`, since each tab names its panel.
+  activation follows focus. The tabs are a segmented track: on desktop as wide as its tabs,
+  wrapping onto further lines with the large corners when they do not fit, and never scrolling;
+  on phone the full width, with equal tabs. With more than five tabs, `Tabs` also renders a native
+  select named by `label`, one option per tab, its label with its count in brackets, as
+  "Decisions (2)"; below 640px CSS shows the select and hides the track, and from 640px the other
+  way round, so nothing reads the window's width. Choosing an option calls `onChange`, as a click
+  does. An option holds text alone, so it shows the text of the tab's label and drops any markup
+  in it. Give every `Tab` its `TabPanel`, since each tab names its panel.
 - `Card`: `title`, the h2 that names the card; `aside`, an optional caption or status label on the
   right of it; `footer`, an optional action, pushed to the bottom so cards in a row of the card
   grid align; `attention`, the needs you outline, with a visually hidden "Needs you" so the mark

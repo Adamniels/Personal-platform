@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 from playwright.sync_api import Browser, Locator, Page, expect
 
-from conftest import capture, register_and_log_in
+from conftest import capture, register_and_log_in, sections
 
 THEMES = ["light", "dark"]
 AXE = Path(__file__).parents[2] / "design/ui/node_modules/axe-core/axe.min.js"
@@ -38,7 +38,7 @@ CLOCK = re.compile(r"^\d{2}:\d{2}$")
 def open_memory(page: Page, invite_code: str, base_url: str) -> None:
     register_and_log_in(page, invite_code, base_url)
     page.goto("/brain/timeline")
-    expect(page.get_by_role("tablist", name="Memory sections")).to_be_visible()
+    expect(sections(page, "Memory sections")).to_be_visible()
 
 
 def timeline(page: Page) -> Locator:

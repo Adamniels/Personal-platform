@@ -2,33 +2,51 @@
  * paddings are the ones that section gives. The focus ring comes from the base
  * rule in tokens.css and is never overridden here. */
 
-/* The row: a 1px bottom border, 8px bottom padding, gap space-1. It never
- * wraps, and scrolls sideways when the tabs are wider than it, as they are on
- * phone. Scrolling clips what overflows, so the row keeps space-1, the 2px
- * ring and its 2px offset, free above and beside the tabs. */
+/* The panel holds only its spacing from the track; what it shows is the
+ * caller's. */
+.tabs {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-3);
+	min-width: 0;
+}
+
+/* The track: surface fill, 1px border, a pill with 4px padding, its tabs side
+ * by side with no gap. On desktop it is as wide as its tabs, up to the width
+ * of what holds it; past that it wraps onto further lines and never scrolls
+ * (hard rule 13). A track on more than one line takes the large corners,
+ * which Tabs marks with data-wrapped, since CSS cannot tell a line wrapped. */
 .row {
 	box-sizing: border-box;
 	display: flex;
-	flex-wrap: nowrap;
-	gap: var(--space-1);
-	padding: var(--space-1) var(--space-1) 8px;
-	border-bottom: 1px solid var(--border);
-	overflow-x: auto;
-	overscroll-behavior-x: contain;
+	flex-wrap: wrap;
+	align-self: flex-start;
+	max-width: 100%;
+	padding: 4px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius-full);
+	background: var(--surface);
 }
 
-/* The tab: control-h, padding 0 12px, text-2, weight 500. Its 1px border is
- * transparent until it is selected, so selecting one moves nothing. */
+.row[data-wrapped] {
+	border-radius: var(--radius-lg);
+}
+
+/* A segment: control-h, padding 0 16px, a pill with no border, text-2,
+ * weight 500. */
 .tab {
 	box-sizing: border-box;
 	flex: none;
 	display: inline-flex;
 	align-items: center;
+	justify-content: center;
 	gap: var(--space-2);
+	min-width: 0;
 	height: var(--control-h);
-	padding: 0 12px;
-	border: 1px solid transparent;
-	border-radius: var(--radius-md);
+	margin: 0;
+	padding: 0 16px;
+	border: 0;
+	border-radius: var(--radius-full);
 	background: transparent;
 	color: var(--text-2);
 	font-family: var(--font-ui);
@@ -39,18 +57,49 @@
 	cursor: pointer;
 }
 
+/* Active means inverted (hard rule 11). */
 .tab[aria-selected="true"] {
-	background: var(--surface-2);
-	border-color: var(--accent-border);
-	color: var(--text);
+	background: var(--text);
+	color: var(--bg);
 	font-weight: 600;
 }
 
-/* The panel holds only its spacing from the row; what it shows is the
- * caller's. */
-.tabs {
-	display: flex;
-	flex-direction: column;
-	gap: var(--space-3);
+/* The label alone shrinks, cut with an ellipsis, so a count keeps its
+ * badge whole. */
+.label {
 	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+/* The select that stands for more than five tabs on phone. It takes the
+ * field rule from field.module.css, a pill at the full width, and is hidden
+ * from 640px. */
+.picker {
+	display: none;
+}
+
+/* On phone the track is the full width and its tabs equal columns, their
+ * labels small with 4px side padding. With more than five tabs the select
+ * shows instead, and the track, which follows it, is not drawn. */
+@media (max-width: 639.98px) {
+	.row {
+		align-self: stretch;
+		flex-wrap: nowrap;
+	}
+
+	.tab {
+		flex: 1 1 0;
+		padding: 0 4px;
+		font-size: var(--text-small-size);
+		line-height: var(--text-small-line);
+	}
+
+	.picker {
+		display: block;
+	}
+
+	.picker + .row {
+		display: none;
+	}
 }

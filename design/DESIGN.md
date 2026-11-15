@@ -8,11 +8,9 @@ The product is a private web application used for hours every day. The look is q
 
 As of 2026-11-15. The values, the fonts and this file are in place. The parts below still have the shape they were first built with, and each is brought to this file by the feature "Redesign: apply the new look". Until its slice has merged, the code is what a page gets, and a slice that touches one of these follows this file, not the code beside it. The last slice of that feature removes this section.
 
-* **Hard rule 11.** `Tabs` marks what is active with an amber outline, not an inverted fill.
 * **Hard rule 12.** The heading font is set without capitals in `Card` and `Dialog` titles, and in the feature pages' own headings. Only the page title and the core's card titles are in capitals.
-* **Hard rule 13.** `Tabs` scrolls sideways on phone, and the `Table` wrapper scrolls sideways when the table is wider than it.
+* **Hard rule 13.** The `Table` wrapper scrolls sideways when the table is wider than it.
 * **Components, section 4, in `ui/`.** Each takes the new values, so colours, fonts and radii have changed, but not its shape:
-  * `Tabs` is an underlined row, not a segmented track.
   * `Card` has its title as an h2 in the heading font, `--space-4` padding and a footer action, and no arrow link or numeral.
   * `Table` has a `--surface-2` header row, and its filter pill is 28px high and outlined, not filled.
   * `Dialog` has `--radius-lg` corners and 20px padding, and its title is not in capitals.
@@ -120,7 +118,7 @@ Both: height 26px, padding 0 10px, `--radius-full`, caption style.
 Height 36px, padding 0 14px, `--radius-full`, `--surface` fill, 1px `--border`: a 6px dot, a label in `--text-3`, and a value in the mono font, `--text`. A row of them wraps. It is not shown on phone, where the page's summary line carries the same counts.
 
 ### Tabs
-A segmented track: `--surface` fill, 1px `--border`, `--radius-full`, 4px padding. Segment: height `--control-h`, padding 0 16px, `--radius-full`, no border, `--text-2`, weight 500. Selected: inverted, `--text` fill, label in `--bg`, weight 600, `aria-selected="true"`. On desktop the track is as wide as its segments; on phone it is the full width with equal segments, their labels 13px with 4px side padding. At most five segments: a choice among more is a select. A tab's count follows its label as a badge. An agent tab is a segment of its own, 1px `--border` when not selected, with a 1x avatar before the name and a 6px status dot after it; agent tabs wrap onto a second line rather than scroll.
+A segmented track: `--surface` fill, 1px `--border`, `--radius-full`, 4px padding. Segment: height `--control-h`, padding 0 16px, `--radius-full`, no border, `--text-2`, weight 500. Selected: inverted, `--text` fill, label in `--bg`, weight 600, `aria-selected="true"`. On desktop the track is as wide as its segments and holds as many as there are; when they do not fit on one line it wraps onto further lines, its corners become `--radius-lg`, and it never scrolls. On phone it is the full width with equal segments, their labels 13px with 4px side padding, cut with an ellipsis if one does not fit. On phone more than five segments become a select, styled by the field rule as a pill at the full width, holding one option per segment with its count in brackets; `Tabs` does this itself, with CSS alone. A tab's count follows its label as a badge. An agent tab is a segment of its own, 1px `--border` when not selected, with a 1x avatar before the name and a 6px status dot after it; agent tabs wrap onto a second line rather than scroll.
 
 ### Card
 `--surface` fill, 1px `--border`, `--radius-lg`, padding `--card-pad`, inner gap `--space-4`, no shadow. Header: the card's label on the left (15/22, weight 500, `--text-2`), which is its heading, and a status label, a caption or an arrow link on the right. Body: the one thing the card is about, as a key number in thin numerals with a two line caption to its right, or as a hero label in the heading font, then at most three inset rows. An action, when the card has one, is last, pushed to the bottom (`margin-top: auto`) so cards in a row align. A card whose content needs the user gets a 1px `--accent-border` in place of its border.

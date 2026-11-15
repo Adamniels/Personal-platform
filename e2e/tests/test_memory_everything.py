@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 from playwright.sync_api import Locator, Page, expect
 
-from conftest import capture, register_and_log_in
+from conftest import capture, register_and_log_in, sections
 
 THEMES = ["light", "dark"]
 AXE = Path(__file__).parents[2] / "design/ui/node_modules/axe-core/axe.min.js"
@@ -24,7 +24,7 @@ DAY = re.compile(r"^\d{1,2} [A-Z][a-z]{2} \d{4}$")
 def open_everything(page: Page, invite_code: str, base_url: str) -> None:
     register_and_log_in(page, invite_code, base_url)
     page.goto("/brain/everything")
-    expect(page.get_by_role("tablist", name="Memory sections")).to_be_visible()
+    expect(sections(page, "Memory sections")).to_be_visible()
 
 
 def everything(page: Page) -> Locator:

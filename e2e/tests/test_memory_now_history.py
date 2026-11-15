@@ -12,7 +12,8 @@ from pathlib import Path
 import pytest
 from playwright.sync_api import Locator, Page, expect
 
-from conftest import capture, register_and_log_in
+from conftest import capture, register_and_log_in, sections
+from conftest import open_section as choose_section
 
 THEMES = ["light", "dark"]
 AXE = Path(__file__).parents[2] / "design/ui/node_modules/axe-core/axe.min.js"
@@ -26,7 +27,7 @@ NOW_LINE = (
 def open_section(page: Page, invite_code: str, base_url: str, path: str) -> None:
     register_and_log_in(page, invite_code, base_url)
     page.goto(path)
-    expect(page.get_by_role("tablist", name="Memory sections")).to_be_visible()
+    expect(sections(page, "Memory sections")).to_be_visible()
 
 
 def now(page: Page) -> Locator:
@@ -371,7 +372,7 @@ def test_now_and_history_pass_the_accessibility_check(
     assert violations(page) == []
     capture(page, f"memory-now-{theme}")
 
-    page.get_by_role("tab", name="History", exact=True).click()
+    choose_section(page, "Memory sections", "History")
     add_happened(page, "Took the distributed systems course", year="2021")
     add_happened(page, "Read the Rust book", topic="Rust")
     add_decision(

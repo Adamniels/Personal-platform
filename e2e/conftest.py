@@ -11,7 +11,7 @@ from collections.abc import Callable, Iterator, Mapping, Sequence
 from pathlib import Path
 
 import pytest
-from playwright.sync_api import Page, expect
+from playwright.sync_api import Locator, Page, expect
 
 ROOT = Path(__file__).parent
 REPOSITORY = ROOT.parent
@@ -196,6 +196,28 @@ def register_and_log_in(page: Page, invite_code: str, base_url: str) -> str:
     log_in(page, email, password)
     expect(page).to_have_url(f"{base_url}/")
     return email
+
+
+def sections(page: Page, label: str) -> Locator:
+    """The control that picks among a page's tabs named `label`: the tab list,
+    or, on phone when there are more than five tabs, the select `Tabs` shows
+    in its place. Only the one shown matches, since a role locator skips what
+    is hidden. See "Tabs" in design/ui/README.md."""
+    return page.get_by_role("tablist", name=label, exact=True).or_(
+        page.get_by_role("combobox", name=label, exact=True)
+    )
+
+
+def open_section(page: Page, label: str, name: str) -> None:
+    """Opens the section `name` among the tabs named `label`: clicks its tab
+    when the tab list is shown, and chooses its option when the select is, so
+    a test passes at both viewports."""
+    expect(sections(page, label)).to_be_visible()
+    tabs = page.get_by_role("tablist", name=label, exact=True)
+    if tabs.is_visible():
+        tabs.get_by_role("tab", name=name, exact=True).click()
+    else:
+        page.get_by_role("combobox", name=label, exact=True).select_option(label=name)
 
 
 @pytest.fixture

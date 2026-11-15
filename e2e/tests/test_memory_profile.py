@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 from playwright.sync_api import Browser, Locator, Page, expect
 
-from conftest import capture, register_and_log_in
+from conftest import capture, open_section, register_and_log_in, sections
 
 THEMES = ["light", "dark"]
 AXE = Path(__file__).parents[2] / "design/ui/node_modules/axe-core/axe.min.js"
@@ -27,7 +27,7 @@ def open_memory(
 ) -> None:
     register_and_log_in(page, invite_code, base_url)
     page.goto(path)
-    expect(page.get_by_role("tablist", name="Memory sections")).to_be_visible()
+    expect(sections(page, "Memory sections")).to_be_visible()
 
 
 def panel(page: Page, name: str) -> Locator:
@@ -185,7 +185,7 @@ def test_another_account_sees_none_of_it(
 ):
     open_memory(page, invite_code, base_url)
     add_profile_entry(page, "Identity", "A student in Uppsala")
-    page.get_by_role("tab", name="Rules", exact=True).click()
+    open_section(page, "Memory sections", "Rules")
     add_rule(page, "Answer in English")
 
     other = browser.new_context(ignore_https_errors=True, base_url=base_url)
@@ -199,7 +199,7 @@ def test_another_account_sees_none_of_it(
             card(stranger, "Identity").get_by_text("Nothing under Identity yet.")
         ).to_be_visible()
 
-        stranger.get_by_role("tab", name="Rules", exact=True).click()
+        open_section(stranger, "Memory sections", "Rules")
         expect(
             panel(stranger, "Rules").get_by_text("No rules yet", exact=True)
         ).to_be_visible()
@@ -258,7 +258,7 @@ def test_profile_and_rules_pass_the_accessibility_check(
     assert violations(page) == []
     capture(page, f"memory-profile-editing-{theme}")
 
-    page.get_by_role("tab", name="Rules", exact=True).click()
+    open_section(page, "Memory sections", "Rules")
     add_rule(page, "Answer in English")
     add_rule(page, "When I ask for a review, list the problems before the praise")
     expect(page.get_by_role("status").filter(has_text="Entry saved")).to_have_count(

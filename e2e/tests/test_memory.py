@@ -9,9 +9,11 @@ from urllib.parse import urlparse
 import pytest
 from playwright.sync_api import Locator, Page, expect
 
-from conftest import VIEWPORTS, capture, register_and_log_in
+from conftest import VIEWPORTS, capture, open_section, register_and_log_in
+from conftest import sections as tabs_or_select
 
 THEMES = ["light", "dark"]
+LABEL = "Memory sections"
 AXE = Path(__file__).parents[2] / "design/ui/node_modules/axe-core/axe.min.js"
 STORAGE_KEY = "platform-theme"
 
@@ -33,7 +35,14 @@ def nav_link(page: Page, name: str) -> Locator:
 
 
 def sections(page: Page) -> Locator:
-    return page.get_by_role("tablist", name="Memory sections")
+    """The tab list on desktop, and the select on phone."""
+    return tabs_or_select(page, LABEL)
+
+
+def page_scrolls_sideways(page: Page) -> bool:
+    return page.evaluate(
+        "() => document.documentElement.scrollWidth > window.innerWidth"
+    )
 
 
 def open_memory(page: Page, invite_code: str, base_url: str) -> None:
@@ -75,9 +84,15 @@ def test_memory_opens_from_the_navigation(
             "What the platform knows about you. Correct anything that is wrong."
         )
     ).to_be_visible()
-    tabs = sections(page).get_by_role("tab")
-    expect(tabs).to_have_text([name for name, _ in SECTIONS])
-    expect(tabs.first).to_have_attribute("aria-selected", "true")
+    names = [name for name, _ in SECTIONS]
+    if viewport == "desktop":
+        tabs = page.get_by_role("tablist", name=LABEL).get_by_role("tab")
+        expect(tabs).to_have_text(names)
+        expect(tabs.first).to_have_attribute("aria-selected", "true")
+    else:
+        select = page.get_by_role("combobox", name=LABEL, exact=True)
+        expect(select.locator("option")).to_have_text(names)
+        expect(select).to_have_value("profile")
 
 
 def test_each_section_opens_from_its_tab_and_its_address(
@@ -86,7 +101,7 @@ def test_each_section_opens_from_its_tab_and_its_address(
     open_memory(page, invite_code, base_url)
 
     for name, path in SECTIONS[1:]:
-        sections(page).get_by_role("tab", name=name, exact=True).click()
+        open_section(page, LABEL, name)
 
         expect(page).to_have_url(f"{base_url}{path}")
         expect(page.get_by_role("tabpanel", name=name)).to_be_visible()
@@ -138,7 +153,7 @@ def test_the_memory_centre_loads_nothing_from_outside(
     page.goto("/brain")
     page.evaluate("document.fonts.ready.then(() => null)")
     for name, _ in SECTIONS:
-        sections(page).get_by_role("tab", name=name, exact=True).click()
+        open_section(page, LABEL, name)
         expect(page.get_by_role("tabpanel", name=name)).to_be_visible()
 
     assert any(urlparse(url).path.startswith("/brain/assets/") for url in requested)
@@ -173,29 +188,21 @@ def test_the_memory_centre_passes_the_accessibility_check(
     capture(page, f"memory-frame-{theme}")
 
 
-def test_the_tabs_scroll_on_phone_and_the_page_does_not(
+def test_on_phone_the_sections_are_a_select_and_the_page_does_not_scroll(
     page: Page, invite_code: str, base_url: str
 ):
     page.set_viewport_size(VIEWPORTS["phone"])
     open_memory(page, invite_code, base_url)
-    row = sections(page)
 
-    tabs = row.get_by_role("tab")
-    expect(tabs).to_have_count(len(SECTIONS))
-    tops = {
-        tabs.nth(index).evaluate("e => e.offsetTop") for index in range(len(SECTIONS))
-    }
-    assert len(tops) == 1, "the row wrapped"
-    assert row.evaluate("e => e.scrollWidth > e.clientWidth"), "the row does not scroll"
-    assert page.evaluate(
-        "() => document.documentElement.scrollWidth <= window.innerWidth"
-    ), "the page scrolls sideways"
+    expect(page.get_by_role("tablist", name=LABEL)).to_have_count(0)
+    select = page.get_by_role("combobox", name=LABEL, exact=True)
+    expect(select).to_be_visible()
+    expect(select.locator("option")).to_have_text([name for name, _ in SECTIONS])
+    assert not page_scrolls_sideways(page), "the page scrolls sideways"
 
-    # The last tab is reached by scrolling the row, and still opens.
-    last, path = SECTIONS[-1]
-    tabs.last.click()
-    expect(page).to_have_url(f"{base_url}{path}")
-    expect(page.get_by_role("tabpanel", name=last)).to_be_visible()
-    assert page.evaluate(
-        "() => document.documentElement.scrollWidth <= window.innerWidth"
-    ), "the page scrolls sideways"
+    select.select_option(label="Rules")
+
+    expect(page).to_have_url(f"{base_url}/brain/rules")
+    expect(select).to_have_value("rules")
+    expect(page.get_by_role("tabpanel", name="Rules")).to_be_visible()
+    assert not page_scrolls_sideways(page), "the page scrolls sideways"
