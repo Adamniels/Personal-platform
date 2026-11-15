@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 
 using DevFlow.Health;
+using DevFlow.Pages;
 using DevFlow.Settings;
 
 using PlatformAuth;
@@ -15,12 +16,15 @@ namespace DevFlow;
 public static class DevFlowApp
 {
     /// <param name="settings">Read once at startup, see <see cref="DevFlowSettings.Load"/>.</param>
+    /// <param name="webRoot">The page's build, web/dist from devflow's folder when it runs.</param>
     /// <param name="configure">Runs before the app is built: <c>Program</c> sets where Kestrel
     /// listens, and tests put the app on a test server, with a key cache and a clock of their
     /// own, which <c>AddPlatformAuth</c> keeps.</param>
-    public static WebApplication Build(DevFlowSettings settings, Action<WebApplicationBuilder>? configure = null)
+    /// <exception cref="StartupException"><paramref name="webRoot"/> holds no build.</exception>
+    public static WebApplication Build(DevFlowSettings settings, string webRoot, Action<WebApplicationBuilder>? configure = null)
     {
         ArgumentNullException.ThrowIfNull(settings);
+        PageEndpoints.CheckBuild(webRoot);
 
         // Named for this assembly rather than whichever one started the process, a test host
         // included, so the app is the same app either way: the schema's tags come from it.
@@ -45,11 +49,13 @@ public static class DevFlowApp
         app.UseExceptionHandler();
         // In front of routing, so every route, one added later included, is covered.
         app.UsePlatformOriginCheck(settings.PublicOrigin);
+        app.UseBuiltFiles(webRoot);
         app.UseRouting();
         app.UseAuthentication();
         app.UseAuthorization();
 
         app.MapHealth();
+        app.MapPages(webRoot);
 
         return app;
     }
