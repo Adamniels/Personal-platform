@@ -16,8 +16,10 @@ use platform_core::signing_key::SigningKey;
 use platform_core::{AppState, DEFAULT_ACCESS_TOKEN_LIFETIME};
 use serde_json::{Value, json};
 use std::net::SocketAddr;
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
 use time::OffsetDateTime;
+use time::format_description::well_known::Rfc3339;
 use tokio::net::TcpListener;
 use uuid::Uuid;
 
@@ -48,6 +50,16 @@ fn entry(name: &str, prefix: &str, addr: SocketAddr) -> String {
 // The core's router on a free port, with `registry` and the short deadline.
 // Returns its address and a valid access token for a fresh account id.
 async fn serve(db: &common::TestDb, registry: &str) -> (SocketAddr, String, Uuid) {
+    serve_with_backup_status(db, registry, None).await
+}
+
+// The same, reading the backup status from `backup_status_file`, as
+// CORE_BACKUP_STATUS_FILE sets it.
+async fn serve_with_backup_status(
+    db: &common::TestDb,
+    registry: &str,
+    backup_status_file: Option<PathBuf>,
+) -> (SocketAddr, String, Uuid) {
     let mut state = AppState::new(
         db.pool.clone(),
         SigningKey::generate().0,
@@ -57,6 +69,7 @@ async fn serve(db: &common::TestDb, registry: &str) -> (SocketAddr, String, Uuid
     .await
     .unwrap();
     state.display_deadline = DEADLINE;
+    state.backup_status_file = backup_status_file;
 
     let account_id = Uuid::now_v7();
     let token = state.issuer.issue(
@@ -276,5 +289,123 @@ async fn the_front_page_without_display_features_still_renders() {
     assert!(body.contains("<h1>Platform</h1>"), "{body}");
     assert!(!body.contains("could not be reached"), "{body}");
 
+    db.close().await;
+}
+
+// The backup line, last in the page's content: the plain state when the last
+// backup succeeded within a day or so, and each state that needs the owner
+// with its dot and its words. Times are whole seconds before the real now,
+// since the handler reads the clock.
+#[tokio::test]
+async fn the_backup_line_renders_each_state() {
+    let db = common::TestDb::new().await;
+    let dir = std::env::temp_dir().join(format!("front-backup-{}", Uuid::now_v7()));
+    std::fs::create_dir(&dir).unwrap();
+    let file = dir.join("backup.json");
+
+    let now = OffsetDateTime::now_utc().replace_nanosecond(0).unwrap();
+    let rfc = |at: OffsetDateTime| at.format(&Rfc3339).unwrap();
+    let five_hours_ago = now - time::Duration::hours(5);
+    let two_days_ago = now - time::Duration::days(2);
+    // The exact time, in UTC, as the element's datetime and title carry it.
+    let time_of = |at: OffsetDateTime, ago: &str| {
+        let date = at.date();
+        let clock = format!("{:02}:{:02}:{:02}", at.hour(), at.minute(), at.second());
+        format!(r#"<time datetime="{date}T{clock}Z" title="{date} {clock} UTC">{ago}</time>"#)
+    };
+    // A last_error the job never writes, to show nothing from the file is
+    // rendered as it stands.
+    let status = |ok: bool, success: Option<OffsetDateTime>, error: &str| {
+        json!({
+            "last_attempt_at": rfc(now - time::Duration::minutes(1)),
+            "last_attempt_ok": ok,
+            "last_success_at": success.map(rfc),
+            "last_error": if ok { Value::Null } else { json!(error) },
+        })
+        .to_string()
+    };
+
+    let cases: Vec<(&str, Option<String>, String)> = vec![
+        (
+            "fine",
+            Some(status(true, Some(five_hours_ago), "")),
+            format!(
+                r#"<p class="backup">Last backup {}</p>"#,
+                time_of(five_hours_ago, "5 hours ago")
+            ),
+        ),
+        (
+            "stale",
+            Some(status(true, Some(two_days_ago), "")),
+            format!(
+                r#"<p class="backup attention">Last backup {}, none since</p>"#,
+                time_of(two_days_ago, "2 days ago")
+            ),
+        ),
+        (
+            "failed",
+            Some(status(
+                false,
+                Some(five_hours_ago),
+                "<script>upload</script>",
+            )),
+            format!(
+                r#"<p class="backup attention">Last backup {}, the latest attempt failed</p>"#,
+                time_of(five_hours_ago, "5 hours ago")
+            ),
+        ),
+        (
+            "no success yet",
+            Some(status(false, None, "<b>dump</b>")),
+            r#"<p class="backup attention">No backup has succeeded yet</p>"#.into(),
+        ),
+        (
+            "missing",
+            None,
+            r#"<p class="backup attention">Backup status cannot be read</p>"#.into(),
+        ),
+        (
+            "malformed",
+            Some(r#"{"last_attempt_ok": "<i>yes</i>"}"#.into()),
+            r#"<p class="backup attention">Backup status cannot be read</p>"#.into(),
+        ),
+    ];
+
+    for (case, content, line) in cases {
+        match &content {
+            Some(content) => std::fs::write(&file, content).unwrap(),
+            None => {
+                let _ = std::fs::remove_file(&file);
+            }
+        }
+        let (addr, token, _) = serve_with_backup_status(&db, "", Some(file.clone())).await;
+
+        let (status, body, _) = front_page(addr, &token).await;
+
+        assert_eq!(status, 200, "{case}: {body}");
+        assert!(body.contains(&line), "{case}: {line} missing from {body}");
+        assert_eq!(
+            body.matches(r#"class="backup"#).count(),
+            1,
+            "{case}: {body}"
+        );
+        // The last thing in the page's content, after the cards.
+        let after = &body[body.find(&line).unwrap() + line.len()..];
+        assert!(after.trim_start().starts_with("</main>"), "{case}: {body}");
+        // Nothing the file holds besides its times reaches the page.
+        for raw in ["<script>", "<b>", "<i>", "upload", "dump", "yes"] {
+            assert!(!body.contains(raw), "{case}: {raw} in {body}");
+        }
+    }
+
+    // Without the setting, no line at all, whatever the file says.
+    std::fs::write(&file, status(false, None, "dump")).unwrap();
+    let (addr, token, _) = serve(&db, "").await;
+    let (status, body, _) = front_page(addr, &token).await;
+    assert_eq!(status, 200, "{body}");
+    assert!(!body.contains("backup"), "{body}");
+    assert!(!body.contains("Backup"), "{body}");
+
+    std::fs::remove_dir_all(&dir).unwrap();
     db.close().await;
 }

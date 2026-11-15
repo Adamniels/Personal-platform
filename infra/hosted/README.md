@@ -154,8 +154,14 @@ attempt to a temporary file renamed over the old one, so it is never seen half w
 Times are RFC 3339 in UTC, the attempt's start. `last_error` is `dump`, `encrypt` or `upload`,
 the step that failed, never a command's output, whose detail is in the service's log.
 `last_success_at` is `null` until the first success and survives a failed attempt. A run stopped
-by a missing setting is not an attempt and writes nothing. Nothing alerts on a missed backup yet;
-that waits for the notifications service.
+by a missing setting is not an attempt and writes nothing.
+
+**Where the result shows.** The core has the volume mounted read only at `/status`, with
+`CORE_BACKUP_STATUS_FILE=/status/backup.json`, and its front page ends with a line saying when the
+last backup succeeded. The line turns amber when the last success is more than 26 hours old, the
+last attempt failed, none has succeeded, or the file cannot be read; see "The backup line on the
+front page" in `Core/docs/core-architecture.md`. Nothing alerts on a missed backup yet; that waits
+for the notifications service.
 
 **The backup role** is `platform_backup`, made by `postgres/backup-role.sh`: it logs in with
 `BACKUP_DB_PASSWORD`, has `BYPASSRLS`, and is a member of `pg_read_all_data`, with `CONNECT` on
@@ -324,9 +330,12 @@ It prints `ok <name>` or `FAIL <name>` for each case and exits non zero if any f
   publish a port, both on `127.0.0.1`;
 - `no_container_runs_as_root`: every process of each service in `compose.yaml` runs as a user id
   other than 0. The front, which is not one of them, runs as Caddy's image does;
-- `the_acceptance_suite_passes_against_the_containers`: the whole suite in `e2e/`, every test but
+- `the_acceptance_suite_passes_against_the_containers`: one `backup now`, so the status file the
+  front page's backup line reads exists, then the whole suite in `e2e/`, every test but
   those marked `dev_stack_only`, passes against `https://platform.test:9443`, with invite codes and
-  reset tokens made in the core's container through `E2E_CORE_COMMAND`. Its output is shown as it
+  reset tokens made in the core's container through `E2E_CORE_COMMAND`, and the status file read
+  and replaced in the backup's container through `E2E_BACKUP_STATUS_READ` and
+  `E2E_BACKUP_STATUS_WRITE`, see "Fixtures" in `e2e/README.md`. Its output is shown as it
   runs, and it says so when `uv` or Chromium is missing. A test that fails here because of the
   hosted shape is fixed in the image or the compose file, never marked; see "Markers" in
   `e2e/README.md`. Its screenshots land in `e2e/screenshots/` and are not published;

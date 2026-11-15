@@ -68,6 +68,12 @@ services:
       CORE_SIGNING_KEY: ${CORE_SIGNING_KEY:-}
       CORE_FEATURE_REGISTRY: /app/features.toml
       CORE_APP_DATABASE_URL: postgres://core_app:${CORE_APP_PASSWORD:?set CORE_APP_PASSWORD, see .env.example}@postgres:5432/core
+      # The backup job's status file, for the line on the front page, see "The backup line on the
+      # front page" in Core/docs/core-architecture.md.
+      CORE_BACKUP_STATUS_FILE: /status/backup.json
+    volumes:
+      # Read only: the core reads the backup job's status and never writes there.
+      - backup_status:/status:ro
 
   core-migrate:
     image: platform-hosted/core:${PLATFORM_RELEASE:-dev}
@@ -178,7 +184,7 @@ services:
       BACKUP_KEEP_LOCAL_DAYS: ${BACKUP_KEEP_LOCAL_DAYS:-}
     volumes:
       - backups:/backups
-      # Read only by the core in a later slice, for the front page.
+      # Read only by the core, for the backup line on the front page.
       - backup_status:/status
 
 volumes:

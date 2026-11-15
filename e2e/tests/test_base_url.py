@@ -2,7 +2,9 @@
 setting `base_url`, and the core's command can be pointed at a container. So
 the same tests judge the dev stack and the hosted copy, see README.md."""
 
-from conftest import CORE, REPOSITORY, ROOT, core_command
+import pytest
+
+from conftest import CORE, REPOSITORY, ROOT, backup_status_commands, core_command
 
 # Built from two parts, so this file does not contain what it looks for.
 DEV_HOST = "platform" + ".test"
@@ -53,3 +55,32 @@ def test_the_core_command_comes_from_the_environment():
         ["cargo", "run", "-q", "--", "invite"],
         CORE,
     )
+
+
+def test_the_backup_status_commands_come_from_the_environment():
+    write = (
+        "docker compose -p hostedcheck --env-file '/tmp/a dir/env' exec -T backup "
+        'sh -c "cat > /status/backup.json.tmp && mv /status/backup.json.tmp /status/backup.json"'
+    )
+    read = "docker compose -p hostedcheck exec -T backup cat /status/backup.json"
+    environ = {"E2E_BACKUP_STATUS_READ": read, "E2E_BACKUP_STATUS_WRITE": write}
+
+    got_read, got_write = backup_status_commands(environ)
+
+    assert got_read[-2:] == ["cat", "/status/backup.json"]
+    assert got_write[5] == "/tmp/a dir/env"
+    assert got_write[-3:] == [
+        "sh",
+        "-c",
+        "cat > /status/backup.json.tmp && mv /status/backup.json.tmp /status/backup.json",
+    ]
+
+    # Either missing, or set but empty, fails the test that needs them,
+    # naming the one missing.
+    for name in environ:
+        for missing in (
+            {**environ, name: ""},
+            {k: v for k, v in environ.items() if k != name},
+        ):
+            with pytest.raises(pytest.fail.Exception, match=name):
+                backup_status_commands(missing)

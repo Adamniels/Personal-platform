@@ -681,6 +681,38 @@ that could not be reached, with the registry's name and "could not be reached". 
 vanished in all three, for the reason above, and the log says which it was. The page asks again on
 every load and caches nothing.
 
+## The backup line on the front page
+
+The hosted copy's backup job writes a status file after every attempt, see "Backups" in
+`infra/hosted/README.md`. The front page ends with one quiet line saying when the last backup
+succeeded, "Last backup 5 hours ago", with the exact time in UTC in the element's `title`. It turns
+amber, led by the status dot, when the backup needs the owner: the last success is more than 26
+hours old, the last attempt failed, none has succeeded yet, or the file cannot be read. The
+platform has no notifications yet, so this line is how a backup that silently stopped gets seen,
+the next time the platform is opened. An alert waits for the notifications service.
+
+**What it reads.** `CORE_BACKUP_STATUS_FILE`, an absolute path, is the file; the hosted compose file
+mounts the job's volume read only into the core and sets it to `/status/backup.json`. Unset, which
+is the laptop, CI and the runner's stack, nothing is read and the page says nothing about backups;
+a relative path stops startup naming the setting. The file is read on every load, at most 4 KiB,
+into a type that refuses an unknown or a missing field, as the cards do. The state is
+`backup_status::state` in `src/backup_status.rs`, a pure function of the file's content and now,
+which the handler passes in. 26 hours rather than 24, so a nightly run that takes a little longer
+than the last does not flicker; a success more than five minutes ahead of now is not believed,
+since it would read as fine forever. Reading never fails the page: every problem is the attention
+state, "Backup status cannot be read", the same stance as a feature's placeholder above.
+
+**It is an operator's signal, shown to every account for now.** Whether the platform's backups run
+is the owner's concern, not each user's; it is on the front page for every logged in account
+because there is only the owner's. When a second account exists it belongs to an operator's view,
+which is recorded in the feature's issue and not built.
+
+**A file, not a call or a table.** The job is a shell script on a schedule, not a service: a call
+would need it to listen, and to be up when the page loads. A table would give the backup role a
+write grant on a database it should only read, and put the record of whether backups work inside
+the thing being backed up. A file in a volume the job writes and the core only reads keeps each
+side to what it already does, and says the truth even when Postgres is the thing that is down.
+
 
 ---
 

@@ -6,6 +6,7 @@
 //! for the front page" in docs/core-architecture.md.
 
 use crate::display::Fetched;
+use crate::relative;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer};
 use serde_json::Value;
@@ -125,34 +126,7 @@ impl ReviewCard {
     /// When the next card comes due, from `now`, such as "in 3 hours", or
     /// None when no card is scheduled.
     pub fn next_due_in(&self, now: OffsetDateTime) -> Option<String> {
-        self.next_due_at.map(|at| relative(at - now))
-    }
-}
-
-// A time ahead as words, rounded to the nearest minute, hour or day. Review's
-// clock and the core's may differ by a moment, so a time just past is "in
-// under a minute" too.
-fn relative(ahead: time::Duration) -> String {
-    let seconds = ahead.whole_seconds();
-    if seconds < 60 {
-        return "in under a minute".into();
-    }
-    let minutes = (seconds + 30) / 60;
-    if minutes < 60 {
-        return in_units(minutes, "minute");
-    }
-    let hours = (minutes + 30) / 60;
-    if hours < 24 {
-        return in_units(hours, "hour");
-    }
-    in_units((hours + 12) / 24, "day")
-}
-
-fn in_units(count: i64, unit: &str) -> String {
-    if count == 1 {
-        format!("in 1 {unit}")
-    } else {
-        format!("in {count} {unit}s")
+        self.next_due_at.map(|at| relative::ahead(at - now))
     }
 }
 

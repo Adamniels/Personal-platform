@@ -49,6 +49,14 @@ Screenshots land in `screenshots/`, which is git ignored.
   arguments appended; `check.sh` sets it to a `docker compose ... exec -T core platform_core` into
   the hosted copy's core. Set but empty counts as unset. A command that fails or takes more than ten
   minutes fails the test, with the command line in the message.
+- `backup_status` is a function: `backup_status(status)` replaces the hosted copy's backup status
+  file, `/status/backup.json` in the backup's container, with `status` as JSON, for a test that needs
+  the front page's backup line in a chosen state. The real file is read before and written back
+  after the test. It runs two commands from the repository root, split as a shell would:
+  `E2E_BACKUP_STATUS_READ`, which prints the file, and `E2E_BACKUP_STATUS_WRITE`, which writes its
+  standard input to it, to a temporary file renamed over it as the backup job does. `check.sh` sets
+  both to a `docker compose ... exec -T backup`; without them a test that needs the file fails
+  saying so. No test helper is in the backup image.
 - `viewport` runs the test twice, `[desktop]` (1280x800) and `[phone]` (390x844), and sizes the page.
 - `capture(page, name)` writes a full page screenshot to `screenshots/<name>-<viewport>.png` and
   returns the path. It needs the page to be sized by the `viewport` fixture.
@@ -68,20 +76,25 @@ fails:
 
 - `dev_stack_only(reason=...)`, for a test that cannot hold against the hosted copy. The reason says
   why. A test that fails against the containers because of the hosted shape, a file missing from an
-  image or a wrong setting in the compose file, is fixed there and never marked. No test carries it
-  today.
-- `hosted_only`, for a test that needs something only the hosted copy has.
+  image or a wrong setting in the compose file, is fixed there and never marked. One test carries
+  it: the front page has no backup line on the dev stack, where `CORE_BACKUP_STATUS_FILE` is unset,
+  and the hosted copy sets it.
+- `hosted_only`, for a test that needs something only the hosted copy has: the backup line's tests,
+  which need the backup job and its status file.
 
 A plain `uv run pytest` is against the dev stack and leaves `hosted_only` out, through `addopts`.
 A `-m` on the command line replaces that one.
 
 ## Against the hosted copy
 
-`bash infra/hosted/check.sh`, from the repository root, starts a throwaway hosted copy and runs, from
-this folder:
+`bash infra/hosted/check.sh`, from the repository root, starts a throwaway hosted copy, runs one
+`backup now` in it, and runs, from this folder, with `<exec>` standing for
+`docker compose -p hostedcheck --env-file <its env file> -f infra/hosted/compose.yaml exec -T`:
 
 ```zsh
-E2E_CORE_COMMAND="docker compose -p hostedcheck --env-file <its env file> -f infra/hosted/compose.yaml exec -T core platform_core" \
+E2E_CORE_COMMAND="<exec> core platform_core" \
+  E2E_BACKUP_STATUS_READ="<exec> backup cat /status/backup.json" \
+  E2E_BACKUP_STATUS_WRITE="<exec> backup sh -c 'cat > /status/backup.json.tmp && mv /status/backup.json.tmp /status/backup.json'" \
   uv run pytest --base-url https://platform.test:9443 -m "not dev_stack_only"
 ```
 

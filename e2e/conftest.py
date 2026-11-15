@@ -7,7 +7,7 @@ import re
 import shlex
 import subprocess
 import uuid
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from pathlib import Path
 
 import pytest
@@ -46,17 +46,18 @@ def core_command(
     return [*shlex.split(configured), *args], REPOSITORY
 
 
-def _core_command(*args: str) -> str:
-    """Runs one of the core's commands and returns its stdout, stripped. A
-    failure or a hang fails the test, not the whole run."""
-    argv, cwd = core_command(args, os.environ)
+def _run(argv: Sequence[str], cwd: Path, stdin: str | None = None) -> str:
+    """Runs a command and returns its stdout as it is. A failure or a hang
+    fails the test, not the whole run."""
     command = shlex.join(argv)
-    # The first call may compile the core, so the timeout is generous. It is
-    # there so a hung build fails the test instead of the whole CI job.
+    # The first call of the core's command may compile the core, so the
+    # timeout is generous. It is there so a hung build fails the test instead
+    # of the whole CI job.
     try:
         result = subprocess.run(
             argv,
             cwd=cwd,
+            input=stdin,
             capture_output=True,
             text=True,
             check=False,
@@ -73,7 +74,13 @@ def _core_command(*args: str) -> str:
             f"{command} failed, last 20 lines of stderr:\n{tail}",
             pytrace=False,
         )
-    return result.stdout.strip()
+    return result.stdout
+
+
+def _core_command(*args: str) -> str:
+    """Runs one of the core's commands and returns its stdout, stripped."""
+    argv, cwd = core_command(args, os.environ)
+    return _run(argv, cwd).strip()
 
 
 @pytest.fixture
@@ -94,6 +101,44 @@ def reset_token() -> Callable[[str], str]:
     the core's own command, as the owner would. A function, since the account
     usually exists only once the test has registered it."""
     return lambda email: _core_command("reset", email)
+
+
+def backup_status_commands(
+    environ: Mapping[str, str],
+) -> tuple[list[str], list[str]]:
+    """The commands that read the hosted copy's backup status file to stdout
+    and write it from stdin, E2E_BACKUP_STATUS_READ and
+    E2E_BACKUP_STATUS_WRITE, each split as a shell would and run from the
+    repository root. infra/hosted/check.sh sets both; without them a test
+    that needs the file fails saying so. Set but empty counts as unset."""
+    commands = []
+    for name in ("E2E_BACKUP_STATUS_READ", "E2E_BACKUP_STATUS_WRITE"):
+        configured = environ.get(name, "")
+        if not configured.strip():
+            pytest.fail(
+                f"{name} is not set: this test needs the hosted copy's backup "
+                "status file, which infra/hosted/check.sh gives it; see "
+                "e2e/README.md",
+                pytrace=False,
+            )
+        commands.append(shlex.split(configured))
+    read, write = commands
+    return read, write
+
+
+@pytest.fixture
+def backup_status() -> Iterator[Callable[[dict], None]]:
+    """A function that replaces the hosted copy's backup status file with
+    the JSON of the state a test asks for, such as a last success two days
+    old. The real file is read first and written back after the test."""
+    read, write = backup_status_commands(os.environ)
+    original = _run(read, REPOSITORY)
+
+    def replace(status: dict) -> None:
+        _run(write, REPOSITORY, stdin=json.dumps(status))
+
+    yield replace
+    _run(write, REPOSITORY, stdin=original)
 
 
 @pytest.fixture(params=list(VIEWPORTS), ids=lambda name: name)
