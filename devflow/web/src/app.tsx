@@ -1,15 +1,17 @@
 import { EmptyState, Tab, TabPanel, Tabs } from "@platform/ui";
 import { navigate, usePathname } from "./address";
 import styles from "./app.module.css";
+import { CodeHostBanner, type CodeHostBannerProps } from "./banner";
 import { SECTIONS, sectionAt } from "./sections";
 
-/** Dev flow's frame: the page's heading, a tab per section, tied to the
- * address, and the section the address names. */
-export function App() {
+/** Dev flow's frame: the fake mode's banner, the page's heading, a tab per
+ * section, tied to the address, and the section the address names. */
+export function App({ loadStatus }: CodeHostBannerProps = {}) {
 	const current = sectionAt(usePathname());
 
 	return (
 		<main className="page">
+			<CodeHostBanner loadStatus={loadStatus} />
 			<header className={styles.header}>
 				<h1 className={styles.title}>Dev flow</h1>
 				<p className={styles.lede}>

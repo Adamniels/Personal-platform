@@ -5,6 +5,7 @@ using DevFlow.CodeHost;
 using DevFlow.Health;
 using DevFlow.Pages;
 using DevFlow.Settings;
+using DevFlow.Status;
 
 using PlatformAuth;
 
@@ -73,6 +74,7 @@ public static class DevFlowApp
         app.UseAuthorization();
 
         app.MapHealth();
+        app.MapStatus(settings.CodeHost);
         app.MapPages(webRoot);
         if (settings.CodeHost == CodeHostMode.Fake)
         {

@@ -234,7 +234,7 @@ public sealed class FakeEndpointsTests
 
         var schema = await Harness.Body(await devflow.Get("/devflow/api/openapi.json"));
 
-        Assert.Contains("/devflow/api/whoami", schema, StringComparison.Ordinal);
+        Assert.Contains("/devflow/api/status", schema, StringComparison.Ordinal);
         Assert.DoesNotContain("/devflow/api/fake", schema, StringComparison.Ordinal);
     }
 }

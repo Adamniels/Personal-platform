@@ -198,6 +198,28 @@ def register_and_log_in(page: Page, invite_code: str, base_url: str) -> str:
     return email
 
 
+@pytest.fixture
+def devflow_world(page: Page, base_url: str) -> Callable[[dict], None]:
+    """A function that replaces Dev flow's fake code host's world for the
+    account the page is logged in as, through the page's own session, so it
+    lands in this test's account and no other. The world is a dictionary,
+    usually built with devflow_worlds.py. Call it after logging in."""
+
+    def stage(world: dict) -> None:
+        response = page.request.put(
+            "/devflow/api/fake/world",
+            data=world,
+            # A change, so it carries the platform's origin, as the page's own
+            # requests do.
+            headers={"Origin": base_url},
+        )
+        assert response.status == 204, (
+            f"staging the world answered {response.status}: {response.text()}"
+        )
+
+    return stage
+
+
 def account_in_access_cookie(page: Page) -> str:
     """The `sub` of the access token the core set on this browser, read
     without verifying it: the reference for who this browser is, taken from
