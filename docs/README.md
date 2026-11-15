@@ -2,7 +2,7 @@
 
 Status: exploratory. The walking skeleton is being built.
 
-Last updated: 2026 11 14
+Last updated: 2026 11 15
 
 These are planning notes, not specifications. Everything here is the current best idea with the
 reasoning attached, and it is expected to change as building teaches things planning could not.
@@ -67,6 +67,7 @@ features" in `High-level/docs/platform-architecture.md`.
 | `e2e/`              | The acceptance suite, Playwright against the running stack                   |
 | `scripts/agent/`    | The runner, the merge gate and the other scripts the agents' workflow runs   |
 | `scripts/ci/`       | The change detection and the `ci-ok` judgement that `ci.yml` runs            |
+| `scripts/deploy/`   | The release script, the owner's one command that puts a commit into the hosted copy |
 | `docs/`             | This index, and anything that fits nowhere else                              |
 | `docs/superpowers/` | Design specs and implementation plans, each frozen on the day it was agreed  |
 
@@ -149,7 +150,8 @@ features" in `High-level/docs/platform-architecture.md`.
   databases and the scripts that create them, the design folder and the paths Caddy serves from
   it, the feature registry, the service manifest, the hosted copy, and trusting Caddy's root
 - `infra/hosted/README.md` — the hosted copy: every service in a container as one compose project
-  apart from the dev stack, its files, the images, its nightly backups, the bucket and the key they
+  apart from the dev stack, its files, the images, setting the real copy up and releasing to it,
+  after a reboot and what to keep elsewhere, its nightly backups, the bucket and the key they
   need and restoring one, and `check.sh`, which proves on a throwaway copy that it builds, every
   service answers and a backup restores
 

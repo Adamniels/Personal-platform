@@ -8,8 +8,9 @@
 #
 # Safe to run again. The hosted Postgres runs it last when its volume is first created, mounted
 # into the init directory as zz-backup-role.sh so it sorts after the scripts that create the
-# databases; check.sh runs it after the migrations, and a release runs it, so a database added
-# later is covered. By hand, inside the postgres container over its socket, from infra/hosted/:
+# databases. Every release runs it again after those scripts, in scripts/deploy/release.sh, so a
+# database added later is covered. By hand, inside the postgres container over its socket, from
+# infra/hosted/:
 #
 #   docker compose -p <project> exec -T postgres bash /docker-entrypoint-initdb.d/zz-backup-role.sh
 #

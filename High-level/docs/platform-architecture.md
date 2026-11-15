@@ -2,7 +2,7 @@
 
 Status: exploratory. The walking skeleton is being built.
 
-Last updated: 2026 11 14
+Last updated: 2026 11 15
 
 The top of the documentation. What the platform is, what services exist, and the thinking that
 shapes more than one of them. Anything you only need when you sit down to write a particular
@@ -420,6 +420,15 @@ and import remain, as a way to move one account's memory to a file and into anot
 "Export and import" in `Brain/README.md`; they are not the backup. Nothing alerts on a missed
 backup until the notifications service exists: until then the job's status file records each
 attempt.
+
+**The hosted copy is released by hand.** A release is the owner's command,
+`scripts/deploy/release.sh`, run over SSH from the hosted copy's own clone. It builds a commit on
+`main`, never a branch, backs up before it migrates, and never happens on a merge. The runner
+merges unattended, so a merge is not a decision anyone made to put that code in front of real
+data; keeping the release a separate step makes the running copy always one the owner chose, and
+lets a bad merge be fixed on `main` before it reaches the data. The script sits under `scripts/`,
+which the merge gate never merges, so what releases changes only by the owner's hand too. How it
+fails safe and when it rolls back is "Releasing" in `infra/hosted/README.md`.
 
 ---
 

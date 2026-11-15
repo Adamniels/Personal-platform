@@ -2,7 +2,7 @@
 
 Status: exploratory. Built, and not yet run end to end on a real feature.
 
-Last updated: 2026 11 14
+Last updated: 2026 11 15
 
 How agents build this repository and what the owner does around them. How work is cut, features,
 slices, the walking skeleton and what gets tests, is in `how-we-build.md`. This document says who
@@ -143,11 +143,14 @@ at desktop and 390px phone width for what a test does not catch. Screenshots are
 disposable orphan branch `pr-screenshots` by `scripts/agent/screenshots.sh` and embedded in the pull
 request, since GitHub has no API for attaching images.
 
-**The Mac mini's databases are disposable.** Each run recreates the core's and the brain's
-databases empty with `scripts/agent/reset-db.sh` and applies the branch's migrations from scratch.
+**The Mac mini's dev databases are disposable.** Each run recreates every service's database in
+the dev stack empty with `scripts/agent/reset-db.sh` and applies the branch's migrations from scratch.
 Migrations are forward only, so on a shared database one slice's unmerged migration would stall
-every other branch until it merged. What it costs is that nothing on the Mac mini keeps data, and
-running the platform for real there would need a separate stack for the agents.
+every other branch until it merged. What it costs is that nothing in the dev stack keeps data. The
+machine now also holds the hosted copy, the platform run for real, as a separate compose project,
+`platform-hosted`, released from its own clone, `~/platform`, see `infra/hosted/README.md`. No run
+touches it: the reset addresses only the dev project, which `reset-db.test.sh` holds, and the agents'
+own check of the containers, `infra/hosted/check.sh`, runs as `hostedcheck`.
 
 **How a run ends**, other than with a pull request, is one of three final lines the runner reads.
 `ENVIRONMENT:` is a problem outside the slice, such as Docker down, a missing `.env`, the wrong
@@ -385,6 +388,14 @@ waits is enough until that changes.
 - **Deny rules** in `.claude/settings.json` refuse merging, running the gate, pushing to `main`,
   force pushing and any admin flag in every Claude session, so a confused agent fails rather than
   tries.
+- **The hosted copy.** It shares the machine and Docker with the runner's agents, accepted with
+  guardrails until the runner is retired. Three more deny rules refuse a command whose text holds
+  `docker` and then `platform-hosted`, the project or a container of it, or `~/platform` or
+  `$HOME/platform`, its clone; `scripts/agent/settings.test.sh` holds them. They are patterns over
+  a command's text, not a wall: an agent that builds the name another way, or writes the clone's
+  absolute path, gets through. The real protection is the nightly backups, encrypted and uploaded
+  off the machine to a bucket that cannot delete them for 30 days, see "Backups" in
+  `infra/hosted/README.md`. This arrangement ends when the runner is retired.
 - **Auto mode.** Runs use Claude Code's auto permission mode, so routine commands do not wait for an
   answer nobody is there to give, and the deny rules still hold.
 
