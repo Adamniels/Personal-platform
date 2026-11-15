@@ -20,18 +20,21 @@ fn the_committed_registry_holds_canary_review_and_devflow() {
                 prefix: "/canary".into(),
                 upstream: "http://127.0.0.1:8081".into(),
                 display: Some("/canary/api/display".into()),
+                icon: None,
             },
             Feature {
                 name: "Review".into(),
                 prefix: "/review".into(),
                 upstream: "http://127.0.0.1:8083".into(),
                 display: Some("/review/api/display".into()),
+                icon: None,
             },
             Feature {
                 name: "Dev flow".into(),
                 prefix: "/devflow".into(),
                 upstream: "http://127.0.0.1:8084".into(),
                 display: None,
+                icon: None,
             },
         ]
     );

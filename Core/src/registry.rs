@@ -24,6 +24,9 @@ pub struct Feature {
     pub prefix: String,
     pub upstream: String,
     pub display: Option<String>,
+    /// The name of the icon the nav draws for the feature. The core checks
+    /// only its shape: which icons exist is the design's, in design/nav.js.
+    pub icon: Option<String>,
 }
 
 // The file as a whole. Unknown keys are refused here as well as in each
@@ -126,8 +129,24 @@ impl Feature {
                 self.prefix
             ));
         }
+        if let Some(icon) = &self.icon
+            && !is_icon(icon)
+        {
+            return Err(format!(
+                "icon '{icon}' is not a name of lowercase letters, digits and hyphens"
+            ));
+        }
         Ok(())
     }
+}
+
+// An icon's name as Lucide spells it, such as `git-pull-request`: nothing
+// that could be read as markup or a path.
+fn is_icon(icon: &str) -> bool {
+    !icon.is_empty()
+        && icon
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
 }
 
 // `/` and one segment, as Caddy matches it: `/canary`, never `/canary/`.
@@ -201,12 +220,14 @@ mod tests {
                     prefix: "/desk".into(),
                     upstream: "https://desk.internal:9000".into(),
                     display: Some("/desk/api/display".into()),
+                    icon: None,
                 },
                 Feature {
                     name: "Canary".into(),
                     prefix: "/canary".into(),
                     upstream: "http://127.0.0.1:8081".into(),
                     display: None,
+                    icon: None,
                 },
             ]
         );
@@ -368,6 +389,36 @@ mod tests {
     }
 
     #[test]
+    fn a_feature_may_name_an_icon() {
+        let with = Registry::parse(&canary_with("", r#"icon = "layers""#)).unwrap();
+        assert_eq!(with.features()[0].icon.as_deref(), Some("layers"));
+
+        let without = Registry::parse(&canary_with("", "")).unwrap();
+        assert_eq!(without.features()[0].icon, None);
+    }
+
+    #[test]
+    fn an_icon_that_is_not_a_name_is_refused() {
+        for (case, icon) in [
+            ("empty", ""),
+            ("a capital", "Layers"),
+            ("a space", "git pull"),
+            ("a slash", "../box"),
+            ("a dot", "box.svg"),
+        ] {
+            let text = canary_with("", &format!("icon = {icon:?}"));
+            match Registry::parse(&text) {
+                Ok(registry) => panic!("{case}: accepted as {registry:?}"),
+                Err(err) => assert!(
+                    err.starts_with("feature 1 (Canary): icon ")
+                        && err.contains(&format!("'{icon}'")),
+                    "{case}: refused with {err:?}, which does not name the feature, the key and the value"
+                ),
+            }
+        }
+    }
+
+    #[test]
     fn a_validation_error_names_the_feature() {
         let err = Registry::parse(&canary_with("prefix", r#"prefix = "canary""#)).unwrap_err();
         assert!(err.starts_with("feature 1 (Canary): "), "{err}");
@@ -389,6 +440,7 @@ mod tests {
             prefix: "/desk".into(),
             upstream: "http://127.0.0.1:8082".into(),
             display: None,
+            icon: None,
         });
         assert_eq!(
             two.summary(),

@@ -223,6 +223,7 @@ mod tests {
                 prefix: prefix.into(),
                 upstream: "http://127.0.0.1:8081".into(),
                 display: Some(format!("{prefix}/api/display")),
+                icon: None,
             },
             data,
         }
