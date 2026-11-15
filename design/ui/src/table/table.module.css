@@ -26,12 +26,12 @@
 	line-height: var(--text-body-line);
 }
 
-/* Header cells: surface-2, caption style, text-3. */
+/* Header cells: no fill, caption style, text-3. The frame's surface shows
+ * through, and the line above the first row separates them from the body. */
 .table th {
 	box-sizing: border-box;
 	height: var(--row-h);
 	padding: 0 12px;
-	background: var(--surface-2);
 	color: var(--text-3);
 	font-size: var(--text-caption-size);
 	line-height: var(--text-caption-line);

@@ -1185,33 +1185,45 @@ def test_the_table_is_shown(page: Page, viewport: str, theme: str):
 
 
 @pytest.mark.parametrize("theme", THEMES)
-def test_a_table_reads_its_values(page: Page, theme: str):
+def test_the_table_header_has_no_fill(page: Page, theme: str):
     open_gallery(page, theme)
     table = sessions(page)
-    rows = body_rows(table)
+    transparent = resolve(page, None, "background-color")
 
-    # The wrapper: 1px border, the large radius, the surface, and it scrolls.
-    wrapper = table.locator("..").evaluate(TABLE_STYLE)
-    assert wrapper["borders"] == [resolve(page, "--border", "color")] * 4
-    assert wrapper["borderWidths"] == ["1px"] * 4
-    assert wrapper["radii"] == radii(page, "--radius-lg")
-    assert wrapper["background"] == resolve(page, "--surface", "background-color")
-    assert wrapper["overflowX"] == "auto"
+    # The frame: the surface, 1px border and the large radius, and it keeps
+    # its scroll for a table too wide for it.
+    frame = table.locator("..").evaluate(TABLE_STYLE)
+    assert frame["background"] == resolve(page, "--surface", "background-color")
+    assert frame["borders"] == [resolve(page, "--border", "color")] * 4
+    assert frame["borderWidths"] == ["1px"] * 4
+    assert frame["radii"] == radii(page, "--radius-lg")
+    assert frame["overflowX"] == "auto"
 
-    # Header cells: surface-2, caption style, text-3; the sorted one is text
-    # at 600.
-    plain = table.locator("thead th", has_text="Project").evaluate(TABLE_STYLE)
-    assert plain["background"] == resolve(page, "--surface-2", "background-color")
-    assert plain["color"] == resolve(page, "--text-3", "color")
-    assert_caption(page, plain)
+    # The header row and its cells: no fill, caption style, text-3.
+    assert table.locator("thead tr").evaluate(TABLE_STYLE)["background"] == transparent
+    for name in ["Project", "Hours", "Status", "Notes"]:
+        plain = table.locator("thead th", has_text=name).evaluate(TABLE_STYLE)
+        assert plain["background"] == transparent, name
+        assert plain["color"] == resolve(page, "--text-3", "color"), name
+        assert_caption(page, plain)
+
+    # The sorted column: text at 600, with its arrow and aria-sort.
     sorted_header = table.locator("thead th[aria-sort]")
     expect(sorted_header).to_have_count(1)
     expect(sorted_header).to_have_text("Session")
     expect(sorted_header).to_have_attribute("aria-sort", "ascending")
+    expect(sorted_header.locator("svg")).to_have_count(1)
     style = sorted_header.evaluate(TABLE_STYLE)
-    assert style["background"] == resolve(page, "--surface-2", "background-color")
+    assert style["background"] == transparent
     assert style["color"] == resolve(page, "--text", "color")
     assert style["weight"] == "600"
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_a_table_row_reads_its_values(page: Page, theme: str):
+    open_gallery(page, theme)
+    table = sessions(page)
+    rows = body_rows(table)
 
     # Body rows: row-h tall, padding 6px 12px, and a 1px border line between
     # them, drawn inside the row so a row holding a button is still row-h.
