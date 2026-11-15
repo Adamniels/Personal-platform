@@ -6,8 +6,9 @@ on the Mac mini, reached over Tailscale. Development still runs natively on a la
 "Databases, migrations, and running it" in `High-level/docs/platform-architecture.md`.
 
 This folder makes the containers, proves they start, runs the acceptance suite against them, and
-backs up every database each night, see "Backups". Releasing to the real copy arrives in a later
-slice, as does running `check.sh` in CI.
+backs up every database each night, see "Backups". The owner sets the real copy up once, see
+"Setting it up", and releases a version into it with one command, see "Releasing". Running
+`check.sh` in CI arrives in a later slice.
 
 ## What runs
 
@@ -34,8 +35,8 @@ owner's URL.
 ## The files
 
 - `compose.yaml`, the services above. It has no top level `name`: the project is always given
-  with `-p`. The real copy's is passed by the release script of a later slice, and `check.sh`
-  passes `hostedcheck`. A compose command typed here without `-p` gets Compose's default, the
+  with `-p`. The real copy's, `platform-hosted`, is passed by `scripts/deploy/release.sh`, and
+  `check.sh` passes `hostedcheck`. A compose command typed here without `-p` gets Compose's default, the
   folder's name, `hosted`, which is neither, so a command typed in another clone never reaches
   the real copy by accident.
 - `Caddyfile`, the proxy's: the dev Caddyfile's routes on one plain HTTP site, `:80`, with each
@@ -72,31 +73,182 @@ environment, by the names it reads natively, see each service's "Settings".
 The proxy's image holds the served files of `design/` and the built component gallery, so the
 look is part of what is released rather than mounted from a checkout.
 
-## Running it by hand
+## Setting it up
 
-Until the release script exists, from this folder, with `.env` filled in from `.env.example` and
-the project name given with `-p` on every command:
+Once, by the owner, over SSH on the Mac mini unless a step says otherwise. Every command is written
+out in full for zsh. The real copy's project is always `platform-hosted`, its clone `~/platform`
+and its settings `infra/hosted/.env` in that clone.
+
+1. **Docker's memory.** In Docker Desktop's settings, Resources, set the memory to 8 GB, see
+   "Resources".
+2. **The bucket and the key pair.** Set the bucket up as "Setting up the bucket" says: Object Lock
+   with a default retention of 30 days in compliance mode, the lifecycle rule, and the restricted
+   key. Make the `age` key pair on another machine, as "Making the age key pair" says: its public
+   key goes into `.env` in step 3, and its private key never comes onto the Mac mini. Step 4 of the
+   bucket's setup, checking that an uploaded file cannot be deleted, waits for the first upload, in
+   step 8.
+3. **The clone and its settings.** The real copy is released from a clone of its own, never from
+   `~/dev/Personal-platform`, where the runner checks out slice branches. The release script does
+   not check the path; this step is what keeps them apart.
+
+   ```zsh
+   git clone https://github.com/Adamniels/Personal-platform.git ~/platform
+   cd ~/platform
+   cp infra/hosted/.env.example infra/hosted/.env
+   chmod 600 infra/hosted/.env
+   openssl rand -hex 24
+   ```
+
+   Fill in each value in `infra/hosted/.env` as its comment says: each of the eight passwords from
+   its own run of `openssl rand -hex 24`, `PLATFORM_PUBLIC_ORIGIN` from step 4, and the backup
+   settings from step 2. Then make the signing key in the core's own image, which appends its line
+   to the file:
+
+   ```zsh
+   docker compose -p platform-hosted --env-file infra/hosted/.env -f infra/hosted/compose.yaml build core
+   docker compose -p platform-hosted --env-file infra/hosted/.env -f infra/hosted/compose.yaml run --rm --no-deps -T core keygen >> infra/hosted/.env
+   ```
+
+   The key is made for this copy alone, never copied from another environment, see "The signing
+   key" in `Core/docs/core-architecture.md`.
+4. **Tailscale.** In Tailscale's admin console: turn on MagicDNS and HTTPS certificates, under DNS,
+   and disable key expiry for the Mac mini, under Machines, so it never drops off the tailnet by
+   itself. `PLATFORM_PUBLIC_ORIGIN` is then `https://<machine>.<tailnet>.ts.net`, the machine's
+   name and the tailnet's DNS name as the console shows them, with no port.
+5. **The first release**, from `~/platform`:
+
+   ```zsh
+   bash scripts/deploy/release.sh
+   ```
+
+   It takes several minutes the first time; "Releasing" says what it does and what each failure
+   means. It ends by printing the commit and each service running.
+6. **HTTPS inside the tailnet.** Share the proxy, plain HTTP on `127.0.0.1:9080`, over HTTPS to the
+   tailnet alone:
+
+   ```zsh
+   tailscale serve --bg 9080
+   tailscale serve status
+   ```
+
+   If the installed version documents another form for sharing `http://127.0.0.1:9080`, use that;
+   `tailscale serve --help` says. **Never `tailscale funnel`**, which would put the platform on the
+   public internet. Then open `PLATFORM_PUBLIC_ORIGIN` on the phone, with Tailscale on, and check
+   the login page loads with a valid certificate.
+7. **An account, and the memory.** Make an invite code in the core's container, and register with
+   it from the phone or the laptop:
+
+   ```zsh
+   docker compose -p platform-hosted --env-file infra/hosted/.env -f infra/hosted/compose.yaml exec -T core platform_core invite
+   ```
+
+   Then move the brain's memory from the laptop. Export it there, as "Export and import" in
+   `Brain/README.md` says, and copy the file into `~/platform` over SSH as `memory.json`. Find the
+   new account's id, and import the file under it:
+
+   ```zsh
+   docker compose -p platform-hosted --env-file infra/hosted/.env -f infra/hosted/compose.yaml exec -T postgres psql -U postgres -d core -c 'SELECT id, email FROM accounts'
+   docker compose -p platform-hosted --env-file infra/hosted/.env -f infra/hosted/compose.yaml run --rm -T -v "$PWD/memory.json:/import/memory.json:ro" brain brain import /import/memory.json --as <account-id>
+   rm memory.json
+   ```
+
+   The file is the whole memory in plain text, so it is removed from both machines once imported.
+8. **A backup, and the bucket.** The release took one already; take another by hand and look:
+
+   ```zsh
+   docker compose -p platform-hosted --env-file infra/hosted/.env -f infra/hosted/compose.yaml run --rm backup now
+   ```
+
+   Look in the bucket for one file per database under the prefix, and do step 4 of "Setting up the
+   bucket": deleting one of them must be refused.
+
+## Releasing
+
+From `~/platform`, over SSH:
 
 ```zsh
-docker compose -p <project> build
-docker compose -p <project> run --rm --no-deps -T core keygen >> .env
-docker compose -p <project> up -d --wait postgres
-docker compose -p <project> run --rm core-migrate
-docker compose -p <project> run --rm brain-migrate
-docker compose -p <project> run --rm review-migrate
-docker compose -p <project> up -d
+bash scripts/deploy/release.sh
 ```
 
-The signing key is made once per copy, never copied from another environment, see "The signing
-key" in `Core/docs/core-architecture.md`. The databases are created by `infra/postgres/initdb/`
-when the volume is first created, the same scripts as the dev stack, each mounted by name into the
-init directory, and then `postgres/backup-role.sh`, last; each is safe to run again, see "The
-databases" in `infra/README.md`. After the migrations, run the backup role's script again, so it
-grants `CONNECT` on every database, the ones made since the volume was among them:
+releases `origin/main` as it is after a `git fetch`. To release an older commit again, such as the
+one before a bad release, name it. It must be on `main`, so a branch is never released:
 
 ```zsh
-docker compose -p <project> exec -T postgres bash /docker-entrypoint-initdb.d/zz-backup-role.sh
+cat infra/hosted/.release
+bash scripts/deploy/release.sh <commit>
 ```
+
+A release is the owner's command and never happens on a merge, see "The hosted copy is released by
+hand" in `High-level/docs/platform-architecture.md`. `scripts/deploy/release.sh` prints each step
+as it starts:
+
+1. **Preflight.** Docker answers; `infra/hosted/.env` exists, and every variable `.env.example`
+   sets, and `CORE_SIGNING_KEY`, is set and not empty in it; each password is letters and digits
+   only; `PLATFORM_PUBLIC_ORIGIN` begins with `https://`; and the clone has no changes, untracked
+   files included. The env file is the only source of settings: a variable exported in the shell
+   is ignored, unlike for a compose command typed by hand. No value is ever printed or put on a
+   command line.
+2. **Fetch and choose.** `git fetch origin`, then the commit, which must be `origin/main` or before
+   it, checked out detached.
+3. **Build** every image as `platform-hosted/<service>:<the commit's first 12 characters>`.
+4. **Postgres.** Started, then every script in `infra/postgres/initdb/` and the backup role's run
+   inside it. Each is safe to run again, so a service added in this release gets its database and
+   roles here, with no step by hand.
+5. **Back up**, with `backup now`. Its time names the backup in any later message.
+6. **Migrate**, each `<name>-migrate` service in the compose file's order, one at a time.
+7. **Start** the new containers, `docker compose up -d`, which replaces those whose image or
+   settings changed.
+8. **Health.** Each health path `scripts/agent/services.sh health` lists answers `200` through the
+   proxy's published address, within 180 seconds.
+9. **Record** the commit in `infra/hosted/.release`, git ignored, print what is running, and remove
+   the images of releases older than the previous one, so a rollback always has its images.
+
+What each failure means:
+
+- **Before step 7**, a refused preflight, a commit not on `main`, or a failed build, Postgres,
+  backup or migration: nothing was started or stopped, the previous release is still serving, and
+  the clone is checked out where it was. A failed migration says which `-migrate` service failed
+  and which ran before it, since those are not undone, and names the backup step 5 took.
+- **`rolled back`**: the new containers did not answer and no file under any `migrations/` folder
+  changed since the recorded release, so its images were started again and its commit checked out
+  again. Nothing is recorded; read the failed release's logs, below, to find why.
+- **`the database is ahead of the previous version`**: the new containers did not answer, and a
+  migration changed since the recorded release. Migrations only go forward and the old code may
+  not fit the new schema, so nothing is rolled back and the new containers are left up. Read their
+  logs. Either release a fix, or go back: restore each database from the backup the message names,
+  with `--replace`, as "Restoring" says, then release the recorded commit again.
+- **`nothing to roll back to`**: the first release did not answer. The containers are left up for
+  their logs.
+
+Logs, for any service:
+
+```zsh
+docker compose -p platform-hosted --env-file infra/hosted/.env -f infra/hosted/compose.yaml logs --tail 100 core
+```
+
+`release.sh --local` builds the tree as it is under another project, for `check.sh`. It is refused
+for `platform-hosted`, tags its images with the env file's `PLATFORM_RELEASE` or `local` rather than
+a commit, and records, rolls back and removes nothing.
+
+## After a reboot
+
+Nothing to do. Docker Desktop starts at login, set in its settings under General, and every service
+has `restart: unless-stopped`, so the containers come back by themselves, with the release they
+were running. To check, from `~/platform`:
+
+```zsh
+docker compose -p platform-hosted --env-file infra/hosted/.env -f infra/hosted/compose.yaml ps
+```
+
+Docker Desktop starts only once the Mac mini's user is logged in, so after a power cut the copy is
+down until someone logs in there, unless automatic login is on, which FileVault does not allow.
+
+## What to keep elsewhere
+
+The `age` private key, in the password manager and one offline copy, and the bucket's account, its
+endpoint, region and name, so a new machine can find the backups. Nothing else: the passwords and
+the signing key in `.env` are made again on a new machine, which only logs everyone out, see "What
+is backed up".
 
 ## Backups
 
@@ -169,8 +321,8 @@ every database. `pg_dump` turns row level security off and fails on a table whos
 a row, and every scoped table here forces its policy even on its owner, so a dump needs a role that
 bypasses it. It is the named bypass "Multi user, and how isolation is enforced" in
 `High-level/docs/platform-architecture.md` asks for, and it reads everything and writes nothing.
-The script runs when the volume is created and again after every migration, see "Running it by
-hand", so a database added later gets its `CONNECT`.
+The script runs when the volume is created and again in every release, after the init scripts,
+see "Releasing", so a database added later gets its `CONNECT`.
 
 ### Settings
 
@@ -235,8 +387,8 @@ docker compose -p <project> run --rm --entrypoint cat backup /status/backup.json
 It prints each database dumped and each file uploaded, and exits non zero if any step failed. The
 stand in bucket of the tests checks no signature, so **this first real run is the check** that the
 provider accepts `curl`'s signature and the `Content-MD5`: look in the bucket for one file per
-database under the prefix, and do step 4 of the bucket's setup. A later slice calls `backup now`
-at the start of every release.
+database under the prefix, and do step 4 of the bucket's setup. Every release runs `backup now`
+before it migrates, see "Releasing".
 
 ### Restoring
 
@@ -306,11 +458,13 @@ installs (from `e2e/`, `uv run playwright install chromium`), and `platform.test
 bash infra/hosted/check.sh
 ```
 
-It runs `tests/agree.test.sh` first, then builds every image, starts the project `hostedcheck`
-with passwords, a signing key and backup settings made for this run in a temporary env file, waits
-for Postgres, runs every `*-migrate` service and the backup role's script, starts the rest, the
-test front and the stand in bucket, and waits up to 180 seconds
-for each health path `scripts/agent/services.sh health` lists to answer `200`. The test front,
+It runs `tests/agree.test.sh` first, then makes passwords, a signing key and backup settings for
+this run in a temporary env file, building the core's and the backup's images to make the last two,
+and starts the stand in bucket. Then it starts the project `hostedcheck` the way the real copy is
+released, with `scripts/deploy/release.sh --local`: every image built, Postgres and its scripts, a
+backup, every `*-migrate` service, the rest started and each health path answering through the
+proxy, see "Releasing". It starts the test front last, and waits up to 180 seconds for each health
+path `scripts/agent/services.sh health` lists to answer `200` through it. The test front,
 `front/`, is `caddy:2` with `tls internal`, serving `https://platform.test:9443` on
 `127.0.0.1:9443` and proxying to `proxy:80`, standing in for `tailscale serve`; its file is added
 with a second `-f` and is no part of the hosted copy. The stand in bucket, `s3stub`, is added the
@@ -322,6 +476,8 @@ It prints `ok <name>` or `FAIL <name>` for each case and exits non zero if any f
 - `agree_test`, `tests/agree.test.sh` passes;
 - `it_refuses_the_real_project`: with `HOSTED_PROJECT=platform-hosted` it exits non zero before
   running any docker command;
+- `a_release_brings_the_stack_up`: `release.sh --local` exits `0` on this copy, so every step of a
+  release passed, its own health check through the proxy among them;
 - `the_stack_builds_and_every_service_answers`: the build, every migration, every health path
   answering `200` through the front, and `/canary/api/whoami` answering `401`;
 - `the_design_files_and_the_gallery_are_served`: `/design/tokens.css` and `/design/gallery/`

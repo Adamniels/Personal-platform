@@ -12,6 +12,9 @@
 .env
 .env.local
 
+# The hosted copy's release record, written by scripts/deploy/release.sh
+infra/hosted/.release
+
 # Core
 Core/target/
 
