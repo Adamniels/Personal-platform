@@ -1580,7 +1580,7 @@ def test_a_dialog_reads_its_values(page: Page, theme: str):
     assert style["background"] == resolve(page, "--surface", "background-color")
     assert style["borders"] == [resolve(page, "--border", "color")] * 4
     assert style["borderWidths"] == ["1px"] * 4
-    assert style["radii"] == radii(page, "--radius-lg")
+    assert style["radii"] == radii(page, "--radius-xl")
     assert style["shadow"] == resolve(page, "--shadow-2", "box-shadow")
 
     # The backdrop is --bg at 70 percent.
@@ -1595,8 +1595,36 @@ def test_a_dialog_reads_its_values(page: Page, theme: str):
     cancel_box, confirm_box = cancel.bounding_box(), confirm.bounding_box()
     assert cancel_box is not None and confirm_box is not None
     assert cancel_box["x"] < confirm_box["x"]
+
+    # Inside the 1px border, --space-6 on every side: the title's top left
+    # and the confirming button's bottom right are one border and one
+    # padding from the dialog's corners.
+    inset = 1 + float(resolve(page, "--space-6", "padding-top").removesuffix("px"))
+    title = dialog.get_by_role("heading", name="Delete 3 entries?").bounding_box()
+    assert title is not None
+    assert title["x"] - box["x"] == pytest.approx(inset)
+    assert title["y"] - box["y"] == pytest.approx(inset)
     right = box["x"] + box["width"]
-    assert right - (confirm_box["x"] + confirm_box["width"]) == pytest.approx(21)
+    bottom = box["y"] + box["height"]
+    assert right - (confirm_box["x"] + confirm_box["width"]) == pytest.approx(inset)
+    assert bottom - (confirm_box["y"] + confirm_box["height"]) == pytest.approx(inset)
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_the_dialog_title_is_in_capitals(page: Page, theme: str):
+    open_gallery(page, theme)
+    dialog = open_dialog(page)
+
+    # An h2 in the heading font, which is always weight 600 and in capitals
+    # (hard rule 12). Its name stays as written; only its look is capitals.
+    title = dialog.get_by_role("heading", name="Delete 3 entries?", level=2)
+    expect(title).to_be_visible()
+    style = title.evaluate(BOX_STYLE)
+    assert style["fontFamily"] == resolve(page, "--font-heading", "font-family")
+    assert style["fontSize"] == resolve(page, "--text-h2-size", "font-size")
+    assert style["lineHeight"] == resolve(page, "--text-h2-line", "line-height")
+    assert style["weight"] == "600"
+    assert style["textTransform"] == "uppercase"
 
 
 def test_on_phone_a_dialog_is_a_sheet_at_the_bottom(page: Page):
