@@ -21,17 +21,15 @@ def test_review_is_in_the_navigation_and_opens(
     page: Page, invite_code: str, base_url: str, viewport: str
 ):
     register_and_log_in(page, invite_code, base_url)
-    links = page.locator("platform-nav .links")
-    review = links.get_by_role("link", name="Review", exact=True)
+    nav = page.get_by_role("navigation")
+    review = nav.get_by_role("link", name="Review", exact=True)
     expect(review).to_have_attribute("href", "/review")
 
     review.click()
 
     expect(page).to_have_url(f"{base_url}/review")
     expect(
-        page.locator("platform-nav .links").get_by_role(
-            "link", name="Review", exact=True
-        )
+        page.get_by_role("navigation").get_by_role("link", name="Review", exact=True)
     ).to_have_attribute("aria-current", "page")
     expect(page.get_by_role("heading", name="Review", level=1)).to_be_visible()
     expect(
