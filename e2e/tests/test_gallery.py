@@ -1014,11 +1014,19 @@ def test_cards_in_a_row_align_their_actions(page: Page):
 
 
 @pytest.mark.parametrize("theme", THEMES)
-def test_an_empty_state_reads_its_values(page: Page, theme: str):
+def test_the_empty_state_title_is_in_capitals(page: Page, theme: str):
     open_gallery(page, theme)
     region = page.get_by_role("region", name="Empty state")
 
+    # The first line, what is empty, in the heading font, which is always
+    # weight 600 and in capitals (hard rule 12).
     title = region.get_by_text("No cards due", exact=True)
+    first = title.evaluate(BOX_STYLE)
+    assert first["fontFamily"] == resolve(page, "--font-heading", "font-family")
+    assert first["fontSize"] == resolve(page, "--text-h2-size", "font-size")
+    assert first["lineHeight"] == resolve(page, "--text-h2-line", "line-height")
+    assert first["weight"] == "600"
+    assert first["textTransform"] == "uppercase"
 
     root = title.locator("..")
     style = root.evaluate(BOX_STYLE)
@@ -1031,7 +1039,6 @@ def test_an_empty_state_reads_its_values(page: Page, theme: str):
     assert style["padding"] == [vertical, side, vertical, side]
     assert style["textAlign"] == "center"
 
-    assert title.evaluate(BOX_STYLE)["weight"] == "600"
     detail = root.locator("p").nth(1).evaluate(BOX_STYLE)
     assert detail["color"] == resolve(page, "--text-2", "color")
     assert detail["fontSize"] == resolve(page, "--text-small-size", "font-size")
