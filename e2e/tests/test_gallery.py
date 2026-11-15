@@ -673,22 +673,21 @@ def bar(page: Page, name: str) -> Locator:
 
 
 @pytest.mark.parametrize("theme", THEMES)
-def test_a_progress_bar_reads_its_values(page: Page, theme: str):
+def test_the_progress_track_has_no_border(page: Page, theme: str):
     open_gallery(page, theme)
 
     for kind, fill in [("Progress", "--accent"), ("Budget", "--info")]:
         track = bar(page, f"{kind}: 62%")
         style = track.evaluate(LABEL_STYLE)
         assert style["height"] == "6px"
-        assert style["background"] == resolve(page, "--surface-2", "background-color")
-        assert style["borders"] == [resolve(page, "--border", "color")] * 4
-        assert style["borderWidths"] == ["1px"] * 4
+        assert style["background"] == resolve(page, "--surface-3", "background-color")
+        assert style["borderWidths"] == ["0px"] * 4
         assert style["radii"] == radii(page, "--radius-full")
 
         fill_style = track.locator("div").evaluate(LABEL_STYLE)
         assert fill_style["background"] == resolve(page, fill, "background-color")
 
-    # The fill is as wide as the value, inside the track's border.
+    # The fill is as wide as the value, across the whole track.
     for value in [0, 62, 100]:
         track = bar(page, f"Progress: {value}%")
         inner = track.evaluate("element => element.clientWidth")
