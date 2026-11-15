@@ -123,7 +123,9 @@ Caddyfile, a new path for instance, needs Caddy recreated, as above.
 ## The feature registry
 
 `features.toml` lists every feature the core knows about: its name, the path prefix the Caddyfile
-routes to it, the upstream the core calls it at directly, and its display endpoint if it has one.
+routes to it, the upstream the core calls it at directly, its display endpoint if it has one, and
+the name of its icon in the nav if it has one, which `design/nav.js` must hold, see "Navigation" in
+`High-level/docs/platform-architecture.md`.
 The core reads it once at startup, so a change needs a restart, and refuses to start if the file
 is broken. Adding, moving or removing a feature changes `features.toml` and the Caddyfile in the
 same commit, since the two describe the same routes, and `services.json` gives the port the feature

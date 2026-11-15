@@ -841,6 +841,33 @@ def test_a_feature_that_needs_you_shows_the_dot(
     assert item["y"] <= spot["y"] < item["y"] + item["height"] / 2
 
 
+def test_each_feature_shows_its_icon(
+    page: Page, invite_code: str, base_url: str, viewport: str
+):
+    email = register_and_log_in(page, invite_code, base_url)
+    drawn(page, email)
+
+    # The names infra/features.toml gives, drawn in the rail on desktop and
+    # the tab bar on phone.
+    bar = links_bar(page)
+    for name, icon in [
+        ("Canary", "bird"),
+        ("Review", "layers"),
+        ("Dev flow", "git-pull-request"),
+    ]:
+        link = bar.get_by_role("link", name=name, exact=True)
+        assert shapes_of(link) == LUCIDE[icon], name
+    # Home and Memory keep their own, since neither is a feature.
+    assert (
+        shapes_of(bar.get_by_role("link", name="Home", exact=True)) == LUCIDE["house"]
+    )
+    assert (
+        shapes_of(bar.get_by_role("link", name="Memory", exact=True))
+        == LUCIDE["database"]
+    )
+    capture(page, "nav-icons")
+
+
 def test_an_unknown_icon_falls_back_to_the_box(
     page: Page, invite_code: str, base_url: str
 ):
