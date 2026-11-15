@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Reads changed paths on stdin, one per line, and prints which CI areas they touch as seven
-# `area=true|false` lines and one `dotnet_services=<JSON array>` line, ready for $GITHUB_OUTPUT.
-# With --all it reads nothing and prints every area true and every C# service, for a run with no
-# diff to read.
+# `area=true|false` lines, one `dotnet_services=<JSON array>` line and one `hosted=true|false` line,
+# ready for $GITHUB_OUTPUT. With --all it reads nothing and prints every area true, every C#
+# service and hosted true, for a run with no diff to read.
 #
 # A change under .github/workflows/ sets every area, since a workflow edit can break any of them,
 # and so does a change to infra/services.json, so a pull request cannot drop or rename its own
@@ -19,7 +19,17 @@
 # dotnet_services lists each C# service, an entry with "language": "dotnet" and area "dotnet",
 # whose folder, libs/dotnet/, contracts/, infra/services.json, infra/postgres/ or a workflow
 # changed, as the objects services.sh dotnet-services prints, in manifest order; `[]` when none
-# did. ci.yml runs .github/workflows/dotnet.yml once for each. Used by the `changes` job in ci.yml.
+# did. ci.yml runs .github/workflows/dotnet.yml once for each.
+#
+# hosted says whether the change reaches what the hosted images are built from, so ci.yml runs
+# .github/workflows/hosted.yml, which runs infra/hosted/check.sh. It is true for a change under
+# infra/hosted/, scripts/deploy/, infra/postgres/ or .github/workflows/, to infra/services.json, to
+# any file named Dockerfile or .dockerignore, and to any dependency manifest, lockfile or toolchain
+# pin, wherever it is. Source code alone leaves it false: an image that breaks from a source change
+# alone, such as a new file a service reads that its Dockerfile does not copy, is found at the next
+# release, which then changes nothing. See infra/hosted/README.md.
+#
+# Used by the `changes` job in ci.yml.
 set -uo pipefail
 
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -47,7 +57,7 @@ done <<< "$dotnet_entries"
 dotnet_set=()
 for _ in "${dotnet_dirs[@]+"${dotnet_dirs[@]}"}"; do dotnet_set+=(false); done
 
-core=false canary=false brain=false libs=false scripts=false web=false e2e=false
+core=false canary=false brain=false libs=false scripts=false web=false e2e=false hosted=false
 
 every_dotnet() {
   local i
@@ -67,7 +77,7 @@ set_area() {
 }
 
 if [ "$all" = true ]; then
-  core=true canary=true brain=true libs=true scripts=true web=true e2e=true
+  core=true canary=true brain=true libs=true scripts=true web=true e2e=true hosted=true
   every_dotnet
 else
   while IFS= read -r path || [ -n "$path" ]; do
@@ -102,6 +112,15 @@ else
     case "$path" in
       infra/* | e2e/*) e2e=true ;;
     esac
+    # What the hosted images are built from.
+    case "$path" in
+      infra/hosted/* | scripts/deploy/* | infra/postgres/* | .github/workflows/* | infra/services.json) hosted=true ;;
+    esac
+    case "${path##*/}" in
+      Dockerfile | .dockerignore | Cargo.toml | Cargo.lock | rust-toolchain.toml | pyproject.toml | uv.lock | \
+        .python-version | package.json | package-lock.json | .node-version | *.csproj | \
+        Directory.Packages.props | Directory.Build.props | packages.lock.json | global.json) hosted=true ;;
+    esac
     # A service's frontend: exactly one folder, then web/.
     if [[ "$path" =~ ^[^/]+/web/ ]]; then
       web=true; e2e=true
@@ -131,3 +150,4 @@ echo "scripts=$scripts"
 echo "web=$web"
 echo "e2e=$e2e"
 echo "dotnet_services=$dotnet_services"
+echo "hosted=$hosted"

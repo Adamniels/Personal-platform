@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Offline tests for changed-areas.sh: paths in on stdin, seven area lines and dotnet_services out.
+# Offline tests for changed-areas.sh: paths in on stdin, seven area lines, dotnet_services and hosted
+# out.
 # Run: bash scripts/ci/changed-areas.test.sh
 set -uo pipefail
 
@@ -8,10 +9,10 @@ pass=0
 fail=0
 
 # check <name> <expected: "core canary brain libs scripts web e2e" as true/false words> <paths, newline separated>
-# Compares the seven area lines; dotnet_services has checks of its own below.
+# Compares the seven area lines; dotnet_services and hosted have checks of their own below.
 check() {
   local name="$1" expected="$2" paths="$3" got
-  got="$(printf '%s' "$paths" | bash "$here/changed-areas.sh" | grep -v '^dotnet_services=' | tr '\n' ' ' | sed 's/ $//')"
+  got="$(printf '%s' "$paths" | bash "$here/changed-areas.sh" | grep -Ev '^(dotnet_services|hosted)=' | tr '\n' ' ' | sed 's/ $//')"
   if [ "$got" = "$expected" ]; then
     echo "ok   $name"; pass=$((pass + 1))
   else
@@ -75,7 +76,7 @@ cat > "$tmp/infra/services.json" <<'EOF'
 EOF
 fake() {
   local name="$1" expected="$2" paths="$3" got
-  got="$(printf '%s' "$paths" | bash "$tmp/scripts/ci/changed-areas.sh" 2>/dev/null | grep -v '^dotnet_services=' | tr '\n' ' ' | sed 's/ $//')"
+  got="$(printf '%s' "$paths" | bash "$tmp/scripts/ci/changed-areas.sh" 2>/dev/null | grep -Ev '^(dotnet_services|hosted)=' | tr '\n' ' ' | sed 's/ $//')"
   if [ "$got" = "$expected" ]; then
     echo "ok   $name"; pass=$((pass + 1))
   else
@@ -147,7 +148,7 @@ dotnet "docs set no C# service" "" "$fakescript" "docs/README.md"
 dotnet "a folder whose name starts like a C# service's is not it" "" "$fakescript" "Reviewer/x"
 dotnet "--all sets every C# service" "review notes" "$fakescript" "" --all
 fake "--all is read as an argument, not a path" "core=false canary=false brain=false libs=false scripts=false web=false e2e=false" "--all"
-all="$(bash "$fakescript" --all < /dev/null | grep -v '^dotnet_services=' | tr '\n' ' ' | sed 's/ $//')"
+all="$(bash "$fakescript" --all < /dev/null | grep -Ev '^(dotnet_services|hosted)=' | tr '\n' ' ' | sed 's/ $//')"
 if [ "$all" = "core=true canary=true brain=true libs=true scripts=true web=true e2e=true" ]; then
   echo "ok   --all sets every area"; pass=$((pass + 1))
 else
@@ -175,6 +176,45 @@ if [ "$rc" -ne 0 ] && ! grep -q '=' "$tmp/out"; then
   echo "ok   fails, printing no area, when the manifest cannot be read"; pass=$((pass + 1))
 else
   echo "FAIL fails, printing no area, when the manifest cannot be read"; echo "     rc=$rc: $(cat "$tmp/out")"; fail=$((fail + 1))
+fi
+
+# hosted: whether a change reaches what the hosted images are built from, so CI runs
+# infra/hosted/check.sh. Source code alone does not; a dependency manifest, lockfile or toolchain pin
+# anywhere does.
+hosted() { # hosted <name> <true|false> <paths> [args...]
+  local name="$1" expected="$2" paths="$3" got
+  shift 3
+  got="$(printf '%s' "$paths" | bash "$real" "$@" 2>&1 | sed -n 's/^hosted=//p')"
+  if [ "$got" = "$expected" ]; then
+    echo "ok   $name"; pass=$((pass + 1))
+  else
+    echo "FAIL $name"; echo "     expected: hosted=$expected"; echo "     got:      hosted=$got"; fail=$((fail + 1))
+  fi
+}
+for path in infra/hosted/x scripts/deploy/x Core/Dockerfile .dockerignore infra/services.json \
+  infra/postgres/initdb/x.sh Core/Cargo.lock Core/Cargo.toml Core/rust-toolchain.toml Brain/uv.lock \
+  canary/pyproject.toml Brain/web/package-lock.json design/ui/package.json \
+  review/src/Review/packages.lock.json review/Directory.Packages.props review/global.json \
+  review/src/Review/Review.csproj .github/workflows/ci.yml .github/workflows/new.yml \
+  Brain/.python-version Core/web/.node-version review/Directory.Build.props \
+  infra/hosted/backup/Dockerfile libs/python/platform-auth/pyproject.toml; do
+  hosted "$path sets hosted" true "$path"
+done
+for path in Core/src/x.rs Brain/src/brain/x.py review/src/Review/X.cs Brain/web/src/x.tsx \
+  e2e/tests/x.py docs/README.md infra/README.md infra/compose.yaml infra/Caddyfile \
+  scripts/ci/x.sh Core/Dockerfile.md Core/src/Dockerfile.rs; do
+  hosted "$path does not set hosted" false "$path"
+done
+hosted "a hosted path among others sets hosted" true "Core/src/x.rs
+docs/a.md
+Brain/uv.lock"
+hosted "no paths leave hosted false" false ""
+hosted "--all sets hosted" true "" --all
+count="$(printf 'Core/src/x.rs' | bash "$real" | grep -c '^hosted=')"
+if [ "$count" = 1 ]; then
+  echo "ok   hosted is one line"; pass=$((pass + 1))
+else
+  echo "FAIL hosted is one line"; echo "     got: $count"; fail=$((fail + 1))
 fi
 
 echo "$pass passed, $fail failed"
