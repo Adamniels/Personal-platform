@@ -1361,31 +1361,104 @@ def test_rows_are_the_row_height_on_phone(page: Page):
         assert box is not None and box["height"] >= 44, name
 
 
+def remove_target_reaches(page: Page, remove: Locator, reach: float) -> bool:
+    """Whether a press `reach` pixels above, below, left and right of the
+    remove button's centre still lands on the button. `elementFromPoint`
+    sees only the viewport, so the button is scrolled into it first."""
+    remove.scroll_into_view_if_needed()
+    return page.evaluate(
+        """([element, reach]) => {
+            const box = element.getBoundingClientRect();
+            const x = box.left + box.width / 2;
+            const y = box.top + box.height / 2;
+            return [[0, -reach], [0, reach], [-reach, 0], [reach, 0]].every(
+                ([dx, dy]) => element.contains(document.elementFromPoint(x + dx, y + dy))
+            );
+        }""",
+        [remove.element_handle(), reach],
+    )
+
+
 @pytest.mark.parametrize("theme", THEMES)
-def test_the_filters_and_paging_read_their_values(page: Page, theme: str):
+def test_a_filter_pill_is_filled_and_32px(page: Page, viewport: str, theme: str):
     open_gallery(page, theme)
     section = table_section(page)
 
+    # The pill: 32px high, fully round, the third surface, no border, 13px in
+    # text, 14px on the left and 4px on the right.
     pill = section.get_by_text("Status: Done", exact=True).locator("..")
     style = pill.evaluate(TABLE_STYLE)
-    assert pill.evaluate("e => e.getBoundingClientRect().height") == 28
+    assert pill.evaluate("e => e.getBoundingClientRect().height") == 32
     assert style["radii"] == radii(page, "--radius-full")
-    assert style["borders"] == [resolve(page, "--border-strong", "color")] * 4
-    assert style["borderWidths"] == ["1px"] * 4
+    assert style["background"] == resolve(page, "--surface-3", "background-color")
+    assert style["borderWidths"] == ["0px"] * 4
+    assert style["fontSize"] == resolve(page, "--text-small-size", "font-size")
+    assert style["color"] == resolve(page, "--text", "color")
+    assert style["padding"][1] == "4px" and style["padding"][3] == "14px"
+
+    # Its remove button: a 26px round ghost button inside it, named as before.
+    remove = section.get_by_role("button", name="Remove filter Status: Done")
+    box, outer = remove.bounding_box(), pill.bounding_box()
+    assert box is not None and outer is not None
+    assert box["width"] == 26 and box["height"] == 26
+    assert (
+        outer["x"] <= box["x"]
+        and box["x"] + box["width"] <= outer["x"] + outer["width"]
+    )
+    assert (
+        outer["y"] <= box["y"]
+        and box["y"] + box["height"] <= outer["y"] + outer["height"]
+    )
+    button_style = remove.evaluate(TABLE_STYLE)
+    assert button_style["radii"] == radii(page, "--radius-full")
+    assert button_style["background"] == resolve(page, None, "background-color")
+    assert button_style["color"] == resolve(page, "--text-2", "color")
+
+    # On phone its target reaches 44px (hard rule 10).
+    if viewport == "phone":
+        assert remove_target_reaches(page, remove, 21.5), "the target is under 44px"
 
     count = section.get_by_text("8 of 214", exact=True).evaluate(TABLE_STYLE)
     assert count["fontFamily"] == resolve(page, "--font-mono", "font-family")
 
-    remove = section.get_by_role("button", name="Remove filter Status: Done")
     remove.click()
     expect(section.get_by_text("Status: Done", exact=True)).to_have_count(0)
 
-    paging = section.get_by_role("navigation", name="Pages")
-    expect(paging.get_by_text("Rows 1 to 8 of 214")).to_be_visible()
-    expect(paging.get_by_role("button", name="Previous")).to_be_disabled()
-    paging.get_by_role("button", name="Next").click()
-    expect(paging.get_by_text("Rows 9 to 16 of 214")).to_be_visible()
-    expect(paging.get_by_role("button", name="Previous")).to_be_enabled()
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_paging_reads_its_values(page: Page, theme: str):
+    open_gallery(page, theme)
+    paging = table_section(page).get_by_role("navigation", name="Pages")
+    previous = paging.get_by_role("button", name="Previous")
+    next_button = paging.get_by_role("button", name="Next")
+
+    # The line on the left in text-2.
+    where = paging.get_by_text("Rows 1 to 8 of 214", exact=True)
+    expect(where).to_be_visible()
+    assert where.evaluate(TABLE_STYLE)["color"] == resolve(page, "--text-2", "color")
+    where_box, next_box = where.bounding_box(), next_button.bounding_box()
+    assert where_box is not None and next_box is not None
+    assert where_box["x"] < next_box["x"], "the line is not on the left"
+
+    # Previous and Next are secondary buttons, read as the gallery's own
+    # Secondary and Disabled buttons are; Previous is disabled on page one.
+    def assert_kind(target: Locator, kind: str) -> None:
+        expected = button(page, KINDS[kind][0]).evaluate(STYLE)
+        actual = target.evaluate(STYLE)
+        for key in ["background", "color", "borders", "borderWidths", "height"]:
+            assert actual[key] == expected[key], (kind, key)
+        assert actual["radii"] == radii(page, "--radius-full")
+        assert actual["padding"] == [BUTTON_PADDING["secondary"]] * 2
+
+    expect(previous).to_be_disabled()
+    assert_kind(previous, "disabled")
+    assert_kind(next_button, "secondary")
+
+    next_button.click()
+    expect(paging.get_by_text("Rows 9 to 16 of 214", exact=True)).to_be_visible()
+    expect(previous).to_be_enabled()
+    page.mouse.move(0, 0)
+    assert_kind(previous, "secondary")
 
 
 # "Dialog" and "Toast" in section 4 of design/DESIGN.md, the two floating
