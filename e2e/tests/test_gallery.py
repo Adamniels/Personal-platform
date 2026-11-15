@@ -782,9 +782,9 @@ def test_an_empty_state_reads_its_values(page: Page, theme: str):
     assert style["borders"] == [resolve(page, "--border-strong", "color")] * 4
     assert style["borderWidths"] == ["1px"] * 4
     assert style["radii"] == radii(page, "--radius-lg")
-    six = resolve(page, "--space-6", "padding-top")
-    four = resolve(page, "--space-4", "padding-top")
-    assert style["padding"] == [six, four, six, four]
+    vertical = resolve(page, "--space-7", "padding-top")
+    side = resolve(page, "--space-4", "padding-top")
+    assert style["padding"] == [vertical, side, vertical, side]
     assert style["textAlign"] == "center"
 
     assert title.evaluate(BOX_STYLE)["weight"] == "600"
@@ -1070,25 +1070,27 @@ def test_a_wide_table_scrolls_inside_its_wrapper(page: Page):
     assert no_sideways_scroll(page), "the page scrolls sideways"
 
 
-def test_rows_are_44px_on_phone(page: Page):
+def test_rows_are_the_row_height_on_phone(page: Page):
     page.set_viewport_size(VIEWPORTS["phone"])
     open_gallery(page, "light")
     section = table_section(page)
+    row_h = float(resolve(page, "--row-h", "height").removesuffix("px"))
+    assert row_h >= 44, "a row on phone is a touch target"
 
-    # A row of one line is exactly 44px; one with the folded line under its
-    # first cell is taller, never shorter.
+    # A row of one line is exactly --row-h; one with the folded line under
+    # its first cell is taller, never shorter.
     wide = section.get_by_role("table", name="Hours by month")
     for table, exact in [(wide, True), (sessions(page), False)]:
         header = table.locator("thead tr").bounding_box()
-        assert header is not None and header["height"] == 44
+        assert header is not None and header["height"] == row_h
         rows = body_rows(table)
         for index in range(rows.count()):
             box = rows.nth(index).bounding_box()
             assert box is not None
             if exact:
-                assert box["height"] == 44, index
+                assert box["height"] == row_h, index
             else:
-                assert box["height"] >= 44, index
+                assert box["height"] >= row_h, index
 
     # The controls in the table are touch targets too.
     for name in ["Session", "Edit Review the merge gate", "Save", "Cancel"]:

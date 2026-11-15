@@ -28,19 +28,23 @@ platform-nav {
   box-sizing: border-box;
   max-width: var(--content-max);
   margin: 0 auto;
-  padding: var(--space-5) var(--page-pad);
+  padding: var(--space-6) var(--page-pad);
 }
 
+/* Headings are the heading font, which is always 600 and in capitals. */
 .page :is(h1, h2) {
   font-family: var(--font-heading);
   font-weight: 600;
+  text-transform: uppercase;
   margin: 0;
 }
 
+/* The page title, one per page. */
 .page h1 {
-  font-size: var(--text-h1-size);
-  line-height: var(--text-h1-line);
-  margin-bottom: var(--space-5);
+  font-size: var(--text-display-size);
+  line-height: var(--text-display-line);
+  letter-spacing: var(--tracking-display);
+  margin-bottom: var(--space-6);
 }
 
 .page h2 {
