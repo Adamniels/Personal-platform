@@ -6,9 +6,10 @@ meant to grow is in `docs/devflow-architecture.md`, and its scope and slices are
 issue, #268. "Dev flow" is its name in the nav and in headings, and `devflow` everywhere technical.
 
 It is a C# feature on .NET 10, an ASP.NET Core minimal API app, built the way `review/` is. Today it
-is the service, its page, its database, which holds the vault, and the code host's interface with
-its fake and its GitHub adapter, which reads as the app: signing a user in, the other tables and
-everything the tabs will show arrive with later slices.
+is the service, its page, its database, which holds the vault, the code host's interface with its
+fake and its GitHub adapter, which reads as the app, and linking a user's GitHub account, so Dev
+flow holds a token that acts as them: the other tables and everything the tabs will show arrive
+with later slices.
 
 ## What it serves
 
@@ -16,10 +17,19 @@ everything the tabs will show arrive with later slices.
   serves, and says nothing about what Dev flow depends on.
 - `GET /devflow/api/whoami`, `{"account_id": "<sub>"}`, the account the request's token names.
   Without a valid token it answers `401` with an empty body.
-- `GET /devflow/api/status`, `{"code_host": "fake"}` or `{"code_host": "github"}`, which code host
-  Dev flow talks to, see "The code host". The page reads it to show its banner. Without a valid
-  token, `401` with an empty body. Later slices add the state of the user's GitHub link to it.
-- In the fake mode only, the fake's addresses under `/devflow/api/fake/`, see "Staging a world".
+- `GET /devflow/api/status`, `{"code_host": "fake", "github": {"state": "none", "login": null}}`:
+  which code host Dev flow talks to, `fake` or `github`, see "The code host", and the caller's
+  GitHub link, its `state` `none`, `linked` or `needs_relink`, with the `login` it was linked as,
+  null with `none`, see "Linking GitHub". The page reads it to show its banner and the link.
+  Without a valid token, `401` with an empty body.
+- `POST /devflow/api/github/link`, `{"authorize_url": "..."}`, starts linking the caller's GitHub
+  account, and `DELETE /devflow/api/github/link`, `204`, unlinks it. Without a valid token, `401`
+  with an empty body.
+- `GET /devflow/github/callback`, where the code host sends the browser back, answering `303` to
+  `/devflow/projects`, or to `/devflow/projects?link=failed` when it did not link. Without a valid
+  token, `303` to the refresh endpoint as a page answers, see "Linking GitHub".
+- In the fake mode only, the fake's addresses under `/devflow/api/fake/`, see "Staging a world",
+  and its sign in page, `/devflow/fake-github/authorize`, see "The fake".
 - `GET /devflow` and `/devflow/projects`, with any query, the page: `web/dist/index.html`,
   revalidated on every load. Without a valid token each answers `303` to
   `/auth/refresh?return_to=<the path and query as received, URL encoded>`.
@@ -57,6 +67,15 @@ is `src/banner.tsx`, the page's own component, since no other feature needs it, 
 `GET /devflow/api/status` once as the page loads; before the answer, with `github`, or when the
 status cannot be read, it shows nothing.
 
+The Projects tab shows the GitHub link above its list, `src/projects-link.tsx`, as the package's
+`Card` titled "GitHub": with nothing linked, "Link your GitHub account to connect repositories and
+to merge and comment as yourself." and a primary "Link GitHub", which posts to
+`/devflow/api/github/link` and sends the browser to the address it answers; linked, "Linked as
+@<login>" and a ghost "Unlink" behind the package's `Dialog`, "Unlink GitHub?"; and with
+`needs_relink`, the card's attention style, "Your GitHub link has expired." and "Link again". At
+`?link=failed`, or when starting fails, it says "GitHub was not linked. Try again." as an alert.
+Before the status answers it shows nothing.
+
 Each section shows the package's `EmptyState` until its slice lands. "Running now" and "Usage and
 history" join with the parts that build them, never as empty tabs. The address is the state,
 through the History API and no router library (`src/address.ts`): a tab pushes its section's
@@ -68,7 +87,9 @@ the service answers the page for in `src/DevFlow/Pages/PageEndpoints.cs`; the tw
 the session cookie, a `401` is refreshed once, shared by every call that got one, by posting to
 `/auth/refresh` and repeating the call, and a second `401` sends the browser to
 `/auth/refresh?return_to=<path>`, as review's client does. Its GETs are typed from
-`src/api/schema.d.ts`. The banner's status is the one call the page makes yet.
+`src/api/schema.d.ts`. The page reads the status once as it loads, in `src/status.ts`, for the
+banner and the link, and again after unlinking; starting a link and unlinking are its only other
+calls.
 
 ## The schema
 
@@ -179,7 +200,8 @@ shared, since no service imports from another's directory.
   - `DEVFLOW_GITHUB_CLIENT_ID`: the app's client id, ASCII letters, digits and dots, such as
     `Iv23li` followed by the rest. The app's tokens carry it as `iss`.
   - `DEVFLOW_GITHUB_CLIENT_SECRET`: a client secret of the app, printable ASCII without spaces.
-    Read here, and first used by signing a user in, a later slice.
+    Sent when a person's code or refresh token is exchanged for their tokens, see "Linking
+    GitHub".
   - `DEVFLOW_GITHUB_PRIVATE_KEY_FILE`: the path of the app's private key, read once at startup with
     `RSA.ImportFromPem`. It must be an RSA private key of at least 2048 bits in PEM, unencrypted,
     either `BEGIN RSA PRIVATE KEY`, as GitHub gives it, or `BEGIN PRIVATE KEY`.
@@ -212,7 +234,9 @@ what it holds; what is Dev flow's own is below.
   `DELETE` on every table the owner creates and `USAGE` on every sequence, never `TRUNCATE`, and
   takes `CREATE` on `public` from everyone but its owner, as review's first migration does.
 
-Its one table is the vault's, `secrets`, from `migrations/0002_secrets.sql`, see "The vault".
+Its tables are the vault's, `secrets`, from `migrations/0002_secrets.sql`, see "The vault", and
+the GitHub link's two, `github_sign_ins` and `github_accounts`, from
+`migrations/0003_github_link.sql`, see "Linking GitHub".
 
 ### Migrating
 
@@ -322,8 +346,23 @@ another repository read. Every operation takes the platform account it is asked 
 the fake keeps a world per account, and the GitHub adapter reads as the app and will write as the
 account's linked user. Each answers a `CodeHostResult<T>`: `Found` with the value, `NotFound`, or
 `Unavailable` with when to try again if the host said, and the caller handles all three; nothing is
-thrown for an expected condition. Later slices add signing in, listing what a user can connect,
-merging and commenting, each to the interface, the fake and the adapter together.
+thrown for an expected condition. Later slices add listing what a user can connect, merging and
+commenting, each to the interface, the fake and the adapter together.
+
+Signing a person in is a second interface beside it in the same folder, `ICodeHostSignIn`, which
+both implementations implement, since its reads are as the app and these are as a person:
+
+- `AuthorizeAddress(user, state, challenge, redirect)`: the code host's page to send the browser
+  to, carrying the state, the S256 challenge and where to send it back;
+- `Exchange(user, code, verifier, redirect)`: the two tokens for the code the browser came back
+  with, an access token and a refresh token, with when each expires;
+- `Renew(user, refreshToken)`: a new pair, the refresh token taken once;
+- `WhoIs(user, accessToken)`: the account the token acts as, its login and numeric id.
+
+Each answers a `SignInResult<T>`: `Granted`, `Refused` when the host does not take what it was
+given, or `Unavailable` when it did not answer. The two failures are kept apart because a refused
+renewal ends a link and an unavailable one must not. The PKCE challenge is `Pkce.Challenge`, the
+base64url of the verifier's SHA-256, RFC 7636's S256.
 
 `DEVFLOW_CODE_HOST` chooses the implementation when the app is built, in `DevFlowApp.Build`. `fake`
 is `FakeCodeHost`; `github` is `GitHubCodeHost`, in `src/DevFlow/CodeHost/GitHub/`, registered by
@@ -346,6 +385,22 @@ can only read and what it does with GitHub's failures are "GitHub" in
 | `CheckRuns` | `GET /repos/{owner}/{repo}/commits/{sha}/check-runs?per_page=100` |
 | `File` | `GET /repos/{owner}/{repo}/contents/{path}?ref={branch}`, with `Accept: application/vnd.github.raw+json` |
 
+Signing a person in, in `GitHubCodeHost.SignIn.cs`, is GitHub's web flow exactly as GitHub
+documents it:
+
+| Operation | Address |
+|---|---|
+| `AuthorizeAddress` | `https://github.com/login/oauth/authorize` with `client_id`, `redirect_uri`, `state`, `code_challenge` and `code_challenge_method=S256` |
+| `Exchange` | `POST https://github.com/login/oauth/access_token`, a form of `client_id`, `client_secret`, `code`, `redirect_uri` and `code_verifier`, with `Accept: application/json` |
+| `Renew` | the same `POST`, a form of `client_id`, `client_secret`, `grant_type=refresh_token` and `refresh_token` |
+| `WhoIs` | `GET /user` on the API, with the user's token |
+
+GitHub answers a token request it refuses with `200` and an `error` field. Each error is refused,
+but `incorrect_client_credentials` and `redirect_uri_mismatch`, which say the app's own settings are
+wrong, are unavailable, as is any answer that is not a success and one without expiring tokens,
+which an app without "Expire user authorization tokens" gives: ending a person's link would fix
+none of them. `WhoIs` is refused on `401`.
+
 Every request is sent with one `HttpClient` named `github` from `IHttpClientFactory`, with a 20
 second timeout, `X-GitHub-Api-Version: 2022-11-28`, `User-Agent: platform-devflow`, and `Accept:
 application/vnd.github+json` unless it reads a file, and the client's logs leave every header's
@@ -356,7 +411,8 @@ was deleted is `ghost`, as GitHub shows it, and a body GitHub sends as null is e
 requested and pending check runs are queued.
 
 Its tests are in `tests/DevFlow.Tests/GitHub/`, against GitHub's real answers recorded in
-`contracts/github/`, see `contracts/README.md`, with a stub `HttpMessageHandler` in place of the
+`contracts/github/`, and for signing in against its documented answers written there by hand, see
+`contracts/README.md`, with a stub `HttpMessageHandler` in place of the
 network and a `FakeTimeProvider`: no test reaches GitHub. They build it as Dev flow does, through
 `AddGitHubCodeHost`, and replace the client's handler, never its address.
 
@@ -394,12 +450,29 @@ records, so staging something is writing what the interface would answer:
 }
 ```
 
-It is read strictly, by `FakeJson` in `src/DevFlow/CodeHost/FakeWorld.cs`: every field present, null
-only where the record allows it, no field the records do not have, numbers as numbers, and states
+A world may also name who the account is at the fake, `"user": {"login": "octo-owner", "id":
+70000001}`, the one person its sign in page shows and its tokens act as; it is the one field a
+world may leave out, `octo-owner` with that id when it does, and it is left out when it is read
+back.
+
+It is read strictly, by `FakeJson` in `src/DevFlow/CodeHost/FakeWorld.cs`: every field present but
+`user`, null only where the record allows it, no field the records do not have, numbers as numbers, and states
 as their snake case words, `open`, `in_progress`, `timed_out`. What identifies a thing is listed
 once: an installation's id, a repository's id within it, a pull request's or a conversation's
 number, a commit's id, and a file's path and branch. A pull request's number reaches its
 conversation, empty unless one is listed; a commit that is not listed is not found.
+
+The fake signs a person in too, in `FakeCodeHost.SignIn.cs`, per account and apart from its world,
+so staging a world again signs nobody out. Its sign in page, `GET /devflow/fake-github/authorize`,
+mapped only in the fake mode and under the `Page` policy, so it knows whose world to read, is a
+plain page that names itself "Fake GitHub", shows the login of the world's user, and has
+"Authorize" and "Deny", a form posted back to the same address, which sends the browser to the
+redirect address with a code and the state, or with `error=access_denied` and the state. It sends
+the browser only to Dev flow's own redirect address, and answers `400` to anything else, as GitHub
+sends it only to a registered one. Its codes last ten minutes and are taken once, bound to the
+challenge, and a verifier the challenge was not made from is refused. Its tokens are random and
+last as long as GitHub's, eight hours and six months, and a refresh token is taken once, so a test
+of renewal means something. With the account set unavailable, signing in is unavailable too.
 
 ### Staging a world
 
@@ -416,11 +489,103 @@ of what Dev flow is:
 - `POST /devflow/api/fake/unavailable` with `{"unavailable": true}` makes every operation for the
   caller answer unavailable, without a time to try again, and `false` makes it answer again. The
   world is kept.
+- `POST /devflow/api/fake/expire-token` ends the caller's access token now, at the fake and in Dev
+  flow's record of when it expires, so the next use of it renews, `204`. The refresh token still
+  works.
 
 In the GitHub mode none of them exists, `404`. An acceptance test stages a world through the
 `devflow_world` fixture, which puts it through the page's own session, with `e2e/devflow_worlds.py`
 to build it; see "Fixtures" in `e2e/README.md`. A C# test calls `FakeCodeHost.Replace` and
 `SetUnavailable`, or sends the same requests through the harness.
+
+## Linking GitHub
+
+The owner links his GitHub account once, on the Projects tab, and from then on Dev flow holds a
+token that acts as him on GitHub, renewed by itself, which he can remove again. Why it acts as him,
+and why it is safe, is "Acting as the owner" in `docs/devflow-architecture.md`. It is
+`GitHubLink` and `UserTokens`, in `src/DevFlow/Link/`, over the two tables of
+`migrations/0003_github_link.sql`, both guarded like every scoped table:
+
+- `github_sign_ins`: a link started and not yet returned from, `user_id`, `state_hash`, the
+  SHA-256 of the state and never the state, `verifier`, the PKCE verifier, and `created_at`, with
+  the primary key `(user_id, state_hash)`;
+- `github_accounts`: the one GitHub account a user has linked, `user_id` its primary key, `login`,
+  `github_user_id`, `state`, `linked` or `needs_relink`, `access_expires_at`, `refresh_expires_at`
+  and `linked_at`. The two tokens are in the vault, under the purposes `github.access` and
+  `github.refresh`, and nowhere else.
+
+**Starting.** `POST /devflow/api/github/link` makes a random state and a random PKCE verifier, 32
+bytes each in base64url, stores the state's SHA-256 with the verifier and the time, removing the
+user's own sign ins older than ten minutes on the way, and answers the code host's address with the
+state and the verifier's S256 challenge. The redirect address is
+`<DEVFLOW_PUBLIC_ORIGIN>/devflow/github/callback`, so it follows the origin a copy is served at.
+
+**The return.** `GET /devflow/github/callback?code=&state=`, under the `Page` policy, so the person
+must be logged in to the platform, and one who is not goes to refresh and comes back with the same
+address, nothing spent. It deletes the state's sign in from this user's own, so it is spent whatever
+follows, and refuses one that is missing, already spent, another user's or older than ten minutes,
+a return carrying the code host's own `error`, and one without a code. Otherwise it exchanges the
+code with the stored verifier, asks who the token belongs to, stores the account as `linked` with
+both tokens in the vault, and answers `303` to `/devflow/projects`. Any refusal answers `303` to
+`/devflow/projects?link=failed` and stores nothing.
+
+**A usable token.** `UserTokens.For(userId)` is the one way to a token that acts as the user, which
+every later use goes through. In one door transaction it locks the account's row with
+`SELECT ... FOR UPDATE`, returns the access token while it has more than five minutes left, and
+otherwise renews, stores both new tokens and their lifetimes, and returns the new one. A renewal
+the host refuses, or a refresh token already past its end, sets the state to `needs_relink` and
+deletes both tokens; a host that is unavailable changes nothing and is answered as unavailable;
+with no account, or `needs_relink`, it answers that for the caller to show.
+
+**Unlinking.** `DELETE /devflow/api/github/link` removes the account, its tokens and any sign ins.
+Nothing is revoked at GitHub; "Registering the GitHub App" below says where the owner does that.
+
+Nothing prints a code, a verifier, a state or a token. The request log, which carries each
+address's query and so the return's code and state, is raised to `Warning` in `DevFlowApp.Build`,
+and `LinkTests.NothingPrintsACodeAVerifierAStateOrAToken` reads every log line of a whole link and
+a renewal for each of them.
+
+## Registering the GitHub App
+
+The owner's runbook, done once on GitHub, under Settings, Developer settings, GitHub Apps, New
+GitHub App, as the account that owns the repositories. Every field on the form, and what to enter:
+
+| Field | What to enter |
+|---|---|
+| GitHub App name | A name of your own, such as `platform-devflow`; its slug, from the app's address `github.com/apps/<slug>`, is `DEVFLOW_GITHUB_APP_SLUG` |
+| Description | Optional |
+| Homepage URL | The hosted copy's origin |
+| Callback URL | `https://platform.test/devflow/github/callback`, then "Add Callback URL" and `<the hosted origin>/devflow/github/callback`; each must match Dev flow's redirect address exactly |
+| Expire user authorization tokens | On: Dev flow renews the eight hour token itself, and refuses an answer without expiring tokens |
+| Request user authorization (OAuth) during installation | Off: linking happens from the Projects tab |
+| Enable Device Flow | Off: Dev flow uses the web flow alone |
+| Setup URL | Empty |
+| Redirect on update | Off |
+| Webhook, Active | Off: Dev flow polls, see "The program asks GitHub for changes; there is no webhook" |
+| Repository permissions | Contents read and write, Pull requests read and write, Issues read, Commit statuses read, Checks read, Metadata read, and nothing else |
+| Organization permissions | None |
+| Account permissions | None |
+| Subscribe to events | None |
+| Where can this GitHub App be installed? | Only on this account |
+
+Then, on the app's page:
+
+1. **Generate a private key.** GitHub downloads a `.pem` file. Keep it on the Mac mini outside the
+   repository and name its path as `DEVFLOW_GITHUB_PRIVATE_KEY_FILE` in `infra/hosted/.env`, which
+   mounts it read only into Dev flow's container; keep a copy in the password manager.
+2. **Generate a new client secret.** GitHub shows it once. Put it in `infra/hosted/.env` as
+   `DEVFLOW_GITHUB_CLIENT_SECRET`, with the client id the page shows as `DEVFLOW_GITHUB_CLIENT_ID`,
+   and keep it in the password manager.
+3. **Install App**, on the repositories Dev flow is to read, only those.
+4. **Try the link on the laptop first.** Start Dev flow there with `DEVFLOW_CODE_HOST=github`, a
+   `DEVFLOW_VAULT_KEY` made as "The vault" says, and the app's four settings, open the Projects
+   tab, press "Link GitHub", authorize on GitHub, and see "Linked as @<your login>". Then release
+   the hosted copy, see `infra/hosted/README.md`.
+
+**Revoking.** Unlinking forgets the tokens in Dev flow and revokes nothing. To end what GitHub
+granted, revoke the app's authorization under your GitHub Settings, Applications, Authorized
+GitHub Apps; to stop it reading the repositories, uninstall it under Installed GitHub Apps; and to
+make every client secret or private key useless, delete it on the app's page.
 
 ## How Dev flow authenticates a request
 
@@ -431,12 +596,15 @@ it holds and how its tests cover the ways verification breaks. Dev flow referenc
 and does three things with it, in `src/DevFlow/DevFlowApp.cs`:
 
 - `AddPlatformAuth` with `DEVFLOW_CORE_URL`, which registers the key cache, the handler and the two
-  policies. The pages take `PlatformAuthPolicies.Page`, and `whoami`, `status` and the fake's
-  addresses take `PlatformAuthPolicies.Api`; health and the built files take neither. A route reads its caller's
+  policies. The pages take `PlatformAuthPolicies.Page`, as do the return from the code host and the
+  fake's sign in page, and `whoami`, `status`, starting a link, unlinking and the fake's addresses
+  take `PlatformAuthPolicies.Api`; health and the built files take neither. A route reads its caller's
   user id through `Api/Caller.cs`, as review's do.
 - `UsePlatformOriginCheck` with `DEVFLOW_PUBLIC_ORIGIN`, before routing, so every route, one added
-  later included, is covered. The only routes that change state yet are the fake's, which exist
-  only in the fake mode.
+  later included, is covered: starting a link, unlinking, and the fake's addresses and its sign in
+  form. The return from the code host, `GET /devflow/github/callback`, is the one route that
+  changes state on a GET, which "How a feature authenticates" otherwise forbids; why it is safe is
+  in "Security decisions and accepted risks" in `docs/devflow-architecture.md`.
 - `DevFlowApp.Build(settings, database, webRoot, configure)` builds the app, with the door; `configure` runs before it is
   built, which is where `Program` sets the listen address and where the tests put the app on a
   test server, with a key cache over the committed key set answered from memory and a clock fixed
@@ -457,12 +625,13 @@ the analyzers as the linter and `dotnet format` as the formatter are in "Librari
 in `libs/dotnet/PlatformAuth/README.md`.
 
 **One web project, not layered projects.** `src/DevFlow/` is the whole service, organised in
-feature folders: `Settings`, `Health` (health and whoami), `Status`, `CodeHost` (the interface, its
-records, the fake and, in `GitHub`, the adapter), `Vault`, `Pages` and `Api` today, more with later
-slices, as `review/` is.
+feature folders: `Settings`, `Health` (health and whoami), `Status`, `CodeHost` (the interfaces, their
+records, the fake and, in `GitHub`, the adapter), `Link` (linking GitHub and a usable token), `Vault`,
+`Pages` and `Api` today, more with later slices, as `review/` is.
 
 **The GitHub adapter is written by hand on .NET's `HttpClient`**, with `System.Text.Json`, and
-signs the app's tokens with .NET's own `RSA`, so no GitHub or JWT library is added: its calls are
+signs the app's tokens with .NET's own `RSA`, and signs a person in with the same `HttpClient` and
+.NET's own SHA-256 for PKCE, so no GitHub, JWT or OAuth library is added: its calls are
 few, and a library would be a dependency for what a dozen typed requests do. What it remembers for
 conditional requests is in a `MemoryCache`, from the shared framework.
 

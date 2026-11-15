@@ -2,7 +2,7 @@
 
 Status: exploratory. The walking skeleton is being built.
 
-Last updated: 2026 11 15
+Last updated: 2026 11 16
 
 These are planning notes, not specifications. Everything here is the current best idea with the
 reasoning attached, and it is expected to change as building teaches things planning could not.
@@ -113,9 +113,11 @@ features" in `High-level/docs/platform-architecture.md`.
 - `devflow/README.md` — what Dev flow serves, its page and its two tabs, the schema it pins, how to
   run it and its tests, its settings, its database and roles, migrating, the door, the vault that
   seals a user's secrets and its key, the code host's interface, its fake and how a test stages a
-  world in it, how it authenticates a request with `PlatformAuth`, and the libraries it is built on
+  world in it, linking a user's GitHub account and the one way to a token that acts as them,
+  registering the GitHub App, how it authenticates a request with `PlatformAuth`, and the
+  libraries it is built on
 - `devflow/docs/devflow-architecture.md` — what Dev flow is, what of it exists, the code host seam
-  and why its fake sits there, reading this repository's runner and the conventions it knows, and
+  and why its fake sits there, acting as the owner on GitHub, reading this repository's runner and the conventions it knows, and
   its security decisions and accepted risks, kept for an audit, the vault's and the fake's among
   them
 - `docs/superpowers/specs/2026-11-14-development-flow-design.md` — the design of the whole

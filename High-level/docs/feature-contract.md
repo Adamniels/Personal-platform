@@ -229,7 +229,10 @@ it:
   default, see `Core/docs/core-architecture.md` for the value and why. The identity is whatever the
   verified token says.
 - On anything that changes state, check that the `Origin` header is the platform's own, and never
-  change state on a GET. That is the CSRF defence in full.
+  change state on a GET. That is the CSRF defence in full. The one known exception is Dev flow's
+  return from GitHub, `GET /devflow/github/callback`, which GitHub can only send as a GET and which
+  a single use state bound to the user makes safe instead; see "Security decisions and accepted
+  risks" in `devflow/docs/devflow-architecture.md`.
 - Treat a missing token, an expired one and one that fails verification the same way. An API call
   returns 401 and the frontend refreshes and retries; a plain page load redirects to the core's
   refresh endpoint with the path to come back to. The feature never decides whether someone needs
