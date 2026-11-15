@@ -19,6 +19,7 @@ backs up every database each night, see "Backups". The owner sets the real copy 
 | `canary`   | `platform-hosted/canary`    | 8081       | through the proxy                        |
 | `brain`    | `platform-hosted/brain`     | 8082       | through the proxy                        |
 | `review`   | `platform-hosted/review`    | 8083       | through the proxy                        |
+| `devflow`  | `platform-hosted/devflow`   | 8084       | through the proxy                        |
 | `proxy`    | `platform-hosted/proxy`     | 80         | published, `127.0.0.1:9080` by default   |
 | `backup`   | `platform-hosted/backup`    | nothing    | runs the nightly backup, see "Backups"   |
 
@@ -40,15 +41,17 @@ owner's URL.
   folder's name, `hosted`, which is neither, so a command typed in another clone never reaches
   the real copy by accident.
 - `Caddyfile`, the proxy's: the dev Caddyfile's routes on one plain HTTP site, `:80`, with each
-  upstream the service's compose name, `canary:8081`, `review:8083`, `brain:8082` and the rest
-  `core:8080`, and the same design paths, served from files copied into the proxy's image.
+  upstream the service's compose name, `canary:8081`, `review:8083`, `devflow:8084`, `brain:8082`
+  and the rest `core:8080`, and the same design paths, served from files copied into the proxy's
+  image.
 - `features.toml`, the core's registry in the hosted copy: `infra/features.toml` feature for
   feature, with each upstream `http://<service>:<port>`. Two files rather than one with
   placeholders, since the core reads a plain file; `tests/agree.test.sh` holds them together.
 - `.env.example`, every variable `compose.yaml` reads, each with what it is. The real copy's
   values go in `.env` beside it, which git ignores.
 - `proxy/Dockerfile`, the proxy's image. Each service's Dockerfile is in its own folder:
-  `Core/Dockerfile`, `canary/Dockerfile`, `Brain/Dockerfile` and `review/Dockerfile`.
+  `Core/Dockerfile`, `canary/Dockerfile`, `Brain/Dockerfile`, `review/Dockerfile` and
+  `devflow/Dockerfile`.
 - `backup/`, the backup job's image and its bash scripts, and `postgres/backup-role.sh`, the role
   it dumps as, see "Backups".
 - `check.sh`, with `front/`, its test HTTPS front, `tests/agree.test.sh`, and
