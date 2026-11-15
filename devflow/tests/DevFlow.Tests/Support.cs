@@ -3,6 +3,7 @@ using System.Net;
 using System.Text;
 using System.Text.Json.Nodes;
 
+using DevFlow.CodeHost;
 using DevFlow.Settings;
 
 using Microsoft.AspNetCore.Builder;
@@ -135,20 +136,38 @@ internal sealed class Harness : IAsyncDisposable
 
     /// <param name="database">The door the app uses, disposed with the harness. Without one it is
     /// never opened: the test takes no database, and no route it calls uses one.</param>
-    public static async Task<Harness> Start(DevFlowSettings? settings = null, long? clockAt = null, UserDb? database = null)
+    /// <param name="codeHost">A code host registered before the app's own, which it keeps: how a
+    /// test builds the app in the GitHub mode, whose adapter is not built yet.</param>
+    public static async Task<Harness> Start(DevFlowSettings? settings = null, long? clockAt = null, UserDb? database = null, ICodeHost? codeHost = null)
     {
         var webRoot = MakeBuild();
         var time = new FakeTimeProvider(DateTimeOffset.FromUnixTimeSeconds(clockAt ?? Contract.IssuedAt));
         var core = new StubCore();
         settings ??= Defaults;
         database ??= UserDb.Unopened(DevFlowSettings.Service, settings.AppDatabase);
-        var app = DevFlowApp.Build(settings, database, webRoot, builder =>
+        WebApplication app;
+        try
         {
-            builder.WebHost.UseTestServer();
-            builder.Services.AddSingleton<TimeProvider>(time);
-            // Registered first, so AddPlatformAuth keeps it rather than reaching a real core.
-            builder.Services.AddSingleton(core.Cache(time));
-        });
+            app = DevFlowApp.Build(settings, database, webRoot, builder =>
+            {
+                builder.WebHost.UseTestServer();
+                builder.Services.AddSingleton<TimeProvider>(time);
+                // Registered first, so AddPlatformAuth keeps it rather than reaching a real core.
+                builder.Services.AddSingleton(core.Cache(time));
+                if (codeHost is not null)
+                {
+                    builder.Services.AddSingleton(codeHost);
+                }
+            });
+        }
+        catch
+        {
+            // A test that expects the app to refuse leaves nothing behind.
+            core.Dispose();
+            Directory.Delete(webRoot, recursive: true);
+            throw;
+        }
+
         await app.StartAsync();
         return new Harness(app, core, database, webRoot);
     }
@@ -174,6 +193,25 @@ internal sealed class Harness : IAsyncDisposable
         }, TestContext.Current.CancellationToken);
 
     public Task<HttpContext> Get(string pathAndQuery, string? token = null) => Send("GET", pathAndQuery, token);
+
+    /// <summary>A request with <paramref name="json"/> as its body, from the platform's own
+    /// origin, as the page sends a change.</summary>
+    public Task<HttpContext> SendJson(string method, string path, string? token, string json) =>
+        Server.SendAsync(context =>
+        {
+            context.Request.Method = method;
+            context.Request.Path = path;
+            context.Request.Headers.Origin = "https://platform.test";
+            context.Request.ContentType = "application/json";
+            context.Request.Body = new MemoryStream(Encoding.UTF8.GetBytes(json));
+            if (token is not null)
+            {
+                context.Request.Headers.Cookie = $"__Host-access={token}";
+            }
+        }, TestContext.Current.CancellationToken);
+
+    /// <summary>The app's services, for a test that checks what a route did to one of them.</summary>
+    public IServiceProvider Services => _app.Services;
 
     public static async Task<string> Body(HttpContext context) =>
         await new StreamReader(context.Response.Body).ReadToEndAsync(TestContext.Current.CancellationToken);

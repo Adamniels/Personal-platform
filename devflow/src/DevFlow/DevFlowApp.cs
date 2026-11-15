@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
+using DevFlow.CodeHost;
 using DevFlow.Health;
 using DevFlow.Pages;
 using DevFlow.Settings;
@@ -24,7 +25,9 @@ public static class DevFlowApp
     /// <param name="configure">Runs before the app is built: <c>Program</c> sets where Kestrel
     /// listens, and tests put the app on a test server, with a key cache and a clock of their
     /// own, which <c>AddPlatformAuth</c> keeps.</param>
-    /// <exception cref="StartupException"><paramref name="webRoot"/> holds no build.</exception>
+    /// <exception cref="StartupException"><paramref name="webRoot"/> holds no build, or the code
+    /// host is GitHub, whose adapter is not built yet, and <paramref name="configure"/> registered
+    /// no <see cref="ICodeHost"/> in its place.</exception>
     public static WebApplication Build(DevFlowSettings settings, UserDb database, string webRoot, Action<WebApplicationBuilder>? configure = null)
     {
         ArgumentNullException.ThrowIfNull(settings);
@@ -38,6 +41,7 @@ public static class DevFlowApp
             ApplicationName = typeof(DevFlowApp).Assembly.GetName().Name,
         });
         configure?.Invoke(builder);
+        AddCodeHost(builder.Services, settings.CodeHost);
 
         // snake_case on the wire, as review's, the brain's and canary's JSON is. A number is a JSON
         // number, never a string holding one, which the web defaults would accept.
@@ -76,5 +80,24 @@ public static class DevFlowApp
         }
 
         return app;
+    }
+
+    /// <summary>
+    /// The <see cref="ICodeHost"/> the mode names, unless <c>configure</c> registered one first,
+    /// which is how a test builds the app in the GitHub mode. See "The code host" in
+    /// devflow/README.md.
+    /// </summary>
+    private static void AddCodeHost(IServiceCollection services, CodeHostMode mode)
+    {
+        if (services.Any(service => service.ServiceType == typeof(ICodeHost)))
+        {
+            return;
+        }
+
+        if (mode == CodeHostMode.GitHub)
+        {
+            throw new StartupException(
+                "DEVFLOW_CODE_HOST: github needs the GitHub adapter, which is not built yet; it comes with the next slice of Dev flow, #268");
+        }
     }
 }
