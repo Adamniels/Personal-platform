@@ -44,6 +44,10 @@ public static class DevFlowApp
         // An unhandled error is an RFC 9457 problem document, application/problem+json.
         builder.Services.AddProblemDetails();
         builder.Services.AddPlatformAuth(options => options.CoreUrl = settings.CoreUrl);
+        if (settings.ExposeOpenApi)
+        {
+            builder.Services.AddDevFlowOpenApi();
+        }
 
         var app = builder.Build();
         app.UseExceptionHandler();
@@ -56,6 +60,10 @@ public static class DevFlowApp
 
         app.MapHealth();
         app.MapPages(webRoot);
+        if (settings.ExposeOpenApi)
+        {
+            app.MapOpenApi(DevFlowOpenApi.Path);
+        }
 
         return app;
     }
