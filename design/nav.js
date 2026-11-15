@@ -1,5 +1,6 @@
 // <platform-nav>, the platform's shared nav bar, served by the proxy at
-// /design/nav.js. A page includes it with the design files and the element:
+// /design/nav.js. A page includes it with the design files and the element,
+// a direct child of body, where page.css puts the page shell around it:
 //
 //   <link rel="stylesheet" href="/design/tokens.css">
 //   <link rel="stylesheet" href="/design/fonts.css">
@@ -7,20 +8,24 @@
 //   <script src="/design/theme.js"></script>
 //   <script src="/design/nav.js" defer></script>
 //   ...
-//   <platform-nav current="canary"></platform-nav>
+//   <platform-nav current="brain" crumb="Memory / Rules"></platform-nav>
 //
 // `current` is `home`, `brain` or a feature's prefix without the slash; the
-// matching link gets aria-current="page". The bar fetches the core's /api/nav
-// and renders the mark and the name, Home, Memory (the brain's memory centre,
-// which is not a feature and so is fixed here), one link per feature in the
-// order the endpoint gives, a theme toggle, and who is logged in as a menu
-// holding "Change password" and "Log out". On phone the links move to a tab
-// bar fixed to the bottom, and past five the last ones fold under More. It
-// renders and links and does nothing else: when /api/nav fails it shows the
-// mark, Home and Memory alone, and it never redirects or refreshes the
-// session. See "Navigation" in
-// High-level/docs/platform-architecture.md, and section 3 of design/DESIGN.md
-// for how it looks.
+// matching link gets aria-current="page". `crumb`, optional, names the page
+// in the top bar; without it the crumb is the name of the link `current`
+// names. Changing either draws the bar again. The bar fetches the core's
+// /api/nav and renders, on desktop, a rail fixed to the window with the
+// mark, Home, Memory (the brain's memory centre, which is not a feature and
+// so is fixed here), one item per feature in the order the endpoint gives,
+// and the theme toggle at its bottom; the element itself is the top bar,
+// with the crumb and the account pill, whose menu holds "Change password"
+// and "Log out". On phone the rail goes: the top bar gains the mark, the
+// links become a tab bar fixed to the bottom, past five the last ones fold
+// under More, and the theme toggle moves into the account menu. It renders
+// and links and does nothing else: when /api/nav fails it shows the mark,
+// Home and Memory alone, and it never redirects or refreshes the session.
+// See "Navigation" in High-level/docs/platform-architecture.md, and section 3
+// of design/DESIGN.md for how it looks.
 //
 // Plain JavaScript with no build step and no dependency. Its styles live in
 // its shadow root and use the tokens, which the page's root defines and the

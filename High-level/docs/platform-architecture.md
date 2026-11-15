@@ -290,28 +290,38 @@ A feature includes these lines and nothing else, in whatever it is written in:
 
 The bar's styles live in its shadow root and use the tokens, which the page's root defines and the
 shadow root inherits, so a page that includes the bar links `tokens.css` and `fonts.css`.
-`page.css` reserves the bar's height so the page does not jump while the script loads, and on
-phone pads the bottom of the page so the tab bar covers nothing. It also holds the page container
+`page.css` holds the page shell of section 2 of `design/DESIGN.md` around the bar, for a page
+that includes `<platform-nav>` as a direct child of `body`: on desktop the room for the rail on the
+left and the top bar's height, with the shell centred on a wide window, and on phone the room for
+the tab bar at the bottom. The room is held before the script runs, so nothing moves when the bar
+draws, and no page changes its markup for it. It also holds the page container
 from section 2 of `design/DESIGN.md`, with its headings and the mono font for ids, which a page
 opts into with `<main class="page">`, so a page written without a stylesheet of its own still
 has the platform's layout. `theme.js` runs in the head,
 before the page paints, and applies the theme the person chose, if any.
 
-What the bar holds: on the left the mark and the name "Platform", linking to `/`, then Home,
-Memory, and one link per feature in the order `/api/nav` gives. Memory, to `/brain`, opens the
-brain's memory centre, with Lucide's `database` icon on phone. The brain is not a feature and has
-no registry entry, so the link is fixed in `nav.js`, as Home and the link to change a password
-are, rather than coming from `/api/nav`. On the right, a theme toggle and the email as a
-button opening a menu with "Change password", to the core's `/settings/password`, and "Log out",
-to its logout page `/auth/logout`: links rather than forms, so the bar still only renders and
-links, and both work from every feature's page without any of them changing. On phone the links
-move to a tab bar at the bottom, and past five the first four show and More holds the rest. A
-link whose entry carries `attention: true` gets the dot that marks something needing the person;
-the core sends no such field yet. How each of these looks is section 3 of `design/DESIGN.md`.
+What the bar holds: on desktop a rail on the left with the mark, linking to `/`, then Home,
+Memory, and one item per feature in the order `/api/nav` gives, each an icon named by its link,
+and the theme toggle at the bottom. Home has Lucide's `house` icon, Memory `database`, and a
+feature the fallback `box`. Memory, to `/brain`, opens the brain's memory centre. The brain is not
+a feature and has no registry entry, so the link is fixed in `nav.js`, as Home and the link to
+change a password are, rather than coming from `/api/nav`. The element itself is the top bar above
+the page: the crumb on the left, and on the right the account pill, the first letter of the email
+and the email, opening a menu with "Change password", to the core's `/settings/password`, and "Log
+out", to its logout page `/auth/logout`: links rather than forms, so the bar still only renders and
+links, and both work from every feature's page without any of them changing. On phone the rail
+goes: the top bar gains the mark, the pill shows the letter alone, the theme toggle moves into its
+menu, and the links move to a tab bar at the bottom, where past five the first four show and More
+holds the rest. A link whose entry carries `attention: true` gets the dot that marks something
+needing the person; the core sends no such field yet. How each of these looks is section 3 of
+`design/DESIGN.md`.
 
 `current` names what the page is: `home` on the core's front page, `brain` in the memory centre,
 otherwise the feature's prefix without the slash. The matching link is marked `aria-current="page"`, and changing the attribute
-re-renders the bar. It writes every name and the email as text, and links only to a path that
+re-renders the bar. The optional `crumb` attribute names the page in the top bar, such as
+`crumb="Memory / Rules"`, and is observed like `current`; without it the crumb is the name of the
+link `current` names, and with neither it is empty. It writes every name, the crumb and the email
+as text, and links only to a path that
 starts with `/` and not `//`. When `/api/nav` fails, a 401 or a network error, it shows the mark,
 Home and Memory alone, the links it holds itself: it never redirects and never refreshes the
 session. The core's own pages use it
@@ -341,9 +351,9 @@ out later mean deleting two lines rather than unpicking a design system, and it 
 mode a shared package tends toward on its own.
 
 **The tradeoff.** The nav's contents are a runtime dependency on the core, so if the core is down
-it shows the mark and Home alone. Little is lost: you could not have logged in either, a session already issued
+it shows the mark, Home and Memory alone. Little is lost: you could not have logged in either, a session already issued
 keeps working since verification is local, and the feature itself is unaffected. `page.css`
-reserves its height so the page does not jump while it loads.
+reserves its room so the page does not jump while it loads.
 
 **How rich the front page should be is genuinely open.** A short list of links, a page with real
 content on it, or one unified product where every feature shares a design system. That is

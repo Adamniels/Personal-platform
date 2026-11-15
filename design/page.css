@@ -1,9 +1,21 @@
 /*
- * The page shell around <platform-nav>, which every page with the bar links
- * after tokens.css. The bar draws itself from /design/nav.js; this keeps the
- * page from jumping while the script loads and from hiding under the bar.
- * The bar's own look is in nav.js. See section 3 of DESIGN.md. It also holds
- * the page container of section 2, which a page opts into by class.
+ * The page shell around <platform-nav>, from section 2 of DESIGN.md, which
+ * every page links after tokens.css. A page with the bar includes the
+ * element as a direct child of body, so the shell is selected with
+ * body:has(> platform-nav) and no page changes its markup for it. A page
+ * without the bar, such as login, gets the page container alone.
+ *
+ * On desktop body is the shell: padded --page-pad on every side and, on the
+ * left, by the rail's width and a gap either side of it, at most the rail,
+ * the content column and three gaps wide, centred. nav.js fixes the rail to
+ * the window in that room; the element, in the page's flow, is the top bar.
+ * On phone body keeps room for the tab bar at the bottom, and the top bar
+ * and the content have --page-pad at their sides. All of it is held before
+ * /design/nav.js runs, so nothing moves when the bar draws. The bar's own
+ * look is in nav.js, see section 3 of DESIGN.md.
+ *
+ * It also holds the page container of section 2, which a page opts into by
+ * class, and its headings.
  */
 
 /* The top bar's height, held before the script renders it. */
