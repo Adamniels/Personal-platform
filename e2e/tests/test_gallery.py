@@ -752,6 +752,7 @@ BOX_STYLE = """element => {
         overflowX: style.overflowX,
         flexWrap: style.flexWrap,
         whiteSpace: style.whiteSpace,
+        outline: [style.outlineStyle, style.outlineWidth, style.outlineColor],
     };
 }"""
 
@@ -776,35 +777,66 @@ def test_the_layout_pieces_are_shown(page: Page, viewport: str, theme: str):
 
 
 @pytest.mark.parametrize("theme", THEMES)
-def test_tabs_read_their_values(page: Page, theme: str):
+def test_the_selected_segment_is_inverted(page: Page, theme: str):
     open_gallery(page, theme)
     row = tablist(page, "Four tabs")
 
     selected = row.get_by_role("tab", selected=True)
     expect(selected).to_have_count(1)
+    expect(selected).to_have_attribute("aria-selected", "true")
     style = selected.evaluate(BOX_STYLE)
-    assert style["background"] == resolve(page, "--surface-2", "background-color")
-    assert style["borders"] == [resolve(page, "--accent-border", "color")] * 4
-    assert style["borderWidths"] == ["1px"] * 4
-    assert style["radii"] == radii(page, "--radius-md")
-    assert style["color"] == resolve(page, "--text", "color")
+    assert style["background"] == resolve(page, "--text", "background-color")
+    assert style["color"] == resolve(page, "--bg", "color")
     assert style["weight"] == "600"
-    assert style["height"] == resolve(page, "--control-h", "height")
 
-    other = row.get_by_role("tab", selected=False).first
-    style = other.evaluate(BOX_STYLE)
-    assert style["background"] == resolve(page, None, "background-color")
-    assert style["borders"] == [resolve(page, None, "color")] * 4
-    assert style["color"] == resolve(page, "--text-2", "color")
-    assert style["weight"] == "500"
-    assert style["padding"][1] == style["padding"][3] == "12px"
-    assert style["height"] == resolve(page, "--control-h", "height")
+    accent = resolve(page, "--accent-border", "color")
+    tabs = row.get_by_role("tab")
+    for index in range(tabs.count()):
+        style = tabs.nth(index).evaluate(BOX_STYLE)
+        assert style["borderWidths"] == ["0px"] * 4
+        assert accent not in style["borders"]
+        assert style["outline"][0] == "none" or style["outline"][2] != accent
+
+    others = row.get_by_role("tab", selected=False)
+    expect(others).to_have_count(3)
+    for index in range(others.count()):
+        style = others.nth(index).evaluate(BOX_STYLE)
+        assert style["background"] == resolve(page, None, "background-color")
+        assert style["color"] == resolve(page, "--text-2", "color")
+        assert style["weight"] == "500"
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_tabs_are_a_track(page: Page, theme: str):
+    open_gallery(page, theme)
+    row = tablist(page, "Four tabs")
 
     style = row.evaluate(BOX_STYLE)
-    assert style["borders"][2] == resolve(page, "--border", "color")
-    assert style["borderWidths"] == ["0px", "0px", "1px", "0px"]
-    assert style["padding"][2] == "8px"
-    assert style["gap"] == resolve(page, "--space-1", "column-gap")
+    assert style["background"] == resolve(page, "--surface", "background-color")
+    assert style["borders"] == [resolve(page, "--border", "color")] * 4
+    assert style["borderWidths"] == ["1px"] * 4
+    assert style["radii"] == radii(page, "--radius-full")
+    assert style["padding"] == ["4px"] * 4
+    assert style["gap"] == "normal" or style["gap"] == "0px"
+
+    tabs = row.get_by_role("tab")
+    for index in range(tabs.count()):
+        style = tabs.nth(index).evaluate(BOX_STYLE)
+        assert style["height"] == resolve(page, "--control-h", "height")
+        assert style["radii"] == radii(page, "--radius-full")
+        assert style["padding"][1] == style["padding"][3] == "16px"
+
+    # On desktop the track is as wide as its tabs, with no gap between them,
+    # and not as wide as the page.
+    track = row.bounding_box()
+    first = tabs.first.bounding_box()
+    last = tabs.last.bounding_box()
+    holder = row.locator("..").bounding_box()
+    assert track and first and last and holder
+    assert track["width"] == pytest.approx(
+        last["x"] + last["width"] - first["x"] + 2 * (4 + 1), abs=0.5
+    )
+    assert track["width"] < holder["width"]
 
     # The count after a label is a badge.
     count = row.get_by_role("tab", name="Decisions 2").get_by_text("2", exact=True)
@@ -833,25 +865,70 @@ def test_tabs_follow_the_keyboard_in_the_browser(page: Page):
     expect(first).to_have_attribute("aria-selected", "true")
 
 
-def test_tabs_scroll_sideways_on_phone_and_never_wrap(page: Page):
+def picker(page: Page, name: str) -> Locator:
+    region = page.get_by_role("region", name="Tabs")
+    return region.get_by_role("combobox", name=name, exact=True)
+
+
+def page_scrolls_sideways(page: Page) -> bool:
+    return page.evaluate(
+        "() => document.documentElement.scrollWidth > window.innerWidth"
+    )
+
+
+def test_on_phone_up_to_five_tabs_fill_the_width(page: Page):
     page.set_viewport_size(VIEWPORTS["phone"])
+    open_gallery(page, "light")
+    row = tablist(page, "Four tabs")
+    expect(row).to_be_visible()
+    expect(picker(page, "Four tabs")).to_have_count(0)
+
+    track = row.bounding_box()
+    holder = row.locator("..").bounding_box()
+    assert track and holder
+    assert track["width"] == pytest.approx(holder["width"], abs=0.5)
+
+    tabs = row.get_by_role("tab")
+    widths = []
+    for index in range(tabs.count()):
+        box = tabs.nth(index).bounding_box()
+        assert box is not None
+        widths.append(box["width"])
+        style = tabs.nth(index).evaluate(BOX_STYLE)
+        assert style["fontSize"] == "13px"
+        assert style["padding"][1] == style["padding"][3] == "4px"
+    assert max(widths) - min(widths) < 1, widths
+
+    assert not row.evaluate("e => e.scrollWidth > e.clientWidth"), "the row scrolls"
+    assert not page_scrolls_sideways(page), "the page scrolls sideways"
+
+
+def test_on_desktop_eight_tabs_are_one_track(page: Page):
+    open_gallery(page, "light")
+    row = tablist(page, "Eight tabs")
+
+    expect(picker(page, "Eight tabs")).to_have_count(0)
+    tabs = row.get_by_role("tab")
+    expect(tabs).to_have_count(8)
+    tops = {tabs.nth(index).evaluate("e => e.offsetTop") for index in range(8)}
+    assert len(tops) == 1, "the track wrapped"
+    assert row.evaluate(BOX_STYLE)["radii"] == radii(page, "--radius-full")
+    assert not row.evaluate("e => e.scrollWidth > e.clientWidth"), "the row scrolls"
+
+
+def test_a_track_that_wraps_takes_the_large_corners(page: Page):
+    # Just above the phone breakpoint, so the tab list shows and eight tabs
+    # do not fit on one line.
+    page.set_viewport_size({"width": 660, "height": 800})
     open_gallery(page, "light")
     row = tablist(page, "Eight tabs")
 
     tabs = row.get_by_role("tab")
-    assert tabs.count() == 8
     tops = {tabs.nth(index).evaluate("e => e.offsetTop") for index in range(8)}
-    assert len(tops) == 1, "the row wrapped"
-    style = row.evaluate(BOX_STYLE)
-    assert style["flexWrap"] == "nowrap"
-    assert style["overflowX"] == "auto"
-    assert row.evaluate("e => e.scrollWidth > e.clientWidth"), "the row does not scroll"
-    assert page.evaluate(
-        "() => document.documentElement.scrollWidth <= window.innerWidth"
-    ), "the page scrolls sideways"
-    for index in range(8):
-        box = tabs.nth(index).bounding_box()
-        assert box is not None and box["height"] == 44
+    assert len(tops) > 1, "the track did not wrap"
+    assert row.evaluate(BOX_STYLE)["radii"] == radii(page, "--radius-lg")
+    assert not row.evaluate("e => e.scrollWidth > e.clientWidth"), "the row scrolls"
+    assert not page_scrolls_sideways(page), "the page scrolls sideways"
 
 
 @pytest.mark.parametrize("theme", THEMES)

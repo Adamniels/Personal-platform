@@ -20,7 +20,7 @@ const eight = [
 	"History",
 ];
 
-/** Four tabs, one with a count, and eight, which scroll sideways on phone.
+/** Four tabs, one with a count, and eight.
  * Each keeps its own selection, as a page would in its address. */
 export function TabsSection() {
 	const [first, setFirst] = useState("agents");
@@ -57,8 +57,9 @@ export function TabsSection() {
 			</Row>
 			<Note>
 				Left and Right move between tabs and wrap, Home and End go to the ends,
-				and the tab focus reaches is selected. On phone the row scrolls sideways
-				and never wraps.
+				and the tab focus reaches is selected. On desktop the track is as wide
+				as its tabs, and wraps rather than scroll; on phone it fills the width
+				with equal tabs.
 			</Note>
 		</Section>
 	);

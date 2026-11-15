@@ -7,6 +7,9 @@ import {
 	type ReactNode,
 	useContext,
 	useId,
+	useLayoutEffect,
+	useRef,
+	useState,
 } from "react";
 import { Badge } from "../status/badge";
 import styles from "./tabs.module.css";
@@ -44,9 +47,10 @@ export type TabsProps = Omit<ComponentProps<"div">, "onChange" | "children"> & {
 	children: ReactNode;
 };
 
-/** "Tabs" in section 4 of design/DESIGN.md, with the keyboard pattern for
- * tabs: the selected tab alone is in the tab order, Left and Right move and
- * wrap, Home and End go to the ends, and activation follows focus. */
+/** "Tabs" in section 4 of design/DESIGN.md, a segmented track, with the
+ * keyboard pattern for tabs: the selected tab alone is in the tab order, Left
+ * and Right move and wrap, Home and End go to the ends, and activation
+ * follows focus. */
 export function Tabs({
 	label,
 	value,
@@ -56,6 +60,8 @@ export function Tabs({
 	...rest
 }: TabsProps) {
 	const base = useId();
+	const rowRef = useRef<HTMLDivElement>(null);
+	const wrapped = useWrapped(rowRef);
 	const items = Children.toArray(children);
 	const panels = items.filter(
 		(child) => isValidElement(child) && child.type === TabPanel,
@@ -107,7 +113,9 @@ export function Tabs({
 				<div
 					role="tablist"
 					aria-label={label}
+					ref={rowRef}
 					className={styles.row}
+					data-wrapped={wrapped || undefined}
 					onKeyDown={onKeyDown}
 				>
 					{row}
@@ -116,6 +124,34 @@ export function Tabs({
 			</div>
 		</TabsContext.Provider>
 	);
+}
+
+/** Whether the track's tabs are on more than one line, so it can take the
+ * large corners. CSS cannot tell that a flex line wrapped, so the track is
+ * measured: before the first paint, and again whenever it changes size. It
+ * reads the track, never the window's width. */
+function useWrapped(ref: { current: HTMLElement | null }): boolean {
+	const [wrapped, setWrapped] = useState(false);
+	useLayoutEffect(() => {
+		const row = ref.current;
+		if (!row) return;
+		const measure = () => {
+			const first = row.firstElementChild;
+			const last = row.lastElementChild;
+			setWrapped(
+				first instanceof HTMLElement &&
+					last instanceof HTMLElement &&
+					last.offsetTop > first.offsetTop,
+			);
+		};
+		measure();
+		// jsdom, where the unit tests run, has no layout and no observer.
+		if (typeof ResizeObserver === "undefined") return;
+		const observer = new ResizeObserver(measure);
+		observer.observe(row);
+		return () => observer.disconnect();
+	}, [ref]);
+	return wrapped;
 }
 
 export type TabProps = Omit<
@@ -163,7 +199,7 @@ export function Tab({
 				if (!event.defaultPrevented) tabs.select(value);
 			}}
 		>
-			{children}
+			<span className={styles.label}>{children}</span>
 			{/* The space keeps the label and the count apart in the tab's name;
 			 * a flex row renders no whitespace, so it does not move the badge. */}
 			{count === undefined ? null : (
