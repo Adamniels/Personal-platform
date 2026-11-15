@@ -161,8 +161,8 @@ check() {
 # moved out of reach of the check, by a rewrite it does not recognise, fails here too.
 real=("$workflows"/*.yml)
 check "cargo steps pass --locked" "checked 6" cargo_unlocked "${real[@]}"
-check "uv jobs set UV_LOCKED" "checked 4" uv_unlocked "${real[@]}"
-check "npm installs with npm ci" "checked 2" npm_unlocked "${real[@]}"
+check "uv jobs set UV_LOCKED" "checked 5" uv_unlocked "${real[@]}"
+check "npm installs with npm ci" "checked 3" npm_unlocked "${real[@]}"
 # dotnet.yml's restore, build and test, and the same three in libs.yml's C# job.
 check "dotnet restores locked, and builds and tests without restoring" "checked 6" dotnet_unlocked "${real[@]}"
 
