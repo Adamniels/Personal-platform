@@ -10,7 +10,7 @@
 	background: var(--surface);
 	color: var(--text);
 	border: 1px solid var(--border);
-	border-radius: var(--radius-lg);
+	border-radius: var(--radius-xl);
 	box-shadow: var(--shadow-2);
 }
 
@@ -24,15 +24,17 @@
 	display: flex;
 	flex-direction: column;
 	gap: var(--space-4);
-	padding: 20px;
+	padding: var(--space-6);
 }
 
+/* The heading font, always weight 600 in capitals (hard rule 12). */
 .title {
 	margin: 0;
 	font-family: var(--font-heading);
 	font-size: var(--text-h2-size);
 	line-height: var(--text-h2-line);
 	font-weight: 600;
+	text-transform: uppercase;
 }
 
 .body {
@@ -54,13 +56,14 @@
 	gap: var(--space-2);
 }
 
-/* Phone: a full width sheet fixed to the bottom edge. */
+/* Phone: a full width sheet fixed to the bottom edge, its top corners
+ * rounded and its bottom ones square against the edge. */
 @media (max-width: 639.98px) {
 	.dialog {
 		max-width: 100%;
 		max-height: 100%;
 		margin: auto 0 0;
 		border-bottom-width: 0;
-		border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+		border-radius: var(--radius-xl) var(--radius-xl) 0 0;
 	}
 }

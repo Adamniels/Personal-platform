@@ -1580,7 +1580,7 @@ def test_a_dialog_reads_its_values(page: Page, theme: str):
     assert style["background"] == resolve(page, "--surface", "background-color")
     assert style["borders"] == [resolve(page, "--border", "color")] * 4
     assert style["borderWidths"] == ["1px"] * 4
-    assert style["radii"] == radii(page, "--radius-lg")
+    assert style["radii"] == radii(page, "--radius-xl")
     assert style["shadow"] == resolve(page, "--shadow-2", "box-shadow")
 
     # The backdrop is --bg at 70 percent.
@@ -1595,8 +1595,36 @@ def test_a_dialog_reads_its_values(page: Page, theme: str):
     cancel_box, confirm_box = cancel.bounding_box(), confirm.bounding_box()
     assert cancel_box is not None and confirm_box is not None
     assert cancel_box["x"] < confirm_box["x"]
+
+    # Inside the 1px border, --space-6 on every side: the title's top left
+    # and the confirming button's bottom right are one border and one
+    # padding from the dialog's corners.
+    inset = 1 + float(resolve(page, "--space-6", "padding-top").removesuffix("px"))
+    title = dialog.get_by_role("heading", name="Delete 3 entries?").bounding_box()
+    assert title is not None
+    assert title["x"] - box["x"] == pytest.approx(inset)
+    assert title["y"] - box["y"] == pytest.approx(inset)
     right = box["x"] + box["width"]
-    assert right - (confirm_box["x"] + confirm_box["width"]) == pytest.approx(21)
+    bottom = box["y"] + box["height"]
+    assert right - (confirm_box["x"] + confirm_box["width"]) == pytest.approx(inset)
+    assert bottom - (confirm_box["y"] + confirm_box["height"]) == pytest.approx(inset)
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_the_dialog_title_is_in_capitals(page: Page, theme: str):
+    open_gallery(page, theme)
+    dialog = open_dialog(page)
+
+    # An h2 in the heading font, which is always weight 600 and in capitals
+    # (hard rule 12). Its name stays as written; only its look is capitals.
+    title = dialog.get_by_role("heading", name="Delete 3 entries?", level=2)
+    expect(title).to_be_visible()
+    style = title.evaluate(BOX_STYLE)
+    assert style["fontFamily"] == resolve(page, "--font-heading", "font-family")
+    assert style["fontSize"] == resolve(page, "--text-h2-size", "font-size")
+    assert style["lineHeight"] == resolve(page, "--text-h2-line", "line-height")
+    assert style["weight"] == "600"
+    assert style["textTransform"] == "uppercase"
 
 
 def test_on_phone_a_dialog_is_a_sheet_at_the_bottom(page: Page):
@@ -1611,6 +1639,9 @@ def test_on_phone_a_dialog_is_a_sheet_at_the_bottom(page: Page):
     assert box is not None
     assert box["x"] == 0 and box["width"] == width
     assert box["y"] + box["height"] == pytest.approx(height, abs=0.5)
+    # A sheet rounds its top corners only, with the large radius.
+    top = resolve(page, "--radius-xl", "border-top-left-radius")
+    assert style["radii"] == [top, top, "0px", "0px"]
     # It stays where it is when the page behind it has scrolled.
     page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
     moved = dialog.bounding_box()
@@ -1665,24 +1696,51 @@ def test_focus_stays_inside_an_open_dialog(page: Page):
 
 
 @pytest.mark.parametrize("theme", THEMES)
-def test_a_toast_reads_its_values(page: Page, viewport: str, theme: str):
+def test_a_toast_is_a_pill(page: Page, viewport: str, theme: str):
     open_gallery(page, theme)
     success, error = raise_toasts(page)
+    toast_section(page).get_by_role(
+        "button", name="Show a success that wraps", exact=True
+    ).click()
+    wrapped = page.get_by_role("status").filter(has_text="Twelve entries moved")
+    expect(wrapped).to_be_visible()
 
-    for toast in [success, error]:
+    for toast in [success, error, wrapped]:
         style = toast.evaluate(FLOATING_STYLE)
         assert style["background"] == resolve(page, "--surface", "background-color")
         assert style["borders"] == [resolve(page, "--border-strong", "color")] * 4
         assert style["borderWidths"] == ["1px"] * 4
-        assert style["radii"] == radii(page, "--radius-md")
+        assert style["radii"] == radii(page, "--radius-full")
         assert style["shadow"] == resolve(page, "--shadow-1", "box-shadow")
-        assert style["maxWidth"] == "400px"
+        assert style["maxWidth"] == "420px"
+        box = toast.evaluate(BOX_STYLE)
+        assert box["padding"] == ["6px", "6px", "6px", "16px"]
+
+        # An 8px status dot.
+        dot = toast.locator("span[aria-hidden='true']").evaluate(BOX_STYLE)
+        assert dot["width"] == dot["height"] == "8px"
+
+    # A text that wraps onto two lines keeps the pill's corners, checked
+    # above, and does wrap: its text is taller than one line.
+    text = wrapped.locator("p").evaluate(
+        """element => ({
+            height: element.getBoundingClientRect().height,
+            line: parseFloat(getComputedStyle(element).lineHeight),
+        })"""
+    )
+    assert text["height"] >= 2 * text["line"] - 1, "the long toast does not wrap"
 
     # The action is a text button in --info, weight 600.
     action = error.get_by_role("button", name="Retry", exact=True)
     action_style = action.evaluate(STYLE)
     assert action_style["color"] == resolve(page, "--info", "color")
     assert action_style["weight"] == "600"
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_where_the_toasts_sit(page: Page, viewport: str, theme: str):
+    open_gallery(page, theme)
+    success, error = raise_toasts(page)
 
     # Newest lowest: the error, raised second, is under the success.
     first, last = success.bounding_box(), error.bounding_box()
