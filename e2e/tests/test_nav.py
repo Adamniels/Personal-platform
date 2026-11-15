@@ -24,6 +24,69 @@ STORAGE_KEY = "platform-theme"
 # makes Canary, Review and Dev flow, after the two the bar holds itself.
 LINKS = ["Home", "Memory", "Canary", "Review", "Dev flow"]
 WIDE = {"width": 1920, "height": 1080}
+# The icons a link may draw, as lucide-react 1.72.0's icons/<name>.mjs gives
+# them without their React keys: what nav.js must draw, written here apart
+# from it so a test catches a copy that drifts.
+LUCIDE = {
+    "house": [
+        ["path", {"d": "M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"}],
+        [
+            "path",
+            {
+                "d": "M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"
+            },
+        ],
+    ],
+    "database": [
+        ["ellipse", {"cx": "12", "cy": "5", "rx": "9", "ry": "3"}],
+        ["path", {"d": "M3 5V19A9 3 0 0 0 21 19V5"}],
+        ["path", {"d": "M3 12A9 3 0 0 0 21 12"}],
+    ],
+    "box": [
+        [
+            "path",
+            {
+                "d": "M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"
+            },
+        ],
+        ["path", {"d": "m3.3 7 8.7 5 8.7-5"}],
+        ["path", {"d": "M12 22V12"}],
+    ],
+    "bird": [
+        ["path", {"d": "M16 7h.01"}],
+        ["path", {"d": "M3.4 18H12a8 8 0 0 0 8-8V7a4 4 0 0 0-7.28-2.3L2 20"}],
+        ["path", {"d": "m20 7 2 .5-2 .5"}],
+        ["path", {"d": "M10 18v3"}],
+        ["path", {"d": "M14 17.75V21"}],
+        ["path", {"d": "M7 18a6 6 0 0 0 3.84-10.61"}],
+    ],
+    "layers": [
+        [
+            "path",
+            {
+                "d": "M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z"
+            },
+        ],
+        [
+            "path",
+            {
+                "d": "M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12"
+            },
+        ],
+        [
+            "path",
+            {
+                "d": "M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17"
+            },
+        ],
+    ],
+    "git-pull-request": [
+        ["circle", {"cx": "18", "cy": "18", "r": "3"}],
+        ["circle", {"cx": "6", "cy": "6", "r": "3"}],
+        ["path", {"d": "M13 6h3a2 2 0 0 1 2 2v7"}],
+        ["line", {"x1": "6", "x2": "6", "y1": "9", "y2": "21"}],
+    ],
+}
 
 # Resolves a token through a probe element in the page, so the value is the
 # one the page's own tokens.css and theme give, in the browser's format.
@@ -120,6 +183,17 @@ def drawn(page: Page, email: str) -> None:
 
 def color_of_icon(link: Locator) -> str:
     return link.locator("svg").evaluate("el => getComputedStyle(el).color")
+
+
+def shapes_of(link: Locator) -> list[list]:
+    """The shapes a link's icon draws, each as its tag and its attributes,
+    in the form LUCIDE holds them."""
+    return link.locator("svg").evaluate(
+        """svg => [...svg.children].map(shape => [
+            shape.tagName,
+            Object.fromEntries([...shape.attributes].map(a => [a.name, a.value])),
+        ])"""
+    )
 
 
 def remember_theme(page: Page, theme: str) -> None:
@@ -765,6 +839,60 @@ def test_a_feature_that_needs_you_shows_the_dot(
     assert spot["width"] == 8 and spot["height"] == 8
     assert item["x"] + item["width"] / 2 < spot["x"] < item["x"] + item["width"]
     assert item["y"] <= spot["y"] < item["y"] + item["height"] / 2
+
+
+def test_each_feature_shows_its_icon(
+    page: Page, invite_code: str, base_url: str, viewport: str
+):
+    email = register_and_log_in(page, invite_code, base_url)
+    drawn(page, email)
+
+    # The names infra/features.toml gives, drawn in the rail on desktop and
+    # the tab bar on phone.
+    bar = links_bar(page)
+    for name, icon in [
+        ("Canary", "bird"),
+        ("Review", "layers"),
+        ("Dev flow", "git-pull-request"),
+    ]:
+        link = bar.get_by_role("link", name=name, exact=True)
+        assert shapes_of(link) == LUCIDE[icon], name
+    # Home and Memory keep their own, since neither is a feature.
+    assert (
+        shapes_of(bar.get_by_role("link", name="Home", exact=True)) == LUCIDE["house"]
+    )
+    assert (
+        shapes_of(bar.get_by_role("link", name="Memory", exact=True))
+        == LUCIDE["database"]
+    )
+    capture(page, "nav-icons")
+
+
+def test_an_unknown_icon_falls_back_to_the_box(
+    page: Page, invite_code: str, base_url: str
+):
+    register_and_log_in(page, invite_code, base_url)
+    # A name nav.js does not hold, none at all, and a name that is a key
+    # every object inherits, which must not reach the drawing either; beside
+    # them, one it holds, which draws its own.
+    features = [
+        {"name": "Unknown", "path": "/unknown", "icon": "comet"},
+        {"name": "Plain", "path": "/plain"},
+        {"name": "Inherited", "path": "/inherited", "icon": "constructor"},
+        {"name": "Known", "path": "/known", "icon": "layers"},
+    ]
+    page.route("**/api/nav", lambda route: route.fulfill(json=nav_answer(features)))
+    page.reload()
+
+    bar = links_bar(page)
+    expect(bar.get_by_role("link")).to_have_text(
+        ["Home", "Memory", "Unknown", "Plain", "Inherited", "Known"]
+    )
+    for name in ["Unknown", "Plain", "Inherited"]:
+        link = bar.get_by_role("link", name=name, exact=True)
+        assert shapes_of(link) == LUCIDE["box"], name
+    known = bar.get_by_role("link", name="Known", exact=True)
+    assert shapes_of(known) == LUCIDE["layers"]
 
 
 def test_login_and_register_pages_have_no_nav(page: Page):

@@ -266,11 +266,11 @@ The proxy serves the script with the rest of `design/`, and the core serves the 
 
 ```
 GET /design/nav.js  ->  defines <platform-nav>, which fetches /api/nav and renders
-GET /api/nav        ->  { "features": [ {"name": "Wiki", "path": "/wiki"} ], "user": {"email": "..."} }
+GET /api/nav        ->  { "features": [ {"name": "Wiki", "path": "/wiki", "icon": "book-open"} ], "user": {"email": "..."} }
 ```
 
-`/api/nav` lists the features in registry order, each by its display name and its prefix, and the
-logged in account's email; the account id is not in it. It needs a valid access token and answers
+`/api/nav` lists the features in registry order, each by its display name, its prefix and, when
+its registry entry names one, its `icon`, and the logged in account's email; the account id is not in it. It needs a valid access token and answers
 anything else with 401 and an empty body, never a redirect, since a script cannot follow one.
 `/design/nav.js`, with `theme.js` and `page.css` beside it, is a plain file the proxy serves like
 the rest of the design folder, revalidated on every load, see "The design folder" in
@@ -303,7 +303,10 @@ before the page paints, and applies the theme the person chose, if any.
 What the bar holds: on desktop a rail on the left with the mark, linking to `/`, then Home,
 Memory, and one item per feature in the order `/api/nav` gives, each an icon named by its link,
 and the theme toggle at the bottom. Home has Lucide's `house` icon, Memory `database`, and a
-feature the fallback `box`. Memory, to `/brain`, opens the brain's memory centre. The brain is not
+feature the icon its registry entry names. The icons live in `nav.js`, in `ICONS`, as path data
+copied from `lucide-react`, and a feature's planning adds its icon there in the same slice as its
+registry entry; a feature whose icon `ICONS` does not hold, or that names none, gets the fallback
+`box`. Memory, to `/brain`, opens the brain's memory centre. The brain is not
 a feature and has no registry entry, so the link is fixed in `nav.js`, as Home and the link to
 change a password are, rather than coming from `/api/nav`. The element itself is the top bar above
 the page: the crumb on the left, and on the right the account pill, the first letter of the email

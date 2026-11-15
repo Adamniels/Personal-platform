@@ -42,7 +42,9 @@
 
   // Icons from Lucide 1.72.0 (ISC licence), https://lucide.dev, the path
   // data copied from lucide-react's icons/<name>.mjs, since a plain script
-  // cannot import the package. Drawn with Lucide's own defaults below.
+  // cannot import the package. Drawn with Lucide's own defaults below. A
+  // feature's icon is named in infra/features.toml and added here in the
+  // same slice; the bar draws only the icons this object holds.
   const ICONS = {
     // house
     house: [
@@ -97,6 +99,43 @@
           d: "M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401",
         },
       ],
+    ],
+    // bird, Canary's
+    bird: [
+      ["path", { d: "M16 7h.01" }],
+      ["path", { d: "M3.4 18H12a8 8 0 0 0 8-8V7a4 4 0 0 0-7.28-2.3L2 20" }],
+      ["path", { d: "m20 7 2 .5-2 .5" }],
+      ["path", { d: "M10 18v3" }],
+      ["path", { d: "M14 17.75V21" }],
+      ["path", { d: "M7 18a6 6 0 0 0 3.84-10.61" }],
+    ],
+    // layers, Review's
+    layers: [
+      [
+        "path",
+        {
+          d: "M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z",
+        },
+      ],
+      [
+        "path",
+        {
+          d: "M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12",
+        },
+      ],
+      [
+        "path",
+        {
+          d: "M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17",
+        },
+      ],
+    ],
+    // git-pull-request, Dev flow's
+    "git-pull-request": [
+      ["circle", { cx: "18", cy: "18", r: "3" }],
+      ["circle", { cx: "6", cy: "6", r: "3" }],
+      ["path", { d: "M13 6h3a2 2 0 0 1 2 2v7" }],
+      ["line", { x1: "6", x2: "6", y1: "9", y2: "21" }],
     ],
   };
 
@@ -478,6 +517,14 @@
     return node;
   };
 
+  // The icon a feature from /api/nav gets: the one it names when ICONS holds
+  // it, else box. The name is only ever a key into ICONS, looked up as the
+  // object's own, so one such as "constructor" is not found on its prototype.
+  const iconOf = (feature) =>
+    typeof feature.icon === "string" && Object.hasOwn(ICONS, feature.icon)
+      ? feature.icon
+      : "box";
+
   const SVG = "http://www.w3.org/2000/svg";
   const icon = (name) => {
     const svg = document.createElementNS(SVG, "svg");
@@ -580,7 +627,7 @@
         entries.push({
           name: feature.name,
           path: feature.path,
-          icon: "box",
+          icon: iconOf(feature),
           here: current === feature.path.slice(1),
           attention: feature.attention === true,
         });

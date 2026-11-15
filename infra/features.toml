@@ -15,20 +15,27 @@
 #             through Caddy
 #   display   optional, the feature's display endpoint for the front page,
 #             under its own prefix
+#   icon      optional, the name of the Lucide icon the nav draws for the
+#             feature: lowercase letters, digits and hyphens, a key of ICONS
+#             in design/nav.js, which draws box for a name it does not hold.
+#             A new feature's icon is added to ICONS in the same slice
 
 [[feature]]
 name = "Canary"
 prefix = "/canary"
 upstream = "http://127.0.0.1:8081"
 display = "/canary/api/display"
+icon = "bird"
 
 [[feature]]
 name = "Review"
 prefix = "/review"
 upstream = "http://127.0.0.1:8083"
 display = "/review/api/display"
+icon = "layers"
 
 [[feature]]
 name = "Dev flow"
 prefix = "/devflow"
 upstream = "http://127.0.0.1:8084"
+icon = "git-pull-request"

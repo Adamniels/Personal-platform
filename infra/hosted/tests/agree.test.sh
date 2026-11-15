@@ -35,14 +35,16 @@ block() {
   ' "$1"
 }
 
-# features <features.toml>: one "name|prefix|display|upstream" line per [[feature]], in order.
+# features <features.toml>: one "name|prefix|display|icon|upstream" line per [[feature]], in order,
+# with the upstream last, which check_registry reads apart from the rest.
 features() {
   awk -F'"' '
-    function flush() { if (seen) print name "|" prefix "|" display "|" upstream; seen = 0; name = prefix = display = upstream = "" }
+    function flush() { if (seen) print name "|" prefix "|" display "|" icon "|" upstream; seen = 0; name = prefix = display = icon = upstream = "" }
     /^\[\[feature\]\]/ { flush(); seen = 1; next }
     /^[ \t]*name[ \t]*=/ { name = $2 }
     /^[ \t]*prefix[ \t]*=/ { prefix = $2 }
     /^[ \t]*display[ \t]*=/ { display = $2 }
+    /^[ \t]*icon[ \t]*=/ { icon = $2 }
     /^[ \t]*upstream[ \t]*=/ { upstream = $2 }
     END { flush() }
   ' "$1"
@@ -120,7 +122,7 @@ check_owner_url() {
 }
 
 # The hosted registry lists the dev registry's features in the same order, with the same name,
-# prefix and display, and each upstream is http://<service>:<port> for the manifest entry on the
+# prefix, display and icon, and each upstream is http://<service>:<port> for the manifest entry on the
 # dev upstream's port.
 check_registry() {
   local root="$1" dev hosted i n d h dev_port service
@@ -169,7 +171,7 @@ check_caddyfile() {
   done <<< "$dev"
   [ "$(printf '%s\n' "$dev" | grep -c .)" != "$(printf '%s\n' "$hosted" | grep -c .)" ] &&
     echo "the hosted Caddyfile proxies a different number of paths"
-  while IFS='|' read -r _ prefix _ upstream; do
+  while IFS='|' read -r _ prefix _ _ upstream; do
     [ -z "$prefix" ] && continue
     got="$(printf '%s\n' "$hosted" | awk -v p="$prefix" '$1 == p { print $2; exit }')"
     [ "http://$got" != "$upstream" ] && echo "feature $prefix: hosted Caddyfile proxies to ${got:-nothing}, its upstream is $upstream"
@@ -295,6 +297,8 @@ expect "an upstream by address" check_registry "upstream http://127.0.0.1:8081, 
   infra/hosted/features.toml 's#http://canary:8081#http://127.0.0.1:8081#'
 expect "a display that differs" check_registry "feature 2: dev has" \
   infra/hosted/features.toml 's#/review/api/display#/review/api/other#'
+expect "an icon that differs" check_registry "feature 2: dev has.*\|layers, hosted has.*\|box" \
+  infra/hosted/features.toml 's#"layers"#"box"#'
 expect "a route to the wrong service" check_caddyfile "/review: hosted proxies to canary:8083, expected review:8083" \
   infra/hosted/Caddyfile 's/review:8083/canary:8083/'
 expect "a catch all to another service" check_caddyfile '\*: hosted proxies to brain:8080' \

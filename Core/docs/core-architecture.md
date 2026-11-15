@@ -527,18 +527,21 @@ And a table quietly invites a registration endpoint, which invites features anno
 at boot, which is a distributed systems problem that does not otherwise exist here.
 
 Four fields per feature are enough to build against: display name, path prefix, upstream address,
-and the display endpoint if it has one. The fuller manifest, a read API version, the entity types
+and the display endpoint if it has one. A fifth, optional, names the feature's icon in the nav, since
+a rail item shows only its icon. The fuller manifest, a read API version, the entity types
 a feature exposes, the scopes it requests, has no consumer yet. It belongs to the brain and to a
 platform with several features, and writing it before either exists would be guessing.
 
 The file is `infra/features.toml`, one `[[feature]]` table per feature in the order they appear,
-with the keys `name`, `prefix`, `upstream` and the optional `display`. The comment at its top
+with the keys `name`, `prefix`, `upstream` and the optional `display` and `icon`. The comment at its top
 gives the rule for each; the core checks them, along with unique names and prefixes, and refuses
 an unknown key, so a typo cannot silently drop a setting. The core reads the file from
 `CORE_FEATURE_REGISTRY`, which is unset everywhere today and then means `../infra/features.toml`,
 relative to `Core/`, where the core runs. A file it cannot read or parse stops it at startup with
 the path and the reason rather than starting without its features, and it prints the features it
-found. The rules and the loading are in `src/registry.rs`.
+found. The core checks only the shape of `icon`, lowercase letters, digits and hyphens, and passes it
+in `/api/nav`: which icons exist is the design's, in `design/nav.js`, so the core never learns
+their names. The rules and the loading are in `src/registry.rs`.
 
 The cost is that adding or disabling a feature needs a restart, which is consistent with the core
 changing as features arrive being the workflow rather than a smell.
