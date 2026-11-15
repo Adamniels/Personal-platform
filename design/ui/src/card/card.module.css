@@ -1,6 +1,6 @@
 /* "Card" in section 4 of design/DESIGN.md. Colours and sizes are tokens. */
 
-/* Surface fill, 1px border, radius-lg, padding space-4, inner gap space-3,
+/* Surface fill, 1px border, radius-lg, padding card-pad, inner gap space-4,
  * no shadow. A column, so the footer can be pushed to the bottom and the
  * footers of cards in a row align when the grid stretches them. */
 .card {
@@ -8,9 +8,9 @@
 	position: relative;
 	display: flex;
 	flex-direction: column;
-	gap: var(--space-3);
+	gap: var(--space-4);
 	min-width: 0;
-	padding: var(--space-4);
+	padding: var(--card-pad);
 	background: var(--surface);
 	border: 1px solid var(--border);
 	border-radius: var(--radius-lg);
@@ -20,11 +20,10 @@
 	line-height: var(--text-body-line);
 }
 
-/* The needs you outline: the 1px border plus a 1px ring outside it, both in
- * the accent border, which reads as 2px without moving the content. */
+/* A card that needs the user: its one 1px border in the accent border, in
+ * place of the plain one, and no ring. */
 .attention {
 	border-color: var(--accent-border);
-	box-shadow: 0 0 0 1px var(--accent-border);
 }
 
 /* The title on the left, the caption or status label on the right. */
@@ -36,14 +35,20 @@
 	min-width: 0;
 }
 
+/* The card's label: its heading, but quiet, in the UI font and never in
+ * capitals. page.css gives a page's h2 the heading font with no specificity,
+ * so this class decides, and it says the transform outright. */
 .title {
 	margin: 0;
 	min-width: 0;
 	overflow-wrap: anywhere;
-	font-family: var(--font-heading);
-	font-size: var(--text-h2-size);
-	line-height: var(--text-h2-line);
-	font-weight: 600;
+	color: var(--text-2);
+	font-family: var(--font-ui);
+	font-size: var(--text-label-size);
+	line-height: var(--text-label-line);
+	font-weight: 500;
+	letter-spacing: normal;
+	text-transform: none;
 }
 
 .aside {

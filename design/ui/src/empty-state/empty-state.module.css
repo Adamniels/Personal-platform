@@ -1,5 +1,6 @@
 /* "Empty state" in section 4 of design/DESIGN.md. Colours and sizes are
- * tokens; the detail line is body small, 13/18. */
+ * tokens; the first line is the heading font at the h2 size, the detail
+ * line body small, 13/18. */
 
 .empty {
 	box-sizing: border-box;
@@ -15,11 +16,15 @@
 	text-align: center;
 }
 
+/* What is empty, in the heading font: always weight 600 and in capitals,
+ * hard rule 12. */
 .title {
 	margin: 0;
-	font-size: var(--text-body-size);
-	line-height: var(--text-body-line);
+	font-family: var(--font-heading);
+	font-size: var(--text-h2-size);
+	line-height: var(--text-h2-line);
 	font-weight: 600;
+	text-transform: uppercase;
 }
 
 .detail {

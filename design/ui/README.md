@@ -82,11 +82,12 @@ included, and each follows its entry in section 4 of `DESIGN.md`.
   way round, so nothing reads the window's width. Choosing an option calls `onChange`, as a click
   does. An option holds text alone, so it shows the text of the tab's label and drops any markup
   in it. Give every `Tab` its `TabPanel`, since each tab names its panel.
-- `Card`: `title`, the h2 that names the card; `aside`, an optional caption or status label on the
-  right of it; `footer`, an optional action, pushed to the bottom so cards in a row of the card
-  grid align; `attention`, the needs you outline, with a visually hidden "Needs you" so the mark
-  is not colour alone; and its body as children. It is an `article`. The design's one key fact
-  and at most three rows are the page's to keep to; the card does not count them.
+- `Card`: `title`, the card's label, still the h2 that names the card, in the UI font and never in
+  capitals; `aside`, an optional caption or status label on the right of it; `footer`, an optional
+  action, pushed to the bottom so cards in a row of the card grid align; `attention`, the one
+  accent border, with a visually hidden "Needs you" so the mark is not colour alone; and its body
+  as children. It is an `article`. The design's one key fact and at most three rows are the page's
+  to keep to; the card does not count them.
 - `EmptyState`: `title`, the line that says what is empty; `detail`, the line that says what
   happens next; and an optional `action`, one element, normally a secondary `Button`. It is a
   `div`, with no illustration.

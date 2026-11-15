@@ -5,7 +5,7 @@ export type EmptyStateProps = Omit<
 	ComponentProps<"div">,
 	"title" | "children"
 > & {
-	/** What is empty, the weight 600 line. */
+	/** What is empty, the line in the heading font, in capitals. */
 	title: string;
 	/** What happens next, the small line under it. */
 	detail: string;

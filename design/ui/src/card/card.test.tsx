@@ -80,8 +80,8 @@ describe("a card lays out its header, body and footer", () => {
 	});
 });
 
-describe("a card that needs the user is marked for assistive technology as well as by its outline", () => {
-	it("carries the outline's class and a visually hidden Needs you", () => {
+describe("a card that needs the user is marked for assistive technology as well as by its border", () => {
+	it("carries the accent border's class and a visually hidden Needs you", () => {
 		render(
 			<Card title="Review" attention>
 				Body

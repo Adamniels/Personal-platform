@@ -131,6 +131,49 @@ def test_studying_a_deck(page: Page, invite_code: str, base_url: str, viewport: 
         assert abs(due.timestamp() - (pressed + said)) < 60, (front, due, said)
 
 
+TITLE_STYLE = """element => {
+    const style = getComputedStyle(element);
+    return {
+        fontFamily: style.fontFamily,
+        fontSize: style.fontSize,
+        textTransform: style.textTransform,
+    };
+}"""
+
+# The value a property takes when set to a token, through a probe in the
+# page, so it is the one the page's own tokens.css gives.
+RESOLVE = """([token, property]) => {
+    const probe = document.createElement("div");
+    probe.style.setProperty(property, `var(${token})`);
+    document.body.append(probe);
+    const value = getComputedStyle(probe).getPropertyValue(property);
+    probe.remove();
+    return value;
+}"""
+
+
+def test_a_card_title_on_a_page_is_the_label(
+    page: Page, invite_code: str, base_url: str
+):
+    """A card's title on a feature page is the card's label from @platform/ui,
+    not the page's heading style: page.css gives a page's h2 the heading font
+    in capitals, and the card's own class decides."""
+    register_and_log_in(page, invite_code, base_url)
+    deck = add_deck(page, "Compilers")
+    add_card(page, deck, "What does an LL(1) parser look ahead at?", "One", PARSING)
+
+    page.goto("/review")
+    card = page.get_by_role("article", name="By deck")
+    title = card.get_by_role("heading", name="By deck", level=2)
+    expect(title).to_be_visible()
+    style = title.evaluate(TITLE_STYLE)
+    assert style["fontFamily"] == page.evaluate(RESOLVE, ["--font-ui", "font-family"])
+    assert style["fontSize"] == page.evaluate(
+        RESOLVE, ["--text-label-size", "font-size"]
+    )
+    assert style["textTransform"] == "none"
+
+
 def test_studying_with_the_keyboard(page: Page, invite_code: str, base_url: str):
     register_and_log_in(page, invite_code, base_url)
     deck = add_deck(page, "Compilers")
