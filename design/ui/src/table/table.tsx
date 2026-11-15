@@ -64,9 +64,11 @@ export type TableProps<Row> = Omit<ComponentProps<"section">, "children"> & {
 	onCancel?: (row: Row) => void;
 };
 
-/** "Table" in section 4 of design/DESIGN.md: a real table in a wrapper that
- * scrolls sideways, rendering what the caller gives it and holding no data
- * logic of its own. Everything a `section` takes goes to the wrapper. */
+/** "Table" in section 4 of design/DESIGN.md: a real table in a frame,
+ * rendering what the caller gives it and holding no data logic of its own.
+ * A page gives its columns priorities so the table never needs to scroll;
+ * the frame scrolls sideways only for one still too wide, so the page never
+ * does. Everything a `section` takes goes to the frame. */
 export function Table<Row>({
 	label,
 	columns,

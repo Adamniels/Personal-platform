@@ -124,13 +124,18 @@ included, and each follows its entry in section 4 of `DESIGN.md`.
   Since a column that is not shown cannot be edited, a column that must be editable on phone is
   priority 1.
 
-  The wrapper is a `section` named by `label`, in the tab order so the keyboard can scroll it,
-  and scrolls sideways when the table is wider than it, so the page never does.
+  The frame is a `section` named by `label`, with the surface, a 1px border and the large radius,
+  and a header row with no fill. **A table is planned never to scroll**: a page gives its columns
+  priorities so the table fits at 390px and at 1280px. The frame still scrolls sideways when the
+  table is wider than it, as a safety net, so a table that is too wide scrolls inside its frame
+  and the page never does; that is why the frame is in the tab order, so the keyboard can scroll
+  it.
 - `FilterRow`: the wrapping row above a table. It takes `search`, normally a `TextField`, which
   grows to fill the row; the other filters as children, selects and pills in their order; and
   `count`, the result count, in mono on the right and announced politely when it changes.
 - `FilterPill`: `label`, the filter in words, and `onRemove`, called by its remove button, which
-  is named "Remove filter <label>". It is 28px tall, and its remove button's target reaches 44px.
+  is named "Remove filter <label>". It is a 32px pill filled with `--surface-3`, with no border,
+  and its remove button is a 26px round ghost button inside it whose target reaches 44px.
 - `Paging`: `from`, `to` and `total`, shown as "Rows 1 to 7 of 214"; `hasPrevious` and `hasNext`,
   without which Previous or Next is disabled; and `onPage`, called with `previous` or `next`. It
   is a `nav` named `label`, "Pages" unless a page has more than one.

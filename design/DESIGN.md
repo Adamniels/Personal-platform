@@ -9,9 +9,7 @@ The product is a private web application used for hours every day. The look is q
 As of 2026-11-15. The values, the fonts and this file are in place. The parts below still have the shape they were first built with, and each is brought to this file by the feature "Redesign: apply the new look". Until its slice has merged, the code is what a page gets, and a slice that touches one of these follows this file, not the code beside it. The last slice of that feature removes this section.
 
 * **Hard rule 12.** The heading font is set without capitals in `Dialog` titles, and in the feature pages' own headings. Only the page title and the core's card titles are in capitals.
-* **Hard rule 13.** The `Table` wrapper scrolls sideways when the table is wider than it.
 * **Components, section 4, in `ui/`.** Each takes the new values, so colours, fonts and radii have changed, but not its shape:
-  * `Table` has a `--surface-2` header row, and its filter pill is 28px high and outlined, not filled.
   * `Dialog` has `--radius-lg` corners and 20px padding, and its title is not in capitals.
   * `Toast` has `--radius-md` corners and a 400px max width.
   * The icon button, the arrow link, the switch, the stat pill, the inset list row, the needs you banner, and the progress bar's tick bar and steps are not built.
@@ -44,7 +42,7 @@ Sections 3, 5 and 6 mix the two, and each says where its line runs.
 10. Touch targets are at least 44px on phone. `--control-h` and `--row-h` already grow below the breakpoint.
 11. Active means inverted. The selected nav item, tab or segment has a `--text` fill with its label in `--bg`. It is never marked with amber.
 12. The heading font is always weight 600 in capitals, and is kept for the page title, one hero label per card, and section headings. The number a card is about uses thin numerals, the UI font at weight 300, never bold.
-13. Nothing scrolls sideways, ever. On phone, content folds into a meta line, wraps, hides when it repeats something, or moves into a picker.
+13. Nothing scrolls sideways, ever. On phone, content folds into a meta line, wraps, hides when it repeats something, or moves into a picker. A page is planned so no table needs to scroll, and a table's frame scrolls before the page does.
 
 ## 2. Layout
 
@@ -130,11 +128,11 @@ A row inside a card: `--surface-2` fill, `--radius-md` (`--radius-sm` for a row 
 `--accent-soft` fill, 1px `--accent-border`, `--radius-md`, padding 14px 16px: a warning icon in `--accent-text`, the words "Needs you" in caption style, `--accent-text`, weight 600, then the question at weight 600, an optional line of consequence in `--text-2`, and at most three actions, the recommended one primary. One per view. The card that holds it also takes the `--accent-border` outline.
 
 ### Table
-In a card of its own: `--surface` fill, 1px `--border`, `--radius-lg`, no inner padding; or with `--radius-md` inside another card. It never scrolls sideways: columns carry a priority instead. Header cells: no fill, caption style, `--text-3`; the sorted column is `--text`, weight 600, with an arrow and `aria-sort`. Body cells: padding 6px 12px, height `--row-h`, 1px `--border` between rows. Numbers are right aligned in the mono font. Hover row: `--surface-2`. Selected or editing row: `--info-soft`.
+In a card of its own: `--surface` fill, 1px `--border`, `--radius-lg`, no inner padding; or with `--radius-md` inside another card. It is planned never to scroll sideways: columns carry a priority, and the table is checked at 390px and 1280px. The frame keeps `overflow-x: auto` as a safety net, so a table that is still too wide scrolls inside its frame and neither clips nor makes the page scroll. Header cells: no fill, caption style, `--text-3`; the sorted column is `--text`, weight 600, with an arrow and `aria-sort`. Body cells: padding 6px 12px, height `--row-h`, 1px `--border` between rows. Numbers are right aligned in the mono font. Hover row: `--surface-2`. Selected or editing row: `--info-soft`.
 
 * Inline edit replaces the cell text with a field in place, with Save (secondary) and Cancel (ghost) directly under it.
 * Column priority: every column has priority 1, 2 or 3. Below 640px only priority 1 columns show, and priority 2 values fold into one mono meta line under the first cell (for example "Topic · 3 / 5 · 12 Nov"). Priority 3 columns are hidden on phone.
-* Filters sit in a wrapping row above the table: a search field (`flex: 1 1 220px`), selects, removable filter pills (32px high, `--radius-full`, `--surface-3` fill, 13px, `--text`, the remove button a 26px circle inside it), and a mono result count on the right.
+* Filters sit in a wrapping row above the table: a search field (`flex: 1 1 220px`), selects, removable filter pills (32px high, `--radius-full`, `--surface-3` fill, no border, 13px, `--text`, 14px padding on the left and 4px on the right, the remove button a 26px round ghost button inside it), and a mono result count on the right.
 * Paging sits under the table: "Rows 1 to 7 of 214" on the left in `--text-2`, Previous and Next as secondary buttons on the right.
 
 ### Dialog
