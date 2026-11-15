@@ -158,6 +158,39 @@ async fn api_nav_keeps_the_registry_order() {
     db.close().await;
 }
 
+// The icon is passed as the registry names it, and left out, not null, for
+// a feature that names none, so the nav draws its fallback.
+#[tokio::test]
+async fn the_nav_gives_each_feature_its_icon() {
+    let db = common::TestDb::new().await;
+    let registry = format!(
+        "{}\n{CANARY}",
+        r#"
+        [[feature]]
+        name = "Review"
+        prefix = "/review"
+        upstream = "http://127.0.0.1:8083"
+        icon = "layers"
+        "#
+    );
+    let (addr, state) = serve(db.pool.clone(), &registry).await;
+    let token = account(&db.pool, &state, "icons@example.com").await;
+
+    let answer = get(addr, "/api/nav", Some(&token)).await;
+
+    assert_eq!(answer.status, 200, "{}", answer.body);
+    let json: serde_json::Value = serde_json::from_str(&answer.body).unwrap();
+    assert_eq!(
+        json["features"],
+        serde_json::json!([
+            {"name": "Review", "path": "/review", "icon": "layers"},
+            {"name": "Canary", "path": "/canary"},
+        ])
+    );
+
+    db.close().await;
+}
+
 #[tokio::test]
 async fn api_nav_answers_401_without_a_valid_token() {
     let db = common::TestDb::new().await;

@@ -31,6 +31,9 @@ pub struct Nav {
 struct NavFeature {
     name: String,
     path: String,
+    // Left out for a feature that names none, so the nav draws its fallback.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    icon: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -58,6 +61,7 @@ async fn serve(session: ApiSession, State(state): State<AppState>) -> Response {
             .map(|feature| NavFeature {
                 name: feature.name.clone(),
                 path: feature.prefix.clone(),
+                icon: feature.icon.clone(),
             })
             .collect(),
         user: NavUser { email },
