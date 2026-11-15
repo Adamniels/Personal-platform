@@ -24,17 +24,15 @@ def test_devflow_is_in_the_navigation_and_opens(
     page: Page, invite_code: str, base_url: str, viewport: str
 ):
     register_and_log_in(page, invite_code, base_url)
-    links = page.locator("platform-nav .links")
-    devflow = links.get_by_role("link", name="Dev flow", exact=True)
+    nav = page.get_by_role("navigation")
+    devflow = nav.get_by_role("link", name="Dev flow", exact=True)
     expect(devflow).to_have_attribute("href", "/devflow")
 
     devflow.click()
 
     expect(page).to_have_url(f"{base_url}/devflow")
     expect(
-        page.locator("platform-nav .links").get_by_role(
-            "link", name="Dev flow", exact=True
-        )
+        page.get_by_role("navigation").get_by_role("link", name="Dev flow", exact=True)
     ).to_have_attribute("aria-current", "page")
     expect(page.get_by_role("heading", name="Dev flow", level=1)).to_be_visible()
     expect(

@@ -1327,7 +1327,7 @@ def test_a_toast_reads_its_values(page: Page, viewport: str, theme: str):
     assert first["y"] + first["height"] <= last["y"]
 
     size = VIEWPORTS[viewport]
-    nav_h = float(resolve(page, "--nav-h", "height").removesuffix("px"))
+    tab_bar_h = float(resolve(page, "--tab-bar-h", "height").removesuffix("px"))
     bottom = last["y"] + last["height"]
     if viewport == "desktop":
         # Bottom right, a small gap from each edge.
@@ -1336,7 +1336,7 @@ def test_a_toast_reads_its_values(page: Page, viewport: str, theme: str):
         assert 0 < size["height"] - bottom <= 32
     else:
         # Above the bottom tab bar, and inside the screen.
-        assert bottom <= size["height"] - nav_h
+        assert bottom <= size["height"] - tab_bar_h
         assert last["x"] >= 0 and last["x"] + last["width"] <= size["width"]
         assert no_sideways_scroll(page), "the page scrolls sideways"
 

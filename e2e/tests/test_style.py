@@ -313,7 +313,8 @@ def test_canary_page_uses_the_platform_values(
 
     main = style(page.get_by_role("main"))
     assert main["maxWidth"] == resolve(page, "--content-max", "max-width")
-    assert main["padding"][0] == resolve(page, "--space-6", "padding-top")
+    # Inside the shell: --space-4 above, and the shell's own sides.
+    assert main["padding"][0] == resolve(page, "--space-4", "padding-top")
 
     heading = style(page.get_by_role("heading", name="Canary", level=1))
     assert first_family(heading["fontFamily"]) == "Barlow Condensed"

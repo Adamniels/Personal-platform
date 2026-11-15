@@ -1,29 +1,52 @@
 /*
- * The page shell around <platform-nav>, which every page with the bar links
- * after tokens.css. The bar draws itself from /design/nav.js; this keeps the
- * page from jumping while the script loads and from hiding under the bar.
- * The bar's own look is in nav.js. See section 3 of DESIGN.md. It also holds
- * the page container of section 2, which a page opts into by class.
+ * The page shell around <platform-nav>, from section 2 of DESIGN.md, which
+ * every page links after tokens.css. A page with the bar includes the
+ * element as a direct child of body, so the shell is selected with
+ * body:has(> platform-nav) and no page changes its markup for it. A page
+ * without the bar, such as login, gets the page container alone.
+ *
+ * On desktop body is the shell: padded --page-pad on every side and, on the
+ * left, by the rail's width and a gap either side of it, at most the rail,
+ * the content column and three gaps wide, centred. nav.js fixes the rail to
+ * the window in that room; the element, in the page's flow, is the top bar.
+ * On phone body keeps room for the tab bar at the bottom, and the top bar
+ * and the content have --page-pad at their sides. All of it is held before
+ * /design/nav.js runs, so nothing moves when the bar draws. The bar's own
+ * look is in nav.js, see section 3 of DESIGN.md.
+ *
+ * It also holds the page container of section 2, which a page opts into by
+ * class, and its headings.
  */
 
 /* The top bar's height, held before the script renders it. */
 platform-nav {
   display: block;
-  min-height: var(--nav-h);
+  min-height: var(--top-bar-h);
 }
 
-/* On phone the links are a tab bar fixed to the bottom, so the page ends
-   that far above the bottom edge and the bar covers nothing. */
+/* Desktop: the rail's room on the left, and the shell centred. */
+body:has(> platform-nav) {
+  box-sizing: border-box;
+  max-width: calc(var(--rail-w) + var(--content-max) + 3 * var(--page-pad));
+  margin: 0 auto;
+  padding: var(--page-pad) var(--page-pad) var(--page-pad)
+    calc(var(--rail-w) + 2 * var(--page-pad));
+}
+
+/* Phone: no rail, and the page ends that far above the bottom edge, so the
+   tab bar fixed there covers nothing. */
 @media (max-width: 639.98px) {
   body:has(> platform-nav) {
-    padding-bottom: calc(var(--nav-h) + env(safe-area-inset-bottom, 0px));
+    max-width: none;
+    padding: 0 0 calc(var(--tab-bar-h) + env(safe-area-inset-bottom, 0px));
   }
 }
 
 /* The page container from section 2, opt in by class so a frontend with
    its own layout is not touched: <main class="page">. The core's pages and
    canary use it, so a page with the bar has the same width, padding and
-   headings without a stylesheet of its own. */
+   headings without a stylesheet of its own. Without the bar it is centred
+   with --page-pad at its sides. */
 .page {
   box-sizing: border-box;
   max-width: var(--content-max);
@@ -31,8 +54,21 @@ platform-nav {
   padding: var(--space-6) var(--page-pad);
 }
 
-/* Headings are the heading font, which is always 600 and in capitals. */
-.page :is(h1, h2) {
+/* Inside the shell the shell holds the content column's width and sides,
+   so on desktop the container adds no sides of its own. */
+body:has(> platform-nav) .page {
+  padding: var(--space-4) 0 var(--space-6);
+}
+
+@media (max-width: 639.98px) {
+  body:has(> platform-nav) .page {
+    padding: var(--space-4) var(--page-pad) var(--space-6);
+  }
+}
+
+/* Headings are the heading font, which is always 600 and in capitals. At no
+   specificity, so a component's or a page's own class always wins. */
+:where(.page) :where(h1, h2) {
   font-family: var(--font-heading);
   font-weight: 600;
   text-transform: uppercase;
@@ -40,14 +76,14 @@ platform-nav {
 }
 
 /* The page title, one per page. */
-.page h1 {
+:where(.page) :where(h1) {
   font-size: var(--text-display-size);
   line-height: var(--text-display-line);
   letter-spacing: var(--tracking-display);
   margin-bottom: var(--space-6);
 }
 
-.page h2 {
+:where(.page) :where(h2) {
   font-size: var(--text-h2-size);
   line-height: var(--text-h2-line);
 }

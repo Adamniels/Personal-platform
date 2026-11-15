@@ -28,8 +28,8 @@ SECTIONS = [
 ]
 
 
-def links_bar(page: Page) -> Locator:
-    return page.locator("platform-nav .links")
+def nav_link(page: Page, name: str) -> Locator:
+    return page.get_by_role("navigation").get_by_role("link", name=name, exact=True)
 
 
 def sections(page: Page) -> Locator:
@@ -46,10 +46,18 @@ def test_memory_opens_from_the_navigation(
     page: Page, invite_code: str, base_url: str, viewport: str
 ):
     register_and_log_in(page, invite_code, base_url)
-    links = links_bar(page).get_by_role("link")
-    # Memory is fixed, after Home and before the features.
-    expect(links).to_have_text(["Home", "Memory", "Canary", "Review", "Dev flow"])
-    memory = links_bar(page).get_by_role("link", name="Memory", exact=True)
+    # Memory is fixed, after Home and before the features: the links in the
+    # order a reader meets them, leaving out the mark, which sits in the rail
+    # on desktop and in the top bar on phone.
+    expect(nav_link(page, "Dev flow")).to_be_visible()
+    names = (
+        page.get_by_role("navigation")
+        .get_by_role("link")
+        .evaluate_all("links => links.map(link => link.getAttribute('aria-label'))")
+    )
+    links = [name for name in names if name != "Platform"]
+    assert links == ["Home", "Memory", "Canary", "Review", "Dev flow"]
+    memory = nav_link(page, "Memory")
     expect(memory).to_have_attribute("href", "/brain")
     expect(memory).not_to_have_attribute("aria-current", "page")
     if viewport == "phone":
@@ -58,11 +66,9 @@ def test_memory_opens_from_the_navigation(
     memory.click()
 
     expect(page).to_have_url(f"{base_url}/brain")
-    memory = links_bar(page).get_by_role("link", name="Memory", exact=True)
+    memory = nav_link(page, "Memory")
     expect(memory).to_have_attribute("aria-current", "page")
-    expect(
-        links_bar(page).get_by_role("link", name="Home", exact=True)
-    ).not_to_have_attribute("aria-current", "page")
+    expect(nav_link(page, "Home")).not_to_have_attribute("aria-current", "page")
     expect(page.get_by_role("heading", name="Memory", level=1)).to_be_visible()
     expect(
         page.get_by_text(

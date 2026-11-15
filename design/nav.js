@@ -1,5 +1,6 @@
 // <platform-nav>, the platform's shared nav bar, served by the proxy at
-// /design/nav.js. A page includes it with the design files and the element:
+// /design/nav.js. A page includes it with the design files and the element,
+// a direct child of body, where page.css puts the page shell around it:
 //
 //   <link rel="stylesheet" href="/design/tokens.css">
 //   <link rel="stylesheet" href="/design/fonts.css">
@@ -7,20 +8,24 @@
 //   <script src="/design/theme.js"></script>
 //   <script src="/design/nav.js" defer></script>
 //   ...
-//   <platform-nav current="canary"></platform-nav>
+//   <platform-nav current="brain" crumb="Memory / Rules"></platform-nav>
 //
 // `current` is `home`, `brain` or a feature's prefix without the slash; the
-// matching link gets aria-current="page". The bar fetches the core's /api/nav
-// and renders the mark and the name, Home, Memory (the brain's memory centre,
-// which is not a feature and so is fixed here), one link per feature in the
-// order the endpoint gives, a theme toggle, and who is logged in as a menu
-// holding "Change password" and "Log out". On phone the links move to a tab
-// bar fixed to the bottom, and past five the last ones fold under More. It
-// renders and links and does nothing else: when /api/nav fails it shows the
-// mark, Home and Memory alone, and it never redirects or refreshes the
-// session. See "Navigation" in
-// High-level/docs/platform-architecture.md, and section 3 of design/DESIGN.md
-// for how it looks.
+// matching link gets aria-current="page". `crumb`, optional, names the page
+// in the top bar; without it the crumb is the name of the link `current`
+// names. Changing either draws the bar again. The bar fetches the core's
+// /api/nav and renders, on desktop, a rail fixed to the window with the
+// mark, Home, Memory (the brain's memory centre, which is not a feature and
+// so is fixed here), one item per feature in the order the endpoint gives,
+// and the theme toggle at its bottom; the element itself is the top bar,
+// with the crumb and the account pill, whose menu holds "Change password"
+// and "Log out". On phone the rail goes: the top bar gains the mark, the
+// links become a tab bar fixed to the bottom, past five the last ones fold
+// under More, and the theme toggle moves into the account menu. It renders
+// and links and does nothing else: when /api/nav fails it shows the mark,
+// Home and Memory alone, and it never redirects or refreshes the session.
+// See "Navigation" in High-level/docs/platform-architecture.md, and section 3
+// of design/DESIGN.md for how it looks.
 //
 // Plain JavaScript with no build step and no dependency. Its styles live in
 // its shadow root and use the tokens, which the page's root defines and the
@@ -32,6 +37,8 @@
   const THEME_KEY = "platform-theme";
   // At most this many tabs on phone; past it, the first four and More.
   const MAX_TABS = 5;
+  // The account pill shows the email cut at this many characters.
+  const EMAIL_SHOWN = 24;
 
   // Icons from Lucide 1.72.0 (ISC licence), https://lucide.dev, the path
   // data copied from lucide-react's icons/<name>.mjs, since a plain script
@@ -96,7 +103,7 @@
   const STYLE = `
     :host {
       display: block;
-      min-height: var(--nav-h);
+      min-height: var(--top-bar-h);
       font-family: var(--font-ui);
       font-size: var(--text-body-size);
       line-height: var(--text-body-line);
@@ -127,126 +134,182 @@
       height: 20px;
     }
 
-    /* The top bar. */
-    .top {
-      box-sizing: border-box;
-      height: var(--nav-h);
-      display: flex;
-      align-items: center;
-      gap: var(--space-6);
-      padding: 0 var(--page-pad);
-      background: var(--surface);
-      border-bottom: 1px solid var(--border);
-    }
-    .brand {
-      flex: none;
-      display: inline-flex;
-      align-items: center;
-      gap: var(--space-2);
-      border-radius: var(--radius-sm);
-      color: var(--text);
-      font-family: var(--font-heading);
-      font-size: var(--text-body-lg-size);
-      line-height: var(--text-body-lg-line);
-      font-weight: 600;
-    }
+    /* The mark, linking to the front page. */
     .mark {
       box-sizing: border-box;
-      width: var(--space-4);
-      height: var(--space-4);
-      border-radius: var(--radius-sm);
-      background: var(--accent);
-      border: 1px solid var(--accent-border);
-    }
-
-    /* Home and the features, in the top bar on desktop. */
-    .links {
+      flex: none;
+      width: 44px;
+      height: 44px;
       display: flex;
       align-items: center;
-      gap: var(--space-1);
-      min-width: 0;
+      justify-content: center;
+      border-radius: var(--radius-sm);
+      background: var(--accent);
+      color: var(--on-accent);
     }
-    .links > li > a {
+
+    /* The rail, fixed to the window in the room page.css keeps for it:
+       --page-pad from the top, the bottom and the shell's left edge, which
+       is centred at the width page.css gives it. */
+    .rail {
       box-sizing: border-box;
-      height: var(--control-h);
-      display: inline-flex;
+      position: fixed;
+      z-index: 10;
+      top: var(--page-pad);
+      bottom: var(--page-pad);
+      left: max(
+        var(--page-pad),
+        calc(
+          (100% - var(--rail-w) - var(--content-max) - 3 * var(--page-pad)) / 2 +
+            var(--page-pad)
+        )
+      );
+      width: var(--rail-w);
+      display: flex;
+      flex-direction: column;
       align-items: center;
-      padding: 0 var(--space-3);
-      border: 1px solid transparent;
-      border-radius: var(--radius-md);
-      color: var(--text-2);
-      font-weight: 500;
-      white-space: nowrap;
+      gap: var(--space-2);
+      padding: var(--space-4) 0;
+      overflow: hidden auto;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
     }
-    .links > li > a:hover {
-      color: var(--text);
+    .rule {
+      flex: none;
+      width: 32px;
+      height: 1px;
+      background: var(--border);
     }
-    .links > li > a[aria-current="page"] {
-      color: var(--text);
+
+    /* Home, Memory and the features: a column of round items in the rail. */
+    .links {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: var(--space-2);
+    }
+    .links > li {
+      display: flex;
+    }
+    .links > li > a,
+    .item {
+      box-sizing: border-box;
+      position: relative;
+      flex: none;
+      width: 44px;
+      height: 44px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
+      border: 0;
+      border-radius: var(--radius-full);
       background: var(--surface-2);
-      border-color: var(--accent-border);
+      color: var(--text-2);
     }
-    .links > li > a svg,
+    .links > li > a:hover,
+    .item:hover {
+      color: var(--text);
+    }
+    /* Active means inverted, hard rule 11. */
+    .links > li > a[aria-current="page"] {
+      background: var(--text);
+      color: var(--bg);
+    }
+    .links > li > a .label,
     .links > .more-item {
       display: none;
     }
-    /* Something behind the link needs the person. */
+    /* Something behind the item needs the person: on its top right
+       corner, ringed in the rail's fill. */
     .dot {
-      flex: none;
-      width: 6px;
-      height: 6px;
-      margin-left: var(--space-2);
+      position: absolute;
+      top: 2px;
+      right: 2px;
+      width: 8px;
+      height: 8px;
       border-radius: var(--radius-full);
-      background: var(--accent-text);
+      background: var(--accent);
+      box-shadow: 0 0 0 2px var(--surface);
+    }
+    /* The theme toggle, at the rail's bottom. */
+    .rail > .theme {
+      margin-top: auto;
     }
 
-    /* The theme toggle and the user menu, on the right. */
-    .end {
-      margin-left: auto;
-      min-width: 0;
-      display: flex;
-      align-items: center;
-      gap: var(--space-2);
-    }
-    .ghost {
+    /* The top bar, the element itself in the page's flow: the crumb, and
+       the account pill on the right. It sits on the ground. */
+    .top {
       box-sizing: border-box;
-      height: var(--control-h);
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      padding: 0 10px;
-      border: 1px solid transparent;
-      border-radius: var(--radius-md);
-      background: transparent;
-      color: var(--text-2);
-      font-weight: 500;
-    }
-    .ghost:hover,
-    .ghost[aria-expanded="true"] {
-      background: var(--surface-2);
-      color: var(--text);
-    }
-    .theme {
-      flex: none;
-      width: var(--control-h);
-      padding: 0;
-    }
-    .user {
-      position: relative;
-      min-width: 0;
+      height: var(--top-bar-h);
       display: flex;
+      align-items: center;
+      gap: var(--space-3);
     }
-    .email {
+    .top > .mark {
+      display: none;
+    }
+    .crumb {
+      flex: 1;
       min-width: 0;
-      max-width: 32ch;
-    }
-    .email > span {
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
+      font-family: var(--font-mono);
+      font-size: var(--text-mono-size);
+      line-height: var(--text-mono-line);
+      text-transform: uppercase;
+      color: var(--text-3);
+    }
+    .user {
+      position: relative;
+      flex: none;
+      display: flex;
+    }
+    .pill {
+      box-sizing: border-box;
+      position: relative;
+      height: 44px;
+      display: inline-flex;
+      align-items: center;
+      gap: var(--space-2);
+      padding: 0 var(--space-4) 0 var(--space-1);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-full);
+      background: var(--surface);
+      color: var(--text);
+      font-weight: 500;
+    }
+    .pill:hover,
+    .pill[aria-expanded="true"] {
+      background: var(--surface-2);
+    }
+    .avatar {
+      flex: none;
+      width: 34px;
+      height: 34px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: var(--radius-full);
+      background: var(--surface-3);
+      font-weight: 600;
+    }
+    .email {
+      white-space: nowrap;
+    }
+    /* Read out, never shown. */
+    .unseen {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
     }
 
-    /* A list that opens from a button: the user menu, and More on phone. */
+    /* A list that opens from a button: the account menu, and More on phone. */
     .popover {
       box-sizing: border-box;
       position: absolute;
@@ -258,30 +321,63 @@
       border-radius: var(--radius-md);
       box-shadow: var(--shadow-1);
     }
-    .popover a {
+    .popover :is(a, button) {
       box-sizing: border-box;
+      width: 100%;
       height: var(--row-h);
       display: flex;
       align-items: center;
       gap: var(--space-2);
       padding: 0 var(--space-3);
+      border: 0;
       border-radius: var(--radius-sm);
+      background: transparent;
       color: var(--text);
+      text-align: left;
       white-space: nowrap;
     }
-    .popover a:hover {
+    .popover :is(a, button):hover {
       background: var(--surface-2);
     }
     .menu {
       top: calc(100% + var(--space-1));
       right: 0;
     }
+    /* The theme toggle is in the account menu on phone only. */
+    .menu > .theme-item {
+      display: none;
+    }
 
-    /* Phone: the links become a tab bar fixed to the bottom. */
+    /* Phone: no rail. The top bar gains the mark and the pill is the
+       avatar alone; the links become a tab bar fixed to the bottom, and the
+       theme toggle moves into the account menu. */
     @media (max-width: 639.98px) {
-      .top {
-        gap: var(--space-3);
+      .rail {
+        display: contents;
       }
+      .rail > .mark,
+      .rule,
+      .rail > .theme {
+        display: none;
+      }
+      .top {
+        padding: 0 var(--page-pad);
+      }
+      .top > .mark {
+        display: flex;
+        width: 40px;
+        height: 40px;
+      }
+      .pill {
+        padding: 0 var(--space-1);
+      }
+      .email {
+        display: none;
+      }
+      .menu > .theme-item {
+        display: block;
+      }
+
       .links {
         box-sizing: border-box;
         position: fixed;
@@ -289,12 +385,13 @@
         left: 0;
         right: 0;
         bottom: 0;
-        height: calc(var(--nav-h) + env(safe-area-inset-bottom, 0px));
-        padding-bottom: env(safe-area-inset-bottom, 0px);
+        height: calc(var(--tab-bar-h) + env(safe-area-inset-bottom, 0px));
+        padding: 0 var(--space-2) env(safe-area-inset-bottom, 0px);
         display: grid;
         grid-auto-flow: column;
         grid-auto-columns: minmax(0, 1fr);
-        gap: 0;
+        align-items: center;
+        gap: var(--space-1);
         background: var(--surface);
         border-top: 1px solid var(--border);
       }
@@ -305,9 +402,12 @@
       .links > li > a,
       .links > li > .more {
         box-sizing: border-box;
+        position: relative;
         flex: 1;
         min-width: 0;
-        height: 100%;
+        width: auto;
+        height: auto;
+        min-height: 56px;
         display: flex;
         flex-direction: column;
         align-items: center;
@@ -315,37 +415,30 @@
         gap: var(--space-1);
         padding: 0 var(--space-1);
         border: 0;
-        border-top: 2px solid transparent;
-        border-radius: 0;
+        border-radius: var(--radius-md);
         background: transparent;
         color: var(--text-2);
-        font-weight: 500;
       }
       .links > li > a[aria-current="page"] {
-        color: var(--text);
-        background: transparent;
-        border-top-color: var(--accent);
+        background: var(--text);
+        color: var(--bg);
       }
-      .links > li > a svg {
+      .links > li > a .label,
+      .more .label {
         display: block;
-      }
-      .label {
         max-width: 100%;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
         font-size: var(--text-caption-size);
         line-height: var(--text-caption-line);
+        font-weight: 500;
       }
       /* The dot sits on the icon's corner, since the label has no room. */
-      .links > li > a {
-        position: relative;
-      }
       .links > li > a .dot {
-        position: absolute;
         top: var(--space-2);
+        right: auto;
         left: calc(50% + var(--space-2));
-        margin: 0;
       }
       .links.folded > .overflow {
         display: none;
@@ -356,12 +449,10 @@
       .sheet {
         position: fixed;
         right: var(--space-2);
-        bottom: calc(var(--nav-h) + env(safe-area-inset-bottom, 0px) + var(--space-2));
+        bottom: calc(
+          var(--tab-bar-h) + env(safe-area-inset-bottom, 0px) + var(--space-2)
+        );
         min-width: 50%;
-      }
-      .sheet .label {
-        font-size: inherit;
-        line-height: inherit;
       }
     }
   `;
@@ -425,7 +516,7 @@
   };
 
   class PlatformNav extends HTMLElement {
-    static observedAttributes = ["current"];
+    static observedAttributes = ["current", "crumb"];
 
     #contents = null;
     #loading = false;
@@ -504,6 +595,8 @@
         icon(entry.icon),
         text("span", "label", entry.name),
       );
+      // A rail item shows only its icon, so its name is its label.
+      a.setAttribute("aria-label", entry.name);
       if (entry.here) {
         a.setAttribute("aria-current", "page");
       }
@@ -549,13 +642,12 @@
       );
     }
 
-    #themeToggle(signal) {
-      const button = element("button", { type: "button", class: "ghost theme" });
-      const show = () => {
-        const next = shownTheme() === "dark" ? "light" : "dark";
-        button.setAttribute("aria-label", `Switch to ${next} theme`);
-        button.replaceChildren(icon(next === "dark" ? "moon" : "sun"));
-      };
+    // A button that switches between light and dark: `draw` fills it for
+    // the theme a press would switch to. The rail's shows an icon, the
+    // phone's account menu an icon and words.
+    #themeToggle(className, draw, signal) {
+      const button = element("button", { type: "button", class: className });
+      const show = () => draw(button, shownTheme() === "dark" ? "light" : "dark");
       button.addEventListener("click", () => {
         const next = shownTheme() === "dark" ? "light" : "dark";
         document.documentElement.setAttribute("data-theme", next);
@@ -572,11 +664,55 @@
       return button;
     }
 
+    // The rail's toggle: the sun in dark, the moon in light.
+    #railTheme(signal) {
+      return this.#themeToggle(
+        "item theme",
+        (button, next) => {
+          button.setAttribute("aria-label", `Switch to ${next} mode`);
+          button.replaceChildren(icon(next === "dark" ? "moon" : "sun"));
+        },
+        signal,
+      );
+    }
+
+    // The account menu's toggle on phone: an icon and the mode it sets.
+    #menuTheme(signal) {
+      const name = { light: "Light mode", dark: "Dark mode" };
+      return this.#themeToggle(
+        "",
+        (button, next) => {
+          button.replaceChildren(
+            icon(next === "dark" ? "moon" : "sun"),
+            text("span", "", name[next]),
+          );
+        },
+        signal,
+      );
+    }
+
+    // The account pill: the email's first letter in the avatar and, on
+    // desktop, the email cut at EMAIL_SHOWN characters. Its name is the
+    // whole email.
     #userMenu(email, signal) {
+      const characters = Array.from(email);
+      const shown =
+        characters.length > EMAIL_SHOWN
+          ? `${characters.slice(0, EMAIL_SHOWN).join("")}…`
+          : email;
+      // What shows, the letter and the cut email, is hidden from a reader,
+      // who hears the whole email instead. A name from the content rather
+      // than an aria-label, which a cut word would not match.
+      const hidden = (node) => {
+        node.setAttribute("aria-hidden", "true");
+        return node;
+      };
       const button = element(
         "button",
-        { type: "button", class: "ghost email", "aria-controls": "user-menu" },
-        text("span", "", email),
+        { type: "button", class: "pill", "aria-controls": "user-menu" },
+        hidden(text("span", "avatar", (characters[0] ?? "").toUpperCase())),
+        hidden(text("span", "email", shown)),
+        text("span", "unseen", email),
       );
       button.title = email;
       const link = (name, href) => element("li", {}, element("a", { href }, name));
@@ -585,6 +721,7 @@
         { id: "user-menu", class: "popover menu" },
         link("Change password", "/settings/password"),
         link("Log out", "/auth/logout"),
+        element("li", { class: "theme-item" }, this.#menuTheme(signal)),
       );
       const wrapper = element("div", { class: "user" }, button, list);
       this.#disclosure(wrapper, button, list, signal);
@@ -624,29 +761,50 @@
       return links;
     }
 
+    // The crumb: the page's own, or else the name of the link `current`
+    // names, or else nothing.
+    #crumb(entries) {
+      if (this.hasAttribute("crumb")) {
+        return this.getAttribute("crumb");
+      }
+      return entries.find((entry) => entry.here)?.name ?? "";
+    }
+
     #render() {
       this.#listeners?.abort();
       this.#listeners = new AbortController();
       const { signal } = this.#listeners;
+      const entries = this.#entries();
 
-      const brand = element(
-        "a",
-        { class: "brand", href: "/" },
-        element("span", { class: "mark", "aria-hidden": "true" }),
-        text("span", "name", "Platform"),
+      // The mark, in the rail on desktop and in the top bar on phone.
+      const mark = () =>
+        element(
+          "a",
+          { class: "mark", href: "/", "aria-label": "Platform" },
+          icon("box"),
+        );
+
+      const rail = element(
+        "div",
+        { class: "rail" },
+        mark(),
+        element("span", { class: "rule", "aria-hidden": "true" }),
+        this.#links(entries, signal),
+        this.#railTheme(signal),
       );
 
-      const end = element("div", { class: "end" }, this.#themeToggle(signal));
+      const top = element(
+        "div",
+        { class: "top" },
+        mark(),
+        text("span", "crumb", this.#crumb(entries)),
+      );
       const email = this.#contents?.user?.email;
       if (typeof email === "string") {
-        end.append(this.#userMenu(email, signal));
+        top.append(this.#userMenu(email, signal));
       }
 
-      const nav = element(
-        "nav",
-        { "aria-label": "Platform" },
-        element("div", { class: "top" }, brand, this.#links(this.#entries(), signal), end),
-      );
+      const nav = element("nav", { "aria-label": "Platform" }, rail, top);
       const style = element("style");
       style.textContent = STYLE;
       this.shadowRoot.replaceChildren(style, nav);
