@@ -2,6 +2,26 @@
 // `npm run generate:api`. Do not edit: src/api/schema.test.ts fails when it is stale.
 
 export interface paths {
+    "/devflow/api/github/link": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start linking the caller's GitHub account
+         * @description Stores a single use state and a PKCE verifier for ten minutes, and answers the code host's address to send the browser to, carrying the state and the S256 challenge. The code host sends the browser back to /devflow/github/callback. Without a valid token, 401 with an empty body; from another origin, 403.
+         */
+        post: operations["startGitHubLink"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/devflow/api/health": {
         parameters: {
             query?: never;
@@ -74,6 +94,10 @@ export interface components {
         Health: {
             status: string;
         };
+        LinkStarted: {
+            /** Format: uri */
+            authorize_url: string;
+        };
         WhoAmI: {
             /** Format: uuid */
             account_id: string;
@@ -87,6 +111,40 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    startGitHubLink: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LinkStarted"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     health: {
         parameters: {
             query?: never;

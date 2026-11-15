@@ -29,6 +29,18 @@
         ],
         "type": "object"
       },
+      "LinkStarted": {
+        "properties": {
+          "authorize_url": {
+            "format": "uri",
+            "type": "string"
+          }
+        },
+        "required": [
+          "authorize_url"
+        ],
+        "type": "object"
+      },
       "WhoAmI": {
         "properties": {
           "account_id": {
@@ -49,6 +61,34 @@
   },
   "openapi": "3.1.1",
   "paths": {
+    "/devflow/api/github/link": {
+      "post": {
+        "description": "Stores a single use state and a PKCE verifier for ten minutes, and answers the code host's address to send the browser to, carrying the state and the S256 challenge. The code host sends the browser back to /devflow/github/callback. Without a valid token, 401 with an empty body; from another origin, 403.",
+        "operationId": "startGitHubLink",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LinkStarted"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          }
+        },
+        "summary": "Start linking the caller's GitHub account",
+        "tags": [
+          "DevFlow"
+        ]
+      }
+    },
     "/devflow/api/health": {
       "get": {
         "description": "Needs no token. It answers whenever the process serves, and says nothing about what Dev flow depends on.",
