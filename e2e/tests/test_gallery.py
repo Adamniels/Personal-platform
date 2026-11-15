@@ -421,16 +421,13 @@ def test_fields_are_16px_and_44px_on_phone(page: Page, kind: str):
 
 
 @pytest.mark.parametrize("theme", THEMES)
-def test_a_checkbox_reads_its_values(page: Page, theme: str):
+def test_the_checkbox_is_18px(page: Page, theme: str):
     open_gallery(page, theme)
     region = page.get_by_role("region", name="Checkbox")
     box = region.get_by_role("checkbox", name="Unchecked", exact=True)
 
     size = box.bounding_box()
-    assert size is not None and size["width"] == 16 and size["height"] == 16
-    assert box.evaluate(FIELD_STYLE)["accent"] == resolve(
-        page, "--info", "accent-color"
-    )
+    assert size is not None and size["width"] == 18 and size["height"] == 18
 
     # `has` is matched inside each label, so it is not scoped to the region.
     row = region.locator(
@@ -439,6 +436,17 @@ def test_a_checkbox_reads_its_values(page: Page, theme: str):
     row_box = row.bounding_box()
     assert row_box is not None
     assert f"{row_box['height']:g}px" == resolve(page, "--row-h", "height")
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_a_checkbox_reads_its_values(page: Page, theme: str):
+    open_gallery(page, theme)
+    region = page.get_by_role("region", name="Checkbox")
+    box = region.get_by_role("checkbox", name="Unchecked", exact=True)
+
+    assert box.evaluate(FIELD_STYLE)["accent"] == resolve(
+        page, "--info", "accent-color"
+    )
 
     done = region.locator("label", has_text="Done").evaluate(TEXT_STYLE)
     assert done["color"] == resolve(page, "--text-3", "color")
