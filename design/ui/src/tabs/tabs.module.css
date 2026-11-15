@@ -72,8 +72,16 @@
 	text-overflow: ellipsis;
 }
 
+/* The select that stands for more than five tabs on phone. It takes the
+ * field rule from field.module.css, a pill at the full width, and is hidden
+ * from 640px. */
+.picker {
+	display: none;
+}
+
 /* On phone the track is the full width and its tabs equal columns, their
- * labels small with 4px side padding. */
+ * labels small with 4px side padding. With more than five tabs the select
+ * shows instead, and the track, which follows it, is not drawn. */
 @media (max-width: 639.98px) {
 	.row {
 		align-self: stretch;
@@ -85,5 +93,13 @@
 		padding: 0 4px;
 		font-size: var(--text-small-size);
 		line-height: var(--text-small-line);
+	}
+
+	.picker {
+		display: block;
+	}
+
+	.picker + .row {
+		display: none;
 	}
 }

@@ -59,7 +59,7 @@ export function TabsSection() {
 				Left and Right move between tabs and wrap, Home and End go to the ends,
 				and the tab focus reaches is selected. On desktop the track is as wide
 				as its tabs, and wraps rather than scroll; on phone it fills the width
-				with equal tabs.
+				with equal tabs, and more than five tabs are a select.
 			</Note>
 		</Section>
 	);

@@ -223,3 +223,89 @@ describe("tabs can be controlled by the caller", () => {
 		expect(onChange).not.toHaveBeenCalled();
 	});
 });
+
+/** Six tabs, one with a count; `count` keeps the first that many. */
+const six = [
+	{ value: "agents", label: "Agents" },
+	{ value: "decisions", label: "Decisions", count: 2 },
+	{ value: "logs", label: "Logs" },
+	{ value: "history", label: "History" },
+	{ value: "notes", label: "Notes" },
+	{ value: "lessons", label: "Lessons" },
+];
+
+function Many({
+	value,
+	onChange,
+	count = six.length,
+}: {
+	value: string;
+	onChange: (value: string) => void;
+	count?: number;
+}) {
+	const tabs = six.slice(0, count);
+	return (
+		<Tabs label="Sections" value={value} onChange={onChange}>
+			{tabs.map((t) => (
+				<Tab key={t.value} value={t.value} count={t.count}>
+					{t.label}
+				</Tab>
+			))}
+			{tabs.map((t) => (
+				<TabPanel key={t.value} value={t.value}>
+					The {t.label} panel
+				</TabPanel>
+			))}
+		</Tabs>
+	);
+}
+
+function picker() {
+	return screen.getByRole<HTMLSelectElement>("combobox", {
+		name: "Sections",
+	});
+}
+
+describe("more than five tabs are also a select, which CSS shows on phone", () => {
+	it("renders a select with every tab when there are more than five", () => {
+		render(<Many value="decisions" onChange={() => {}} />);
+
+		const options = Array.from(picker().options);
+		expect(options.map((o) => o.textContent)).toEqual([
+			"Agents",
+			"Decisions (2)",
+			"Logs",
+			"History",
+			"Notes",
+			"Lessons",
+		]);
+		expect(options.map((o) => o.value)).toEqual(six.map((t) => t.value));
+		expect(options.filter((o) => o.selected).map((o) => o.value)).toEqual([
+			"decisions",
+		]);
+		expect(picker().value).toBe("decisions");
+		// The tab list is still there; CSS decides which of the two shows.
+		expect(screen.getByRole("tablist", { name: "Sections" })).toBeDefined();
+	});
+
+	it("choosing an option reports the tab's value", () => {
+		const onChange = vi.fn();
+		render(<Many value="agents" onChange={onChange} />);
+
+		fireEvent.change(picker(), { target: { value: "lessons" } });
+
+		expect(onChange).toHaveBeenCalledTimes(1);
+		expect(onChange).toHaveBeenLastCalledWith("lessons");
+		// Nothing changes until the caller passes the value back.
+		expect(picker().value).toBe("agents");
+		expect(tab("Agents").getAttribute("aria-selected")).toBe("true");
+		expect(screen.getByText("The Lessons panel").hidden).toBe(true);
+	});
+
+	it("renders no select for five tabs or fewer", () => {
+		render(<Many value="agents" onChange={() => {}} count={5} />);
+
+		expect(screen.queryByRole("combobox")).toBeNull();
+		expect(screen.getAllByRole("tab")).toHaveLength(5);
+	});
+});

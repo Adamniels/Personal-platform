@@ -4,6 +4,7 @@ import {
 	createContext,
 	isValidElement,
 	type KeyboardEvent,
+	type ReactElement,
 	type ReactNode,
 	useContext,
 	useId,
@@ -11,8 +12,13 @@ import {
 	useRef,
 	useState,
 } from "react";
+import fieldStyles from "../field/field.module.css";
 import { Badge } from "../status/badge";
 import styles from "./tabs.module.css";
+
+/** With more tabs than this, `Tabs` also renders a select, which CSS shows
+ * in place of the track on phone: "Tabs" in section 4 of design/DESIGN.md. */
+const MOST_ON_PHONE = 5;
 
 type TabsState = {
 	/** The selected value, as the caller gave it. */
@@ -34,13 +40,15 @@ function useTabs(component: string): TabsState {
 }
 
 export type TabsProps = Omit<ComponentProps<"div">, "onChange" | "children"> & {
-	/** The tablist's accessible name, since a page can hold more than one. */
+	/** The tablist's accessible name, since a page can hold more than one,
+	 * and the select's, when there is one. */
 	label: string;
 	/** The selected tab's value. The caller owns it, so a page can keep it in
 	 * the address. */
 	value: string;
-	/** Called with a tab's value when the user picks it, by a click or by the
-	 * keyboard. The selection changes only when the caller passes it back. */
+	/** Called with a tab's value when the user picks it, by a click, by the
+	 * keyboard or in the select. The selection changes only when the caller
+	 * passes it back. */
 	onChange: (value: string) => void;
 	/** The `Tab`s, which go in the row in their order, and the `TabPanel`s,
 	 * which follow it. Each Tab and TabPanel are direct children. */
@@ -50,7 +58,9 @@ export type TabsProps = Omit<ComponentProps<"div">, "onChange" | "children"> & {
 /** "Tabs" in section 4 of design/DESIGN.md, a segmented track, with the
  * keyboard pattern for tabs: the selected tab alone is in the tab order, Left
  * and Right move and wrap, Home and End go to the ends, and activation
- * follows focus. */
+ * follows focus. With more than five tabs it also renders a native select of
+ * them; below 640px CSS shows the select and hides the track, and from 640px
+ * the other way round, so nothing reads the window's width. */
 export function Tabs({
 	label,
 	value,
@@ -67,11 +77,11 @@ export function Tabs({
 		(child) => isValidElement(child) && child.type === TabPanel,
 	);
 	const row = items.filter((child) => !panels.includes(child));
-	const values = row.flatMap((child) =>
-		isValidElement<TabProps>(child) && child.type === Tab
-			? [child.props.value]
-			: [],
+	const tabs = row.filter(
+		(child): child is ReactElement<TabProps> =>
+			isValidElement<TabProps>(child) && child.type === Tab,
 	);
+	const values = tabs.map((tab) => tab.props.value);
 	// An id may hold no whitespace, and a value may come from the address.
 	const id = (kind: string, v: string) =>
 		`${base}-${kind}-${encodeURIComponent(v)}`;
@@ -110,6 +120,24 @@ export function Tabs({
 				className={[styles.tabs, className].filter(Boolean).join(" ")}
 				{...rest}
 			>
+				{tabs.length > MOST_ON_PHONE ? (
+					<select
+						aria-label={label}
+						className={[
+							fieldStyles.control,
+							fieldStyles.select,
+							styles.picker,
+						].join(" ")}
+						value={value}
+						onChange={(event) => state.select(event.target.value)}
+					>
+						{tabs.map((tab) => (
+							<option key={tab.props.value} value={tab.props.value}>
+								{optionText(tab.props)}
+							</option>
+						))}
+					</select>
+				) : null}
 				<div
 					role="tablist"
 					aria-label={label}
@@ -124,6 +152,28 @@ export function Tabs({
 			</div>
 		</TabsContext.Provider>
 	);
+}
+
+/** A tab as the select's option says it: its label as text, and its count in
+ * brackets after it, as "Decisions (2)". */
+function optionText({ children, count }: TabProps): string {
+	const text = textOf(children);
+	return count === undefined ? text : `${text} (${count})`;
+}
+
+/** The text a label renders, since an option holds text alone. */
+function textOf(node: ReactNode): string {
+	return Children.toArray(node)
+		.map((child) => {
+			if (typeof child === "string" || typeof child === "number") {
+				return String(child);
+			}
+			if (isValidElement<{ children?: ReactNode }>(child)) {
+				return textOf(child.props.children);
+			}
+			return "";
+		})
+		.join("");
 }
 
 /** Whether the track's tabs are on more than one line, so it can take the

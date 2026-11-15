@@ -903,6 +903,28 @@ def test_on_phone_up_to_five_tabs_fill_the_width(page: Page):
     assert not page_scrolls_sideways(page), "the page scrolls sideways"
 
 
+def test_on_phone_more_than_five_tabs_are_a_select(page: Page):
+    page.set_viewport_size(VIEWPORTS["phone"])
+    open_gallery(page, "light")
+    region = page.get_by_role("region", name="Tabs")
+
+    expect(tablist(page, "Eight tabs")).to_have_count(0)
+    select = picker(page, "Eight tabs")
+    expect(select).to_be_visible()
+    expect(select.locator("option")).to_have_count(8)
+
+    select.select_option(label="Lessons")
+
+    expect(select).to_have_value("lessons")
+    expect(region.get_by_role("tabpanel", name="Lessons")).to_be_visible()
+    expect(region.get_by_text("The overview panel.")).to_be_hidden()
+    assert not page_scrolls_sideways(page), "the page scrolls sideways"
+    box = select.bounding_box()
+    holder = select.locator("..").bounding_box()
+    assert box and holder
+    assert box["width"] == pytest.approx(holder["width"], abs=0.5)
+
+
 def test_on_desktop_eight_tabs_are_one_track(page: Page):
     open_gallery(page, "light")
     row = tablist(page, "Eight tabs")
