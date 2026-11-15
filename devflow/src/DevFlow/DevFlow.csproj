@@ -11,7 +11,19 @@
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
   </ItemGroup>
   <ItemGroup>
+    <!--
+      devflow/migrations/*.sql, embedded so `migrate` reads them from the assembly wherever it runs,
+      each under migrations/<file name>. See "Migrating" in devflow/README.md.
+    -->
+    <EmbeddedResource Include="../../migrations/*.sql" LogicalName="migrations/%(Filename)%(Extension)" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="../../../libs/dotnet/PlatformAuth/src/PlatformAuth/PlatformAuth.csproj" />
+    <!--
+      The door and the migrator, and through it the database packages, Npgsql and Dapper, at the
+      library's versions. See "The database" in devflow/README.md.
+    -->
+    <ProjectReference Include="../../../libs/dotnet/PlatformData/src/PlatformData/PlatformData.csproj" />
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="DevFlow.Tests" />

@@ -7,6 +7,8 @@ using DevFlow.Settings;
 
 using PlatformAuth;
 
+using PlatformData;
+
 namespace DevFlow;
 
 /// <summary>
@@ -16,14 +18,17 @@ namespace DevFlow;
 public static class DevFlowApp
 {
     /// <param name="settings">Read once at startup, see <see cref="DevFlowSettings.Load"/>.</param>
+    /// <param name="database">The door, opened at startup with Dev flow's name, see
+    /// <see cref="UserDb.Open"/>. The app holds it and its caller disposes it.</param>
     /// <param name="webRoot">The page's build, web/dist from devflow's folder when it runs.</param>
     /// <param name="configure">Runs before the app is built: <c>Program</c> sets where Kestrel
     /// listens, and tests put the app on a test server, with a key cache and a clock of their
     /// own, which <c>AddPlatformAuth</c> keeps.</param>
     /// <exception cref="StartupException"><paramref name="webRoot"/> holds no build.</exception>
-    public static WebApplication Build(DevFlowSettings settings, string webRoot, Action<WebApplicationBuilder>? configure = null)
+    public static WebApplication Build(DevFlowSettings settings, UserDb database, string webRoot, Action<WebApplicationBuilder>? configure = null)
     {
         ArgumentNullException.ThrowIfNull(settings);
+        ArgumentNullException.ThrowIfNull(database);
         PageEndpoints.CheckBuild(webRoot);
 
         // Named for this assembly rather than whichever one started the process, a test host
@@ -44,6 +49,8 @@ public static class DevFlowApp
         // An unhandled error is an RFC 9457 problem document, application/problem+json.
         builder.Services.AddProblemDetails();
         builder.Services.AddPlatformAuth(options => options.CoreUrl = settings.CoreUrl);
+        // The one door every query goes through, as the caller. See "The door" in devflow/README.md.
+        builder.Services.AddSingleton(database);
         if (settings.ExposeOpenApi)
         {
             builder.Services.AddDevFlowOpenApi();
