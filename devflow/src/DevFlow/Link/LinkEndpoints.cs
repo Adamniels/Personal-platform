@@ -12,7 +12,7 @@ namespace DevFlow.Link;
 public sealed record LinkStarted(Uri AuthorizeUrl);
 
 /// <summary>
-/// Linking GitHub over HTTP: starting it under the <c>Api</c> policy and the origin
+/// Linking GitHub over HTTP: starting it and unlinking under the <c>Api</c> policy and the origin
 /// check, and the return from the code host, a <c>GET</c> under the <c>Page</c> policy. See
 /// "Linking GitHub" in devflow/README.md.
 /// </summary>
@@ -36,6 +36,17 @@ public static class LinkEndpoints
             .WithName("startGitHubLink")
             .WithSummary("Start linking the caller's GitHub account")
             .WithDescription("Stores a single use state and a PKCE verifier for ten minutes, and answers the code host's address to send the browser to, carrying the state and the S256 challenge. The code host sends the browser back to /devflow/github/callback. Without a valid token, 401 with an empty body; from another origin, 403.")
+            .Produces(StatusCodes.Status401Unauthorized)
+            .Produces(StatusCodes.Status403Forbidden);
+
+        link.MapDelete("", async (HttpContext context, [FromServices] GitHubLink github) =>
+            {
+                await github.Unlink(context.UserId(), context.RequestAborted);
+                return TypedResults.NoContent();
+            })
+            .WithName("unlinkGitHub")
+            .WithSummary("Unlink the caller's GitHub account")
+            .WithDescription("Removes the account, its two tokens and any link started. Nothing is revoked at the code host. Without a valid token, 401 with an empty body; from another origin, 403.")
             .Produces(StatusCodes.Status401Unauthorized)
             .Produces(StatusCodes.Status403Forbidden);
 

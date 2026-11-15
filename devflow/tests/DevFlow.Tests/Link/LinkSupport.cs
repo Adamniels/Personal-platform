@@ -51,6 +51,8 @@ internal sealed class Linking : IAsyncDisposable
 
     public GitHubLink GitHub => App.Services.GetRequiredService<GitHubLink>();
 
+    public UserTokens Tokens => App.Services.GetRequiredService<UserTokens>();
+
     public Vault Vault => App.Services.GetRequiredService<Vault>();
 
     public UserDb Door => App.Services.GetRequiredService<UserDb>();

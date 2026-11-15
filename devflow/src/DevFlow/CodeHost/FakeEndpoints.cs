@@ -1,9 +1,13 @@
+using Dapper;
+
 using DevFlow.Api;
 
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 
 using PlatformAuth;
+
+using PlatformData;
 
 namespace DevFlow.CodeHost;
 
@@ -53,6 +57,20 @@ public static class FakeEndpoints
             }
 
             host.SetUnavailable(context.UserId(), body!.Unavailable);
+            return TypedResults.NoContent();
+        });
+
+        // Ends the caller's access token now, at the fake and in Dev flow's record of it, so the
+        // next use of the token renews it, as one ending for real would.
+        fake.MapPost("/expire-token", async (HttpContext context, [FromServices] FakeCodeHost host, [FromServices] UserDb database, [FromServices] TimeProvider time) =>
+        {
+            var userId = context.UserId();
+            host.ExpireAccessToken(userId);
+            await database.InUserTransaction(userId, transaction => transaction.Connection!.ExecuteAsync(new CommandDefinition(
+                "UPDATE github_accounts SET access_expires_at = least(access_expires_at, @now) WHERE user_id = @userId",
+                new { userId, now = time.GetUtcNow() },
+                transaction,
+                cancellationToken: context.RequestAborted)), context.RequestAborted);
             return TypedResults.NoContent();
         });
 

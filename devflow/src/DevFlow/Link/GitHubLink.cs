@@ -15,7 +15,7 @@ namespace DevFlow.Link;
 /// Linking a user's GitHub account: starting it, which remembers a single use state and a PKCE
 /// verifier and gives the address to send the browser to; the return from the code host, which
 /// spends the state, exchanges the code and stores the account with its two tokens sealed in the
-/// vault. Every query goes through the door as the user, so a
+/// vault; and unlinking. Every query goes through the door as the user, so a
 /// state, an account or a token is only ever touched as its own user. Getting a usable token is
 /// <see cref="UserTokens"/>. See "Linking GitHub" in devflow/README.md.
 /// </summary>
@@ -136,11 +136,36 @@ public sealed class GitHubLink(UserDb database, Vault vault, ICodeHostSignIn hos
         return true;
     }
 
+    /// <summary>Removes the user's account, its two tokens and any sign ins. Nothing is revoked at
+    /// the code host: the owner does that on GitHub, see "Registering the GitHub App" in
+    /// devflow/README.md.</summary>
+    public Task Unlink(Guid userId, CancellationToken cancellationToken) =>
+        database.InUserTransaction(userId, async transaction =>
+        {
+            await transaction.Connection!.ExecuteAsync(new CommandDefinition(
+                """
+                DELETE FROM github_accounts WHERE user_id = @userId;
+                DELETE FROM github_sign_ins WHERE user_id = @userId;
+                """,
+                new { userId },
+                transaction,
+                cancellationToken: cancellationToken));
+            await DeleteTokens(vault, transaction, userId, cancellationToken);
+            return 0;
+        }, cancellationToken);
+
     /// <summary>Both tokens into the vault, replacing those before them.</summary>
     internal static async Task PutTokens(Vault vault, NpgsqlTransaction transaction, Guid userId, UserTokenPair tokens, CancellationToken cancellationToken)
     {
         await vault.Put(transaction, userId, AccessPurpose, Encoding.UTF8.GetBytes(tokens.AccessToken), cancellationToken);
         await vault.Put(transaction, userId, RefreshPurpose, Encoding.UTF8.GetBytes(tokens.RefreshToken), cancellationToken);
+    }
+
+    /// <summary>Both tokens out of the vault.</summary>
+    internal static async Task DeleteTokens(Vault vault, NpgsqlTransaction transaction, Guid userId, CancellationToken cancellationToken)
+    {
+        await vault.Delete(transaction, userId, AccessPurpose, cancellationToken);
+        await vault.Delete(transaction, userId, RefreshPurpose, cancellationToken);
     }
 
     /// <summary>A <c>timestamptz</c> as Npgsql reads it, a UTC <see cref="DateTime"/>, as a time

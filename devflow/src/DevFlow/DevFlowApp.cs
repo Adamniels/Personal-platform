@@ -47,7 +47,7 @@ public static class DevFlowApp
         // The request lines carry the query, and the return from the code host's carries a code
         // and a state, which nothing may print. See "Linking GitHub" in devflow/README.md.
         builder.Logging.AddFilter("Microsoft.AspNetCore.Hosting.Diagnostics", LogLevel.Warning);
-        // The clock decides when a link's state expires; a test's comes first.
+        // The clock decides when a link's state and a user's token expire; a test's comes first.
         builder.Services.TryAddSingleton(TimeProvider.System);
         AddCodeHost(builder.Services, settings);
 
@@ -66,11 +66,13 @@ public static class DevFlowApp
         // Seals and opens a user's secrets, through the door's transaction. See "The vault" in
         // devflow/README.md.
         builder.Services.AddSingleton(new Vault(settings.Vault));
-        // Linking a user's GitHub account. See
+        // Linking a user's GitHub account, and the one way to a token that acts as them. See
         // "Linking GitHub" in devflow/README.md.
         var redirect = GitHubLink.RedirectFor(settings.PublicOrigin);
         builder.Services.AddSingleton(provider => new GitHubLink(
             database, provider.GetRequiredService<Vault>(), provider.GetRequiredService<ICodeHostSignIn>(), provider.GetRequiredService<TimeProvider>(), redirect));
+        builder.Services.AddSingleton(provider => new UserTokens(
+            database, provider.GetRequiredService<Vault>(), provider.GetRequiredService<ICodeHostSignIn>(), provider.GetRequiredService<TimeProvider>()));
         if (settings.ExposeOpenApi)
         {
             builder.Services.AddDevFlowOpenApi();

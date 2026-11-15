@@ -10,6 +10,7 @@ using DevFlow.Settings;
 
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace DevFlow.Tests.Link;
 
@@ -264,11 +265,32 @@ public sealed class LinkTests
     }
 
     [Fact]
-    public async Task StartingNeedsATokenAndTheOrigin()
+    public async Task UnlinkingRemovesTheAccountAndItsTokens()
+    {
+        await using var linking = await Linking.Start();
+        await linking.LinkAll();
+        await linking.Started();
+        Assert.NotNull(await linking.Account());
+
+        // A change, so it needs the platform's origin.
+        Assert.Equal(StatusCodes.Status403Forbidden, (await linking.App.Send("DELETE", Linking.StartPath, Contract.Token)).Response.StatusCode);
+        Assert.NotNull(await linking.Account());
+
+        var unlinked = await linking.App.Send("DELETE", Linking.StartPath, Contract.Token, ("Origin", Linking.Origin));
+
+        Assert.Equal(StatusCodes.Status204NoContent, unlinked.Response.StatusCode);
+        await linking.NothingStored();
+        Assert.Empty(await linking.SignIns());
+        // Unlinking with nothing linked is the same answer.
+        Assert.Equal(StatusCodes.Status204NoContent, (await linking.App.Send("DELETE", Linking.StartPath, Contract.Token, ("Origin", Linking.Origin))).Response.StatusCode);
+    }
+
+    [Fact]
+    public async Task StartingAndUnlinkingNeedATokenAndTheOrigin()
     {
         await using var linking = await Linking.Start();
 
-        foreach (var method in new[] { "POST" })
+        foreach (var method in new[] { "POST", "DELETE" })
         {
             var anonymous = await linking.App.Send(method, Linking.StartPath, token: null, ("Origin", Linking.Origin));
             Assert.Equal(StatusCodes.Status401Unauthorized, anonymous.Response.StatusCode);
@@ -356,9 +378,40 @@ public sealed class LinkTests
 
         var page = await linking.App.Get($"{FakeCodeHost.AuthorizePath}?state={started["state"]}", Contract.Token);
         var posted = await Form(linking, started, "authorize");
+        var expire = await linking.App.Send("POST", "/devflow/api/fake/expire-token", Contract.Token, ("Origin", Linking.Origin));
 
         Assert.Equal(StatusCodes.Status404NotFound, page.Response.StatusCode);
         Assert.Equal(StatusCodes.Status404NotFound, posted.Response.StatusCode);
+        Assert.Equal(StatusCodes.Status404NotFound, expire.Response.StatusCode);
+    }
+
+    [Fact]
+    public async Task NothingPrintsACodeAVerifierAStateOrAToken()
+    {
+        var logs = new GitHub.CapturingLogs();
+        ScriptedSignIn? scripted = null;
+        await using var linking = await Linking.Start(
+            signIn: fake => scripted = new ScriptedSignIn(fake),
+            configure: builder => builder.Logging.SetMinimumLevel(LogLevel.Trace).AddProvider(logs));
+
+        var response = await linking.PostStart();
+        var started = Linking.Query(new Uri((string)System.Text.Json.Nodes.JsonNode.Parse(await Harness.Body(response))!["authorize_url"]!));
+        await linking.App.Get($"{FakeCodeHost.AuthorizePath}?{string.Join('&', started.Select(pair => $"{pair.Key}={Uri.EscapeDataString(pair.Value)}"))}", Contract.Token);
+        var authorized = await Form(linking, started, "authorize");
+        var back = new Uri(authorized.Response.Headers.Location!);
+        await linking.Return(back.Query.TrimStart('?'));
+        var code = Linking.Query(back)["code"];
+        // A renewal, and the address that ends a token early on the way.
+        await linking.App.Send("POST", "/devflow/api/fake/expire-token", Contract.Token, ("Origin", Linking.Origin));
+        var renewed = Assert.IsType<UserToken.Usable>(await linking.Tokens.For(Linking.User, Ct));
+        var refresh = await linking.Secret(GitHubLink.RefreshPurpose);
+
+        var printed = string.Join('\n', logs.Lines) + renewed;
+        Assert.NotEmpty(logs.Lines);
+        foreach (var secret in new[] { code, started["state"], started["code_challenge"], Assert.Single(scripted!.Verifiers), renewed.AccessToken, refresh! })
+        {
+            Assert.DoesNotContain(secret, printed, StringComparison.Ordinal);
+        }
     }
 
     /// <summary>The fake's form, posted from the platform's origin as the browser posts it.</summary>
