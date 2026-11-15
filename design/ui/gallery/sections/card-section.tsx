@@ -47,7 +47,7 @@ export function CardSection() {
 				</div>
 			</Row>
 			<Note>
-				A card that needs the user gets the amber outline and says so to
+				A card that needs the user gets the one accent border and says so to
 				assistive technology. The footer is pushed to the bottom.
 			</Note>
 		</Section>

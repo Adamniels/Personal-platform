@@ -979,16 +979,15 @@ def test_a_card_has_the_card_padding_and_a_label_for_a_title(page: Page, theme: 
 
 
 @pytest.mark.parametrize("theme", THEMES)
-def test_a_card_that_needs_you_has_the_accent_outline(page: Page, theme: str):
+def test_a_card_that_needs_you_has_one_accent_border(page: Page, theme: str):
     open_gallery(page, theme)
 
-    # The needs you outline: the 1px border and a 1px ring outside it, both
-    # in the accent border, so it reads as 2px.
+    # One 1px border in the accent border, in place of the plain one, and no
+    # ring outside it.
     style = card(page, "Needing you").evaluate(BOX_STYLE)
-    accent = resolve(page, "--accent-border", "color")
-    assert style["borders"] == [accent] * 4
+    assert style["borders"] == [resolve(page, "--accent-border", "color")] * 4
     assert style["borderWidths"] == ["1px"] * 4
-    assert style["shadow"] == f"{accent} 0px 0px 0px 1px"
+    assert style["shadow"] == "none"
     hidden = card(page, "Needing you").get_by_text("Needs you", exact=True)
     expect(hidden).to_be_attached()
     box = hidden.bounding_box()

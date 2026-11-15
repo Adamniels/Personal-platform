@@ -9,7 +9,7 @@ export type CardProps = Omit<ComponentProps<"article">, "title"> & {
 	aside?: ReactNode;
 	/** The card's one action, pushed to the bottom. */
 	footer?: ReactNode;
-	/** The card needs the user: the amber outline, and "Needs you" for
+	/** The card needs the user: the accent border, and "Needs you" for
 	 * assistive technology, so the mark is not colour alone. */
 	attention?: boolean;
 	/** The body. The design's one key fact and at most three rows are for the

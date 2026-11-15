@@ -20,11 +20,10 @@
 	line-height: var(--text-body-line);
 }
 
-/* The needs you outline: the 1px border plus a 1px ring outside it, both in
- * the accent border, which reads as 2px without moving the content. */
+/* A card that needs the user: its one 1px border in the accent border, in
+ * place of the plain one, and no ring. */
 .attention {
 	border-color: var(--accent-border);
-	box-shadow: 0 0 0 1px var(--accent-border);
 }
 
 /* The title on the left, the caption or status label on the right. */
