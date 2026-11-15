@@ -81,7 +81,11 @@
 @media (max-width: 639.98px) {
 	.stack {
 		left: var(--space-4);
-		bottom: calc(var(--nav-h) + var(--space-4));
+		bottom: calc(
+			var(--tab-bar-h) +
+			env(safe-area-inset-bottom, 0px) +
+			var(--space-4)
+		);
 		align-items: stretch;
 	}
 }

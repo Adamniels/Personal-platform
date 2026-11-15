@@ -9,14 +9,14 @@
 /* The top bar's height, held before the script renders it. */
 platform-nav {
   display: block;
-  min-height: var(--nav-h);
+  min-height: var(--top-bar-h);
 }
 
 /* On phone the links are a tab bar fixed to the bottom, so the page ends
    that far above the bottom edge and the bar covers nothing. */
 @media (max-width: 639.98px) {
   body:has(> platform-nav) {
-    padding-bottom: calc(var(--nav-h) + env(safe-area-inset-bottom, 0px));
+    padding-bottom: calc(var(--tab-bar-h) + env(safe-area-inset-bottom, 0px));
   }
 }
 

@@ -92,7 +92,6 @@
   --rail-w: 76px;        /* the nav rail on desktop */
   --top-bar-h: 56px;     /* the top bar */
   --tab-bar-h: 72px;     /* the bottom tab bar on phone */
-  --nav-h: 56px;         /* the bar as nav.js draws it today, see "In transition" in DESIGN.md */
   --content-max: 1232px; /* the content column, centred */
   --page-pad: 16px;      /* padding around the page shell */
   --card-pad: 20px;      /* padding inside a card */

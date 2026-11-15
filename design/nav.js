@@ -96,7 +96,7 @@
   const STYLE = `
     :host {
       display: block;
-      min-height: var(--nav-h);
+      min-height: var(--top-bar-h);
       font-family: var(--font-ui);
       font-size: var(--text-body-size);
       line-height: var(--text-body-line);
@@ -130,7 +130,7 @@
     /* The top bar. */
     .top {
       box-sizing: border-box;
-      height: var(--nav-h);
+      height: var(--top-bar-h);
       display: flex;
       align-items: center;
       gap: var(--space-6);
@@ -289,7 +289,7 @@
         left: 0;
         right: 0;
         bottom: 0;
-        height: calc(var(--nav-h) + env(safe-area-inset-bottom, 0px));
+        height: calc(var(--tab-bar-h) + env(safe-area-inset-bottom, 0px));
         padding-bottom: env(safe-area-inset-bottom, 0px);
         display: grid;
         grid-auto-flow: column;
@@ -356,7 +356,7 @@
       .sheet {
         position: fixed;
         right: var(--space-2);
-        bottom: calc(var(--nav-h) + env(safe-area-inset-bottom, 0px) + var(--space-2));
+        bottom: calc(var(--tab-bar-h) + env(safe-area-inset-bottom, 0px) + var(--space-2));
         min-width: 50%;
       }
       .sheet .label {
