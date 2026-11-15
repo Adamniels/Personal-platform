@@ -55,13 +55,13 @@
 	display: flex;
 	flex-wrap: wrap;
 	align-items: flex-end;
-	gap: var(--space-3) var(--space-5);
+	gap: var(--space-3) var(--space-6);
 }
 
 .settings {
 	display: flex;
 	flex-wrap: wrap;
-	gap: var(--space-3) var(--space-5);
+	gap: var(--space-3) var(--space-6);
 	margin: 0;
 }
 

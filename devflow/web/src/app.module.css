@@ -4,7 +4,7 @@
 /* The heading and the line under it read as one block, a section gap from
  * the tabs. Two classes, to outrank page.css's `.page h1` margin. */
 .header {
-	margin-bottom: var(--space-5);
+	margin-bottom: var(--space-6);
 }
 
 .header .title {

@@ -76,7 +76,7 @@ def test_the_fonts_are_served_and_load(page: Page, base_url: str):
             .filter(face => face.status === "loaded")
             .map(face => face.family.replaceAll('"', ""))"""
     )
-    assert {"Inter", "Space Grotesk", "JetBrains Mono"} <= set(loaded), loaded
+    assert {"Inter", "Barlow Condensed", "JetBrains Mono"} <= set(loaded), loaded
 
 
 def test_no_page_asks_an_outside_host_for_a_font(page: Page, base_url: str):
