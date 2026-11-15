@@ -8,8 +8,8 @@ namespace DevFlow.Tests;
 
 /// <summary>
 /// <c>DEVFLOW_CODE_HOST</c>: unset is the fake, <c>fake</c> and <c>github</c> are themselves, and
-/// anything else stops startup naming it. Until the GitHub adapter is built, the GitHub mode
-/// stops startup saying so. See "Settings" in devflow/README.md.
+/// anything else stops startup naming it. What the GitHub mode needs besides is in
+/// GitHub/GitHubSettingsTests.cs. See "Settings" in devflow/README.md.
 /// </summary>
 public sealed class CodeHostSettingsTests
 {
@@ -34,7 +34,7 @@ public sealed class CodeHostSettingsTests
     {
         Assert.Equal(CodeHostMode.Fake, Load().CodeHost);
         Assert.Equal(CodeHostMode.Fake, Load((CodeHost, "fake")).CodeHost);
-        Assert.Equal(CodeHostMode.GitHub, Load((CodeHost, "github"), Key).CodeHost);
+        Assert.Equal(CodeHostMode.GitHub, Load(GitHub.TestApp.Environment).CodeHost);
 
         // Set and empty is refused, never the fake: the hosted copy passes it empty when its .env
         // leaves it out, and must not fall back to the fake that way.
@@ -43,14 +43,5 @@ public sealed class CodeHostSettingsTests
             var refused = Assert.Throws<StartupException>(() => Load((CodeHost, mode), Key));
             Assert.StartsWith($"{CodeHost}: ", refused.Message, StringComparison.Ordinal);
         }
-    }
-
-    [Fact]
-    public async Task TheGitHubModeStopsStartupUntilItsAdapterIsBuilt()
-    {
-        var refused = await Assert.ThrowsAsync<StartupException>(() => Harness.Start(Load((CodeHost, "github"), Key)));
-
-        Assert.StartsWith($"{CodeHost}: ", refused.Message, StringComparison.Ordinal);
-        Assert.Contains("not built yet", refused.Message, StringComparison.Ordinal);
     }
 }

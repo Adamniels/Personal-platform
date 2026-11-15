@@ -7,8 +7,8 @@ issue, #268. "Dev flow" is its name in the nav and in headings, and `devflow` ev
 
 It is a C# feature on .NET 10, an ASP.NET Core minimal API app, built the way `review/` is. Today it
 is the service, its page, its database, which holds the vault, and the code host's interface with
-its fake: the GitHub adapter, the other tables and everything the tabs will show arrive with later
-slices.
+its fake and its GitHub adapter, which reads as the app: signing a user in, the other tables and
+everything the tabs will show arrive with later slices.
 
 ## What it serves
 
@@ -165,22 +165,37 @@ shared, since no service imports from another's directory.
   by Dev flow while it serves, see "Migrating".
 - `DEVFLOW_CODE_HOST`, default `fake`: `fake` or `github`, nothing else, and set but empty is refused
   like any value that does not parse. It decides which code host Dev flow is built with, whether
-  the fake's addresses exist and the page shows its banner, and whether the vault needs a key; see
-  "The code host". With `github` Dev flow refuses to start, saying the GitHub adapter is not built
-  yet, until the next slice of #268 builds it.
+  the fake's addresses exist and the page shows its banner, whether the vault needs a key, and
+  whether the four GitHub settings below are read; see "The code host".
 - `DEVFLOW_VAULT_KEY`, the vault's current key, `<id>:<base64 of 32 bytes>`, see "The vault". Unset
   or empty, Dev flow makes one in memory with the fake code host and refuses to start with
   `github`. A key that does not parse stops it, naming the setting and never repeating the value.
 - `DEVFLOW_VAULT_OLD_KEYS`, unset or empty for none: keys rows may still be sealed with, comma
   separated in the same form, each with an id of its own that is not the current key's.
+- The GitHub App's four, in `src/DevFlow/Settings/GitHubSettings.cs`, each required with
+  `DEVFLOW_CODE_HOST=github` and ignored with `fake`, whatever their values; empty is unset. A
+  missing or malformed one stops Dev flow at startup, naming the setting and never repeating its
+  value, and `DevFlowSettings` prints the client id and the slug alone.
+  - `DEVFLOW_GITHUB_CLIENT_ID`: the app's client id, ASCII letters, digits and dots, such as
+    `Iv23li` followed by the rest. The app's tokens carry it as `iss`.
+  - `DEVFLOW_GITHUB_CLIENT_SECRET`: a client secret of the app, printable ASCII without spaces.
+    Read here, and first used by signing a user in, a later slice.
+  - `DEVFLOW_GITHUB_PRIVATE_KEY_FILE`: the path of the app's private key, read once at startup with
+    `RSA.ImportFromPem`. It must be an RSA private key of at least 2048 bits in PEM, unencrypted,
+    either `BEGIN RSA PRIVATE KEY`, as GitHub gives it, or `BEGIN PRIVATE KEY`.
+  - `DEVFLOW_GITHUB_APP_SLUG`: the app's name in its address, `github.com/apps/<slug>`, lowercase
+    letters, digits and inner hyphens. Read here, and first used by a later slice.
 
 The defaults are right on the Mac mini and in CI, so neither sets them, the code host's fake
 included, except the listen address,
 which the manifest's `start` sets, and the database URLs, which `scripts/agent/services.sh` and
 `.github/workflows/dotnet.yml` build. The hosted copy sets the four it needs to serve and passes the
-vault's two and the code host's mode in `infra/hosted/compose.yaml`, from its `.env`, and the
-owner's URL only on `devflow-migrate`. Its `.env.example` names the mode `github`, so a release
-refuses an env file without it, and `check.sh`'s throwaway copy sets `fake`.
+vault's two, the code host's mode and the GitHub App's settings in `infra/hosted/compose.yaml`, from
+its `.env`, and the owner's URL only on `devflow-migrate`. The app's key file is mounted read only
+at `/run/secrets/github-app.pem`, which is the path Dev flow is given; the `.env` names the file on
+the machine. Its `.env.example` names the mode `github` and lists the app's four, so a release
+refuses an env file without them, and `check.sh`'s throwaway copy sets `fake` with placeholders
+and an empty key file, which the fake never reads.
 
 ## The database
 
@@ -301,17 +316,49 @@ does. Its read side, all this part needs so far:
 - `File(user, repository, path, branch)`: the bytes.
 
 A `Repository` is the installation it was reached through and its id, which identify it, with its
-owner and name carried for display. Every operation takes the platform account it is asked for:
-the fake keeps a world per account, and the GitHub adapter will read as the app and write as the
+owner and name carried for display and for GitHub's addresses, which name a repository by them; the
+adapter's token is narrowed to the id, so a name that no longer matches it is not found rather than
+another repository read. Every operation takes the platform account it is asked for:
+the fake keeps a world per account, and the GitHub adapter reads as the app and will write as the
 account's linked user. Each answers a `CodeHostResult<T>`: `Found` with the value, `NotFound`, or
 `Unavailable` with when to try again if the host said, and the caller handles all three; nothing is
 thrown for an expected condition. Later slices add signing in, listing what a user can connect,
 merging and commenting, each to the interface, the fake and the adapter together.
 
 `DEVFLOW_CODE_HOST` chooses the implementation when the app is built, in `DevFlowApp.Build`. `fake`
-is `FakeCodeHost`; `github` stops startup until its adapter is built. A test that needs the app in
-the GitHub mode hands it a code host of its own, which `Build` keeps, as the test harness's
-`codeHost` does.
+is `FakeCodeHost`; `github` is `GitHubCodeHost`, in `src/DevFlow/CodeHost/GitHub/`, registered by
+`AddGitHubCodeHost` with its settings. A test can still hand the app a code host of its own, which
+`Build` keeps, as the test harness's `codeHost` does.
+
+### The GitHub adapter
+
+`GitHubCodeHost` reads GitHub's REST API as Dev flow's GitHub App. How it signs in, why its keys
+can only read and what it does with GitHub's failures are "GitHub" in
+`docs/devflow-architecture.md`. Each operation is one address, relative to
+`https://api.github.com`, a constant:
+
+| Operation | Address |
+|---|---|
+| `OpenPullRequests` | `GET /repos/{owner}/{repo}/pulls?state=open&per_page=100` |
+| `PullRequest` | `GET /repos/{owner}/{repo}/pulls/{number}` |
+| `Comments` | `GET /repos/{owner}/{repo}/issues/{number}/comments?per_page=100` |
+| `Statuses` | `GET /repos/{owner}/{repo}/commits/{sha}/statuses?per_page=100`, the first of each context, which is its latest |
+| `CheckRuns` | `GET /repos/{owner}/{repo}/commits/{sha}/check-runs?per_page=100` |
+| `File` | `GET /repos/{owner}/{repo}/contents/{path}?ref={branch}`, with `Accept: application/vnd.github.raw+json` |
+
+Every request is sent with one `HttpClient` named `github` from `IHttpClientFactory`, with a 20
+second timeout, `X-GitHub-Api-Version: 2022-11-28`, `User-Agent: platform-devflow`, and `Accept:
+application/vnd.github+json` unless it reads a file, and the client's logs leave every header's
+value out. GitHub's answers are read into records private to the adapter, in
+`GitHubCodeHost.Answers.cs`; a field GitHub always sends must be there, and a word the adapter does
+not know, such as a new state, makes the answer one that does not parse. An author whose account
+was deleted is `ghost`, as GitHub shows it, and a body GitHub sends as null is empty. Waiting,
+requested and pending check runs are queued.
+
+Its tests are in `tests/DevFlow.Tests/GitHub/`, against GitHub's real answers recorded in
+`contracts/github/`, see `contracts/README.md`, with a stub `HttpMessageHandler` in place of the
+network and a `FakeTimeProvider`: no test reaches GitHub. They build it as Dev flow does, through
+`AddGitHubCodeHost`, and replace the client's handler, never its address.
 
 ### The fake
 
@@ -411,7 +458,13 @@ in `libs/dotnet/PlatformAuth/README.md`.
 
 **One web project, not layered projects.** `src/DevFlow/` is the whole service, organised in
 feature folders: `Settings`, `Health` (health and whoami), `Status`, `CodeHost` (the interface, its
-records and the fake), `Vault`, `Pages` and `Api` today, more with later slices, as `review/` is.
+records, the fake and, in `GitHub`, the adapter), `Vault`, `Pages` and `Api` today, more with later
+slices, as `review/` is.
+
+**The GitHub adapter is written by hand on .NET's `HttpClient`**, with `System.Text.Json`, and
+signs the app's tokens with .NET's own `RSA`, so no GitHub or JWT library is added: its calls are
+few, and a library would be a dependency for what a dozen typed requests do. What it remembers for
+conditional requests is in a `MemoryCache`, from the shared framework.
 
 **The vault's cipher is .NET's own `AesGcm`**, AES-256-GCM from `System.Security.Cryptography`, the
 standard authenticated cipher, which the framework has, so no library is added for it.

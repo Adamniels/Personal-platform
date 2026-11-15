@@ -4,8 +4,8 @@ namespace DevFlow.CodeHost;
 /// Everything Dev flow asks of a code host, GitHub the only one built. It names things as the
 /// development flow's design does, a repository, a pull request, a comment, never as GitHub's API
 /// does, so a second host can sit behind it. Two implementations: <see cref="FakeCodeHost"/>, in
-/// memory, which every test and the runner's stack use, and the GitHub adapter, which a later
-/// slice adds and which is tested on its own against recorded answers. Every operation answers
+/// memory, which every test and the runner's stack use, and <see cref="GitHub.GitHubCodeHost"/>,
+/// which is tested on its own against recorded answers. Every operation answers
 /// its value or one of the two failures in <see cref="CodeHostResult{T}"/>; nothing is thrown for
 /// an expected condition. See "The code host seam" in devflow/docs/devflow-architecture.md.
 /// </summary>

@@ -1,0 +1,48 @@
+[
+  {
+    "url": "https://api.github.com/repos/Adamniels/Personal-platform/issues/comments/6896924993",
+    "html_url": "https://github.com/Adamniels/Personal-platform/pull/305#issuecomment-6896924993",
+    "issue_url": "https://api.github.com/repos/Adamniels/Personal-platform/issues/305",
+    "id": 6896924993,
+    "node_id": "IC_kwDOUMYTdc8AAAABmxa5QQ",
+    "user": {
+      "login": "mac-mini-agent",
+      "id": 340709305,
+      "node_id": "U_kgDOFE7PuQ",
+      "avatar_url": "https://avatars.githubusercontent.com/u/340709305?v=4",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/mac-mini-agent",
+      "html_url": "https://github.com/mac-mini-agent",
+      "followers_url": "https://api.github.com/users/mac-mini-agent/followers",
+      "following_url": "https://api.github.com/users/mac-mini-agent/following{/other_user}",
+      "gists_url": "https://api.github.com/users/mac-mini-agent/gists{/gist_id}",
+      "starred_url": "https://api.github.com/users/mac-mini-agent/starred{/owner}{/repo}",
+      "subscriptions_url": "https://api.github.com/users/mac-mini-agent/subscriptions",
+      "organizations_url": "https://api.github.com/users/mac-mini-agent/orgs",
+      "repos_url": "https://api.github.com/users/mac-mini-agent/repos",
+      "events_url": "https://api.github.com/users/mac-mini-agent/events{/privacy}",
+      "received_events_url": "https://api.github.com/users/mac-mini-agent/received_events",
+      "type": "User",
+      "user_view_type": "public",
+      "site_admin": false
+    },
+    "created_at": "2026-11-15T15:33:26Z",
+    "updated_at": "2026-11-15T15:33:26Z",
+    "body": "Slice #273, the code host seam and its fake, round 1: approve. Every Acceptance criterion holds in the code and has its named test, running in CI against the real app (test server, real auth and origin middleware) and the real dev stack, not against mocks.\n\n## Blocking\n\nNone.\n\n## Nits\n\n- `infra/hosted/README.md:203`, not a defect in this diff but worth the owner's eye: Settled makes `.env.example` list `DEVFLOW_CODE_HOST=github`, the release preflight requires every name in it (`scripts/deploy/release.sh:88`), and `github` refuses startup until the adapter slice. So from this merge until the next slice of #268 merges, every release of the hosted copy rolls back at the health step, whatever else it carries. The implementer followed Settled and documented it; I agree it is not a `has-decision` case, since both halves were planned, but the owner may want the adapter slice next or to hold releases until it lands.\n- `devflow/src/DevFlow/DevFlowApp.cs:101` with `:79`: when `configure` registers its own `ICodeHost` in the fake mode, `FakeCodeHost` is not registered as itself, yet the fake's routes are still mapped, so they would fail at request time on the `[FromServices] FakeCodeHost` binding. Only reachable from a test today. Mapping the fake's routes from what is registered, or registering a stand-in only in the GitHub mode, would make the combination impossible rather than latent.\n- `devflow/src/DevFlow/CodeHost/FakeWorld.cs:645`, the missing field's name is read from System.Text.Json's message text. Recorded as a decision with its fallback, and `AMalformedWorldIsRefusedNamingTheField` would catch a wording change on a .NET upgrade, so acceptable; noting it as the one place the fake leans on an unstable surface.\n\n## For the owner\n\nNone.\n\n## Replies\n\nNone.\n",
+    "author_association": "COLLABORATOR",
+    "reactions": {
+      "url": "https://api.github.com/repos/Adamniels/Personal-platform/issues/comments/6896924993/reactions",
+      "total_count": 0,
+      "+1": 0,
+      "-1": 0,
+      "laugh": 0,
+      "hooray": 0,
+      "confused": 0,
+      "heart": 0,
+      "rocket": 0,
+      "eyes": 0
+    },
+    "performed_via_github_app": null,
+    "minimized": null
+  }
+]

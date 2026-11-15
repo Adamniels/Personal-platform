@@ -85,7 +85,8 @@ leftovers() {
 
 # Every variable .env.example lists is unset here, so none set by the caller overrides the env
 # file. Each password, and Dev flow's vault key, is made the way .env.example says, and Dev flow's
-# code host is the fake rather than the github .env.example names; the signing
+# code host is the fake rather than the github .env.example names, with placeholders for its
+# GitHub App's settings and an empty file for its key, which the fake never reads; the signing
 # key is made by the core's own keygen once its image is built, and the backup's recipient by
 # age-keygen in the backup image.
 # The bucket is tests/s3_stub.py, which checks no signature, so its key is any random one.
@@ -99,6 +100,13 @@ for var in $vars; do unset "$var"; done
   # The fake code host, as on the dev stack: a throwaway copy holds no real data, and the suite
   # stages its repositories in the fake.
   echo "DEVFLOW_CODE_HOST=fake"
+  # The GitHub App's settings, placeholders the fake mode never reads, and for its key an empty
+  # throwaway file, mounted as the real key is.
+  echo "DEVFLOW_GITHUB_CLIENT_ID=Iv23licheck$(openssl rand -hex 4)"
+  echo "DEVFLOW_GITHUB_CLIENT_SECRET=$(openssl rand -hex 20)"
+  : > "$tmp/github-app.pem"
+  echo "DEVFLOW_GITHUB_PRIVATE_KEY_FILE=$tmp/github-app.pem"
+  echo "DEVFLOW_GITHUB_APP_SLUG=platform-devflow-check"
   echo "PLATFORM_PUBLIC_ORIGIN=$origin"
   echo "BACKUP_S3_ENDPOINT=http://s3stub:9000"
   echo "BACKUP_S3_REGION=eu-north-1"

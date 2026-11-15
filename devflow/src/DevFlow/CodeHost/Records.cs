@@ -3,7 +3,9 @@ namespace DevFlow.CodeHost;
 /// <summary>
 /// A repository on the code host, identified by the installation it was reached through and its
 /// id, which stay the same when it is renamed or moved. <see cref="Owner"/> and
-/// <see cref="Name"/> are carried for display and never identify it.
+/// <see cref="Name"/> are carried for display and for GitHub's addresses, which name a repository
+/// by them, and never identify it: the GitHub adapter's token is narrowed to the id, so a name
+/// that no longer matches it is not found.
 /// </summary>
 /// <param name="Installation">The id of the installation of Dev flow's app that reaches it.</param>
 /// <param name="Id">The repository's own id on the host.</param>
