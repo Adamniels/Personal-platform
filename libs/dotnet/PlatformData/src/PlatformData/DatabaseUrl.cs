@@ -1,13 +1,13 @@
 using Npgsql;
 
-namespace Review.Settings;
+namespace PlatformData;
 
 /// <summary>
 /// A database's address as the platform writes it, <c>postgres://user:password@host:port/database</c>,
 /// the form <c>scripts/agent/services.sh</c> builds, with the password percent encoded. Npgsql
 /// reads only its own <c>key=value</c> form, so this turns one into the other, once, at startup.
 /// </summary>
-internal static class DatabaseUrl
+public static class DatabaseUrl
 {
     public const int DefaultPort = 5432;
 

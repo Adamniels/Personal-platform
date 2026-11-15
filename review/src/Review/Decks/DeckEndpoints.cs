@@ -4,8 +4,9 @@ using Microsoft.AspNetCore.Http.HttpResults;
 
 using Npgsql;
 
+using PlatformData;
+
 using Review.Api;
-using Review.Database;
 
 namespace Review.Decks;
 
@@ -58,7 +59,7 @@ public static class DeckEndpoints
         return routes;
     }
 
-    private static async Task<Ok<Deck[]>> List(HttpContext context, ReviewDb db, CancellationToken cancellationToken)
+    private static async Task<Ok<Deck[]>> List(HttpContext context, UserDb db, CancellationToken cancellationToken)
     {
         var decks = await db.InUserTransaction(context.UserId(), transaction => transaction.Connection!.QueryAsync<Deck>(new CommandDefinition(
             $"{Select} ORDER BY lower(d.name), d.name, d.id", transaction: transaction, cancellationToken: cancellationToken)), cancellationToken);
@@ -66,7 +67,7 @@ public static class DeckEndpoints
     }
 
     private static async Task<Results<Created<Deck>, ProblemHttpResult>> Create(
-        DeckInput input, HttpContext context, ReviewDb db, TimeProvider time, CancellationToken cancellationToken)
+        DeckInput input, HttpContext context, UserDb db, TimeProvider time, CancellationToken cancellationToken)
     {
         var broken = new Broken();
         var name = broken.Trimmed("name", input.Name, NameMax);
@@ -95,7 +96,7 @@ public static class DeckEndpoints
     }
 
     private static async Task<Results<Ok<Deck>, ProblemHttpResult>> Rename(
-        Guid id, DeckInput input, HttpContext context, ReviewDb db, CancellationToken cancellationToken)
+        Guid id, DeckInput input, HttpContext context, UserDb db, CancellationToken cancellationToken)
     {
         var broken = new Broken();
         var name = broken.Trimmed("name", input.Name, NameMax);
@@ -120,7 +121,7 @@ public static class DeckEndpoints
     }
 
     private static async Task<Results<NoContent, ProblemHttpResult>> Delete(
-        Guid id, HttpContext context, ReviewDb db, CancellationToken cancellationToken)
+        Guid id, HttpContext context, UserDb db, CancellationToken cancellationToken)
     {
         try
         {

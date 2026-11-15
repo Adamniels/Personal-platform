@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    For a service's test project only, never its app: the per test database harness and the
+    isolation checks. It uses no test framework, so a check returns what it found and the
+    service's test asserts on it.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="../PlatformData/PlatformData.csproj" />
+  </ItemGroup>
+</Project>

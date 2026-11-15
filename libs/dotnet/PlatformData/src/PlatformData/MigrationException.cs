@@ -1,4 +1,4 @@
-namespace Review.Database.Migrations;
+namespace PlatformData;
 
 /// <summary>
 /// A run of <c>migrate</c> that cannot go on: files it cannot order, files that disagree with the

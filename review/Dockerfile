@@ -21,6 +21,7 @@ RUN cd review/web && npm run build
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 COPY libs/dotnet/PlatformAuth libs/dotnet/PlatformAuth
+COPY libs/dotnet/PlatformData libs/dotnet/PlatformData
 COPY review/global.json review/Directory.Build.props review/Directory.Packages.props review/.editorconfig review/
 COPY review/migrations review/migrations
 COPY review/src/Review review/src/Review

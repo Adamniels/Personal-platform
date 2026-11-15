@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <!-- The database: the driver, and rows mapped to records with the SQL written out. -->
+    <PackageReference Include="Npgsql" />
+    <PackageReference Include="Dapper" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- The one check of a service's name, which the harness applies as the door does. -->
+    <InternalsVisibleTo Include="PlatformData.Testing" />
+  </ItemGroup>
+</Project>

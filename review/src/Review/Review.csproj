@@ -9,9 +9,6 @@
   <ItemGroup>
     <!-- Generates the OpenAPI document contracts/review/openapi.json holds, see review/README.md. -->
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
-    <!-- The database: the driver, and rows mapped to records with the SQL written out. -->
-    <PackageReference Include="Npgsql" />
-    <PackageReference Include="Dapper" />
     <!--
       The runtime of the brain's client, which Kiota generates into Brain/Generated/ from
       contracts/brain/openapi.json. See "What Review tells the brain" in review/README.md.
@@ -27,6 +24,11 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../../libs/dotnet/PlatformAuth/src/PlatformAuth/PlatformAuth.csproj" />
+    <!--
+      The door and the migrator, and through it the database packages, Npgsql and Dapper, at the
+      library's versions. See "The database" in review/README.md.
+    -->
+    <ProjectReference Include="../../../libs/dotnet/PlatformData/src/PlatformData/PlatformData.csproj" />
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Review.Tests" />

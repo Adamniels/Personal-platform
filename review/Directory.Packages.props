@@ -1,6 +1,7 @@
 <!--
-  Every package version, in one place. The projects name packages without versions. PlatformAuth,
-  a project reference, builds with its own folder's versions, NSec.Cryptography among them.
+  Every package version, in one place. The projects name packages without versions. PlatformAuth
+  and PlatformData, project references, build with their own folders' versions, NSec.Cryptography,
+  Npgsql and Dapper among them, which review gets through them.
 -->
 <Project>
   <PropertyGroup>
@@ -8,8 +9,6 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageVersion Include="Microsoft.AspNetCore.OpenApi" Version="10.0.15" />
-    <PackageVersion Include="Npgsql" Version="10.0.3" />
-    <PackageVersion Include="Dapper" Version="2.1.89" />
     <PackageVersion Include="Microsoft.Kiota.Bundle" Version="2.1.6" />
     <PackageVersion Include="xunit.v3" Version="4.0.3" />
     <PackageVersion Include="xunit.runner.visualstudio" Version="4.0.1" />

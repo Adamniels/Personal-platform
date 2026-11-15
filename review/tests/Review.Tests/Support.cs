@@ -14,8 +14,9 @@ using NSec.Cryptography;
 
 using PlatformAuth;
 
+using PlatformData;
+
 using Review.Brain;
-using Review.Database;
 using Review.Settings;
 using Review.Tests.Brain;
 
@@ -102,10 +103,10 @@ internal sealed class Harness : IAsyncDisposable
 
     private readonly StubCore _core;
     private readonly WebApplication _app;
-    private readonly ReviewDb _database;
+    private readonly UserDb _database;
     private readonly string _webRoot;
 
-    private Harness(WebApplication app, StubCore core, ReviewDb database, string webRoot, FakeTimeProvider clock)
+    private Harness(WebApplication app, StubCore core, UserDb database, string webRoot, FakeTimeProvider clock)
     {
         _app = app;
         _core = core;
@@ -146,13 +147,13 @@ internal sealed class Harness : IAsyncDisposable
     /// <param name="brain">The brain grades are sent to. Without one it is a brain that never
     /// answers in time, <see cref="FakeBrain.Down"/>, so no test reaches a real brain and no grade
     /// is marked sent behind a test's back.</param>
-    public static async Task<Harness> Start(ReviewSettings? settings = null, long? clockAt = null, ReviewDb? database = null, IBrain? brain = null)
+    public static async Task<Harness> Start(ReviewSettings? settings = null, long? clockAt = null, UserDb? database = null, IBrain? brain = null)
     {
         var webRoot = MakeBuild();
         var time = new FakeTimeProvider(DateTimeOffset.FromUnixTimeSeconds(clockAt ?? Contract.IssuedAt));
         var core = new StubCore();
         settings ??= Defaults;
-        database ??= ReviewDb.Unopened(settings.AppDatabase);
+        database ??= UserDb.Unopened(ReviewSettings.Service, settings.AppDatabase);
         var app = ReviewApp.Build(settings, database, webRoot, builder =>
         {
             builder.WebHost.UseTestServer();

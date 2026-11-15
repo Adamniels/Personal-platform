@@ -6,9 +6,10 @@ using Microsoft.AspNetCore.Http.HttpResults;
 
 using Npgsql;
 
+using PlatformData;
+
 using Review.Api;
 using Review.Cards;
-using Review.Database;
 
 namespace Review.Scheduling;
 
@@ -36,7 +37,7 @@ public static class GradeEndpoints
     }
 
     private static async Task<Results<Created<CardWithPreviews>, ProblemHttpResult>> Grade(
-        Guid id, GradeInput input, HttpContext context, ReviewDb db, TimeProvider time, CancellationToken cancellationToken)
+        Guid id, GradeInput input, HttpContext context, UserDb db, TimeProvider time, CancellationToken cancellationToken)
     {
         var broken = new Broken();
         if (input.Rating is not (>= 1 and <= 4))

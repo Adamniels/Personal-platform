@@ -19,6 +19,8 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/Review/Review.csproj" />
+    <!-- The per test database harness and the isolation checks every service with a database runs. -->
+    <ProjectReference Include="../../../libs/dotnet/PlatformData/src/PlatformData.Testing/PlatformData.Testing.csproj" />
   </ItemGroup>
   <ItemGroup>
     <Using Include="Xunit" />

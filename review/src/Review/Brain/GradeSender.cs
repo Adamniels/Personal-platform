@@ -1,6 +1,7 @@
 using Dapper;
 
-using Review.Database;
+using PlatformData;
+
 using Review.Scheduling;
 
 namespace Review.Brain;
@@ -22,7 +23,7 @@ namespace Review.Brain;
 /// unavailable, the grade stays unsent and the send stops there, since the next grade would meet
 /// the same brain; the next request tries again.
 /// </summary>
-internal sealed partial class GradeSender(ReviewDb db, IBrain brain, TimeProvider time, ILogger<GradeSender> log) : IAsyncDisposable
+internal sealed partial class GradeSender(UserDb db, IBrain brain, TimeProvider time, ILogger<GradeSender> log) : IAsyncDisposable
 {
     /// <summary>The most grades one send takes.</summary>
     public const int Batch = 50;

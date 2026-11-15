@@ -3,9 +3,10 @@ using Dapper;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 
+using PlatformData;
+
 using Review.Api;
 using Review.Cards;
-using Review.Database;
 
 namespace Review.Scheduling;
 
@@ -29,7 +30,7 @@ public static class QueueEndpoints
     }
 
     private static async Task<Results<Ok<DueCards>, ProblemHttpResult>> Get(
-        [FromQuery] Guid? deck, [FromQuery] string? topic, HttpContext context, ReviewDb db, TimeProvider time, CancellationToken cancellationToken)
+        [FromQuery] Guid? deck, [FromQuery] string? topic, HttpContext context, UserDb db, TimeProvider time, CancellationToken cancellationToken)
     {
         if (topic is not null && !CardRules.IsSlug(topic))
         {

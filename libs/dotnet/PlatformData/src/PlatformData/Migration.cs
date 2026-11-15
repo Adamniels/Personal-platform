@@ -1,9 +1,9 @@
 using System.Globalization;
 
-namespace Review.Database.Migrations;
+namespace PlatformData;
 
 /// <summary>
-/// One file of review/migrations/, <c>NNNN_snake_description.sql</c>: its version, the four
+/// One file of a service's migrations/, <c>NNNN_snake_description.sql</c>: its version, the four
 /// digits, its name, the rest before <c>.sql</c>, and the SQL it holds.
 /// </summary>
 public sealed record Migration(int Version, string Name, string Sql)
