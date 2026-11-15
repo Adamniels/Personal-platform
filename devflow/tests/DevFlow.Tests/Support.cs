@@ -1,0 +1,152 @@
+using System.Buffers.Text;
+using System.Net;
+using System.Text;
+using System.Text.Json.Nodes;
+
+using DevFlow.Settings;
+
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Time.Testing;
+
+using NSec.Cryptography;
+
+using PlatformAuth;
+
+namespace DevFlow.Tests;
+
+/// <summary>The repository's files the tests read.</summary>
+internal static class Repository
+{
+    /// <summary>The repository root, found by walking up from the test binary to the folder
+    /// holding contracts/, so the tests run from any working directory.</summary>
+    public static string Root { get; } = FindRoot();
+
+    public static string Path(params string[] parts) => System.IO.Path.Combine([Root, .. parts]);
+
+    private static string FindRoot()
+    {
+        for (var dir = new DirectoryInfo(AppContext.BaseDirectory); dir is not null; dir = dir.Parent)
+        {
+            if (Directory.Exists(System.IO.Path.Combine(dir.FullName, "contracts", "token")))
+            {
+                return dir.FullName;
+            }
+        }
+
+        throw new InvalidOperationException("contracts/token/ not found above the test binary");
+    }
+}
+
+/// <summary>The access token as the core produces it, from contracts/token/, see contracts/README.md.</summary>
+internal static class Contract
+{
+    public static string Token => File.ReadAllText(Repository.Path("contracts", "token", "token.jwt"));
+
+    public static string Jwks => File.ReadAllText(Repository.Path("contracts", "token", "jwks.json"));
+
+    private static JsonObject Claims =>
+        JsonNode.Parse(File.ReadAllText(Repository.Path("contracts", "token", "claims.json")))!.AsObject();
+
+    public static string Sub => (string)Claims["sub"]!;
+
+    public static string Kid => (string)Claims["kid"]!;
+
+    public static long IssuedAt => (long)Claims["iat"]!;
+
+    public static long ExpiresAt => (long)Claims["exp"]!;
+
+    /// <summary>The fixture's claims in a token signed with <paramref name="key"/> under
+    /// <paramref name="kid"/>, so a test controls which key signed it.</summary>
+    public static string SignedWith(Key key, string kid)
+    {
+        static string Segment(JsonNode value) => Base64Url.EncodeToString(Encoding.UTF8.GetBytes(value.ToJsonString()));
+
+        var payload = Claims;
+        payload.Remove("kid");
+        var header = new JsonObject { ["typ"] = "JWT", ["alg"] = "EdDSA", ["kid"] = kid };
+        var signingInput = $"{Segment(header)}.{Segment(payload)}";
+        var signature = SignatureAlgorithm.Ed25519.Sign(key, Encoding.ASCII.GetBytes(signingInput));
+        return $"{signingInput}.{Base64Url.EncodeToString(signature)}";
+    }
+}
+
+/// <summary>The core's key set endpoint, answered from memory with contracts/token/jwks.json.</summary>
+internal sealed class StubCore : HttpMessageHandler
+{
+    public const string Url = "http://127.0.0.1:8080";
+
+    public KeyCache Cache(TimeProvider time) => new(new HttpClient(this), new Uri(Url), time);
+
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+        Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(Contract.Jwks) });
+}
+
+/// <summary>
+/// Dev flow on a <see cref="TestServer"/>, with a key cache over <see cref="StubCore"/> and a clock
+/// fixed at the fixture token's <c>iat</c> unless a test moves it, so the committed token is valid.
+/// </summary>
+internal sealed class Harness : IAsyncDisposable
+{
+    private readonly StubCore _core;
+    private readonly WebApplication _app;
+
+    private Harness(WebApplication app, StubCore core)
+    {
+        _app = app;
+        _core = core;
+    }
+
+    public TestServer Server => _app.GetTestServer();
+
+    public static DevFlowSettings Defaults => DevFlowSettings.Load(_ => null);
+
+    public static async Task<Harness> Start(DevFlowSettings? settings = null, long? clockAt = null)
+    {
+        var time = new FakeTimeProvider(DateTimeOffset.FromUnixTimeSeconds(clockAt ?? Contract.IssuedAt));
+        var core = new StubCore();
+        var app = DevFlowApp.Build(settings ?? Defaults, builder =>
+        {
+            builder.WebHost.UseTestServer();
+            builder.Services.AddSingleton<TimeProvider>(time);
+            // Registered first, so AddPlatformAuth keeps it rather than reaching a real core.
+            builder.Services.AddSingleton(core.Cache(time));
+        });
+        await app.StartAsync();
+        return new Harness(app, core);
+    }
+
+    /// <summary>A request as a browser on the platform sends it, with the token in the cookie
+    /// when one is given.</summary>
+    public Task<HttpContext> Send(string method, string pathAndQuery, string? token = null, params (string Name, string Value)[] headers) =>
+        Server.SendAsync(context =>
+        {
+            context.Request.Method = method;
+            var query = pathAndQuery.IndexOf('?', StringComparison.Ordinal);
+            context.Request.Path = query < 0 ? pathAndQuery : pathAndQuery[..query];
+            context.Request.QueryString = new QueryString(query < 0 ? "" : pathAndQuery[query..]);
+            if (token is not null)
+            {
+                context.Request.Headers.Cookie = $"__Host-access={token}";
+            }
+
+            foreach (var (name, value) in headers)
+            {
+                context.Request.Headers.Append(name, value);
+            }
+        }, TestContext.Current.CancellationToken);
+
+    public Task<HttpContext> Get(string pathAndQuery, string? token = null) => Send("GET", pathAndQuery, token);
+
+    public static async Task<string> Body(HttpContext context) =>
+        await new StreamReader(context.Response.Body).ReadToEndAsync(TestContext.Current.CancellationToken);
+
+    public async ValueTask DisposeAsync()
+    {
+        await _app.DisposeAsync();
+        _core.Dispose();
+    }
+}
