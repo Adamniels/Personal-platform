@@ -20,7 +20,12 @@
   border-radius: var(--radius-lg);
 }
 
+/* A form's title is the current thing inside its card, so it takes the
+   hero size rather than the page title's. */
 .form-card h1 {
+  font-size: var(--text-hero-size);
+  line-height: var(--text-hero-line);
+  letter-spacing: normal;
   margin-bottom: var(--space-4);
 }
 
@@ -135,13 +140,7 @@ input[aria-invalid="true"] {
   background: var(--surface-2);
 }
 
-/* The front page: the home title in the display size, then the card grid
-   from section 2. */
-.home h1 {
-  font-size: var(--text-display-size);
-  line-height: var(--text-display-line);
-}
-
+/* The front page: the card grid from section 2. */
 .cards {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(340px, 100%), 1fr));
@@ -180,16 +179,17 @@ input[aria-invalid="true"] {
   box-shadow: 0 0 0 1px var(--accent-border);
 }
 
-/* The card's one key fact, a number large in the heading font with its
-   words beside it. */
+/* The card's one key fact, a number in thin numerals with its words
+   beside it. */
 .card .key-fact {
   font-weight: 600;
 }
 
 .card .key-fact .count {
-  font-family: var(--font-heading);
-  font-size: var(--text-display-size);
-  line-height: var(--text-display-line);
+  font-size: var(--text-num-l-size);
+  line-height: var(--text-num-l-line);
+  font-weight: 300;
+  letter-spacing: var(--tracking-num);
   font-variant-numeric: tabular-nums;
   margin-right: var(--space-1);
 }
@@ -269,7 +269,7 @@ input[aria-invalid="true"] {
 .card.unavailable,
 .empty {
   margin: 0;
-  padding: var(--space-6) var(--space-4);
+  padding: var(--space-7) var(--space-4);
   background: none;
   border: 1px dashed var(--border-strong);
   border-radius: var(--radius-lg);
@@ -301,7 +301,7 @@ input[aria-invalid="true"] {
    owner it turns amber and starts with the status dot, so it is a dot plus
    words and never colour alone. */
 .backup {
-  margin: var(--space-6) 0 0;
+  margin: var(--space-7) 0 0;
   font-size: var(--text-caption-size);
   line-height: var(--text-caption-line);
   color: var(--text-2);

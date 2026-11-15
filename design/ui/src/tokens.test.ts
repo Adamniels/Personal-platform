@@ -81,7 +81,7 @@ describe("the dark values are the same in both blocks", () => {
 describe("every text colour has the contrast the design promises", () => {
 	const pairs: [string, string][] = [];
 	for (const text of ["--text", "--text-2", "--text-3"]) {
-		for (const ground of ["--bg", "--surface", "--surface-2"])
+		for (const ground of ["--bg", "--surface", "--surface-2", "--surface-3"])
 			pairs.push([text, ground]);
 	}
 	pairs.push(["--on-accent", "--accent"]);

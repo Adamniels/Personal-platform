@@ -64,13 +64,13 @@
 	display: flex;
 	flex-wrap: wrap;
 	align-items: flex-end;
-	gap: var(--space-3) var(--space-5);
+	gap: var(--space-3) var(--space-6);
 }
 
 .list {
 	display: flex;
 	flex-wrap: wrap;
-	gap: var(--space-3) var(--space-5);
+	gap: var(--space-3) var(--space-6);
 	min-width: 0;
 	margin: 0;
 }

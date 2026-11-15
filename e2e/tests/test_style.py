@@ -152,7 +152,7 @@ def test_the_login_page_uses_the_platform_values(page: Page, theme: str):
     assert submit["height"] == px(page, "--control-h")
 
     heading = style(page.get_by_role("heading", name="Log in", level=1))
-    assert first_family(heading["fontFamily"]) == "Space Grotesk"
+    assert first_family(heading["fontFamily"]) == "Barlow Condensed"
 
 
 def test_a_form_error_is_announced_and_styled(page: Page):
@@ -195,7 +195,7 @@ def test_the_home_page_cards_follow_the_card_rule(
     assert_card_frame(page, card)
     assert style(card)["padding"] == [resolve(page, "--space-4", "padding-top")] * 4
     title = style(card.get_by_role("heading", level=2))
-    assert first_family(title["fontFamily"]) == "Space Grotesk"
+    assert first_family(title["fontFamily"]) == "Barlow Condensed"
     assert title["fontSize"] == resolve(page, "--text-h2-size", "font-size")
 
     # A feature the core could not reach. The e2e stack cannot take canary
@@ -210,14 +210,14 @@ def test_the_home_page_cards_follow_the_card_rule(
         has=page.get_by_role("heading", name="Desk", level=2)
     )
     # The empty state rule: 1px dashed --border-strong, --radius-lg, padding
-    # --space-6 --space-4, centred, a weight 600 line and a small --text-2 line.
+    # --space-7 --space-4, centred, a weight 600 line and a small --text-2 line.
     look = style(placeholder)
     assert look["borderStyles"] == ["dashed"] * 4
     assert look["borderWidths"] == ["1px"] * 4
     assert look["borderColors"] == [resolve(page, "--border-strong", "color")] * 4
     radius = resolve(page, "--radius-lg", "border-top-left-radius")
     assert look["radii"] == [radius] * 4
-    vertical = resolve(page, "--space-6", "padding-top")
+    vertical = resolve(page, "--space-7", "padding-top")
     side = resolve(page, "--space-4", "padding-top")
     assert look["padding"] == [vertical, side, vertical, side]
     assert look["textAlign"] == "center"
@@ -313,11 +313,11 @@ def test_canary_page_uses_the_platform_values(
 
     main = style(page.get_by_role("main"))
     assert main["maxWidth"] == resolve(page, "--content-max", "max-width")
-    assert main["padding"][0] == resolve(page, "--space-5", "padding-top")
+    assert main["padding"][0] == resolve(page, "--space-6", "padding-top")
 
     heading = style(page.get_by_role("heading", name="Canary", level=1))
-    assert first_family(heading["fontFamily"]) == "Space Grotesk"
-    assert heading["fontSize"] == resolve(page, "--text-h1-size", "font-size")
+    assert first_family(heading["fontFamily"]) == "Barlow Condensed"
+    assert heading["fontSize"] == resolve(page, "--text-display-size", "font-size")
     assert heading["fontWeight"] == "600"
 
     account = style(page.get_by_role("main").locator("code"))

@@ -133,7 +133,7 @@
       height: var(--nav-h);
       display: flex;
       align-items: center;
-      gap: var(--space-5);
+      gap: var(--space-6);
       padding: 0 var(--page-pad);
       background: var(--surface);
       border-bottom: 1px solid var(--border);

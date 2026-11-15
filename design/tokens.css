@@ -1,5 +1,5 @@
 /*
- * Personal Platform design tokens, v1 (ink navy and amber).
+ * Personal Platform design tokens.
  * Source of truth for every colour, size and type value in the UI.
  * Rules for using them are in DESIGN.md. Components must use these
  * variables only: no raw hex values, no sizes outside the scales.
@@ -13,73 +13,89 @@
   color-scheme: light;
 
   /* Colour: surfaces */
-  --bg: #F3F4F7;            /* app ground behind everything */
-  --surface: #FFFFFF;       /* cards, tables, nav bar, dialogs, fields */
-  --surface-2: #EBEDF2;     /* table header, hover row, inset areas, neutral badge */
-  --border: #D5D9E2;        /* dividers and panel outlines */
-  --border-strong: #8A91A3; /* outline of fields, checkboxes, secondary buttons (3:1) */
+  --bg: #F1F2F4;            /* app ground behind everything */
+  --surface: #FFFFFF;       /* cards, rail, top bar, dialogs, fields */
+  --surface-2: #F3F4F6;     /* inset blocks inside cards, hover rows */
+  --surface-3: #E6E8EC;     /* badges, meter tracks, sprite tiles */
+  --border: #E2E4E9;        /* card outlines and dividers */
+  --border-strong: #8A909B; /* outline of fields, checkboxes, secondary buttons (3:1) */
 
-  /* Colour: text. All three pass 4.5:1 on bg, surface and surface-2. */
-  --text: #171C2C;          /* primary text and headings */
-  --text-2: #4D556B;        /* secondary text, inactive nav */
-  --text-3: #5F677C;        /* captions, placeholders, meta. Faintest allowed */
+  /* Colour: text. All three pass 4.5:1 on bg and on every surface. */
+  --text: #111317;          /* primary text, numerals, the fill of whatever is active */
+  --text-2: #4B515C;        /* secondary text, card labels */
+  --text-3: #5E6470;        /* captions, placeholders, meta. Faintest allowed */
 
   /* Colour: accent (amber) */
-  --accent: #E5A23A;        /* primary button fill, progress */
+  --accent: #E5A23A;        /* primary button fill, progress, the needs you dot */
   --on-accent: #1A1505;     /* text on accent fill */
-  --accent-border: #8A5200; /* outline of primary button, selected tab, selected panel */
-  --accent-text: #8A5200;   /* amber as text: "needs you" status, work events */
-  --accent-soft: #FBEFD9;   /* attention badge and work event fill */
+  --accent-border: #8A5200; /* outline of the primary button and of anything that needs you */
+  --accent-text: #8A5200;   /* amber as text: "needs you" */
+  --accent-soft: #FBEFD9;   /* needs you pill and banner fill */
 
   /* Colour: status */
-  --info: #2B55C7;          /* links, running status, study events */
-  --info-soft: #E3EAFB;     /* info badge fill, selected or editing row */
-  --ok: #1F6B45;            /* done and confirmed status */
-  --ok-soft: #DDF1E6;
+  --info: #2B55C7;          /* links, running status */
+  --info-soft: #E3EAFB;     /* running pill fill, selected or editing row */
+  --ok: #1F6B45;            /* done, confirmed, now */
+  --ok-soft: #DDF1E6;       /* done pill fill */
   --danger: #B3261E;        /* errors, failed status, destructive actions */
-  --danger-soft: #FBE4E1;
+  --danger-soft: #FBE4E1;   /* error pill and destructive button fill */
   --focus: #2B55C7;         /* focus ring */
 
-  /* Elevation. Cards, tables and panels use a 1px border and no shadow. */
-  --shadow-1: 0 2px 8px rgba(23, 28, 44, 0.12);   /* menus, toasts */
-  --shadow-2: 0 12px 32px rgba(23, 28, 44, 0.20); /* dialogs */
+  /* Elevation. Cards, the rail and the top bar use a 1px border and no shadow. */
+  --shadow-1: 0 2px 8px rgba(17, 19, 23, 0.10);   /* menus, toasts */
+  --shadow-2: 0 16px 40px rgba(17, 19, 23, 0.18); /* dialogs, sheets */
 
   /* Type families */
   --font-ui: Inter, system-ui, sans-serif;
-  --font-heading: "Space Grotesk", system-ui, sans-serif;
+  --font-heading: "Barlow Condensed", "Arial Narrow", sans-serif; /* always 600, in capitals */
   --font-mono: "JetBrains Mono", ui-monospace, monospace;
 
   /* Type scale: size / line height. Minimum text size is 12px. */
-  --text-display-size: 28px;  --text-display-line: 34px;  /* heading font, 600. Home page title only */
-  --text-h1-size: 22px;       --text-h1-line: 28px;       /* heading font, 600. One per page */
-  --text-h2-size: 17px;       --text-h2-line: 24px;       /* heading font, 600. Card and section titles */
+  --text-display-size: 88px;  --text-display-line: 76px;  /* heading font. The page title, one per page */
+  --text-hero-size: 48px;     --text-hero-line: 44px;     /* heading font. The current thing inside a card */
+  --text-h2-size: 26px;       --text-h2-line: 25px;       /* heading font. Sections in notes, specs, dialogs */
+  --text-num-xl-size: 112px;  --text-num-xl-line: 92px;   /* ui font, 300. The one number a card is about */
+  --text-num-l-size: 72px;    --text-num-l-line: 60px;    /* ui font, 300. Clock, counts, timers */
+  --text-label-size: 15px;    --text-label-line: 22px;    /* ui font, 500, --text-2. Card titles */
   --text-body-lg-size: 16px;  --text-body-lg-line: 24px;  /* ui font, 400. Notes, lessons */
-  --text-body-size: 14px;     --text-body-line: 20px;     /* ui font, 400 (600 for emphasis). Default */
+  --text-body-size: 14px;     --text-body-line: 20px;     /* ui font, 400 (500 or 600 for emphasis). Default */
   --text-small-size: 13px;    --text-small-line: 18px;    /* ui font, 400. Secondary lines, help text */
-  --text-caption-size: 12px;  --text-caption-line: 16px;  /* ui font, 500. Labels, badges, table headers */
-  --text-mono-size: 12px;     --text-mono-line: 16px;     /* mono font, 400. Times, dates, ids, table numbers */
+  --text-caption-size: 12px;  --text-caption-line: 16px;  /* ui font, 500. Labels, pills, table headers */
+  --text-mono-size: 12px;     --text-mono-line: 16px;     /* mono font, 400. Times, dates, ids, counts */
+
+  /* Letter spacing of the two faces that are set tight. */
+  --tracking-display: -0.01em; /* the page title */
+  --tracking-num: -0.05em;     /* thin numerals */
 
   /* Spacing, 4px base */
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
   --space-4: 16px;
-  --space-5: 24px;
-  --space-6: 32px;
-  --space-7: 48px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 32px;
+  --space-8: 48px;
+  --inset-gap: 6px; /* between inset rows inside a card */
 
   /* Corner radius */
-  --radius-sm: 4px;     /* badges, checkboxes */
-  --radius-md: 6px;     /* buttons, fields, tabs, calendar events, kanban cards */
-  --radius-lg: 10px;    /* cards, dialogs, table wrappers */
-  --radius-full: 999px; /* avatars (round), dots, pills */
+  --radius-xs: 4px;     /* checkboxes, ticks */
+  --radius-sm: 12px;    /* sprite tiles, single line inset rows */
+  --radius-md: 14px;    /* inset blocks, kanban cards */
+  --radius-lg: 20px;    /* cards, table wrappers, kanban columns, empty states */
+  --radius-xl: 24px;    /* dialogs, sheets */
+  --radius-full: 999px; /* buttons, fields, pills, dots, avatars */
 
   /* Sizes */
-  --control-h: 36px;     /* buttons, fields, selects, tabs */
-  --row-h: 36px;         /* table and list rows */
-  --nav-h: 56px;         /* top bar on desktop, bottom tab bar on phone */
-  --content-max: 1232px; /* centred page container */
-  --page-pad: 32px;      /* side padding of the page container */
+  --control-h: 40px;     /* buttons, fields, selects, segments */
+  --row-h: 44px;         /* table and list rows */
+  --rail-w: 76px;        /* the nav rail on desktop */
+  --top-bar-h: 56px;     /* the top bar */
+  --tab-bar-h: 72px;     /* the bottom tab bar on phone */
+  --nav-h: 56px;         /* the bar as nav.js draws it today, see "In transition" in DESIGN.md */
+  --content-max: 1232px; /* the content column, centred */
+  --page-pad: 16px;      /* padding around the page shell */
+  --card-pad: 20px;      /* padding inside a card */
   --reading-max: 68ch;   /* notes, lessons, briefings */
   --input-font-size: 14px;
 
@@ -91,65 +107,71 @@
 /* Dark values. Keep this block and the media query block below identical. */
 [data-theme="dark"] {
   color-scheme: dark;
-  --bg: #0D1220;
-  --surface: #141A2B;
-  --surface-2: #1B2236;
-  --border: #283149;
-  --border-strong: #66739A;
-  --text: #E6E9F2;
-  --text-2: #A3ACC2;
-  --text-3: #8791AA;
+  --bg: #0B0C0E;
+  --surface: #15171B;
+  --surface-2: #1E2126;
+  --surface-3: #272B31;
+  --border: #262A31;
+  --border-strong: #6B7280;
+  --text: #EDEEF0;
+  --text-2: #A6ABB5;
+  --text-3: #9097A2;
   --accent: #E5A23A;
   --on-accent: #1A1505;
   --accent-border: #E5A23A;
   --accent-text: #F0B85C;
-  --accent-soft: #33280F;
+  --accent-soft: #2E2413;
   --info: #8FB0FF;
-  --info-soft: #1A2748;
+  --info-soft: #1A2236;
   --ok: #6FCF9A;
-  --ok-soft: #12301F;
+  --ok-soft: #14271D;
   --danger: #FF8F85;
   --danger-soft: #3A1614;
   --focus: #8FB0FF;
   --shadow-1: 0 2px 8px rgba(0, 0, 0, 0.5);
-  --shadow-2: 0 12px 32px rgba(0, 0, 0, 0.6);
+  --shadow-2: 0 16px 40px rgba(0, 0, 0, 0.6);
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     color-scheme: dark;
-    --bg: #0D1220;
-    --surface: #141A2B;
-    --surface-2: #1B2236;
-    --border: #283149;
-    --border-strong: #66739A;
-    --text: #E6E9F2;
-    --text-2: #A3ACC2;
-    --text-3: #8791AA;
+    --bg: #0B0C0E;
+    --surface: #15171B;
+    --surface-2: #1E2126;
+    --surface-3: #272B31;
+    --border: #262A31;
+    --border-strong: #6B7280;
+    --text: #EDEEF0;
+    --text-2: #A6ABB5;
+    --text-3: #9097A2;
     --accent: #E5A23A;
     --on-accent: #1A1505;
     --accent-border: #E5A23A;
     --accent-text: #F0B85C;
-    --accent-soft: #33280F;
+    --accent-soft: #2E2413;
     --info: #8FB0FF;
-    --info-soft: #1A2748;
+    --info-soft: #1A2236;
     --ok: #6FCF9A;
-    --ok-soft: #12301F;
+    --ok-soft: #14271D;
     --danger: #FF8F85;
     --danger-soft: #3A1614;
     --focus: #8FB0FF;
     --shadow-1: 0 2px 8px rgba(0, 0, 0, 0.5);
-    --shadow-2: 0 12px 32px rgba(0, 0, 0, 0.6);
+    --shadow-2: 0 16px 40px rgba(0, 0, 0, 0.6);
   }
 }
 
-/* Phone layout: the single breakpoint. Touch targets grow to 44px. */
+/* Phone layout: the single breakpoint. Touch targets grow to 44px, and the
+   large type steps down. */
 @media (max-width: 639.98px) {
   :root {
     --control-h: 44px;
-    --row-h: 44px;
-    --page-pad: 16px;
+    --row-h: 48px;
+    --card-pad: 16px;
     --input-font-size: 16px;
+    --text-display-size: 60px;  --text-display-line: 54px;
+    --text-num-xl-size: 88px;   --text-num-xl-line: 74px;
+    --text-num-l-size: 56px;    --text-num-l-line: 48px;
   }
 }
 
