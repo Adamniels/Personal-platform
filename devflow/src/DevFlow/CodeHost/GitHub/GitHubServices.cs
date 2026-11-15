@@ -28,6 +28,8 @@ public static class GitHubServices
         services.AddSingleton(provider => new GitHubCodeHost(
             provider.GetRequiredService<IHttpClientFactory>(), settings, provider.GetRequiredService<TimeProvider>()));
         services.AddSingleton<ICodeHost>(provider => provider.GetRequiredService<GitHubCodeHost>());
+        // Signing a person in to GitHub as the app, with its client id and secret.
+        services.TryAddSingleton<ICodeHostSignIn>(provider => provider.GetRequiredService<GitHubCodeHost>());
         return services;
     }
 }

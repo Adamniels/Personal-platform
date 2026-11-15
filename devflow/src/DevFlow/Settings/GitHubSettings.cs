@@ -8,9 +8,10 @@ namespace DevFlow.Settings;
 /// Dev flow's GitHub App, from <c>DEVFLOW_GITHUB_CLIENT_ID</c>, <c>DEVFLOW_GITHUB_CLIENT_SECRET</c>,
 /// <c>DEVFLOW_GITHUB_PRIVATE_KEY_FILE</c> and <c>DEVFLOW_GITHUB_APP_SLUG</c>, read by
 /// <see cref="DevFlowSettings.Load"/>. Each is required with <c>DEVFLOW_CODE_HOST=github</c> and
-/// ignored otherwise. The key is read from its file once, at startup. The secret and the slug are
-/// read here and first used by signing a user in, a later slice. See "Settings" in
-/// devflow/README.md and "GitHub" in devflow/docs/devflow-architecture.md.
+/// ignored otherwise. The key is read from its file once, at startup. The client id and the secret
+/// also sign a person in, see <see cref="CodeHost.GitHub.GitHubCodeHost"/>'s sign in half; the slug
+/// is read here and first used by a later slice. See "Settings" in devflow/README.md and "GitHub"
+/// in devflow/docs/devflow-architecture.md.
 /// </summary>
 public sealed class GitHubSettings
 {
@@ -34,7 +35,8 @@ public sealed class GitHubSettings
     /// <c>iss</c>.</summary>
     public string ClientId { get; }
 
-    /// <summary>The app's client secret, for signing a user in. Never printed.</summary>
+    /// <summary>The app's client secret, sent when a person's code or refresh token is exchanged
+    /// for their tokens. Never printed.</summary>
     public string ClientSecret { get; }
 
     /// <summary>The app's private key, which signs the app's tokens. Never printed, and never

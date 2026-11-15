@@ -8,6 +8,8 @@ using DevFlow.Pages;
 using DevFlow.Settings;
 using DevFlow.Status;
 
+using Microsoft.Extensions.DependencyInjection.Extensions;
+
 using PlatformAuth;
 
 using PlatformData;
@@ -41,6 +43,8 @@ public static class DevFlowApp
             ApplicationName = typeof(DevFlowApp).Assembly.GetName().Name,
         });
         configure?.Invoke(builder);
+        // The clock decides when the fake's codes and tokens expire; a test's comes first.
+        builder.Services.TryAddSingleton(TimeProvider.System);
         AddCodeHost(builder.Services, settings);
 
         // snake_case on the wire, as review's, the brain's and canary's JSON is. A number is a JSON
@@ -91,24 +95,27 @@ public static class DevFlowApp
     }
 
     /// <summary>
-    /// The <see cref="ICodeHost"/> the mode names, unless <c>configure</c> registered one first,
-    /// so a test can put a code host of its own behind the app. See "The code host" in
-    /// devflow/README.md.
+    /// The <see cref="ICodeHost"/> and <see cref="ICodeHostSignIn"/> the mode names, unless
+    /// <c>configure</c> registered one first, so a test can put a code host of its own behind the
+    /// app; a test's code host that also signs in is the sign in too, and a sign in a test
+    /// registered is kept in either mode. See "The code host" in devflow/README.md.
     /// </summary>
     private static void AddCodeHost(IServiceCollection services, DevFlowSettings settings)
     {
         if (services.Any(service => service.ServiceType == typeof(ICodeHost)))
         {
+            services.TryAddSingleton(provider => provider.GetRequiredService<ICodeHost>() as ICodeHostSignIn
+                ?? throw new InvalidOperationException("the code host a test registered does not sign in, and registered no ICodeHostSignIn"));
             return;
         }
 
         switch (settings.CodeHost)
         {
             case CodeHostMode.Fake:
-                // Registered as itself too, for the addresses that stage its worlds.
-                var fake = new FakeCodeHost();
-                services.AddSingleton(fake);
-                services.AddSingleton<ICodeHost>(fake);
+                // Registered as itself too, for the addresses that stage its worlds and sign in.
+                services.AddSingleton(provider => new FakeCodeHost(provider.GetRequiredService<TimeProvider>()));
+                services.AddSingleton<ICodeHost>(provider => provider.GetRequiredService<FakeCodeHost>());
+                services.TryAddSingleton<ICodeHostSignIn>(provider => provider.GetRequiredService<FakeCodeHost>());
                 break;
             case CodeHostMode.GitHub:
                 // Read as the app, with the settings DevFlowSettings.Load required in this mode.
