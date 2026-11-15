@@ -105,7 +105,14 @@ and its settings `infra/hosted/.env` in that clone.
    Fill in each value in `infra/hosted/.env` as its comment says: each of the ten passwords from
    its own run of `openssl rand -hex 24`, Dev flow's vault key, `DEVFLOW_VAULT_KEY`, from
    `printf 'k1:%s\n' "$(openssl rand -base64 32)"` and saved in the password manager at once,
-   Dev flow's code host, `DEVFLOW_CODE_HOST`, left as `github`, `PLATFORM_PUBLIC_ORIGIN` from step 4, and the backup settings from step 2. Then make the signing key in the core's own image, which appends its line
+   Dev flow's code host, `DEVFLOW_CODE_HOST`, left as `github`, Dev flow's GitHub App, its
+   `DEVFLOW_GITHUB_CLIENT_ID`, `DEVFLOW_GITHUB_CLIENT_SECRET` and `DEVFLOW_GITHUB_APP_SLUG` from the
+   app's page on GitHub and `DEVFLOW_GITHUB_PRIVATE_KEY_FILE`, the path on the Mac mini of the
+   private key that page makes, `PLATFORM_PUBLIC_ORIGIN` from step 4, and the backup settings from step 2.
+   The key file stays outside the clone, for example `chmod 600` in `~/.config/platform/`, and
+   in the password manager; `compose.yaml` mounts it read only into Dev flow's container at
+   `/run/secrets/github-app.pem`, and a path that names no file stops compose before anything
+   starts. Registering the app is in the runbook the next slice of Dev flow writes. Then make the signing key in the core's own image, which appends its line
    to the file:
 
    ```zsh
@@ -262,7 +269,8 @@ endpoint, region and name, so a new machine can find the backups. And Dev flow's
 with it and never the key, so without it they cannot be opened and each is entered again, a GitHub
 link by linking again, see "The vault" in `devflow/README.md`. Nothing else: the passwords and the
 signing key in `.env` are made again on a new machine, which only logs everyone out, see "What is
-backed up".
+backed up", and Dev flow's GitHub App's private key and client secret are made again on the app's
+page on GitHub, which leaves the old ones to revoke there.
 
 ## Backups
 

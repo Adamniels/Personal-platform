@@ -170,6 +170,23 @@ services:
       # The vault's keys, passed empty when unset, so Dev flow is what refuses, naming the setting.
       DEVFLOW_VAULT_KEY: ${DEVFLOW_VAULT_KEY:-}
       DEVFLOW_VAULT_OLD_KEYS: ${DEVFLOW_VAULT_OLD_KEYS:-}
+      # The GitHub App Dev flow reads repositories as, passed empty when unset, so Dev flow is what
+      # refuses, naming the setting.
+      DEVFLOW_GITHUB_CLIENT_ID: ${DEVFLOW_GITHUB_CLIENT_ID:-}
+      DEVFLOW_GITHUB_CLIENT_SECRET: ${DEVFLOW_GITHUB_CLIENT_SECRET:-}
+      DEVFLOW_GITHUB_APP_SLUG: ${DEVFLOW_GITHUB_APP_SLUG:-}
+      # The app's private key, from the file the volume below mounts. In the .env this setting is
+      # the file's path on the machine; Dev flow is given the path inside its container.
+      DEVFLOW_GITHUB_PRIVATE_KEY_FILE: /run/secrets/github-app.pem
+    volumes:
+      # Read only, and never made: a path that names no file stops compose rather than mounting an
+      # empty folder Docker would create in its place.
+      - type: bind
+        source: ${DEVFLOW_GITHUB_PRIVATE_KEY_FILE:?set DEVFLOW_GITHUB_PRIVATE_KEY_FILE, see .env.example}
+        target: /run/secrets/github-app.pem
+        read_only: true
+        bind:
+          create_host_path: false
 
   devflow-migrate:
     image: platform-hosted/devflow:${PLATFORM_RELEASE:-dev}

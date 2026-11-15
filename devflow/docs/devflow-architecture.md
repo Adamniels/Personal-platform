@@ -27,12 +27,12 @@ It answers through the proxy under `/devflow` in the dev stack and in the hosted
 core's token itself through `PlatformAuth`, and has a database of its own, `devflow`, migrated by
 its `migrate` command. Its one table is the vault's, `secrets`, which seals a secret for a user and
 holds nothing yet. Everything it will ask of a code host goes through one interface, with an in
-memory fake behind it and no GitHub adapter yet, see "The code host seam" below. What it serves,
-its settings, its database, the vault, the code host and how it authenticates are in
-`devflow/README.md`.
+memory fake behind it and a GitHub adapter that reads as the app, see "The code host seam" and
+"GitHub" below. What it serves, its settings, its database, the vault, the code host and how it
+authenticates are in `devflow/README.md`.
 
-It stores nothing in the vault and reads nothing from GitHub yet. Those, and everything the tabs
-will show, arrive with the later slices of the first part.
+It stores nothing in the vault, and nothing calls the adapter yet: signing a user in, the poll that
+reads GitHub, and everything the tabs will show arrive with the later slices of the first part.
 
 ## The code host seam
 
@@ -46,8 +46,8 @@ what went wrong instead of failing on an exception it did not expect. What each 
 is in "The code host" in `devflow/README.md`.
 
 Two implementations sit behind it, chosen by `DEVFLOW_CODE_HOST` when the app is built: the GitHub
-adapter, which the next slice adds, and `FakeCodeHost`, a world per platform account in memory,
-which is the default. The spec requires that automated tests never touch the real GitHub, since it
+adapter, see "GitHub" below, and `FakeCodeHost`, a world per platform account in memory, which is
+the default. The spec requires that automated tests never touch the real GitHub, since it
 costs usage and needs secrets; with the fake as the default the laptop's tests, CI and the runner's
 stack need nothing set, and every acceptance test stages the repositories and pull requests it
 needs in its own account through `/devflow/api/fake/`.
@@ -58,8 +58,51 @@ trusted, its paging, its errors, its token exchange, which is a second GitHub to
 every test would depend on it. At the interface the fake is small, a test stages exactly what the
 interface would answer, and the cost is that no test through the fake proves the adapter right.
 So **the adapter is tested on its own**, against recorded answers from the real GitHub in
-`contracts/github/`, in the next slice, and the owner's check after the first batch, merging a real
-pull request from his phone, is the first time the two meet for real.
+`contracts/github/`, and the owner's check after the first batch, merging a real pull request from
+his phone, is the first time the two meet for real.
+
+## GitHub
+
+Dev flow acts on GitHub as a GitHub App, as the spec's round 3 decided. Today it only reads, as the
+app; signing a user in, and writing as him, come with the next slices. The adapter,
+`GitHubCodeHost` in `src/DevFlow/CodeHost/GitHub/`, is written by hand on .NET's `HttpClient`,
+since its calls are few, and no automated test touches GitHub: its tests run against GitHub's real
+answers, recorded once in `contracts/github/`. Its addresses and settings are in
+`devflow/README.md`.
+
+**Signing in as the app.** The app's private key, a file whose path is
+`DEVFLOW_GITHUB_PRIVATE_KEY_FILE`, is read once at startup. When the adapter needs an installation
+token it signs a JSON Web Token with it, RS256, with `iss` the app's client id, `iat` 60 seconds in
+the past against clock drift and `exp` 9 minutes ahead, inside GitHub's limit of 10. That token is
+made when needed and never stored; it can do nothing but ask for installation tokens.
+
+**Its own keys can only read.** Every installation token is asked for with `permissions` of exactly
+`contents`, `pull_requests`, `issues`, `statuses`, `checks` and `metadata`, each `read`, and
+`repository_ids` holding the one repository being read. GitHub never grants more than the app holds,
+and narrows to what the request asks. A token is kept in memory per installation and repository
+until five minutes before its hour is up, and written nowhere. A repository is addressed by its
+owner and name, as GitHub's addresses are, but the token reaches its id alone, so a name that
+points elsewhere since is not found rather than another repository read.
+
+**Reading cheaply.** The program will ask GitHub about every pull request it follows once a minute.
+Each answer is remembered, in memory, per installation, media type and address, with its `ETag`,
+and the next request for it carries `If-None-Match`: GitHub answers `304` when nothing changed,
+which does not count against its limit of 5,000 requests an hour per installation, and the adapter
+answers what it remembered. What is remembered is bounded at 64 MB and forgotten after an hour
+without a request for it. Lists follow the `Link` header's `next`, 100 a page, never to an address
+off `api.github.com`, where the token would go, and at most 100 pages.
+
+**Failures.** `404` is not found, which also covers a repository the app cannot see, since GitHub
+does not tell the two apart. A `403` or `429` with `retry-after`, or with `x-ratelimit-remaining:
+0` and `x-ratelimit-reset`, is unavailable until the time given; one with neither is unavailable
+with no time, since a `403` may be a refusal that waiting does not change. Any other failure, a
+`5xx`, a timeout of 20 seconds, the network, or a body that does not parse, is unavailable with no
+time. Nothing is retried inside the adapter: its caller is a loop that comes back.
+
+**Who may read what is the caller's to decide.** The adapter reads as the app, so any repository
+the app is installed on can be read through it, whatever platform account asks. Which account may
+ask about which repository is decided by the callers the next slices add, from the repositories
+that account connected, which the database keeps per account under row level security.
 
 ## Security decisions and accepted risks
 
@@ -99,6 +142,16 @@ its reason, or a risk accepted on purpose; each slice adds the ones it builds.
   fake code host, used by tests, CI and the runner's stack, makes one in memory at startup, and
   with `DEVFLOW_CODE_HOST=github` Dev flow refuses to start. How it works is "The vault" in
   `devflow/README.md`.
+- **The app holds write access to code, and the program's own keys never use it.** Merging needs
+  the app to hold `contents: write`, so the app as GitHub sees it can write. Every key the program
+  makes for itself is narrowed, in the request for it, to read access on one repository, see
+  "GitHub" above, and only a linked user's own token, which the next slices add, writes, so what is
+  written is recorded on GitHub as done by him. "Only the owner writes" is so by construction, not
+  by care, and the test of that request's body, `InstallationTokenTests`, is what keeps it. Someone
+  who holds the app's private key could still make a key that writes; the key is a file on the
+  machine, outside the repository, mounted read only into Dev flow's container alone, and on the
+  shared Mac mini it is exposed to the runner's agents like the vault's key, the risk the first
+  entry accepts.
 - **The fake code host must never be on where real data is.** It answers whatever an account
   staged, so a page in the fake mode can show a pull request that does not exist, and every
   signed in user can replace their own world through `/devflow/api/fake/`. It is the default, so

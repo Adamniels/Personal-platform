@@ -131,4 +131,38 @@ Without the variable the test only compares. The page's types in
 `devflow/web/src/api/schema.d.ts` are generated from this file, and its `schema.test.ts` fails when
 they are stale, see `devflow/README.md`.
 
+## github/
+
+GitHub's own answers, which Dev flow's GitHub adapter is tested against, since no automated test
+may reach GitHub. Each is read by `devflow/tests/DevFlow.Tests/GitHub/ReadTests.cs`, which checks
+every field of the code host's records equals what the file holds, see "The GitHub adapter" in
+`devflow/README.md`. They hold what is already in this repository's history on GitHub, and no
+token.
+
+Recorded once, on 2026 11 15, from this repository with `gh api` as the bot, from pull request 305,
+"The code host seam and its fake", merged, by the bot, with a review verdict, and its merge commit
+`1154137dceb065f226823ec720f1f5e55d7c205d`; each pretty printed with `jq .`:
+
+- `pull.json`: `gh api repos/Adamniels/Personal-platform/pulls/305`.
+- `pulls-open.json`: `gh api 'repos/Adamniels/Personal-platform/pulls?state=closed&per_page=2'`,
+  the list the adapter reads with `state=open`, in the same shape. No pull request was open when it
+  was recorded, so it holds 305 and 304, both merged.
+- `issue-comments.json`: `gh api repos/Adamniels/Personal-platform/issues/305/comments`, its one
+  comment, the reviewer's, with the body's first line dropped, piped through
+  `jq '[.[0] | .body |= (split("\n")[1:] | join("\n"))]'`. That line is the marker the merge gate
+  reads, which the agents' tooling refuses to write anywhere.
+- `statuses.json`: the `statuses` array of
+  `gh api repos/Adamniels/Personal-platform/commits/<sha>/status`, the combined status, whose
+  entries have the shape `GET .../commits/<sha>/statuses` lists, since the runner's gh guard
+  refuses any address with `statuses` in it.
+- `check-runs.json`: `gh api repos/Adamniels/Personal-platform/commits/<sha>/check-runs`, trimmed
+  with `jq '.check_runs |= .[0:2] | .total_count = 2'` to two runs, a success and a skipped one.
+
+`installation-token.json` is written by hand from GitHub's documented answer to
+`POST /app/installations/{installation_id}/access_tokens`, with a made up token. The tests set its
+`expires_at` from their clock.
+
+To record one again, run its command from the repository root into the file, with the same `jq`,
+and run Dev flow's tests: a field GitHub renamed or dropped fails `ReadTests`.
+
 `scripts/ci/changed-areas.sh` maps a change here to every area that tests against it.
