@@ -8,8 +8,9 @@ using Microsoft.AspNetCore.Mvc;
 
 using Npgsql;
 
+using PlatformData;
+
 using Review.Api;
-using Review.Database;
 using Review.Scheduling;
 
 namespace Review.Cards;
@@ -74,7 +75,7 @@ public static class CardEndpoints
     }
 
     private static async Task<Results<Ok<Card[]>, ProblemHttpResult>> List(
-        [FromQuery] Guid? deck, [FromQuery] string? topic, HttpContext context, ReviewDb db, CancellationToken cancellationToken)
+        [FromQuery] Guid? deck, [FromQuery] string? topic, HttpContext context, UserDb db, CancellationToken cancellationToken)
     {
         if (topic is not null && !CardRules.IsSlug(topic))
         {
@@ -95,14 +96,14 @@ public static class CardEndpoints
     }
 
     private static async Task<Results<Ok<Card>, ProblemHttpResult>> Get(
-        Guid id, HttpContext context, ReviewDb db, CancellationToken cancellationToken)
+        Guid id, HttpContext context, UserDb db, CancellationToken cancellationToken)
     {
         var card = await db.InUserTransaction(context.UserId(), transaction => Read(transaction, id, cancellationToken), cancellationToken);
         return card is null ? Problems.NotFound("the card") : TypedResults.Ok(card);
     }
 
     private static async Task<Results<Created<Card>, ProblemHttpResult>> Create(
-        CardInput input, HttpContext context, ReviewDb db, TimeProvider time, CancellationToken cancellationToken)
+        CardInput input, HttpContext context, UserDb db, TimeProvider time, CancellationToken cancellationToken)
     {
         var broken = new Broken();
         var deck = CardRules.Deck(broken, input.DeckId);
@@ -140,7 +141,7 @@ public static class CardEndpoints
     }
 
     private static async Task<Results<Ok<Card>, ProblemHttpResult>> Change(
-        Guid id, CardChange change, HttpContext context, ReviewDb db, TimeProvider time, CancellationToken cancellationToken)
+        Guid id, CardChange change, HttpContext context, UserDb db, TimeProvider time, CancellationToken cancellationToken)
     {
         var broken = new Broken();
         if (change.Version is null)
@@ -206,7 +207,7 @@ public static class CardEndpoints
     }
 
     private static async Task<Results<NoContent, ProblemHttpResult>> Delete(
-        Guid id, HttpContext context, ReviewDb db, CancellationToken cancellationToken)
+        Guid id, HttpContext context, UserDb db, CancellationToken cancellationToken)
     {
         // Its topics go with it, ON DELETE CASCADE, and so will its grade log.
         var deleted = await db.InUserTransaction(context.UserId(), transaction => transaction.Connection!.ExecuteAsync(new CommandDefinition(

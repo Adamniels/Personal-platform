@@ -1,4 +1,5 @@
-using Review.Database;
+using PlatformData;
+
 using Review.Settings;
 
 namespace Review.Tests;
@@ -32,11 +33,11 @@ public sealed class StartupTests
     public async Task AWrongPasswordStopsStartup()
     {
         // review_app's real address, on the database review.sh made, with a password it is not.
-        var app = DatabaseUrl.Parse(Environment.GetEnvironmentVariable(TestDatabase.AppVariable)
-            ?? throw new InvalidOperationException($"{TestDatabase.AppVariable} is not set, see tests/Review.Tests/Harness/TestDatabase.cs"));
+        var app = DatabaseUrl.Parse(Environment.GetEnvironmentVariable(Databases.Review.AppVariable)
+            ?? throw new InvalidOperationException($"{Databases.Review.AppVariable} is not set, see tests/Review.Tests/Harness/TestDatabase.cs"));
         app.Password = "not-the-password-a1b2c3";
 
-        var refused = await Assert.ThrowsAsync<StartupException>(() => ReviewDb.Open(app, Ct));
+        var refused = await Assert.ThrowsAsync<StartupException>(() => UserDb.Open(ReviewSettings.Service, app, ReviewSettings.AppDatabaseUrl, Ct));
 
         Assert.StartsWith("REVIEW_APP_DATABASE_URL: could not connect to the database as review_app", refused.Message, StringComparison.Ordinal);
         Assert.Contains("password authentication failed", refused.Message, StringComparison.Ordinal);

@@ -2,6 +2,8 @@ using System.Globalization;
 
 using Npgsql;
 
+using PlatformData;
+
 namespace Review.Settings;
 
 /// <summary>
@@ -39,6 +41,14 @@ public sealed record ReviewSettings(
     public const string DefaultPublicOrigin = "https://platform.test";
     public const string DefaultDayZone = "Europe/Stockholm";
     public const string DefaultBrainUrl = "http://127.0.0.1:8082";
+
+    /// <summary>
+    /// The name the shared database code in libs/dotnet/PlatformData/ knows review by: the door's
+    /// setting, <c>review.user_id</c>, which every policy reads, the migration lock's key, and the
+    /// roles, <c>review_owner</c> and <c>review_app</c>. Changing it would orphan every policy
+    /// already applied.
+    /// </summary>
+    public const string Service = "review";
 
     /// <summary>The app role's database URL, which serving requires.</summary>
     public const string AppDatabaseUrl = "REVIEW_APP_DATABASE_URL";

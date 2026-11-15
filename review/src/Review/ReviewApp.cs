@@ -3,9 +3,10 @@ using System.Text.Json.Serialization;
 
 using PlatformAuth;
 
+using PlatformData;
+
 using Review.Brain;
 using Review.Cards;
-using Review.Database;
 using Review.Decks;
 using Review.Display;
 using Review.Health;
@@ -22,14 +23,14 @@ namespace Review;
 public static class ReviewApp
 {
     /// <param name="settings">Read once at startup, see <see cref="ReviewSettings.Load"/>.</param>
-    /// <param name="database">The door, opened at startup, see <see cref="ReviewDb.Open"/>. The
-    /// app holds it and its caller disposes it.</param>
+    /// <param name="database">The door, opened at startup with review's name, see
+    /// <see cref="UserDb.Open"/>. The app holds it and its caller disposes it.</param>
     /// <param name="webRoot">The page's build, web/dist from review's folder when it runs.</param>
     /// <param name="configure">Runs before the app is built: <c>Program</c> sets where Kestrel
     /// listens, and tests put the app on a test server, with a key cache and a clock of their
     /// own, which <c>AddPlatformAuth</c> keeps.</param>
     /// <exception cref="StartupException"><paramref name="webRoot"/> holds no build.</exception>
-    public static WebApplication Build(ReviewSettings settings, ReviewDb database, string webRoot, Action<WebApplicationBuilder>? configure = null)
+    public static WebApplication Build(ReviewSettings settings, UserDb database, string webRoot, Action<WebApplicationBuilder>? configure = null)
     {
         ArgumentNullException.ThrowIfNull(settings);
         ArgumentNullException.ThrowIfNull(database);

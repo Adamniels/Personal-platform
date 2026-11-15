@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Http;
 
-using Review.Database;
+using PlatformData;
+
 using Review.Settings;
 
 namespace Review.Tests;
@@ -79,7 +80,7 @@ public sealed class PageTests : IAsyncLifetime
         try
         {
             var settings = Harness.Defaults;
-            await using var database = ReviewDb.Unopened(settings.AppDatabase);
+            await using var database = UserDb.Unopened(ReviewSettings.Service, settings.AppDatabase);
             var refused = Assert.Throws<StartupException>(() => ReviewApp.Build(settings, database, empty));
 
             Assert.Contains(Path.Combine(empty, "index.html"), refused.Message, StringComparison.Ordinal);

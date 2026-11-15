@@ -5,7 +5,10 @@ using Dapper;
 
 using Npgsql;
 
-using Review.Database.Migrations;
+using PlatformData;
+using PlatformData.Testing;
+
+using Review.Settings;
 
 namespace Review.Tests;
 
@@ -34,13 +37,13 @@ public sealed class MigrateTests
     [Fact]
     public async Task EveryFileIsAppliedInOrderAndRecorded()
     {
-        await using var database = await TestDatabase.Empty(Ct);
+        await using var database = await Databases.Review.Empty(Ct);
         var before = await Now(database);
 
         IReadOnlyList<Migration> first;
         await using (var owner = await database.OpenOwner(Ct))
         {
-            first = await Migrator.Run(owner, Migrator.Parse(Ordered), Ct);
+            first = await Migrator.Run(owner, ReviewSettings.Service, Migrator.Parse(Ordered), Ct);
         }
 
         var after = await Now(database);
@@ -75,21 +78,21 @@ public sealed class MigrateTests
     [Fact]
     public async Task TheCommandAppliesReviewsOwnMigrations()
     {
-        await using var database = await TestDatabase.Empty(Ct);
+        await using var database = await Databases.Review.Empty(Ct);
 
         var first = await Command(database, migrations: null);
         var second = await Command(database, migrations: null);
 
         Assert.Equal(0, first.Code);
         Assert.StartsWith("applied 1 default_privileges\n", first.Out, StringComparison.Ordinal);
-        Assert.Equal(Migrator.Embedded().Count, first.Out.Split('\n', StringSplitOptions.RemoveEmptyEntries).Length);
+        Assert.Equal(Migrator.Embedded(typeof(Commands).Assembly).Count, first.Out.Split('\n', StringSplitOptions.RemoveEmptyEntries).Length);
         Assert.Equal((0, NothingToDo, ""), second);
     }
 
     [Fact]
     public async Task AFailingFileLeavesNothingAndStopsTheRun()
     {
-        await using var database = await TestDatabase.Empty(Ct);
+        await using var database = await Databases.Review.Empty(Ct);
         var migrations = Migrator.Parse(
         [
             ("0001_first.sql", "CREATE TABLE first (x int);"),
@@ -100,7 +103,7 @@ public sealed class MigrateTests
 
         await using (var owner = await database.OpenOwner(Ct))
         {
-            var refused = await Assert.ThrowsAsync<MigrationException>(() => Migrator.Run(owner, migrations, Ct));
+            var refused = await Assert.ThrowsAsync<MigrationException>(() => Migrator.Run(owner, ReviewSettings.Service, migrations, Ct));
             Assert.Contains("0002_fails.sql", refused.Message, StringComparison.Ordinal);
         }
 
@@ -113,7 +116,7 @@ public sealed class MigrateTests
     [Fact]
     public async Task TheRunRefusesWhenFilesAndLedgerDisagree()
     {
-        await using var database = await TestDatabase.Empty(Ct);
+        await using var database = await Databases.Review.Empty(Ct);
         (string, string) first = ("0001_first.sql", "SELECT 1;");
         (string, string) second = ("0002_second.sql", "SELECT 1;");
         (string, string) third = ("0003_third.sql", "SELECT 1;");
@@ -150,9 +153,9 @@ public sealed class MigrateTests
     public async Task TwoRunsCannotOverlap()
     {
         // The key the slice settles: the first 8 bytes of SHA-256 of review.migrate, big endian.
-        Assert.Equal(BinaryPrimitives.ReadInt64BigEndian(SHA256.HashData("review.migrate"u8)), Migrator.LockKey);
+        Assert.Equal(BinaryPrimitives.ReadInt64BigEndian(SHA256.HashData("review.migrate"u8)), Migrator.LockKey(ReviewSettings.Service));
 
-        await using var database = await TestDatabase.Empty(Ct);
+        await using var database = await Databases.Review.Empty(Ct);
         await using (var owner = await database.OpenOwner(Ct))
         {
             await TestDatabase.Execute(owner, "CREATE TABLE gate (x int)", Ct);
@@ -167,7 +170,7 @@ public sealed class MigrateTests
         var run = Task.Run(async () =>
         {
             await using var owner = await database.OpenOwner(Ct);
-            return await Migrator.Run(owner, Migrator.Parse([("0001_wait.sql", "LOCK TABLE gate IN ACCESS SHARE MODE; CREATE TABLE done (x int);")]), Ct);
+            return await Migrator.Run(owner, ReviewSettings.Service, Migrator.Parse([("0001_wait.sql", "LOCK TABLE gate IN ACCESS SHARE MODE; CREATE TABLE done (x int);")]), Ct);
         }, Ct);
         await UntilOneWaitsOnALock(database);
 
@@ -180,7 +183,7 @@ public sealed class MigrateTests
 
         // Released when the run ends.
         Assert.True(await TryLock(other));
-        await other.ExecuteAsync(new CommandDefinition("SELECT pg_advisory_unlock(@key)", new { key = Migrator.LockKey }, cancellationToken: Ct));
+        await other.ExecuteAsync(new CommandDefinition("SELECT pg_advisory_unlock(@key)", new { key = Migrator.LockKey(ReviewSettings.Service) }, cancellationToken: Ct));
     }
 
     [Fact]
@@ -195,10 +198,10 @@ public sealed class MigrateTests
 
         // With every one of review's variables set, the app's included, it still reads the
         // owner's alone.
-        await using var database = await TestDatabase.Empty(Ct);
+        await using var database = await Databases.Review.Empty(Ct);
         var environment = new Dictionary<string, string>
         {
-            ["REVIEW_OWNER_DATABASE_URL"] = TestDatabase.Url(TestDatabase.Admin(database.Name)),
+            ["REVIEW_OWNER_DATABASE_URL"] = TestDatabase.Url(Databases.Review.Admin(database.Name)),
             ["REVIEW_APP_DATABASE_URL"] = "postgres://review_app:app-secret-a1b2@127.0.0.1:5432/review",
             ["REVIEW_LISTEN_ADDR"] = "127.0.0.1:8083",
         };
@@ -209,7 +212,7 @@ public sealed class MigrateTests
         Assert.Equal(["REVIEW_OWNER_DATABASE_URL"], read);
 
         // A password it cannot log in with is refused, and never printed.
-        var wrong = TestDatabase.Admin(database.Name);
+        var wrong = Databases.Review.Admin(database.Name);
         wrong.Password = "not-the-password-a1b2c3";
         var refused = await Command(name => name == "REVIEW_OWNER_DATABASE_URL" ? TestDatabase.Url(wrong) : null, migrations: null);
 
@@ -229,7 +232,7 @@ public sealed class MigrateTests
     /// hold the owner's password; what it prints, and its exit code.</summary>
     private static Task<(int Code, string Out, string Err)> Command(TestDatabase database, IReadOnlyList<Migration>? migrations)
     {
-        var url = TestDatabase.Url(TestDatabase.Admin(database.Name));
+        var url = TestDatabase.Url(Databases.Review.Admin(database.Name));
         return Command(name => name == "REVIEW_OWNER_DATABASE_URL" ? url : null, migrations);
     }
 
@@ -237,14 +240,15 @@ public sealed class MigrateTests
     {
         await using var stdout = new StringWriter { NewLine = "\n" };
         await using var stderr = new StringWriter { NewLine = "\n" };
-        var code = await MigrateCommand.Run(read, stdout, stderr, migrations, Ct);
+        var code = await MigrateCommand.Run(
+            ReviewSettings.Service, ReviewSettings.OwnerDatabaseUrl, typeof(Commands).Assembly, read, stdout, stderr, migrations, Ct);
         return (code, stdout.ToString(), stderr.ToString());
     }
 
     private static async Task Apply(TestDatabase database, params (string, string)[] files)
     {
         await using var owner = await database.OpenOwner(Ct);
-        await Migrator.Run(owner, Migrator.Parse(files), Ct);
+        await Migrator.Run(owner, ReviewSettings.Service, Migrator.Parse(files), Ct);
     }
 
     /// <summary>Asserts that parsing <paramref name="files"/>, or running them, is refused with a
@@ -255,7 +259,7 @@ public sealed class MigrateTests
         {
             var migrations = Migrator.Parse(files);
             await using var owner = await database.OpenOwner(Ct);
-            await Migrator.Run(owner, migrations, Ct);
+            await Migrator.Run(owner, ReviewSettings.Service, migrations, Ct);
         });
         Assert.Contains(naming, refused.Message, StringComparison.Ordinal);
     }
@@ -290,7 +294,7 @@ public sealed class MigrateTests
 
     private static Task<bool> TryLock(NpgsqlConnection connection) =>
         connection.QuerySingleAsync<bool>(new CommandDefinition(
-            "SELECT pg_try_advisory_lock(@key)", new { key = Migrator.LockKey }, cancellationToken: Ct));
+            "SELECT pg_try_advisory_lock(@key)", new { key = Migrator.LockKey(ReviewSettings.Service) }, cancellationToken: Ct));
 
     /// <summary>Returns once a connection to <paramref name="database"/> waits on a lock, so the
     /// test knows the run it started is inside its file. Fails after about five seconds.</summary>

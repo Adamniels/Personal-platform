@@ -1,5 +1,5 @@
-using Review.Database;
-using Review.Database.Migrations;
+using PlatformData;
+
 using Review.Settings;
 
 namespace Review;
@@ -21,7 +21,8 @@ internal static class Commands
             case []:
                 return await Serve(read, stderr, cancellationToken);
             case ["migrate"]:
-                return await MigrateCommand.Run(read, stdout, stderr, migrations: null, cancellationToken);
+                return await MigrateCommand.Run(
+                    ReviewSettings.Service, ReviewSettings.OwnerDatabaseUrl, typeof(Commands).Assembly, read, stdout, stderr, migrations: null, cancellationToken);
             default:
                 await stderr.WriteLineAsync("review: usage: review [migrate]");
                 return 2;
@@ -37,7 +38,7 @@ internal static class Commands
         try
         {
             var settings = ReviewSettings.Load(read);
-            await using var database = await ReviewDb.Open(settings.AppDatabase, cancellationToken);
+            await using var database = await UserDb.Open(ReviewSettings.Service, settings.AppDatabase, ReviewSettings.AppDatabaseUrl, cancellationToken);
             var webRoot = Path.Combine(Directory.GetCurrentDirectory(), "web", "dist");
             await using var app = ReviewApp.Build(settings, database, webRoot, builder => builder.WebHost.UseUrls(settings.ListenUrl));
             await app.RunAsync(cancellationToken);

@@ -5,8 +5,11 @@ using Dapper;
 
 using Microsoft.AspNetCore.Http;
 
+using PlatformData;
+using PlatformData.Testing;
+
 using Review.Brain;
-using Review.Database;
+using Review.Settings;
 
 namespace Review.Tests;
 
@@ -28,14 +31,14 @@ internal sealed class Api : IAsyncDisposable
 
     private readonly TestDatabase _database;
 
-    private Api(TestDatabase database, ReviewDb door, Harness review)
+    private Api(TestDatabase database, UserDb door, Harness review)
     {
         _database = database;
         Door = door;
         Review = review;
     }
 
-    public ReviewDb Door { get; }
+    public UserDb Door { get; }
 
     /// <summary>A time on the wire, an RFC 3339 string, as an instant.</summary>
     public static DateTimeOffset Time(JsonNode? value) =>
@@ -50,8 +53,8 @@ internal sealed class Api : IAsyncDisposable
     /// <param name="brain">The brain grades are sent to, see <see cref="Harness.Start"/>.</param>
     public static async Task<Api> Start(IBrain? brain = null)
     {
-        var database = await TestDatabase.Migrated(Ct);
-        var door = await ReviewDb.Open(database.App(), Ct);
+        var database = await Databases.Review.Migrated(Ct);
+        var door = await UserDb.Open(ReviewSettings.Service, database.App(), ReviewSettings.AppDatabaseUrl, Ct);
         var review = await Harness.Start(database: door, brain: brain);
         return new Api(database, door, review);
     }

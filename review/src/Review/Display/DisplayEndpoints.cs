@@ -2,8 +2,9 @@ using Dapper;
 
 using Microsoft.AspNetCore.Http.HttpResults;
 
+using PlatformData;
+
 using Review.Api;
-using Review.Database;
 using Review.Scheduling;
 
 namespace Review.Display;
@@ -30,19 +31,19 @@ public static class DisplayEndpoints
     {
         ArgumentNullException.ThrowIfNull(routes);
         ArgumentNullException.ThrowIfNull(dayZone);
-        routes.MapGet("/review/api/display", (HttpContext context, ReviewDb db, TimeProvider time, CancellationToken cancellationToken) =>
+        routes.MapGet("/review/api/display", (HttpContext context, UserDb db, TimeProvider time, CancellationToken cancellationToken) =>
                 Get(context, db, time, dayZone, cancellationToken))
             .UserRoute("getDisplay", "What is due, for the front page", $"due_now, the cards due at or before now; due_today, those due before the day ends at 04:00 in the zone REVIEW_DAY_ZONE names, those due now included; next_due_at, the earliest due after now, or null; and decks, every deck with a card due now, at most {DecksMax}, the most due first, then by name without letter case, each its name and due_now. The core calls it with the user's token in the Authorization header.");
         return routes;
     }
 
     private static async Task<Ok<DisplayData>> Get(
-        HttpContext context, ReviewDb db, TimeProvider time, TimeZoneInfo dayZone, CancellationToken cancellationToken) =>
+        HttpContext context, UserDb db, TimeProvider time, TimeZoneInfo dayZone, CancellationToken cancellationToken) =>
         TypedResults.Ok(await Read(db, context.UserId(), GradeEndpoints.Now(time), dayZone, cancellationToken));
 
     /// <summary>The display data of <paramref name="user"/>'s cards, as of
     /// <paramref name="now"/>.</summary>
-    internal static async Task<DisplayData> Read(ReviewDb db, Guid user, DateTimeOffset now, TimeZoneInfo dayZone, CancellationToken cancellationToken)
+    internal static async Task<DisplayData> Read(UserDb db, Guid user, DateTimeOffset now, TimeZoneInfo dayZone, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(db);
         // UTC, as Npgsql writes a timestamptz only from a zero offset.
