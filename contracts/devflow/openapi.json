@@ -1,6 +1,23 @@
 {
   "components": {
     "schemas": {
+      "CodeHostMode": {
+        "enum": [
+          "fake",
+          "github"
+        ]
+      },
+      "DevFlowStatus": {
+        "properties": {
+          "code_host": {
+            "$ref": "#/components/schemas/CodeHostMode"
+          }
+        },
+        "required": [
+          "code_host"
+        ],
+        "type": "object"
+      },
       "Health": {
         "properties": {
           "status": {
@@ -49,6 +66,31 @@
           }
         },
         "summary": "Whether Dev flow serves",
+        "tags": [
+          "DevFlow"
+        ]
+      }
+    },
+    "/devflow/api/status": {
+      "get": {
+        "description": "fake when GitHub is faked, which every Dev flow page then says in a banner, and github otherwise. Without a valid token, 401 with an empty body.",
+        "operationId": "status",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DevFlowStatus"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "summary": "Which code host Dev flow talks to",
         "tags": [
           "DevFlow"
         ]

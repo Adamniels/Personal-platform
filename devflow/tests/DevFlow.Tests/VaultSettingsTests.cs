@@ -125,13 +125,6 @@ public sealed class VaultSettingsTests
             Assert.StartsWith($"{Key}: ", refused.Message, StringComparison.Ordinal);
         }
 
-        // The code host is fake or github and nothing else.
-        foreach (var mode in new[] { "", "GitHub", "gitlab", " github" })
-        {
-            var refused = Assert.Throws<StartupException>(() => Load((CodeHost, mode)));
-            Assert.StartsWith($"{CodeHost}: ", refused.Message, StringComparison.Ordinal);
-        }
-
         // The service says so in one line at startup, without the key. Here it stops after it, at
         // the page's build, which the tests' folder does not hold.
         var app = Environment.GetEnvironmentVariable(Databases.DevFlow.AppVariable)

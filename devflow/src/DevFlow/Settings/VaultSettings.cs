@@ -44,13 +44,13 @@ public sealed class VaultSettings
     /// <exception cref="StartupException">A key does not parse, an id is listed twice, old keys
     /// are set without a current one, or no key is set and <paramref name="codeHost"/> is GitHub.
     /// The message starts with the setting's name and never repeats its value.</exception>
-    internal static VaultSettings Load(Func<string, string?> read, CodeHost codeHost)
+    internal static VaultSettings Load(Func<string, string?> read, CodeHostMode codeHost)
     {
         var current = NotEmpty(read(KeySetting));
         var oldList = NotEmpty(read(OldKeysSetting));
         if (current is null)
         {
-            if (codeHost == CodeHost.GitHub)
+            if (codeHost == CodeHostMode.GitHub)
             {
                 throw new StartupException(
                     $"{KeySetting}: is not set, and Dev flow with DEVFLOW_CODE_HOST=github holds real secrets, so it needs a key that outlives it; make one with printf 'k1:%s\\n' \"$(openssl rand -base64 32)\"");

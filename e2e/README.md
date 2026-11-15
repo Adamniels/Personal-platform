@@ -57,6 +57,16 @@ Screenshots land in `screenshots/`, which is git ignored.
   standard input to it, to a temporary file renamed over it as the backup job does. `check.sh` sets
   both to a `docker compose ... exec -T backup`; without them a test that needs the file fails
   saying so. No test helper is in the backup image.
+- `devflow_world` is a function: `devflow_world(world)` replaces Dev flow's fake code host's world
+  for the account the page is logged in as, by a `PUT /devflow/api/fake/world` through the page's
+  own session, with the platform's origin, so it lands in this test's account and no other. Call it
+  after logging in. The world is a dictionary, the document "The fake" in `devflow/README.md`
+  describes; `devflow_worlds.py` beside this file builds one, so a test says only what matters to
+  it: `one_repository()` makes a world with one installation and one empty repository,
+  `add_pull_request(world, number, ...)` adds a pull request with any fields the test cares about,
+  its conversation, and the statuses and check runs on its head commit, made with `comment`,
+  `status` and `check_run`, and `add_file` adds a file on a branch. It works on the dev stack and in
+  the hosted check, both of which fake GitHub.
 - `viewport` runs the test twice, `[desktop]` (1280x800) and `[phone]` (390x844), and sizes the page.
 - `capture(page, name)` writes a full page screenshot to `screenshots/<name>-<viewport>.png` and
   returns the path. It needs the page to be sized by the `viewport` fixture.

@@ -5,8 +5,10 @@ nav bar. See devflow/README.md."""
 from playwright.sync_api import Browser, Page, expect
 
 from conftest import account_in_access_cookie, capture, register_and_log_in
+from devflow_worlds import add_pull_request, check_run, comment, one_repository, status
 
 TABS = ["Waiting for you", "Projects"]
+BANNER = "Fake GitHub. Nothing here is real."
 
 
 def test_devflow_health_through_the_proxy(page: Page):
@@ -82,3 +84,41 @@ def test_devflow_knows_who_i_am(
         assert refused.body() == b""
     finally:
         stranger.close()
+
+
+def test_devflow_says_when_github_is_faked(
+    page: Page, invite_code: str, base_url: str, viewport: str
+):
+    # The dev stack sets no DEVFLOW_CODE_HOST, so Dev flow fakes GitHub, and
+    # every page it serves says so.
+    register_and_log_in(page, invite_code, base_url)
+
+    for path in ["/devflow/projects", "/devflow"]:
+        page.goto(path)
+        expect(page.get_by_role("note")).to_have_text(BANNER)
+
+    expect(page.get_by_role("heading", name="Dev flow", level=1)).to_be_visible()
+    capture(page, "devflow-fake-banner")
+
+
+def test_a_test_can_stage_a_pull_request(
+    page: Page, invite_code: str, base_url: str, devflow_world
+):
+    register_and_log_in(page, invite_code, base_url)
+    world = one_repository()
+    add_pull_request(
+        world,
+        304,
+        title="The vault",
+        labels=["owner-merge"],
+        body="Closes #272",
+        comments=[comment(1001, "Adamniels", "Why AES-GCM?")],
+        statuses=[status("review-ok", "success")],
+        check_runs=[check_run("ci-ok")],
+    )
+
+    devflow_world(world)
+
+    read = page.request.get("/devflow/api/fake/world")
+    assert read.status == 200
+    assert read.json() == world

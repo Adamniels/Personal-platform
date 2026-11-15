@@ -11,7 +11,8 @@ import { App } from "./app";
 
 function openAt(path: string) {
 	window.history.pushState(null, "", path);
-	render(<App />);
+	// The frame alone: the banner's own tests are in banner.test.tsx.
+	render(<App loadStatus={() => new Promise(() => {})} />);
 }
 
 function selectedTab() {

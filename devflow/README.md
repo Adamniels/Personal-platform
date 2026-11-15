@@ -6,8 +6,9 @@ meant to grow is in `docs/devflow-architecture.md`, and its scope and slices are
 issue, #268. "Dev flow" is its name in the nav and in headings, and `devflow` everywhere technical.
 
 It is a C# feature on .NET 10, an ASP.NET Core minimal API app, built the way `review/` is. Today it
-is the service, its page and its database, which holds the vault: the other tables, the code host
-and everything the tabs will show arrive with later slices.
+is the service, its page, its database, which holds the vault, and the code host's interface with
+its fake: the GitHub adapter, the other tables and everything the tabs will show arrive with later
+slices.
 
 ## What it serves
 
@@ -15,6 +16,10 @@ and everything the tabs will show arrive with later slices.
   serves, and says nothing about what Dev flow depends on.
 - `GET /devflow/api/whoami`, `{"account_id": "<sub>"}`, the account the request's token names.
   Without a valid token it answers `401` with an empty body.
+- `GET /devflow/api/status`, `{"code_host": "fake"}` or `{"code_host": "github"}`, which code host
+  Dev flow talks to, see "The code host". The page reads it to show its banner. Without a valid
+  token, `401` with an empty body. Later slices add the state of the user's GitHub link to it.
+- In the fake mode only, the fake's addresses under `/devflow/api/fake/`, see "Staging a world".
 - `GET /devflow` and `/devflow/projects`, with any query, the page: `web/dist/index.html`,
   revalidated on every load. Without a valid token each answers `303` to
   `/auth/refresh?return_to=<the path and query as received, URL encoded>`.
@@ -46,6 +51,12 @@ you.", then the package's `Tabs`, one per section, each with its own address:
 | Waiting for you | `/devflow`          |
 | Projects        | `/devflow/projects` |
 
+Above the heading, in the fake mode, a strip says "Fake GitHub. Nothing here is real.", in the
+attention style of "Needs you banner" in `design/DESIGN.md`, tokens only, and is not dismissible. It
+is `src/banner.tsx`, the page's own component, since no other feature needs it, and it reads
+`GET /devflow/api/status` once as the page loads; before the answer, with `github`, or when the
+status cannot be read, it shows nothing.
+
 Each section shows the package's `EmptyState` until its slice lands. "Running now" and "Usage and
 history" join with the parts that build them, never as empty tabs. The address is the state,
 through the History API and no router library (`src/address.ts`): a tab pushes its section's
@@ -57,7 +68,7 @@ the service answers the page for in `src/DevFlow/Pages/PageEndpoints.cs`; the tw
 the session cookie, a `401` is refreshed once, shared by every call that got one, by posting to
 `/auth/refresh` and repeating the call, and a second `401` sends the browser to
 `/auth/refresh?return_to=<path>`, as review's client does. Its GETs are typed from
-`src/api/schema.d.ts`. Nothing on the page calls it yet.
+`src/api/schema.d.ts`. The banner's status is the one call the page makes yet.
 
 ## The schema
 
@@ -152,19 +163,24 @@ shared, since no service imports from another's directory.
   of what it prints.
 - `DEVFLOW_OWNER_DATABASE_URL`, the same form as `devflow_owner`: read by `migrate` alone, never
   by Dev flow while it serves, see "Migrating".
-- `DEVFLOW_CODE_HOST`, default `fake`: `fake` or `github`, nothing else. Today it decides one thing,
-  whether the vault needs a key; the code host's slice, #273, gives it the rest of its meaning.
+- `DEVFLOW_CODE_HOST`, default `fake`: `fake` or `github`, nothing else, and set but empty is refused
+  like any value that does not parse. It decides which code host Dev flow is built with, whether
+  the fake's addresses exist and the page shows its banner, and whether the vault needs a key; see
+  "The code host". With `github` Dev flow refuses to start, saying the GitHub adapter is not built
+  yet, until the next slice of #268 builds it.
 - `DEVFLOW_VAULT_KEY`, the vault's current key, `<id>:<base64 of 32 bytes>`, see "The vault". Unset
   or empty, Dev flow makes one in memory with the fake code host and refuses to start with
   `github`. A key that does not parse stops it, naming the setting and never repeating the value.
 - `DEVFLOW_VAULT_OLD_KEYS`, unset or empty for none: keys rows may still be sealed with, comma
   separated in the same form, each with an id of its own that is not the current key's.
 
-The defaults are right on the Mac mini and in CI, so neither sets them, except the listen address,
+The defaults are right on the Mac mini and in CI, so neither sets them, the code host's fake
+included, except the listen address,
 which the manifest's `start` sets, and the database URLs, which `scripts/agent/services.sh` and
 `.github/workflows/dotnet.yml` build. The hosted copy sets the four it needs to serve and passes the
-vault's two in `infra/hosted/compose.yaml`, from its `.env`, and the owner's URL only on
-`devflow-migrate`.
+vault's two and the code host's mode in `infra/hosted/compose.yaml`, from its `.env`, and the
+owner's URL only on `devflow-migrate`. Its `.env.example` names the mode `github`, so a release
+refuses an env file without it, and `check.sh`'s throwaway copy sets `fake`.
 
 ## The database
 
@@ -265,6 +281,100 @@ the owner's password manager, never in the backups; see `infra/hosted/README.md`
 What it protects against, and what it does not, is in "Security decisions and accepted risks" in
 `docs/devflow-architecture.md`.
 
+## The code host
+
+Everything Dev flow asks of a code host goes through one interface, `ICodeHost`, in
+`src/DevFlow/CodeHost/`, with plain records for what it answers. Why it sits there, and why the
+fake does, is "The code host seam" in `docs/devflow-architecture.md`. It names things as the
+development flow's design does, a repository, a pull request, a comment, never as GitHub's API
+does. Its read side, all this part needs so far:
+
+- `OpenPullRequests(user, repository)`: each open pull request, with its number, title, author's
+  login, labels, head commit, head and base branch, whether it is a draft, body, web address, when
+  it was last updated, and its state;
+- `PullRequest(user, repository, number)`: one, whatever its state, open, merged or closed;
+- `Comments(user, repository, number)`: an issue's or pull request's conversation comments, oldest
+  first, each with id, author's login, body, when it was created and when it was last edited;
+- `Statuses(user, repository, commit)`: each context with its state and description;
+- `CheckRuns(user, repository, commit)`: each name with its status, conclusion and the slug of the
+  app that made it;
+- `File(user, repository, path, branch)`: the bytes.
+
+A `Repository` is the installation it was reached through and its id, which identify it, with its
+owner and name carried for display. Every operation takes the platform account it is asked for:
+the fake keeps a world per account, and the GitHub adapter will read as the app and write as the
+account's linked user. Each answers a `CodeHostResult<T>`: `Found` with the value, `NotFound`, or
+`Unavailable` with when to try again if the host said, and the caller handles all three; nothing is
+thrown for an expected condition. Later slices add signing in, listing what a user can connect,
+merging and commenting, each to the interface, the fake and the adapter together.
+
+`DEVFLOW_CODE_HOST` chooses the implementation when the app is built, in `DevFlowApp.Build`. `fake`
+is `FakeCodeHost`; `github` stops startup until its adapter is built. A test that needs the app in
+the GitHub mode hands it a code host of its own, which `Build` keeps, as the test harness's
+`codeHost` does.
+
+### The fake
+
+`FakeCodeHost` keeps a world per platform account, in memory, lost at a restart: installations,
+their repositories, and each repository's pull requests, conversations, commits with their statuses
+and check runs, and files. Per account, since every acceptance test registers its own account and
+they all run against one Dev flow. A world is one JSON document whose shape is the interface's
+records, so staging something is writing what the interface would answer:
+
+```json
+{
+  "installations": [
+    {
+      "id": 1,
+      "repositories": [
+        {
+          "id": 1001, "owner": "Adamniels", "name": "Personal-platform",
+          "pull_requests": [ { "number": 304, "title": "The vault", "author": "mac-mini-agent",
+            "labels": ["owner-merge"], "head_commit": "<40 hex>", "head_branch": "272-the-vault",
+            "base_branch": "main", "draft": false, "body": "", "url": "https://github.com/...",
+            "updated_at": "2026-11-15T09:30:00+00:00", "state": "open" } ],
+          "conversations": [ { "number": 304, "comments": [ { "id": 1, "author": "Adamniels",
+            "body": "...", "created_at": "...", "updated_at": "..." } ] } ],
+          "commits": [ { "id": "<40 hex>",
+            "statuses": [ { "context": "review-ok", "state": "success", "description": null } ],
+            "check_runs": [ { "name": "ci-ok", "status": "completed", "conclusion": "success",
+              "app": "github-actions" } ] } ],
+          "files": [ { "path": "AGENTS.md", "branch": "main", "content": "<base64>" } ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+It is read strictly, by `FakeJson` in `src/DevFlow/CodeHost/FakeWorld.cs`: every field present, null
+only where the record allows it, no field the records do not have, numbers as numbers, and states
+as their snake case words, `open`, `in_progress`, `timed_out`. What identifies a thing is listed
+once: an installation's id, a repository's id within it, a pull request's or a conversation's
+number, a commit's id, and a file's path and branch. A pull request's number reaches its
+conversation, empty unless one is listed; a commit that is not listed is not found.
+
+### Staging a world
+
+In the fake mode only, under the `Api` policy and the origin check like every route, each acting on
+the caller's own world, and left out of `contracts/devflow/openapi.json`, since they are not part
+of what Dev flow is:
+
+- `PUT /devflow/api/fake/world` replaces the caller's world with the document, `204`. One that does
+  not parse is `400`, a problem document titled "The world is malformed" whose detail starts with
+  the field, such as `installations[0].repositories[0].name: is missing`, and the world before it is
+  kept.
+- `GET /devflow/api/fake/world` reads it back, the same document; `{"installations": []}` before
+  anything is staged.
+- `POST /devflow/api/fake/unavailable` with `{"unavailable": true}` makes every operation for the
+  caller answer unavailable, without a time to try again, and `false` makes it answer again. The
+  world is kept.
+
+In the GitHub mode none of them exists, `404`. An acceptance test stages a world through the
+`devflow_world` fixture, which puts it through the page's own session, with `e2e/devflow_worlds.py`
+to build it; see "Fixtures" in `e2e/README.md`. A C# test calls `FakeCodeHost.Replace` and
+`SetUnavailable`, or sends the same requests through the harness.
+
 ## How Dev flow authenticates a request
 
 The rules every feature follows are in "How a feature authenticates" in
@@ -274,11 +384,12 @@ it holds and how its tests cover the ways verification breaks. Dev flow referenc
 and does three things with it, in `src/DevFlow/DevFlowApp.cs`:
 
 - `AddPlatformAuth` with `DEVFLOW_CORE_URL`, which registers the key cache, the handler and the two
-  policies. The pages take `PlatformAuthPolicies.Page` and `whoami` takes
-  `PlatformAuthPolicies.Api`; health and the built files take neither. A route reads its caller's
+  policies. The pages take `PlatformAuthPolicies.Page`, and `whoami`, `status` and the fake's
+  addresses take `PlatformAuthPolicies.Api`; health and the built files take neither. A route reads its caller's
   user id through `Api/Caller.cs`, as review's do.
 - `UsePlatformOriginCheck` with `DEVFLOW_PUBLIC_ORIGIN`, before routing, so every route, one added
-  later included, is covered. Dev flow has no route that changes state yet.
+  later included, is covered. The only routes that change state yet are the fake's, which exist
+  only in the fake mode.
 - `DevFlowApp.Build(settings, database, webRoot, configure)` builds the app, with the door; `configure` runs before it is
   built, which is where `Program` sets the listen address and where the tests put the app on a
   test server, with a key cache over the committed key set answered from memory and a clock fixed
@@ -299,8 +410,8 @@ the analyzers as the linter and `dotnet format` as the formatter are in "Librari
 in `libs/dotnet/PlatformAuth/README.md`.
 
 **One web project, not layered projects.** `src/DevFlow/` is the whole service, organised in
-feature folders: `Settings`, `Health` (health and whoami), `Pages` and `Api` today, more with later
-slices, as `review/` is.
+feature folders: `Settings`, `Health` (health and whoami), `Status`, `CodeHost` (the interface, its
+records and the fake), `Vault`, `Pages` and `Api` today, more with later slices, as `review/` is.
 
 **The vault's cipher is .NET's own `AesGcm`**, AES-256-GCM from `System.Security.Cryptography`, the
 standard authenticated cipher, which the framework has, so no library is added for it.

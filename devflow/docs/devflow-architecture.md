@@ -26,11 +26,40 @@ two tabs, "Waiting for you" at `/devflow` and "Projects" at `/devflow/projects`,
 It answers through the proxy under `/devflow` in the dev stack and in the hosted copy, verifies the
 core's token itself through `PlatformAuth`, and has a database of its own, `devflow`, migrated by
 its `migrate` command. Its one table is the vault's, `secrets`, which seals a secret for a user and
-holds nothing yet. What it serves, its settings, its database, the vault and how it authenticates
-are in `devflow/README.md`.
+holds nothing yet. Everything it will ask of a code host goes through one interface, with an in
+memory fake behind it and no GitHub adapter yet, see "The code host seam" below. What it serves,
+its settings, its database, the vault, the code host and how it authenticates are in
+`devflow/README.md`.
 
-It stores nothing in the vault and has no connection to a code host yet. Those, and everything the
-tabs will show, arrive with the later slices of the first part.
+It stores nothing in the vault and reads nothing from GitHub yet. Those, and everything the tabs
+will show, arrive with the later slices of the first part.
+
+## The code host seam
+
+Everything Dev flow asks of a code host goes through `ICodeHost`, in `src/DevFlow/CodeHost/`:
+today the reads the waiting list needs, open pull requests, one pull request, a conversation's
+comments, a commit's statuses and check runs, and a file on a branch; later, signing in, listing
+what a user can connect, merging and commenting. It names things as the spec does, so a second
+host can sit behind it, and GitHub is the only one built. Every operation answers its value or one
+of two failures the caller must handle, not found and unavailable, so a page or the poll can say
+what went wrong instead of failing on an exception it did not expect. What each operation returns
+is in "The code host" in `devflow/README.md`.
+
+Two implementations sit behind it, chosen by `DEVFLOW_CODE_HOST` when the app is built: the GitHub
+adapter, which the next slice adds, and `FakeCodeHost`, a world per platform account in memory,
+which is the default. The spec requires that automated tests never touch the real GitHub, since it
+costs usage and needs secrets; with the fake as the default the laptop's tests, CI and the runner's
+stack need nothing set, and every acceptance test stages the repositories and pull requests it
+needs in its own account through `/devflow/api/fake/`.
+
+**The fake sits at the interface, not as a stand in GitHub server.** A stand in server would
+exercise the adapter in every test, but it would have to imitate GitHub's API closely enough to be
+trusted, its paging, its errors, its token exchange, which is a second GitHub to keep right, and
+every test would depend on it. At the interface the fake is small, a test stages exactly what the
+interface would answer, and the cost is that no test through the fake proves the adapter right.
+So **the adapter is tested on its own**, against recorded answers from the real GitHub in
+`contracts/github/`, in the next slice, and the owner's check after the first batch, merging a real
+pull request from his phone, is the first time the two meet for real.
 
 ## Security decisions and accepted risks
 
@@ -70,3 +99,14 @@ its reason, or a risk accepted on purpose; each slice adds the ones it builds.
   fake code host, used by tests, CI and the runner's stack, makes one in memory at startup, and
   with `DEVFLOW_CODE_HOST=github` Dev flow refuses to start. How it works is "The vault" in
   `devflow/README.md`.
+- **The fake code host must never be on where real data is.** It answers whatever an account
+  staged, so a page in the fake mode can show a pull request that does not exist, and every
+  signed in user can replace their own world through `/devflow/api/fake/`. It is the default, so
+  that tests and the runner's stack need nothing set, which makes the hosted copy the one place
+  that must say otherwise. It does: `infra/hosted/compose.yaml` passes `DEVFLOW_CODE_HOST`, empty
+  when its `.env` leaves it out, which Dev flow refuses rather than reading as the default;
+  `infra/hosted/.env.example` lists it as `github`, so the release's preflight refuses an env file
+  without it; and only `check.sh`'s throwaway copy sets `fake`. The fake's addresses do not exist in
+  the GitHub mode. The visible sign is the banner, "Fake GitHub. Nothing here is real.", on every
+  Dev flow page in the fake mode, which cannot be dismissed, so a fake page never passes for the
+  real one.
