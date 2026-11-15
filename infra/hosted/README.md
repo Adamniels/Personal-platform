@@ -105,7 +105,7 @@ and its settings `infra/hosted/.env` in that clone.
    Fill in each value in `infra/hosted/.env` as its comment says: each of the ten passwords from
    its own run of `openssl rand -hex 24`, Dev flow's vault key, `DEVFLOW_VAULT_KEY`, from
    `printf 'k1:%s\n' "$(openssl rand -base64 32)"` and saved in the password manager at once,
-   `PLATFORM_PUBLIC_ORIGIN` from step 4, and the backup settings from step 2. Then make the signing key in the core's own image, which appends its line
+   Dev flow's code host, `DEVFLOW_CODE_HOST`, left as `github`, `PLATFORM_PUBLIC_ORIGIN` from step 4, and the backup settings from step 2. Then make the signing key in the core's own image, which appends its line
    to the file:
 
    ```zsh
@@ -200,7 +200,11 @@ as it starts:
    roles here, with no step by hand. Its two passwords must be in `infra/hosted/.env` first, or
    step 1 refuses: Dev flow's, `DEVFLOW_OWNER_PASSWORD` and `DEVFLOW_APP_PASSWORD`, came with its
    database, so a copy set up before them refuses every release until both are added, each from
-   its own run of `openssl rand -hex 24`.
+   its own run of `openssl rand -hex 24`. So does Dev flow's code host, `DEVFLOW_CODE_HOST=github`,
+   which came with the code host's slice: the hosted copy names its mode, since Dev flow's default
+   elsewhere is the fake, which must never be on where real data is. Until the GitHub adapter is
+   built, the next slice of Dev flow, #268, Dev flow refuses to start with `github`, so a release
+   in between fails at step 8 and rolls back.
 5. **Back up**, with `backup now`. Its time names the backup in any later message.
 6. **Migrate**, each `<name>-migrate` service in the compose file's order, one at a time.
 7. **Start** the new containers, `docker compose up -d`, which replaces those whose image or

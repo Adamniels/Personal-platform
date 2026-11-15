@@ -164,6 +164,9 @@ services:
       DEVFLOW_CORE_URL: http://core:8080
       DEVFLOW_PUBLIC_ORIGIN: ${PLATFORM_PUBLIC_ORIGIN:?set PLATFORM_PUBLIC_ORIGIN, see .env.example}
       DEVFLOW_APP_DATABASE_URL: postgres://devflow_app:${DEVFLOW_APP_PASSWORD:?set DEVFLOW_APP_PASSWORD, see .env.example}@postgres:5432/devflow
+      # The code host, passed empty when unset, which Dev flow refuses rather than taking the fake,
+      # its default elsewhere: the fake must never be on where real data is.
+      DEVFLOW_CODE_HOST: ${DEVFLOW_CODE_HOST:-}
       # The vault's keys, passed empty when unset, so Dev flow is what refuses, naming the setting.
       DEVFLOW_VAULT_KEY: ${DEVFLOW_VAULT_KEY:-}
       DEVFLOW_VAULT_OLD_KEYS: ${DEVFLOW_VAULT_OLD_KEYS:-}
