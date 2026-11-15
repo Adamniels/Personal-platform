@@ -1,0 +1,48 @@
+[
+  {
+    "url": "https://api.github.com/repos/Adamniels/Personal-platform/issues/comments/6891208320",
+    "html_url": "https://github.com/Adamniels/Personal-platform/pull/267#issuecomment-6891208320",
+    "issue_url": "https://api.github.com/repos/Adamniels/Personal-platform/issues/267",
+    "id": 6891208320,
+    "node_id": "IC_kwDOUMYTdc8AAAABmr9-gA",
+    "user": {
+      "login": "mac-mini-agent",
+      "id": 340709305,
+      "node_id": "U_kgDOFE7PuQ",
+      "avatar_url": "https://avatars.githubusercontent.com/u/340709305?v=4",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/mac-mini-agent",
+      "html_url": "https://github.com/mac-mini-agent",
+      "followers_url": "https://api.github.com/users/mac-mini-agent/followers",
+      "following_url": "https://api.github.com/users/mac-mini-agent/following{/other_user}",
+      "gists_url": "https://api.github.com/users/mac-mini-agent/gists{/gist_id}",
+      "starred_url": "https://api.github.com/users/mac-mini-agent/starred{/owner}{/repo}",
+      "subscriptions_url": "https://api.github.com/users/mac-mini-agent/subscriptions",
+      "organizations_url": "https://api.github.com/users/mac-mini-agent/orgs",
+      "repos_url": "https://api.github.com/users/mac-mini-agent/repos",
+      "events_url": "https://api.github.com/users/mac-mini-agent/events{/privacy}",
+      "received_events_url": "https://api.github.com/users/mac-mini-agent/received_events",
+      "type": "User",
+      "user_view_type": "public",
+      "site_admin": false
+    },
+    "created_at": "2026-11-15T07:41:49Z",
+    "updated_at": "2026-11-15T07:41:49Z",
+    "body": "Slice #260, the hosted check in CI, round 1: approved. Every Acceptance criterion holds and is tested, and the one decision against Settled is labelled `has-decision` and listed below for the owner.\n\n## Blocking\n\nNone.\n\n## Nits\n\n- `infra/hosted/check.sh:233`: `it_saves_the_logs_of_a_failed_run` proves `save_logs` itself, but in a separate subshell that calls it unconditionally (line 372). Nothing tests the wiring CI depends on, which is the `stack` trap's condition (`HOSTED_CHECK_LOGS` set and a `FAIL` line in `$results`). I read that path: a failed step writes its `bad` lines before `return 1`, so the condition holds there, and it is simple enough that I am not blocking on it. Still, a typo in that trap would pass every case and would only show up as an empty `hosted-logs` artifact on the day it is needed, which is the risk the PR body itself names.\n- `.github/workflows/hosted.yml:81,114`: pinning `actions/checkout` and `actions/upload-artifact` to a commit is the stricter option and I agree with it. It does leave `hosted.yml` the only workflow that pins GitHub's own actions, so the next person editing these files sees two conventions. The fix is pinning the others too, in a later slice, not loosening this one. This one is a matter of taste.\n\n## For the owner\n\n- **Node 26 and `npm ci` in `design/ui/`, in `hosted.yml`, against Settled's \"installs no Rust, Node or .NET\".** The alternative is leaving Node out, as Settled says. I agree with the implementer. The acceptance suite that `check.sh` runs reads `design/ui/node_modules/axe-core/axe.min.js` from the checkout (`e2e/tests/test_style.py:19`). On a fresh runner that file does not exist, so leaving Node out would make the accessibility tests fail, and Acceptance requires `check.sh` to exit zero on GitHub's runner. The install is the minimum the suite needs: `setup-node` at the same commit and Node version that `e2e.yml` and `web.yml` use, a locked `npm ci` that `workflows-locked.test.sh` now counts, and nothing built. Those are the right choices. The other ways out are worse: vendoring axe-core puts a copy outside the lockfile, and skipping the accessibility tests in the hosted run weakens the suite.\n\n## Replies\n\nNone.\n",
+    "author_association": "COLLABORATOR",
+    "reactions": {
+      "url": "https://api.github.com/repos/Adamniels/Personal-platform/issues/comments/6891208320/reactions",
+      "total_count": 0,
+      "+1": 0,
+      "-1": 0,
+      "laugh": 0,
+      "hooray": 0,
+      "confused": 0,
+      "heart": 0,
+      "rocket": 0,
+      "eyes": 0
+    },
+    "performed_via_github_app": null,
+    "minimized": null
+  }
+]

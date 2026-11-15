@@ -1,0 +1,48 @@
+[
+  {
+    "url": "https://api.github.com/repos/Adamniels/Personal-platform/issues/comments/6887111289",
+    "html_url": "https://github.com/Adamniels/Personal-platform/pull/266#issuecomment-6887111289",
+    "issue_url": "https://api.github.com/repos/Adamniels/Personal-platform/issues/266",
+    "id": 6887111289,
+    "node_id": "IC_kwDOUMYTdc8AAAABmoD6eQ",
+    "user": {
+      "login": "mac-mini-agent",
+      "id": 340709305,
+      "node_id": "U_kgDOFE7PuQ",
+      "avatar_url": "https://avatars.githubusercontent.com/u/340709305?v=4",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/mac-mini-agent",
+      "html_url": "https://github.com/mac-mini-agent",
+      "followers_url": "https://api.github.com/users/mac-mini-agent/followers",
+      "following_url": "https://api.github.com/users/mac-mini-agent/following{/other_user}",
+      "gists_url": "https://api.github.com/users/mac-mini-agent/gists{/gist_id}",
+      "starred_url": "https://api.github.com/users/mac-mini-agent/starred{/owner}{/repo}",
+      "subscriptions_url": "https://api.github.com/users/mac-mini-agent/subscriptions",
+      "organizations_url": "https://api.github.com/users/mac-mini-agent/orgs",
+      "repos_url": "https://api.github.com/users/mac-mini-agent/repos",
+      "events_url": "https://api.github.com/users/mac-mini-agent/events{/privacy}",
+      "received_events_url": "https://api.github.com/users/mac-mini-agent/received_events",
+      "type": "User",
+      "user_view_type": "public",
+      "site_admin": false
+    },
+    "created_at": "2026-11-15T01:11:03Z",
+    "updated_at": "2026-11-15T01:11:03Z",
+    "body": "Slice #259, \"Releasing\", round 1: approve. Every Acceptance case exists, runs in CI's scripts job (release.test.sh 27 passed, settings.test.sh 33, reset-db.test.sh 13) or in `check.sh` as the slice names, and tests the script's behaviour through stubbed `docker`, `git` and `curl` rather than a mock of it. I found no blocking defect in `release.sh`.\n\nWhat I checked beyond the tests: the rollback diff pathspec `:(glob)**/migrations/**` covers `Core/migrations`, `Brain/migrations` and `review/migrations`, the only migration folders at this sha. Postgres is `postgres:18`, not release tagged, so step 4's `up -d --wait postgres` does not recreate it on every release. The backup name grep matches `backup.sh`'s `<YYYYmmddTHHMMSSZ>-<db>.dump.age`. `git checkout` unlinks before it writes, so the running script keeps reading its own inode. Nothing in `compose.yaml` bind mounts a writable path into the clone, so the untracked files check will not trip on the copy's own output. `.release` is ignored. No value is echoed or passed in argv, and the printed restore command passes `-e POSTGRES_PASSWORD` by name only. The runbook's `platform_core invite`, `accounts(id, email)` and `brain import --as` match the code. The deny rules are exactly the three Settled lists.\n\n## Blocking\n\nNone.\n\n## Nits\n\n- `scripts/deploy/release.test.sh:1038`: the comment says \"Every secret the env file holds is printed by a call\", but the docker fake prints none. So `no_secret_is_printed` covers the script's own messages and every fake's argv, which is what Acceptance asks for, but it does not cover the script passing through a command's output unread, which is what the comment claims. Either make the comment match what the fake does or have a fake print a secret.\n- `scripts/deploy/release.test.sh:1166`: `the_steps_run_in_order` checks `brain.sh`, `review.sh` and `zz-backup-role.sh` but not `core.sh`, so dropping one of the init scripts from the loop would not be caught for the core. This is minor, since the loop is a glob.\n- `infra/hosted/.env.example` (not in the diff), the `BACKUP_AT`/`TZ` comment: \"A TZ exported in the shell running compose wins over this file, as every variable does\" is no longer true for a release, which unsets every name first. The README says so under \"Releasing\", but this file is the one the owner reads while filling `.env`. I think the example's comment should change, not the script.\n- `infra/hosted/README.md`, \"Releasing\": \"To release an older commit again ... name it\" does not say what happens across a migration. I believe the older binary's migrate will refuse a database with migrations it does not know, which fails safely at step 6, but I did not confirm this for all three services. A sentence pointing at the \"database is ahead\" restore path would save the owner a surprise. Relatedly, releasing a commit from before this pull request checks out a tree with no `scripts/deploy/release.sh` and no `.release` ignore entry, so the next release could not start from the clone until it is checked out to `main` again. This is an edge case, and is worth one line.\n\n## For the owner\n\nNone. Every recorded decision is within what Settled and the docs leave open and meets the stricter or more consistent option. Two I checked in particular. Requiring `CORE_SIGNING_KEY` but not the commented optional names is the only workable reading of \"every variable `.env.example` names\", since requiring `PLATFORM_RELEASE` or `HOSTED_HTTP_BIND` would be wrong. Never tagging `--local` images with a commit sha is the right call given the shared `platform-hosted/<service>` image names.\n\n## Replies\n\nNone.\n",
+    "author_association": "COLLABORATOR",
+    "reactions": {
+      "url": "https://api.github.com/repos/Adamniels/Personal-platform/issues/comments/6887111289/reactions",
+      "total_count": 0,
+      "+1": 0,
+      "-1": 0,
+      "laugh": 0,
+      "hooray": 0,
+      "confused": 0,
+      "heart": 0,
+      "rocket": 0,
+      "eyes": 0
+    },
+    "performed_via_github_app": null,
+    "minimized": null
+  }
+]

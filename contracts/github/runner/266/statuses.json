@@ -1,0 +1,14 @@
+[
+  {
+    "url": "https://api.github.com/repos/Adamniels/Personal-platform/statuses/84301f699b597b8646e2b4aecc459bb7a8e67a1c",
+    "avatar_url": "https://avatars.githubusercontent.com/oa/1157143?v=4",
+    "id": 58942204628,
+    "node_id": "SC_kwDOUMYTdc8AAAANuTqq1A",
+    "state": "success",
+    "description": "approved by the reviewer",
+    "target_url": null,
+    "context": "review-ok",
+    "created_at": "2026-11-15T01:11:27Z",
+    "updated_at": "2026-11-15T01:11:27Z"
+  }
+]
