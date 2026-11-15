@@ -2,6 +2,8 @@ using DevFlow.Settings;
 
 using Microsoft.AspNetCore.Http;
 
+using PlatformData;
+
 namespace DevFlow.Tests;
 
 /// <summary>
@@ -76,7 +78,9 @@ public sealed class PageTests : IAsyncLifetime
         var empty = Directory.CreateTempSubdirectory("devflow-web-").FullName;
         try
         {
-            var refused = Assert.Throws<StartupException>(() => DevFlowApp.Build(Harness.Defaults, empty));
+            var settings = Harness.Defaults;
+            await using var database = UserDb.Unopened(DevFlowSettings.Service, settings.AppDatabase);
+            var refused = Assert.Throws<StartupException>(() => DevFlowApp.Build(settings, database, empty));
 
             Assert.Contains(Path.Combine(empty, "index.html"), refused.Message, StringComparison.Ordinal);
         }

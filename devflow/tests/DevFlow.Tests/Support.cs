@@ -16,6 +16,8 @@ using NSec.Cryptography;
 
 using PlatformAuth;
 
+using PlatformData;
+
 namespace DevFlow.Tests;
 
 /// <summary>The repository's files the tests read.</summary>
@@ -88,7 +90,8 @@ internal sealed class StubCore : HttpMessageHandler
 /// <summary>
 /// Dev flow on a <see cref="TestServer"/>, over a build folder of its own holding an index.html and
 /// one asset, with a key cache over <see cref="StubCore"/> and a clock fixed at the fixture token's
-/// <c>iat</c> unless a test moves it, so the committed token is valid.
+/// <c>iat</c> unless a test moves it, so the committed token is valid. A test that calls a route
+/// using the database hands it a door over a database of its own.
 /// </summary>
 internal sealed class Harness : IAsyncDisposable
 {
@@ -98,18 +101,27 @@ internal sealed class Harness : IAsyncDisposable
 
     private readonly StubCore _core;
     private readonly WebApplication _app;
+    private readonly UserDb _database;
     private readonly string _webRoot;
 
-    private Harness(WebApplication app, StubCore core, string webRoot)
+    private Harness(WebApplication app, StubCore core, UserDb database, string webRoot)
     {
         _app = app;
         _core = core;
+        _database = database;
         _webRoot = webRoot;
     }
 
     public TestServer Server => _app.GetTestServer();
 
-    public static DevFlowSettings Defaults => DevFlowSettings.Load(_ => null);
+    /// <summary>The smallest environment the settings load from: the one required setting, the
+    /// app's database URL, which nothing here connects to.</summary>
+    public static readonly IReadOnlyDictionary<string, string> MinimalEnvironment = new Dictionary<string, string>
+    {
+        ["DEVFLOW_APP_DATABASE_URL"] = "postgres://devflow_app:secret-a1b2@127.0.0.1:5432/devflow",
+    };
+
+    public static DevFlowSettings Defaults => DevFlowSettings.Load(name => MinimalEnvironment.GetValueOrDefault(name));
 
     /// <summary>A folder shaped like web/dist, removed with the harness.</summary>
     private static string MakeBuild()
@@ -121,12 +133,16 @@ internal sealed class Harness : IAsyncDisposable
         return root;
     }
 
-    public static async Task<Harness> Start(DevFlowSettings? settings = null, long? clockAt = null)
+    /// <param name="database">The door the app uses, disposed with the harness. Without one it is
+    /// never opened: the test takes no database, and no route it calls uses one.</param>
+    public static async Task<Harness> Start(DevFlowSettings? settings = null, long? clockAt = null, UserDb? database = null)
     {
         var webRoot = MakeBuild();
         var time = new FakeTimeProvider(DateTimeOffset.FromUnixTimeSeconds(clockAt ?? Contract.IssuedAt));
         var core = new StubCore();
-        var app = DevFlowApp.Build(settings ?? Defaults, webRoot, builder =>
+        settings ??= Defaults;
+        database ??= UserDb.Unopened(DevFlowSettings.Service, settings.AppDatabase);
+        var app = DevFlowApp.Build(settings, database, webRoot, builder =>
         {
             builder.WebHost.UseTestServer();
             builder.Services.AddSingleton<TimeProvider>(time);
@@ -134,7 +150,7 @@ internal sealed class Harness : IAsyncDisposable
             builder.Services.AddSingleton(core.Cache(time));
         });
         await app.StartAsync();
-        return new Harness(app, core, webRoot);
+        return new Harness(app, core, database, webRoot);
     }
 
     /// <summary>A request as a browser on the platform sends it, with the token in the cookie
@@ -165,6 +181,7 @@ internal sealed class Harness : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         await _app.DisposeAsync();
+        await _database.DisposeAsync();
         _core.Dispose();
         Directory.Delete(_webRoot, recursive: true);
     }

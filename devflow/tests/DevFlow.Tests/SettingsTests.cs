@@ -1,5 +1,7 @@
 using DevFlow.Settings;
 
+using PlatformData;
+
 namespace DevFlow.Tests;
 
 /// <summary>
@@ -8,9 +10,15 @@ namespace DevFlow.Tests;
 /// </summary>
 public sealed class SettingsTests
 {
+    /// <summary>The settings from the minimal environment with <paramref name="set"/> on top.</summary>
     private static DevFlowSettings Load(params (string Name, string Value)[] set)
     {
-        var values = set.ToDictionary(pair => pair.Name, pair => pair.Value);
+        var values = new Dictionary<string, string>(Harness.MinimalEnvironment);
+        foreach (var (name, value) in set)
+        {
+            values[name] = value;
+        }
+
         return DevFlowSettings.Load(name => values.GetValueOrDefault(name));
     }
 
@@ -23,6 +31,17 @@ public sealed class SettingsTests
         Assert.Equal(new Uri("http://127.0.0.1:8080"), defaults.CoreUrl);
         Assert.Equal("https://platform.test", defaults.PublicOrigin);
         Assert.False(defaults.ExposeOpenApi);
+        Assert.Equal(("devflow_app", "127.0.0.1", 5432, "devflow"), (defaults.AppDatabase.Username, defaults.AppDatabase.Host, defaults.AppDatabase.Port, defaults.AppDatabase.Database));
+
+        // The app's database is required, with no default to fall back on.
+        var unset = Assert.Throws<StartupException>(() => DevFlowSettings.Load(_ => null));
+        Assert.StartsWith("DEVFLOW_APP_DATABASE_URL: ", unset.Message, StringComparison.Ordinal);
+
+        // The owner's is read by migrate alone, never by the settings serving loads.
+        var read = new List<string>();
+        DevFlowSettings.Load(name => { read.Add(name); return Harness.MinimalEnvironment.GetValueOrDefault(name); });
+        Assert.Contains("DEVFLOW_APP_DATABASE_URL", read);
+        Assert.DoesNotContain("DEVFLOW_OWNER_DATABASE_URL", read);
 
         foreach (var (name, value) in Malformed)
         {
@@ -66,6 +85,8 @@ public sealed class SettingsTests
         ("DEVFLOW_EXPOSE_OPENAPI", "true"),
         ("DEVFLOW_EXPOSE_OPENAPI", "yes"),
         ("DEVFLOW_EXPOSE_OPENAPI", " 1"),
+        ("DEVFLOW_APP_DATABASE_URL", ""),
+        ("DEVFLOW_APP_DATABASE_URL", "devflow_app:secret-a1b2@127.0.0.1:5432/devflow"),
     ];
 
     [Theory]
@@ -104,5 +125,42 @@ public sealed class SettingsTests
     public void TheSchemaIsExposedOnlyWhenAskedFor(string value, bool exposed)
     {
         Assert.Equal(exposed, Load(("DEVFLOW_EXPOSE_OPENAPI", value)).ExposeOpenApi);
+    }
+
+    [Theory]
+    [InlineData("postgres://devflow_app:secret-a1b2@127.0.0.1:5432/devflow", "127.0.0.1", 5432, "devflow_app", "secret-a1b2", "devflow")]
+    [InlineData("postgresql://devflow_app:secret-a1b2@db.internal/devflow", "db.internal", 5432, "devflow_app", "secret-a1b2", "devflow")]
+    [InlineData("postgres://devflow_app:p%40ss%3Aw%2Fd@[::1]:6543/devflow", "::1", 6543, "devflow_app", "p@ss:w/d", "devflow")]
+    public void TheAppDatabaseIsAPostgresUrl(string value, string host, int port, string user, string password, string database)
+    {
+        var settings = Load(("DEVFLOW_APP_DATABASE_URL", value)).AppDatabase;
+
+        Assert.Equal((host, port, user, password, database), (settings.Host, settings.Port, settings.Username, settings.Password, settings.Database));
+    }
+
+    [Theory]
+    [InlineData("devflow_app:secret-a1b2@127.0.0.1:5432/devflow")]
+    [InlineData("http://devflow_app:secret-a1b2@127.0.0.1:5432/devflow")]
+    [InlineData("postgres://devflow_app@127.0.0.1:5432/devflow")]
+    [InlineData("postgres://devflow_app:secret-a1b2@127.0.0.1:5432")]
+    [InlineData("postgres://devflow_app:secret-a1b2@127.0.0.1:5432/devflow?sslmode=disable")]
+    [InlineData("postgres://devflow_app:secret-a1b2@127.0.0.1:99999/devflow")]
+    [InlineData(" postgres://devflow_app:secret-a1b2@127.0.0.1:5432/devflow")]
+    public void AMalformedAppDatabaseStopsStartupWithoutShowingIt(string value)
+    {
+        var refused = Assert.Throws<StartupException>(() => Load(("DEVFLOW_APP_DATABASE_URL", value)));
+
+        Assert.StartsWith("DEVFLOW_APP_DATABASE_URL: ", refused.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("secret", refused.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("devflow_app", refused.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TheSettingsNeverShowThePassword()
+    {
+        var settings = Load(("DEVFLOW_APP_DATABASE_URL", "postgres://devflow_app:secret-a1b2@127.0.0.1:5432/devflow"));
+
+        Assert.DoesNotContain("secret-a1b2", settings.ToString(), StringComparison.Ordinal);
+        Assert.Contains("devflow_app@127.0.0.1:5432/devflow", settings.ToString(), StringComparison.Ordinal);
     }
 }

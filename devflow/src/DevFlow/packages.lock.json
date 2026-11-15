@@ -11,6 +11,11 @@
           "Microsoft.OpenApi": "[2.13.0, 3.0.0)"
         }
       },
+      "Dapper": {
+        "type": "Transitive",
+        "resolved": "2.1.89",
+        "contentHash": "1VjFE664wnxvuhlgP8kS4PeFFF4jqD3VkbIHW6Zlc52zuibgcz5ICnIHcQXlTp6pURpPNGLV0ZpNe5x9KePJnA=="
+      },
       "libsodium": {
         "type": "Transitive",
         "resolved": "1.0.22",
@@ -20,6 +25,11 @@
         "type": "Transitive",
         "resolved": "2.13.0",
         "contentHash": "wavlgBYnn7uU/ZGhFHNl0UlDOlwz+6KRduKkqdCCbfxxANaQ1rmBpETVGdwXanAM6twQOxsvI3CBEGF4OScbeQ=="
+      },
+      "Npgsql": {
+        "type": "Transitive",
+        "resolved": "10.0.3",
+        "contentHash": "7nb5YzXuvWWJxB0J8DiyL3we+X4FOctZrt0fIBnucOIaIevFEEwGQVZKtiu9olXdlNAK1eNgqSral6r/jlhI4w=="
       },
       "NSec.Cryptography": {
         "type": "Transitive",
@@ -33,6 +43,13 @@
         "type": "Project",
         "dependencies": {
           "NSec.Cryptography": "[26.4.0, )"
+        }
+      },
+      "platformdata": {
+        "type": "Project",
+        "dependencies": {
+          "Dapper": "[2.1.89, )",
+          "Npgsql": "[10.0.3, )"
         }
       }
     }

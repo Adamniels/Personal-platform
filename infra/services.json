@@ -74,7 +74,20 @@
       "health": "/devflow/api/health",
       "language": "dotnet",
       "area": "dotnet",
-      "start": "DEVFLOW_LISTEN_ADDR=\"$HOST:$PORT\" dotnet run --project src/DevFlow -c Release --no-launch-profile"
+      "migrate": "dotnet run --project src/DevFlow -c Release --no-launch-profile -- migrate",
+      "start": "DEVFLOW_LISTEN_ADDR=\"$HOST:$PORT\" dotnet run --project src/DevFlow -c Release --no-launch-profile",
+      "database": {
+        "name": "devflow",
+        "owner": "devflow_owner",
+        "app": "devflow_app",
+        "owner_password": "DEVFLOW_OWNER_PASSWORD",
+        "app_password": "DEVFLOW_APP_PASSWORD",
+        "owner_url": "DEVFLOW_OWNER_DATABASE_URL",
+        "app_url": "DEVFLOW_APP_DATABASE_URL"
+      },
+      "ci": {
+        "init_script": "infra/postgres/initdb/devflow.sh"
+      }
     }
   ]
 }

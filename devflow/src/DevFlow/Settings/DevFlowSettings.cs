@@ -1,5 +1,9 @@
 using System.Globalization;
 
+using Npgsql;
+
+using PlatformData;
+
 namespace DevFlow.Settings;
 
 /// <summary>
@@ -16,16 +20,34 @@ namespace DevFlow.Settings;
 /// <param name="PublicOrigin">The platform's origin as a browser sends it, for the <c>Origin</c> check.</param>
 /// <param name="ExposeOpenApi">Whether <c>GET /devflow/api/openapi.json</c> is mapped, for the
 /// contract test and regenerating the schema only.</param>
+/// <param name="AppDatabase">The database as devflow_app, from <c>DEVFLOW_APP_DATABASE_URL</c>,
+/// required, with no default. It holds a password, so <see cref="ToString"/> leaves it out, and
+/// it is read only, by convention, since Npgsql's settings type is not.</param>
 public sealed record DevFlowSettings(
     string ListenHost,
     int ListenPort,
     Uri CoreUrl,
     string PublicOrigin,
-    bool ExposeOpenApi)
+    bool ExposeOpenApi,
+    NpgsqlConnectionStringBuilder AppDatabase)
 {
     public const string DefaultListenAddr = "127.0.0.1:8084";
     public const string DefaultCoreUrl = "http://127.0.0.1:8080";
     public const string DefaultPublicOrigin = "https://platform.test";
+
+    /// <summary>
+    /// The name the shared database code in libs/dotnet/PlatformData/ knows Dev flow by: the door's
+    /// setting, <c>devflow.user_id</c>, which every policy reads, the migration lock's key, and the
+    /// roles, <c>devflow_owner</c> and <c>devflow_app</c>. Changing it would orphan every policy
+    /// already applied.
+    /// </summary>
+    public const string Service = "devflow";
+
+    /// <summary>The app role's database URL, which serving requires.</summary>
+    public const string AppDatabaseUrl = "DEVFLOW_APP_DATABASE_URL";
+
+    /// <summary>The owner's database URL, which <c>migrate</c> reads and nothing else does.</summary>
+    public const string OwnerDatabaseUrl = "DEVFLOW_OWNER_DATABASE_URL";
 
     /// <summary>The address Kestrel listens on.</summary>
     public string ListenUrl => $"http://{ListenHost}:{ListenPort.ToString(CultureInfo.InvariantCulture)}";
@@ -45,17 +67,28 @@ public sealed record DevFlowSettings(
             port,
             Setting(read, "DEVFLOW_CORE_URL", DefaultCoreUrl, ParseCoreUrl),
             Setting(read, "DEVFLOW_PUBLIC_ORIGIN", DefaultPublicOrigin, ParseOrigin),
-            Setting(read, "DEVFLOW_EXPOSE_OPENAPI", "0", ParseSwitch));
+            Setting(read, "DEVFLOW_EXPOSE_OPENAPI", "0", ParseSwitch),
+            Setting(read, AppDatabaseUrl, fallback: null, DatabaseUrl.Parse));
     }
 
-    private static T Setting<T>(Func<string, string?> read, string name, string fallback, Func<string, T> parse)
+    /// <summary>What the record prints, without the database's password, which it holds.</summary>
+    public override string ToString() => string.Create(
+        CultureInfo.InvariantCulture,
+        $"DevFlowSettings {{ ListenHost = {ListenHost}, ListenPort = {ListenPort}, CoreUrl = {CoreUrl}, PublicOrigin = {PublicOrigin}, ExposeOpenApi = {ExposeOpenApi}, AppDatabase = {AppDatabase.Username}@{AppDatabase.Host}:{AppDatabase.Port}/{AppDatabase.Database} }}");
+
+    /// <summary>The setting parsed, or <paramref name="fallback"/> parsed when it is unset; with
+    /// no fallback, unset is refused.</summary>
+    private static T Setting<T>(Func<string, string?> read, string name, string? fallback, Func<string, T> parse)
     {
+        var value = read(name) ?? fallback ?? throw new StartupException($"{name}: is not set, and Dev flow cannot serve without it");
         try
         {
-            return parse(read(name) ?? fallback);
+            return parse(value);
         }
         catch (FormatException refused)
         {
+            // The other parsers repeat the value, to help, but DatabaseUrl.Parse never does, since
+            // a database URL holds a password.
             throw new StartupException($"{name}: {refused.Message}");
         }
     }

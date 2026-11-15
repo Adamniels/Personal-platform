@@ -44,6 +44,11 @@
           "xunit.v3.mtp-v2": "[4.0.3]"
         }
       },
+      "Dapper": {
+        "type": "Transitive",
+        "resolved": "2.1.89",
+        "contentHash": "1VjFE664wnxvuhlgP8kS4PeFFF4jqD3VkbIHW6Zlc52zuibgcz5ICnIHcQXlTp6pURpPNGLV0ZpNe5x9KePJnA=="
+      },
       "libsodium": {
         "type": "Transitive",
         "resolved": "1.0.22",
@@ -406,6 +411,14 @@
         "resolved": "5.0.0",
         "contentHash": "dDoKi0PnDz31yAyETfRntsLArTlVAVzUzCIvvEDsDsucrl33Dl8pIJG06ePTJTI3tGpeyHS9Cq7Foc/s4EeKcg=="
       },
+      "Npgsql": {
+        "type": "Transitive",
+        "resolved": "10.0.3",
+        "contentHash": "7nb5YzXuvWWJxB0J8DiyL3we+X4FOctZrt0fIBnucOIaIevFEEwGQVZKtiu9olXdlNAK1eNgqSral6r/jlhI4w==",
+        "dependencies": {
+          "Microsoft.Extensions.Logging.Abstractions": "10.0.0"
+        }
+      },
       "NSec.Cryptography": {
         "type": "Transitive",
         "resolved": "26.4.0",
@@ -496,13 +509,27 @@
         "type": "Project",
         "dependencies": {
           "Microsoft.AspNetCore.OpenApi": "[10.0.15, )",
-          "PlatformAuth": "[1.0.0, )"
+          "PlatformAuth": "[1.0.0, )",
+          "PlatformData": "[1.0.0, )"
         }
       },
       "platformauth": {
         "type": "Project",
         "dependencies": {
           "NSec.Cryptography": "[26.4.0, )"
+        }
+      },
+      "platformdata": {
+        "type": "Project",
+        "dependencies": {
+          "Dapper": "[2.1.89, )",
+          "Npgsql": "[10.0.3, )"
+        }
+      },
+      "platformdata.testing": {
+        "type": "Project",
+        "dependencies": {
+          "PlatformData": "[1.0.0, )"
         }
       },
       "Microsoft.AspNetCore.OpenApi": {

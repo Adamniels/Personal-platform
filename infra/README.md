@@ -69,8 +69,9 @@ role must not own its tables, is in "Databases, migrations, and running it" and 
 how isolation is enforced" in `High-level/docs/platform-architecture.md`.
 
 The scripts in `postgres/initdb/` create them, one per service, `core.sh` for `core` with
-`core_owner` and `core_app`, `brain.sh` for `brain` with `brain_owner` and `brain_app`, and
-`review.sh` for `review` with `review_owner` and `review_app`. Their
+`core_owner` and `core_app`, `brain.sh` for `brain` with `brain_owner` and `brain_app`,
+`review.sh` for `review` with `review_owner` and `review_app`, and `devflow.sh` for `devflow` with
+`devflow_owner` and `devflow_app`. Their
 passwords come from `.env`, see `.env.example`, through `compose.yaml`, which refuses to start
 without them. Postgres runs every script there once, when the volume is first created, and never
 again. None creates a table or grants on one: that is each service's migrations.
@@ -85,6 +86,7 @@ recreating the container so it has them:
 docker compose up -d --wait
 docker compose exec -T postgres bash /docker-entrypoint-initdb.d/brain.sh
 docker compose exec -T postgres bash /docker-entrypoint-initdb.d/review.sh
+docker compose exec -T postgres bash /docker-entrypoint-initdb.d/devflow.sh
 ```
 
 It prints `CREATE ROLE`, `CREATE DATABASE` and the rest for what it created, and only `REVOKE` and

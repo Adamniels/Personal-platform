@@ -102,7 +102,7 @@ and its settings `infra/hosted/.env` in that clone.
    openssl rand -hex 24
    ```
 
-   Fill in each value in `infra/hosted/.env` as its comment says: each of the eight passwords from
+   Fill in each value in `infra/hosted/.env` as its comment says: each of the ten passwords from
    its own run of `openssl rand -hex 24`, `PLATFORM_PUBLIC_ORIGIN` from step 4, and the backup
    settings from step 2. Then make the signing key in the core's own image, which appends its line
    to the file:
@@ -196,7 +196,10 @@ as it starts:
 3. **Build** every image as `platform-hosted/<service>:<the commit's first 12 characters>`.
 4. **Postgres.** Started, then every script in `infra/postgres/initdb/` and the backup role's run
    inside it. Each is safe to run again, so a service added in this release gets its database and
-   roles here, with no step by hand.
+   roles here, with no step by hand. Its two passwords must be in `infra/hosted/.env` first, or
+   step 1 refuses: Dev flow's, `DEVFLOW_OWNER_PASSWORD` and `DEVFLOW_APP_PASSWORD`, came with its
+   database, so a copy set up before them refuses every release until both are added, each from
+   its own run of `openssl rand -hex 24`.
 5. **Back up**, with `backup now`. Its time names the backup in any later message.
 6. **Migrate**, each `<name>-migrate` service in the compose file's order, one at a time.
 7. **Start** the new containers, `docker compose up -d`, which replaces those whose image or

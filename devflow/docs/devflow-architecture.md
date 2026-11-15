@@ -24,10 +24,11 @@ each part and its slices are in the feature issue, #268, and its sub issues.
 The service, `devflow/`, a C# minimal API app like `review/`, and its page, `devflow/web/`, with
 two tabs, "Waiting for you" at `/devflow` and "Projects" at `/devflow/projects`, each still empty.
 It answers through the proxy under `/devflow` in the dev stack and in the hosted copy, verifies the
-core's token itself through `PlatformAuth`, and holds no data. What it serves, its settings and how
+core's token itself through `PlatformAuth`, and has a database of its own, `devflow`, migrated by
+its `migrate` command, with no table in it yet. What it serves, its settings, its database and how
 it authenticates are in `devflow/README.md`.
 
-It has no database, no vault and no connection to a code host yet. Those, and everything the tabs
+It holds no data, and has no vault and no connection to a code host yet. Those, and everything the tabs
 will show, arrive with the later slices of the first part.
 
 ## Security decisions and accepted risks
