@@ -177,11 +177,11 @@ check "manifest uv commands set UV_LOCKED=1" "checked 3" commands_uv_unlocked "$
 
 # Every Dockerfile git tracks. The count is the installs they hold today, each a cargo build, a uv
 # sync, an npm ci or a dotnet restore, so one moved out of reach of the check fails here too: the
-# core's cargo build, canary's and the brain's uv sync, two npm ci each in the brain's and review's
-# images and one in the proxy's, and review's dotnet restore.
+# core's cargo build, canary's and the brain's uv sync, two npm ci each in the brain's, review's and
+# Dev flow's images and one in the proxy's, and review's and Dev flow's dotnet restore.
 dockerfiles=()
 while IFS= read -r f; do dockerfiles+=("$here/../../$f"); done < <(git -C "$here/../.." ls-files ':(glob)**/Dockerfile')
-check "Dockerfiles install locked" "checked 9" bash "$here/dockerfile.sh" unlocked "${dockerfiles[@]}"
+check "Dockerfiles install locked" "checked 12" bash "$here/dockerfile.sh" unlocked "${dockerfiles[@]}"
 
 # Samples, so each check is seen to fail.
 

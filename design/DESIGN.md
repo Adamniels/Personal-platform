@@ -46,7 +46,7 @@ The bar is `nav.js` in this folder, `<platform-nav>`, with `theme.js` and `page.
 
 * Desktop: a top bar, height `--nav-h`, `--surface` fill, 1px bottom border. Left: a small amber square mark and the wordmark in the heading font, 16px, weight 600. Then the links: Home, Memory, Review, Workbench, Agents, Learning, News. Right: a search button showing "Search" and the shortcut, a theme toggle, and a round avatar link to settings.
 * Nav link: height 36px, padding 0 12px, `--radius-md`, 14px, weight 500, colour `--text-2`, transparent border. The active link has `--text` colour, `--surface-2` fill and a 1px `--accent-border` outline, and carries `aria-current="page"`.
-* The Agents link shows a 6px `--accent-text` dot after its label when any agent needs the user.
+* A link shows a 6px `--accent-text` dot after its label when its feature has something that needs the user.
 * Phone: the top bar keeps only the mark, the wordmark, a search icon button and the avatar. The links move to a bottom tab bar fixed to the bottom, height `--nav-h`, `--surface` fill, 1px top border, five equal tabs: Home, Memory, Workbench, Agents, More. Each tab is a 20px stroke icon over a 12px label. The active tab has `--text` colour and a 2px `--accent` line on its top edge. Review, Learning and News live under More.
 
 ## 4. Components

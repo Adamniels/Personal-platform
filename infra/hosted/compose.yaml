@@ -147,6 +147,17 @@ services:
     environment:
       REVIEW_OWNER_DATABASE_URL: postgres://review_owner:${REVIEW_OWNER_PASSWORD:?set REVIEW_OWNER_PASSWORD, see .env.example}@postgres:5432/review
 
+  devflow:
+    image: platform-hosted/devflow:${PLATFORM_RELEASE:-dev}
+    build:
+      context: ../..
+      dockerfile: devflow/Dockerfile
+    restart: unless-stopped
+    environment:
+      DEVFLOW_LISTEN_ADDR: 0.0.0.0:8084
+      DEVFLOW_CORE_URL: http://core:8080
+      DEVFLOW_PUBLIC_ORIGIN: ${PLATFORM_PUBLIC_ORIGIN:?set PLATFORM_PUBLIC_ORIGIN, see .env.example}
+
   proxy:
     image: platform-hosted/proxy:${PLATFORM_RELEASE:-dev}
     build:

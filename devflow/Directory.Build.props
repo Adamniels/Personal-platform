@@ -1,0 +1,18 @@
+<!--
+  The settings every project in this folder builds with. Each C# folder in the repository has its
+  own copy, since each one builds from its own directory alone, see "One repository" in
+  High-level/docs/platform-architecture.md. The same values as libs/dotnet/PlatformAuth/.
+-->
+<Project>
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <!-- The SDK's own analyzers are the linter, and a warning fails the build. -->
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <!-- packages.lock.json is committed, and CI restores with locked mode against it. -->
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+  </PropertyGroup>
+</Project>
