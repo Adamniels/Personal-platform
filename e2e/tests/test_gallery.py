@@ -22,10 +22,18 @@ AXE = Path(__file__).parents[2] / "design/ui/node_modules/axe-core/axe.min.js"
 # gallery gives it, and the token each property takes. None is transparent.
 KINDS = {
     "primary": ("Primary", "--accent", "--on-accent", "--accent-border", "600"),
-    "secondary": ("Secondary", "--surface", "--text", "--border-strong", "500"),
+    "secondary": ("Secondary", None, "--text", "--border-strong", "500"),
     "ghost": ("Ghost", None, "--text-2", None, "500"),
     "destructive": ("Destructive", "--danger-soft", "--danger", "--danger", "600"),
-    "disabled": ("Disabled", "--surface-2", "--text-3", "--border", None),
+    "disabled": ("Disabled", None, "--text-3", "--border", None),
+}
+
+# The side padding of each kind that sets one, from the same section.
+BUTTON_PADDING = {
+    "primary": "18px",
+    "secondary": "18px",
+    "ghost": "14px",
+    "destructive": "18px",
 }
 
 # Resolves a token through a probe element in the page, so the value is the
@@ -46,6 +54,9 @@ STYLE = """element => {
         color: style.color,
         borders: [style.borderTopColor, style.borderRightColor,
                   style.borderBottomColor, style.borderLeftColor],
+        borderWidths: [style.borderTopWidth, style.borderRightWidth,
+                       style.borderBottomWidth, style.borderLeftWidth],
+        padding: [style.paddingLeft, style.paddingRight],
         weight: style.fontWeight,
         height: style.height,
         radii: [style.borderTopLeftRadius, style.borderTopRightRadius,
@@ -90,23 +101,26 @@ def test_the_gallery_is_served(page: Page, viewport: str, theme: str):
 
 
 @pytest.mark.parametrize("theme", THEMES)
-def test_the_primary_button_uses_the_accent_values(page: Page, theme: str):
+@pytest.mark.parametrize("kind", list(KINDS))
+def test_a_button_is_a_pill(page: Page, theme: str, kind: str):
+    label = KINDS[kind][0]
     open_gallery(page, theme)
 
-    style = button(page, "Primary").evaluate(STYLE)
+    style = button(page, label).evaluate(STYLE)
 
-    assert style["background"] == resolve(page, "--accent", "background-color")
-    assert style["color"] == resolve(page, "--on-accent", "color")
-    assert style["borders"] == [resolve(page, "--accent-border", "color")] * 4
     assert style["height"] == resolve(page, "--control-h", "height")
     assert (
-        style["radii"] == [resolve(page, "--radius-md", "border-top-left-radius")] * 4
+        style["radii"] == [resolve(page, "--radius-full", "border-top-left-radius")] * 4
     )
+    if kind in BUTTON_PADDING:
+        assert style["padding"] == [BUTTON_PADDING[kind]] * 2
+    if kind != "ghost":
+        assert style["borderWidths"] == ["1px"] * 4
 
 
 @pytest.mark.parametrize("theme", THEMES)
-@pytest.mark.parametrize("kind", ["secondary", "ghost", "destructive", "disabled"])
-def test_each_button_kind_reads_its_own_values(page: Page, theme: str, kind: str):
+@pytest.mark.parametrize("kind", list(KINDS))
+def test_a_button_reads_its_values(page: Page, theme: str, kind: str):
     label, fill, text, border, weight = KINDS[kind]
     open_gallery(page, theme)
 
@@ -115,24 +129,34 @@ def test_each_button_kind_reads_its_own_values(page: Page, theme: str, kind: str
     assert style["background"] == resolve(page, fill, "background-color")
     assert style["color"] == resolve(page, text, "color")
     assert style["borders"] == [resolve(page, border, "color")] * 4
-    assert style["height"] == resolve(page, "--control-h", "height")
-    assert (
-        style["radii"] == [resolve(page, "--radius-md", "border-top-left-radius")] * 4
-    )
     if weight is not None:
         assert style["weight"] == weight
 
 
+@pytest.mark.parametrize("theme", THEMES)
+@pytest.mark.parametrize("kind", ["secondary", "ghost"])
+def test_a_secondary_or_ghost_button_fills_on_hover(page: Page, theme: str, kind: str):
+    open_gallery(page, theme)
+    target = button(page, KINDS[kind][0])
+
+    target.hover()
+
+    assert target.evaluate(STYLE)["background"] == resolve(
+        page, "--surface-2", "background-color"
+    )
+
+
 def test_the_button_kinds_differ(page: Page):
     """Guards the test above: were the gallery to render every kind alike,
-    the comparisons could all pass against one shared token."""
+    the comparisons could all pass against one shared token. Three kinds are
+    transparent, so a kind is told apart by its fill, text and border."""
     open_gallery(page, "light")
 
-    backgrounds = {
-        kind: button(page, label).evaluate(STYLE)["background"]
-        for kind, (label, *_rest) in KINDS.items()
-    }
-    assert len(set(backgrounds.values())) == len(KINDS), backgrounds
+    looks = {}
+    for kind, (label, *_rest) in KINDS.items():
+        style = button(page, label).evaluate(STYLE)
+        looks[kind] = (style["background"], style["color"], style["borders"][0])
+    assert len(set(looks.values())) == len(KINDS), looks
 
 
 def test_a_focused_button_shows_the_ring(page: Page):
