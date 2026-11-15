@@ -232,6 +232,9 @@ FIELD_STYLE = """element => {
                        style.borderBottomWidth, style.borderLeftWidth],
         height: style.height,
         fontSize: style.fontSize,
+        lineHeight: style.lineHeight,
+        padding: [style.paddingTop, style.paddingRight,
+                  style.paddingBottom, style.paddingLeft],
         radii: [style.borderTopLeftRadius, style.borderTopRightRadius,
                 style.borderBottomRightRadius, style.borderBottomLeftRadius],
         placeholder: placeholder.color,
@@ -285,10 +288,6 @@ def test_a_field_reads_its_values(page: Page, theme: str, kind: str):
     assert style["color"] == resolve(page, "--text", "color")
     assert style["borders"] == [resolve(page, "--border-strong", "color")] * 4
     assert style["borderWidths"] == ["1px"] * 4
-    assert (
-        style["radii"] == [resolve(page, "--radius-md", "border-top-left-radius")] * 4
-    )
-    assert style["fontSize"] == resolve(page, "--input-font-size", "font-size")
     if kind == "text area":
         # A text area is as tall as its rows, and never shorter than a field.
         assert float(style["height"].removesuffix("px")) >= float(
@@ -320,16 +319,80 @@ def test_a_field_reads_its_values(page: Page, theme: str, kind: str):
 
 
 @pytest.mark.parametrize("theme", THEMES)
+@pytest.mark.parametrize("kind", ["text field", "select"])
+def test_a_field_is_a_pill(page: Page, theme: str, kind: str):
+    open_gallery(page, theme)
+
+    style = field(page, kind, "Empty").evaluate(FIELD_STYLE)
+
+    assert style["height"] == resolve(page, "--control-h", "height")
+    assert (
+        style["radii"] == [resolve(page, "--radius-full", "border-top-left-radius")] * 4
+    )
+    assert [style["padding"][1], style["padding"][3]] == ["16px"] * 2
+    assert style["borders"] == [resolve(page, "--border-strong", "color")] * 4
+    assert style["borderWidths"] == ["1px"] * 4
+    assert style["background"] == resolve(page, "--surface", "background-color")
+    assert style["fontSize"] == resolve(page, "--input-font-size", "font-size")
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_a_text_area_has_inset_corners(page: Page, theme: str):
+    open_gallery(page, theme)
+
+    style = field(page, "text area", "Empty").evaluate(FIELD_STYLE)
+
+    assert (
+        style["radii"] == [resolve(page, "--radius-md", "border-top-left-radius")] * 4
+    )
+    assert style["padding"] == ["12px", "16px", "12px", "16px"]
+    assert style["fontSize"] == resolve(page, "--text-body-lg-size", "font-size")
+    assert style["lineHeight"] == resolve(page, "--text-body-lg-line", "line-height")
+
+
+# Where a control's text starts, measured from its border box: the left edge
+# of its content box, and its top for a text area, which starts its text at
+# the top, or its middle for a one line field, which centres its text.
+TEXT_ORIGIN = """element => {
+    const style = getComputedStyle(element);
+    const px = value => parseFloat(value);
+    const top = px(style.borderTopWidth) + px(style.paddingTop);
+    const bottom = px(style.borderBottomWidth) + px(style.paddingBottom);
+    const height = element.getBoundingClientRect().height;
+    return {
+        height,
+        left: px(style.borderLeftWidth) + px(style.paddingLeft),
+        top,
+        middle: (top + height - bottom) / 2,
+    };
+}"""
+
+
+@pytest.mark.parametrize("theme", THEMES)
+@pytest.mark.parametrize("kind", list(FIELDS))
+def test_a_field_with_an_error_keeps_its_size(page: Page, theme: str, kind: str):
+    open_gallery(page, theme)
+    plain = field(page, kind, "Empty")
+    wrong = field(page, kind, "With an error")
+
+    style = wrong.evaluate(FIELD_STYLE)
+    assert style["borders"] == [resolve(page, "--danger", "color")] * 4
+    assert style["borderWidths"] == ["2px"] * 4
+
+    before, after = plain.evaluate(TEXT_ORIGIN), wrong.evaluate(TEXT_ORIGIN)
+    assert after["height"] == before["height"]
+    assert after["left"] == before["left"]
+    where = "top" if kind == "text area" else "middle"
+    assert after[where] == before[where]
+
+
+@pytest.mark.parametrize("theme", THEMES)
 @pytest.mark.parametrize("kind", list(FIELDS))
 def test_a_field_with_an_error_reads_its_values(page: Page, theme: str, kind: str):
     open_gallery(page, theme)
     control = field(page, kind, "With an error")
 
     expect(control).to_have_attribute("aria-invalid", "true")
-    style = control.evaluate(FIELD_STYLE)
-    assert style["borders"] == [resolve(page, "--danger", "color")] * 4
-    assert style["borderWidths"] == ["2px"] * 4
-
     message = described_by(control)
     expect(message).to_have_text(re.compile(r"^Error: "))
     text = message.evaluate(TEXT_STYLE)
