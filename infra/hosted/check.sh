@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Proves the hosted stack works, end to end, on a throwaway copy: it builds every image, starts the
-# compose project hostedcheck with secrets made for this run, runs every migration, puts a test
-# HTTPS front before the proxy and a stand in bucket beside the backup job, checks what the cases
+# Proves the hosted stack works, end to end, on a throwaway copy: with secrets made for this run, it
+# starts the compose project hostedcheck the way the real copy is released, by
+# scripts/deploy/release.sh --local, puts a test HTTPS front before the proxy and a stand in bucket
+# beside the backup job, checks what the cases
 # below say through it, runs tests/backup.test.sh and the acceptance suite in e2e/ against it, and
 # takes the project down again, volumes included, whatever happened.
 # It runs agree.test.sh first. It needs Docker, and for the suite uv and Playwright's Chromium,
@@ -154,18 +155,12 @@ recipient() {
   case "$line" in age1?*) echo "BACKUP_AGE_RECIPIENT=$line" >> "$env_file" ;; *) return 1 ;; esac
 }
 
-# backup_role: the backup role's script, run again after the migrations, as a release will, so it
-# grants CONNECT on every database that exists, inside the postgres container over its socket.
-backup_role() {
-  compose exec -T postgres bash /docker-entrypoint-initdb.d/zz-backup-role.sh
-}
-
-migrate() {
-  local service
-  for service in $(compose --profile migrate config --services | grep -- '-migrate$'); do
-    echo "-- $service"
-    compose run --rm -T "$service" || return 1
-  done
+# release: the release script in local mode, which builds the tree as it is, starts Postgres, runs
+# the init scripts and the backup role's, takes a backup, runs every migration, starts the stack
+# and waits for its health paths through the proxy, as a release of the real copy does. Its tag is
+# this env file's PLATFORM_RELEASE, check, and it records nothing.
+release() {
+  HOSTED_PROJECT="$project" HOSTED_ENV_FILE="$env_file" bash "$repo/scripts/deploy/release.sh" --local
 }
 
 # wait_healthy: each health path the manifest lists answers 200 through the front, within 180
@@ -227,18 +222,32 @@ with sync_playwright() as p:
 stack() {
   trap teardown EXIT
   trap 'exit 130' INT TERM
-  local reached=0 got service id line published ports bad_lines
+  local reached=0 released=0 got service id line published ports bad_lines
 
   # A run killed before its trap ran leaves the project behind; start from nothing.
   teardown
 
-  if step build compose build &&
+  # The core's and the backup's images first, since the signing key and the backup's recipient
+  # are made in them and the release's preflight refuses an env file without either; the release
+  # builds every image again, from Docker's cache. The stand in bucket runs before it, so the
+  # release's backup can upload.
+  if step build compose build core backup &&
     step keygen keygen &&
     step recipient recipient &&
-    step postgres compose up -d --wait postgres &&
-    step migrate migrate &&
-    step backup_role backup_role &&
-    step up compose up -d &&
+    step s3stub compose up -d s3stub; then
+    # a_release_brings_the_stack_up: release.sh --local exits 0, so every step of a release passed
+    # on this copy, its health paths through the proxy among them.
+    if step release release; then
+      released=1
+      ok a_release_brings_the_stack_up
+    else
+      bad a_release_brings_the_stack_up "release.sh --local failed, its log is above"
+    fi
+  else
+    bad a_release_brings_the_stack_up "not reached, a step above failed"
+  fi
+  if [ "$released" -eq 1 ] &&
+    step front compose up -d --wait front &&
     step health wait_healthy; then
     reached=1
   fi
