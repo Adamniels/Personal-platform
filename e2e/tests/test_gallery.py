@@ -1115,7 +1115,8 @@ def test_a_timeline_entry_reads_its_values(page: Page, theme: str):
 # table has columns of all three priorities: Session and Status are 1,
 # Project and Hours (numeric) are 2, Notes is 3. It is sorted by Session, the
 # second row is selected and the third is editing. "Hours by month" is a wide
-# table of priority 1 columns, wider than a phone.
+# table of twelve months: Project is priority 1, January to June 2 and July
+# to December 3, so it fits the page at both widths.
 TABLE_STYLE = """element => {
     const style = getComputedStyle(element);
     return {
@@ -1320,16 +1321,46 @@ def test_below_640px_only_priority_one_columns_show(page: Page):
     assert no_sideways_scroll(page), "the page scrolls sideways"
 
 
-def test_a_wide_table_scrolls_inside_its_wrapper(page: Page):
-    page.set_viewport_size(VIEWPORTS["phone"])
+def test_no_table_in_the_gallery_scrolls_sideways(page: Page, viewport: str):
+    open_gallery(page, "light")
+    tables = page.locator("table")
+    assert tables.count() >= 2, "the gallery shows its tables"
+
+    # Each table is planned, through column priority, to fit its frame.
+    for index in range(tables.count()):
+        frame = tables.nth(index).locator("..")
+        name = tables.nth(index).get_attribute("aria-label")
+        widths = frame.evaluate("e => [e.scrollWidth, e.clientWidth]")
+        assert widths[0] <= widths[1], f"{name} scrolls sideways: {widths}"
+
+    assert no_sideways_scroll(page), "the page scrolls sideways"
+
+
+def test_a_table_too_wide_scrolls_in_its_frame(page: Page):
+    page.set_viewport_size(VIEWPORTS["desktop"])
     open_gallery(page, "light")
     wide = table_section(page).get_by_role("table", name="Hours by month")
-    wrapper = wide.locator("..")
+    frame = wide.locator("..")
 
-    assert wrapper.evaluate("e => e.scrollWidth > e.clientWidth"), "it does not scroll"
-    assert wrapper.evaluate(TABLE_STYLE)["overflowX"] == "auto"
-    wrapper.evaluate("e => { e.scrollLeft = e.scrollWidth; }")
-    assert wrapper.evaluate("e => e.scrollLeft") > 0
+    # A column wider than the page, added to the gallery's wide table.
+    page_width = page.evaluate("() => window.innerWidth")
+    wide.evaluate(
+        """(table, width) => {
+            const header = document.createElement("th");
+            const content = document.createElement("div");
+            content.style.width = `${width}px`;
+            content.textContent = "Too wide";
+            header.append(content);
+            table.querySelector("thead tr").append(header);
+        }""",
+        page_width + 200,
+    )
+
+    # It scrolls inside its frame, and the page does not.
+    assert frame.evaluate(TABLE_STYLE)["overflowX"] == "auto"
+    assert frame.evaluate("e => e.scrollWidth > e.clientWidth"), "it does not scroll"
+    frame.evaluate("e => { e.scrollLeft = e.scrollWidth; }")
+    assert frame.evaluate("e => e.scrollLeft") > 0
     assert no_sideways_scroll(page), "the page scrolls sideways"
 
 
@@ -1340,20 +1371,16 @@ def test_rows_are_the_row_height_on_phone(page: Page):
     row_h = float(resolve(page, "--row-h", "height").removesuffix("px"))
     assert row_h >= 44, "a row on phone is a touch target"
 
-    # A row of one line is exactly --row-h; one with the folded line under
-    # its first cell is taller, never shorter.
+    # The header row is exactly --row-h; a body row, with the folded line
+    # under its first cell, is taller, never shorter.
     wide = section.get_by_role("table", name="Hours by month")
-    for table, exact in [(wide, True), (sessions(page), False)]:
+    for table in [wide, sessions(page)]:
         header = table.locator("thead tr").bounding_box()
         assert header is not None and header["height"] == row_h
         rows = body_rows(table)
         for index in range(rows.count()):
             box = rows.nth(index).bounding_box()
-            assert box is not None
-            if exact:
-                assert box["height"] == row_h, index
-            else:
-                assert box["height"] >= row_h, index
+            assert box is not None and box["height"] >= row_h, index
 
     # The controls in the table are touch targets too.
     for name in ["Session", "Edit Review the merge gate", "Save", "Cancel"]:

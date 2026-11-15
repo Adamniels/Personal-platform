@@ -114,6 +114,10 @@ const byMonth: Month[] = [
 	{ project: "Embedded", hours: [0, 0, 4, 10, 16, 12, 0, 0, 8, 14, 20, 6] },
 ];
 
+// The project is priority 1, January to June 2 and July to December 3, so
+// on phone the table is one column with the first half year's hours folded
+// under it, and on desktop its twelve months fit the page. Each month folds
+// as its number, the cell's own value.
 const monthColumns: TableColumn<Month>[] = [
 	{ key: "project", header: "Project", cell: (row) => row.project },
 	...months.map(
@@ -122,6 +126,7 @@ const monthColumns: TableColumn<Month>[] = [
 			header: month,
 			cell: (row) => row.hours[index] ?? 0,
 			numeric: true,
+			priority: index < 6 ? 2 : 3,
 		}),
 	),
 ];
@@ -140,8 +145,9 @@ function sorted(rows: Session[], sort: TableSort): Session[] {
 
 /** A table of eight rows with columns of all three priorities, one numeric
  * and one sorted, a selected and an editing row, the filter row with two
- * pills and paging; and a wide table that scrolls inside its wrapper. The
- * gallery is the caller, so it sorts, edits and pages the sample rows. */
+ * pills and paging; and a wide table whose column priorities keep it from
+ * scrolling. The gallery is the caller, so it sorts, edits and pages the
+ * sample rows. */
 export function TableSection() {
 	const [rows, setRows] = useState(sessions);
 	const [sort, setSort] = useState<TableSort>({
@@ -274,7 +280,10 @@ export function TableSection() {
 					}
 				/>
 			</Row>
-			<Row label="A wide table" stack>
+			<Row
+				label="A wide table, given column priorities so it never scrolls"
+				stack
+			>
 				<Table
 					label="Hours by month"
 					columns={monthColumns}
@@ -285,9 +294,12 @@ export function TableSection() {
 			<Note>
 				Session and Status are priority 1, Project and Hours priority 2, and
 				Notes priority 3: below 640px the priority 2 values fold into the line
-				under each session, and Notes is left out. The gallery sorts, edits and
-				pages its sample rows itself, as a page would; every page shows the same
-				eight.
+				under each session, and Notes is left out. In the wide table Project is
+				priority 1, January to June priority 2 and July to December priority 3,
+				so it fits the page on desktop and is one column on phone. A table too
+				wide for its frame still scrolls inside it, never the page. The gallery
+				sorts, edits and pages its sample rows itself, as a page would; every
+				page shows the same eight.
 			</Note>
 		</Section>
 	);
