@@ -200,6 +200,63 @@ public sealed class ReadTests
     }
 
     [Fact]
+    public async Task AListIsFollowedAcrossPages()
+    {
+        using var host = new GitHubHost();
+        var comments = Fixture.Node("issue-comments.json").AsArray();
+        var first = comments[0]!.AsObject();
+        var second = first.DeepClone().AsObject();
+        second["id"] = 2;
+        var third = first.DeepClone().AsObject();
+        third["id"] = 3;
+        const string page2 = $"https://api.github.com/repositories/1066577263/issues/305/comments?per_page=100&page=2";
+        const string page3 = $"https://api.github.com/repositories/1066577263/issues/305/comments?per_page=100&page=3";
+        host.Stub.Answer = request =>
+        {
+            var (body, next) = request.Uri.AbsoluteUri switch
+            {
+                page2 => (new JsonArray(second.DeepClone()), page3),
+                page3 => (new JsonArray(third.DeepClone()), null),
+                _ => (new JsonArray(first.DeepClone()), page2),
+            };
+            var response = StubGitHub.Json(body.ToJsonString());
+            if (next is not null)
+            {
+                response.Headers.Add("Link", $"<{next}>; rel=\"next\", <{page3}>; rel=\"last\"");
+            }
+
+            return response;
+        };
+
+        var read = Results.Value(await host.CodeHost.Comments(GitHubHost.User, GitHubHost.Platform, 305, Ct));
+
+        Assert.Equal([(long)first["id"]!, 2, 3], read.Select(comment => comment.Id));
+        Assert.Equal(
+            [$"https://api.github.com{Repo}/issues/305/comments?per_page=100", page2, page3],
+            host.Stub.Reads.Select(request => request.Uri.AbsoluteUri));
+        // Every page with the one token.
+        Assert.Single(host.Stub.TokenRequests);
+    }
+
+    [Fact]
+    public async Task ANextPageElsewhereIsNeverFollowed()
+    {
+        using var host = new GitHubHost();
+        host.Stub.Answer = _ =>
+        {
+            var response = StubGitHub.Json("[]");
+            response.Headers.Add("Link", "<https://example.com/steal?page=2>; rel=\"next\"");
+            return response;
+        };
+
+        Assert.Equal(new CodeHostResult<IReadOnlyList<Comment>>.Unavailable(null),
+            await host.CodeHost.Comments(GitHubHost.User, GitHubHost.Platform, 305, Ct));
+        // The token was never sent anywhere but GitHub's API.
+        Assert.All(host.Stub.Requests, request => Assert.Equal("api.github.com", request.Uri.Host));
+        Assert.Single(host.Stub.Reads);
+    }
+
+    [Fact]
     public async Task AFileIsReadRawFromItsBranch()
     {
         using var host = new GitHubHost();
@@ -256,6 +313,65 @@ public sealed class ReadTests
         {
             Assert.Equal("Unavailable { RetryAt =  }", Describe(result));
         }
+    }
+
+    [Fact]
+    public async Task ARateLimitIsUnavailableUntilTheTimeGitHubGives()
+    {
+        using var host = new GitHubHost();
+        var now = host.Time.GetUtcNow();
+        var reset = now.AddMinutes(17).ToUnixTimeSeconds();
+
+        // retry-after, in seconds, on a 403 or a 429.
+        foreach (var status in new[] { HttpStatusCode.Forbidden, HttpStatusCode.TooManyRequests })
+        {
+            host.Stub.Answer = _ => Limited(status, ("retry-after", "120"));
+            foreach (var result in await EveryOperation(host))
+            {
+                Assert.Equal($"Unavailable {{ RetryAt = {now.AddSeconds(120)} }}", Describe(result));
+            }
+        }
+
+        // x-ratelimit-reset, in seconds since the epoch, when the remaining count is zero.
+        foreach (var status in new[] { HttpStatusCode.Forbidden, HttpStatusCode.TooManyRequests })
+        {
+            host.Stub.Answer = _ => Limited(status, ("x-ratelimit-remaining", "0"), ("x-ratelimit-reset", reset.ToString(CultureInfo.InvariantCulture)));
+            foreach (var result in await EveryOperation(host))
+            {
+                Assert.Equal($"Unavailable {{ RetryAt = {DateTimeOffset.FromUnixTimeSeconds(reset)} }}", Describe(result));
+            }
+        }
+
+        // retry-after wins when both are given.
+        host.Stub.Answer = _ => Limited(HttpStatusCode.Forbidden, ("retry-after", "5"), ("x-ratelimit-remaining", "0"), ("x-ratelimit-reset", reset.ToString(CultureInfo.InvariantCulture)));
+        Assert.Equal(new CodeHostResult<PullRequest>.Unavailable(now.AddSeconds(5)),
+            await host.CodeHost.PullRequest(GitHubHost.User, GitHubHost.Platform, 1, Ct));
+
+        // Without a time GitHub gives, unavailable with none: a 403 with requests left, a 429
+        // alone, or a reset that does not parse.
+        foreach (var answer in new Func<HttpResponseMessage>[]
+        {
+            () => Limited(HttpStatusCode.Forbidden, ("x-ratelimit-remaining", "12"), ("x-ratelimit-reset", reset.ToString(CultureInfo.InvariantCulture))),
+            () => Limited(HttpStatusCode.TooManyRequests),
+            () => Limited(HttpStatusCode.Forbidden, ("x-ratelimit-remaining", "0"), ("x-ratelimit-reset", "soon")),
+            () => Limited(HttpStatusCode.Forbidden, ("retry-after", "-3")),
+        })
+        {
+            host.Stub.Answer = _ => answer();
+            Assert.Equal(new CodeHostResult<PullRequest>.Unavailable(null),
+                await host.CodeHost.PullRequest(GitHubHost.User, GitHubHost.Platform, 1, Ct));
+        }
+    }
+
+    private static HttpResponseMessage Limited(HttpStatusCode status, params (string Name, string Value)[] headers)
+    {
+        var response = StubGitHub.Json("""{"message": "API rate limit exceeded"}""", status);
+        foreach (var (name, value) in headers)
+        {
+            response.Headers.TryAddWithoutValidation(name, value);
+        }
+
+        return response;
     }
 
     /// <summary>Every read the interface has, once each, the file last.</summary>

@@ -71,7 +71,7 @@ internal sealed class InstallationTokens(IHttpClientFactory factory, GitHubSetti
         // 201 Created, which GitHub documents; any other success is taken too.
         if ((int)answer.Status is < 200 or > 299)
         {
-            return GitHubHttp.Failure<string>(answer);
+            return GitHubHttp.Failure<string>(answer, time);
         }
 
         TokenAnswer? token;

@@ -111,6 +111,22 @@ public sealed class InstallationTokenTests
     }
 
     [Fact]
+    public async Task ARateLimitOnATokenIsUnavailableUntilTheTimeGitHubGives()
+    {
+        using var host = new GitHubHost();
+        host.Stub.TokenAnswer = _ =>
+        {
+            var limited = new HttpResponseMessage(HttpStatusCode.Forbidden);
+            limited.Headers.Add("retry-after", "30");
+            return limited;
+        };
+
+        Assert.Equal(new CodeHostResult<PullRequest>.Unavailable(host.Time.GetUtcNow().AddSeconds(30)),
+            await host.CodeHost.PullRequest(GitHubHost.User, GitHubHost.Platform, 1, Ct));
+        Assert.Empty(host.Stub.Reads);
+    }
+
+    [Fact]
     public async Task ATokenIsNeverPrinted()
     {
         using var host = new GitHubHost();

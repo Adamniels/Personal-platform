@@ -1,8 +1,12 @@
 using System.Globalization;
 using System.Net;
+using System.Net.Http.Headers;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 using DevFlow.Settings;
+
+using Microsoft.Extensions.Caching.Memory;
 
 namespace DevFlow.CodeHost.GitHub;
 
@@ -22,13 +26,31 @@ namespace DevFlow.CodeHost.GitHub;
 /// are, and the token is narrowed to its id, so a name that no longer matches the id is not found
 /// rather than another repository read.
 /// </remarks>
-public sealed partial class GitHubCodeHost : ICodeHost
+public sealed partial class GitHubCodeHost : ICodeHost, IDisposable
 {
     /// <summary>The name of the <see cref="HttpClient"/> every request is sent with.</summary>
     public const string HttpClientName = "github";
 
+    /// <summary>The most pages a list is read across, 10,000 items at 100 a page, so a list that
+    /// never ends, or a <c>Link</c> that loops, ends as unavailable.</summary>
+    private const int MostPages = 100;
+
+    /// <summary>How many bytes of answers are remembered for conditional requests, all
+    /// installations together. Past it, the least recently used are forgotten first.</summary>
+    private const long RememberedBytes = 64 * 1024 * 1024;
+
+    /// <summary>How long an answer not asked for again is remembered. The poll asks for what it
+    /// follows every minute, so what is forgotten is what nothing asks for any more, such as the
+    /// statuses of a commit no pull request points at now.</summary>
+    private static readonly TimeSpan RememberedFor = TimeSpan.FromHours(1);
+
     private readonly IHttpClientFactory _factory;
+    private readonly TimeProvider _time;
     private readonly InstallationTokens _tokens;
+
+    /// <summary>The last <c>ETag</c> and answer per installation, media type and address, in memory
+    /// only, for conditional requests.</summary>
+    private readonly MemoryCache _remembered = new(new MemoryCacheOptions { SizeLimit = RememberedBytes });
 
     public GitHubCodeHost(IHttpClientFactory factory, GitHubSettings settings, TimeProvider time)
     {
@@ -36,8 +58,11 @@ public sealed partial class GitHubCodeHost : ICodeHost
         ArgumentNullException.ThrowIfNull(settings);
         ArgumentNullException.ThrowIfNull(time);
         _factory = factory;
+        _time = time;
         _tokens = new InstallationTokens(factory, settings, time);
     }
+
+    public void Dispose() => _remembered.Dispose();
 
     public async Task<CodeHostResult<IReadOnlyList<PullRequest>>> OpenPullRequests(Guid userId, Repository repository, CancellationToken cancellationToken) =>
         Map(
@@ -77,56 +102,160 @@ public sealed partial class GitHubCodeHost : ICodeHost
     {
         ArgumentNullException.ThrowIfNull(path);
         var segments = string.Join('/', path.Split('/').Select(Uri.EscapeDataString));
-        return await Get(repository, $"{Repo(repository)}/contents/{segments}?ref={Escape(branch)}", GitHubHttp.RawMediaType, cancellationToken);
+        return Map(
+            await Get(repository, Address($"{Repo(repository)}/contents/{segments}?ref={Escape(branch)}"), GitHubHttp.RawMediaType, cancellationToken),
+            page => page.Body);
     }
 
-    /// <summary>One JSON document, read into <typeparamref name="TAnswer"/>.</summary>
+    /// <summary>One JSON document, read into <typeparamref name="TAnswer"/>, or unavailable when it
+    /// does not parse.</summary>
     private async Task<CodeHostResult<TAnswer>> One<TAnswer>(Repository repository, string address, CancellationToken cancellationToken)
         where TAnswer : class =>
-        Read<TAnswer>(await Get(repository, address, GitHubHttp.JsonMediaType, cancellationToken));
-
-    /// <summary>A list, its items taken from the page by <paramref name="items"/>.</summary>
-    private async Task<CodeHostResult<IReadOnlyList<TItem>>> List<TPage, TItem>(Repository repository, string address, Func<TPage, IEnumerable<TItem>> items, CancellationToken cancellationToken)
-        where TPage : class =>
-        Map(await One<TPage>(repository, address, cancellationToken), page => (IReadOnlyList<TItem>)[.. items(page)]);
+        Map(await Get(repository, Address(address), GitHubHttp.JsonMediaType, cancellationToken), page =>
+            Parse<TAnswer>(page.Body) ?? throw new JsonException("the answer does not parse"));
 
     /// <summary>
-    /// The body at <paramref name="address"/>, read with a token for the repository: not found
-    /// when the token cannot be had for it or GitHub answers 404, and otherwise unavailable when
-    /// it is not a success.
+    /// A list, its items taken from each page by <paramref name="items"/>, following the
+    /// <c>Link</c> header's <c>next</c> until there is none. A next page anywhere but GitHub's API
+    /// is never asked for, since the request would carry the token there, and the list is
+    /// unavailable instead; so is one past <see cref="MostPages"/>, or a page asked for twice. A
+    /// page that fails fails the list: half a list is never answered as the whole.
     /// </summary>
-    private async Task<CodeHostResult<byte[]>> Get(Repository repository, string address, string mediaType, CancellationToken cancellationToken)
+    private async Task<CodeHostResult<IReadOnlyList<TItem>>> List<TPage, TItem>(Repository repository, string address, Func<TPage, IEnumerable<TItem>> items, CancellationToken cancellationToken)
+        where TPage : class
+    {
+        var all = new List<TItem>();
+        var asked = new HashSet<string>(StringComparer.Ordinal);
+        for (Uri? next = Address(address); next is not null;)
+        {
+            if (!IsGitHub(next) || !asked.Add(next.AbsoluteUri) || asked.Count > MostPages)
+            {
+                return new CodeHostResult<IReadOnlyList<TItem>>.Unavailable(RetryAt: null);
+            }
+
+            var page = await Get(repository, next, GitHubHttp.JsonMediaType, cancellationToken);
+            if (page is not CodeHostResult<Page>.Found found)
+            {
+                return Fail<Page, IReadOnlyList<TItem>>(page);
+            }
+
+            if (Parse<TPage>(found.Value.Body) is not { } parsed)
+            {
+                return new CodeHostResult<IReadOnlyList<TItem>>.Unavailable(RetryAt: null);
+            }
+
+            all.AddRange(items(parsed));
+            next = found.Value.Next;
+        }
+
+        return new CodeHostResult<IReadOnlyList<TItem>>.Found(all);
+    }
+
+    /// <summary>
+    /// The page at <paramref name="address"/>, read with a token for the repository, as a
+    /// conditional request when an answer for it is remembered: <c>If-None-Match</c> carries its
+    /// <c>ETag</c>, and on <c>304</c>, which GitHub does not count against the rate limit, it is
+    /// what is answered, its next page included. A new answer with an <c>ETag</c> replaces it.
+    /// Not found when the token cannot be had for the repository or GitHub answers <c>404</c>;
+    /// otherwise unavailable when it is not a success, see <see cref="GitHubHttp.Failure"/>.
+    /// </summary>
+    private async Task<CodeHostResult<Page>> Get(Repository repository, Uri address, string mediaType, CancellationToken cancellationToken)
     {
         var token = await _tokens.For(repository, cancellationToken);
         if (token is not CodeHostResult<string>.Found found)
         {
-            return Fail<string, byte[]>(token);
+            return Fail<string, Page>(token);
         }
 
-        using var request = GitHubHttp.Request(HttpMethod.Get, new Uri(address, UriKind.Relative), mediaType);
+        var key = new RememberedKey(repository.Installation, mediaType, address.AbsoluteUri);
+        var remembered = _remembered.Get<Remembered>(key);
+        using var request = GitHubHttp.Request(HttpMethod.Get, address, mediaType);
         request.Headers.Authorization = new("Bearer", found.Value);
+        if (remembered is not null)
+        {
+            request.Headers.IfNoneMatch.Add(remembered.ETag);
+        }
+
         var answer = await GitHubHttp.Send(_factory, request, cancellationToken);
         if (answer is null)
         {
-            return new CodeHostResult<byte[]>.Unavailable(RetryAt: null);
+            return new CodeHostResult<Page>.Unavailable(RetryAt: null);
         }
 
-        return answer.Status == HttpStatusCode.OK
-            ? new CodeHostResult<byte[]>.Found(answer.Body)
-            : GitHubHttp.Failure<byte[]>(answer);
+        if (answer.Status == HttpStatusCode.NotModified)
+        {
+            // Unchanged; with nothing remembered there is nothing to answer it with.
+            return remembered is null
+                ? new CodeHostResult<Page>.Unavailable(RetryAt: null)
+                : new CodeHostResult<Page>.Found(remembered.Page);
+        }
+
+        if (answer.Status != HttpStatusCode.OK)
+        {
+            return GitHubHttp.Failure<Page>(answer, _time);
+        }
+
+        var page = new Page(answer.Body, Next(answer.Headers));
+        if (answer.Headers.ETag is { } etag)
+        {
+            _remembered.Set(key, new Remembered(etag, page), new MemoryCacheEntryOptions
+            {
+                Size = page.Body.Length + 1,
+                SlidingExpiration = RememberedFor,
+            });
+        }
+        else
+        {
+            _remembered.Remove(key);
+        }
+
+        return new CodeHostResult<Page>.Found(page);
     }
 
-    /// <summary>The body read as <typeparamref name="TAnswer"/>, or unavailable when it does not
-    /// parse.</summary>
-    private static CodeHostResult<TAnswer> Read<TAnswer>(CodeHostResult<byte[]> body)
-        where TAnswer : class =>
-        body switch
+    /// <summary>The <c>Link</c> header's <c>next</c>, as given, or null when there is none.</summary>
+    private static Uri? Next(HttpResponseHeaders headers)
+    {
+        if (!headers.TryGetValues("Link", out var values))
         {
-            CodeHostResult<byte[]>.Found found => Parse<TAnswer>(found.Value) is { } answer
-                ? new CodeHostResult<TAnswer>.Found(answer)
-                : new CodeHostResult<TAnswer>.Unavailable(RetryAt: null),
-            _ => Fail<byte[], TAnswer>(body),
-        };
+            return null;
+        }
+
+        foreach (var value in values)
+        {
+            foreach (Match link in LinkPattern().Matches(value))
+            {
+                if (link.Groups["rel"].Value.Split(' ').Contains("next", StringComparer.Ordinal))
+                {
+                    // Relative or malformed, it is not GitHub's API, which List refuses.
+                    return Uri.TryCreate(link.Groups["url"].Value, UriKind.RelativeOrAbsolute, out var next)
+                        ? next
+                        : new Uri("about:blank");
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>Whether <paramref name="address"/> is on GitHub's API, the one place a token goes.</summary>
+    private static bool IsGitHub(Uri address) =>
+        address.IsAbsoluteUri
+        && Uri.Compare(address, GitHubHttp.BaseAddress, UriComponents.SchemeAndServer, UriFormat.Unescaped, StringComparison.OrdinalIgnoreCase) == 0;
+
+    /// <summary>An address relative to GitHub's API, made absolute.</summary>
+    private static Uri Address(string relative) => new(GitHubHttp.BaseAddress, relative);
+
+    [GeneratedRegex("<(?<url>[^>]*)>\\s*;\\s*rel=\"(?<rel>[^\"]*)\"", RegexOptions.CultureInvariant)]
+    private static partial Regex LinkPattern();
+
+    /// <summary>A page's body, and the address of the next one, if any.</summary>
+    private sealed record Page(byte[] Body, Uri? Next);
+
+    /// <summary>An answer remembered with its <c>ETag</c>.</summary>
+    private sealed record Remembered(EntityTagHeaderValue ETag, Page Page);
+
+    /// <summary>Answers are remembered per installation, as each is read with its own tokens.</summary>
+    private readonly record struct RememberedKey(long Installation, string MediaType, string Address);
 
     /// <summary>The value mapped by <paramref name="map"/>, which throws a
     /// <see cref="JsonException"/> for a value it does not know, an answer that does not parse.</summary>

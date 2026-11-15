@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
 
@@ -68,12 +69,59 @@ internal static class GitHubHttp
         }
     }
 
-    /// <summary><c>404</c> is not found; anything else that is not a success is unavailable.</summary>
-    public static CodeHostResult<T> Failure<T>(Answer answer)
+    /// <summary>
+    /// <c>404</c> is not found. <c>403</c> or <c>429</c> is unavailable until the time GitHub
+    /// gives for a rate limit, see <see cref="RetryAt"/>, and with none when it gives none, since a
+    /// <c>403</c> may also be a refusal that waiting does not change. Anything else that is not a
+    /// success is unavailable with no time: a <c>5xx</c>, or a <c>401</c> when GitHub does not take
+    /// the app's token.
+    /// </summary>
+    public static CodeHostResult<T> Failure<T>(Answer answer, TimeProvider time)
     {
         ArgumentNullException.ThrowIfNull(answer);
-        return answer.Status == HttpStatusCode.NotFound
-            ? new CodeHostResult<T>.NotFound()
-            : new CodeHostResult<T>.Unavailable(RetryAt: null);
+        ArgumentNullException.ThrowIfNull(time);
+        return answer.Status switch
+        {
+            HttpStatusCode.NotFound => new CodeHostResult<T>.NotFound(),
+            HttpStatusCode.Forbidden or HttpStatusCode.TooManyRequests => new CodeHostResult<T>.Unavailable(RetryAt(answer.Headers, time.GetUtcNow())),
+            _ => new CodeHostResult<T>.Unavailable(RetryAt: null),
+        };
     }
+
+    /// <summary>
+    /// When a rate limit ends, as GitHub says: <c>retry-after</c>, in seconds from now, first;
+    /// otherwise <c>x-ratelimit-reset</c>, in seconds since the epoch, when
+    /// <c>x-ratelimit-remaining</c> is <c>0</c>. Null when neither is given or parses.
+    /// </summary>
+    internal static DateTimeOffset? RetryAt(HttpResponseHeaders headers, DateTimeOffset now)
+    {
+        if (headers.RetryAfter is { } retryAfter)
+        {
+            if (retryAfter.Delta is { } delta && delta >= TimeSpan.Zero)
+            {
+                return now + delta;
+            }
+
+            if (retryAfter.Date is { } date)
+            {
+                return date;
+            }
+        }
+
+        if (One(headers, "x-ratelimit-remaining") == "0"
+            && long.TryParse(One(headers, "x-ratelimit-reset"), NumberStyles.None, CultureInfo.InvariantCulture, out var reset)
+            && reset <= LatestEpochSecond)
+        {
+            return DateTimeOffset.FromUnixTimeSeconds(reset);
+        }
+
+        return null;
+    }
+
+    /// <summary>The last second <see cref="DateTimeOffset"/> holds, 9999-12-31T23:59:59Z.</summary>
+    private const long LatestEpochSecond = 253_402_300_799;
+
+    /// <summary>The header's one value, or null when it is missing or repeated.</summary>
+    private static string? One(HttpResponseHeaders headers, string name) =>
+        headers.TryGetValues(name, out var values) && values.ToList() is [var value] ? value : null;
 }
