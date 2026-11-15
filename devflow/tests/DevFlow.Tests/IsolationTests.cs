@@ -120,13 +120,21 @@ public sealed class IsolationTests
         await Assert.ThrowsAsync<ArgumentException>(() => door.InUserTransaction(Guid.Empty, _ => Task.FromResult(0), Ct));
     }
 
+    /// <summary>The one table Dev flow leaves unguarded, decided with the owner: the ids a loop with
+    /// no logged in user reads. See "Security decisions and accepted risks" in
+    /// devflow/docs/devflow-architecture.md. Nothing else belongs here.</summary>
+    private static readonly string[] Unguarded = ["poll_targets"];
+
     [Fact]
     public async Task EveryTableIsGuarded()
     {
         // Every migration in devflow/migrations/ has run on this database, so a table a later one
         // adds without its guard fails here.
         await using var database = await Databases.DevFlow.Migrated(Ct);
-        Assert.Empty(await IsolationChecks.Unguarded(database, unguarded: [], Ct));
+        Assert.Empty(await IsolationChecks.Unguarded(database, Unguarded, Ct));
+
+        // The exception is named, not overlooked: without it, the table fails the check.
+        Assert.Contains("poll_targets: row level security is not enabled", await IsolationChecks.Unguarded(database, unguarded: [], Ct));
 
         // And a table made the way the slice settles passes, so the check is not refusing all.
         await using (var owner = await database.OpenOwner(Ct))
@@ -134,7 +142,20 @@ public sealed class IsolationTests
             await TestDatabase.Execute(owner, Probe, Ct);
         }
 
-        Assert.Empty(await IsolationChecks.Unguarded(database, unguarded: [], Ct));
+        Assert.Empty(await IsolationChecks.Unguarded(database, Unguarded, Ct));
+
+        // While a second unguarded table fails it, the exception for the first notwithstanding.
+        await using (var owner = await database.OpenOwner(Ct))
+        {
+            await TestDatabase.Execute(owner, "CREATE TABLE second_targets (project_id uuid PRIMARY KEY, user_id uuid NOT NULL)", Ct);
+        }
+
+        Assert.Equal(
+        [
+            "second_targets: row level security is not enabled",
+            "second_targets: row level security is not forced",
+            "second_targets: 0 policies, not exactly the door's one",
+        ], await IsolationChecks.Unguarded(database, Unguarded, Ct));
     }
 
     [Fact]
@@ -187,7 +208,7 @@ public sealed class IsolationTests
             "open_table: 0 policies, not exactly the door's one",
             "owner_only: policy owner_only_user is not the door's",
             "select_only: policy select_only_user is not the door's",
-        ], await IsolationChecks.Unguarded(database, unguarded: [], Ct));
+        ], await IsolationChecks.Unguarded(database, Unguarded, Ct));
     }
 
     [Fact]
