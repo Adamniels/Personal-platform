@@ -77,6 +77,12 @@ halves are there for a test that logs in from somewhere else: `register(page, in
 the email and password and ends on the login page, not logged in, and `log_in(page, email,
 password)` submits the login form the page is on, which ends wherever its return path says.
 
+`open_section(page, label, name)` opens a section of a page by its tab's name, among the tabs
+named `label`: it clicks the tab when the tab list is shown, and chooses the option when the
+select that stands for more than five tabs on phone is, so a test passes at both viewports.
+`sections(page, label)` is whichever of the two is shown, for a test that waits for the page to
+draw. See "Tabs" in `design/ui/README.md`.
+
 `/register` does not prefill the code from a query string, so tests fill the `code` field.
 
 ## Markers
