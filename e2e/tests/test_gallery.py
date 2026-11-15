@@ -523,7 +523,7 @@ TONES = {
     "needs you": ("Needs you", "--accent-soft", "--accent-text"),
     "done": ("Done", "--ok-soft", "--ok"),
     "failed": ("Failed", "--danger-soft", "--danger"),
-    "idle": ("Idle", "--surface-2", "--text-2"),
+    "idle": ("Idle", "--surface-3", "--text-2"),
 }
 
 LABEL_STYLE = """element => {
@@ -537,6 +537,7 @@ LABEL_STYLE = """element => {
                        style.borderBottomWidth, style.borderLeftWidth],
         height: style.height,
         width: style.width,
+        paddings: [style.paddingLeft, style.paddingRight],
         radii: [style.borderTopLeftRadius, style.borderTopRightRadius,
                 style.borderBottomRightRadius, style.borderBottomLeftRadius],
         fontSize: style.fontSize,
@@ -598,7 +599,7 @@ def test_the_labels_and_meters_are_shown(page: Page, viewport: str, theme: str):
 
 @pytest.mark.parametrize("theme", THEMES)
 @pytest.mark.parametrize("tone", list(TONES))
-def test_each_status_tone_reads_its_values(page: Page, theme: str, tone: str):
+def test_a_status_label_is_a_26px_pill(page: Page, theme: str, tone: str):
     _word, fill, text = TONES[tone]
     open_gallery(page, theme)
     label = status(page, tone)
@@ -606,8 +607,9 @@ def test_each_status_tone_reads_its_values(page: Page, theme: str, tone: str):
     style = label.evaluate(LABEL_STYLE)
     assert style["background"] == resolve(page, fill, "background-color")
     assert style["color"] == resolve(page, text, "color")
-    assert style["height"] == "22px"
-    assert style["radii"] == radii(page, "--radius-sm")
+    assert style["height"] == "26px"
+    assert style["paddings"] == ["10px", "10px"]
+    assert style["radii"] == radii(page, "--radius-full")
     assert_caption(page, style)
 
     # The dot: 6px, round, in the text colour, and hidden from assistive
@@ -632,17 +634,24 @@ def test_the_status_tones_differ(page: Page):
 
 
 @pytest.mark.parametrize("theme", THEMES)
-def test_a_badge_and_a_chip_read_their_values(page: Page, theme: str):
+def test_a_badge_is_a_26px_pill_on_the_third_surface(page: Page, theme: str):
     open_gallery(page, theme)
+    region = page.get_by_role("region", name="Badge")
 
-    badge = page.get_by_role("region", name="Badge").get_by_text("Topic", exact=True)
-    style = badge.evaluate(LABEL_STYLE)
-    assert style["background"] == resolve(page, "--surface-2", "background-color")
-    assert style["color"] == resolve(page, "--text-2", "color")
-    assert style["height"] == "22px"
-    assert style["radii"] == radii(page, "--radius-sm")
-    assert style["children"] == 0, "a badge has no dot"
-    assert_caption(page, style)
+    for text in ["Topic", "14"]:
+        style = region.get_by_text(text, exact=True).evaluate(LABEL_STYLE)
+        assert style["background"] == resolve(page, "--surface-3", "background-color")
+        assert style["color"] == resolve(page, "--text-2", "color")
+        assert style["height"] == "26px"
+        assert style["paddings"] == ["10px", "10px"]
+        assert style["radii"] == radii(page, "--radius-full")
+        assert style["children"] == 0, "a badge has no dot"
+        assert_caption(page, style)
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_the_tool_chip_is_a_22px_outlined_pill(page: Page, theme: str):
+    open_gallery(page, theme)
 
     region = page.get_by_role("region", name="Tool chip")
     chip = region.get_by_text("Claude", exact=True)
@@ -651,8 +660,10 @@ def test_a_badge_and_a_chip_read_their_values(page: Page, theme: str):
     assert style["color"] == resolve(page, "--text-2", "color")
     assert style["borders"] == [resolve(page, "--border-strong", "color")] * 4
     assert style["borderWidths"] == ["1px"] * 4
-    assert style["height"] == "20px"
-    assert style["radii"] == radii(page, "--radius-sm")
+    assert style["height"] == "22px"
+    assert style["paddings"] == ["10px", "10px"]
+    assert style["radii"] == radii(page, "--radius-full")
+    assert style["children"] == 0, "a chip is its text alone"
     assert_caption(page, style)
 
 
@@ -662,22 +673,21 @@ def bar(page: Page, name: str) -> Locator:
 
 
 @pytest.mark.parametrize("theme", THEMES)
-def test_a_progress_bar_reads_its_values(page: Page, theme: str):
+def test_the_progress_track_has_no_border(page: Page, theme: str):
     open_gallery(page, theme)
 
     for kind, fill in [("Progress", "--accent"), ("Budget", "--info")]:
         track = bar(page, f"{kind}: 62%")
         style = track.evaluate(LABEL_STYLE)
         assert style["height"] == "6px"
-        assert style["background"] == resolve(page, "--surface-2", "background-color")
-        assert style["borders"] == [resolve(page, "--border", "color")] * 4
-        assert style["borderWidths"] == ["1px"] * 4
+        assert style["background"] == resolve(page, "--surface-3", "background-color")
+        assert style["borderWidths"] == ["0px"] * 4
         assert style["radii"] == radii(page, "--radius-full")
 
         fill_style = track.locator("div").evaluate(LABEL_STYLE)
         assert fill_style["background"] == resolve(page, fill, "background-color")
 
-    # The fill is as wide as the value, inside the track's border.
+    # The fill is as wide as the value, across the whole track.
     for value in [0, 62, 100]:
         track = bar(page, f"Progress: {value}%")
         inner = track.evaluate("element => element.clientWidth")
@@ -687,7 +697,7 @@ def test_a_progress_bar_reads_its_values(page: Page, theme: str):
         assert width == pytest.approx(inner * value / 100, abs=0.5), value
 
 
-def test_a_meter_row_reads_its_values(page: Page):
+def test_a_meter_reads_its_values(page: Page):
     open_gallery(page, "light")
     region = page.get_by_role("region", name="Meter")
 
@@ -799,8 +809,8 @@ def test_tabs_read_their_values(page: Page, theme: str):
     # The count after a label is a badge.
     count = row.get_by_role("tab", name="Decisions 2").get_by_text("2", exact=True)
     badge = count.evaluate(BOX_STYLE)
-    assert badge["background"] == resolve(page, "--surface-2", "background-color")
-    assert badge["height"] == "22px"
+    assert badge["background"] == resolve(page, "--surface-3", "background-color")
+    assert badge["height"] == "26px"
 
 
 def test_tabs_follow_the_keyboard_in_the_browser(page: Page):

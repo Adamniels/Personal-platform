@@ -12,15 +12,13 @@ As of 2026-11-15. The values, the fonts and this file are in place. The parts be
 * **Hard rule 12.** The heading font is set without capitals in `Card` and `Dialog` titles, and in the feature pages' own headings. Only the page title and the core's card titles are in capitals.
 * **Hard rule 13.** `Tabs` scrolls sideways on phone, and the `Table` wrapper scrolls sideways when the table is wider than it.
 * **Components, section 4, in `ui/`.** Each takes the new values, so colours, fonts and radii have changed, but not its shape:
-  * `Status` and `Badge` are 22px high and `Chip` 20px, with `--radius-sm` corners, and the badge and the idle status use `--surface-2`.
   * `Tabs` is an underlined row, not a segmented track.
   * `Card` has its title as an h2 in the heading font, `--space-4` padding and a footer action, and no arrow link or numeral.
   * `Table` has a `--surface-2` header row, and its filter pill is 28px high and outlined, not filled.
   * `Dialog` has `--radius-lg` corners and 20px padding, and its title is not in capitals.
   * `Toast` has `--radius-md` corners and a 400px max width.
   * `EmptyState` has its first line in the UI font.
-  * `Progress` has a `--surface-2` track with a 1px border, and no tick bar or steps.
-  * The icon button, the arrow link, the switch, the stat pill, the inset list row and the needs you banner are not built.
+  * The icon button, the arrow link, the switch, the stat pill, the inset list row, the needs you banner, and the progress bar's tick bar and steps are not built.
 * **The gallery** at `/design/gallery/` shows the components as they are built, so it shows the shapes above.
 * **The core's pages**, `Core/assets/core.css` and its templates: forms and the front page's cards follow the shapes above, and a card's title is an h2 in the heading font.
 * **Feature pages**, `Brain/web`, `review/web` and `devflow/web`: their own stylesheets take the new values but were laid out for the shapes above.
