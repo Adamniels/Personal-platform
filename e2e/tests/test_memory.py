@@ -47,14 +47,16 @@ def test_memory_opens_from_the_navigation(
 ):
     register_and_log_in(page, invite_code, base_url)
     # Memory is fixed, after Home and before the features: the links in the
-    # order a reader meets them, the mark first.
+    # order a reader meets them, leaving out the mark, which sits in the rail
+    # on desktop and in the top bar on phone.
     expect(nav_link(page, "Dev flow")).to_be_visible()
     names = (
         page.get_by_role("navigation")
         .get_by_role("link")
         .evaluate_all("links => links.map(link => link.getAttribute('aria-label'))")
     )
-    assert names == ["Platform", "Home", "Memory", "Canary", "Review", "Dev flow"]
+    links = [name for name in names if name != "Platform"]
+    assert links == ["Home", "Memory", "Canary", "Review", "Dev flow"]
     memory = nav_link(page, "Memory")
     expect(memory).to_have_attribute("href", "/brain")
     expect(memory).not_to_have_attribute("aria-current", "page")

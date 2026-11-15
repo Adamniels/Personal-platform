@@ -213,7 +213,7 @@
       color: var(--bg);
     }
     .links > li > a .label,
-    .more-item {
+    .links > .more-item {
       display: none;
     }
     /* Something behind the item needs the person: on its top right
@@ -337,6 +337,118 @@
     .menu {
       top: calc(100% + var(--space-1));
       right: 0;
+    }
+    /* The theme toggle is in the account menu on phone only. */
+    .menu > .theme-item {
+      display: none;
+    }
+
+    /* Phone: no rail. The top bar gains the mark and the pill is the
+       avatar alone; the links become a tab bar fixed to the bottom, and the
+       theme toggle moves into the account menu. */
+    @media (max-width: 639.98px) {
+      .rail {
+        display: contents;
+      }
+      .rail > .mark,
+      .rule,
+      .rail > .theme {
+        display: none;
+      }
+      .top {
+        padding: 0 var(--page-pad);
+      }
+      .top > .mark {
+        display: flex;
+        width: 40px;
+        height: 40px;
+      }
+      .pill {
+        padding: 0 var(--space-1);
+      }
+      .email {
+        display: none;
+      }
+      .menu > .theme-item {
+        display: block;
+      }
+
+      .links {
+        box-sizing: border-box;
+        position: fixed;
+        z-index: 10;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: calc(var(--tab-bar-h) + env(safe-area-inset-bottom, 0px));
+        padding: 0 var(--space-2) env(safe-area-inset-bottom, 0px);
+        display: grid;
+        grid-auto-flow: column;
+        grid-auto-columns: minmax(0, 1fr);
+        align-items: center;
+        gap: var(--space-1);
+        background: var(--surface);
+        border-top: 1px solid var(--border);
+      }
+      .links > li {
+        min-width: 0;
+        display: flex;
+      }
+      .links > li > a,
+      .links > li > .more {
+        box-sizing: border-box;
+        position: relative;
+        flex: 1;
+        min-width: 0;
+        width: auto;
+        height: auto;
+        min-height: 56px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: var(--space-1);
+        padding: 0 var(--space-1);
+        border: 0;
+        border-radius: var(--radius-md);
+        background: transparent;
+        color: var(--text-2);
+      }
+      .links > li > a[aria-current="page"] {
+        background: var(--text);
+        color: var(--bg);
+      }
+      .links > li > a .label,
+      .more .label {
+        display: block;
+        max-width: 100%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: var(--text-caption-size);
+        line-height: var(--text-caption-line);
+        font-weight: 500;
+      }
+      /* The dot sits on the icon's corner, since the label has no room. */
+      .links > li > a .dot {
+        top: var(--space-2);
+        right: auto;
+        left: calc(50% + var(--space-2));
+      }
+      .links.folded > .overflow {
+        display: none;
+      }
+      .links.folded > .more-item {
+        display: flex;
+      }
+      .sheet {
+        position: fixed;
+        right: var(--space-2);
+        bottom: calc(
+          var(--tab-bar-h) + env(safe-area-inset-bottom, 0px) + var(--space-2)
+        );
+        min-width: 50%;
+      }
     }
   `;
 
@@ -559,6 +671,21 @@
       );
     }
 
+    // The account menu's toggle on phone: an icon and the mode it sets.
+    #menuTheme(signal) {
+      const name = { light: "Light mode", dark: "Dark mode" };
+      return this.#themeToggle(
+        "",
+        (button, next) => {
+          button.replaceChildren(
+            icon(next === "dark" ? "moon" : "sun"),
+            text("span", "", name[next]),
+          );
+        },
+        signal,
+      );
+    }
+
     // The account pill: the email's first letter in the avatar and, on
     // desktop, the email cut at EMAIL_SHOWN characters. Its name is the
     // whole email.
@@ -589,6 +716,7 @@
         { id: "user-menu", class: "popover menu" },
         link("Change password", "/settings/password"),
         link("Log out", "/auth/logout"),
+        element("li", { class: "theme-item" }, this.#menuTheme(signal)),
       );
       const wrapper = element("div", { class: "user" }, button, list);
       this.#disclosure(wrapper, button, list, signal);
