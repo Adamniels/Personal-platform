@@ -27,8 +27,8 @@ public sealed class StatusTests
             Assert.True(JsonNode.DeepEquals(new JsonObject { ["code_host"] = "fake" }, JsonNode.Parse(await Harness.Body(response))));
         }
 
-        // The GitHub adapter is not built yet, so a stand in takes its place.
-        await using var github = await Harness.Start(Harness.Defaults with { CodeHost = CodeHostMode.GitHub }, codeHost: new FakeCodeHost());
+        // The GitHub mode, with its adapter, which reading the status never calls.
+        await using var github = await Harness.Start(GitHub.TestApp.Load([.. GitHub.TestApp.Environment.Select(pair => (pair.Name, (string?)pair.Value))]));
         var answer = await github.Get(Status, Contract.Token);
 
         Assert.Equal(StatusCodes.Status200OK, answer.Response.StatusCode);

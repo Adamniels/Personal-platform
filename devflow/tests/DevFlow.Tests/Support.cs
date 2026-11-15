@@ -136,8 +136,8 @@ internal sealed class Harness : IAsyncDisposable
 
     /// <param name="database">The door the app uses, disposed with the harness. Without one it is
     /// never opened: the test takes no database, and no route it calls uses one.</param>
-    /// <param name="codeHost">A code host registered before the app's own, which it keeps: how a
-    /// test builds the app in the GitHub mode, whose adapter is not built yet.</param>
+    /// <param name="codeHost">A code host registered before the app's own, which it keeps, so a
+    /// test can put a code host of its own behind the app.</param>
     public static async Task<Harness> Start(DevFlowSettings? settings = null, long? clockAt = null, UserDb? database = null, ICodeHost? codeHost = null)
     {
         var webRoot = MakeBuild();

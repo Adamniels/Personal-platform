@@ -1,0 +1,13 @@
+{
+  "token": "ghs_madeUpForTheContractFixtureNotARealToken0",
+  "expires_at": "2026-11-15T13:00:00Z",
+  "permissions": {
+    "checks": "read",
+    "contents": "read",
+    "issues": "read",
+    "metadata": "read",
+    "pull_requests": "read",
+    "statuses": "read"
+  },
+  "repository_selection": "selected"
+}

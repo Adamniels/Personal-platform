@@ -31,6 +31,10 @@ namespace DevFlow.Settings;
 /// <param name="Vault">The vault's keys, from <c>DEVFLOW_VAULT_KEY</c> and
 /// <c>DEVFLOW_VAULT_OLD_KEYS</c>, see <see cref="VaultSettings"/>. They are secret, so
 /// <see cref="ToString"/> names their ids alone.</param>
+/// <param name="GitHub">The GitHub App, from the four <c>DEVFLOW_GITHUB_</c> settings, in the
+/// GitHub mode, and null in the fake one, which reads none of them; see <see cref="GitHubSettings"/>.
+/// It holds a secret and a private key, so <see cref="ToString"/> names the client id and the slug
+/// alone.</param>
 public sealed record DevFlowSettings(
     string ListenHost,
     int ListenPort,
@@ -39,7 +43,8 @@ public sealed record DevFlowSettings(
     bool ExposeOpenApi,
     NpgsqlConnectionStringBuilder AppDatabase,
     CodeHostMode CodeHost,
-    VaultSettings Vault)
+    VaultSettings Vault,
+    GitHubSettings? GitHub)
 {
     public const string DefaultListenAddr = "127.0.0.1:8084";
     public const string DefaultCoreUrl = "http://127.0.0.1:8080";
@@ -81,14 +86,15 @@ public sealed record DevFlowSettings(
             Setting(read, "DEVFLOW_EXPOSE_OPENAPI", "0", ParseSwitch),
             Setting(read, AppDatabaseUrl, fallback: null, DatabaseUrl.Parse),
             codeHost,
-            VaultSettings.Load(read, codeHost));
+            VaultSettings.Load(read, codeHost),
+            GitHubSettings.Load(read, codeHost));
     }
 
-    /// <summary>What the record prints, without the database's password or the vault's keys,
-    /// which it holds.</summary>
+    /// <summary>What the record prints, without the database's password, the vault's keys or the
+    /// GitHub App's secret and key, which it holds.</summary>
     public override string ToString() => string.Create(
         CultureInfo.InvariantCulture,
-        $"DevFlowSettings {{ ListenHost = {ListenHost}, ListenPort = {ListenPort}, CoreUrl = {CoreUrl}, PublicOrigin = {PublicOrigin}, ExposeOpenApi = {ExposeOpenApi}, AppDatabase = {AppDatabase.Username}@{AppDatabase.Host}:{AppDatabase.Port}/{AppDatabase.Database}, CodeHost = {CodeHost}, Vault = {Vault} }}");
+        $"DevFlowSettings {{ ListenHost = {ListenHost}, ListenPort = {ListenPort}, CoreUrl = {CoreUrl}, PublicOrigin = {PublicOrigin}, ExposeOpenApi = {ExposeOpenApi}, AppDatabase = {AppDatabase.Username}@{AppDatabase.Host}:{AppDatabase.Port}/{AppDatabase.Database}, CodeHost = {CodeHost}, Vault = {Vault}, GitHub = {GitHub?.ToString() ?? "none"} }}");
 
     /// <summary>The setting parsed, or <paramref name="fallback"/> parsed when it is unset; with
     /// no fallback, unset is refused.</summary>

@@ -116,7 +116,7 @@ public sealed class VaultSettingsTests
 
         // A key that is set is used in either mode.
         Assert.False(Load((Key, $"k1:{Material}")).Vault.Generated);
-        Assert.False(Load((CodeHost, "github"), (Key, $"k1:{Material}")).Vault.Generated);
+        Assert.False(Load([.. GitHub.TestApp.Environment, (Key, $"k1:{Material}")]).Vault.Generated);
 
         // Without one, the GitHub mode stops startup, naming the key's setting.
         foreach (var set in new[] { new[] { (CodeHost, "github") }, [(CodeHost, "github"), (Key, "")] })

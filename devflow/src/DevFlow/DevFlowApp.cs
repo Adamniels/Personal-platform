@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 
 using DevFlow.CodeHost;
+using DevFlow.CodeHost.GitHub;
 using DevFlow.Health;
 using DevFlow.Pages;
 using DevFlow.Settings;
@@ -26,9 +27,7 @@ public static class DevFlowApp
     /// <param name="configure">Runs before the app is built: <c>Program</c> sets where Kestrel
     /// listens, and tests put the app on a test server, with a key cache and a clock of their
     /// own, which <c>AddPlatformAuth</c> keeps.</param>
-    /// <exception cref="StartupException"><paramref name="webRoot"/> holds no build, or the code
-    /// host is GitHub, whose adapter is not built yet, and <paramref name="configure"/> registered
-    /// no <see cref="ICodeHost"/> in its place.</exception>
+    /// <exception cref="StartupException"><paramref name="webRoot"/> holds no build.</exception>
     public static WebApplication Build(DevFlowSettings settings, UserDb database, string webRoot, Action<WebApplicationBuilder>? configure = null)
     {
         ArgumentNullException.ThrowIfNull(settings);
@@ -42,7 +41,7 @@ public static class DevFlowApp
             ApplicationName = typeof(DevFlowApp).Assembly.GetName().Name,
         });
         configure?.Invoke(builder);
-        AddCodeHost(builder.Services, settings.CodeHost);
+        AddCodeHost(builder.Services, settings);
 
         // snake_case on the wire, as review's, the brain's and canary's JSON is. A number is a JSON
         // number, never a string holding one, which the web defaults would accept.
@@ -93,17 +92,17 @@ public static class DevFlowApp
 
     /// <summary>
     /// The <see cref="ICodeHost"/> the mode names, unless <c>configure</c> registered one first,
-    /// which is how a test builds the app in the GitHub mode. See "The code host" in
+    /// so a test can put a code host of its own behind the app. See "The code host" in
     /// devflow/README.md.
     /// </summary>
-    private static void AddCodeHost(IServiceCollection services, CodeHostMode mode)
+    private static void AddCodeHost(IServiceCollection services, DevFlowSettings settings)
     {
         if (services.Any(service => service.ServiceType == typeof(ICodeHost)))
         {
             return;
         }
 
-        switch (mode)
+        switch (settings.CodeHost)
         {
             case CodeHostMode.Fake:
                 // Registered as itself too, for the addresses that stage its worlds.
@@ -112,10 +111,12 @@ public static class DevFlowApp
                 services.AddSingleton<ICodeHost>(fake);
                 break;
             case CodeHostMode.GitHub:
-                throw new StartupException(
-                    "DEVFLOW_CODE_HOST: github needs the GitHub adapter, which is not built yet; it comes with the next slice of Dev flow, #268");
+                // Read as the app, with the settings DevFlowSettings.Load required in this mode.
+                services.AddGitHubCodeHost(settings.GitHub
+                    ?? throw new ArgumentException("the GitHub mode's settings are missing", nameof(settings)));
+                break;
             default:
-                throw new ArgumentOutOfRangeException(nameof(mode), mode, "not a code host mode");
+                throw new ArgumentOutOfRangeException(nameof(settings), settings.CodeHost, "not a code host mode");
         }
     }
 }
