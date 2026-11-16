@@ -232,6 +232,20 @@ describe("the list and its groups", () => {
 		).toBe("Waiting for you");
 	});
 
+	test("an address that is not https is not linked", async () => {
+		openWith(
+			answering(
+				list({
+					items: [item({ title: "Odd", web_url: "javascript:alert(1)" })],
+				}),
+			),
+		);
+
+		expect(
+			(await card("Odd")).queryByRole("link", { name: "Open on GitHub" }),
+		).toBeNull();
+	});
+
 	test("the tab's count is the number from the answer", async () => {
 		// The answer counts the relink as well, so it is not the items' count.
 		openWith(

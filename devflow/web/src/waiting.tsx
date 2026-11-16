@@ -282,14 +282,16 @@ function Item({ item, project }: { item: WaitingItem; project: string }) {
 			className={styles.item}
 			footer={
 				<div className={styles.actions}>
-					<a
-						className={styles.open}
-						href={item.web_url}
-						target="_blank"
-						rel="noreferrer"
-					>
-						Open on GitHub
-					</a>
+					{linkable(item.web_url) ? (
+						<a
+							className={styles.open}
+							href={item.web_url}
+							target="_blank"
+							rel="noreferrer"
+						>
+							Open on GitHub
+						</a>
+					) : null}
 				</div>
 			}
 		>
@@ -313,6 +315,17 @@ function Item({ item, project }: { item: WaitingItem; project: string }) {
 			</div>
 		</Card>
 	);
+}
+
+/** Whether the code host's address for an item may be a link: https only,
+ * since the address is data, and a link to any other scheme could run
+ * script in the page or open something that is not the code host. */
+function linkable(address: string): boolean {
+	try {
+		return new URL(address).protocol === "https:";
+	} catch {
+		return false;
+	}
 }
 
 function ItemStatus({ item }: { item: WaitingItem }) {
