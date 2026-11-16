@@ -158,9 +158,10 @@ export function ItemActions({
 					{line}
 				</p>
 			)}
-			{waiting ? (
+			{/* Rendered only while asked for, so a card holds no hidden text. */}
+			{waiting && confirming ? (
 				<Dialog
-					open={confirming}
+					open
 					title={`Merge #${item.number} into main?`}
 					confirmLabel="Merge"
 					onConfirm={merge}
