@@ -293,8 +293,18 @@ input[aria-invalid="true"] {
 }
 
 .card .relink a {
+  position: relative;
   color: inherit;
   font-weight: 500;
+}
+
+/* Its target reaches 44px, the link's 16px box and 14px above and below,
+   for a finger on phone, hard rule 10, inside the card's 16px gap so it
+   never covers the action's. */
+.card .relink a::after {
+  content: "";
+  position: absolute;
+  inset: -14px 0;
 }
 
 /* At most three rows of a label and its value: plain rows 36px high, a
