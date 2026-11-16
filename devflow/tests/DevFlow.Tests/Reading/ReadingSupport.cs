@@ -1,0 +1,314 @@
+using System.Collections.Concurrent;
+
+using Dapper;
+
+using DevFlow.CodeHost;
+using DevFlow.Reading;
+using DevFlow.Settings;
+using DevFlow.Tests.Runner;
+
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Time.Testing;
+
+using PlatformData;
+using PlatformData.Testing;
+
+namespace DevFlow.Tests.Reading;
+
+/// <summary>
+/// A migrated database of its own, the door to it as devflow_app, and the fake code host behind a
+/// <see cref="CountingCodeHost"/>, for the tests of reading a project into the snapshot. Projects
+/// and links are put straight into the tables through the door, as connecting and linking would
+/// leave them; what was stored is read around row level security.
+/// </summary>
+internal sealed class Reading : IAsyncDisposable
+{
+    public const long Installation = 41;
+    public const long RepositoryId = 9001;
+
+    public static readonly Guid Alice = Guid.Parse("0190a8f0-0000-7000-8000-00000000a11c");
+    public static readonly Guid Bob = Guid.Parse("0190a8f0-0000-7000-8000-000000000b0b");
+
+    private Reading(TestDatabase database, UserDb door, FakeTimeProvider time, FakeCodeHost fake)
+    {
+        Database = database;
+        Door = door;
+        Time = time;
+        Fake = fake;
+        Host = new CountingCodeHost(fake);
+        Reader = new ProjectReader(door, Host, time, NullLogger<ProjectReader>.Instance);
+    }
+
+    public static CancellationToken Ct => TestContext.Current.CancellationToken;
+
+    public TestDatabase Database { get; }
+
+    public UserDb Door { get; }
+
+    public FakeTimeProvider Time { get; }
+
+    public FakeCodeHost Fake { get; }
+
+    public CountingCodeHost Host { get; }
+
+    public ProjectReader Reader { get; }
+
+    public static async Task<Reading> Start()
+    {
+        var database = await Databases.DevFlow.Migrated(Ct);
+        var door = await UserDb.Open(DevFlowSettings.Service, database.App(), DevFlowSettings.AppDatabaseUrl, Ct);
+        var time = Harness.Clock();
+        return new Reading(database, door, time, new FakeCodeHost(time));
+    }
+
+    /// <summary>A project of <paramref name="user"/>'s, through the door as them, as connecting
+    /// stores one.</summary>
+    public Task<Guid> Project(Guid user, long repository = RepositoryId, string name = "Personal-platform") =>
+        InsertProject(Door, user, repository, name);
+
+    /// <inheritdoc cref="Project"/>
+    public static async Task<Guid> InsertProject(UserDb door, Guid user, long repository = RepositoryId, string name = "Personal-platform")
+    {
+        var id = Guid.CreateVersion7();
+        await door.InUserTransaction(user, transaction => transaction.Connection!.ExecuteAsync(new CommandDefinition(
+            """
+            INSERT INTO projects (id, user_id, code_host, installation_id, repository_id, owner, name, created_at)
+            VALUES (@id, @user, 'github', @installation, @repository, 'Adamniels', @name, now())
+            """,
+            new { id, user, installation = Installation, repository, name },
+            transaction,
+            cancellationToken: Ct)), Ct);
+        return id;
+    }
+
+    /// <summary>Links <paramref name="user"/>'s GitHub account as <paramref name="login"/>, in
+    /// <paramref name="state"/>, as linking leaves the row; no token is needed to read.</summary>
+    public Task LinkOwner(Guid user, string login, string state = "linked") => Link(Door, user, login, state);
+
+    /// <inheritdoc cref="LinkOwner"/>
+    public static async Task Link(UserDb door, Guid user, string login, string state = "linked") =>
+        await door.InUserTransaction(user, transaction => transaction.Connection!.ExecuteAsync(new CommandDefinition(
+            """
+            INSERT INTO github_accounts (user_id, login, github_user_id, state, access_expires_at, refresh_expires_at, linked_at)
+            VALUES (@user, @login, 70000001, @state, now() + interval '8 hours', now() + interval '180 days', now())
+            """,
+            new { user, login, state },
+            transaction,
+            cancellationToken: Ct)), Ct);
+
+    /// <summary>Stages <paramref name="pulls"/> in <paramref name="user"/>'s world, in one
+    /// repository, <see cref="RepositoryId"/> unless given, each with its conversation and its
+    /// head's checks, and the slice issues' conversations.</summary>
+    public void Stage(Guid user, IReadOnlyList<Staged> pulls, IReadOnlyList<FakeConversation>? slices = null, params long[] more) =>
+        Fake.Replace(user, Staging(pulls, slices, more));
+
+    /// <summary>A world holding <paramref name="pulls"/> in <see cref="RepositoryId"/>, and an
+    /// empty repository for each of <paramref name="more"/>.</summary>
+    public static FakeWorld Staging(IReadOnlyList<Staged> pulls, IReadOnlyList<FakeConversation>? slices = null, params long[] more) =>
+        new([
+            new FakeInstallation(Installation, "Adamniels",
+            [
+                new FakeRepository(
+                    RepositoryId,
+                    "Adamniels",
+                    "Personal-platform",
+                    [.. pulls.Select(p => p.Pull)],
+                    [.. pulls.Select(p => new FakeConversation(p.Pull.Number, p.Comments)), .. slices ?? []],
+                    [.. pulls.Where(p => p.Statuses.Count > 0 || p.CheckRuns.Count > 0).Select(p => new FakeCommit(p.Pull.HeadCommit, p.Statuses, p.CheckRuns))],
+                    []),
+                .. more.Select(id => new FakeRepository(id, "Adamniels", $"repository-{id}", [], [], [], [])),
+            ]),
+        ]);
+
+    /// <summary>The runner's world as a pull request staged at the fake.</summary>
+    public static Staged From(World world) => new(world.Pull, world.Comments, world.Statuses, world.CheckRuns);
+
+    /// <summary>The conversation of the slice <see cref="World"/>'s pull requests close.</summary>
+    public static FakeConversation SliceOf(World world) => new(World.SliceNumber, world.SliceComments);
+
+    /// <summary>The project's stored items, by number, read around row level security.</summary>
+    public Task<List<ItemRow>> Items(Guid project) => StoredItems(Database, project);
+
+    /// <inheritdoc cref="Items"/>
+    public static async Task<List<ItemRow>> StoredItems(TestDatabase database, Guid project)
+    {
+        await using var admin = await database.OpenAdmin(Ct);
+        return [.. await admin.QueryAsync<ItemRow>(new CommandDefinition(
+            """
+            SELECT id AS Id, user_id AS UserId, number AS Number, kind AS Kind, sent_back AS SentBack, title AS Title,
+                   web_url AS WebUrl, slice_number AS SliceNumber, head_commit AS HeadCommit, can_merge AS CanMerge,
+                   summary AS Summary, reason AS Reason, decisions::text AS Decisions, other_decisions AS OtherDecisions,
+                   reviewer_view::text AS ReviewerView, read_at AS ReadAt
+            FROM waiting_items WHERE project_id = @project ORDER BY number
+            """,
+            new { project },
+            cancellationToken: Ct))];
+    }
+
+    /// <summary>How the project's reads went, read around row level security, or null before
+    /// any.</summary>
+    public Task<ReadRow?> ReadOf(Guid project) => StoredRead(Database, project);
+
+    /// <inheritdoc cref="ReadOf"/>
+    public static async Task<ReadRow?> StoredRead(TestDatabase database, Guid project)
+    {
+        await using var admin = await database.OpenAdmin(Ct);
+        return await admin.QuerySingleOrDefaultAsync<ReadRow>(new CommandDefinition(
+            """
+            SELECT user_id AS UserId, last_attempt_at AS LastAttemptAt, last_success_at AS LastSuccessAt, last_error AS LastError
+            FROM project_reads WHERE project_id = @project
+            """,
+            new { project },
+            cancellationToken: Ct));
+    }
+
+    /// <summary>Waits, in real time, until <paramref name="condition"/> holds, for at most ten
+    /// seconds.</summary>
+    public static async Task Until(Func<Task<bool>> condition, string what)
+    {
+        for (var tries = 0; tries < 200; tries++)
+        {
+            if (await condition())
+            {
+                return;
+            }
+
+            await Task.Delay(50, Ct);
+        }
+
+        Assert.Fail($"waited ten seconds and {what} never happened");
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        await Door.DisposeAsync();
+        await Database.DisposeAsync();
+    }
+
+    internal sealed record ItemRow(
+        Guid Id,
+        Guid UserId,
+        int Number,
+        string Kind,
+        bool SentBack,
+        string Title,
+        string WebUrl,
+        int? SliceNumber,
+        string HeadCommit,
+        bool CanMerge,
+        string Summary,
+        string Reason,
+        string Decisions,
+        int OtherDecisions,
+        string ReviewerView,
+        DateTime ReadAt);
+
+    internal sealed record ReadRow(Guid UserId, DateTime LastAttemptAt, DateTime? LastSuccessAt, string? LastError);
+}
+
+/// <summary>A pull request as staged at the fake: itself, its conversation and its head's checks.</summary>
+internal sealed record Staged(PullRequest Pull, IReadOnlyList<Comment> Comments, IReadOnlyList<CommitStatus> Statuses, IReadOnlyList<CheckRun> CheckRuns);
+
+/// <summary>
+/// Stands between Dev flow and the fake: records every call, as the operation, the user it was
+/// asked for and what it named, and can throw for a repository, or hold the list of open pull
+/// requests until a test lets it go.
+/// </summary>
+internal sealed class CountingCodeHost(ICodeHost inner) : ICodeHost
+{
+    private readonly ConcurrentQueue<Call> _calls = new();
+    private int _listing;
+    private int _mostAtOnce;
+
+    /// <summary>Every call, in the order made.</summary>
+    public IReadOnlyList<Call> Calls => [.. _calls];
+
+    /// <summary>The repositories whose every read throws, as a bug would.</summary>
+    public ConcurrentDictionary<long, bool> Throws { get; } = new();
+
+    /// <summary>When set, listing open pull requests says it has started, then waits for it.</summary>
+    public TaskCompletionSource? Hold { get; set; }
+
+    /// <summary>Completed each time a list of open pull requests starts; replaced by the test.</summary>
+    public TaskCompletionSource ListStarted { get; set; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    /// <summary>The most lists of open pull requests that were ever under way at once.</summary>
+    public int MostListsAtOnce => Volatile.Read(ref _mostAtOnce);
+
+    /// <summary>How many times the open pull requests were listed for the user.</summary>
+    public int Lists(Guid? user = null) => Calls.Count(call => call.Operation == "OpenPullRequests" && (user is null || call.User == user));
+
+    public async Task<CodeHostResult<IReadOnlyList<PullRequest>>> OpenPullRequests(Guid userId, CodeHost.Repository repository, CancellationToken cancellationToken)
+    {
+        Record("OpenPullRequests", userId, repository, "");
+        var now = Interlocked.Increment(ref _listing);
+        try
+        {
+            int seen;
+            while (now > (seen = Volatile.Read(ref _mostAtOnce)) && Interlocked.CompareExchange(ref _mostAtOnce, now, seen) != seen)
+            {
+            }
+
+            ListStarted.TrySetResult();
+            if (Hold is { } hold)
+            {
+                await hold.Task.WaitAsync(cancellationToken);
+            }
+
+            return await inner.OpenPullRequests(userId, repository, cancellationToken);
+        }
+        finally
+        {
+            Interlocked.Decrement(ref _listing);
+        }
+    }
+
+    public Task<CodeHostResult<PullRequest>> PullRequest(Guid userId, CodeHost.Repository repository, int number, CancellationToken cancellationToken)
+    {
+        Record("PullRequest", userId, repository, $"{number}");
+        return inner.PullRequest(userId, repository, number, cancellationToken);
+    }
+
+    public Task<CodeHostResult<IReadOnlyList<Comment>>> Comments(Guid userId, CodeHost.Repository repository, int number, CancellationToken cancellationToken)
+    {
+        Record("Comments", userId, repository, $"{number}");
+        return inner.Comments(userId, repository, number, cancellationToken);
+    }
+
+    public Task<CodeHostResult<IReadOnlyList<CommitStatus>>> Statuses(Guid userId, CodeHost.Repository repository, string commit, CancellationToken cancellationToken)
+    {
+        Record("Statuses", userId, repository, commit);
+        return inner.Statuses(userId, repository, commit, cancellationToken);
+    }
+
+    public Task<CodeHostResult<IReadOnlyList<CheckRun>>> CheckRuns(Guid userId, CodeHost.Repository repository, string commit, CancellationToken cancellationToken)
+    {
+        Record("CheckRuns", userId, repository, commit);
+        return inner.CheckRuns(userId, repository, commit, cancellationToken);
+    }
+
+    public Task<CodeHostResult<byte[]>> File(Guid userId, CodeHost.Repository repository, string path, string branch, CancellationToken cancellationToken)
+    {
+        Record("File", userId, repository, path);
+        return inner.File(userId, repository, path, branch, cancellationToken);
+    }
+
+    public Task<CodeHostResult<IReadOnlyList<Installation>>> Installations(Guid userId, string userToken, CancellationToken cancellationToken) =>
+        inner.Installations(userId, userToken, cancellationToken);
+
+    public Task<CodeHostResult<IReadOnlyList<CodeHost.Repository>>> Repositories(Guid userId, string userToken, long installation, CancellationToken cancellationToken) =>
+        inner.Repositories(userId, userToken, installation, cancellationToken);
+
+    public Uri InstallAddress(Uri origin) => inner.InstallAddress(origin);
+
+    private void Record(string operation, Guid userId, CodeHost.Repository repository, string argument)
+    {
+        _calls.Enqueue(new Call(operation, userId, repository.Id, argument));
+        if (Throws.ContainsKey(repository.Id))
+        {
+            throw new InvalidOperationException("a bug in reading, with the code host's text: secret-from-the-host");
+        }
+    }
+
+    internal sealed record Call(string Operation, Guid User, long Repository, string Argument);
+}
