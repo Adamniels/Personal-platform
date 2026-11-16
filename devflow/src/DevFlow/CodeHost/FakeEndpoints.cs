@@ -71,15 +71,32 @@ public static class FakeEndpoints
         {
             var userId = context.UserId();
             host.ExpireAccessToken(userId);
-            await database.InUserTransaction(userId, transaction => transaction.Connection!.ExecuteAsync(new CommandDefinition(
-                "UPDATE github_accounts SET access_expires_at = least(access_expires_at, @now) WHERE user_id = @userId",
-                new { userId, now = time.GetUtcNow() },
-                transaction,
-                cancellationToken: context.RequestAborted)), context.RequestAborted);
+            await EndAccess(context, database, time);
+            return TypedResults.NoContent();
+        });
+
+        // Ends both of the caller's tokens at the fake, as revoking the app on GitHub does, and the
+        // access token in Dev flow's record, so the next use renews it, the fake refuses, and the
+        // link needs linking again.
+        fake.MapPost("/revoke-token", async (HttpContext context, [FromServices] FakeCodeHost host, [FromServices] UserDb database, [FromServices] TimeProvider time) =>
+        {
+            host.RevokeTokens(context.UserId());
+            await EndAccess(context, database, time);
             return TypedResults.NoContent();
         });
 
         return routes;
+    }
+
+    /// <summary>Ends the caller's access token now in Dev flow's record of it.</summary>
+    private static Task<int> EndAccess(HttpContext context, UserDb database, TimeProvider time)
+    {
+        var userId = context.UserId();
+        return database.InUserTransaction(userId, transaction => transaction.Connection!.ExecuteAsync(new CommandDefinition(
+            "UPDATE github_accounts SET access_expires_at = least(access_expires_at, @now) WHERE user_id = @userId",
+            new { userId, now = time.GetUtcNow() },
+            transaction,
+            cancellationToken: context.RequestAborted)), context.RequestAborted);
     }
 
     private static ProblemHttpResult Refused(string title, Malformed error) =>

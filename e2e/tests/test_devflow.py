@@ -20,6 +20,7 @@ from devflow_worlds import (
     check_run,
     comment,
     one_repository,
+    repository,
     reviewer_comment,
     status,
 )
@@ -653,3 +654,213 @@ def test_the_waiting_list_says_when_github_could_not_be_read(
         )
     ).to_be_visible()
     capture(page, "devflow-waiting-stale")
+
+
+def _writes(page: Page) -> list[dict]:
+    """The merges and comments the fake took for this account, with whose
+    token made each."""
+    answer = page.request.get("/devflow/api/fake/writes")
+    assert answer.status == 200, answer.text()
+    return answer.json()
+
+
+def _staged_pull(page: Page, number: int) -> dict:
+    """The pull request as the fake's world holds it now."""
+    world = page.request.get("/devflow/api/fake/world").json()
+    return next(
+        pull for pull in repository(world)["pull_requests"] if pull["number"] == number
+    )
+
+
+def test_i_merge_a_waiting_pull_request(
+    page: Page, invite_code: str, base_url: str, devflow_world, viewport: str
+):
+    register_and_log_in(page, invite_code, base_url)
+    world = one_repository()
+    _decision(world)
+    _ready_to_merge(world)
+    devflow_world(world)
+    _connect_and_read(page, base_url)
+    page.goto("/devflow")
+    expect(page.get_by_role("tab", name="Waiting for you 2")).to_be_visible()
+    vault = page.get_by_role("article", name="The vault")
+
+    vault.get_by_role("button", name="Merge").click()
+
+    dialog = page.get_by_role("dialog", name="Merge #304 into main?")
+    expect(dialog).to_be_visible()
+    expect(dialog.get_by_text("The vault")).to_be_visible()
+    expect(dialog.locator("code")).to_have_text(f"{304:040x}"[:7])
+    expect(
+        dialog.get_by_text("This confirms 1 decision the agent made.")
+    ).to_be_visible()
+    capture(page, "devflow-merge-confirm")
+    dialog.get_by_role("button", name="Merge").click()
+
+    expect(page.get_by_text("Merged #304")).to_be_visible()
+    expect(page.get_by_role("article", name="The vault")).to_have_count(0)
+    expect(page.get_by_role("tab", name="Waiting for you 1")).to_be_visible()
+    assert _writes(page) == [
+        {
+            "kind": "merge",
+            "repository": REPOSITORY,
+            "number": 304,
+            "commit": f"{304:040x}",
+            "method": "merge",
+            "body": None,
+            "by": OWNER_LOGIN,
+        }
+    ]
+    assert _staged_pull(page, 304)["state"] == "merged"
+
+
+def test_merging_asks_me_first(
+    page: Page, invite_code: str, base_url: str, devflow_world
+):
+    register_and_log_in(page, invite_code, base_url)
+    world = one_repository()
+    _ready_to_merge(world)
+    devflow_world(world)
+    _connect_and_read(page, base_url)
+    page.goto("/devflow")
+
+    page.get_by_role("article", name="The poll").get_by_role(
+        "button", name="Merge"
+    ).click()
+    dialog = page.get_by_role("dialog", name="Merge #305 into main?")
+    expect(dialog).to_be_visible()
+    dialog.get_by_role("button", name="Cancel").click()
+
+    expect(dialog).to_have_count(0)
+    expect(page.get_by_role("article", name="The poll")).to_be_visible()
+    assert _writes(page) == []
+    assert _staged_pull(page, 305)["state"] == "open"
+
+
+def test_i_send_a_pull_request_back(
+    page: Page, invite_code: str, base_url: str, devflow_world, viewport: str
+):
+    register_and_log_in(page, invite_code, base_url)
+    world = one_repository()
+    _ready_to_merge(world)
+    _stopped(world)
+    devflow_world(world)
+    _connect_and_read(page, base_url)
+    page.goto("/devflow")
+    poll = page.get_by_role("region", name="Pull requests waiting").get_by_role(
+        "article", name="The poll"
+    )
+    text = "Rename the loop to `Poller`.\n\nThen it is fine."
+
+    poll.get_by_role("button", name="Send back").click()
+    poll.get_by_role("textbox", name="Comment").fill(text)
+    capture(page, "devflow-send-back")
+    poll.get_by_role("button", name="Send").click()
+
+    expect(page.get_by_text("Sent back #305")).to_be_visible()
+    sent_back = page.get_by_role("region", name="Sent back, the runner has it")
+    expect(sent_back.get_by_role("article", name="The poll")).to_be_visible()
+    expect(page.get_by_role("tab", name="Waiting for you 1")).to_be_visible()
+    capture(page, "devflow-sent-back")
+    assert _writes(page) == [
+        {
+            "kind": "comment",
+            "repository": REPOSITORY,
+            "number": 305,
+            "commit": None,
+            "method": None,
+            "body": text,
+            "by": OWNER_LOGIN,
+        }
+    ]
+    world = page.request.get("/devflow/api/fake/world").json()
+    (conversation,) = [
+        each for each in repository(world)["conversations"] if each["number"] == 305
+    ]
+    posted = conversation["comments"][-1]
+    assert (posted["author"], posted["body"]) == (OWNER_LOGIN, text)
+
+
+def test_a_pull_request_that_moved_on_is_not_merged(
+    page: Page, invite_code: str, base_url: str, devflow_world
+):
+    register_and_log_in(page, invite_code, base_url)
+    world = one_repository()
+    _ready_to_merge(world)
+    devflow_world(world)
+    _connect_and_read(page, base_url)
+    page.goto("/devflow")
+    poll = page.get_by_role("article", name="The poll")
+    expect(poll).to_be_visible()
+
+    # The agent pushes a new commit after the page loaded, and the reviewer
+    # approves it, so it still waits, at a head the page has not seen.
+    moved = one_repository()
+    newer = "9" * 40
+    add_pull_request(
+        moved,
+        305,
+        title="The poll",
+        labels=["owner-merge"],
+        head_commit=newer,
+        body=f"## Summary\n\nAdds the poll.\n\nCloses #{SLICE}\n",
+        comments=[reviewer_comment(9305, "approve", newer)],
+        statuses=[status("review-ok", "success")],
+        check_runs=[check_run("ci-ok")],
+    )
+    add_conversation(moved, SLICE, repository(world)["conversations"][-1]["comments"])
+    devflow_world(moved)
+    poll.get_by_role("button", name="Merge").click()
+    page.get_by_role("dialog").get_by_role("button", name="Merge").click()
+
+    expect(
+        poll.get_by_role("alert").filter(
+            has_text="The pull request has changed since this was shown"
+        )
+    ).to_be_visible()
+    assert _writes(page) == []
+    assert _staged_pull(page, 305)["state"] == "open"
+    # The list was read again: asking once more shows the new commit.
+    poll.get_by_role("button", name="Merge").click()
+    expect(page.get_by_role("dialog").locator("code")).to_have_text("9999999")
+
+
+def test_i_cannot_act_when_my_link_has_expired(
+    page: Page, invite_code: str, base_url: str, devflow_world
+):
+    register_and_log_in(page, invite_code, base_url)
+    world = one_repository()
+    _ready_to_merge(world)
+    devflow_world(world)
+    project = _connect_and_read(page, base_url)
+    # GitHub stops taking the link, and Dev flow finds out the next time it
+    # needs it.
+    revoked = page.request.post(
+        "/devflow/api/fake/revoke-token", headers={"Origin": base_url}
+    )
+    assert revoked.status == 204, revoked.text()
+    listed = page.request.get("/devflow/api/github/repositories")
+    assert listed.status == 409, listed.text()
+
+    page.goto("/devflow")
+
+    poll = page.get_by_role("article", name="The poll")
+    expect(
+        poll.get_by_text(
+            "Your GitHub link has expired. Link it again on the Projects tab "
+            "to merge or comment."
+        )
+    ).to_be_visible()
+    expect(poll.get_by_role("button", name="Merge")).to_be_disabled()
+    expect(poll.get_by_role("button", name="Send back")).to_be_disabled()
+    # Nor does the API act without it.
+    (item,) = page.request.get("/devflow/api/waiting").json()["items"]
+    merged = page.request.post(
+        f"/devflow/api/waiting/{item['id']}/merge",
+        data={"head_commit": item["head_commit"]},
+        headers={"Origin": base_url},
+    )
+    assert merged.status == 409
+    assert merged.json()["title"] == "Your GitHub link has expired"
+    assert _writes(page) == []
+    assert item["project_id"] == project

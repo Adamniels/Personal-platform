@@ -38,6 +38,21 @@ public sealed class TokenTests
     }
 
     [Fact]
+    public async Task ALinkRevokedAtTheFakeNeedsLinkingAgain()
+    {
+        await using var linking = await Linking.Start();
+        await linking.LinkAll();
+
+        // As revoking the app on GitHub: the next use renews, and the renewal is refused.
+        var revoked = await linking.App.Send("POST", "/devflow/api/fake/revoke-token", Contract.Token, ("Origin", Linking.Origin));
+
+        Assert.Equal(StatusCodes.Status204NoContent, revoked.Response.StatusCode);
+        Assert.IsType<UserToken.NeedsRelink>(await linking.Tokens.For(Linking.User, Ct));
+        Assert.Equal("needs_relink", (await linking.Account())!.State);
+        Assert.Empty(await linking.Secrets());
+    }
+
+    [Fact]
     public async Task ATokenNearItsEndIsRenewedAndBothNewTokensStored()
     {
         await using var linking = await Linking.Start();

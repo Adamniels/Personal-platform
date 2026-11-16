@@ -1,6 +1,7 @@
-import { EmptyState, Tab, TabPanel, Tabs } from "@platform/ui";
+import { EmptyState, Tab, TabPanel, Tabs, ToastProvider } from "@platform/ui";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState } from "react";
+import type { ActionsApi } from "./actions";
 import { navigate, usePathname } from "./address";
 import { createClient } from "./api/client";
 import type { components } from "./api/schema";
@@ -24,6 +25,9 @@ export type AppProps = {
 	/** How what waits is read and refreshed, the service's by default; a test
 	 * passes its own. */
 	waiting?: WaitingApi;
+	/** How an item is merged and sent back, the service's by default; a test
+	 * passes its own. */
+	actions?: ActionsApi;
 	/** The time, in milliseconds since the epoch, the page says how old the
 	 * picture is by; a test passes its own. */
 	now?: () => number;
@@ -52,7 +56,22 @@ const waitingApi: WaitingApi = {
 	},
 };
 
-/** Dev flow's page, with React Query for what it reads. */
+/** Merging and sending back, through Dev flow's API, as the caller. */
+const actionsApi: ActionsApi = {
+	merge: async (id, headCommit) => {
+		await client.send("POST", `/waiting/${encodeURIComponent(id)}/merge`, {
+			head_commit: headCommit,
+		});
+	},
+	sendBack: async (id, comment) => {
+		await client.send("POST", `/waiting/${encodeURIComponent(id)}/send-back`, {
+			comment,
+		});
+	},
+};
+
+/** Dev flow's page, with React Query for what it reads and the toasts its
+ * actions report in. */
 export function App(props: AppProps = {}) {
 	// One per page, so a test's page starts with nothing cached. A failure is
 	// shown at once rather than after three retries, as review's page does.
@@ -61,7 +80,9 @@ export function App(props: AppProps = {}) {
 	);
 	return (
 		<QueryClientProvider client={queries}>
-			<Frame {...props} />
+			<ToastProvider>
+				<Frame {...props} />
+			</ToastProvider>
 		</QueryClientProvider>
 	);
 }
@@ -74,6 +95,7 @@ function Frame({
 	loadStatus = readStatus,
 	projects = projectsApi,
 	waiting = waitingApi,
+	actions = actionsApi,
 	now = Date.now,
 }: AppProps) {
 	const current = sectionAt(usePathname());
@@ -123,6 +145,8 @@ function Frame({
 								refresh={waiting.refresh}
 								reload={listed.refetch}
 								now={now}
+								link={status?.github.state}
+								actions={actions}
 							/>
 						) : section.key === "projects" ? (
 							<>

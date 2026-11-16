@@ -138,6 +138,14 @@ public sealed partial class FakeCodeHost
         return 0;
     });
 
+    /// <summary>Ends both of the account's tokens now, as revoking the app on GitHub does: neither
+    /// works, and a renewal is refused, for a test of a link that has expired.</summary>
+    public void RevokeTokens(Guid userId) => Of(userId, signIns =>
+    {
+        signIns.Current = null;
+        return 0;
+    });
+
     /// <summary>A new pair for the account's user as the world names them now, replacing any
     /// before it. Called under the account's lock.</summary>
     private UserTokenPair Issue(Guid userId, SignIns signIns)
