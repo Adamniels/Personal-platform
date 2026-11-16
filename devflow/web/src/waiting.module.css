@@ -1,0 +1,241 @@
+/* The "Waiting for you" tab. Tokens only, design/DESIGN.md. */
+
+/* The groups, a section gap apart, in one column. */
+.list {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-6);
+}
+
+/* A group: its heading over its cards, a card gap apart. */
+.group {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-4);
+	min-width: 0;
+}
+
+/* A section heading, hard rule 12: the heading font, in capitals, small,
+ * with its count in the mono font beside it. Two classes, to outrank
+ * page.css's h2 at no specificity either way. */
+.group .heading {
+	display: flex;
+	align-items: baseline;
+	gap: var(--space-2);
+	margin: 0;
+	color: var(--text-2);
+	font-family: var(--font-heading);
+	font-size: var(--text-small-size);
+	line-height: var(--text-small-line);
+	font-weight: 600;
+	text-transform: uppercase;
+}
+
+.count {
+	color: var(--text-3);
+	font-family: var(--font-mono);
+	font-size: var(--text-mono-size);
+	line-height: var(--text-mono-line);
+	font-variant-numeric: tabular-nums;
+}
+
+/* Sent back: the runner has it, so its cards drop their surface and their
+ * text steps back. Status keeps its word, so nothing rests on colour. */
+.muted .item {
+	background: transparent;
+	color: var(--text-2);
+}
+
+/* The card's own column, a step tighter than between its header and body. */
+.body {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-3);
+	min-width: 0;
+}
+
+/* The project and the number, hard rule 8: the mono font. A repository's
+ * name has no spaces, so it may break anywhere rather than overflow. */
+.where {
+	margin: 0;
+	color: var(--text-3);
+	font-family: var(--font-mono);
+	font-size: var(--text-mono-size);
+	line-height: var(--text-mono-line);
+	font-variant-numeric: tabular-nums;
+	overflow-wrap: anywhere;
+}
+
+.summary {
+	margin: 0;
+	overflow-wrap: anywhere;
+}
+
+/* A labelled part of the card: what the agent decided, the reviewer, why it
+ * waits. Its label in caption style over its text. */
+.block {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-1);
+	min-width: 0;
+}
+
+.label {
+	margin: 0;
+	color: var(--text-2);
+	font-family: var(--font-ui);
+	font-size: var(--text-caption-size);
+	line-height: var(--text-caption-line);
+	font-weight: 600;
+	text-transform: none;
+}
+
+.text {
+	margin: 0;
+	overflow-wrap: anywhere;
+}
+
+/* The row of actions, which wraps on a phone. */
+.actions {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-2);
+}
+
+/* A link that looks like the ghost button of "Button" in section 4, since it
+ * opens an address rather than doing something. */
+.open {
+	display: inline-flex;
+	align-items: center;
+	box-sizing: border-box;
+	min-height: var(--control-h);
+	padding: 0 14px;
+	border-radius: var(--radius-full);
+	color: var(--text-2);
+	font-size: var(--text-body-size);
+	line-height: var(--text-body-line);
+	font-weight: 500;
+	text-decoration: none;
+}
+
+.open:hover {
+	background: var(--surface-2);
+}
+
+.open:focus-visible {
+	outline: var(--focus-ring);
+	outline-offset: var(--focus-offset);
+}
+
+/* The decisions, each on an inset of its own, hard rule 3: a row that holds
+ * more than a label and a value sits on --surface-2. */
+.decisions {
+	display: flex;
+	flex-direction: column;
+	gap: var(--inset-gap);
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.decision {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-1);
+	min-width: 0;
+	padding: var(--space-2) var(--space-3);
+	border-radius: var(--radius-md);
+	background: var(--surface-2);
+}
+
+.chosen {
+	margin: 0;
+	font-weight: 600;
+	overflow-wrap: anywhere;
+}
+
+/* "Instead of" and "Because", quieter than what follows them. */
+.prefix {
+	color: var(--text-2);
+	font-weight: 500;
+}
+
+.more {
+	margin: 0;
+	color: var(--text-2);
+	font-size: var(--text-small-size);
+	line-height: var(--text-small-line);
+}
+
+/* The reviewer's points, a plain list. */
+.points {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-1);
+	margin: 0;
+	padding-left: var(--space-5);
+}
+
+/* The age of the picture on the left, Refresh on the right; on a phone the
+ * button wraps under the lines. */
+.age {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--space-3);
+}
+
+.age > :first-child {
+	flex: 1 1 280px;
+	min-width: 0;
+}
+
+.updated {
+	margin: 0;
+	color: var(--text-2);
+}
+
+/* What the owner should notice: the needs you banner's soft amber fill,
+ * amber outline and amber text, as the fake mode's strip has. */
+.attention {
+	margin: 0;
+	padding: var(--space-3) var(--space-4);
+	border: 1px solid var(--accent-border);
+	border-radius: var(--radius-md);
+	background: var(--accent-soft);
+	color: var(--accent-text);
+	font-weight: 600;
+	overflow-wrap: anywhere;
+}
+
+/* A line per project, a step apart, so two read as two. */
+.lines {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-1);
+}
+
+.line {
+	margin: 0;
+}
+
+.link {
+	border-radius: var(--radius-sm);
+	color: var(--accent-text);
+	text-decoration: underline;
+}
+
+.link:focus-visible {
+	outline: var(--focus-ring);
+	outline-offset: var(--focus-offset);
+}
+
+/* The list could not be read: the attention text, read as an alert, as the
+ * Projects tab says its own. */
+.error {
+	margin: 0;
+	color: var(--accent-text);
+	font-weight: 600;
+}

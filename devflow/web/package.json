@@ -10,6 +10,7 @@
 	},
 	"dependencies": {
 		"@platform/ui": "file:../../design/ui",
+		"@tanstack/react-query": "5.107.1",
 		"react": "19.3.1",
 		"react-dom": "19.3.1"
 	},

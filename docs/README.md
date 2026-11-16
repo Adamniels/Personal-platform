@@ -110,8 +110,8 @@ features" in `High-level/docs/platform-architecture.md`.
 
 **Dev flow**
 
-- `devflow/README.md` — what Dev flow serves, its page and its two tabs, the schema it pins, how to
-  run it and its tests, its settings, its database and roles, migrating, the door, the vault that
+- `devflow/README.md` — what Dev flow serves, its pages and its two tabs, what Waiting for you
+  shows, the schema it pins, how to run it and its tests, its settings, its database and roles, migrating, the door, the vault that
   seals a user's secrets and its key, the code host's interface, its fake and how a test stages a
   world in it, linking a user's GitHub account and the one way to a token that acts as them,
   connecting a repository with its routes and tables, what waits for the owner, the loop that

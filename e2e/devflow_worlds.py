@@ -110,20 +110,34 @@ def comment(comment_id: int, author: str, body: str, created_at: str = WHEN) -> 
 
 
 def reviewer_comment(
-    comment_id: int, kind: str, sha: str, created_at: str = WHEN
+    comment_id: int,
+    kind: str,
+    sha: str,
+    created_at: str = WHEN,
+    for_the_owner: list[str] | None = None,
 ) -> dict:
     """The reviewer's comment on a pull request, by the bot, with kind approve
-    or changes for the commit sha, as scripts/agent/verdict.sh reads it. Its
-    marker is put together from its parts and never written out whole, since
-    the agents' tooling refuses its text, see contracts/README.md."""
+    or changes for the commit sha, as scripts/agent/verdict.sh reads it, and
+    its points for the owner, none unless given. Its marker is put together
+    from its parts and never written out whole, since the agents' tooling
+    refuses its text, see contracts/README.md."""
     marker = "<!-- " + "verdict" + ": " + kind + " sha=" + sha + " -->"
+    points = (
+        "\n".join(f"- {point}" for point in for_the_owner) if for_the_owner else "None."
+    )
     return comment(
         comment_id,
         "mac-mini-agent",
         f"{marker}\nSlice #272, round 1.\n\n## Blocking\n\nNone.\n\n"
-        "## For the owner\n\nNone.\n\n## Replies\n\nNone.\n",
+        f"## For the owner\n\n{points}\n\n## Replies\n\nNone.\n",
         created_at,
     )
+
+
+def add_conversation(world: dict, number: int, comments: list[dict]) -> None:
+    """Adds the conversation of an issue, such as a slice the runner comments
+    on, to the world's repository."""
+    repository(world)["conversations"].append({"number": number, "comments": comments})
 
 
 def status(context: str, state: str, description: str | None = None) -> dict:
