@@ -9,12 +9,18 @@ test_memory_look.py does, so no value is written here but those DESIGN.md
 gives in pixels: a row's and a button's padding, the pill's height and its
 remove button's."""
 
+import re
 from itertools import pairwise
 
 import pytest
 from playwright.sync_api import Locator, Page, expect
 
-from conftest import open_section, register_and_log_in, sections
+from conftest import VIEWPORTS, open_section, register_and_log_in, sections
+from look import (
+    assert_active_is_inverted,
+    assert_headings_are_capitals,
+    assert_nothing_scrolls_sideways,
+)
 
 THEMES = ["light", "dark"]
 LABEL = "Review sections"
@@ -389,3 +395,79 @@ def test_editing_a_card_does_not_make_the_table_scroll(
     assert frame is not None, "the table has no frame that scrolls"
     scroll_width, client_width = frame
     assert scroll_width <= client_width, f"{scroll_width}px in {client_width}px"
+
+
+def test_the_grade_bar_sits_above_the_tab_bar(
+    page: Page, invite_code: str, base_url: str
+):
+    page.set_viewport_size(VIEWPORTS["phone"])
+    open_review(page, invite_code, base_url)
+    decks = stage(page)
+    page.goto(f"/review/study?deck={decks['Compilers']}")
+    card = page.get_by_role("article", name="Compilers")
+    page.get_by_role("button", name="Show answer").click()
+    expect(card.get_by_text("One token")).to_be_visible()
+
+    again = page.get_by_role("button", name=re.compile(r"^Again · "))
+    bar = again.locator("xpath=..")
+    assert style(bar)["position"] == "fixed"
+    tab_bar = page.locator("platform-nav .links").bounding_box()
+    height = VIEWPORTS["phone"]["height"]
+
+    # Fixed above the tab bar, wherever the page is scrolled, and the card
+    # ends above it even scrolled to the end.
+    for scroll in [
+        "window.scrollTo(0, 0)",
+        "window.scrollTo(0, document.body.scrollHeight)",
+    ]:
+        page.evaluate(scroll)
+        box = bar.bounding_box()
+        bottom = box["y"] + box["height"]
+        assert abs(bottom - tab_bar["y"]) < 0.5, (bottom, tab_bar["y"])
+        assert abs(height - bottom - px(page, "--tab-bar-h")) < 0.5, bottom
+    card_box = card.bounding_box()
+    assert card_box["y"] + card_box["height"] <= bar.bounding_box()["y"] + 0.5
+
+
+def assert_the_look(page: Page, where: str) -> None:
+    # The bar has drawn with the account.
+    expect(page.get_by_role("button", name=re.compile("@"))).to_be_visible()
+    page.evaluate("document.fonts.ready.then(() => null)")
+    for check in (
+        assert_headings_are_capitals,
+        assert_nothing_scrolls_sideways,
+        assert_active_is_inverted,
+    ):
+        try:
+            check(page)
+        except AssertionError as error:
+            raise AssertionError(f"{where}: {error}") from None
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_review_follows_the_look(
+    page: Page, invite_code: str, base_url: str, viewport: str, theme: str
+):
+    open_review(page, invite_code, base_url)
+    page.evaluate(f"localStorage.setItem('{STORAGE_KEY}', '{theme}')")
+    stage(page)
+
+    page.goto("/review")
+    expect(page.locator("html")).to_have_attribute("data-theme", theme)
+    expect(page.get_by_role("heading", name="3 cards due", level=2)).to_be_visible()
+    assert_the_look(page, "/review")
+
+    page.get_by_role("link", name="Start everything").click()
+    expect(page.get_by_text("1 of 3", exact=True)).to_be_visible()
+    assert_the_look(page, "a session's front")
+    page.get_by_role("button", name="Show answer").click()
+    expect(page.get_by_role("button", name=re.compile(r"^Good · "))).to_be_visible()
+    assert_the_look(page, "a session's answer")
+
+    page.goto("/review/cards")
+    expect(page.get_by_role("table", name="Cards").get_by_role("row")).to_have_count(4)
+    assert_the_look(page, "/review/cards")
+
+    page.goto("/review/decks")
+    expect(rows(page.get_by_role("list", name="Decks"))).to_have_count(2)
+    assert_the_look(page, "/review/decks")
