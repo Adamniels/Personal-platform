@@ -154,7 +154,7 @@ public sealed partial class ProjectReader(UserDb database, ICodeHost host, TimeP
                 return ([], HostUnavailable);
             }
 
-            if (RunnerReader.Read(new RunnerInput(pull, comments, statuses, checkRuns, sliceComments, target.Bot, target.OwnerLogin)) is { } item)
+            if (RunnerReader.Read(new RunnerInput(repository, pull, comments, statuses, checkRuns, sliceComments, target.Bot, target.OwnerLogin)) is { } item)
             {
                 items.Add(item);
             }
@@ -221,14 +221,15 @@ public sealed partial class ProjectReader(UserDb database, ICodeHost host, TimeP
         transaction.Connection!.ExecuteAsync(new CommandDefinition(
             """
             INSERT INTO waiting_items (id, user_id, project_id, number, kind, sent_back, title, web_url, slice_number, head_commit,
-                                       can_merge, summary, reason, decisions, other_decisions, reviewer_view, read_at)
+                                       can_merge, summary, reason, decisions, other_decisions, reviewer_view, screenshots, read_at)
             VALUES (@id, @userId, @projectId, @number, @kind, @sentBack, @title, @webUrl, @slice, @headCommit,
-                    @canMerge, @summary, @reason, @decisions::jsonb, @otherDecisions, @reviewerView::jsonb, @now)
+                    @canMerge, @summary, @reason, @decisions::jsonb, @otherDecisions, @reviewerView::jsonb, @screenshots::jsonb, @now)
             ON CONFLICT (project_id, number) DO UPDATE
             SET kind = EXCLUDED.kind, sent_back = EXCLUDED.sent_back, title = EXCLUDED.title, web_url = EXCLUDED.web_url,
                 slice_number = EXCLUDED.slice_number, head_commit = EXCLUDED.head_commit, can_merge = EXCLUDED.can_merge,
                 summary = EXCLUDED.summary, reason = EXCLUDED.reason, decisions = EXCLUDED.decisions,
-                other_decisions = EXCLUDED.other_decisions, reviewer_view = EXCLUDED.reviewer_view, read_at = EXCLUDED.read_at
+                other_decisions = EXCLUDED.other_decisions, reviewer_view = EXCLUDED.reviewer_view,
+                screenshots = EXCLUDED.screenshots, read_at = EXCLUDED.read_at
             """,
             new
             {
@@ -248,6 +249,7 @@ public sealed partial class ProjectReader(UserDb database, ICodeHost host, TimeP
                 decisions = JsonSerializer.Serialize(item.OwnerDecisions, Json),
                 otherDecisions = item.OtherDecisions,
                 reviewerView = JsonSerializer.Serialize(item.ReviewerView, Json),
+                screenshots = JsonSerializer.Serialize(item.Screenshots, Json),
                 now,
             },
             transaction,

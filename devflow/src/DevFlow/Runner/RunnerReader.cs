@@ -79,7 +79,8 @@ public static class RunnerReader
             RunnerReason.From(pull.Number, NotNull(input.SliceComments), comments, bot),
             [.. decisions.Where(decision => decision.IsOwners).Select(decision => decision.Text)],
             decisions.Count(decision => !decision.IsOwners),
-            verdict is null ? [] : PullRequestBody.ReviewerView(verdict.Comment.Body));
+            verdict is null ? [] : PullRequestBody.ReviewerView(verdict.Comment.Body),
+            PullRequestBody.Screenshots(body, input.Repository?.Owner, input.Repository?.Name, pull.Number));
     }
 
     /// <summary>The slice a pull request body closes, from the <c>Closes #&lt;n&gt;</c> line of its

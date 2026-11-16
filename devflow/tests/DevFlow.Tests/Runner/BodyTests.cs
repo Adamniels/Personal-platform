@@ -1,3 +1,6 @@
+using System.Text.Json.Nodes;
+
+using DevFlow.CodeHost;
 using DevFlow.Runner;
 
 namespace DevFlow.Tests.Runner;
@@ -180,4 +183,116 @@ public sealed class BodyTests
         Assert.Empty(Decisions(""));
         Assert.Single(Decisions("Nothing to say."));
     }
+    /// <summary>An image line as <c>scripts/agent/screenshots.sh</c> prints one, for
+    /// <paramref name="address"/>.</summary>
+    private static string Image(string name, string address) => $"![{name}]({address})";
+
+    private const string Shots = "https://github.com/Adamniels/Personal-platform/blob/pr-screenshots";
+
+    [Fact]
+    public void TheScreenshotsNamedInTheBodyAreRead()
+    {
+        // Pull request 305's body as GitHub answered it, recorded in contracts/github/pull.json: a
+        // before and an after pair of the shell, and a pair of the banner.
+        var recorded = JsonNode.Parse(File.ReadAllText(Tests.Repository.Path("contracts", "github", "pull.json")))!;
+        var body = (string)recorded["body"]!;
+
+        var names = PullRequestBody.Screenshots(body, "Adamniels", "Personal-platform", 305);
+
+        Assert.Equal(
+            [
+                "devflow-shell-desktop-before", "devflow-shell-phone-before",
+                "devflow-shell-desktop", "devflow-shell-phone",
+                "devflow-fake-banner-desktop", "devflow-fake-banner-phone",
+            ],
+            names);
+
+        // Paired by the part before -desktop and -phone, in the order each pair first appears,
+        // desktop first; a before pair is a pair of its own.
+        Assert.Equal(
+            ["devflow-shell-before: devflow-shell-desktop-before devflow-shell-phone-before", "devflow-shell: devflow-shell-desktop devflow-shell-phone", "devflow-fake-banner: devflow-fake-banner-desktop devflow-fake-banner-phone"],
+            Screenshots.Group(names).Select(Describe));
+
+        // Each name once, however often the body shows it; a name with one of the two is a pair
+        // of one; a name with neither is its own; phone written first is still shown second.
+        var again = string.Join('\n',
+            Image("a-phone", $"{Shots}/42/a-phone.png?raw=true"),
+            Image("a-desktop", $"{Shots}/42/a-desktop.png?raw=true"),
+            Image("a-desktop again", $"{Shots}/42/a-desktop.png?raw=true"),
+            Image("b-desktop", $"{Shots}/42/b-desktop.png?raw=true"),
+            Image("diagram", $"{Shots}/42/diagram.png?raw=true"),
+            Image("c-phone", $"{Shots}/42/c-phone.png?raw=true"));
+        var read = PullRequestBody.Screenshots(again, "Adamniels", "Personal-platform", 42);
+        Assert.Equal(["a-phone", "a-desktop", "b-desktop", "diagram", "c-phone"], read);
+        Assert.Equal(["a: a-desktop a-phone", "b: b-desktop", "diagram: diagram", "c: c-phone"], Screenshots.Group(read).Select(Describe));
+
+        // Through the reader: the item carries the names, in the body's order.
+        var world = new World();
+        var item = (world with { Pull = world.Pull with { Body = World.Body + "\n" + again } }).Read();
+        Assert.NotNull(item);
+        Assert.Equal(["a-phone", "a-desktop", "b-desktop", "diagram", "c-phone"], item.Screenshots);
+        Assert.Empty(world.Read()!.Screenshots);
+    }
+
+    [Fact]
+    public void OnlyThisPullRequestsOwnScreenshotsCount()
+    {
+        var body = string.Join('\n',
+            "## Verification",
+            "",
+            Image("kept-desktop", $"{Shots}/42/kept-desktop.png?raw=true"),
+            // Another repository, another owner, the owner or name in another case.
+            Image("x", "https://github.com/Adamniels/other-repository/blob/pr-screenshots/42/x.png?raw=true"),
+            Image("x", "https://github.com/someone/Personal-platform/blob/pr-screenshots/42/x.png?raw=true"),
+            Image("x", "https://github.com/adamniels/personal-platform/blob/pr-screenshots/42/x.png?raw=true"),
+            Image("x", "https://github.com.evil.test/Adamniels/Personal-platform/blob/pr-screenshots/42/x.png?raw=true"),
+            Image("x", "http://github.com/Adamniels/Personal-platform/blob/pr-screenshots/42/x.png?raw=true"),
+            // Another branch.
+            Image("x", "https://github.com/Adamniels/Personal-platform/blob/main/42/x.png?raw=true"),
+            Image("x", "https://github.com/Adamniels/Personal-platform/blob/pr-screenshots-2/42/x.png?raw=true"),
+            // Another pull request's folder, or none.
+            Image("x", $"{Shots}/41/x.png?raw=true"),
+            Image("x", $"{Shots}/420/x.png?raw=true"),
+            Image("x", $"{Shots}/x.png?raw=true"),
+            // A path that climbs, or goes deeper.
+            Image("x", $"{Shots}/42/../41/x.png?raw=true"),
+            Image("x", $"{Shots}/42/%2e%2e/x.png?raw=true"),
+            Image("x", $"{Shots}/42/..png?raw=true"),
+            Image("x", $"{Shots}/42/deeper/x.png?raw=true"),
+            // A name with anything but lowercase letters, digits and hyphens, or none.
+            Image("x", $"{Shots}/42/Upper-desktop.png?raw=true"),
+            Image("x", $"{Shots}/42/under_score.png?raw=true"),
+            Image("x", $"{Shots}/42/dot.ted.png?raw=true"),
+            Image("x", $"{Shots}/42/sp%20ace.png?raw=true"),
+            Image("x", $"{Shots}/42/caf\u00e9.png?raw=true"),
+            Image("x", $"{Shots}/42/.png?raw=true"),
+            // Not exactly the address: another ending, a query or fragment more, or not a png.
+            Image("x", $"{Shots}/42/x.png"),
+            Image("x", $"{Shots}/42/x.png?raw=true&y=1"),
+            Image("x", $"{Shots}/42/x.png?raw=true#y"),
+            Image("x", $"{Shots}/42/x.jpg?raw=true"),
+            // A link and not an image, and an image inside a fenced block.
+            $"[x]({Shots}/42/link-desktop.png?raw=true)",
+            "```",
+            Image("x", $"{Shots}/42/fenced-desktop.png?raw=true"),
+            "```");
+
+        Assert.Equal(["kept-desktop"], PullRequestBody.Screenshots(body, "Adamniels", "Personal-platform", 42));
+        // The same body read for pull request 41, or for the other repository, finds theirs.
+        Assert.Equal(["x"], PullRequestBody.Screenshots(body, "Adamniels", "Personal-platform", 41));
+        Assert.Equal(["x"], PullRequestBody.Screenshots(body, "Adamniels", "other-repository", 42));
+        Assert.Empty(PullRequestBody.Screenshots(body, "Adamniels", "another", 42));
+        Assert.Empty(PullRequestBody.Screenshots("", "Adamniels", "Personal-platform", 42));
+        Assert.Empty(PullRequestBody.Screenshots(null, "Adamniels", "Personal-platform", 42));
+
+        // The reader reads them for the pull request's own repository and number only, and none
+        // when it is not told the repository.
+        var world = new World();
+        var other = world with { Pull = world.Pull with { Body = body } };
+        Assert.Equal(["kept-desktop"], other.Read()!.Screenshots);
+        Assert.Equal(["x"], (other with { Repository = new CodeHost.Repository(41, 9002, "Adamniels", "other-repository") }).Read()!.Screenshots);
+        Assert.Empty(RunnerReader.Read(other.Input with { Repository = null! })!.Screenshots);
+    }
+
+    private static string Describe(ScreenshotGroup group) => $"{group.Name}: {string.Join(' ', group.Images)}";
 }

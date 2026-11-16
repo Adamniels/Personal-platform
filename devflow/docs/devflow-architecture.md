@@ -180,8 +180,8 @@ below; why the table is safe is in the section after it.
 
 The first part's list of what waits for the owner is read from this repository's runner,
 `scripts/agent/`, which records everything on GitHub. The one piece that knows its conventions is
-`RunnerReader.Read`, in `src/DevFlow/Runner/`: given one pull request, its comments, its head
-commit's statuses and check runs, the comments on its slice issue, the bot's login and the owner's,
+`RunnerReader.Read`, in `src/DevFlow/Runner/`: given one pull request, the repository it is in,
+its comments, its head commit's statuses and check runs, the comments on its slice issue, the bot's login and the owner's,
 it answers an item when the pull request is the owner's turn, and nothing otherwise. It is pure:
 no database, no network, no clock, and it never throws for what it reads, so a field it cannot
 understand becomes text or is left out. Fetching what it reads, and keeping the list, belong to
@@ -204,6 +204,18 @@ It knows these conventions, each defined where the runner keeps it:
   the alternative and why. One is the owner's when it carries a bold mark starting
   `**owner-decision`, in each form the agents have written it, `**owner-decision**`,
   `**owner-decision.**` and `**owner-decision: what was decided**`.
+- **The screenshots**, as `scripts/agent/screenshots.sh` publishes them: committed to the orphan
+  branch `pr-screenshots` under `<number>/<name>.png`, and embedded in the body as
+  `![<name>](https://github.com/<owner>/<repository>/blob/pr-screenshots/<number>/<name>.png?raw=true)`,
+  with names from `capture()` in `e2e/conftest.py`, ending in `-desktop` or `-phone`, and the
+  pick-up skill's before shots, ending in `-desktop-before` or `-phone-before`. A screenshot is
+  every Markdown image outside a fenced block whose address is exactly that, for the reader's own
+  repository and the pull request's own number, with a name of lowercase letters, digits and
+  hyphens only; anything else is left out, silently. The item keeps the names, each once, in the
+  body's order. The address itself is never used: those addresses need a GitHub session, so a page
+  cannot show them, and Dev flow reads the file as the app instead, see "A code host's bytes handed
+  to the browser" under the security decisions. `Screenshots.Group` pairs the names for the page by
+  the part before their last `-desktop` or `-phone`, so a before pair is a pair of its own.
 - **The reason**, from the runner's mentions in `run.sh`: a handover on the slice issue, with the
   merge gate's reason lines in parentheses, each made a sentence, the review rounds used up, or a
   Blocked notice on the pull request. Its tests hold the reader to the reason lines
@@ -325,6 +337,24 @@ its reason, or a risk accepted on purpose; each slice adds the ones it builds.
   link only when it parses as an `https` URL, so no other scheme, `javascript:` among them, can
   run in the page, and it opens with `rel="noreferrer"`, so the page it opens can neither reach
   back into Dev flow's window nor learn its address.
+- **A code host's bytes handed to the browser.** The item's screenshots are the one place Dev
+  flow hands the browser bytes that came from a code host, rather than text it shows as text. The
+  addresses the pull request body embeds need a GitHub session, so the page cannot show them, and
+  Dev flow reads the files as the app, through `ICodeHost.File`, when the page asks,
+  `GET /devflow/api/waiting/{id}/screenshots/{name}`, see "What waits" in `devflow/README.md`. So:
+  the name can only be one the reader already accepted, of lowercase letters, digits and hyphens,
+  for the pull request's own repository and number, and a name the item does not list is refused
+  before the code host is asked; the path, `<number>/<name>.png` on `pr-screenshots`, is built by
+  the server, so a body cannot point the read anywhere else; the content type is fixed,
+  `image/png`, and never taken from the host; the bytes are checked to begin with the PNG
+  signature and to be at most 5 MB; and every answer carries `X-Content-Type-Options: nosniff`
+  and `Content-Security-Policy: default-src 'none'`, so a file that is something else cannot be
+  sniffed as HTML or script, nor run anything if it is opened on its own. The browser keeps a
+  screenshot for an hour, `private`, so no shared cache does. The address in the body is never
+  fetched, shown or made a link. Accepted: the GitHub adapter reads a file's whole answer into
+  memory before the route can refuse one over 5 MB, so a large file on `pr-screenshots` costs a
+  read of it; the branch is written only by the runner's `screenshots.sh`, and GitHub's contents
+  API answers files up to 100 MB.
 - **The program asks GitHub for changes; there is no webhook.** The platform is not reachable from
   the internet, by design, so nothing outside can call it, and opening it to receive webhooks would
   add an exposed endpoint for a convenience polling gives without one. When it is reachable, a

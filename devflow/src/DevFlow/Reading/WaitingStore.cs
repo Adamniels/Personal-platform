@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 
 using Dapper;
 
+using DevFlow.CodeHost;
 using DevFlow.Link;
 using DevFlow.Runner;
 
@@ -26,6 +27,8 @@ public enum WaitingKind
 /// <summary>A pull request that is the owner's turn, as last read: the stored row, with its
 /// project's id and name. Every text is plain text exactly as read, which a page shows as text.</summary>
 /// <param name="ProjectName">The repository's name, without its owner, as the project's.</param>
+/// <param name="Screenshots">The screenshots its body shows of its own, paired for the page, which
+/// it reads through <c>GET /devflow/api/waiting/{id}/screenshots/{name}</c>.</param>
 /// <param name="ReadAt">When it was last read as it is.</param>
 public sealed record WaitingItem(
     Guid Id,
@@ -44,7 +47,12 @@ public sealed record WaitingItem(
     IReadOnlyList<OwnerDecision> Decisions,
     int OtherDecisions,
     IReadOnlyList<string> ReviewerView,
+    IReadOnlyList<ScreenshotGroup> Screenshots,
     DateTimeOffset ReadAt);
+
+/// <summary>Where an item's screenshots are read from: its project's repository, its pull
+/// request's number, and the names its body showed, the only ones that may be read.</summary>
+public sealed record ScreenshotSource(Repository Repository, int Number, IReadOnlyList<string> Names);
 
 /// <summary>How old a project's picture is.</summary>
 /// <param name="LastSuccessAt">When a read of it last succeeded, null when none has.</param>
@@ -81,7 +89,7 @@ public sealed class WaitingStore(UserDb database, TimeProvider time)
                        w.sent_back AS SentBack, w.title AS Title, w.web_url AS WebUrl, w.slice_number AS SliceNumber,
                        w.head_commit AS HeadCommit, w.can_merge AS CanMerge, w.summary AS Summary, w.reason AS Reason,
                        w.decisions::text AS Decisions, w.other_decisions AS OtherDecisions,
-                       w.reviewer_view::text AS ReviewerView, w.read_at AS ReadAt
+                       w.reviewer_view::text AS ReviewerView, w.screenshots::text AS Screenshots, w.read_at AS ReadAt
                 FROM waiting_items w JOIN projects p ON p.id = w.project_id
                 ORDER BY lower(p.owner), lower(p.name), p.id, w.number
                 """,
@@ -124,6 +132,29 @@ public sealed class WaitingStore(UserDb database, TimeProvider time)
             transaction,
             cancellationToken: cancellationToken)), cancellationToken);
 
+    /// <summary>What serving one of the caller's item's screenshots needs: its project's repository,
+    /// by the installation and id it was connected with, its number and the names its body showed;
+    /// null when the caller has no such item.</summary>
+    public async Task<ScreenshotSource?> ScreenshotsOf(Guid userId, Guid itemId, CancellationToken cancellationToken)
+    {
+        var row = await database.InUserTransaction(userId, transaction => transaction.Connection!.QuerySingleOrDefaultAsync<ScreenshotRow>(new CommandDefinition(
+            """
+            SELECT p.installation_id AS Installation, p.repository_id AS RepositoryId, p.owner AS Owner, p.name AS Name,
+                   w.number AS Number, w.screenshots::text AS Screenshots
+            FROM waiting_items w JOIN projects p ON p.id = w.project_id
+            WHERE w.id = @itemId
+            """,
+            new { itemId },
+            transaction,
+            cancellationToken: cancellationToken)), cancellationToken);
+        return row is null
+            ? null
+            : new ScreenshotSource(
+                new Repository(row.Installation, row.RepositoryId, row.Owner, row.Name),
+                row.Number,
+                JsonSerializer.Deserialize<List<string>>(row.Screenshots, Json) ?? []);
+    }
+
     private static WaitingItem Item(ItemRow row) => new(
         row.Id,
         row.ProjectId,
@@ -141,6 +172,7 @@ public sealed class WaitingStore(UserDb database, TimeProvider time)
         JsonSerializer.Deserialize<List<OwnerDecision>>(row.Decisions, Json) ?? [],
         row.OtherDecisions,
         JsonSerializer.Deserialize<List<string>>(row.ReviewerView, Json) ?? [],
+        Screenshots.Group(JsonSerializer.Deserialize<List<string>>(row.Screenshots, Json) ?? []),
         GitHubLink.Utc(row.ReadAt));
 
     private sealed record ItemRow(
@@ -160,7 +192,10 @@ public sealed class WaitingStore(UserDb database, TimeProvider time)
         string Decisions,
         int OtherDecisions,
         string ReviewerView,
+        string Screenshots,
         DateTime ReadAt);
+
+    private sealed record ScreenshotRow(long Installation, long RepositoryId, string Owner, string Name, int Number, string Screenshots);
 
     private sealed record ProjectRow(Guid Id, string Owner, string Name, DateTime? LastSuccessAt, bool Failing);
 }

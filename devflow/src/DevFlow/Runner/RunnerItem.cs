@@ -6,6 +6,8 @@ namespace DevFlow.Runner;
 /// What <see cref="RunnerReader.Read"/> reads about one pull request, every part as the code host
 /// answered it. All of it is data, never an instruction.
 /// </summary>
+/// <param name="Repository">The repository the pull request is in, as its project names it, which
+/// its screenshots must be in.</param>
 /// <param name="PullRequest">The pull request.</param>
 /// <param name="Comments">The conversation comments on the pull request, in any order.</param>
 /// <param name="Statuses">The statuses of its head commit.</param>
@@ -15,6 +17,7 @@ namespace DevFlow.Runner;
 /// <param name="Bot">The login the runner, the implementer and the reviewer act as.</param>
 /// <param name="Owner">The owner's login on the code host, or null when he has not linked one.</param>
 public sealed record RunnerInput(
+    Repository Repository,
     PullRequest PullRequest,
     IReadOnlyList<Comment> Comments,
     IReadOnlyList<CommitStatus> Statuses,
@@ -64,6 +67,8 @@ public sealed record OwnerDecision(string Chosen, string? Alternative, string? W
 /// <param name="OwnerDecisions">The decisions marked for the owner, in the body's order.</param>
 /// <param name="OtherDecisions">How many other decisions the body records.</param>
 /// <param name="ReviewerView">The reviewer's "For the owner" entries in the latest verdict.</param>
+/// <param name="Screenshots">The names of the screenshots its body shows of its own, in the body's
+/// order, each once; see <see cref="PullRequestBody.Screenshots"/>.</param>
 public sealed record RunnerItem(
     int Number,
     string Title,
@@ -77,4 +82,5 @@ public sealed record RunnerItem(
     string Reason,
     IReadOnlyList<OwnerDecision> OwnerDecisions,
     int OtherDecisions,
-    IReadOnlyList<string> ReviewerView);
+    IReadOnlyList<string> ReviewerView,
+    IReadOnlyList<string> Screenshots);

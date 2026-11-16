@@ -9,6 +9,7 @@ import { type ActionsApi, ItemActions, type LinkState } from "./actions";
 import { navigate } from "./address";
 import type { GetAnswer } from "./api/client";
 import { Inline } from "./format";
+import { Screenshots } from "./screenshots";
 import styles from "./waiting.module.css";
 
 export type WaitingList = GetAnswer<"/waiting">;
@@ -308,7 +309,7 @@ function GroupSection({
 
 /** One item: the card's header holds its title and its status, the line
  * under it the project and the number, then what the owner needs to judge
- * it, then its actions, before Open on GitHub. */
+ * it, its screenshots last, then its actions, before Open on GitHub. */
 function Item({
 	item,
 	project,
@@ -366,6 +367,7 @@ function Item({
 				{item.kind === "waiting" && item.reviewer_view.length > 0 ? (
 					<Reviewer points={item.reviewer_view} />
 				) : null}
+				<Screenshots item={item.id} groups={item.screenshots} />
 			</div>
 		</Card>
 	);

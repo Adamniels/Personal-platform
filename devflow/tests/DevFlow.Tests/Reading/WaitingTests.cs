@@ -20,7 +20,16 @@ public sealed class WaitingTests
 
     private static readonly JsonSerializerOptions Snake = new() { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower };
 
-    private static readonly World Waiting = new();
+    /// <summary>The runner's waiting pull request, 42, its body showing a pair of screenshots, the
+    /// phone one first, and a before shot.</summary>
+    private static readonly World Waiting = new World() with
+    {
+        Pull = new World().Pull with
+        {
+            Body = World.Body + "\n\n" + string.Join('\n', new[] { "item-phone", "item-desktop-before", "item-desktop" }.Select(name =>
+                $"![{name}](https://github.com/Adamniels/Personal-platform/blob/pr-screenshots/42/{name}.png?raw=true)")),
+        },
+    };
 
     /// <summary>A stopped one, 43, which the runner gave up on.</summary>
     private static readonly World Stopped = new World
@@ -80,6 +89,9 @@ public sealed class WaitingTests
                 ["decisions"] = JsonSerializer.SerializeToNode(item.OwnerDecisions, Snake),
                 ["other_decisions"] = item.OtherDecisions,
                 ["reviewer_view"] = JsonSerializer.SerializeToNode(item.ReviewerView, Snake),
+                ["screenshots"] = new JsonArray(
+                    new JsonObject { ["name"] = "item", ["images"] = new JsonArray("item-desktop", "item-phone") },
+                    new JsonObject { ["name"] = "item-before", ["images"] = new JsonArray("item-desktop-before") }),
                 ["read_at"] = At(readAt),
             }),
             ["projects"] = new JsonArray(new JsonObject

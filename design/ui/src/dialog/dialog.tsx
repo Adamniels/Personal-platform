@@ -17,6 +17,27 @@ const TABBABLE =
 
 export type DialogKind = Extract<ButtonKind, "primary" | "destructive">;
 
+/** A dialog that asks for an action: Cancel, then the confirming button. */
+type Confirming = {
+	/** The confirming button, which repeats the title's verb: "Delete
+	 * entries". */
+	confirmLabel: string;
+	/** The confirming button's kind: primary (the default) or destructive. */
+	kind?: DialogKind;
+	/** Called when the confirming button is pressed. It may return a promise:
+	 * while that is pending the button is disabled, so a second press does
+	 * nothing. Any other return value is ignored. */
+	onConfirm: () => unknown;
+};
+
+/** A dialog that only shows something, such as an image: one Close button,
+ * which reports cancel, and nothing to confirm. */
+type Showing = {
+	confirmLabel?: undefined;
+	kind?: undefined;
+	onConfirm?: undefined;
+};
+
 export type DialogProps = Omit<
 	ComponentProps<"dialog">,
 	| "open"
@@ -32,24 +53,19 @@ export type DialogProps = Omit<
 	/** Whether it is shown. The caller owns it, and closes the dialog on
 	 * either report. */
 	open: boolean;
-	/** The h2, the action stated as a question: "Delete 3 entries?". */
+	/** The h2: the action stated as a question, "Delete 3 entries?", or
+	 * for a dialog that only shows something, the name of what it shows. */
 	title: string;
-	/** The body: what happens, and what cannot be undone. */
+	/** The body: what happens, and what cannot be undone; or what it shows. */
 	children?: ReactNode;
-	/** The confirming button, which repeats the title's verb: "Delete
-	 * entries". */
-	confirmLabel: string;
-	/** The confirming button's kind: primary (the default) or destructive. */
-	kind?: DialogKind;
-	/** Called when the confirming button is pressed. It may return a promise:
-	 * while that is pending the button is disabled, so a second press does
-	 * nothing. Any other return value is ignored. */
-	onConfirm: () => unknown;
-	/** Called on the cancel button, Escape, and a click on the backdrop. */
+	/** Called on the cancel or Close button, Escape, and a click on the
+	 * backdrop. */
 	onCancel: () => void;
-};
+} & (Confirming | Showing);
 
-/** "Dialog" in section 4 of design/DESIGN.md, on the native dialog element:
+/** "Dialog" in section 4 of design/DESIGN.md, on the native dialog element.
+ * It asks for an action, with Cancel and a confirming button, or, without
+ * confirmLabel and onConfirm, only shows something, with one Close button:
  * showModal gives the top layer, the backdrop and Escape, and makes the page
  * behind it inert; Tab wraps at its ends, so focus stays inside. Below 640px it is a sheet at the
  * bottom. Focus returns to what had it when the dialog opened. */
@@ -84,7 +100,7 @@ export function Dialog({
 	}, [open]);
 
 	function confirm() {
-		if (confirming.current) return;
+		if (confirming.current || onConfirm === undefined) return;
 		confirming.current = true;
 		setPending(true);
 		let work: Promise<unknown>;
@@ -163,10 +179,16 @@ export function Dialog({
 					<div className={styles.body}>{children}</div>
 				)}
 				<div className={styles.actions}>
-					<Button onClick={onCancel}>Cancel</Button>
-					<Button kind={kind} disabled={pending} onClick={confirm}>
-						{confirmLabel}
-					</Button>
+					{confirmLabel === undefined ? (
+						<Button onClick={onCancel}>Close</Button>
+					) : (
+						<>
+							<Button onClick={onCancel}>Cancel</Button>
+							<Button kind={kind} disabled={pending} onClick={confirm}>
+								{confirmLabel}
+							</Button>
+						</>
+					)}
 				</div>
 			</div>
 		</dialog>

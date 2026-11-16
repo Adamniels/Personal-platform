@@ -80,7 +80,10 @@ internal sealed record World
 
     public string? OwnerLogin { get; init; } = Owner;
 
-    public RunnerInput Input => new(Pull, Comments, Statuses, CheckRuns, SliceComments, Bot, OwnerLogin);
+    /// <summary>The repository the pull request is in, as its project names it.</summary>
+    public CodeHost.Repository Repository { get; init; } = new(41, 9001, "Adamniels", "Personal-platform");
+
+    public RunnerInput Input => new(Repository, Pull, Comments, Statuses, CheckRuns, SliceComments, Bot, OwnerLogin);
 
     public RunnerItem? Read() => RunnerReader.Read(Input);
 

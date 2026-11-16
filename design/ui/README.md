@@ -152,6 +152,9 @@ included, and each follows its entry in section 4 of `DESIGN.md`.
   rejection is the caller's to handle. Tab wraps at the dialog's ends, since a browser would
   otherwise let it leave for its own interface, and focus returns to what had it when the dialog
   opened. Below 640px it is a sheet at the bottom, the full width of the screen.
+  Without `confirmLabel` and `onConfirm`, and so without `kind`, it only shows something, such as
+  an image: its `title` names what it shows, and its one button is a secondary "Close", which
+  calls `onCancel` as Cancel does.
 - `ToastProvider` and `useToast`: **a page wraps itself in `ToastProvider` once**, and anything
   inside it calls `useToast()`, which throws without one. It gives `success(text, action?)` and
   `error(text, action?)`, where an action is `{ label, onAction }`, one text action such as Undo

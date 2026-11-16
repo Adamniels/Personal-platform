@@ -138,7 +138,7 @@ internal sealed class Reading : IAsyncDisposable
             SELECT id AS Id, user_id AS UserId, number AS Number, kind AS Kind, sent_back AS SentBack, title AS Title,
                    web_url AS WebUrl, slice_number AS SliceNumber, head_commit AS HeadCommit, can_merge AS CanMerge,
                    summary AS Summary, reason AS Reason, decisions::text AS Decisions, other_decisions AS OtherDecisions,
-                   reviewer_view::text AS ReviewerView, read_at AS ReadAt
+                   reviewer_view::text AS ReviewerView, screenshots::text AS Screenshots, read_at AS ReadAt
             FROM waiting_items WHERE project_id = @project ORDER BY number
             """,
             new { project },
@@ -201,6 +201,7 @@ internal sealed class Reading : IAsyncDisposable
         string Decisions,
         int OtherDecisions,
         string ReviewerView,
+        string Screenshots,
         DateTime ReadAt);
 
     internal sealed record ReadRow(Guid UserId, DateTime LastAttemptAt, DateTime? LastSuccessAt, string? LastError);
@@ -290,7 +291,7 @@ internal sealed class CountingCodeHost(ICodeHost inner) : ICodeHost
 
     public Task<CodeHostResult<byte[]>> File(Guid userId, CodeHost.Repository repository, string path, string branch, CancellationToken cancellationToken)
     {
-        Record("File", userId, repository, path);
+        Record("File", userId, repository, $"{path} {branch}");
         return inner.File(userId, repository, path, branch, cancellationToken);
     }
 

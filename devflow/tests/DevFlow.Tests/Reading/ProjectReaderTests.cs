@@ -20,8 +20,14 @@ public sealed class ProjectReaderTests
 
     private static readonly JsonSerializerOptions Snake = new() { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower };
 
-    /// <summary>The runner's waiting pull request, 42.</summary>
-    private static readonly World Waiting = new();
+    /// <summary>The runner's waiting pull request, 42, its body showing one screenshot of its own.</summary>
+    private static readonly World Waiting = new World() with
+    {
+        Pull = new World().Pull with
+        {
+            Body = World.Body + "\n\n![item-desktop](https://github.com/Adamniels/Personal-platform/blob/pr-screenshots/42/item-desktop.png?raw=true)\n",
+        },
+    };
 
     /// <summary>A stopped one, 43, with its own head, which the runner gave up on.</summary>
     private static readonly World Stopped = new World
@@ -76,6 +82,7 @@ public sealed class ProjectReaderTests
             Assert.True(JsonNode.DeepEquals(JsonSerializer.SerializeToNode(expected.OwnerDecisions, Snake), JsonNode.Parse(row.Decisions)));
             Assert.Equal(expected.OtherDecisions, row.OtherDecisions);
             Assert.True(JsonNode.DeepEquals(JsonSerializer.SerializeToNode(expected.ReviewerView, Snake), JsonNode.Parse(row.ReviewerView)));
+            Assert.True(JsonNode.DeepEquals(JsonSerializer.SerializeToNode(expected.Screenshots, Snake), JsonNode.Parse(row.Screenshots)));
             Assert.Equal(now.UtcDateTime, row.ReadAt);
         }
 
@@ -84,7 +91,10 @@ public sealed class ProjectReaderTests
         var decision = Assert.Single(JsonNode.Parse(items[0].Decisions)!.AsArray())!.AsObject();
         Assert.Equal(["alternative", "chosen", "why"], decision.Select(pair => pair.Key).Order(StringComparer.Ordinal));
         Assert.Equal(1, items[0].OtherDecisions);
+        Assert.Equal("[\"item-desktop\"]", items[0].Screenshots);
         Assert.Equal(("stopped", false), (items[1].Kind, items[1].CanMerge));
+        // The stopped one's body names pull request 42's screenshot, which is not its own.
+        Assert.Equal("[]", items[1].Screenshots);
 
         var read = await reading.ReadOf(project);
         Assert.Equal(new Reading.ReadRow(Reading.Alice, now.UtcDateTime, now.UtcDateTime, null), read);

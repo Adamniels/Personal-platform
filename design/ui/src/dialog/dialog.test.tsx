@@ -396,3 +396,48 @@ describe("confirming reports once even when pressed twice", () => {
 		expect(document.activeElement).toBe(opener);
 	});
 });
+
+describe("a dialog that only shows something has one Close button", () => {
+	function renderShowing(onCancel = vi.fn()) {
+		render(
+			<Dialog open title="devflow-item-desktop" onCancel={onCancel}>
+				<p>The screenshot.</p>
+			</Dialog>,
+		);
+		return onCancel;
+	}
+
+	it("has Close and nothing to confirm", () => {
+		renderShowing();
+
+		const dialog = within(screen.getByRole("dialog"));
+		expect(
+			dialog.getAllByRole("button").map((button) => button.textContent),
+		).toEqual(["Close"]);
+		expect(
+			dialog.getByRole("heading", { name: "devflow-item-desktop" }),
+		).toBeTruthy();
+		expect(dialog.getByText("The screenshot.")).toBeTruthy();
+	});
+
+	it("reports cancel from Close and on Escape", () => {
+		const onCancel = renderShowing();
+
+		fireEvent.click(screen.getByRole("button", { name: "Close" }));
+		fireEvent(
+			screen.getByRole("dialog"),
+			new Event("cancel", { cancelable: true }),
+		);
+
+		expect(onCancel).toHaveBeenCalledTimes(2);
+	});
+
+	it("draws Close as a secondary button", () => {
+		renderShowing();
+
+		const closeButton = screen.getByRole("button", { name: "Close" });
+		expect(
+			closeButton.classList.contains(buttonStyles.secondary as string),
+		).toBe(true);
+	});
+});

@@ -20,6 +20,11 @@ internal static partial class PullRequestBody
     private const string DecisionsHeading = "## Decisions the agent made";
     private const string ForTheOwnerHeading = "## For the owner";
 
+    /// <summary>The branch <c>scripts/agent/screenshots.sh</c> commits screenshots to, and what an
+    /// address to one ends with.</summary>
+    internal const string ScreenshotBranch = "pr-screenshots";
+    private const string ScreenshotEnd = ".png?raw=true";
+
     /// <summary>How long the summary may be, in characters, the cut included.</summary>
     private const int SummaryLength = 300;
 
@@ -69,6 +74,52 @@ internal static partial class PullRequestBody
             var owners = OwnerMark().IsMatch(entry);
             return new BodyDecision(Split(owners ? WithoutMark(entry) : entry), owners);
         })];
+    }
+
+    /// <summary>
+    /// The names of the screenshots the body shows of this pull request, in the body's order, each
+    /// once: every Markdown image outside a fenced block whose address is exactly
+    /// <c>https://github.com/&lt;owner&gt;/&lt;name&gt;/blob/pr-screenshots/&lt;number&gt;/&lt;shot&gt;.png?raw=true</c>,
+    /// as <c>scripts/agent/screenshots.sh</c> prints one, with <c>&lt;shot&gt;</c> lowercase letters,
+    /// digits and hyphens only. Anything else is not a screenshot and is left out. The address only
+    /// says which names exist; it is never fetched or shown.
+    /// </summary>
+    internal static IReadOnlyList<string> Screenshots(string? body, string? owner, string? name, int number)
+    {
+        if (string.IsNullOrEmpty(body) || string.IsNullOrEmpty(owner) || string.IsNullOrEmpty(name))
+        {
+            return [];
+        }
+
+        var prefix = string.Create(CultureInfo.InvariantCulture, $"https://github.com/{owner}/{name}/blob/{ScreenshotBranch}/{number}/");
+        var names = new List<string>();
+        var fence = new Fence();
+        foreach (var line in body.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n'))
+        {
+            if (fence.Read(line))
+            {
+                continue;
+            }
+
+            foreach (Match image in MarkdownImage().Matches(line))
+            {
+                var address = image.Groups["address"].Value;
+                if (address.Length <= prefix.Length + ScreenshotEnd.Length
+                    || !address.StartsWith(prefix, StringComparison.Ordinal)
+                    || !address.EndsWith(ScreenshotEnd, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                var shot = address[prefix.Length..^ScreenshotEnd.Length];
+                if (ScreenshotName().IsMatch(shot) && !names.Contains(shot, StringComparer.Ordinal))
+                {
+                    names.Add(shot);
+                }
+            }
+        }
+
+        return names;
     }
 
     /// <summary>The entries under <c>## For the owner</c> in a verdict, or none when it says
@@ -255,6 +306,14 @@ internal static partial class PullRequestBody
 
     [GeneratedRegex(@"\ACloses #(?<n>[0-9]+)\z", RegexOptions.CultureInvariant)]
     private static partial Regex ClosesLine();
+
+    // A Markdown image, ![alt](address) or ![alt](address "title"), with the address read up to
+    // the first space or closing parenthesis.
+    [GeneratedRegex(@"!\[[^\]]*\]\((?<address>[^)\s]+)(?:\s+""[^""]*"")?\)", RegexOptions.CultureInvariant)]
+    private static partial Regex MarkdownImage();
+
+    [GeneratedRegex(@"\A[a-z0-9-]+\z", RegexOptions.CultureInvariant)]
+    private static partial Regex ScreenshotName();
 
     [GeneratedRegex(@" Alternatives?: ", RegexOptions.CultureInvariant)]
     private static partial Regex Alternative();
