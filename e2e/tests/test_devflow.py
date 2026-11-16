@@ -2,7 +2,6 @@
 repositories, reached through the proxy under /devflow and opened from the
 nav bar. See devflow/README.md."""
 
-import re
 from pathlib import Path
 
 from playwright.sync_api import Browser, Page, expect
