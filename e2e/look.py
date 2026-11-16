@@ -1,4 +1,4 @@
-"""The look checks: three rules of design/DESIGN.md that hold on every page,
+"""The look checks: rules of design/DESIGN.md that hold on every page,
 as functions a test calls on an open page once it has drawn. Each fails
 naming the elements that break the rule, so a failure says where to look.
 See "The look checks" in README.md.
@@ -127,6 +127,39 @@ ACTIVE = (
 )
 
 
+# Every element marked active, whatever it is, a table row and an option
+# among them: none has a border, an outline or a box shadow in either amber.
+AMBER = (
+    """() => {"""
+    + ELEMENTS
+    + """
+    const ambers = ["--accent", "--accent-border"].map(token => resolve(token, "color"));
+    const sides = ["Top", "Right", "Bottom", "Left"];
+    const offenders = [];
+    for (const element of visible) {
+        const current = element.hasAttribute("aria-current")
+            && element.getAttribute("aria-current") !== "false";
+        const selected = element.getAttribute("aria-selected") === "true";
+        if (!current && !selected) continue;
+        const style = getComputedStyle(element);
+        const marks = [];
+        if (style.outlineStyle !== "none" && parseFloat(style.outlineWidth) > 0
+            && ambers.includes(style.outlineColor)) marks.push("outline");
+        if (sides.some(side =>
+            style[`border${side}Style`] !== "none"
+            && parseFloat(style[`border${side}Width`]) > 0
+            && ambers.includes(style[`border${side}Color`]))) marks.push("border");
+        if (style.boxShadow !== "none"
+            && ambers.some(amber => style.boxShadow.includes(amber))) marks.push("box shadow");
+        if (marks.length > 0) {
+            offenders.push(`${describe(element)}: ${marks.join(", ")} in amber`);
+        }
+    }
+    return offenders;
+}"""
+)
+
+
 def _check(page: Page, script: str, rule: str) -> None:
     offenders = page.evaluate(script)
     assert not offenders, f"{rule}, broken by:\n" + "\n".join(offenders)
@@ -148,3 +181,10 @@ def assert_active_is_inverted(page: Page) -> None:
     """Hard rule 11: what is active is never marked with amber, and an active
     tab or nav item has the --text fill."""
     _check(page, ACTIVE, "active means inverted")
+
+
+def assert_nothing_active_is_amber(page: Page) -> None:
+    """Hard rules 4 and 11: no visible element with aria-current or
+    aria-selected="true" has a border, an outline or a box shadow in --accent
+    or --accent-border, a selected table row or option included."""
+    _check(page, AMBER, "what is active is never marked with amber")
