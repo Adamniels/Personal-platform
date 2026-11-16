@@ -290,6 +290,137 @@ async fn card_values_are_escaped() {
     db.close().await;
 }
 
+// Dev flow's data, as contracts/display/devflow.json has it.
+fn devflow_data(waiting: u32, stopped: u32, projects: u32, stale: bool, relink: bool) -> Value {
+    json!({
+        "waiting": waiting,
+        "stopped": stopped,
+        "projects": projects,
+        "stale": stale,
+        "needs_relink": relink,
+    })
+}
+
+// The front page for Dev flow sending `data`, cut to Dev flow's card, from
+// its opening tag to its end.
+async fn devflow_card(db: &common::TestDb, data: Value) -> String {
+    let (devflow, _) = stub(move || json_response(data.clone())).await;
+    let (addr, token, _) = serve(db, &entry("Dev flow", "/devflow", devflow)).await;
+    let (status, body, _) = front_page(addr, &token).await;
+    assert_eq!(status, 200, "{body}");
+    let start = body
+        .find(r#"<article class="card devflow"#)
+        .unwrap_or_else(|| panic!("no Dev flow card: {body}"));
+    let end = start + body[start..].find("</article>").unwrap();
+    body[start..end].to_string()
+}
+
+const DEVFLOW_HEADER: &str =
+    r#"<header><h2>Dev flow</h2><a class="open" href="/devflow" aria-label="Open Dev flow">"#;
+
+#[tokio::test]
+async fn the_devflow_card_renders_what_waits() {
+    let db = common::TestDb::new().await;
+
+    // Something waits: the waiting and the stopped together, large, the
+    // stopped said apart, the link to them, and the attention outline.
+    let card = devflow_card(&db, devflow_data(2, 1, 1, false, false)).await;
+    assert!(
+        card.starts_with(r#"<article class="card devflow needs-you">"#),
+        "{card}"
+    );
+    assert!(card.contains(DEVFLOW_HEADER), "{card}");
+    assert!(
+        card.contains(
+            r#"<p class="key-fact"><span class="count">3</span> <span class="words">waiting for you</span></p>"#
+        ),
+        "{card}"
+    );
+    assert!(card.contains(r#"<p class="muted">1 stopped</p>"#), "{card}");
+    // The one action, secondary: the page's one primary is review's.
+    assert!(
+        card.contains(r#"<a class="action" href="/devflow">Open what waits</a>"#),
+        "{card}"
+    );
+    for absent in [
+        "Nothing waits",
+        "No project connected yet",
+        "Not updated for a while",
+        "Your GitHub link has expired",
+    ] {
+        assert!(!card.contains(absent), "{absent}: {card}");
+    }
+
+    // Nothing stopped says nothing about it; stopped alone still waits.
+    let card = devflow_card(&db, devflow_data(2, 0, 1, false, false)).await;
+    assert!(card.contains(r#"<span class="count">2</span>"#), "{card}");
+    assert!(!card.contains("stopped"), "{card}");
+    let card = devflow_card(&db, devflow_data(0, 1, 1, false, false)).await;
+    assert!(
+        card.contains(r#"<span class="count">1</span> <span class="words">waiting for you</span>"#),
+        "{card}"
+    );
+    assert!(card.contains(r#"<p class="muted">1 stopped</p>"#), "{card}");
+    assert!(card.contains("needs-you"), "{card}");
+
+    // Nothing waits, with a project: one line, no number, no outline.
+    let card = devflow_card(&db, devflow_data(0, 0, 1, false, false)).await;
+    assert!(
+        card.starts_with(r#"<article class="card devflow">"#),
+        "{card}"
+    );
+    assert!(card.contains(DEVFLOW_HEADER), "{card}");
+    assert!(
+        card.contains(r#"<p class="key-fact">Nothing waits for you</p>"#),
+        "{card}"
+    );
+    assert!(!card.contains(r#"class="count""#), "{card}");
+    assert!(
+        card.contains(r#"<a class="action" href="/devflow">Open Dev flow</a>"#),
+        "{card}"
+    );
+    assert!(!card.contains("No project connected yet"), "{card}");
+
+    // No project: told so, and where to connect one.
+    let card = devflow_card(&db, devflow_data(0, 0, 0, false, false)).await;
+    assert!(
+        card.contains(r#"<p class="key-fact">No project connected yet</p>"#),
+        "{card}"
+    );
+    assert!(
+        card.contains(r#"<a class="action" href="/devflow/projects">Connect a repository</a>"#),
+        "{card}"
+    );
+    assert!(!card.contains("Nothing waits"), "{card}");
+    assert!(!card.contains("needs-you"), "{card}");
+
+    // Stale: one more muted line, and nothing more needs him for it.
+    let card = devflow_card(&db, devflow_data(0, 0, 1, true, false)).await;
+    assert!(
+        card.contains(r#"<p class="muted">Not updated for a while</p>"#),
+        "{card}"
+    );
+    assert!(card.contains("Nothing waits for you"), "{card}");
+    assert!(!card.contains("needs-you"), "{card}");
+
+    // A needed relink: its line, linking to where it is renewed, and the
+    // outline, with nothing else waiting.
+    let card = devflow_card(&db, devflow_data(0, 0, 1, false, true)).await;
+    assert!(
+        card.starts_with(r#"<article class="card devflow needs-you">"#),
+        "{card}"
+    );
+    assert!(
+        card.contains(
+            r#"<p class="relink"><a href="/devflow/projects">Your GitHub link has expired</a></p>"#
+        ),
+        "{card}"
+    );
+    assert!(card.contains("Nothing waits for you"), "{card}");
+
+    db.close().await;
+}
+
 #[tokio::test]
 async fn the_front_page_without_display_features_still_renders() {
     let db = common::TestDb::new().await;

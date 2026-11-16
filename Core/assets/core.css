@@ -272,6 +272,31 @@ input[aria-invalid="true"] {
   color: var(--text-2);
 }
 
+/* A line inside a card that needs the user, such as Dev flow's expired
+   GitHub link: a link in amber text after the status dot, so it is a dot
+   plus words and never colour alone, as the backup line in attention. */
+.card .relink {
+  font-size: var(--text-small-size);
+  line-height: var(--text-small-line);
+  color: var(--accent-text);
+}
+
+.card .relink::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: var(--space-2);
+  border-radius: 50%;
+  background: var(--accent-text);
+  vertical-align: middle;
+}
+
+.card .relink a {
+  color: inherit;
+  font-weight: 500;
+}
+
 /* At most three rows of a label and its value: plain rows 36px high, a
    line under each, the label in secondary text and the value in mono. */
 .card .rows {
