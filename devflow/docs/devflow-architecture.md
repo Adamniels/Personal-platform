@@ -180,8 +180,8 @@ below; why the table is safe is in the section after it.
 
 The first part's list of what waits for the owner is read from this repository's runner,
 `scripts/agent/`, which records everything on GitHub. The one piece that knows its conventions is
-`RunnerReader.Read`, in `src/DevFlow/Runner/`: given one pull request, its comments, its head
-commit's statuses and check runs, the comments on its slice issue, the bot's login and the owner's,
+`RunnerReader.Read`, in `src/DevFlow/Runner/`: given one pull request, the repository it is in,
+its comments, its head commit's statuses and check runs, the comments on its slice issue, the bot's login and the owner's,
 it answers an item when the pull request is the owner's turn, and nothing otherwise. It is pure:
 no database, no network, no clock, and it never throws for what it reads, so a field it cannot
 understand becomes text or is left out. Fetching what it reads, and keeping the list, belong to
@@ -204,6 +204,18 @@ It knows these conventions, each defined where the runner keeps it:
   the alternative and why. One is the owner's when it carries a bold mark starting
   `**owner-decision`, in each form the agents have written it, `**owner-decision**`,
   `**owner-decision.**` and `**owner-decision: what was decided**`.
+- **The screenshots**, as `scripts/agent/screenshots.sh` publishes them: committed to the orphan
+  branch `pr-screenshots` under `<number>/<name>.png`, and embedded in the body as
+  `![<name>](https://github.com/<owner>/<repository>/blob/pr-screenshots/<number>/<name>.png?raw=true)`,
+  with names from `capture()` in `e2e/conftest.py`, ending in `-desktop` or `-phone`, and the
+  pick-up skill's before shots, ending in `-desktop-before` or `-phone-before`. A screenshot is
+  every Markdown image outside a fenced block whose address is exactly that, for the reader's own
+  repository and the pull request's own number, with a name of lowercase letters, digits and
+  hyphens only; anything else is left out, silently. The item keeps the names, each once, in the
+  body's order. The address itself is never used: those addresses need a GitHub session, so a page
+  cannot show them, and Dev flow reads the file as the app instead, see "A code host's bytes handed
+  to the browser" under the security decisions. `Screenshots.Group` pairs the names for the page by
+  the part before their last `-desktop` or `-phone`, so a before pair is a pair of its own.
 - **The reason**, from the runner's mentions in `run.sh`: a handover on the slice issue, with the
   merge gate's reason lines in parentheses, each made a sentence, the review rounds used up, or a
   Blocked notice on the pull request. Its tests hold the reader to the reason lines

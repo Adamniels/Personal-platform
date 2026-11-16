@@ -116,6 +116,7 @@ public sealed class RecordedTests
         var pull = Results.Value(await code.PullRequest(GitHubHost.User, GitHubHost.Platform, number, ct));
         Assert.NotEqual(PullRequestState.Open, pull.State);
         var input = new RunnerInput(
+            GitHubHost.Platform,
             pull with { State = PullRequestState.Open },
             Results.Value(await code.Comments(GitHubHost.User, GitHubHost.Platform, number, ct)),
             Results.Value(await code.Statuses(GitHubHost.User, GitHubHost.Platform, head, ct)),
