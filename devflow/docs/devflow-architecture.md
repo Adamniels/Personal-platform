@@ -40,15 +40,17 @@ authenticates are in `devflow/README.md`. Whether a pull request waits for the o
 read by one pure function that knows this repository's runner, see "Reading this repository's
 runner" below.
 
-Only connecting uses the owner's token yet. Merging and commenting as the owner from the list, and
-everything else the tabs will show, arrive with the later slices of the first part.
+From the list the owner merges a waiting pull request, after a confirmation, or sends one back with
+a comment, both as himself on GitHub, see "Acting from the page" below. Everything else the tabs
+will show arrives with the later slices of the first part.
 
 ## The code host seam
 
 Everything Dev flow asks of a code host goes through `ICodeHost`, in `src/DevFlow/CodeHost/`:
 today the reads the waiting list needs, open pull requests, one pull request, a conversation's
 comments, a commit's statuses and check runs, and a file on a branch, and listing what a person
-can connect, read with their own token; later, merging and commenting. Signing a person in is a second interface beside it,
+can connect, read with their own token; and its two writes, merging and commenting, made only with
+a person's token. Signing a person in is a second interface beside it,
 `ICodeHostSignIn`, since its reads are as the app and signing in is as a person; both
 implementations implement both. It names things as the spec does, so a second
 host can sit behind it, and GitHub is the only one built. Every operation answers its value or one
@@ -75,8 +77,8 @@ his phone, is the first time the two meet for real.
 ## GitHub
 
 Dev flow acts on GitHub as a GitHub App, as the spec's round 3 decided. It reads as the app, and
-signs the owner in so it holds a token that acts as him, see "Acting as the owner" below; writing
-as him comes with a later slice. The adapter,
+signs the owner in so it holds a token that acts as him, see "Acting as the owner" below, and
+writes only with that token, see "Acting from the page" below. The adapter,
 `GitHubCodeHost` in `src/DevFlow/CodeHost/GitHub/`, is written by hand on .NET's `HttpClient`,
 since its calls are few, and no automated test touches GitHub: its tests run against GitHub's real
 answers, recorded once in `contracts/github/`. Its addresses and settings are in
@@ -234,8 +236,8 @@ request, free when nothing changed, see "Reading cheaply" under "GitHub" above, 
 reads stay small.
 
 **One seam asks for a read**, `ProjectRefresher.Request`: the loop for every project on each
-tick, the refresh route when the owner wants it now, later slices after they act on a pull request,
-and GitHub's webhook once the platform is reachable from the internet, which the owner wants then.
+tick, the refresh route when the owner wants it now, merging and sending back after they act on a
+pull request, and GitHub's webhook once the platform is reachable from the internet, which the owner wants then.
 A project is read by one reader at a time, and a request made during a read waits for it and then
 for one more read, since what changed may have come after the first began; every request during
 the same read shares that one, so a burst of them costs one read.
@@ -257,6 +259,40 @@ which is data.
 **One project never stops another**, anti goal 7 of the spec: each read has its own `try`, inside
 the reader and again inside the refresher, so a project whose read throws is recorded as failing
 and the loop goes on to the next, and the next tick tries it again.
+
+## Acting from the page
+
+From the waiting list the owner merges a pull request or sends it back with a comment, and GitHub
+records both as done by him, so the runner picks his comment up as it does one written on GitHub,
+and he needs neither a terminal nor GitHub's own page for it. This is the only code in the first
+part that writes to a code host. The routes, their refusals and the page are "Acting from the
+page" and "The pages" in `devflow/README.md`.
+
+**Only as the owner, by construction.** Both writes are made with his linked account's token from
+`UserTokens.For`, so they are recorded on GitHub as his, and the runner, which starts a fix run
+only on a comment by `Adamniels`, reads his comment as his input. The interface's two writes take a
+`UserAccessToken`, a type of its own, and nothing else that could authorise them; an installation's
+token is a string, so a write as the app does not compile, and the adapter's writes never ask for
+one. `CommentTests.NothingIsEverWrittenAsTheApp` and `GitHubWriteTests` keep it.
+
+**The snapshot is never trusted for the act itself.** The list is up to a minute old, so a merge
+names the commit the page showed: Dev flow refuses one that is not the stored head, and GitHub,
+given it as `sha`, refuses to merge a pull request whose head moved on. Either way the project is
+read again and the owner is told it changed. A stale page can cost a click, never a wrong merge.
+What can be refused without GitHub, another user's item, a stopped or sent back item, checks that
+are not green, a missing or expired link, is refused before GitHub is asked.
+
+**A stopped item cannot be merged from the page.** The runner gave up on it and says "do not merge
+it as it is", so neither the page nor the route offers a merge for it; a comment runs it again.
+
+**A merge is one tap on a phone and cannot be cleanly undone**, so it asks first: a dialog names
+the pull request, its commit and how many of the agent's decisions merging confirms, as merging on
+GitHub does. Nothing else is recorded about a decision in this part. Sending back needs no
+confirmation, since a comment can be answered.
+
+**The page never writes what the runner owns.** No label, no status, no board column: after a
+comment the runner sees the owner's input on its next turn and moves the label itself, and a merge
+is the merge the runner's gate would make, a merge commit on a head with both checks green.
 
 ## Security decisions and accepted risks
 
@@ -315,13 +351,35 @@ its reason, or a risk accepted on purpose; each slice adds the ones it builds.
 - **The app holds write access to code, and the program's own keys never use it.** Merging needs
   the app to hold `contents: write`, so the app as GitHub sees it can write. Every key the program
   makes for itself is narrowed, in the request for it, to read access on one repository, see
-  "GitHub" above, and only a linked user's own token, see "Acting as the owner" above, which a later
-  slice writes with, so what is written is recorded on GitHub as done by him. "Only the owner writes" is so by construction, not
-  by care, and the test of that request's body, `InstallationTokenTests`, is what keeps it. Someone
+  "GitHub" above, and only a linked user's own token, see "Acting as the owner" above, is written
+  with, so what is written is recorded on GitHub as done by him. "Only the owner writes" is so by
+  construction, not by care: the test of that request's body, `InstallationTokenTests`, keeps the
+  program's keys read only, and the writes' token type keeps them from being written with, see the
+  next entry. Someone
   who holds the app's private key could still make a key that writes; the key is a file on the
   machine, outside the repository, mounted read only into Dev flow's container alone, and on the
   shared Mac mini it is exposed to the runner's agents like the vault's key, the risk the first
   entry accepts.
+- **Writes are made only with a linked user's token, and the code makes the other impossible.**
+  `ICodeHost.Merge` and `ICodeHost.Comment` take a `UserAccessToken`, made only from what
+  `UserTokens.For` answers, and an installation's token is a string, so passing one does not
+  compile; the adapter's writes never reach `InstallationTokens`. `GitHubWriteTests` checks the two
+  signatures and the requests, and `CommentTests.NothingIsEverWrittenAsTheApp` that every write the
+  routes make carries the user's own token.
+- **A merge names the commit that was shown.** The page sends the head commit it showed, Dev flow
+  refuses it unless it is the stored head, and GitHub is given it as `sha`, which it must match, so
+  neither a stale page nor a commit pushed since can be merged unseen.
+- **A stopped item cannot be merged from the page.** The route refuses a merge for an item of kind
+  `stopped`, as it does for one sent back or whose checks are not green, before GitHub is asked.
+- **The page never writes what the runner owns.** Neither route sets a label or a status; the
+  runner reads the owner's comment and moves its labels itself.
+- **A comment goes to the repository named by its stored owner and name.** GitHub's comment address
+  names a repository by them, and a comment, unlike a merge, names no commit that would refuse it
+  elsewhere. So if a connected repository is renamed and another repository the owner can write to
+  takes its old name, a comment could reach that one's pull request of the same number until the
+  project is connected again. Accepted: the owner would have to create that repository himself,
+  and the reads, narrowed to the repository's id, already show the project as failing once its
+  name points elsewhere.
 - **The return from the code host is a GET that changes state.** "How a feature authenticates" in
   `High-level/docs/feature-contract.md` says never to change state on a GET, and
   `GET /devflow/github/callback` is the one exception, since GitHub sends the browser back with a

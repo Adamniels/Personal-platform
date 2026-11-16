@@ -34,6 +34,9 @@ with later slices.
 - `GET /devflow/api/waiting`, what waits for the caller as last read, and
   `POST /devflow/api/projects/{id}/refresh`, which reads one of their projects now, see "What
   waits". Without a valid token, `401` with an empty body.
+- `POST /devflow/api/waiting/{id}/merge` and `POST /devflow/api/waiting/{id}/send-back`, which
+  merge a waiting pull request and send one back with a comment, as the caller on GitHub, see
+  "Acting from the page". Without a valid token, `401` with an empty body.
 - `GET /devflow/api/display`, what the platform's front page shows of Dev flow,
   `{"waiting": 2, "stopped": 1, "projects": 1, "stale": false, "needs_relink": false}`: the items
   of kind `waiting` and of kind `stopped` that are not sent back, how many projects the caller has
@@ -133,10 +136,25 @@ answer's `count` as a badge once it is more than none. Its parts, top to bottom:
   was chosen, "Instead of" and the alternative, and "Because" and the reason, each when there is
   one, and "and <n> more it did not need you for" when the body records others; without
   decisions, "Why it waits" and the runner's reason, and a stopped item "Why it stopped". A
-  waiting item's reviewer points follow as "The reviewer". Last, a ghost styled link "Open on
-  GitHub" to the pull request, in a new tab with `rel="noreferrer"`, offered only when its address is
-  `https`. On a phone it all stacks and
-  the actions wrap.
+  waiting item's reviewer points follow as "The reviewer". Last, its actions, `src/actions.tsx`,
+  and a ghost styled link "Open on GitHub" to the pull request, in a new tab with
+  `rel="noreferrer"`, offered only when its address is `https`. On a phone it all stacks and the
+  actions wrap.
+- The actions, before "Open on GitHub": a waiting item has "Merge" and a secondary "Send back"; a
+  stopped item a secondary "Comment to run again" and no Merge; an item sent back nothing but the
+  link. Only the first waiting item's Merge is primary, the rest secondary, by the design's one
+  primary button per view. Merge is disabled, with a line under it saying why, when `can_merge` is
+  false, "The checks are not green on this commit yet", or when GitHub is not linked or the link
+  has expired, which `GET /devflow/api/status` says; the comment buttons are disabled for the
+  link, with the same line. Merge opens the package's `Dialog`, "Merge #<number> into main?", with
+  the title, the head commit's first seven characters in the mono font, and, with decisions for
+  the owner, "This confirms <n> decisions the agent made.", and sends nothing until its "Merge" is
+  pressed. Send back opens a `TextArea` in the item, labelled "Comment", or "A comment runs it
+  again." for a stopped item, with "Send", disabled while the text is empty, and "Cancel". A merge
+  ends in a toast, "Merged #<number>", and the item leaves the list; sending back in "Sent back
+  #<number>", and the item moves to "Sent back, the runner has it". Either way the list is read
+  again, and a refusal is shown inside the item, in words, as an alert. The page is wrapped in the
+  package's `ToastProvider`.
 - With no project, the `EmptyState` "Nothing waits for you", "Connect a repository under Projects
   to see what waits for you."; with projects and no item, "Nothing waits for you", "Your agents
   have nothing for you to decide."; and a list that cannot be read says so as an alert.
@@ -159,8 +177,8 @@ the session cookie, a `401` is refreshed once, shared by every call that got one
 `/auth/refresh?return_to=<path>`, as review's client does. Its GETs are typed from
 `src/api/schema.d.ts`. The page reads the status once as it loads, in `src/status.ts`, for the
 banner and the link, and again after unlinking; its other calls are starting a link, unlinking,
-the projects' four, and reading what waits and refreshing a project, which `src/app.tsx` gives
-the tabs, so a test gives its own, with its own clock.
+the projects' four, reading what waits and refreshing a project, and merging and sending back,
+which `src/app.tsx` gives the tabs, so a test gives its own, with its own clock.
 
 ## The schema
 
@@ -407,7 +425,7 @@ Everything Dev flow asks of a code host goes through one interface, `ICodeHost`,
 `src/DevFlow/CodeHost/`, with plain records for what it answers. Why it sits there, and why the
 fake does, is "The code host seam" in `docs/devflow-architecture.md`. It names things as the
 development flow's design does, a repository, a pull request, a comment, never as GitHub's API
-does. Its read side, all this part needs so far:
+does. Its read side:
 
 - `OpenPullRequests(user, repository)`: each open pull request, with its number, title, author's
   login, labels, head commit, head and base branch, whether it is a draft, body, web address, when
@@ -429,15 +447,28 @@ does. Its read side, all this part needs so far:
 The two that take a user's token read as that person, never as the app, so what they list is what
 the person may connect; the token comes from `UserTokens.For`, see "Linking GitHub".
 
+Its write side, both as the person and never as the app:
+
+- `Merge(user, token, repository, number, commit)`: merges the pull request with a merge commit
+  while its head is `commit`, answering a `MergeResult`: `Merged`, `HeadMoved` when the head is
+  another commit, `NotMergeable` with the host's words, `Refused` with the host's status and words,
+  or `Unavailable` when it did not answer;
+- `Comment(user, token, repository, number, body)`: writes `body`, exactly, in the pull request's
+  conversation, answering a `CommentResult`: `Posted`, `Refused` with the status and words, or
+  `Unavailable`.
+
+Each takes a `UserAccessToken`, a type of its own made from what `UserTokens.For` answers, and
+nothing else that could authorise it: an installation's token is a string, so a write as the app
+does not compile.
+
 A `Repository` is the installation it was reached through and its id, which identify it, with its
 owner and name carried for display and for GitHub's addresses, which name a repository by them; the
 adapter's token is narrowed to the id, so a name that no longer matches it is not found rather than
 another repository read. Every operation takes the platform account it is asked for:
-the fake keeps a world per account, and the GitHub adapter reads as the app and will write as the
-account's linked user. Each answers a `CodeHostResult<T>`: `Found` with the value, `NotFound`, or
-`Unavailable` with when to try again if the host said, and the caller handles all three; nothing is
-thrown for an expected condition. Later slices add merging and commenting, each to the interface,
-the fake and the adapter together.
+the fake keeps a world per account, and the GitHub adapter reads as the app and writes as the
+account's linked user. Each read answers a `CodeHostResult<T>`: `Found` with the value, `NotFound`,
+or `Unavailable` with when to try again if the host said, and the caller handles all three; nothing
+is thrown for an expected condition.
 
 Signing a person in is a second interface beside it in the same folder, `ICodeHostSignIn`, which
 both implementations implement, since its reads are as the app and these are as a person:
@@ -477,10 +508,13 @@ can only read and what it does with GitHub's failures are "GitHub" in
 | `Installations` | `GET /user/installations?per_page=100`, with the user's token, each installation's `id` and its account's `login`, or an enterprise's `slug` |
 | `Repositories` | `GET /user/installations/{id}/repositories?per_page=100`, with the user's token |
 | `InstallAddress` | `https://github.com/apps/<DEVFLOW_GITHUB_APP_SLUG>/installations/new`, on GitHub's site |
+| `Merge` | `PUT /repos/{owner}/{repo}/pulls/{number}/merge` with `{"sha": "<commit>", "merge_method": "merge"}`, with the user's token: `200` merged, `409` head moved, `405` not mergeable, any other status refused with it |
+| `Comment` | `POST /repos/{owner}/{repo}/issues/{number}/comments` with `{"body": "<text>"}`, with the user's token: `201` posted, any other status refused with it |
 
 The two read with the user's token follow every page as the others do, and nothing of them is
 remembered for a conditional request, since an answer read with one person's token is never one to
-give another.
+give another. The two writes never ask for an installation token, are never retried, and keep at
+most 500 characters of GitHub's `message` from a refusal.
 
 Signing a person in, in `GitHubCodeHost.SignIn.cs`, is GitHub's web flow exactly as GitHub
 documents it:
@@ -580,6 +614,15 @@ Its install page, `GET /devflow/fake-github/install`, mapped only in the fake mo
 `Page` policy, is a plain "Fake GitHub" page that installs nothing and says a test stages
 installations in its world.
 
+Its writes, in `FakeCodeHost.Writes.cs`, take only the account's current access token too, and
+answer another as GitHub answers `401`, refused with "Bad credentials". A merge is refused with
+`404` for a pull request the world does not hold, is not mergeable unless the pull request is open,
+answers head moved unless its head is the commit named, and otherwise marks it merged in the world.
+A comment is refused with `404` for a number with neither a pull request nor a conversation, and is
+otherwise added to the end of the conversation, by the login the token acts as, at the fake's now.
+Each write taken is recorded, with whose token made it, and the record survives staging a world
+again, so a test asserts who wrote and that nothing was written as the app.
+
 ### Staging a world
 
 In the fake mode only, under the `Api` policy and the origin check like every route, each acting on
@@ -598,6 +641,13 @@ of what Dev flow is:
 - `POST /devflow/api/fake/expire-token` ends the caller's access token now, at the fake and in Dev
   flow's record of when it expires, so the next use of it renews, `204`. The refresh token still
   works.
+- `POST /devflow/api/fake/revoke-token` ends both of the caller's tokens at the fake, as revoking
+  the app on GitHub does, and the access token in Dev flow's record, so the next use renews, the
+  renewal is refused and the link becomes `needs_relink`, `204`.
+- `GET /devflow/api/fake/writes` lists the merges and comments the fake took for the caller,
+  oldest first, each `{"kind": "merge", "repository": 1001, "number": 304, "commit": "<40 hex>",
+  "method": "merge", "body": null, "by": "octo-owner"}`, or with `kind` `comment`, the `body`, and
+  `commit` and `method` null.
 
 In the GitHub mode none of them exists, `404`. An acceptance test stages a world through the
 `devflow_world` fixture, which puts it through the page's own session, with `e2e/devflow_worlds.py`
@@ -729,8 +779,8 @@ text.
 **Asking for a read.** `ProjectRefresher.Request(projectId, userId)` is the one way to ask, and
 answers a task that completes once a read that began after the request is done, whether it
 succeeded or not. A project is read by one reader at a time; requests made while it is read share
-one more read after it. The loop, the refresh route, later slices after an action and a webhook,
-when the platform is reachable, all call it.
+one more read after it. The loop, the refresh route, merging and sending back, see "Acting from the
+page", and a webhook, when the platform is reachable, all call it.
 
 **The loop.** `Poller`, a hosted service, lists `poll_targets` as it starts and then every
 `DEVFLOW_POLL_SECONDS`, through the door's `WithoutUser`, the one read outside a user, and requests
@@ -762,6 +812,51 @@ The two tables, from `migrations/0005_waiting_items.sql`, both guarded like ever
 - `project_reads`: `project_id`, its primary key with the same reference, `user_id`,
   `last_attempt_at`, `last_success_at`, null before a read succeeds, and `last_error`, the phrase,
   null after a success.
+
+## Acting from the page
+
+From the waiting list the owner merges a pull request or sends it back with a comment, and GitHub
+records both as done by him, since both are made with his own linked account's token, from
+`UserTokens.For`, and never as the app. The runner then picks his comment up as it picks up one
+written on GitHub. Why it is built so, and what it never does, is "Acting from the page" in
+`docs/devflow-architecture.md`. It is `ActionStore` and `ActionEndpoints`, in `src/DevFlow/Acting/`,
+under the `Api` policy and the origin check. Every refusal is a problem document, its `title` the
+line the page shows and its `detail` what follows it.
+
+**`POST /devflow/api/waiting/{id}/merge`**, with `{"head_commit": "<the commit the page showed>"}`,
+checks, in this order, and answers the first that fails:
+
+| Answer | Title | When |
+|---|---|---|
+| `404` | No such item | The caller has no item with that id, another user's included. |
+| `422` | The request breaks a rule | `head_commit` is missing or empty. |
+| `409` | This pull request is stopped | Its kind is `stopped`: the runner says do not merge it as it is. A comment runs it again. |
+| `409` | This pull request was sent back | The owner has commented since the latest verdict, so the runner has it. |
+| `409` | The checks are not green on this commit yet | `can_merge` is false. |
+| `409` | The pull request has changed since this was shown | `head_commit` is not the stored head. The project is read again first. |
+| `409` | GitHub is not linked | The caller has no link. |
+| `409` | Your GitHub link has expired | The link is `needs_relink`, or renewing it was refused. |
+| `503` | GitHub did not answer | The token needed renewing and GitHub did not answer; nothing was sent. |
+
+Only then is GitHub asked to merge that commit, with a merge commit. Merged, the project is read
+again and the answer is `204`. GitHub saying the head moved is the same `409` "The pull request has
+changed since this was shown", after the project is read again. Not mergeable is `409` "GitHub
+would not merge it", with GitHub's words in the detail; any other refusal `409` "GitHub refused the
+merge", with its status and words; no answer `503` "GitHub did not answer", after the project is
+read again, since it may have merged. Merging an item with decisions confirms them, as merging on
+GitHub does, and nothing else is recorded.
+
+**`POST /devflow/api/waiting/{id}/send-back`**, with `{"comment": "<text>"}`, for a waiting or a
+stopped item: `404` "No such item" as above; `422` when `comment` is missing, empty once trimmed,
+or longer than 10,000 characters once trimmed; the same two `409`s and the `503` for the link; then
+the comment is posted, trimmed and with nothing added. Posted, the item's `sent_back` is set at
+once, the project is read again and the answer is `204`. GitHub refusing is `409` "GitHub refused
+the comment", with its status and words; no answer `503`, after the project is read again.
+
+Reading again goes through `ProjectRefresher` and waits for the read as the refresh route does, at
+most ten seconds, so the list the page reads next is current. Neither route writes a label, a status
+or anything else the runner owns: after a comment, the runner sees the owner's input on its next
+turn and moves the label itself.
 
 ## Registering the GitHub App
 
