@@ -93,7 +93,7 @@ draw. See "Tabs" in `design/ui/README.md`.
 
 ## The look checks
 
-`look.py` beside this file holds three rules of `design/DESIGN.md` that hold on every page, as
+`look.py` beside this file holds the rules of `design/DESIGN.md` that hold on every page, as
 functions a test calls on an open page once it has drawn:
 
 - `assert_headings_are_capitals(page)`: every visible element in the heading font is in capitals at
@@ -105,12 +105,20 @@ functions a test calls on an open page once it has drawn:
   `--text` fill, hard rule 11. A selected table row or option keeps its own rule, `--info-soft`. The
   current item of an in-page breadcrumb, a `nav` named "Breadcrumb", is no nav item or tab, so it
   needs no fill, though it is still never marked in amber.
+- `assert_nothing_active_is_amber(page)`: no visible element with `aria-current` or
+  `aria-selected="true"`, a selected table row or option included, has a border, an outline or a
+  box shadow in `--accent` or `--accent-border`, hard rules 4 and 11.
 
 Each reads the elements inside open shadow roots too, so the nav bar is checked as a person sees
-it, and fails naming the elements that break its rule. A slice that restyles a page calls all three
-on each of its pages and states, at desktop and phone width and in both themes, as
-`test_the_core_pages_follow_the_look` in `tests/test_style.py` does for the core's pages. They are
-not a replacement for the page's own tests of its look, only the rules every page shares.
+it, and fails naming the elements that break its rule.
+
+`tests/test_look.py` runs them on every page of the platform, at desktop and phone width and in
+both themes. Its list of pages, `PAGES`, is written out one entry per page with how it is opened,
+so a slice that adds a page adds its entry there. It opens each page in one state, as a fresh
+account with one Review card due; a slice that restyles a page also calls the checks on each of
+the page's states, as `test_the_core_pages_follow_the_look` in `tests/test_style.py` does for the
+core's pages. They are not a replacement for the page's own tests of its look, only the rules
+every page shares.
 
 ## Markers
 

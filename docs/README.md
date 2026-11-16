@@ -200,7 +200,8 @@ features" in `High-level/docs/platform-architecture.md`.
 
 **E2E**
 
-- `e2e/README.md` — running the acceptance suite, its fixtures, and the libraries it is built on
+- `e2e/README.md` — running the acceptance suite, its fixtures, the look checks every page is held
+  to and the list of every page they run on, and the libraries it is built on
 
 **Design records**
 

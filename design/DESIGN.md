@@ -4,16 +4,6 @@ This file tells an implementing agent how the Personal Platform UI must look. Re
 
 The product is a private web application used for hours every day. The look is quiet and confident: near black or pale grey grounds, rounded white surfaces with thin 1px outlines, condensed capitals for titles, thin numerals for the numbers that matter, one amber accent, small coloured status words, and pixel art characters for agents. It is a tool, not a marketing site.
 
-## In transition
-
-As of 2026-11-15. The values, the fonts and this file are in place. The parts below still have the shape they were first built with, and each is brought to this file by the feature "Redesign: apply the new look". Until its slice has merged, the code is what a page gets, and a slice that touches one of these follows this file, not the code beside it. The last slice of that feature removes this section.
-
-* **Hard rule 12.** The heading font is set without capitals in the feature pages' own headings. Only the page title is in capitals.
-* **Components, section 4, in `ui/`.** Each takes the new values, so colours, fonts and radii have changed, but not its shape:
-  * The icon button, the arrow link, the switch, the stat pill, the inset list row, the needs you banner, and the progress bar's tick bar and steps are not built.
-* **The gallery** at `/design/gallery/` shows the components as they are built, so it shows the shapes above.
-* **Feature pages**, `Brain/web`: its own stylesheets take the new values but were laid out for the shapes above.
-
 ## 0. What this decides, and what it does not
 
 **This is a style, not a specification of any page.** It was designed without knowing what the platform does. Read it with that line in mind:
@@ -67,7 +57,7 @@ The bar is `nav.js` in this folder, `<platform-nav>`, with `theme.js` and `page.
 
 ## 4. Components
 
-The components are built as React in `ui/`, the `@platform/ui` package, and each is shown in every state in its gallery at `/design/gallery/`; how to use and add one is in `ui/README.md`.
+The components are built as React in `ui/`, the `@platform/ui` package, each when a page first needs it, and each built one is shown in every state in its gallery at `/design/gallery/`; how to use and add one is in `ui/README.md`.
 
 ### Button
 Height `--control-h`, padding 0 18px (ghost 0 14px), `--radius-full`, 14px label.
