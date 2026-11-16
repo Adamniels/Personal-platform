@@ -231,6 +231,18 @@ def test_the_home_page_cards_follow_the_card_rule(
     assert_card_frame(page, card)
     look = style(card)
     assert look["padding"] == [resolve(page, "--card-pad", "padding-top")] * 4
+
+    # The card row: a wrapping flex row, each card 340px at its basis.
+    row = page.locator(".cards").evaluate(
+        """cards => {
+            const style = getComputedStyle(cards);
+            const card = getComputedStyle(cards.firstElementChild);
+            return [style.display, style.flexWrap, style.rowGap, card.flexBasis,
+                    card.flexGrow, card.flexShrink];
+        }"""
+    )
+    gap = resolve(page, "--space-4", "row-gap")
+    assert row == ["flex", "wrap", gap, "340px", "1", "1"]
     assert look["gap"] == resolve(page, "--space-4", "row-gap")
 
     # The title is the card's label: plain text in the UI font, not a link.
@@ -285,11 +297,57 @@ def test_the_home_page_cards_follow_the_card_rule(
     assert look["padding"] == [vertical, side, vertical, side]
     assert look["textAlign"] == "center"
     assert look["boxShadow"] == "none"
-    assert style(placeholder.get_by_role("heading", level=2))["fontWeight"] == "600"
+    # Its first line in the heading font at the h2 size, in capitals.
+    first = style(placeholder.get_by_role("heading", level=2))
+    assert first_family(first["fontFamily"]) == "Barlow Condensed"
+    assert first["fontSize"] == resolve(page, "--text-h2-size", "font-size")
+    assert first["fontWeight"] == "600"
+    assert first["textTransform"] == "uppercase"
     expect(placeholder.get_by_role("link")).to_have_count(0)
     line = style(placeholder.get_by_text("Desk could not be reached."))
     assert line["fontSize"] == resolve(page, "--text-small-size", "font-size")
     assert line["color"] == resolve(page, "--text-2", "color")
+
+
+def test_core_pages_name_their_crumb(page: Page, invite_code: str, base_url: str):
+    register_and_log_in(page, invite_code, base_url)
+    crumb = page.locator("platform-nav .crumb")
+    for path, name in [
+        ("/settings/password", "Settings / Password"),
+        ("/auth/logout", "Log out"),
+        ("/", "Home"),
+    ]:
+        open_page(page, path)
+        expect(crumb).to_have_text(name)
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_the_notice_is_a_dot_and_words(
+    page: Page, invite_code: str, base_url: str, theme: str
+):
+    """What a form did, such as a changed password: --ok words on --ok-soft,
+    after a 6px dot, so it is never colour alone."""
+    register_and_log_in(page, invite_code, base_url)
+    open_page(page, "/settings/password?changed=1")
+    use_theme(page, theme)
+
+    notice = page.get_by_role("status")
+    expect(notice).to_have_text(
+        "Password changed. Your other sessions were signed out."
+    )
+    look = style(notice)
+    assert look["background"] == resolve(page, "--ok-soft", "background-color")
+    assert look["color"] == resolve(page, "--ok", "color")
+    assert look["fontWeight"] == "500"
+    radius = resolve(page, "--radius-md", "border-top-left-radius")
+    assert look["radii"] == [radius] * 4
+    dot = notice.evaluate(
+        """element => {
+            const dot = getComputedStyle(element, "::before");
+            return [dot.content, dot.width, dot.height, dot.backgroundColor];
+        }"""
+    )
+    assert dot == ['""', "6px", "6px", look["color"]]
 
 
 def review_card_with_cards_due(page: Page, invite_code: str, base_url: str) -> Locator:
