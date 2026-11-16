@@ -242,6 +242,19 @@ def devflow_world(page: Page, base_url: str) -> Callable[[dict], None]:
     return stage
 
 
+def link_github(page: Page, base_url: str) -> None:
+    """Links the logged in account's GitHub from Dev flow's Projects tab, which
+    the page must be on, through the fake's sign in page and back."""
+    page.get_by_role("article", name="GitHub").get_by_role(
+        "button", name="Link GitHub"
+    ).click()
+    expect(page).to_have_url(re.compile(r"/devflow/fake-github/authorize\?"))
+    expect(page.get_by_role("heading", name="Fake GitHub", level=1)).to_be_visible()
+    expect(page.get_by_text("@octo-owner")).to_be_visible()
+    page.get_by_role("button", name="Authorize").click()
+    expect(page).to_have_url(f"{base_url}/devflow/projects")
+
+
 def account_in_access_cookie(page: Page) -> str:
     """The `sub` of the access token the core set on this browser, read
     without verifying it: the reference for who this browser is, taken from

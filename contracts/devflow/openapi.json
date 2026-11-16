@@ -111,6 +111,36 @@
         ],
         "type": "object"
       },
+      "DisplayData": {
+        "properties": {
+          "needs_relink": {
+            "type": "boolean"
+          },
+          "projects": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "stale": {
+            "type": "boolean"
+          },
+          "stopped": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "waiting": {
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "waiting",
+          "stopped",
+          "projects",
+          "stale",
+          "needs_relink"
+        ],
+        "type": "object"
+      },
       "GitHubLinkState": {
         "enum": [
           "none",
@@ -497,6 +527,31 @@
   },
   "openapi": "3.1.1",
   "paths": {
+    "/devflow/api/display": {
+      "get": {
+        "description": "Read from what Dev flow stored and never from GitHub. waiting, the pull requests that wait for the caller and were not sent back; stopped, those the runner stopped on, not sent back; projects, how many the caller has connected; stale, whether any project is stale or failing, as the waiting list says them; and needs_relink, whether the caller's GitHub link has expired. The core calls it with the user's token in the Authorization header. Without a valid token, 401 with an empty body.",
+        "operationId": "getDisplay",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DisplayData"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "summary": "What waits, for the front page",
+        "tags": [
+          "DevFlow"
+        ]
+      }
+    },
     "/devflow/api/github/link": {
       "delete": {
         "description": "Removes the account, its two tokens and any link started. Nothing is revoked at the code host. Without a valid token, 401 with an empty body; from another origin, 403.",

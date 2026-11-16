@@ -20,6 +20,8 @@ pub enum Card {
     Canary(CanaryCard),
     /// Review's data, for the feature at `/review`.
     Review(ReviewCard),
+    /// Dev flow's data, for the feature at `/devflow`.
+    DevFlow(DevFlowCard),
     /// A feature whose data could not be shown: it could not be reached,
     /// its data did not fit its type, or the core has no card for it. The
     /// page says so with the registry's name for it; the log says why.
@@ -31,6 +33,9 @@ const CANARY_PREFIX: &str = "/canary";
 
 /// The prefix whose display data reads into `ReviewCard`.
 const REVIEW_PREFIX: &str = "/review";
+
+/// The prefix whose display data reads into `DevFlowCard`.
+const DEVFLOW_PREFIX: &str = "/devflow";
 
 impl Card {
     /// The card for what one feature gave. The feature is told apart by its
@@ -45,6 +50,7 @@ impl Card {
         let card = match feature.prefix.as_str() {
             CANARY_PREFIX => read(data).map(Card::Canary),
             REVIEW_PREFIX => read(data).map(Card::Review),
+            DEVFLOW_PREFIX => read(data).map(Card::DevFlow),
             _ => {
                 eprintln!("the core has no card for {}", feature.name);
                 return Card::Unavailable { name: feature.name };
@@ -127,6 +133,39 @@ impl ReviewCard {
     /// None when no card is scheduled.
     pub fn next_due_in(&self, now: OffsetDateTime) -> Option<String> {
         self.next_due_at.map(|at| relative::ahead(at - now))
+    }
+}
+
+/// What Dev flow sends, pinned by `contracts/display/devflow.json`. Like the
+/// others, any other shape fails to deserialise, an unknown field included,
+/// and every field must be there. Dev flow sends counts and flags; the words,
+/// the outline and the link are decided here.
+#[derive(Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DevFlowCard {
+    /// Pull requests that wait for the user, not sent back.
+    pub waiting: u32,
+    /// Pull requests the runner stopped on, not sent back.
+    pub stopped: u32,
+    /// How many projects the user has connected.
+    pub projects: u32,
+    /// Whether any project is stale or its last read failed.
+    pub stale: bool,
+    /// Whether the user's GitHub link has expired.
+    pub needs_relink: bool,
+}
+
+impl DevFlowCard {
+    /// How many pull requests wait for the user, the stopped ones included:
+    /// the number the card is about.
+    pub fn waits(&self) -> u32 {
+        self.waiting.saturating_add(self.stopped)
+    }
+
+    /// Whether the card takes the outline of content that needs the user:
+    /// something waits, or the link must be renewed.
+    pub fn needs_you(&self) -> bool {
+        self.waits() > 0 || self.needs_relink
     }
 }
 
@@ -439,6 +478,87 @@ mod tests {
         // Canary's data is not review's.
         let card = Card::from_fetched(fetched("Review", "/review", Ok(fixture())));
         assert_eq!(card, unavailable("Review"));
+    }
+
+    fn devflow_fixture() -> Value {
+        committed("devflow.json")
+    }
+
+    #[test]
+    fn the_committed_devflow_fixture_reads_into_the_card() {
+        let card: DevFlowCard = serde_json::from_value(devflow_fixture()).unwrap();
+
+        assert_eq!(
+            card,
+            DevFlowCard {
+                waiting: 2,
+                stopped: 1,
+                projects: 1,
+                stale: false,
+                needs_relink: false,
+            }
+        );
+
+        // The prefix picks it.
+        let card = Card::from_fetched(fetched("Dev flow", "/devflow", Ok(devflow_fixture())));
+        assert_eq!(
+            card,
+            Card::DevFlow(serde_json::from_value(devflow_fixture()).unwrap())
+        );
+    }
+
+    #[test]
+    fn devflow_data_of_any_other_shape_does_not_read() {
+        let mut extra = devflow_fixture();
+        extra["label"] = json!("3 waiting for you");
+        let mut missing = devflow_fixture();
+        missing.as_object_mut().unwrap().remove("needs_relink");
+        let mut negative = devflow_fixture();
+        negative["waiting"] = json!(-1);
+        let mut string_count = devflow_fixture();
+        string_count["stopped"] = json!("1");
+        let mut string_flag = devflow_fixture();
+        string_flag["stale"] = json!("false");
+        let values = json!([2, 1, 1, false, false]);
+
+        for (case, data) in [
+            ("an unknown field", extra),
+            ("a field missing", missing),
+            ("a negative count", negative),
+            ("a count as a string", string_count),
+            ("a flag as a string", string_flag),
+            ("its values as a list", values),
+        ] {
+            // Each gives the placeholder.
+            let card = Card::from_fetched(fetched("Dev flow", "/devflow", Ok(data)));
+            assert_eq!(card, unavailable("Dev flow"), "{case} read");
+        }
+
+        // Review's data is not Dev flow's.
+        let card = Card::from_fetched(fetched("Dev flow", "/devflow", Ok(review_fixture())));
+        assert_eq!(card, unavailable("Dev flow"));
+    }
+
+    #[test]
+    fn what_waits_is_the_waiting_and_the_stopped_together() {
+        let card = |waiting, stopped, needs_relink| DevFlowCard {
+            waiting,
+            stopped,
+            projects: 1,
+            stale: false,
+            needs_relink,
+        };
+
+        assert_eq!(card(2, 1, false).waits(), 3);
+        assert_eq!(card(0, 0, false).waits(), 0);
+        // Counts that large are not real, and never overflow.
+        assert_eq!(card(u32::MAX, 1, false).waits(), u32::MAX);
+
+        // Anything waiting, or a link to renew, needs him.
+        assert!(card(1, 0, false).needs_you());
+        assert!(card(0, 1, false).needs_you());
+        assert!(card(0, 0, true).needs_you());
+        assert!(!card(0, 0, false).needs_you());
     }
 
     #[test]

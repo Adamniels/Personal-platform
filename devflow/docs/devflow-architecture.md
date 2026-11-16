@@ -34,7 +34,8 @@ account, and Dev flow then holds a token that acts as him, sealed in the vault a
 itself; with it he connects a repository the app is installed on, which makes it a project. A
 loop reads every project about once a minute into a stored list of what waits for him, which the
 API answers without asking GitHub, see "Reading and the snapshot" below, and "Waiting for you"
-shows, with each decision and the reviewer's view spelled out. What it serves, its settings, its database, the vault, the code host and how it
+shows, with each decision and the reviewer's view spelled out; the platform's front page shows
+how many wait from the same picture, through the display data the core reads. What it serves, its settings, its database, the vault, the code host and how it
 authenticates are in `devflow/README.md`. Whether a pull request waits for the owner, and why, is
 read by one pure function that knows this repository's runner, see "Reading this repository's
 runner" below.
