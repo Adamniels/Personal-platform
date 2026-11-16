@@ -2,9 +2,10 @@
 // GET /devflow/api/waiting, the stored picture Dev flow keeps, never from the code host. Grouped by
 // kind, each item a card with what he needs to judge it. Every text in an item came from the code
 // host and is shown as text. See "The pages" and "What waits" in devflow/README.md.
-import { Card, Status } from "@platform/ui";
+import { Button, Card, EmptyState, Status } from "@platform/ui";
 import { useQuery } from "@tanstack/react-query";
-import { useId } from "react";
+import { type MouseEvent, useId, useState } from "react";
+import { navigate } from "./address";
 import type { GetAnswer } from "./api/client";
 import { Inline } from "./format";
 import styles from "./waiting.module.css";
@@ -76,12 +77,36 @@ const compare = new Intl.Collator("en", { sensitivity: "base" }).compare;
 const fullName = (project: { owner: string; name: string }) =>
 	`${project.owner}/${project.name}`;
 
+export const NOT_READ = "What waits for you could not be read. Try again.";
+export const RELINK =
+	"Your GitHub link has expired. You can read, but not merge or comment.";
+const PROJECTS = "/devflow/projects";
+
 export type WaitingProps = {
-	list: WaitingList;
+	/** The answer, undefined before it arrives or when it cannot be read. */
+	list: WaitingList | undefined;
+	/** Whether reading it failed, with nothing read before. */
+	failed: boolean;
+	/** Asks for one project to be read now. */
+	refresh: WaitingApi["refresh"];
+	/** Reads the list again. */
+	reload: () => Promise<unknown>;
+	/** The time, in milliseconds since the epoch. */
+	now: () => number;
 };
 
-/** The groups of the list, each a region named by its heading. */
-export function Waiting({ list }: WaitingProps) {
+/** The tab: the expired link at the top, the age of the picture with
+ * Refresh, and the groups, each a region named by its heading; or the empty
+ * state that says why there is nothing. Nothing before the answer. */
+export function Waiting({ list, failed, refresh, reload, now }: WaitingProps) {
+	if (list === undefined) {
+		return failed ? (
+			<p className={styles.error} role="alert">
+				{NOT_READ}
+			</p>
+		) : null;
+	}
+
 	const projects = new Map(list.projects.map((each) => [each.id, each]));
 	// The answer names each item's project; the repository alone if it ever
 	// does not.
@@ -92,11 +117,132 @@ export function Waiting({ list }: WaitingProps) {
 
 	return (
 		<div className={styles.list}>
-			{groups(list.items, name).map((group) => (
-				<GroupSection key={group.label} group={group} name={name} />
-			))}
+			{list.needs_relink ? <Relink /> : null}
+			{list.projects.length === 0 ? (
+				<EmptyState
+					title="Nothing waits for you"
+					detail="Connect a repository under Projects to see what waits for you."
+				/>
+			) : (
+				<>
+					<Age
+						projects={list.projects}
+						now={now()}
+						refresh={async () => {
+							await Promise.allSettled(
+								list.projects.map((project) => refresh(project.id)),
+							);
+							await reload();
+						}}
+					/>
+					{list.items.length === 0 ? (
+						<EmptyState
+							title="Nothing waits for you"
+							detail="Your agents have nothing for you to decide."
+						/>
+					) : (
+						groups(list.items, name).map((group) => (
+							<GroupSection key={group.label} group={group} name={name} />
+						))
+					)}
+				</>
+			)}
 		</div>
 	);
+}
+
+/** The owner's link has expired: what he can still do, and where to link it
+ * again. */
+function Relink() {
+	const go = (event: MouseEvent<HTMLAnchorElement>) => {
+		event.preventDefault();
+		navigate(PROJECTS);
+	};
+	return (
+		<p className={styles.attention}>
+			{RELINK}{" "}
+			<a className={styles.link} href={PROJECTS} onClick={go}>
+				Go to Projects
+			</a>
+		</p>
+	);
+}
+
+/** How old the picture is: a line for each project that is stale or
+ * failing, in the attention style, or one muted line from the oldest read
+ * when every project is fine; and Refresh beside it. */
+function Age({
+	projects,
+	now,
+	refresh,
+}: {
+	projects: Freshness[];
+	now: number;
+	refresh: () => Promise<void>;
+}) {
+	const [refreshing, setRefreshing] = useState(false);
+	const lines = projects.flatMap((project) => [
+		...(project.stale ? [staleLine(project, now)] : []),
+		...(project.failing
+			? [
+					`${fullName(project)}: GitHub could not be read, showing what was last seen`,
+				]
+			: []),
+	]);
+	const oldest = Math.min(
+		...projects.map((project) => Date.parse(project.last_success_at ?? "")),
+	);
+
+	return (
+		<div className={styles.age}>
+			{lines.length > 0 ? (
+				<div className={styles.attention}>
+					{lines.map((line) => (
+						<p key={line} className={styles.line}>
+							{line}
+						</p>
+					))}
+				</div>
+			) : Number.isNaN(oldest) ? null : (
+				<p className={styles.updated}>Updated {duration(now - oldest)} ago</p>
+			)}
+			<Button
+				disabled={refreshing}
+				onClick={async () => {
+					setRefreshing(true);
+					try {
+						await refresh();
+					} finally {
+						setRefreshing(false);
+					}
+				}}
+			>
+				Refresh
+			</Button>
+		</div>
+	);
+}
+
+function staleLine(project: Freshness, now: number): string {
+	if (project.last_success_at === null)
+		return `${fullName(project)} has not been read yet`;
+	const since = now - Date.parse(project.last_success_at);
+	return `${fullName(project)} has not been updated for ${duration(since)}`;
+}
+
+const MINUTE = 60_000;
+const HOUR = 60 * MINUTE;
+const DAY = 24 * HOUR;
+
+/** A length of time in words, to the largest whole unit: "less than a
+ * minute", minutes below an hour, hours below two days, then days. */
+export function duration(ms: number): string {
+	const count = (n: number, unit: string) =>
+		`${n} ${unit}${n === 1 ? "" : "s"}`;
+	if (ms < MINUTE) return "less than a minute";
+	if (ms < HOUR) return count(Math.floor(ms / MINUTE), "minute");
+	if (ms < 2 * DAY) return count(Math.floor(ms / HOUR), "hour");
+	return count(Math.floor(ms / DAY), "day");
 }
 
 function GroupSection({

@@ -176,3 +176,59 @@
 	margin: 0;
 	padding-left: var(--space-5);
 }
+
+/* The age of the picture on the left, Refresh on the right; on a phone the
+ * button wraps under the lines. */
+.age {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--space-3);
+}
+
+.age > :first-child {
+	flex: 1 1 280px;
+	min-width: 0;
+}
+
+.updated {
+	margin: 0;
+	color: var(--text-2);
+}
+
+/* What the owner should notice: the needs you banner's soft amber fill,
+ * amber outline and amber text, as the fake mode's strip has. */
+.attention {
+	margin: 0;
+	padding: var(--space-3) var(--space-4);
+	border: 1px solid var(--accent-border);
+	border-radius: var(--radius-md);
+	background: var(--accent-soft);
+	color: var(--accent-text);
+	font-weight: 600;
+	overflow-wrap: anywhere;
+}
+
+.line {
+	margin: 0;
+}
+
+.link {
+	border-radius: var(--radius-sm);
+	color: var(--accent-text);
+	text-decoration: underline;
+}
+
+.link:focus-visible {
+	outline: var(--focus-ring);
+	outline-offset: var(--focus-offset);
+}
+
+/* The list could not be read: the attention text, read as an alert, as the
+ * Projects tab says its own. */
+.error {
+	margin: 0;
+	color: var(--accent-text);
+	font-weight: 600;
+}

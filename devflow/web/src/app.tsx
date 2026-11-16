@@ -74,6 +74,7 @@ function Frame({
 	loadStatus = readStatus,
 	projects = projectsApi,
 	waiting = waitingApi,
+	now = Date.now,
 }: AppProps) {
 	const current = sectionAt(usePathname());
 	const [status, reload] = useStatus(loadStatus);
@@ -116,15 +117,13 @@ function Frame({
 				{SECTIONS.map((section) => (
 					<TabPanel key={section.key} value={section.key}>
 						{section !== current ? null : section.key === "waiting" ? (
-							listed.data === undefined ? null : listed.data.items.length ===
-									0 && section.empty ? (
-								<EmptyState
-									title={section.empty.title}
-									detail={section.empty.detail}
-								/>
-							) : (
-								<Waiting list={listed.data} />
-							)
+							<Waiting
+								list={listed.data}
+								failed={listed.isError}
+								refresh={waiting.refresh}
+								reload={listed.refetch}
+								now={now}
+							/>
 						) : section.key === "projects" ? (
 							<>
 								<GitHubLink
@@ -142,11 +141,6 @@ function Frame({
 									{...projects}
 								/>
 							</>
-						) : section.empty ? (
-							<EmptyState
-								title={section.empty.title}
-								detail={section.empty.detail}
-							/>
 						) : null}
 					</TabPanel>
 				))}
