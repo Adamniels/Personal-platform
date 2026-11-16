@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
+using DevFlow.Acting;
 using DevFlow.CodeHost;
 using DevFlow.CodeHost.GitHub;
 using DevFlow.Health;
@@ -87,6 +88,9 @@ public static class DevFlowApp
         builder.Services.AddSingleton(provider => new ProjectRefresher(
             provider.GetRequiredService<ProjectReader>(), provider.GetRequiredService<ILogger<ProjectRefresher>>()));
         builder.Services.AddSingleton(provider => new WaitingStore(database, provider.GetRequiredService<TimeProvider>()));
+        // Merging and sending back from the page, as the user and never as the app. See "Acting
+        // from the page" in devflow/README.md.
+        builder.Services.AddSingleton(new ActionStore(database));
         if (settings.PollInterval is { } interval)
         {
             builder.Services.AddHostedService(provider => new Poller(
@@ -112,6 +116,7 @@ public static class DevFlowApp
         app.MapGitHubLink();
         app.MapProjects(new Uri(settings.PublicOrigin));
         app.MapWaiting();
+        app.MapActions();
         app.MapDisplay();
         app.MapPages(webRoot);
         if (settings.CodeHost == CodeHostMode.Fake)

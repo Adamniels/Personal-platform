@@ -22,6 +22,8 @@ public sealed class OriginTests : IAsyncLifetime
     [InlineData("DELETE", "/devflow/projects")]
     [InlineData("PUT", "/devflow/api/nope")]
     [InlineData("PATCH", "/elsewhere")]
+    [InlineData("POST", "/devflow/api/waiting/0190a8f0-0000-7000-8000-000000000042/merge")]
+    [InlineData("POST", "/devflow/api/waiting/0190a8f0-0000-7000-8000-000000000042/send-back")]
     public async Task AStateChangingRequestFromAnotherOriginIs403(string method, string path)
     {
         foreach (var origin in new (string, string)[][]
