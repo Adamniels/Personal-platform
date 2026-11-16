@@ -133,7 +133,7 @@ In a card of its own: `--surface` fill, 1px `--border`, `--radius-lg`, no inner 
 * Paging sits under the table: "Rows 1 to 7 of 214" on the left in `--text-2`, Previous and Next as secondary buttons on the right.
 
 ### Dialog
-Max width 480px, `--surface` fill, 1px `--border`, `--radius-xl`, `--shadow-2`, padding `--space-6`. Backdrop: `--bg` at 70% opacity. The title is an h2 in the heading font that states the action as a question. Actions are right aligned, cancel first; the confirming verb repeats the title ("Delete entries"). On phone it becomes a full width sheet fixed to the bottom, with `--radius-xl` on its top corners only.
+Max width 480px, `--surface` fill, 1px `--border`, `--radius-xl`, `--shadow-2`, padding `--space-6`. Backdrop: `--bg` at 70% opacity. The title is an h2 in the heading font that states the action as a question. Actions are right aligned, cancel first; the confirming verb repeats the title ("Delete entries"). A dialog that only shows something, such as an image, asks nothing: its title names what it shows, and its one action is a secondary Close. On phone it becomes a full width sheet fixed to the bottom, with `--radius-xl` on its top corners only.
 
 ### Toast
 `--surface` fill, 1px `--border-strong`, `--radius-full`, `--shadow-1`, padding 6px 6px 6px 16px, an 8px status dot, its text and one text action in `--info`, weight 600. Bottom right on desktop, above the tab bar on phone, max width 420px. Success leaves after 5 seconds. Errors stay until dismissed and start with the word "Error".
