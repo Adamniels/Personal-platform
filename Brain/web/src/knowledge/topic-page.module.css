@@ -1,5 +1,5 @@
 /* A topic's page: the breadcrumb, its name, its level and focus, then its
- * cards in the card grid of section 2 of design/DESIGN.md. */
+ * cards in a row of cards, section 2 of design/DESIGN.md. */
 
 .note {
 	margin: 0;
@@ -97,10 +97,18 @@
 	gap: var(--space-2);
 }
 
+/* The cards, a row of cards as section 2 of design/DESIGN.md has it: a
+ * wrapping flex row, so they take unequal widths on desktop and stack on
+ * phone without a breakpoint. */
 .grid {
-	display: grid;
-	grid-template-columns: repeat(auto-fit, minmax(min(340px, 100%), 1fr));
+	display: flex;
+	flex-wrap: wrap;
 	gap: var(--space-4);
+}
+
+.grid > * {
+	flex: 1 1 340px;
+	min-width: 0;
 }
 
 /* A card's rows, then its form when one is open. */
@@ -110,13 +118,25 @@
 	gap: var(--space-3);
 }
 
+/* A card's rows, --inset-gap apart with no line between them. */
 .list {
 	display: flex;
 	flex-direction: column;
-	gap: var(--space-3);
+	gap: var(--inset-gap);
 	margin: 0;
 	padding: 0;
 	list-style: none;
+}
+
+/* Each row of a card's list is an inset row, "Inset list row" in section 4
+ * of design/DESIGN.md: a name with its buttons, or a misconception. */
+.named,
+.misconception {
+	box-sizing: border-box;
+	min-height: var(--row-h);
+	padding: 8px 12px;
+	background: var(--surface-2);
+	border-radius: var(--radius-md);
 }
 
 /* A name, and its buttons at its end, which move under it when the row is
@@ -127,7 +147,6 @@
 	align-items: center;
 	justify-content: space-between;
 	gap: var(--space-2);
-	min-height: var(--control-h);
 	min-width: 0;
 }
 

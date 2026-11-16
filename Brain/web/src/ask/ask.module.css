@@ -16,10 +16,12 @@
 	display: none;
 }
 
+/* The question's form, on a card's surface with its padding, "Card" in
+ * section 4 of design/DESIGN.md. */
 .form {
 	box-sizing: border-box;
 	width: 100%;
-	padding: var(--space-4);
+	padding: var(--card-pad);
 	background: var(--surface);
 	border: 1px solid var(--border);
 	border-radius: var(--radius-lg);

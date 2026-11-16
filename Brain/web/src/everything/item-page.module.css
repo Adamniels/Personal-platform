@@ -99,12 +99,15 @@
 	max-width: var(--reading-max);
 }
 
+/* A part's heading is a section heading, in capitals as hard rule 12 of
+ * design/DESIGN.md has it. */
 .partTitle {
 	margin: 0;
 	font-family: var(--font-heading);
 	font-size: var(--text-h2-size);
 	line-height: var(--text-h2-line);
 	font-weight: 600;
+	text-transform: uppercase;
 }
 
 /* An event's evidence, then where it came from, each on its own line. */
