@@ -19,6 +19,12 @@
 #             feature: lowercase letters, digits and hyphens, a key of ICONS
 #             in design/nav.js, which draws box for a name it does not hold.
 #             A new feature's icon is added to ICONS in the same slice
+#   attention optional, the feature's attention endpoint, under its own
+#             prefix, which answers {"attention": true|false}: whether
+#             something there needs the person. The core passes it to the
+#             nav as attention_url and never calls it; the nav bar asks it
+#             and draws the dot. See "The attention endpoint" in
+#             High-level/docs/feature-contract.md
 
 [[feature]]
 name = "Canary"
@@ -40,3 +46,4 @@ prefix = "/devflow"
 upstream = "http://127.0.0.1:8084"
 display = "/devflow/api/display"
 icon = "git-pull-request"
+attention = "/devflow/api/attention"

@@ -8,10 +8,12 @@ Colours and sizes are compared with the token as the same page resolves it,
 as test_gallery.py does, so no value is written here: a change to tokens.css
 changes both sides, and only a bar that stops using its token fails."""
 
+import contextlib
 import re
 from pathlib import Path
 
 import pytest
+from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import Locator, Page, expect
 
 from conftest import VIEWPORTS, capture, register_and_log_in
@@ -810,19 +812,48 @@ def test_names_and_the_email_are_written_as_text(
     assert page.evaluate("window.injected") is None
 
 
+# A feature that names an attention address, and one that names none, for the
+# tests of the dot. The address is the test's own, so each answers as it says.
+QUIET = {"name": "Quiet", "path": "/quiet"}
+WAITING = {
+    "name": "Waiting",
+    "path": "/waiting",
+    "attention_url": "/waiting/api/attention",
+}
+ATTENTION = "**/waiting/api/attention"
+ATTENTION_KEY = "platform-nav-attention:/waiting/api/attention"
+
+
+def with_attention(page: Page, features: list[dict]) -> None:
+    page.route("**/api/nav", lambda route: route.fulfill(json=nav_answer(features)))
+
+
+def asked(page: Page, path: str = "/waiting/api/attention") -> list:
+    """Every request the page makes to the attention address, from now on."""
+    requests: list = []
+    page.on(
+        "request",
+        lambda request: (
+            requests.append(request) if request.url.endswith(path) else None
+        ),
+    )
+    return requests
+
+
+def waiting_link(page: Page) -> Locator:
+    return links_bar(page).get_by_role("link", name=re.compile("^Waiting"))
+
+
 def test_a_feature_that_needs_you_shows_the_dot(
     page: Page, invite_code: str, base_url: str
 ):
     register_and_log_in(page, invite_code, base_url)
-    features = [
-        {"name": "Quiet", "path": "/quiet"},
-        {"name": "Waiting", "path": "/waiting", "attention": True},
-    ]
-    page.route("**/api/nav", lambda route: route.fulfill(json=nav_answer(features)))
+    with_attention(page, [QUIET, WAITING])
+    page.route(ATTENTION, lambda route: route.fulfill(json={"attention": True}))
     page.reload()
 
     bar = links_bar(page)
-    waiting = bar.get_by_role("link", name=re.compile("^Waiting"))
+    waiting = waiting_link(page)
     expect(waiting.locator(".dot")).to_have_count(1)
     # Colour is never the only signal: the dot carries words too.
     expect(waiting).to_have_accessible_name("Waiting, needs you")
@@ -839,6 +870,218 @@ def test_a_feature_that_needs_you_shows_the_dot(
     assert spot["width"] == 8 and spot["height"] == 8
     assert item["x"] + item["width"] / 2 < spot["x"] < item["x"] + item["width"]
     assert item["y"] <= spot["y"] < item["y"] + item["height"] / 2
+
+
+def test_the_attention_address_is_asked_with_the_session_and_no_redirect(
+    page: Page, invite_code: str, base_url: str
+):
+    register_and_log_in(page, invite_code, base_url)
+    with_attention(page, [WAITING])
+    seen: list = []
+
+    def answer(route):
+        seen.append(route.request)
+        route.fulfill(json={"attention": False})
+
+    page.route(ATTENTION, answer)
+    page.reload()
+
+    expect(waiting_link(page)).to_have_accessible_name("Waiting")
+    assert len(seen) == 1
+    # The session's cookie travels, so the feature knows whose it is.
+    assert "__Host-access=" in (seen[0].header_value("cookie") or "")
+    assert seen[0].method == "GET"
+
+
+def test_the_nav_draws_without_waiting_for_attention(
+    page: Page, invite_code: str, base_url: str
+):
+    register_and_log_in(page, invite_code, base_url)
+    # The routed /api/nav's account, which the pill shows.
+    email = nav_answer([])["user"]["email"]
+    with_attention(page, [QUIET, WAITING])
+    held: list = []
+    page.route(ATTENTION, lambda route: held.append(route))
+    page.reload()
+
+    # The address has not answered, and every link is already there.
+    expect(links_bar(page).get_by_role("link")).to_have_text(
+        ["Home", "Memory", "Quiet", "Waiting"]
+    )
+    expect(page.locator("platform-nav .dot")).to_have_count(0)
+    assert len(held) == 1
+
+    # A menu open when the answer arrives stays open: only the link changes.
+    pill(page, email).click()
+    menu = nav(page).get_by_role("link", name="Change password")
+    expect(menu).to_be_visible()
+
+    held[0].fulfill(json={"attention": True})
+
+    expect(waiting_link(page).locator(".dot")).to_have_count(1)
+    expect(waiting_link(page)).to_have_accessible_name("Waiting, needs you")
+    expect(menu).to_be_visible()
+    expect(pill(page, email)).to_have_attribute("aria-expanded", "true")
+
+
+def test_an_attention_that_takes_too_long_has_no_dot(
+    page: Page, invite_code: str, base_url: str
+):
+    register_and_log_in(page, invite_code, base_url)
+    with_attention(page, [WAITING])
+    held: list = []
+    page.route(ATTENTION, lambda route: held.append(route))
+    page.reload()
+    expect(waiting_link(page)).to_be_visible()
+
+    # Past the nav's five seconds, a late answer is no answer.
+    page.wait_for_timeout(5500)
+    # The nav gave up on the request, so answering it may fail, which is
+    # what this checks.
+    with contextlib.suppress(PlaywrightError):
+        held[0].fulfill(json={"attention": True})
+    page.wait_for_timeout(300)
+
+    expect(page.locator("platform-nav .dot")).to_have_count(0)
+    expect(waiting_link(page)).to_have_accessible_name("Waiting")
+
+
+def counting(handler, answered: list):
+    """The route handler, which first notes the request in `answered`."""
+
+    def counted(route):
+        answered.append(route.request)
+        handler(route)
+
+    return counted
+
+
+def test_a_feature_whose_attention_fails_just_has_no_dot(
+    page: Page, invite_code: str, base_url: str
+):
+    register_and_log_in(page, invite_code, base_url)
+    with_attention(page, [QUIET, WAITING])
+    failures = [
+        ("a 500", lambda route: route.fulfill(status=500)),
+        ("a 401", lambda route: route.fulfill(status=401)),
+        (
+            "a redirect",
+            lambda route: route.fulfill(
+                status=302, headers={"Location": "/waiting/api/elsewhere"}
+            ),
+        ),
+        ("a body that is not JSON", lambda route: route.fulfill(body="yes")),
+        ("a string for true", lambda route: route.fulfill(json={"attention": "true"})),
+        ("true alone", lambda route: route.fulfill(json=True)),
+        ("no answer", lambda route: route.abort()),
+    ]
+    page.route(
+        "**/waiting/api/elsewhere",
+        lambda route: route.fulfill(json={"attention": True}),
+    )
+    for case, handler in failures:
+        answered: list = []
+
+        page.unroute(ATTENTION)
+        page.route(ATTENTION, counting(handler, answered))
+        page.reload()
+        expect(waiting_link(page), case).to_be_visible()
+        # The bar asks once it has drawn; wait for that question.
+        for _ in range(50):
+            if answered:
+                break
+            page.wait_for_timeout(100)
+        assert answered, case
+        # Long enough for an answer to have been drawn, were it drawn.
+        page.wait_for_timeout(300)
+
+        expect(links_bar(page).get_by_role("link"), case).to_have_text(
+            ["Home", "Memory", "Quiet", "Waiting"]
+        )
+        expect(page.locator("platform-nav .dot"), case).to_have_count(0)
+        expect(waiting_link(page), case).to_have_accessible_name("Waiting")
+        # Nothing is shown about it: the bar holds what it held before.
+        expect(page.locator("platform-nav"), case).not_to_contain_text("rror")
+        expect(page).to_have_url(f"{base_url}/")
+        # A failure is not an answer, so the next page asks again.
+        assert page.evaluate(f"sessionStorage.getItem('{ATTENTION_KEY}')") is None, case
+
+
+def test_an_attention_address_outside_the_feature_is_never_asked(
+    page: Page, invite_code: str, base_url: str
+):
+    addresses = [
+        "//example.com/waiting/api/attention",
+        "https://example.com/waiting/api/attention",
+        "/elsewhere/api/attention",
+        "/waitingroom/api/attention",
+        "/waiting",
+    ]
+    features = [
+        {"name": f"F{i}", "path": "/waiting", "attention_url": address}
+        for i, address in enumerate(addresses)
+    ]
+    requests: list = []
+    # Before logging in, so every page the account sees has these features.
+    page.on("request", lambda request: requests.append(request.url))
+    with_attention(page, features)
+    page.route("**/*attention*", lambda route: route.fulfill(json={"attention": True}))
+    register_and_log_in(page, invite_code, base_url)
+
+    expect(links_bar(page).get_by_role("link")).to_have_count(2 + len(addresses))
+    page.wait_for_timeout(300)
+    assert [url for url in requests if "attention" in url] == []
+    expect(page.locator("platform-nav .dot")).to_have_count(0)
+
+
+def test_attention_is_asked_at_most_once_a_minute(
+    page: Page, invite_code: str, base_url: str
+):
+    register_and_log_in(page, invite_code, base_url)
+    with_attention(page, [WAITING])
+    page.route(ATTENTION, lambda route: route.fulfill(json={"attention": True}))
+    requests = asked(page)
+
+    page.reload()
+    expect(waiting_link(page).locator(".dot")).to_have_count(1)
+    page.goto("/settings/password")
+    # The remembered answer draws the dot, without asking.
+    expect(waiting_link(page).locator(".dot")).to_have_count(1)
+    assert len(requests) == 1
+
+    # Remembered in this tab's sessionStorage, with when it was asked.
+    stored = page.evaluate(f"JSON.parse(sessionStorage.getItem('{ATTENTION_KEY}'))")
+    assert stored["attention"] is True
+    # Once the minute is over, the next page asks again.
+    page.evaluate(
+        f"""() => {{
+            const key = '{ATTENTION_KEY}';
+            const stored = JSON.parse(sessionStorage.getItem(key));
+            stored.at -= 61 * 1000;
+            sessionStorage.setItem(key, JSON.stringify(stored));
+        }}"""
+    )
+    page.reload()
+    expect(waiting_link(page).locator(".dot")).to_have_count(1)
+    assert len(requests) == 2
+
+
+def test_a_page_can_make_the_nav_ask_again(page: Page, invite_code: str, base_url: str):
+    register_and_log_in(page, invite_code, base_url)
+    with_attention(page, [WAITING])
+    answers = [{"attention": True}, {"attention": False}]
+    page.route(ATTENTION, lambda route: route.fulfill(json=answers.pop(0)))
+    requests = asked(page)
+    page.reload()
+    expect(waiting_link(page).locator(".dot")).to_have_count(1)
+
+    # As Dev flow's page does after a merge: the remembered answer is
+    # forgotten and the address asked again, without reloading the page.
+    page.evaluate("window.dispatchEvent(new Event('platform-nav-attention'))")
+
+    expect(waiting_link(page).locator(".dot")).to_have_count(0)
+    expect(waiting_link(page)).to_have_accessible_name("Waiting")
+    assert len(requests) == 2
 
 
 def test_each_feature_shows_its_icon(

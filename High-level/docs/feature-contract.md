@@ -263,6 +263,38 @@ library when the first such feature arrives, tested against the same token fixtu
 `contracts/token/`, so the implementations agree with the core and with each other. Python and C#
 have theirs.
 
+## The attention endpoint
+
+Optional, per feature, like the display endpoint in "What a feature exposes for the front page" in
+`Core/docs/core-architecture.md`, and the nav bar's counterpart to it. A feature that can say
+"something here needs you" names an attention path under its own prefix in the registry, the key
+`attention`, and every page's nav bar draws the dot on that feature's link while the answer is yes.
+
+```
+GET <attention path>  ->  {"attention": true}  or  {"attention": false}
+```
+
+- Under the feature's `Api` policy, so it is the logged in person's own answer, with `401` and an
+  empty body without a valid token, as any feature API answers.
+- From what the feature already has stored, never by computing anything heavy or calling anything,
+  and quickly: the nav gives it five seconds and then shows no dot.
+- It is the feature's own word for "something here needs you", decided by the feature. It carries
+  no count, since the nav shows a dot and never a number, and nothing meant for display.
+
+The core passes the path along in `/api/nav` as `attention_url` and calls nothing. The nav bar asks
+it from the browser, with the person's session cookie, after it has drawn its links, and remembers
+the answer for a minute; a feature's page that changed the answer makes the bar ask again. How the
+bar does it is "Navigation" in `High-level/docs/platform-architecture.md`.
+
+**Why the browser asks and not the core.** The core asking on every `/api/nav` would make every
+page load of every page wait on every feature, and one slow feature would slow the whole platform's
+navigation. The core asking in the background instead would need to act as each user while nobody
+is logged in, which nothing else in the platform does. The browser already holds the person's
+session, and composing navigation there is the platform's stated way, see "Display and navigation
+are composed in the browser" above.
+
+Dev flow's is `GET /devflow/api/attention`, see "What it serves" in `devflow/README.md`.
+
 ## The two contracts
 
 Both stay small. If either drifts large, something has gone wrong.

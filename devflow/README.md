@@ -46,6 +46,13 @@ with later slices.
   user's token in the `Authorization` header; `contracts/display/devflow.json` pins its shape, see
   "What a feature exposes for the front page" in `Core/docs/core-architecture.md`. Without a valid
   token, `401` with an empty body.
+- `GET /devflow/api/attention`, `{"attention": true}` or `{"attention": false}`, Dev flow's answer
+  to the nav bar, which draws the dot on Dev flow's link while it is true: true when the caller has
+  an item, waiting or stopped, that is not sent back, or a GitHub link that has expired, which is
+  what the waiting list's `count` counts. It reads the same stored picture, never GitHub. Both
+  registries name it as Dev flow's `attention`; the contract every feature's answers to is "The
+  attention endpoint" in `High-level/docs/feature-contract.md`. Without a valid token, `401` with an
+  empty body.
 - `GET /devflow/github/callback`, where the code host sends the browser back, answering `303` to
   `/devflow/projects`, or to `/devflow/projects?link=failed` when it did not link. Without a valid
   token, `303` to the refresh endpoint as a page answers, see "Linking GitHub".
@@ -857,9 +864,12 @@ once, the project is read again and the answer is `204`. GitHub refusing is `409
 the comment", with its status and words; no answer `503`, after the project is read again.
 
 Reading again goes through `ProjectRefresher` and waits for the read as the refresh route does, at
-most ten seconds, so the list the page reads next is current. Neither route writes a label, a status
-or anything else the runner owns: after a comment, the runner sees the owner's input on its next
-turn and moves the label itself.
+most ten seconds, so the list the page reads next is current. After either, whatever it answered,
+the page reads the list again and dispatches `platform-nav-attention` on `window`, so the nav bar
+asks `GET /devflow/api/attention` again and its dot follows; a refusal can change the answer too,
+an expired link among them. It is `askNavAgain` in `web/src/nav-attention.ts`. Neither route
+writes a label, a status or anything else the runner owns: after a comment, the runner sees the
+owner's input on its next turn and moves the label itself.
 
 ## Registering the GitHub App
 

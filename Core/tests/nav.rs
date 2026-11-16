@@ -191,6 +191,52 @@ async fn the_nav_gives_each_feature_its_icon() {
     db.close().await;
 }
 
+// The attention address is passed as the registry names it, as
+// `attention_url`, and left out for a feature that names none. The core only
+// passes it along: the browser asks it, so the core calls no feature, which
+// the listener standing in for Dev flow's upstream checks.
+#[tokio::test]
+async fn the_nav_passes_each_features_attention_address() {
+    let db = common::TestDb::new().await;
+    let upstream = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let upstream_addr = upstream.local_addr().unwrap();
+    let asked = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counter = asked.clone();
+    tokio::spawn(async move {
+        while upstream.accept().await.is_ok() {
+            counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+    });
+    let registry = format!(
+        r#"
+        [[feature]]
+        name = "Dev flow"
+        prefix = "/devflow"
+        upstream = "http://{upstream_addr}"
+        attention = "/devflow/api/attention"
+        {CANARY}"#
+    );
+    let (addr, state) = serve(db.pool.clone(), &registry).await;
+    let token = account(&db.pool, &state, "attention@example.com").await;
+
+    let answer = get(addr, "/api/nav", Some(&token)).await;
+
+    assert_eq!(answer.status, 200, "{}", answer.body);
+    let json: serde_json::Value = serde_json::from_str(&answer.body).unwrap();
+    assert_eq!(
+        json["features"],
+        serde_json::json!([
+            {"name": "Dev flow", "path": "/devflow", "attention_url": "/devflow/api/attention"},
+            {"name": "Canary", "path": "/canary"},
+        ])
+    );
+    // Long enough for a connection the core had started to be accepted.
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    assert_eq!(asked.load(std::sync::atomic::Ordering::SeqCst), 0);
+
+    db.close().await;
+}
+
 #[tokio::test]
 async fn api_nav_answers_401_without_a_valid_token() {
     let db = common::TestDb::new().await;

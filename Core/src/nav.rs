@@ -1,5 +1,6 @@
 //! `GET /api/nav`, what `<platform-nav>` renders: the registered features in
-//! registry order and who is logged in. The nav renders and links and does
+//! registry order, with the attention address of each that has one, and who
+//! is logged in. The nav renders and links and does
 //! nothing else, so this is all it asks for. See "Navigation" in
 //! High-level/docs/platform-architecture.md.
 
@@ -34,6 +35,11 @@ struct NavFeature {
     // Left out for a feature that names none, so the nav draws its fallback.
     #[serde(skip_serializing_if = "Option::is_none")]
     icon: Option<String>,
+    // The feature's attention endpoint, which the nav bar asks itself, after
+    // it has drawn. Left out for a feature that names none. The core passes
+    // the path along and calls nothing, so no page waits on a feature.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    attention_url: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -62,6 +68,7 @@ async fn serve(session: ApiSession, State(state): State<AppState>) -> Response {
                 name: feature.name.clone(),
                 path: feature.prefix.clone(),
                 icon: feature.icon.clone(),
+                attention_url: feature.attention.clone(),
             })
             .collect(),
         user: NavUser { email },

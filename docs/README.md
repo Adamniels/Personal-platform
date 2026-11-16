@@ -81,7 +81,8 @@ features" in `High-level/docs/platform-architecture.md`.
   migrations, the hosted copy's backups, the one repository, the first milestone, memory layers, where candidate features
   are kept, and what is deliberately not being done
 - `feature-contract.md` — what a feature is, what it owns, what it may depend on, how it
-  authenticates a request, the two contracts, and where reminders sit
+  authenticates a request, the attention endpoint behind the nav's dot, the two contracts, and
+  where reminders sit
 - `how-we-build.md` — how work is cut and ordered: a walking skeleton, then features cut into
   vertical slices ordered by risk, with acceptance criteria as automated tests written first,
   and the three tests for what is built now

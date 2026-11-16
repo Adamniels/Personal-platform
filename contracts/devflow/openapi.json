@@ -1,6 +1,17 @@
 {
   "components": {
     "schemas": {
+      "Attention": {
+        "properties": {
+          "attention": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "attention"
+        ],
+        "type": "object"
+      },
       "CodeHostMode": {
         "enum": [
           "fake",
@@ -555,6 +566,31 @@
   },
   "openapi": "3.1.1",
   "paths": {
+    "/devflow/api/attention": {
+      "get": {
+        "description": "Read from what Dev flow stored and never from GitHub. attention is true when the caller has a pull request, waiting or stopped, that is not sent back, or a GitHub link that has expired, and false otherwise. The nav bar asks it with the session's cookie. Without a valid token, 401 with an empty body.",
+        "operationId": "getAttention",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Attention"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "summary": "Whether something needs the caller, for the nav bar",
+        "tags": [
+          "DevFlow"
+        ]
+      }
+    },
     "/devflow/api/display": {
       "get": {
         "description": "Read from what Dev flow stored and never from GitHub. waiting, the pull requests that wait for the caller and were not sent back; stopped, those the runner stopped on, not sent back; projects, how many the caller has connected; stale, whether any project is stale or failing, as the waiting list says them; and needs_relink, whether the caller's GitHub link has expired. The core calls it with the user's token in the Authorization header. Without a valid token, 401 with an empty body.",

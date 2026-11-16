@@ -2,6 +2,7 @@
 repositories, reached through the proxy under /devflow and opened from the
 nav bar. See devflow/README.md."""
 
+import re
 from pathlib import Path
 
 from playwright.sync_api import Browser, Page, expect
@@ -870,3 +871,93 @@ def test_i_cannot_act_when_my_link_has_expired(
     assert merged.json()["title"] == "Your GitHub link has expired"
     assert _writes(page) == []
     assert item["project_id"] == project
+
+
+def _devflow_link(page: Page):
+    """Dev flow's link in the nav bar, whether or not it has the dot."""
+    return page.locator("platform-nav .links").get_by_role(
+        "link", name=re.compile("^Dev flow")
+    )
+
+
+def _forget_attention(page: Page) -> None:
+    """The pages before the read asked the nav's attention address while
+    nothing had been read, and the nav remembers that answer for a minute in
+    the tab's sessionStorage. A person sees the dot at most a minute late; a
+    test forgets it instead of waiting."""
+    page.evaluate("sessionStorage.clear()")
+
+
+def test_the_nav_shows_a_dot_when_something_waits(
+    page: Page, invite_code: str, base_url: str, devflow_world, viewport: str
+):
+    register_and_log_in(page, invite_code, base_url)
+    world = one_repository()
+    _ready_to_merge(world)
+    devflow_world(world)
+    _connect_and_read(page, base_url)
+    _forget_attention(page)
+
+    page.goto("/")
+
+    link = _devflow_link(page)
+    expect(link.locator(".dot")).to_have_count(1)
+    expect(link).to_have_accessible_name("Dev flow, needs you")
+    # The front page's card says it too; the shot shows both.
+    expect(page.get_by_role("heading", name="Dev flow")).to_be_visible()
+    capture(page, "nav-attention-dot")
+
+    # Every page of the platform has the same bar, a feature's included.
+    page.goto("/review")
+    expect(_devflow_link(page).locator(".dot")).to_have_count(1)
+    expect(_devflow_link(page)).to_have_accessible_name("Dev flow, needs you")
+
+
+def test_the_nav_shows_no_dot_when_nothing_waits(
+    page: Page, invite_code: str, base_url: str, devflow_world
+):
+    register_and_log_in(page, invite_code, base_url)
+    world = one_repository()
+    # The reviewer is still on it, so it is not my turn.
+    _approved(world, 305, "The poll", ["in-review"])
+    devflow_world(world)
+    _connect_and_read(page, base_url)
+    _forget_attention(page)
+
+    with page.expect_response(
+        lambda r: r.url.endswith("/devflow/api/attention")
+    ) as response:
+        page.goto("/")
+
+    assert response.value.status == 200
+    assert response.value.json() == {"attention": False}
+    expect(_devflow_link(page)).to_have_accessible_name("Dev flow")
+    expect(page.locator("platform-nav .dot")).to_have_count(0)
+
+
+def test_the_dot_goes_when_i_merge(
+    page: Page, invite_code: str, base_url: str, devflow_world
+):
+    register_and_log_in(page, invite_code, base_url)
+    world = one_repository()
+    _ready_to_merge(world)
+    devflow_world(world)
+    _connect_and_read(page, base_url)
+    _forget_attention(page)
+    page.goto("/devflow")
+    expect(_devflow_link(page).locator(".dot")).to_have_count(1)
+    navs: list = []
+    page.on("request", lambda r: navs.append(r) if r.url.endswith("/api/nav") else None)
+
+    page.get_by_role("article", name="The poll").get_by_role(
+        "button", name="Merge"
+    ).click()
+    page.get_by_role("dialog", name="Merge #305 into main?").get_by_role(
+        "button", name="Merge"
+    ).click()
+
+    expect(page.get_by_text("Merged #305")).to_be_visible()
+    expect(_devflow_link(page).locator(".dot")).to_have_count(0)
+    expect(_devflow_link(page)).to_have_accessible_name("Dev flow")
+    # The bar asked Dev flow again, and not the core for its links.
+    assert navs == []

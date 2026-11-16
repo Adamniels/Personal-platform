@@ -372,3 +372,79 @@ describe("sending back", () => {
 		expect(found.getByRole("link", { name: "Open on GitHub" })).toBeTruthy();
 	});
 });
+
+describe("the nav's dot", () => {
+	/** How many times the page has asked the nav bar to ask again, from now. */
+	function asks() {
+		const heard = vi.fn();
+		window.addEventListener("platform-nav-attention", heard);
+		return {
+			heard,
+			stop: () => window.removeEventListener("platform-nav-attention", heard),
+		};
+	}
+
+	test("the nav is asked again after a merge", async () => {
+		const { heard, stop } = asks();
+		open([item({ title: "The vault" })]);
+		const button = await mergeButton("The vault");
+		await waitFor(() => expect(enabled(button)).toBe(true));
+		expect(heard).not.toHaveBeenCalled();
+
+		fireEvent.click(button);
+		fireEvent.click(
+			within(await screen.findByRole("dialog")).getByRole("button", {
+				name: "Merge",
+			}),
+		);
+
+		await waitFor(() => expect(heard).toHaveBeenCalledTimes(1));
+		stop();
+	});
+
+	test("the nav is asked again after a merge is refused", async () => {
+		const { heard, stop } = asks();
+		open([item({ title: "The vault" })], {
+			actions: {
+				merge: () =>
+					Promise.reject(
+						new ApiError({
+							status: 409,
+							title: "Your GitHub link has expired",
+							detail: null,
+						}),
+					),
+			},
+		});
+		const button = await mergeButton("The vault");
+		await waitFor(() => expect(enabled(button)).toBe(true));
+
+		fireEvent.click(button);
+		fireEvent.click(
+			within(await screen.findByRole("dialog")).getByRole("button", {
+				name: "Merge",
+			}),
+		);
+
+		// What a refusal stores, such as an expired link, can change the dot too.
+		await waitFor(() => expect(heard).toHaveBeenCalledTimes(1));
+		stop();
+	});
+
+	test("the nav is asked again after sending back", async () => {
+		const { heard, stop } = asks();
+		open([item({ title: "The vault" })]);
+		const found = await card("The vault");
+		const sendBack = found.getByRole("button", { name: "Send back" });
+		await waitFor(() => expect(enabled(sendBack)).toBe(true));
+
+		fireEvent.click(sendBack);
+		fireEvent.change(found.getByRole("textbox", { name: "Comment" }), {
+			target: { value: "Rename it." },
+		});
+		fireEvent.click(found.getByRole("button", { name: "Send" }));
+
+		await waitFor(() => expect(heard).toHaveBeenCalledTimes(1));
+		stop();
+	});
+});

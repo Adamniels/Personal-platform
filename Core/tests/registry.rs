@@ -21,6 +21,7 @@ fn the_committed_registry_holds_canary_review_and_devflow() {
                 upstream: "http://127.0.0.1:8081".into(),
                 display: Some("/canary/api/display".into()),
                 icon: Some("bird".into()),
+                attention: None,
             },
             Feature {
                 name: "Review".into(),
@@ -28,6 +29,7 @@ fn the_committed_registry_holds_canary_review_and_devflow() {
                 upstream: "http://127.0.0.1:8083".into(),
                 display: Some("/review/api/display".into()),
                 icon: Some("layers".into()),
+                attention: None,
             },
             Feature {
                 name: "Dev flow".into(),
@@ -35,6 +37,7 @@ fn the_committed_registry_holds_canary_review_and_devflow() {
                 upstream: "http://127.0.0.1:8084".into(),
                 display: Some("/devflow/api/display".into()),
                 icon: Some("git-pull-request".into()),
+                attention: Some("/devflow/api/attention".into()),
             },
         ]
     );
