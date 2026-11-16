@@ -18,35 +18,42 @@
 	gap: var(--space-3);
 }
 
-/* By deck and By topic side by side, as the card grid of section 2. */
+/* By deck and By topic, a row of cards as section 2 of design/DESIGN.md has
+ * it: a wrapping flex row, so they sit side by side on desktop and stack on
+ * phone without a breakpoint. */
 .groups {
-	display: grid;
-	grid-template-columns: repeat(auto-fit, minmax(min(340px, 100%), 1fr));
+	display: flex;
+	flex-wrap: wrap;
 	gap: var(--space-4);
-	align-items: start;
+	align-items: flex-start;
 }
 
+.group {
+	flex: 1 1 340px;
+	min-width: 0;
+}
+
+/* Each deck or topic is an inset row, "Inset list row" in section 4 of
+ * design/DESIGN.md, the rows --inset-gap apart with no line between them. */
 .list {
 	display: flex;
 	flex-direction: column;
+	gap: var(--inset-gap);
 	margin: 0;
 	padding: 0;
 	list-style: none;
 }
 
-/* A deck or topic: its name, its count and Start, rows a hairline apart. */
+/* A deck or topic: its name, its count and Start, on the row's inset fill. */
 .row {
+	box-sizing: border-box;
 	display: flex;
 	align-items: center;
 	gap: var(--space-3);
 	min-height: var(--row-h);
-	padding: var(--space-2) 0;
-	border-top: 1px solid var(--border);
-}
-
-.row:first-child {
-	border-top: none;
-	padding-top: 0;
+	padding: 8px 12px;
+	background: var(--surface-2);
+	border-radius: var(--radius-md);
 }
 
 .name {

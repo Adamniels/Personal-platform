@@ -1,7 +1,8 @@
 /* The Decks tab: Add deck above the list, and each deck a row with its name,
- * its count and its buttons. Rows sit in one bordered surface, a row's
- * height --row-h and a 1px --border between them, as the table's rows do in
- * section 4 of design/DESIGN.md; a control's parts sit --space-2 apart. */
+ * its count and its buttons. The list is a card, "Card" in section 4 of
+ * design/DESIGN.md, and each deck an inset row in it, "Inset list row", the
+ * rows --inset-gap apart with no line between them; a control's parts sit
+ * --space-2 apart. */
 
 .section {
 	display: flex;
@@ -21,8 +22,12 @@
 }
 
 .list {
+	box-sizing: border-box;
+	display: flex;
+	flex-direction: column;
+	gap: var(--inset-gap);
 	margin: 0;
-	padding: 0;
+	padding: var(--card-pad);
 	list-style: none;
 	border: 1px solid var(--border);
 	border-radius: var(--radius-lg);
@@ -30,19 +35,19 @@
 }
 
 /* The name, its count beside it, and the buttons at the end, which move
- * under the name when the row is too narrow for all three. */
+ * under the name when the row is too narrow for all three, on the row's
+ * inset fill. */
 .row {
+	box-sizing: border-box;
 	display: flex;
 	flex-wrap: wrap;
 	align-items: center;
 	column-gap: var(--space-2);
 	min-height: var(--row-h);
-	padding: 6px 12px;
+	padding: 8px 12px;
 	min-width: 0;
-}
-
-.row + .row {
-	border-top: 1px solid var(--border);
+	background: var(--surface-2);
+	border-radius: var(--radius-md);
 }
 
 .name {

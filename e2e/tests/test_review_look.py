@@ -11,6 +11,7 @@ remove button's."""
 
 from itertools import pairwise
 
+import pytest
 from playwright.sync_api import Locator, Page, expect
 
 from conftest import open_section, register_and_log_in, sections
@@ -245,3 +246,61 @@ def test_a_link_drawn_as_a_button_is_a_pill(
     assert secondary["borderWidths"] == ["1px"] * 4
     assert secondary["borderStyles"] == ["solid"] * 4
     assert secondary["borderColors"] == [resolve(page, "--border-strong", "color")] * 4
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_due_lists_are_inset_rows(
+    page: Page, invite_code: str, base_url: str, viewport: str, theme: str
+):
+    open_review(page, invite_code, base_url)
+    page.evaluate(f"localStorage.setItem('{STORAGE_KEY}', '{theme}')")
+    stage(page)
+    page.goto("/review")
+    expect(page.locator("html")).to_have_attribute("data-theme", theme)
+    for name in ["By deck", "By topic"]:
+        assert_inset_rows(page, rows(page.get_by_role("list", name=name)), 2, name)
+
+
+def test_the_start_page_cards_are_a_wrapping_row(
+    page: Page, invite_code: str, base_url: str, viewport: str
+):
+    open_review(page, invite_code, base_url)
+    stage(page)
+    page.goto("/review")
+    cards = page.get_by_role("tabpanel", name="Study").get_by_role("article")
+    expect(cards).to_have_count(2)
+    row = cards.first.locator("xpath=..")
+
+    look = style(row)
+    assert look["display"] == "flex"
+    assert look["flexWrap"] == "wrap"
+    assert look["rowGap"] == look["columnGap"] == resolve(page, "--space-4", "row-gap")
+    for card in cards.all():
+        card_look = style(card)
+        assert card_look["flex"] == ["1", "1", "340px"]
+        assert card_look["minWidth"] == "0px"
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_the_deck_list_is_a_card_of_inset_rows(
+    page: Page, invite_code: str, base_url: str, viewport: str, theme: str
+):
+    open_review(page, invite_code, base_url)
+    page.evaluate(f"localStorage.setItem('{STORAGE_KEY}', '{theme}')")
+    stage(page)
+    page.goto("/review/decks")
+    expect(page.locator("html")).to_have_attribute("data-theme", theme)
+    decks = page.get_by_role("list", name="Decks")
+    expect(rows(decks)).to_have_count(2)
+
+    look = style(decks)
+    assert look["background"] == resolve(page, "--surface", "background-color")
+    assert look["borderWidths"] == ["1px"] * 4
+    assert look["borderStyles"] == ["solid"] * 4
+    assert look["borderColors"] == [resolve(page, "--border", "color")] * 4
+    radius = resolve(page, "--radius-lg", "border-top-left-radius")
+    assert look["radii"] == [radius] * 4
+    card_pad = resolve(page, "--card-pad", "padding-top")
+    assert look["padding"] == [card_pad] * 4
+
+    assert_inset_rows(page, rows(decks), 2, "Decks")

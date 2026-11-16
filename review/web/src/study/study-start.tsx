@@ -43,7 +43,7 @@ export function StudyStart() {
 
 function Groups({ title, groups }: { title: string; groups: DueGroup[] }) {
 	return (
-		<Card title={title}>
+		<Card title={title} className={styles.group}>
 			<ul className={styles.list} aria-label={title}>
 				{groups.map((group) => (
 					<Group key={group.key} group={group} />
