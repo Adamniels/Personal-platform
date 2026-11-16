@@ -112,6 +112,7 @@ public static class DevFlowApp
         app.MapGitHubLink();
         app.MapProjects(new Uri(settings.PublicOrigin));
         app.MapWaiting();
+        app.MapDisplay();
         app.MapPages(webRoot);
         if (settings.CodeHost == CodeHostMode.Fake)
         {

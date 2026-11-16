@@ -2,6 +2,26 @@
 // `npm run generate:api`. Do not edit: src/api/schema.test.ts fails when it is stale.
 
 export interface paths {
+    "/devflow/api/display": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What waits, for the front page
+         * @description Read from what Dev flow stored and never from GitHub. waiting, the pull requests that wait for the caller and were not sent back; stopped, those the runner stopped on, not sent back; projects, how many the caller has connected; stale, whether any project is stale or failing, as the waiting list says them; and needs_relink, whether the caller's GitHub link has expired. The core calls it with the user's token in the Authorization header. Without a valid token, 401 with an empty body.
+         */
+        get: operations["getDisplay"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/devflow/api/github/link": {
         parameters: {
             query?: never;
@@ -224,6 +244,16 @@ export interface components {
             code_host: components["schemas"]["CodeHostMode"];
             github: components["schemas"]["GitHubLinkStatus"];
         };
+        DisplayData: {
+            needs_relink: boolean;
+            /** Format: int32 */
+            projects: number;
+            stale: boolean;
+            /** Format: int32 */
+            stopped: number;
+            /** Format: int32 */
+            waiting: number;
+        };
         /** @enum {unknown} */
         GitHubLinkState: "none" | "linked" | "needs_relink";
         GitHubLinkStatus: {
@@ -334,6 +364,33 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    getDisplay: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DisplayData"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     startGitHubLink: {
         parameters: {
             query?: never;
