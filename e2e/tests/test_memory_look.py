@@ -9,7 +9,9 @@ DESIGN.md gives in pixels."""
 
 import uuid
 from datetime import UTC, datetime, timedelta
+from itertools import pairwise
 
+import pytest
 from playwright.sync_api import Locator, Page, expect
 
 from conftest import open_section, register_and_log_in, sections
@@ -254,3 +256,67 @@ def test_a_panel_has_the_card_padding(
     day = entry_list(panel(page, "Timeline"))
     expect(rows(day).first).to_be_visible()
     check(day, "Timeline")
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_entries_are_inset_rows(
+    page: Page, invite_code: str, base_url: str, viewport: str, theme: str
+):
+    open_memory(page, invite_code, base_url)
+    page.evaluate(f"localStorage.setItem('{STORAGE_KEY}', '{theme}')")
+    stage_profile(page)
+    stage_rules(page)
+
+    def check(scope: Locator, count: int, where: str) -> None:
+        entries = rows(entry_list(scope))
+        expect(entries).to_have_count(count)
+        fill = resolve(page, "--surface-2", "background-color")
+        radius = resolve(page, "--radius-md", "border-top-left-radius")
+        row_h = resolve(page, "--row-h", "min-height")
+        for row in entries.all():
+            look = style(row)
+            assert look["background"] == fill, where
+            assert look["radii"] == [radius] * 4, where
+            assert look["padding"] == ["8px", "12px", "8px", "12px"], where
+            assert look["minHeight"] == row_h, where
+            assert look["borderWidths"] == ["0px"] * 4, where
+        gap = px(page, "--inset-gap")
+        boxes = [row.bounding_box() for row in entries.all()]
+        for above, below in pairwise(boxes):
+            between = below["y"] - (above["y"] + above["height"])
+            assert abs(between - gap) < 0.5, f"{where}: {between}px between rows"
+
+    page.goto("/brain")
+    expect(page.locator("html")).to_have_attribute("data-theme", theme)
+    values = panel(page, "Profile").get_by_role("article", name="Values")
+    check(values, 2, "Profile, Values")
+
+    page.goto("/brain/rules")
+    check(panel(page, "Rules"), 2, "Rules")
+
+
+def test_profile_cards_are_a_wrapping_row(
+    page: Page, invite_code: str, base_url: str, viewport: str
+):
+    open_memory(page, invite_code, base_url)
+    cards = panel(page, "Profile").get_by_role("article")
+    expect(cards).to_have_count(6)
+    row = cards.first.locator("xpath=..")
+
+    look = style(row)
+    assert look["display"] == "flex"
+    assert look["flexWrap"] == "wrap"
+    assert look["rowGap"] == look["columnGap"] == resolve(page, "--space-4", "row-gap")
+    for card in cards.all():
+        card_look = style(card)
+        assert card_look["flex"] == ["1", "1", "340px"]
+        assert card_look["minWidth"] == "0px"
+
+    boxes = [card.bounding_box() for card in cards.all()]
+    if viewport == "phone":
+        # One column: every card at the same left edge and the full width.
+        assert len({round(box["x"]) for box in boxes}) == 1
+        assert len({round(box["width"]) for box in boxes}) == 1
+    else:
+        # More than one card on the first line.
+        assert round(boxes[1]["y"]) == round(boxes[0]["y"])
