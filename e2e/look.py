@@ -85,7 +85,9 @@ SIDEWAYS = (
 )
 
 # A selected table row and a selected option keep their own rule,
-# --info-soft, so they are left out.
+# --info-soft, so they are left out. A breadcrumb's last item says where the
+# page is with aria-current="page" but is no nav item, tab or segment, so it
+# is held only to the first half: never marked with amber.
 ACTIVE = (
     """() => {"""
     + ELEMENTS
@@ -112,7 +114,8 @@ ACTIVE = (
         if (outlined || bordered) {
             offenders.push(`${describe(element)}: marked in --accent-border`);
         }
-        const tabOrNavItem = current || role === "tab";
+        const crumb = element.closest('nav[aria-label="Breadcrumb" i]') !== null;
+        const tabOrNavItem = (current && !crumb) || role === "tab";
         if (tabOrNavItem && style.backgroundColor !== fill) {
             offenders.push(
                 `${describe(element)}: fill ${style.backgroundColor}, not --text ${fill}`

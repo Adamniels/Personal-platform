@@ -102,7 +102,9 @@ functions a test calls on an open page once it has drawn:
   element whose `overflow-x` is `auto` or `scroll` has more to scroll than it shows, hard rule 13.
 - `assert_active_is_inverted(page)`: no visible element with `aria-current="page"` or
   `aria-selected="true"` is marked in `--accent-border`, and each tab or nav item among them has the
-  `--text` fill, hard rule 11. A selected table row or option keeps its own rule, `--info-soft`.
+  `--text` fill, hard rule 11. A selected table row or option keeps its own rule, `--info-soft`. The
+  current item of an in-page breadcrumb, a `nav` named "Breadcrumb", is no nav item or tab, so it
+  needs no fill, though it is still never marked in amber.
 
 Each reads the elements inside open shadow roots too, so the nav bar is checked as a person sees
 it, and fails naming the elements that break its rule. A slice that restyles a page calls all three

@@ -718,3 +718,94 @@ def test_topic_and_decision_cards_are_a_wrapping_row(
     cards = panel(page, "History").get_by_role("article")
     expect(cards).to_have_count(2)
     assert_a_wrapping_card_row(page, cards, viewport, "a decision's page")
+
+
+# The nearest ancestor of a table that scrolls sideways, its frame, as
+# [scrollWidth, clientWidth], or null when it has none.
+FRAME = """table => {
+    for (let element = table.parentElement; element; element = element.parentElement) {
+        const overflow = getComputedStyle(element).overflowX;
+        if (overflow === "auto" || overflow === "scroll") {
+            return [element.scrollWidth, element.clientWidth];
+        }
+    }
+    return null;
+}"""
+
+
+def assert_the_table_fits(page: Page, name: str) -> None:
+    table = panel(page, name).get_by_role("table")
+    expect(table.get_by_role("row").nth(2)).to_be_visible()
+    frame = table.evaluate(FRAME)
+    assert frame is not None, f"{name}: the table has no frame"
+    width, client = frame
+    assert width <= client, f"{name}: the table is {width}px in {client}px"
+
+
+def test_no_table_in_the_memory_centre_scrolls_sideways(
+    page: Page, invite_code: str, base_url: str, viewport: str
+):
+    open_memory(page, invite_code, base_url)
+    stage_knowledge(page)
+    stage_decisions(page)
+    stage_profile(page)
+    stage_rules(page)
+    stage_now(page)
+
+    page.goto("/brain/knowledge")
+    assert_the_table_fits(page, "Knowledge")
+
+    page.goto("/brain/everything")
+    assert_the_table_fits(page, "Everything")
+    # A search adds the excerpt under each entry.
+    panel(page, "Everything").get_by_label("Search", exact=True).fill("Postgres")
+    expect(panel(page, "Everything").locator("mark").first).to_be_visible()
+    assert_the_table_fits(page, "Everything")
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_the_other_sections_follow_the_look(
+    page: Page, invite_code: str, base_url: str, viewport: str, theme: str
+):
+    open_memory(page, invite_code, base_url)
+    page.evaluate(f"localStorage.setItem('{STORAGE_KEY}', '{theme}')")
+    stage_knowledge(page)
+    decision = stage_decisions(page)
+    stage_identity(page)
+
+    def themed() -> None:
+        expect(page.locator("html")).to_have_attribute("data-theme", theme)
+
+    page.goto("/brain/knowledge")
+    themed()
+    expect(panel(page, "Knowledge").get_by_role("table")).to_be_visible()
+    assert_the_look(page, "/brain/knowledge")
+
+    open_topic_page(page, "postgres", "Postgres")
+    themed()
+    assert_the_look(page, "a topic's page")
+
+    page.goto("/brain/history")
+    themed()
+    expect(panel(page, "History").get_by_role("listitem").first).to_be_visible()
+    assert_the_look(page, "/brain/history")
+
+    open_decision_page(page, decision)
+    themed()
+    assert_the_look(page, "a decision's page")
+
+    page.goto("/brain/everything")
+    themed()
+    expect(panel(page, "Everything").get_by_role("table")).to_be_visible()
+    assert_the_look(page, "/brain/everything")
+
+    open_item_page(page, decision)
+    themed()
+    assert_the_look(page, "an item's page")
+
+    # An answer with a narrower group and its raw response open.
+    asked = ask_about(page, "What do they know?", "Topic", "Databases")
+    themed()
+    asked.get_by_role("button", name="Show what a feature receives").click()
+    expect(asked.get_by_label("What a feature receives", exact=True)).to_be_visible()
+    assert_the_look(page, "/brain/ask")
