@@ -7,6 +7,7 @@ Colours and sizes are compared with the token as the page resolves it, as
 test_style.py does, so no value is written here but the row's padding, which
 DESIGN.md gives in pixels."""
 
+import re
 import uuid
 from datetime import UTC, datetime, timedelta
 from itertools import pairwise
@@ -15,6 +16,11 @@ import pytest
 from playwright.sync_api import Locator, Page, expect
 
 from conftest import open_section, register_and_log_in, sections
+from look import (
+    assert_active_is_inverted,
+    assert_headings_are_capitals,
+    assert_nothing_scrolls_sideways,
+)
 
 THEMES = ["light", "dark"]
 LABEL = "Memory sections"
@@ -320,3 +326,41 @@ def test_profile_cards_are_a_wrapping_row(
     else:
         # More than one card on the first line.
         assert round(boxes[1]["y"]) == round(boxes[0]["y"])
+
+
+def assert_the_look(page: Page, where: str) -> None:
+    # The bar has drawn with the account, and the toasts have left.
+    expect(page.get_by_role("button", name=re.compile("@"))).to_be_visible()
+    page.evaluate("document.fonts.ready.then(() => null)")
+    for check in (
+        assert_headings_are_capitals,
+        assert_nothing_scrolls_sideways,
+        assert_active_is_inverted,
+    ):
+        try:
+            check(page)
+        except AssertionError as error:
+            raise AssertionError(f"{where}: {error}") from None
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_the_frame_and_first_sections_follow_the_look(
+    page: Page, invite_code: str, base_url: str, viewport: str, theme: str
+):
+    open_memory(page, invite_code, base_url)
+    page.evaluate(f"localStorage.setItem('{STORAGE_KEY}', '{theme}')")
+    stage_profile(page)
+    stage_rules(page)
+    stage_now(page)
+    stage_timeline(page)
+
+    for name, path in [
+        ("Profile", "/brain"),
+        ("Rules", "/brain/rules"),
+        ("Now", "/brain/now"),
+        ("Timeline", "/brain/timeline"),
+    ]:
+        page.goto(path)
+        expect(page.locator("html")).to_have_attribute("data-theme", theme)
+        expect(panel(page, name).get_by_role("listitem").first).to_be_visible()
+        assert_the_look(page, path)
