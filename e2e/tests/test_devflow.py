@@ -263,7 +263,9 @@ def test_i_disconnect_a_project(
     projects = page.get_by_role("region", name="Projects")
     expect(projects.get_by_text("Adamniels/Personal-platform")).to_be_visible()
 
-    projects.get_by_role("button", name="Disconnect Adamniels/Personal-platform").click()
+    projects.get_by_role(
+        "button", name="Disconnect Adamniels/Personal-platform"
+    ).click()
     dialog = page.get_by_role("dialog", name="Disconnect Adamniels/Personal-platform?")
     expect(dialog).to_be_visible()
     expect(dialog).to_contain_text("Nothing changes on GitHub.")
@@ -289,9 +291,7 @@ def test_without_an_installation_i_am_told_to_install_the_app(
 
     expect(page.get_by_text(NOT_INSTALLED)).to_be_visible()
     install = page.get_by_role("link", name="Install it on GitHub")
-    expect(install).to_have_attribute(
-        "href", f"{base_url}/devflow/fake-github/install"
-    )
+    expect(install).to_have_attribute("href", f"{base_url}/devflow/fake-github/install")
     # The fake's address is a harmless page of its own.
     install.click()
     expect(page.get_by_role("heading", name="Fake GitHub", level=1)).to_be_visible()
