@@ -485,7 +485,9 @@ service, so CI and the agents gate and build it with the rest, see `design/ui/RE
 depends on the components there as `"@platform/ui": "file:../../design/ui"`.
 
 The page is an `h1`, "Memory", a line under it, then the package's `Tabs`, one per section, each
-with its own address:
+with its own address. The page names its section in the top bar's crumb, "Memory / Profile", a
+section's own page naming the section it belongs to, by setting the `crumb` attribute of the page's
+`<platform-nav>` from `src/app.tsx`:
 
 | Section    | Address             |
 | ---------- | ------------------- |

@@ -97,6 +97,7 @@ function CategoryCard({
 }) {
 	return (
 		<Card
+			className={layout.card}
 			title={category.label}
 			footer={adding ? undefined : <Button onClick={onAdd}>Add</Button>}
 		>

@@ -127,3 +127,43 @@ describe("the address decides the section, and a tab changes the address", () =>
 		).toBeTruthy();
 	});
 });
+
+describe("the top bar names the section", () => {
+	afterEach(() => {
+		for (const nav of document.querySelectorAll("platform-nav")) nav.remove();
+	});
+
+	function crumb() {
+		return document.querySelector("platform-nav")?.getAttribute("crumb");
+	}
+
+	function withNav() {
+		document.body.append(document.createElement("platform-nav"));
+	}
+
+	test("the crumb is Memory and the section, and follows a tab", async () => {
+		withNav();
+		openAt("/brain");
+
+		expect(crumb()).toBe("Memory / Profile");
+		fireEvent.click(screen.getByRole("tab", { name: "Rules" }));
+		await waitFor(() => expect(crumb()).toBe("Memory / Rules"));
+	});
+
+	test("a sub page names the section it belongs to", () => {
+		withNav();
+		openAt("/brain/history/123");
+
+		expect(crumb()).toBe("Memory / History");
+	});
+
+	test("an unknown address leaves the bar to name Memory", () => {
+		withNav();
+		document.querySelector("platform-nav")?.setAttribute("crumb", "Old");
+		openAt("/brain/nothing");
+
+		expect(document.querySelector("platform-nav")?.hasAttribute("crumb")).toBe(
+			false,
+		);
+	});
+});

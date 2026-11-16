@@ -1,24 +1,36 @@
-/* An entry list and the form that adds or corrects an entry. Rows in a card
- * sit --space-3 apart and a control's parts --space-2, as section 2 of
- * design/DESIGN.md has it. */
+/* An entry list and the form that adds or corrects an entry. Each entry is
+ * an inset row, "Inset list row" in section 4 of design/DESIGN.md, the rows
+ * --inset-gap apart with no line between them, and a control's parts
+ * --space-2, as section 2 has it. */
 
 .list {
 	display: flex;
 	flex-direction: column;
-	gap: var(--space-3);
+	gap: var(--inset-gap);
+}
+
+/* The list's reset, without weight: it still beats the browser's own
+ * padding on a list, but a class on the same list, such as a section's
+ * `.panel`, sets its padding whichever stylesheet comes last. */
+:where(.list) {
 	margin: 0;
 	padding: 0;
 	list-style: none;
 }
 
 /* The text, then its buttons at its end, which move under it when the row
- * is too narrow for both. */
+ * is too narrow for both, on the row's inset fill. */
 .entry {
+	box-sizing: border-box;
 	display: flex;
 	flex-wrap: wrap;
 	align-items: flex-start;
 	column-gap: var(--space-2);
 	min-width: 0;
+	min-height: var(--row-h);
+	padding: 8px 12px;
+	background: var(--surface-2);
+	border-radius: var(--radius-md);
 }
 
 /* Padded to sit level with the buttons beside it. What was typed keeps its
@@ -72,7 +84,7 @@
 }
 
 /* Under the entry, the full width of the row, set in from the text by a
- * rule on its left. */
+ * rule on its left: part of the entry's row, not rows of their own. */
 .versions {
 	display: flex;
 	flex-direction: column;

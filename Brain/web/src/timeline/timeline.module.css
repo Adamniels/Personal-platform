@@ -10,12 +10,15 @@
 	min-width: 0;
 }
 
+/* In capitals, hard rule 12 of design/DESIGN.md, set here as well as by
+ * page.css's rule for an h2, so it does not depend on the element. */
 .heading {
 	margin: 0;
 	font-family: var(--font-heading);
 	font-size: var(--text-h2-size);
 	line-height: var(--text-h2-line);
 	font-weight: 600;
+	text-transform: uppercase;
 }
 
 /* What was done, then the evidence, which keeps its line breaks and wraps a

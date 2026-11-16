@@ -1,4 +1,5 @@
 import { EmptyState, Tab, TabPanel, Tabs } from "@platform/ui";
+import { useEffect } from "react";
 import { navigate, usePathname } from "./address";
 import styles from "./app.module.css";
 import { Ask } from "./ask/ask";
@@ -15,6 +16,7 @@ import { TimelineSection } from "./timeline/timeline";
  * the address, and the section the address names. */
 export function App() {
 	const current = sectionAt(usePathname());
+	useCrumb(current);
 
 	return (
 		<main className="page">
@@ -46,6 +48,22 @@ export function App() {
 			{current ? null : <NotFound />}
 		</main>
 	);
+}
+
+/** Names the section in the top bar: the crumb of the page's
+ * `<platform-nav>`, which sits outside the React root in index.html, is
+ * "Memory / " and the section's name, on a section's sub page too. Where the
+ * address names no section the attribute is removed, so the bar shows the
+ * name of its link, "Memory". See "Navigation" in
+ * High-level/docs/platform-architecture.md. */
+function useCrumb(current: Section | undefined) {
+	const label = current?.label;
+	useEffect(() => {
+		const nav = document.querySelector("platform-nav");
+		if (!nav) return;
+		if (label) nav.setAttribute("crumb", `Memory / ${label}`);
+		else nav.removeAttribute("crumb");
+	}, [label]);
 }
 
 /** The section the address names. Until its slice lands, a section says it

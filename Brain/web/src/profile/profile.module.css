@@ -1,10 +1,17 @@
-/* The Profile section's cards, in the card grid of section 2 of
- * design/DESIGN.md. The section around them is entries/section.module.css. */
+/* The Profile section's cards, a row of cards as section 2 of
+ * design/DESIGN.md has it: a wrapping flex row, so they take unequal widths
+ * on desktop and stack on phone without a breakpoint. The section around
+ * them is entries/section.module.css. */
 
 .grid {
-	display: grid;
-	grid-template-columns: repeat(auto-fit, minmax(min(340px, 100%), 1fr));
+	display: flex;
+	flex-wrap: wrap;
 	gap: var(--space-4);
+}
+
+.card {
+	flex: 1 1 340px;
+	min-width: 0;
 }
 
 /* A card's entries, then the form when one is being added. */
