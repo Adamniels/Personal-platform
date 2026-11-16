@@ -1,11 +1,13 @@
 // What the owner does with a pull request from the waiting list: merge it, after a confirmation,
 // or send it back with a comment, both as himself on the code host. The commit the page showed
 // travels with a merge, so a pull request that moved on is refused there, never merged. A
-// refusal is shown inside the item, in words, and the list is read again. See "The pages" and
-// "Acting from the page" in devflow/README.md.
+// refusal is shown inside the item, in words, and the list is read again, and the nav bar is
+// asked to ask again, so its dot follows. See "The pages" and "Acting from the page" in
+// devflow/README.md.
 import { Button, Dialog, TextArea, useToast } from "@platform/ui";
 import { type FormEvent, type ReactNode, useId, useState } from "react";
 import { ApiError } from "./api/client";
+import { askNavAgain } from "./nav-attention";
 import type { Status } from "./status";
 import type { WaitingItem } from "./waiting";
 import styles from "./waiting.module.css";
@@ -81,6 +83,8 @@ export function ItemActions({
 		}
 		setConfirming(false);
 		await reload();
+		// Whatever it answered, a merge may change what needs the owner.
+		askNavAgain();
 	}
 
 	async function send(event: FormEvent) {
@@ -99,6 +103,7 @@ export function ItemActions({
 			setSending(false);
 		}
 		await reload();
+		askNavAgain();
 	}
 
 	function cancel() {

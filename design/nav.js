@@ -24,6 +24,15 @@
 // under More, and the theme toggle moves into the account menu. It renders
 // and links and does nothing else: when /api/nav fails it shows the mark,
 // Home and Memory alone, and it never redirects or refreshes the session.
+//
+// Once it has drawn, it asks each feature that names an attention address,
+// `attention_url` in /api/nav, whether something there needs the person, and
+// draws the dot on that feature's link when the answer is
+// {"attention": true}. It never waits for these to draw, and any failure is
+// no dot and nothing shown. An answer is remembered for a minute in the tab's
+// sessionStorage, and a page that changed what needs the person dispatches
+// `platform-nav-attention` on window to make the bar forget and ask again.
+// See "The attention endpoint" in High-level/docs/feature-contract.md.
 // See "Navigation" in High-level/docs/platform-architecture.md, and section 3
 // of design/DESIGN.md for how it looks.
 //
@@ -39,6 +48,15 @@
   const MAX_TABS = 5;
   // The account pill shows the email cut at this many characters.
   const EMAIL_SHOWN = 24;
+  // An attention answer is remembered under this prefix and the address, in
+  // sessionStorage, so it ends with the tab and another account on the same
+  // browser never sees it, and is used without asking for this long.
+  const ATTENTION_KEY = "platform-nav-attention:";
+  const ATTENTION_KEPT_MS = 60 * 1000;
+  // An attention address that has not answered by then has no dot.
+  const ATTENTION_TIMEOUT_MS = 5 * 1000;
+  // The event a page dispatches on window to make the bar ask again.
+  const ATTENTION_EVENT = "platform-nav-attention";
 
   // Icons from Lucide 1.72.0 (ISC licence), https://lucide.dev, the path
   // data copied from lucide-react's icons/<name>.mjs, since a plain script
@@ -501,6 +519,99 @@
   const isLocalPath = (path) =>
     typeof path === "string" && path.startsWith("/") && !path.startsWith("//");
 
+  // An attention address the bar will ask: a path under the feature's own,
+  // as the registry requires of it, so a feature can only speak for itself
+  // and the request never leaves the origin.
+  const isAttentionPath = (path, feature) =>
+    isLocalPath(path) && path.startsWith(`${feature}/`);
+
+  // The answer an attention address gave, when it is exactly
+  // {"attention": true|false}; anything else is undefined, which is no dot.
+  const attentionOf = (body) => {
+    if (body === null || typeof body !== "object" || Array.isArray(body)) {
+      return undefined;
+    }
+    const keys = Object.keys(body);
+    if (keys.length !== 1 || keys[0] !== "attention") {
+      return undefined;
+    }
+    return typeof body.attention === "boolean" ? body.attention : undefined;
+  };
+
+  // The answer remembered for the address, while it is under a minute old.
+  // Storage that is blocked or holds something else remembers nothing.
+  const remembered = (path) => {
+    try {
+      const stored = JSON.parse(sessionStorage.getItem(ATTENTION_KEY + path));
+      const age = Date.now() - stored?.at;
+      if (
+        typeof stored?.attention === "boolean" &&
+        age >= 0 &&
+        age < ATTENTION_KEPT_MS
+      ) {
+        return stored.attention;
+      }
+    } catch {
+      // Nothing usable is stored.
+    }
+    return undefined;
+  };
+
+  const remember = (path, attention) => {
+    try {
+      sessionStorage.setItem(
+        ATTENTION_KEY + path,
+        JSON.stringify({ attention, at: Date.now() }),
+      );
+    } catch {
+      // Storage is blocked: the next page asks again.
+    }
+  };
+
+  const forget = (path) => {
+    try {
+      sessionStorage.removeItem(ATTENTION_KEY + path);
+    } catch {
+      // Storage is blocked, so nothing was remembered.
+    }
+  };
+
+  // Asks the address, as the person, and answers true, false, or undefined
+  // for any failure: a status other than 200, a redirect, a body that is not
+  // the shape, a network error or no answer within ATTENTION_TIMEOUT_MS.
+  const askAttention = async (path) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), ATTENTION_TIMEOUT_MS);
+    try {
+      const response = await fetch(path, {
+        credentials: "same-origin",
+        headers: { Accept: "application/json" },
+        redirect: "error",
+        signal: controller.signal,
+      });
+      if (response.status !== 200) {
+        return undefined;
+      }
+      return attentionOf(await response.json());
+    } catch {
+      return undefined;
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+
+  // Gives a feature's link the dot and its words, or takes them away. Its
+  // name is the link's label, written when the link was drawn.
+  const markAttention = (link, on) => {
+    const name = link.querySelector(".label").textContent;
+    link.querySelector(".dot")?.remove();
+    // Colour is never the only signal: the dot has words for a reader.
+    link.setAttribute("aria-label", on ? `${name}, needs you` : name);
+    if (on) {
+      link.append(element("span", { class: "dot", "aria-hidden": "true" }));
+    }
+  };
+
   const element = (tag, attributes = {}, ...children) => {
     const node = document.createElement(tag);
     for (const [name, value] of Object.entries(attributes)) {
@@ -569,11 +680,26 @@
     #loading = false;
     // Ends the listeners a render added outside the shadow root.
     #listeners = null;
+    // Ends the listener for ATTENTION_EVENT, while the element is connected.
+    #connected = null;
+    // What each attention address last answered, true or false, by path;
+    // an address with no answer, or a failed one, is not in it.
+    #attention = new Map();
+    // How many times each address has been asked, so only the latest
+    // question's answer is drawn.
+    #asked = new Map();
 
     connectedCallback() {
       if (!this.shadowRoot) {
         this.attachShadow({ mode: "open" });
       }
+      this.#connected?.abort();
+      this.#connected = new AbortController();
+      window.addEventListener(
+        ATTENTION_EVENT,
+        () => this.#updateAttention(true),
+        { signal: this.#connected.signal },
+      );
       this.#render();
       if (!this.#contents && !this.#loading) {
         this.#load();
@@ -583,6 +709,8 @@
     disconnectedCallback() {
       this.#listeners?.abort();
       this.#listeners = null;
+      this.#connected?.abort();
+      this.#connected = null;
     }
 
     attributeChangedCallback() {
@@ -609,6 +737,62 @@
         this.#loading = false;
       }
       this.#render();
+      // Only now, with the links drawn, so no answer can hold them up.
+      this.#updateAttention(false);
+    }
+
+    // The attention addresses of the features the bar lists.
+    #attentionPaths() {
+      return this.#entries()
+        .map((entry) => entry.attentionUrl)
+        .filter((path) => path !== undefined);
+    }
+
+    // Draws what each attention address answers: the remembered answer while
+    // it is under a minute old, else a new one, asked without waiting for
+    // the others. `again` forgets what was remembered first, for a page that
+    // dispatched ATTENTION_EVENT.
+    #updateAttention(again) {
+      for (const path of this.#attentionPaths()) {
+        if (again) {
+          forget(path);
+        }
+        const known = remembered(path);
+        if (known !== undefined) {
+          this.#setAttention(path, known);
+          continue;
+        }
+        const question = (this.#asked.get(path) ?? 0) + 1;
+        this.#asked.set(path, question);
+        askAttention(path).then((answer) => {
+          // A later question was asked meanwhile: its answer is the one.
+          if (this.#asked.get(path) !== question) {
+            return;
+          }
+          if (answer !== undefined) {
+            remember(path, answer);
+          }
+          this.#setAttention(path, answer);
+        });
+      }
+    }
+
+    #setAttention(path, answer) {
+      if (this.#attention.get(path) === answer) {
+        return;
+      }
+      if (answer === undefined) {
+        this.#attention.delete(path);
+      } else {
+        this.#attention.set(path, answer);
+      }
+      // Only the links it is about change, in place: drawing the bar again
+      // would close an open menu and drop the focus under the person.
+      for (const link of this.shadowRoot.querySelectorAll("a[data-attention]")) {
+        if (link.dataset.attention === path) {
+          markAttention(link, answer === true);
+        }
+      }
     }
 
     // Home and Memory, which are fixed, then each feature with a name and a
@@ -624,12 +808,18 @@
         if (typeof feature?.name !== "string" || !isLocalPath(feature.path)) {
           continue;
         }
+        const attentionUrl = isAttentionPath(feature.attention_url, feature.path)
+          ? feature.attention_url
+          : undefined;
         entries.push({
           name: feature.name,
           path: feature.path,
           icon: iconOf(feature),
           here: current === feature.path.slice(1),
-          attention: feature.attention === true,
+          attentionUrl,
+          attention:
+            attentionUrl !== undefined &&
+            this.#attention.get(attentionUrl) === true,
         });
       }
       return entries;
@@ -647,10 +837,10 @@
       if (entry.here) {
         a.setAttribute("aria-current", "page");
       }
-      if (entry.attention) {
-        // Colour is never the only signal: the dot has words for a reader.
-        a.setAttribute("aria-label", `${entry.name}, needs you`);
-        a.append(element("span", { class: "dot", "aria-hidden": "true" }));
+      if (entry.attentionUrl !== undefined) {
+        // So an answer that arrives later finds the links it is about.
+        a.dataset.attention = entry.attentionUrl;
+        markAttention(a, entry.attention);
       }
       return a;
     }
