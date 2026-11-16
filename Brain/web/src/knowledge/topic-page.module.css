@@ -110,13 +110,25 @@
 	gap: var(--space-3);
 }
 
+/* A card's rows, --inset-gap apart with no line between them. */
 .list {
 	display: flex;
 	flex-direction: column;
-	gap: var(--space-3);
+	gap: var(--inset-gap);
 	margin: 0;
 	padding: 0;
 	list-style: none;
+}
+
+/* Each row of a card's list is an inset row, "Inset list row" in section 4
+ * of design/DESIGN.md: a name with its buttons, or a misconception. */
+.named,
+.misconception {
+	box-sizing: border-box;
+	min-height: var(--row-h);
+	padding: 8px 12px;
+	background: var(--surface-2);
+	border-radius: var(--radius-md);
 }
 
 /* A name, and its buttons at its end, which move under it when the row is
@@ -127,7 +139,6 @@
 	align-items: center;
 	justify-content: space-between;
 	gap: var(--space-2);
-	min-height: var(--control-h);
 	min-width: 0;
 }
 

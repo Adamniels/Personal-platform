@@ -1,6 +1,6 @@
 /* An answer: the conflicts card, the groups of items, and the raw response.
- * Sections of the page sit --space-4 apart, rows in a card --space-3, as
- * section 2 of design/DESIGN.md has it. */
+ * The conflicts are inset rows, --inset-gap apart, as section 2 of
+ * design/DESIGN.md has rows in a card. */
 
 .answer {
 	display: flex;
@@ -137,25 +137,26 @@
 	overflow-wrap: anywhere;
 }
 
-/* The conflicts, one row each. */
+/* The conflicts, an inset row each, "Inset list row" in section 4 of
+ * design/DESIGN.md: --inset-gap apart with no line between them. */
 .conflicts {
 	display: flex;
 	flex-direction: column;
-	gap: var(--space-3);
+	gap: var(--inset-gap);
 	margin: 0;
 	padding: 0;
 	list-style: none;
 }
 
 .conflict {
+	box-sizing: border-box;
 	display: flex;
 	flex-direction: column;
 	gap: var(--space-1);
-}
-
-.conflict + .conflict {
-	padding-top: var(--space-3);
-	border-top: 1px solid var(--border);
+	min-height: var(--row-h);
+	padding: 8px 12px;
+	background: var(--surface-2);
+	border-radius: var(--radius-md);
 }
 
 .pair {
