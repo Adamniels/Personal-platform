@@ -10,7 +10,7 @@ namespace DevFlow.Settings;
 /// <see cref="DevFlowSettings.Load"/>. Each is required with <c>DEVFLOW_CODE_HOST=github</c> and
 /// ignored otherwise. The key is read from its file once, at startup. The client id and the secret
 /// also sign a person in, see <see cref="CodeHost.GitHub.GitHubCodeHost"/>'s sign in half; the slug
-/// is read here and first used by a later slice. See "Settings" in devflow/README.md and "GitHub"
+/// makes the address where a person installs the app. See "Settings" in devflow/README.md and "GitHub"
 /// in devflow/docs/devflow-architecture.md.
 /// </summary>
 public sealed class GitHubSettings

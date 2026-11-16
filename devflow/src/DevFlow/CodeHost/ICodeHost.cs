@@ -34,7 +34,29 @@ public interface ICodeHost
 
     /// <summary>A file's bytes on a branch.</summary>
     Task<CodeHostResult<byte[]>> File(Guid userId, Repository repository, string path, string branch, CancellationToken cancellationToken);
+
+    /// <summary>The installations of Dev flow's app that the person whose token
+    /// <paramref name="userToken"/> is can reach, each with the account it is on, in no particular
+    /// order. Read as the person, never as the app, so what is listed is what they may
+    /// connect.</summary>
+    Task<CodeHostResult<IReadOnlyList<Installation>>> Installations(Guid userId, string userToken, CancellationToken cancellationToken);
+
+    /// <summary>The repositories of the <paramref name="installation"/> that the person whose token
+    /// <paramref name="userToken"/> is can reach, in no particular order. Not found when the
+    /// installation is not one they can reach.</summary>
+    Task<CodeHostResult<IReadOnlyList<Repository>>> Repositories(Guid userId, string userToken, long installation, CancellationToken cancellationToken);
+
+    /// <summary>Where a person installs Dev flow's app on the code host: GitHub's page for the
+    /// app, or for the fake a page of its own under <paramref name="origin"/>, the platform's
+    /// public origin.</summary>
+    Uri InstallAddress(Uri origin);
 }
+
+/// <summary>An installation of Dev flow's app, on one account.</summary>
+/// <param name="Id">Its id on the host, which repositories are reached through.</param>
+/// <param name="Account">The login of the account, a person or an organisation, it is
+/// installed on.</param>
+public sealed record Installation(long Id, string Account);
 
 /// <summary>
 /// What a code host operation answers: <see cref="Found"/> with the value, or one of the two

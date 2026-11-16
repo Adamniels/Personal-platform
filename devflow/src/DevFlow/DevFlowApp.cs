@@ -6,6 +6,7 @@ using DevFlow.CodeHost.GitHub;
 using DevFlow.Health;
 using DevFlow.Link;
 using DevFlow.Pages;
+using DevFlow.Projects;
 using DevFlow.Settings;
 using DevFlow.Status;
 
@@ -73,6 +74,10 @@ public static class DevFlowApp
             database, provider.GetRequiredService<Vault>(), provider.GetRequiredService<ICodeHostSignIn>(), provider.GetRequiredService<TimeProvider>(), redirect));
         builder.Services.AddSingleton(provider => new UserTokens(
             database, provider.GetRequiredService<Vault>(), provider.GetRequiredService<ICodeHostSignIn>(), provider.GetRequiredService<TimeProvider>()));
+        // A user's projects, connected from what the code host lists for them. See "Connecting a
+        // repository" in devflow/README.md.
+        builder.Services.AddSingleton(provider => new ProjectStore(
+            database, provider.GetRequiredService<UserTokens>(), provider.GetRequiredService<ICodeHost>(), provider.GetRequiredService<TimeProvider>()));
         if (settings.ExposeOpenApi)
         {
             builder.Services.AddDevFlowOpenApi();
@@ -90,6 +95,7 @@ public static class DevFlowApp
         app.MapHealth();
         app.MapStatus(settings.CodeHost);
         app.MapGitHubLink();
+        app.MapProjects(new Uri(settings.PublicOrigin));
         app.MapPages(webRoot);
         if (settings.CodeHost == CodeHostMode.Fake)
         {

@@ -12,7 +12,17 @@ import { App } from "./app";
 function openAt(path: string) {
 	window.history.pushState(null, "", path);
 	// The frame alone: the banner's own tests are in banner.test.tsx.
-	render(<App loadStatus={() => new Promise(() => {})} />);
+	render(
+		<App
+			loadStatus={() => new Promise(() => {})}
+			projects={{
+				loadProjects: () => Promise.resolve([]),
+				loadRepositories: () => new Promise(() => {}),
+				connect: () => Promise.resolve(),
+				disconnect: () => Promise.resolve(),
+			}}
+		/>,
+	);
 }
 
 function selectedTab() {
@@ -50,20 +60,20 @@ describe("the address decides the tab, and a tab changes the address", () => {
 			"/devflow/projects",
 			"Projects",
 			"No project connected yet",
-			"Connecting a repository comes with a later part of Dev flow.",
+			"Connect a repository to see what waits for you in it.",
 		],
 		[
 			"/devflow/projects/",
 			"Projects",
 			"No project connected yet",
-			"Connecting a repository comes with a later part of Dev flow.",
+			"Connect a repository to see what waits for you in it.",
 		],
-	])("%s selects %s", (path, tab, empty, detail) => {
+	])("%s selects %s", async (path, tab, empty, detail) => {
 		openAt(path);
 
 		expect(selectedTab()?.textContent).toBe(tab);
 		const panel = within(screen.getByRole("tabpanel"));
-		expect(panel.getByText(empty)).toBeTruthy();
+		expect(await panel.findByText(empty)).toBeTruthy();
 		expect(panel.getByText(detail)).toBeTruthy();
 	});
 

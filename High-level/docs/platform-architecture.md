@@ -2,7 +2,7 @@
 
 Status: exploratory. The walking skeleton is being built.
 
-Last updated: 2026 11 15
+Last updated: 2026 11 16
 
 The top of the documentation. What the platform is, what services exist, and the thinking that
 shapes more than one of them. Anything you only need when you sit down to write a particular
@@ -206,7 +206,10 @@ while looking configured:
 What it costs: a query returning nothing has a reason that is not visible in the SQL, so
 debugging gains a first question. Every connection checkout needs the setting, including
 background jobs and anything run by hand. Policies add a predicate to every plan, though
-`user_id` belongs in those indexes regardless.
+`user_id` belongs in those indexes regardless. A background job, which has no user of its own,
+learns whose work exists from a table that holds only ids and then works as that user, Dev flow's
+`poll_targets` the first, see "Security decisions and accepted risks" in
+`devflow/docs/devflow-architecture.md`.
 
 **Isolation does not foreclose sharing later**, which is why the isolated version is cheap
 rather than limiting. Sharing, if it ever comes, belongs inside a feature. From the wiki's point

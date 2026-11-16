@@ -64,7 +64,7 @@ public sealed class FakeCodeHostTests
     /// one merged, the waiting one's conversation, its head's statuses and checks, and a file.</summary>
     private static FakeWorld World => new(
     [
-        new FakeInstallation(41,
+        new FakeInstallation(41, "Adamniels",
         [
             new FakeRepository(
                 Platform.Id,
@@ -136,7 +136,7 @@ public sealed class FakeCodeHostTests
         // A world the stranger stages replaces theirs alone.
         host.Replace(Stranger, FakeWorld.Empty with
         {
-            Installations = [new FakeInstallation(41, [new FakeRepository(Platform.Id, "x", "y", [], [], [], [])])],
+            Installations = [new FakeInstallation(41, "Adamniels", [new FakeRepository(Platform.Id, "x", "y", [], [], [], [])])],
         });
         Assert.Empty(Found(await host.OpenPullRequests(Stranger, Platform, Ct)));
         Assert.Single(Found(await host.OpenPullRequests(Owner, Platform, Ct)));
@@ -173,6 +173,50 @@ public sealed class FakeCodeHostTests
         Assert.IsType<CodeHostResult<IReadOnlyList<CheckRun>>.NotFound>(await host.CheckRuns(Owner, Platform, "0000000000000000000000000000000000000000", Ct));
         Assert.IsType<CodeHostResult<byte[]>.NotFound>(await host.File(Owner, Platform, "AGENTS.md", "272-the-vault", Ct));
         Assert.IsType<CodeHostResult<byte[]>.NotFound>(await host.File(Owner, Platform, "agents.md", "main", Ct));
+    }
+
+    [Fact]
+    public async Task WhatAPersonCanConnectIsTheirWorldsInstallationsReadWithTheirToken()
+    {
+        var host = new FakeCodeHost();
+        var thesis = new FakeRepository(9101, "uppsala-lab", "thesis", [], [], [], []);
+        host.Replace(Owner, World with { Installations = [.. World.Installations, new FakeInstallation(52, "uppsala-lab", [thesis])] });
+        var token = await SignIn(host, Owner);
+        var code = Through(host);
+
+        Assert.Equal([new Installation(41, "Adamniels"), new Installation(52, "uppsala-lab")], Found(await code.Installations(Owner, token, Ct)));
+        Assert.Equal([Platform], Found(await code.Repositories(Owner, token, 41, Ct)));
+        Assert.Equal([new CodeRepository(52, 9101, "uppsala-lab", "thesis")], Found(await code.Repositories(Owner, token, 52, Ct)));
+
+        // An installation the world does not hold is not found.
+        Assert.IsType<CodeHostResult<IReadOnlyList<CodeRepository>>.NotFound>(await code.Repositories(Owner, token, 77, Ct));
+
+        // Only with the token the account's sign in gave, as GitHub takes only a person's own:
+        // another's, or none, is not taken, which the adapter answers as unavailable.
+        var strangers = await SignIn(host, Stranger);
+        Assert.IsType<CodeHostResult<IReadOnlyList<Installation>>.Unavailable>(await code.Installations(Owner, strangers, Ct));
+        Assert.IsType<CodeHostResult<IReadOnlyList<CodeRepository>>.Unavailable>(await code.Repositories(Owner, "not-a-token", 41, Ct));
+
+        // And not at all while the account is unavailable.
+        host.SetUnavailable(Owner, unavailable: true);
+        Assert.IsType<CodeHostResult<IReadOnlyList<Installation>>.Unavailable>(await code.Installations(Owner, token, Ct));
+    }
+
+    [Fact]
+    public void TheInstallAddressIsTheFakesOwnPage()
+    {
+        Assert.Equal(
+            new Uri("https://platform.test/devflow/fake-github/install"),
+            Through(new FakeCodeHost()).InstallAddress(new Uri("https://platform.test")));
+    }
+
+    /// <summary>An access token for the account, through the fake's sign in as Dev flow gets one.</summary>
+    private static async Task<string> SignIn(FakeCodeHost host, Guid account)
+    {
+        var redirect = new Uri("https://platform.test/devflow/github/callback");
+        var verifier = Pkce.Random();
+        var code = host.Grant(account, Pkce.Challenge(verifier), redirect);
+        return Assert.IsType<SignInResult<UserTokenPair>.Granted>(await host.Exchange(account, code, verifier, redirect, Ct)).Value.AccessToken;
     }
 
     [Fact]

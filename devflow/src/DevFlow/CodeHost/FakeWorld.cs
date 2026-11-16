@@ -34,8 +34,9 @@ public sealed record FakeUser(string Login, long Id)
     public static FakeUser Default { get; } = new("octo-owner", 70000001);
 }
 
-/// <summary>An installation of Dev flow's app, and the repositories it reaches.</summary>
-public sealed record FakeInstallation(long Id, IReadOnlyList<FakeRepository> Repositories);
+/// <summary>An installation of Dev flow's app, the account it is on, and the repositories it
+/// reaches.</summary>
+public sealed record FakeInstallation(long Id, string Account, IReadOnlyList<FakeRepository> Repositories);
 
 /// <summary>A repository, by its id within its installation, and what it holds.</summary>
 /// <param name="Conversations">The comments of an issue or pull request, by its number. A pull

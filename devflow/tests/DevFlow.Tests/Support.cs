@@ -9,6 +9,7 @@ using DevFlow.Settings;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Time.Testing;
@@ -229,12 +230,25 @@ internal sealed class Harness : IAsyncDisposable
             context.Request.Path = path;
             context.Request.Headers.Origin = "https://platform.test";
             context.Request.ContentType = "application/json";
-            context.Request.Body = new MemoryStream(Encoding.UTF8.GetBytes(json));
+            var body = Encoding.UTF8.GetBytes(json);
+            context.Request.ContentLength = body.Length;
+            context.Request.Body = new MemoryStream(body);
+            // The test server decides whether a request can have a body before this runs, and a
+            // route that binds its body reads it only when it can.
+            context.Features.Set<IHttpRequestBodyDetectionFeature>(HasBody.Instance);
             if (token is not null)
             {
                 context.Request.Headers.Cookie = $"__Host-access={token}";
             }
         }, TestContext.Current.CancellationToken);
+
+    /// <summary>Says a request has a body, as one sent with JSON does.</summary>
+    private sealed class HasBody : IHttpRequestBodyDetectionFeature
+    {
+        public static readonly HasBody Instance = new();
+
+        public bool CanHaveBody => true;
+    }
 
     /// <summary>The app's services, for a test that checks what a route did to one of them.</summary>
     public IServiceProvider Services => _app.Services;

@@ -20,7 +20,8 @@ namespace DevFlow.CodeHost.GitHub;
 /// See "GitHub" in devflow/docs/devflow-architecture.md.
 /// </summary>
 /// <remarks>
-/// Reads are as the app, so the platform account each operation takes does not change what is
+/// Listing what a person can connect is read as that person, with their token, so what is listed
+/// is what they can reach. Every other read is as the app, so the platform account each operation takes does not change what is
 /// read: which account may read which repository is decided by the caller, from the repositories
 /// that account connected. A repository is reached by its owner and name, as GitHub's addresses
 /// are, and the token is narrowed to its id, so a name that no longer matches the id is not found
@@ -68,7 +69,7 @@ public sealed partial class GitHubCodeHost : ICodeHost, ICodeHostSignIn, IDispos
 
     public async Task<CodeHostResult<IReadOnlyList<PullRequest>>> OpenPullRequests(Guid userId, Repository repository, CancellationToken cancellationToken) =>
         Map(
-            await List<IReadOnlyList<PullAnswer>, PullAnswer>(repository, $"{Repo(repository)}/pulls?state=open&per_page=100", page => page, cancellationToken),
+            await List<IReadOnlyList<PullAnswer>, PullAnswer>($"{Repo(repository)}/pulls?state=open&per_page=100", page => page, AsApp(repository, cancellationToken)),
             pulls => (IReadOnlyList<PullRequest>)[.. pulls.Select(ToPullRequest)]);
 
     public async Task<CodeHostResult<PullRequest>> PullRequest(Guid userId, Repository repository, int number, CancellationToken cancellationToken) =>
@@ -78,7 +79,7 @@ public sealed partial class GitHubCodeHost : ICodeHost, ICodeHostSignIn, IDispos
 
     public async Task<CodeHostResult<IReadOnlyList<Comment>>> Comments(Guid userId, Repository repository, int number, CancellationToken cancellationToken) =>
         Map(
-            await List<IReadOnlyList<CommentAnswer>, CommentAnswer>(repository, Invariant($"{Repo(repository)}/issues/{number}/comments?per_page=100"), page => page, cancellationToken),
+            await List<IReadOnlyList<CommentAnswer>, CommentAnswer>(Invariant($"{Repo(repository)}/issues/{number}/comments?per_page=100"), page => page, AsApp(repository, cancellationToken)),
             comments => (IReadOnlyList<Comment>)[.. comments.Select(comment =>
                 new Comment(comment.Id, Login(comment.User), comment.Body ?? "", comment.CreatedAt, comment.UpdatedAt))]);
 
@@ -86,7 +87,7 @@ public sealed partial class GitHubCodeHost : ICodeHost, ICodeHostSignIn, IDispos
     /// context is its latest.</summary>
     public async Task<CodeHostResult<IReadOnlyList<CommitStatus>>> Statuses(Guid userId, Repository repository, string commit, CancellationToken cancellationToken) =>
         Map(
-            await List<IReadOnlyList<StatusAnswer>, StatusAnswer>(repository, $"{Repo(repository)}/commits/{Escape(commit)}/statuses?per_page=100", page => page, cancellationToken),
+            await List<IReadOnlyList<StatusAnswer>, StatusAnswer>($"{Repo(repository)}/commits/{Escape(commit)}/statuses?per_page=100", page => page, AsApp(repository, cancellationToken)),
             statuses => (IReadOnlyList<CommitStatus>)[.. statuses
                 .DistinctBy(status => status.Context, StringComparer.Ordinal)
                 .Select(status => new CommitStatus(status.Context, ToStatusState(status.State), status.Description))]);
@@ -94,7 +95,7 @@ public sealed partial class GitHubCodeHost : ICodeHost, ICodeHostSignIn, IDispos
     /// <summary>GitHub lists the latest run of each name and app by default.</summary>
     public async Task<CodeHostResult<IReadOnlyList<CheckRun>>> CheckRuns(Guid userId, Repository repository, string commit, CancellationToken cancellationToken) =>
         Map(
-            await List<CheckRunsAnswer, CheckRunAnswer>(repository, $"{Repo(repository)}/commits/{Escape(commit)}/check-runs?per_page=100", page => page.CheckRuns, cancellationToken),
+            await List<CheckRunsAnswer, CheckRunAnswer>($"{Repo(repository)}/commits/{Escape(commit)}/check-runs?per_page=100", page => page.CheckRuns, AsApp(repository, cancellationToken)),
             runs => (IReadOnlyList<CheckRun>)[.. runs.Select(run =>
                 new CheckRun(run.Name, ToCheckStatus(run.Status), run.Conclusion is null ? null : ToConclusion(run.Conclusion), run.App.Slug))]);
 
@@ -109,6 +110,54 @@ public sealed partial class GitHubCodeHost : ICodeHost, ICodeHostSignIn, IDispos
             page => page.Body);
     }
 
+    /// <summary><c>GET /user/installations</c>, as the person: the installations of this app they
+    /// can reach.</summary>
+    public async Task<CodeHostResult<IReadOnlyList<Installation>>> Installations(Guid userId, string userToken, CancellationToken cancellationToken) =>
+        Map(
+            await List<InstallationsAnswer, InstallationAnswer>("user/installations?per_page=100", page => page.Installations, AsPerson(userToken, cancellationToken)),
+            installations => (IReadOnlyList<Installation>)[.. installations.Select(installation => new Installation(installation.Id, AccountName(installation.Account)))]);
+
+    /// <summary><c>GET /user/installations/{id}/repositories</c>, as the person: the repositories
+    /// of the installation they can reach. GitHub answers <c>404</c> for an installation they
+    /// cannot.</summary>
+    public async Task<CodeHostResult<IReadOnlyList<Repository>>> Repositories(Guid userId, string userToken, long installation, CancellationToken cancellationToken) =>
+        Map(
+            await List<RepositoriesAnswer, RepositoryAnswer>(Invariant($"user/installations/{installation}/repositories?per_page=100"), page => page.Repositories, AsPerson(userToken, cancellationToken)),
+            repositories => (IReadOnlyList<Repository>)[.. repositories.Select(repository => new Repository(installation, repository.Id, repository.Owner.Login, repository.Name))]);
+
+    /// <summary>The app's page on GitHub where a person installs it on an account,
+    /// <c>https://github.com/apps/&lt;slug&gt;/installations/new</c>; the origin is the fake's.</summary>
+    public Uri InstallAddress(Uri origin) => new(GitHubHttp.WebAddress, $"apps/{Escape(_settings.AppSlug)}/installations/new");
+
+    /// <summary>Reads a page as the app, with a token for the repository, see <see cref="Get"/>.</summary>
+    private Func<Uri, Task<CodeHostResult<Page>>> AsApp(Repository repository, CancellationToken cancellationToken) =>
+        address => Get(repository, address, GitHubHttp.JsonMediaType, cancellationToken);
+
+    /// <summary>
+    /// Reads a page as the person whose token <paramref name="userToken"/> is, never as the app.
+    /// Nothing is remembered: these are read when a person asks, not by the poll, and an answer
+    /// read with one person's token is never one to give another. Not found on <c>404</c>, and
+    /// otherwise as <see cref="GitHubHttp.Failure"/> says.
+    /// </summary>
+    private Func<Uri, Task<CodeHostResult<Page>>> AsPerson(string userToken, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(userToken);
+        return async address =>
+        {
+            using var request = GitHubHttp.Request(HttpMethod.Get, address, GitHubHttp.JsonMediaType);
+            request.Headers.Authorization = new("Bearer", userToken);
+            var answer = await GitHubHttp.Send(_factory, request, cancellationToken);
+            if (answer is null)
+            {
+                return new CodeHostResult<Page>.Unavailable(RetryAt: null);
+            }
+
+            return answer.Status == HttpStatusCode.OK
+                ? new CodeHostResult<Page>.Found(new Page(answer.Body, Next(answer.Headers)))
+                : GitHubHttp.Failure<Page>(answer, _time);
+        };
+    }
+
     /// <summary>One JSON document, read into <typeparamref name="TAnswer"/>, or unavailable when it
     /// does not parse.</summary>
     private async Task<CodeHostResult<TAnswer>> One<TAnswer>(Repository repository, string address, CancellationToken cancellationToken)
@@ -117,13 +166,14 @@ public sealed partial class GitHubCodeHost : ICodeHost, ICodeHostSignIn, IDispos
             Parse<TAnswer>(page.Body) ?? throw new JsonException("the answer does not parse"));
 
     /// <summary>
-    /// A list, its items taken from each page by <paramref name="items"/>, following the
+    /// A list, its pages read by <paramref name="get"/> and its items taken from each by
+    /// <paramref name="items"/>, following the
     /// <c>Link</c> header's <c>next</c> until there is none. A next page anywhere but GitHub's API
     /// is never asked for, since the request would carry the token there, and the list is
     /// unavailable instead; so is one past <see cref="MostPages"/>, or a page asked for twice. A
     /// page that fails fails the list: half a list is never answered as the whole.
     /// </summary>
-    private async Task<CodeHostResult<IReadOnlyList<TItem>>> List<TPage, TItem>(Repository repository, string address, Func<TPage, IEnumerable<TItem>> items, CancellationToken cancellationToken)
+    private static async Task<CodeHostResult<IReadOnlyList<TItem>>> List<TPage, TItem>(string address, Func<TPage, IEnumerable<TItem>> items, Func<Uri, Task<CodeHostResult<Page>>> get)
         where TPage : class
     {
         var all = new List<TItem>();
@@ -135,7 +185,7 @@ public sealed partial class GitHubCodeHost : ICodeHost, ICodeHostSignIn, IDispos
                 return new CodeHostResult<IReadOnlyList<TItem>>.Unavailable(RetryAt: null);
             }
 
-            var page = await Get(repository, next, GitHubHttp.JsonMediaType, cancellationToken);
+            var page = await get(next);
             if (page is not CodeHostResult<Page>.Found found)
             {
                 return Fail<Page, IReadOnlyList<TItem>>(page);

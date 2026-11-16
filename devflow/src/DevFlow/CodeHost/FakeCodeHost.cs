@@ -72,6 +72,42 @@ public sealed partial class FakeCodeHost : ICodeHost, ICodeHostSignIn
     public Task<CodeHostResult<byte[]>> File(Guid userId, Repository repository, string path, string branch, CancellationToken cancellationToken) =>
         Answer(userId, repository, found => found.Files.FirstOrDefault(file => file.Path == path && file.Branch == branch)?.Content.ToArray());
 
+    /// <summary>The world's installations, with the account's access token only, see
+    /// <see cref="AsPerson{T}"/>.</summary>
+    public Task<CodeHostResult<IReadOnlyList<Installation>>> Installations(Guid userId, string userToken, CancellationToken cancellationToken) =>
+        AsPerson<IReadOnlyList<Installation>>(userId, userToken, world =>
+            [.. world.Installations.Select(installation => new Installation(installation.Id, installation.Account))]);
+
+    /// <summary>The installation's repositories, with the account's access token only; not found
+    /// when the world holds no such installation.</summary>
+    public Task<CodeHostResult<IReadOnlyList<Repository>>> Repositories(Guid userId, string userToken, long installation, CancellationToken cancellationToken) =>
+        AsPerson<IReadOnlyList<Repository>>(userId, userToken, world =>
+            world.Installations.FirstOrDefault(candidate => candidate.Id == installation) is { } found
+                ? [.. found.Repositories.Select(repository => new Repository(found.Id, repository.Id, repository.Owner, repository.Name))]
+                : null);
+
+    /// <summary>The fake's own page, <see cref="InstallPath"/>, under the platform's origin.</summary>
+    public Uri InstallAddress(Uri origin) => new(origin, InstallPath);
+
+    /// <summary>
+    /// Unavailable when the account says so, or when <paramref name="userToken"/> is not the access
+    /// token its sign in gave and still works, which GitHub answers with <c>401</c> and the adapter
+    /// as unavailable; otherwise what <paramref name="read"/> finds in the world, and not found
+    /// when that is null. So a read as a person works only with that person's own token.
+    /// </summary>
+    private Task<CodeHostResult<T>> AsPerson<T>(Guid userId, string userToken, Func<FakeWorld, T?> read)
+        where T : class
+    {
+        ArgumentNullException.ThrowIfNull(userToken);
+        var account = Of(userId);
+        CodeHostResult<T> result = account.Unavailable || !TakesAccessToken(userId, userToken)
+            ? new CodeHostResult<T>.Unavailable(RetryAt: null)
+            : read(account.World) is { } value
+                ? new CodeHostResult<T>.Found(value)
+                : new CodeHostResult<T>.NotFound();
+        return Task.FromResult(result);
+    }
+
     private Account Of(Guid userId) => _accounts.GetValueOrDefault(userId, Nothing);
 
     private static FakeCommit? Commit(FakeRepository repository, string commit) =>

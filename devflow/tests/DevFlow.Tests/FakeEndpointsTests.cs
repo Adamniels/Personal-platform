@@ -31,6 +31,7 @@ public sealed class FakeEndpointsTests
           "installations": [
             {
               "id": 41,
+              "account": "Adamniels",
               "repositories": [
                 {
                   "id": 9001,
@@ -141,6 +142,7 @@ public sealed class FakeEndpointsTests
         { "installations[0].repositories[0].commits[0].sha", Changed(world => Repo(world)["commits"]![0]!["sha"] = "3f2c") },
         { "installations[0].repositories[0].commits[0].statuses[0].description", Changed(world => Repo(world)["commits"]![0]!["statuses"]![0]!.AsObject().Remove("description")) },
         { "installations[0].repositories[0].files[0].content", Changed(world => Repo(world)["files"]![0]!["content"] = "not base64!") },
+        { "installations[0].account", Changed(world => world["installations"]![0]!.AsObject().Remove("account")) },
         { "installations", """{"installations": null}""" },
         { "installations", "{}" },
         { "installations[1].id", Changed(world => world["installations"]!.AsArray().Add(world["installations"]![0]!.DeepClone())) },

@@ -62,7 +62,8 @@ Screenshots land in `screenshots/`, which is git ignored.
   own session, with the platform's origin, so it lands in this test's account and no other. Call it
   after logging in. The world is a dictionary, the document "The fake" in `devflow/README.md`
   describes; `devflow_worlds.py` beside this file builds one, so a test says only what matters to
-  it: `one_repository()` makes a world with one installation and one empty repository,
+  it: `one_repository()` makes a world with one installation, on the repository owner's account,
+  and one empty repository,
   `add_pull_request(world, number, ...)` adds a pull request with any fields the test cares about,
   its conversation, and the statuses and check runs on its head commit, made with `comment`,
   `status` and `check_run`, and `add_file` adds a file on a branch. It works on the dev stack and in

@@ -24,6 +24,7 @@ def one_repository(owner: str = OWNER, name: str = NAME) -> dict:
         "installations": [
             {
                 "id": INSTALLATION,
+                "account": owner,
                 "repositories": [
                     {
                         "id": REPOSITORY,

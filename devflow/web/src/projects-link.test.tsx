@@ -33,6 +33,14 @@ const EXPIRED = "Your GitHub link has expired.";
 
 afterEach(cleanup);
 
+/** The page's projects, none, so a test of the link needs no service. */
+const NO_PROJECTS = {
+	loadProjects: () => Promise.resolve([]),
+	loadRepositories: () => new Promise<never>(() => {}),
+	connect: () => Promise.resolve(),
+	disconnect: () => Promise.resolve(),
+};
+
 function renderLink(props: Partial<GitHubLinkProps>) {
 	const actions = {
 		start: vi.fn(() =>
@@ -158,7 +166,7 @@ describe("on the page", () => {
 	test("the Projects tab shows the link above its list, and Waiting for you does not", async () => {
 		window.history.pushState(null, "", "/devflow/projects");
 		const answer = Promise.resolve(status({ state: "none", login: null }));
-		render(<App loadStatus={() => answer} />);
+		render(<App loadStatus={() => answer} projects={NO_PROJECTS} />);
 		await act(async () => {
 			await answer;
 		});
@@ -166,7 +174,7 @@ describe("on the page", () => {
 		const panel = within(screen.getByRole("tabpanel"));
 		expect(panel.getByRole("article", { name: "GitHub" })).toBeTruthy();
 		expect(panel.getByText(INVITE)).toBeTruthy();
-		expect(panel.getByText("No project connected yet")).toBeTruthy();
+		expect(await panel.findByText("No project connected yet")).toBeTruthy();
 
 		fireEvent.click(screen.getByRole("tab", { name: "Waiting for you" }));
 		expect(screen.queryByRole("article", { name: "GitHub" })).toBeNull();
@@ -175,7 +183,7 @@ describe("on the page", () => {
 	test("the address's link=failed is the message", async () => {
 		window.history.pushState(null, "", "/devflow/projects?link=failed");
 		const answer = Promise.resolve(status({ state: "none", login: null }));
-		render(<App loadStatus={() => answer} />);
+		render(<App loadStatus={() => answer} projects={NO_PROJECTS} />);
 		await act(async () => {
 			await answer;
 		});

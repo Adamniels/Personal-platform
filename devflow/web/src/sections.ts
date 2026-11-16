@@ -1,5 +1,5 @@
-// Dev flow's sections, in the order of their tabs, each with its own address. What each one holds
-// arrives with a later slice; until then each says it is empty. "Running now" and "Usage and
+// Dev flow's sections, in the order of their tabs, each with its own address. A section whose
+// content has not arrived yet says it is empty; Projects shows its own list. "Running now" and "Usage and
 // history" join with the parts that build them, never as empty tabs. The addresses the service
 // answers with the page are in src/DevFlow/Pages/PageEndpoints.cs, and the two change together.
 
@@ -10,8 +10,8 @@ export type Section = {
 	/** The address a tab goes to. */
 	path: string;
 	/** What the section says until its slice lands: what is empty, and the
-	 * line under it. */
-	empty: { title: string; detail: string };
+	 * line under it. Left out once the section shows its own content. */
+	empty?: { title: string; detail: string };
 };
 
 export const SECTIONS: readonly Section[] = [
@@ -28,10 +28,6 @@ export const SECTIONS: readonly Section[] = [
 		key: "projects",
 		label: "Projects",
 		path: "/devflow/projects",
-		empty: {
-			title: "No project connected yet",
-			detail: "Connecting a repository comes with a later part of Dev flow.",
-		},
 	},
 ];
 
