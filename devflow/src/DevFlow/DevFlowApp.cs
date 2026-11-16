@@ -118,6 +118,7 @@ public static class DevFlowApp
         app.MapWaiting();
         app.MapActions();
         app.MapDisplay();
+        app.MapAttention();
         app.MapPages(webRoot);
         if (settings.CodeHost == CodeHostMode.Fake)
         {

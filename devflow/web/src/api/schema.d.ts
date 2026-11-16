@@ -2,6 +2,26 @@
 // `npm run generate:api`. Do not edit: src/api/schema.test.ts fails when it is stale.
 
 export interface paths {
+    "/devflow/api/attention": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Whether something needs the caller, for the nav bar
+         * @description Read from what Dev flow stored and never from GitHub. attention is true when the caller has a pull request, waiting or stopped, that is not sent back, or a GitHub link that has expired, and false otherwise. The nav bar asks it with the session's cookie. Without a valid token, 401 with an empty body.
+         */
+        get: operations["getAttention"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/devflow/api/display": {
         parameters: {
             query?: never;
@@ -254,6 +274,9 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        Attention: {
+            attention: boolean;
+        };
         /** @enum {unknown} */
         CodeHostMode: "fake" | "github";
         ConnectRequest: {
@@ -410,6 +433,33 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    getAttention: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Attention"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     getDisplay: {
         parameters: {
             query?: never;

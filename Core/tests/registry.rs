@@ -37,7 +37,7 @@ fn the_committed_registry_holds_canary_review_and_devflow() {
                 upstream: "http://127.0.0.1:8084".into(),
                 display: Some("/devflow/api/display".into()),
                 icon: Some("git-pull-request".into()),
-                attention: None,
+                attention: Some("/devflow/api/attention".into()),
             },
         ]
     );
