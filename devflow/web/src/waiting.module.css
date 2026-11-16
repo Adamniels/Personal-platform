@@ -1,10 +1,11 @@
 /* The "Waiting for you" tab. Tokens only, design/DESIGN.md. */
 
-/* The groups, a section gap apart, in one column. */
+/* The groups, in one column, --space-4 apart as the content column's
+ * sections are in section 2 of design/DESIGN.md. */
 .list {
 	display: flex;
 	flex-direction: column;
-	gap: var(--space-6);
+	gap: var(--space-4);
 }
 
 /* A group: its heading over its cards, a card gap apart. */
@@ -15,20 +16,21 @@
 	min-width: 0;
 }
 
-/* A section heading, hard rule 12: the heading font, in capitals, small,
- * with its count in the mono font beside it. Two classes, to outrank
- * page.css's h2 at no specificity either way. */
+/* A section heading, hard rule 12: the heading font at the h2 size, the
+ * only size it has below the hero, weight 600 in capitals, with its count in
+ * the mono font beside it. Set here as well as by page.css's rule for an h2,
+ * so it does not depend on the element. */
 .group .heading {
 	display: flex;
 	align-items: baseline;
 	gap: var(--space-2);
 	margin: 0;
-	color: var(--text-2);
 	font-family: var(--font-heading);
-	font-size: var(--text-small-size);
-	line-height: var(--text-small-line);
+	font-size: var(--text-h2-size);
+	line-height: var(--text-h2-line);
 	font-weight: 600;
 	text-transform: uppercase;
+	overflow-wrap: anywhere;
 }
 
 .count {
@@ -39,18 +41,20 @@
 	font-variant-numeric: tabular-nums;
 }
 
-/* Sent back: the runner has it, so its cards drop their surface and their
- * text steps back. Status keeps its word, so nothing rests on colour. */
+/* Sent back: the runner has it, so its cards' text steps back. The card
+ * keeps its surface and its 1px --border, "Card" in section 4 of
+ * design/DESIGN.md, and its status keeps its word, so nothing rests on
+ * colour. */
 .muted .item {
-	background: transparent;
 	color: var(--text-2);
 }
 
-/* The card's own column, a step tighter than between its header and body. */
+/* The card's own column, its parts --space-4 apart, as the parts of a card
+ * are in section 2 of design/DESIGN.md. */
 .body {
 	display: flex;
 	flex-direction: column;
-	gap: var(--space-3);
+	gap: var(--space-4);
 	min-width: 0;
 }
 
@@ -144,6 +148,7 @@
 	font-family: var(--font-mono);
 	font-size: var(--text-mono-size);
 	line-height: var(--text-mono-line);
+	font-variant-numeric: tabular-nums;
 }
 
 /* The row of actions, which wraps on a phone. */
@@ -179,9 +184,12 @@
 	outline-offset: var(--focus-offset);
 }
 
-/* The decisions, each on an inset of its own, hard rule 3: a row that holds
- * more than a label and a value sits on --surface-2. */
-.decisions {
+/* The decisions and the reviewer's points, each an inset row, "Inset list
+ * row" in section 4 of design/DESIGN.md and hard rule 3: a row that holds
+ * more than a label and a value sits on --surface-2, the rows --inset-gap
+ * apart with no line between them. */
+.decisions,
+.points {
 	display: flex;
 	flex-direction: column;
 	gap: var(--inset-gap);
@@ -190,14 +198,20 @@
 	list-style: none;
 }
 
+.decision,
+.point {
+	box-sizing: border-box;
+	min-width: 0;
+	min-height: var(--row-h);
+	padding: 8px 12px;
+	border-radius: var(--radius-md);
+	background: var(--surface-2);
+}
+
 .decision {
 	display: flex;
 	flex-direction: column;
 	gap: var(--space-1);
-	min-width: 0;
-	padding: var(--space-2) var(--space-3);
-	border-radius: var(--radius-md);
-	background: var(--surface-2);
 }
 
 .chosen {
@@ -217,15 +231,6 @@
 	color: var(--text-2);
 	font-size: var(--text-small-size);
 	line-height: var(--text-small-line);
-}
-
-/* The reviewer's points, a plain list. */
-.points {
-	display: flex;
-	flex-direction: column;
-	gap: var(--space-1);
-	margin: 0;
-	padding-left: var(--space-5);
 }
 
 /* The age of the picture on the left, Refresh on the right; on a phone the

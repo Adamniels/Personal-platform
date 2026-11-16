@@ -26,13 +26,14 @@
 	line-height: var(--text-caption-line);
 }
 
-/* The list to choose from sits a section gap above the projects, its tables
- * a step apart. */
+/* The list to choose from sits --space-4 above the projects, as the content
+ * column's sections are in section 2 of design/DESIGN.md, its tables a step
+ * apart. */
 .chooser {
 	display: flex;
 	flex-direction: column;
 	gap: var(--space-3);
-	margin-bottom: var(--space-6);
+	margin-bottom: var(--space-4);
 }
 
 .chooserHead {
@@ -63,4 +64,38 @@
 	margin: 0 0 var(--space-3);
 	color: var(--accent-text);
 	font-weight: 600;
+}
+
+/* The tab's tables, the projects and the repositories to choose from. Each
+ * row holds more than a label and a value, a repository with how it is read
+ * or whether it is connected, and an action, so by hard rule 3 of
+ * design/DESIGN.md it is an inset row rather than a row between lines:
+ * --surface-2, --radius-md, 8px 12px, --inset-gap apart, no line. The table
+ * is the package's and its frame stays the card; its cells are reached by
+ * element, since the package gives them no class of the page's, and the
+ * spacing between rows is the table's own border spacing, so a row is still
+ * a table row. The frame's padding is set on the element and the class, to
+ * outrank the package's one class for the frame whichever loads first. */
+section.rows {
+	padding: calc(var(--card-pad) - var(--inset-gap)) var(--card-pad);
+}
+
+.rows table {
+	border-spacing: 0 var(--inset-gap);
+}
+
+.rows tbody td {
+	padding: 8px 12px;
+	background: var(--surface-2);
+	box-shadow: none;
+}
+
+.rows tbody td:first-child {
+	border-top-left-radius: var(--radius-md);
+	border-bottom-left-radius: var(--radius-md);
+}
+
+.rows tbody td:last-child {
+	border-top-right-radius: var(--radius-md);
+	border-bottom-right-radius: var(--radius-md);
 }

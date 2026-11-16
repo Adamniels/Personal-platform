@@ -93,6 +93,9 @@ you.", then the package's `Tabs`, one per section, each with its own address:
 | Waiting for you | `/devflow`          |
 | Projects        | `/devflow/projects` |
 
+The page names its tab in the top bar's crumb, "Dev flow / " and the tab's name, by setting the
+`crumb` attribute of its `<platform-nav>` whenever the tab changes.
+
 Above the heading, in the fake mode, a strip says "Fake GitHub. Nothing here is real.", in the
 attention style of "Needs you banner" in `design/DESIGN.md`, tokens only, and is not dismissible. It
 is `src/banner.tsx`, the page's own component, since no other feature needs it, and it reads

@@ -1,6 +1,6 @@
 import { EmptyState, Tab, TabPanel, Tabs, ToastProvider } from "@platform/ui";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { ActionsApi } from "./actions";
 import { navigate, usePathname } from "./address";
 import { createClient } from "./api/client";
@@ -9,7 +9,7 @@ import styles from "./app.module.css";
 import { CodeHostBanner } from "./banner";
 import { type Project, Projects, type ProjectsApi } from "./projects";
 import { GitHubLink } from "./projects-link";
-import { SECTIONS, sectionAt } from "./sections";
+import { SECTIONS, type Section, sectionAt } from "./sections";
 import { loadStatus as readStatus, type Status, useStatus } from "./status";
 import { useWaiting, Waiting, type WaitingApi } from "./waiting";
 
@@ -99,6 +99,7 @@ function Frame({
 	now = Date.now,
 }: AppProps) {
 	const current = sectionAt(usePathname());
+	useCrumb(current);
 	const [status, reload] = useStatus(loadStatus);
 	const listed = useWaiting(waiting.loadWaiting);
 	// The answer's count, on its tab once it is more than none, as the nav's
@@ -172,6 +173,21 @@ function Frame({
 			{current ? null : <NotFound />}
 		</main>
 	);
+}
+
+/** Names the tab in the top bar: the crumb of the page's `<platform-nav>`,
+ * which sits outside the React root in index.html, is "Dev flow / " and the
+ * tab's name. Where the address names no tab the attribute is removed, so the
+ * bar shows the name of its link, "Dev flow". See "Navigation" in
+ * High-level/docs/platform-architecture.md. */
+function useCrumb(current: Section | undefined) {
+	const label = current?.label;
+	useEffect(() => {
+		const nav = document.querySelector("platform-nav");
+		if (!nav) return;
+		if (label) nav.setAttribute("crumb", `Dev flow / ${label}`);
+		else nav.removeAttribute("crumb");
+	}, [label]);
 }
 
 /** Asks Dev flow to start a link, answering the code host's address. */

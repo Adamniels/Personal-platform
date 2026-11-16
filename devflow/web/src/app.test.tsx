@@ -142,3 +142,36 @@ describe("the address decides the tab, and a tab changes the address", () => {
 		).toBeTruthy();
 	});
 });
+
+describe("the top bar names the tab", () => {
+	afterEach(() => {
+		for (const nav of document.querySelectorAll("platform-nav")) nav.remove();
+	});
+
+	function crumb() {
+		return document.querySelector("platform-nav")?.getAttribute("crumb");
+	}
+
+	function withNav() {
+		document.body.append(document.createElement("platform-nav"));
+	}
+
+	test("the crumb is Dev flow and the tab, and follows a tab", async () => {
+		withNav();
+		openAt("/devflow");
+
+		expect(crumb()).toBe("Dev flow / Waiting for you");
+		fireEvent.click(screen.getByRole("tab", { name: "Projects" }));
+		await waitFor(() => expect(crumb()).toBe("Dev flow / Projects"));
+	});
+
+	test("an unknown address leaves the bar to name Dev flow", () => {
+		withNav();
+		document.querySelector("platform-nav")?.setAttribute("crumb", "Old");
+		openAt("/devflow/nothing");
+
+		expect(document.querySelector("platform-nav")?.hasAttribute("crumb")).toBe(
+			false,
+		);
+	});
+});
