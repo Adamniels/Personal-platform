@@ -6,6 +6,12 @@
 	display: flex;
 	flex-direction: column;
 	gap: var(--space-3);
+}
+
+/* The list's reset, without weight: it still beats the browser's own
+ * padding on a list, but a class on the same list, such as a section's
+ * `.panel`, sets its padding whichever stylesheet comes last. */
+:where(.list) {
 	margin: 0;
 	padding: 0;
 	list-style: none;

@@ -204,3 +204,53 @@ def test_the_top_bar_names_the_section(page: Page, invite_code: str, base_url: s
         panel(page, "Knowledge").get_by_role("heading", name="Postgres", level=2)
     ).to_be_visible()
     expect(crumb).to_have_text("Memory / Knowledge")
+
+
+def test_the_page_header_follows_the_layout(
+    page: Page, invite_code: str, base_url: str, viewport: str
+):
+    open_memory(page, invite_code, base_url)
+    lede = page.get_by_text(
+        "What the platform knows about you. Correct anything that is wrong."
+    )
+    look = style(lede)
+    assert look["fontSize"] == resolve(page, "--text-body-lg-size", "font-size")
+    assert look["lineHeight"] == resolve(page, "--text-body-lg-line", "line-height")
+    assert look["color"] == resolve(page, "--text-2", "color")
+
+    header = page.locator("main > header")
+    header_box = header.bounding_box()
+    tabs_box = sections(page, LABEL).bounding_box()
+    gap = tabs_box["y"] - (header_box["y"] + header_box["height"])
+    assert abs(gap - px(page, "--space-4")) < 0.5, gap
+
+
+def test_a_panel_has_the_card_padding(
+    page: Page, invite_code: str, base_url: str, viewport: str
+):
+    open_memory(page, invite_code, base_url)
+    stage_rules(page)
+    stage_timeline(page)
+
+    def check(surface: Locator, where: str) -> None:
+        look = style(surface)
+        fill = resolve(page, "--surface", "background-color")
+        radius = resolve(page, "--radius-lg", "border-top-left-radius")
+        assert look["background"] == fill, where
+        assert look["borderWidths"] == ["1px"] * 4, where
+        assert look["borderStyles"] == ["solid"] * 4, where
+        assert look["borderColors"] == [resolve(page, "--border", "color")] * 4, where
+        assert look["radii"] == [radius] * 4, where
+        card_pad = resolve(page, "--card-pad", "padding-top")
+        assert look["padding"] == [card_pad] * 4, where
+
+    page.goto("/brain/rules")
+    rules = entry_list(panel(page, "Rules"))
+    expect(rows(rules)).to_have_count(2)
+    check(rules, "Rules")
+
+    # A day's list on the Timeline is a panel as well.
+    page.goto("/brain/timeline")
+    day = entry_list(panel(page, "Timeline"))
+    expect(rows(day).first).to_be_visible()
+    check(day, "Timeline")
