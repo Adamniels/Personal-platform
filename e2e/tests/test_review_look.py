@@ -215,3 +215,33 @@ def test_the_page_header_follows_the_layout(
     tabs_box = sections(page, LABEL).bounding_box()
     gap = tabs_box["y"] - (header_box["y"] + header_box["height"])
     assert abs(gap - px(page, "--space-4")) < 0.5, gap
+
+
+def test_a_link_drawn_as_a_button_is_a_pill(
+    page: Page, invite_code: str, base_url: str, viewport: str
+):
+    open_review(page, invite_code, base_url)
+    stage(page)
+    page.goto("/review")
+    everything = page.get_by_role("link", name="Start everything")
+    start = (
+        rows(page.get_by_role("list", name="By deck"))
+        .filter(has_text="Compilers")
+        .get_by_role("link", name="Start")
+    )
+    expect(everything).to_be_visible()
+    expect(start).to_be_visible()
+
+    control_h = px(page, "--control-h")
+    radius = resolve(page, "--radius-full", "border-top-left-radius")
+    for link, where in [(everything, "Start everything"), (start, "Start")]:
+        look = style(link)
+        assert abs(link.bounding_box()["height"] - control_h) < 0.5, where
+        assert look["radii"] == [radius] * 4, where
+        assert look["padding"][1] == look["padding"][3] == "18px", where
+
+    secondary = style(start)
+    assert secondary["background"] == TRANSPARENT
+    assert secondary["borderWidths"] == ["1px"] * 4
+    assert secondary["borderStyles"] == ["solid"] * 4
+    assert secondary["borderColors"] == [resolve(page, "--border-strong", "color")] * 4

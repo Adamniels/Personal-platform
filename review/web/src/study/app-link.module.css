@@ -1,6 +1,7 @@
 /* A link drawn as "Button" in section 4 of design/DESIGN.md draws a primary
- * or a secondary button: the same height, padding, radius, type and fills,
- * from the tokens. The focus ring comes from the base rule in tokens.css. */
+ * or a secondary button: a pill of the same height, padding, radius, type
+ * and fills, from the tokens. The focus ring comes from the base rule in
+ * tokens.css. */
 .button {
 	box-sizing: border-box;
 	display: inline-flex;
@@ -8,9 +9,9 @@
 	justify-content: center;
 	gap: var(--space-2);
 	height: var(--control-h);
-	padding: 0 14px;
+	padding: 0 18px;
 	border: 1px solid transparent;
-	border-radius: var(--radius-md);
+	border-radius: var(--radius-full);
 	font-family: var(--font-ui);
 	font-size: var(--text-body-size);
 	line-height: var(--text-body-line);
@@ -26,7 +27,7 @@
 }
 
 .secondary {
-	background: var(--surface);
+	background: transparent;
 	color: var(--text);
 	border-color: var(--border-strong);
 	font-weight: 500;
