@@ -20,8 +20,9 @@ public abstract record UserToken
     {
     }
 
-    /// <summary>An access token with more than <see cref="UserTokens.Margin"/> left.</summary>
-    public sealed record Usable(string AccessToken) : UserToken
+    /// <summary>An access token with more than <see cref="UserTokens.Margin"/> left, already the
+    /// type a write takes, made here and nowhere else in the service.</summary>
+    public sealed record Usable(UserAccessToken Token) : UserToken
     {
         /// <summary>Never the token.</summary>
         public override string ToString() => "Usable { }";
@@ -78,7 +79,7 @@ public sealed class UserTokens(UserDb database, Vault vault, ICodeHostSignIn hos
             if (GitHubLink.Utc(account.AccessExpiresAt) - now > Margin
                 && await Read(transaction, userId, GitHubLink.AccessPurpose, cancellationToken) is { } access)
             {
-                return new UserToken.Usable(access);
+                return new UserToken.Usable(new UserAccessToken(access));
             }
 
             // A refresh token already past its end, or missing, is one GitHub would refuse.
@@ -97,7 +98,7 @@ public sealed class UserTokens(UserDb database, Vault vault, ICodeHostSignIn hos
                         transaction,
                         cancellationToken: cancellationToken));
                     await GitHubLink.PutTokens(vault, transaction, userId, tokens, cancellationToken);
-                    return new UserToken.Usable(tokens.AccessToken);
+                    return new UserToken.Usable(new UserAccessToken(tokens.AccessToken));
                 case SignInResult<UserTokenPair>.Refused:
                     return await NeedsRelink(transaction, userId, cancellationToken);
                 case SignInResult<UserTokenPair>.Unavailable { RetryAt: var retryAt }:

@@ -80,7 +80,7 @@ public sealed class ProjectStore(UserDb database, UserTokens tokens, ICodeHost h
     public async Task<ProjectOutcome<Connectable>> Connectable(Guid userId, Uri origin, CancellationToken cancellationToken)
     {
         var usable = await tokens.For(userId, cancellationToken);
-        if (usable is not UserToken.Usable { AccessToken: var token })
+        if (usable is not UserToken.Usable { Token.Value: var token })
         {
             return Refused<Connectable>(usable);
         }
@@ -124,7 +124,7 @@ public sealed class ProjectStore(UserDb database, UserTokens tokens, ICodeHost h
     public async Task<ProjectOutcome<Project>> Connect(Guid userId, long installationId, long repositoryId, CancellationToken cancellationToken)
     {
         var usable = await tokens.For(userId, cancellationToken);
-        if (usable is not UserToken.Usable { AccessToken: var token })
+        if (usable is not UserToken.Usable { Token.Value: var token })
         {
             return Refused<Project>(usable);
         }

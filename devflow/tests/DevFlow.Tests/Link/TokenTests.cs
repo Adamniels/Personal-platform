@@ -30,11 +30,26 @@ public sealed class TokenTests
         linking.Time.Advance(FakeCodeHost.AccessLifetime - UserTokens.Margin - TimeSpan.FromSeconds(1));
         var token = Assert.IsType<UserToken.Usable>(await linking.Tokens.For(Linking.User, Ct));
 
-        Assert.Equal(access, token.AccessToken);
+        Assert.Equal(access, token.Token.Value);
         Assert.Equal(0, linking.Fake.Renewals(Linking.User));
         Assert.Equal(before, await linking.Account());
         // Nothing of the token in what it prints.
         Assert.DoesNotContain(access!, token.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ALinkRevokedAtTheFakeNeedsLinkingAgain()
+    {
+        await using var linking = await Linking.Start();
+        await linking.LinkAll();
+
+        // As revoking the app on GitHub: the next use renews, and the renewal is refused.
+        var revoked = await linking.App.Send("POST", "/devflow/api/fake/revoke-token", Contract.Token, ("Origin", Linking.Origin));
+
+        Assert.Equal(StatusCodes.Status204NoContent, revoked.Response.StatusCode);
+        Assert.IsType<UserToken.NeedsRelink>(await linking.Tokens.For(Linking.User, Ct));
+        Assert.Equal("needs_relink", (await linking.Account())!.State);
+        Assert.Empty(await linking.Secrets());
     }
 
     [Fact]
@@ -50,9 +65,9 @@ public sealed class TokenTests
         var now = linking.Time.GetUtcNow();
         var token = Assert.IsType<UserToken.Usable>(await linking.Tokens.For(Linking.User, Ct));
 
-        Assert.NotEqual(oldAccess, token.AccessToken);
+        Assert.NotEqual(oldAccess, token.Token.Value);
         Assert.Equal(1, linking.Fake.Renewals(Linking.User));
-        Assert.Equal(token.AccessToken, await linking.Secret(GitHubLink.AccessPurpose));
+        Assert.Equal(token.Token.Value, await linking.Secret(GitHubLink.AccessPurpose));
         var newRefresh = await linking.Secret(GitHubLink.RefreshPurpose);
         Assert.NotEqual(oldRefresh, newRefresh);
         var account = await linking.Account();
@@ -61,7 +76,7 @@ public sealed class TokenTests
         Assert.Equal(now + FakeCodeHost.RefreshLifetime, GitHubLink.Utc(account.RefreshExpiresAt));
 
         // The new pair is the one that works now, and the next call uses it as it is.
-        Assert.IsType<SignInResult<CodeHostAccount>.Granted>(await linking.Fake.WhoIs(Linking.User, token.AccessToken, Ct));
+        Assert.IsType<SignInResult<CodeHostAccount>.Granted>(await linking.Fake.WhoIs(Linking.User, token.Token.Value, Ct));
         Assert.IsType<SignInResult<CodeHostAccount>.Refused>(await linking.Fake.WhoIs(Linking.User, oldAccess!, Ct));
         Assert.Equal(token, await linking.Tokens.For(Linking.User, Ct));
         Assert.Equal(1, linking.Fake.Renewals(Linking.User));
@@ -90,7 +105,7 @@ public sealed class TokenTests
         Assert.Equal(usable, tokens[1]);
         Assert.Equal(1, scripted.Renewals);
         Assert.Equal(1, linking.Fake.Renewals(Linking.User));
-        Assert.Equal(usable.AccessToken, await linking.Secret(GitHubLink.AccessPurpose));
+        Assert.Equal(usable.Token.Value, await linking.Secret(GitHubLink.AccessPurpose));
     }
 
     [Fact]
@@ -184,7 +199,7 @@ public sealed class TokenTests
         Assert.IsType<SignInResult<CodeHostAccount>.Refused>(await linking.Fake.WhoIs(Linking.User, access!, Ct));
         Assert.Equal(linking.Time.GetUtcNow(), GitHubLink.Utc((await linking.Account())!.AccessExpiresAt));
         var renewed = Assert.IsType<UserToken.Usable>(await linking.Tokens.For(Linking.User, Ct));
-        Assert.NotEqual(access, renewed.AccessToken);
+        Assert.NotEqual(access, renewed.Token.Value);
         Assert.Equal(1, linking.Fake.Renewals(Linking.User));
     }
 
