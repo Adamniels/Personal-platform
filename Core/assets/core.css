@@ -9,12 +9,12 @@
    every size that has a token, is a token; it defines no variable of its
    own, so none can shadow one. */
 
-/* A form sits in a card, centred, at most 26rem wide. */
+/* A form sits in a card, centred, at most 26rem wide, padded as a card. */
 .form-card {
   box-sizing: border-box;
   max-width: 26rem;
   margin: 0 auto;
-  padding: var(--space-4);
+  padding: var(--card-pad);
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
@@ -49,8 +49,7 @@ form {
   gap: var(--space-1);
 }
 
-/* The text field rule: the label in caption style above the field, help
-   text below it. */
+/* The text field rule: the label in caption style above the field. */
 label {
   display: grid;
   gap: var(--space-1);
@@ -64,9 +63,9 @@ input:not([type="hidden"]) {
   box-sizing: border-box;
   width: 100%;
   height: var(--control-h);
-  padding: 0 10px;
+  padding: 0 16px;
   border: 1px solid var(--border-strong);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-full);
   background: var(--surface);
   color: var(--text);
   font-family: var(--font-ui);
@@ -79,14 +78,17 @@ input::placeholder {
 }
 
 /* A field with an error: the 2px border, a pixel taken off the padding so
-   the field keeps its size. */
+   the field keeps its size and its text stays where it was. */
 input[aria-invalid="true"] {
   border: 2px solid var(--danger);
-  padding: 0 9px;
+  padding: 0 15px;
 }
 
+/* Help text, inside the label under its field, in caption style. */
 .hint {
-  font-weight: 400;
+  font-size: var(--text-caption-size);
+  line-height: var(--text-caption-line);
+  font-weight: 500;
   color: var(--text-3);
 }
 
@@ -109,14 +111,14 @@ input[aria-invalid="true"] {
   font-weight: 500;
 }
 
-/* The button rule. A form's submit button is the primary button, at most
-   one per view; any other button is secondary. */
+/* The button rule, a pill. A form's submit button is the primary button,
+   at most one per view; any other button is secondary. */
 .page button {
   box-sizing: border-box;
   justify-self: start;
   height: var(--control-h);
-  padding: 0 14px;
-  border-radius: var(--radius-md);
+  padding: 0 18px;
+  border-radius: var(--radius-full);
   font-family: var(--font-ui);
   font-size: var(--text-body-size);
   cursor: pointer;
@@ -130,7 +132,7 @@ input[aria-invalid="true"] {
 }
 
 .page button:not([type="submit"]) {
-  background: var(--surface);
+  background: transparent;
   color: var(--text);
   border: 1px solid var(--border-strong);
   font-weight: 500;

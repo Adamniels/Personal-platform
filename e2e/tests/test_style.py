@@ -160,6 +160,32 @@ def test_the_login_page_uses_the_platform_values(page: Page, theme: str):
     assert first_family(heading["fontFamily"]) == "Barlow Condensed"
 
 
+@pytest.mark.parametrize("theme", THEMES)
+def test_the_core_buttons_and_fields_are_pills(page: Page, theme: str):
+    """The button and text field rules: --control-h high, --radius-full,
+    the fields with 16px at their sides and the button with 18px. The form
+    card is padded --card-pad."""
+    open_page(page, "/login")
+    use_theme(page, theme)
+    full = resolve(page, "--radius-full", "border-top-left-radius")
+    height = px(page, "--control-h")
+
+    for name in ["email", "password"]:
+        field = style(page.locator(f"[name={name}]"))
+        assert field["height"] == height, name
+        assert field["radii"] == [full] * 4, name
+        assert field["padding"][1] == field["padding"][3] == "16px", name
+
+    button = style(page.get_by_role("button", name="Log in"))
+    assert button["height"] == height
+    assert button["radii"] == [full] * 4
+    assert button["padding"][1] == button["padding"][3] == "18px"
+    assert button["fontSize"] == "14px"
+
+    card_pad = resolve(page, "--card-pad", "padding-top")
+    assert style(form_card(page))["padding"] == [card_pad] * 4
+
+
 def test_a_form_error_is_announced_and_styled(page: Page):
     open_page(page, "/login")
     log_in(page, f"e2e-{uuid.uuid4()}@example.com", uuid.uuid4().hex[:20])
@@ -178,8 +204,10 @@ def test_a_form_error_is_announced_and_styled(page: Page):
     look = style(field)
     assert look["borderWidths"] == ["2px"] * 4
     assert look["borderColors"] == [resolve(page, "--danger", "color")] * 4
-    # The 2px border does not change the field's size.
+    # The 2px border does not change the field's size, nor where its text
+    # starts: a pixel comes off each side's padding.
     assert look["height"] == px(page, "--control-h")
+    assert look["padding"][1] == look["padding"][3] == "15px"
 
     # The email the person typed is kept and not marked: the message is
     # about the pair, and the core does not say which one was wrong.
