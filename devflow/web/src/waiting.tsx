@@ -5,6 +5,7 @@
 import { Button, Card, EmptyState, Status } from "@platform/ui";
 import { useQuery } from "@tanstack/react-query";
 import { type MouseEvent, useId, useState } from "react";
+import { type ActionsApi, ItemActions, type LinkState } from "./actions";
 import { navigate } from "./address";
 import type { GetAnswer } from "./api/client";
 import { Inline } from "./format";
@@ -42,6 +43,16 @@ type Group = {
 	label: string;
 	items: WaitingItem[];
 	muted?: boolean;
+	/** Whether the first item's Merge is the view's one primary button,
+	 * design/DESIGN.md's rule; the others are secondary. */
+	primaryFirst?: boolean;
+};
+
+/** What an item's actions need from the tab. */
+type Act = {
+	link: LinkState;
+	api: ActionsApi;
+	reload: () => Promise<unknown>;
 };
 
 /** The three groups, in their order: waiting and stopped items not sent
@@ -56,6 +67,7 @@ function groups(items: WaitingItem[], name: (item: WaitingItem) => string) {
 			items: sorted.filter(
 				(item) => item.kind === "waiting" && !item.sent_back,
 			),
+			primaryFirst: true,
 		},
 		{
 			label: "Stopped",
@@ -93,12 +105,24 @@ export type WaitingProps = {
 	reload: () => Promise<unknown>;
 	/** The time, in milliseconds since the epoch. */
 	now: () => number;
+	/** The caller's GitHub link, which merging and commenting need. */
+	link: LinkState;
+	/** Merges an item and sends one back. */
+	actions: ActionsApi;
 };
 
 /** The tab: the expired link at the top, the age of the picture with
  * Refresh, and the groups, each a region named by its heading; or the empty
  * state that says why there is nothing. Nothing before the answer. */
-export function Waiting({ list, failed, refresh, reload, now }: WaitingProps) {
+export function Waiting({
+	list,
+	failed,
+	refresh,
+	reload,
+	now,
+	link,
+	actions,
+}: WaitingProps) {
 	if (list === undefined) {
 		return failed ? (
 			<p className={styles.error} role="alert">
@@ -142,7 +166,12 @@ export function Waiting({ list, failed, refresh, reload, now }: WaitingProps) {
 						/>
 					) : (
 						groups(list.items, name).map((group) => (
-							<GroupSection key={group.label} group={group} name={name} />
+							<GroupSection
+								key={group.label}
+								group={group}
+								name={name}
+								act={{ link, api: actions, reload }}
+							/>
 						))
 					)}
 				</>
@@ -248,9 +277,11 @@ export function duration(ms: number): string {
 function GroupSection({
 	group,
 	name,
+	act,
 }: {
 	group: Group;
 	name: (item: WaitingItem) => string;
+	act: Act;
 }) {
 	const id = useId();
 	return (
@@ -262,8 +293,14 @@ function GroupSection({
 				<span id={id}>{group.label}</span>{" "}
 				<span className={styles.count}>{group.items.length}</span>
 			</h2>
-			{group.items.map((item) => (
-				<Item key={item.id} item={item} project={name(item)} />
+			{group.items.map((item, index) => (
+				<Item
+					key={item.id}
+					item={item}
+					project={name(item)}
+					primary={group.primaryFirst === true && index === 0}
+					act={act}
+				/>
 			))}
 		</section>
 	);
@@ -271,8 +308,18 @@ function GroupSection({
 
 /** One item: the card's header holds its title and its status, the line
  * under it the project and the number, then what the owner needs to judge
- * it, then its actions. */
-function Item({ item, project }: { item: WaitingItem; project: string }) {
+ * it, then its actions, before Open on GitHub. */
+function Item({
+	item,
+	project,
+	primary,
+	act,
+}: {
+	item: WaitingItem;
+	project: string;
+	primary: boolean;
+	act: Act;
+}) {
 	const waiting = item.kind === "waiting" && !item.sent_back;
 	return (
 		<Card
@@ -281,18 +328,25 @@ function Item({ item, project }: { item: WaitingItem; project: string }) {
 			aside={<ItemStatus item={item} />}
 			className={styles.item}
 			footer={
-				<div className={styles.actions}>
-					{linkable(item.web_url) ? (
-						<a
-							className={styles.open}
-							href={item.web_url}
-							target="_blank"
-							rel="noreferrer"
-						>
-							Open on GitHub
-						</a>
-					) : null}
-				</div>
+				<ItemActions
+					item={item}
+					primary={primary}
+					link={act.link}
+					api={act.api}
+					reload={act.reload}
+					open={
+						linkable(item.web_url) ? (
+							<a
+								className={styles.open}
+								href={item.web_url}
+								target="_blank"
+								rel="noreferrer"
+							>
+								Open on GitHub
+							</a>
+						) : null
+					}
+				/>
 			}
 		>
 			<div className={styles.body}>

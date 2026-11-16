@@ -217,6 +217,7 @@ internal sealed record Staged(PullRequest Pull, IReadOnlyList<Comment> Comments,
 internal sealed class CountingCodeHost(ICodeHost inner) : ICodeHost
 {
     private readonly ConcurrentQueue<Call> _calls = new();
+    private readonly ConcurrentQueue<UserAccessToken> _writeTokens = new();
     private int _listing;
     private int _mostAtOnce;
 
@@ -298,6 +299,26 @@ internal sealed class CountingCodeHost(ICodeHost inner) : ICodeHost
 
     public Task<CodeHostResult<IReadOnlyList<CodeHost.Repository>>> Repositories(Guid userId, string userToken, long installation, CancellationToken cancellationToken) =>
         inner.Repositories(userId, userToken, installation, cancellationToken);
+
+    /// <summary>How many writes, merges and comments, were asked of the code host.</summary>
+    public int Writes => Calls.Count(call => call.Operation is "Merge" or "Comment");
+
+    /// <summary>The token each write was asked with, in the order asked.</summary>
+    public IReadOnlyList<UserAccessToken> WriteTokens => [.. _writeTokens];
+
+    public Task<MergeResult> Merge(Guid userId, UserAccessToken token, CodeHost.Repository repository, int number, string commit, CancellationToken cancellationToken)
+    {
+        _writeTokens.Enqueue(token);
+        Record("Merge", userId, repository, $"{number} {commit}");
+        return inner.Merge(userId, token, repository, number, commit, cancellationToken);
+    }
+
+    public Task<CommentResult> Comment(Guid userId, UserAccessToken token, CodeHost.Repository repository, int number, string body, CancellationToken cancellationToken)
+    {
+        _writeTokens.Enqueue(token);
+        Record("Comment", userId, repository, $"{number}");
+        return inner.Comment(userId, token, repository, number, body, cancellationToken);
+    }
 
     public Uri InstallAddress(Uri origin) => inner.InstallAddress(origin);
 

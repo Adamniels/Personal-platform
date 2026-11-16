@@ -95,6 +95,57 @@
 	overflow-wrap: anywhere;
 }
 
+/* The item's footer: a refusal, the comment box, the row of actions and why
+ * one cannot be pressed, a step apart. */
+.footer {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-3);
+	box-sizing: border-box;
+	width: 100%;
+	min-width: 0;
+}
+
+/* The confirmation's lines, a step apart. */
+.confirm {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-2);
+}
+
+/* What the code host or Dev flow refused, in words: the attention text, read
+ * as an alert, as the list's own error is. */
+.refusal {
+	margin: 0;
+	color: var(--accent-text);
+	font-weight: 600;
+	overflow-wrap: anywhere;
+}
+
+/* The comment box over its Send and Cancel. */
+.comment {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-2);
+	min-width: 0;
+}
+
+/* Why Merge, or commenting, cannot be done now, quiet under the row. */
+.why {
+	margin: 0;
+	color: var(--text-2);
+	font-size: var(--text-small-size);
+	line-height: var(--text-small-line);
+	overflow-wrap: anywhere;
+}
+
+/* The commit in the confirmation, hard rule 8: the mono font. */
+.commit {
+	font-family: var(--font-mono);
+	font-size: var(--text-mono-size);
+	line-height: var(--text-mono-line);
+}
+
 /* The row of actions, which wraps on a phone. */
 .actions {
 	display: flex;

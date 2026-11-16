@@ -12,7 +12,8 @@ namespace DevFlow.CodeHost;
 /// <remarks>
 /// Every operation takes the platform account it is asked for. The fake keeps a world per account,
 /// so tests registering their own accounts never see each other's; the GitHub adapter reads as
-/// the app and writes, in later slices, as the account's linked GitHub user.
+/// the app and writes only as the account's linked GitHub user, with a
+/// <see cref="UserAccessToken"/>.
 /// </remarks>
 public interface ICodeHost
 {
@@ -45,6 +46,19 @@ public interface ICodeHost
     /// <paramref name="userToken"/> is can reach, in no particular order. Not found when the
     /// installation is not one they can reach.</summary>
     Task<CodeHostResult<IReadOnlyList<Repository>>> Repositories(Guid userId, string userToken, long installation, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Merges the pull request into its base with a merge commit, as the person whose token
+    /// <paramref name="token"/> is, and only while its head is <paramref name="commit"/>: the host
+    /// checks that, so a pull request that moved on since it was shown answers head moved and is
+    /// not merged. Never as the app: the token's type is not one the app's credentials are.
+    /// </summary>
+    Task<MergeResult> Merge(Guid userId, UserAccessToken token, Repository repository, int number, string commit, CancellationToken cancellationToken);
+
+    /// <summary>Writes <paramref name="body"/>, exactly, as a comment in the conversation of the
+    /// pull request with the number, as the person whose token <paramref name="token"/> is. Never
+    /// as the app.</summary>
+    Task<CommentResult> Comment(Guid userId, UserAccessToken token, Repository repository, int number, string body, CancellationToken cancellationToken);
 
     /// <summary>Where a person installs Dev flow's app on the code host: GitHub's page for the
     /// app, or for the fake a page of its own under <paramref name="origin"/>, the platform's
