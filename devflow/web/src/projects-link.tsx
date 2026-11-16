@@ -1,7 +1,7 @@
 // The GitHub link on the Projects tab: the one place the owner links the GitHub account Dev flow
 // acts as, sees whom it is linked as, links it again when GitHub stopped taking it, and unlinks
 // it. Starting a link asks Dev flow for the code host's address and sends the browser there; the
-// code host sends it back to /devflow/github/callback, which comes back here. See "The page" in
+// code host sends it back to /devflow/github/callback, which comes back here. See "The pages" in
 // devflow/README.md and "Acting as the owner" in devflow/docs/devflow-architecture.md.
 import { Button, Card, Dialog } from "@platform/ui";
 import { type ReactElement, useState } from "react";

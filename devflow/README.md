@@ -53,12 +53,12 @@ through ASP.NET Core's `AddProblemDetails`, as review's are.
 The routes under `/devflow/api/` are pinned by `contracts/devflow/openapi.json`, see "The schema"
 below.
 
-## The page
+## The pages
 
 `web/`, a frontend like any other, a `web` folder under its service, so CI and the agents gate and
 build it with the rest, see `design/ui/README.md`. It is review's stack at its versions,
-`review/web/package.json`, without React Query, which nothing here needs until a section loads
-data, and depends on the components as `"@platform/ui": "file:../../design/ui"`. Its `index.html`
+`review/web/package.json`, React Query among them, and depends on the components as
+`"@platform/ui": "file:../../design/ui"`. Its `index.html`
 includes the nav's lines from "Navigation" in `High-level/docs/platform-architecture.md`, with
 `<platform-nav current="devflow">`, and its content sits in `<main class="page">`.
 
@@ -98,8 +98,46 @@ forgets the project and everything it read for it and that nothing changes on Gi
 and the choice closed, the `EmptyState` "No project connected yet". A read, a connect or a
 disconnect that fails says so as an alert. A project has no page of its own yet.
 
-Waiting for you shows the package's `EmptyState` until its slice lands. "Running now" and "Usage and
-history" join with the parts that build them, never as empty tabs. The address is the state,
+Waiting for you, `src/waiting.tsx`, is one list of what waits for the owner across his projects,
+read from `GET /devflow/api/waiting`, see "What waits", through React Query: as the page loads,
+every 60 seconds while the page is visible, and when the window regains focus. Its tab carries the
+answer's `count` as a badge once it is more than none. Its parts, top to bottom:
+
+- With `needs_relink`, "Your GitHub link has expired. You can read, but not merge or comment." in
+  the attention style, with a link "Go to Projects".
+- The age of the picture: for each project that is stale, "<owner>/<name> has not been updated for
+  <time>", or "has not been read yet" when no read has succeeded, and for each that is failing,
+  "<owner>/<name>: GitHub could not be read, showing what was last seen", in the attention style;
+  when every project is fine, one muted "Updated <time> ago" from the oldest `last_success_at`. A
+  secondary "Refresh" beside it posts to every project's refresh route and then reads the list
+  again.
+- Three groups, in this order, each a section heading in the heading font's capitals with its
+  count, and shown only with items: "Pull requests waiting", items of kind `waiting` not sent
+  back; "Stopped", kind `stopped` not sent back; and "Sent back, the runner has it", every item
+  sent back, muted, and not in the tab's count. Within a group, by `<owner>/<name>` and then
+  number.
+- An item is the package's `Card`, titled by the pull request, its status label on the right:
+  "Waiting for you" in the needs you tone, with the card's attention outline, "Stopped" or "Sent
+  back". Under the title, `<owner>/<name> #<number>` in the mono font, then the summary. A waiting
+  item with decisions for the owner shows "The agent decided", each decision on an inset with what
+  was chosen, "Instead of" and the alternative, and "Because" and the reason, each when there is
+  one, and "and <n> more it did not need you for" when the body records others; without
+  decisions, "Why it waits" and the runner's reason, and a stopped item "Why it stopped". A
+  waiting item's reviewer points follow as "The reviewer". Last, a ghost styled link "Open on
+  GitHub" to the pull request, in a new tab with `rel="noreferrer"`, offered only when its address is
+  `https`. On a phone it all stacks and
+  the actions wrap.
+- With no project, the `EmptyState` "Nothing waits for you", "Connect a repository under Projects
+  to see what waits for you."; with projects and no item, "Nothing waits for you", "Your agents
+  have nothing for you to decide."; and a list that cannot be read says so as an alert.
+
+Every text in an item came from the code host and is shown as text. The summary, the decisions,
+the reviewer's points and the reason go through `src/format.tsx`, which turns `` `code` `` into a
+code element and `**bold**` into a strong element, as React elements, and leaves the rest as
+written; no Markdown library, and no HTML is ever inserted, see "Text read from a code host is
+data" in `docs/devflow-architecture.md`.
+
+"Running now" and "Usage and history" join with the parts that build them, never as empty tabs. The address is the state,
 through the History API and no router library (`src/address.ts`): a tab pushes its section's
 address, Back and Forward come back as `popstate`, and an address that names no section shows a
 not found state under the tabs. The list of sections lives in `src/sections.ts`, and the addresses
@@ -111,7 +149,8 @@ the session cookie, a `401` is refreshed once, shared by every call that got one
 `/auth/refresh?return_to=<path>`, as review's client does. Its GETs are typed from
 `src/api/schema.d.ts`. The page reads the status once as it loads, in `src/status.ts`, for the
 banner and the link, and again after unlinking; its other calls are starting a link, unlinking,
-and the projects' four, which `src/app.tsx` gives the tab, so a test gives its own.
+the projects' four, and reading what waits and refreshing a project, which `src/app.tsx` gives
+the tabs, so a test gives its own, with its own clock.
 
 ## The schema
 

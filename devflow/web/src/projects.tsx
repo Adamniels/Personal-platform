@@ -1,6 +1,6 @@
 // The projects on the Projects tab, under the GitHub link: the connected repositories, connecting
 // one from those the GitHub App reaches for the owner, and disconnecting one behind a
-// confirmation. A project has no page of its own yet. See "The page" and "Connecting a
+// confirmation. A project has no page of its own yet. See "The pages" and "Connecting a
 // repository" in devflow/README.md.
 import { Badge, Button, Dialog, EmptyState, Table } from "@platform/ui";
 import { useCallback, useEffect, useState } from "react";
