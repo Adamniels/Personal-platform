@@ -405,6 +405,24 @@
         ],
         "type": "object"
       },
+      "ScreenshotGroup": {
+        "properties": {
+          "images": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "images"
+        ],
+        "type": "object"
+      },
       "SendBackRequest": {
         "properties": {
           "comment": {
@@ -472,6 +490,12 @@
             },
             "type": "array"
           },
+          "screenshots": {
+            "items": {
+              "$ref": "#/components/schemas/ScreenshotGroup"
+            },
+            "type": "array"
+          },
           "sent_back": {
             "type": "boolean"
           },
@@ -510,6 +534,7 @@
           "decisions",
           "other_decisions",
           "reviewer_view",
+          "screenshots",
           "read_at"
         ],
         "type": "object"

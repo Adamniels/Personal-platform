@@ -66,7 +66,10 @@ Screenshots land in `screenshots/`, which is git ignored.
   and one empty repository,
   `add_pull_request(world, number, ...)` adds a pull request with any fields the test cares about,
   its conversation, and the statuses and check runs on its head commit, made with `comment`,
-  `status` and `check_run`, and `add_file` adds a file on a branch. It works on the dev stack and in
+  `status` and `check_run`, and `add_file` adds a file on a branch. `add_screenshot(world, number,
+  name, content)` adds a pull request's screenshot as `scripts/agent/screenshots.sh` commits one,
+  on `pr-screenshots`, and returns the line that script prints for the body; `png(width, height,
+  rgb)` makes a one colour PNG for it, with no image library. It works on the dev stack and in
   the hosted check, both of which fake GitHub. `link_github(page, base_url)` links the account's
   GitHub through the fake's sign in page, from Dev flow's Projects tab, which the page must be on,
   as connecting a repository needs.

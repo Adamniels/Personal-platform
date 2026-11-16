@@ -10,6 +10,8 @@ conftest.py stages one in the test's own account.
 """
 
 import base64
+import struct
+import zlib
 
 INSTALLATION = 1
 REPOSITORY = 1001
@@ -168,4 +170,44 @@ def add_file(world: dict, path: str, content: bytes, branch: str = "main") -> No
             "branch": branch,
             "content": base64.b64encode(content).decode("ascii"),
         }
+    )
+
+
+SCREENSHOTS_BRANCH = "pr-screenshots"
+
+
+def png(width: int, height: int, rgb: tuple[int, int, int]) -> bytes:
+    """A PNG of one colour, with a darker frame one pixel wide, made here so a
+    test needs no image library."""
+    frame = tuple(channel // 2 for channel in rgb)
+    rows = b""
+    for y in range(height):
+        row = bytearray(b"\x00")  # each row starts with filter type 0, none
+        for x in range(width):
+            edge = x in (0, width - 1) or y in (0, height - 1)
+            row += bytes(frame if edge else rgb)
+        rows += bytes(row)
+
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        body = kind + data
+        return struct.pack(">I", len(data)) + body + struct.pack(">I", zlib.crc32(body))
+
+    header = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", header)
+        + chunk(b"IDAT", zlib.compress(rows))
+        + chunk(b"IEND", b"")
+    )
+
+
+def add_screenshot(world: dict, number: int, name: str, content: bytes) -> str:
+    """Adds a screenshot of pull request `number` to the world's repository, as
+    scripts/agent/screenshots.sh commits one, and returns the line that script
+    prints for its body."""
+    repo = repository(world)
+    add_file(world, f"{number}/{name}.png", content, branch=SCREENSHOTS_BRANCH)
+    return (
+        f"![{name}](https://github.com/{repo['owner']}/{repo['name']}/blob/"
+        f"{SCREENSHOTS_BRANCH}/{number}/{name}.png?raw=true)"
     )

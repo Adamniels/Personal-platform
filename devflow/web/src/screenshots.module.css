@@ -1,0 +1,110 @@
+/* An item's screenshots. Tokens only, design/DESIGN.md, apart from the
+ * thumbnails' 160px, which the slice fixes. */
+
+/* The pairs, wrapping, so a phone stacks them. */
+.groups {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-4);
+	margin: 0;
+	padding: 0;
+	list-style: none;
+	min-width: 0;
+}
+
+/* A pair: its name over its thumbnails. */
+.group {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-2);
+	min-width: 0;
+	max-width: 100%;
+}
+
+/* The name a pair shares, an id, so the mono font (hard rule 8). It has no
+ * spaces, so it may break anywhere rather than overflow. */
+.name {
+	margin: 0;
+	color: var(--text-2);
+	font-family: var(--font-mono);
+	font-size: var(--text-mono-size);
+	line-height: var(--text-mono-line);
+	overflow-wrap: anywhere;
+}
+
+.thumbnails {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: flex-start;
+	gap: var(--space-2);
+	min-width: 0;
+}
+
+/* A thumbnail is a button with nothing but the image in it, framed as a
+ * surface is (hard rule 3), with the focus ring kept (hard rule 9). */
+.thumbnail {
+	display: block;
+	max-width: 100%;
+	padding: 0;
+	background: var(--surface-2);
+	border: 1px solid var(--border);
+	border-radius: var(--radius-md);
+	overflow: hidden;
+	cursor: zoom-in;
+}
+
+.thumbnail:focus-visible {
+	outline: var(--focus-ring);
+	outline-offset: var(--focus-offset);
+}
+
+/* At most 160px high, never wider than the card. */
+.small {
+	display: block;
+	max-width: 100%;
+	max-height: 160px;
+	height: auto;
+}
+
+.failed {
+	margin: 0;
+	padding: var(--space-2) var(--space-3);
+	background: var(--surface-2);
+	border-radius: var(--radius-md);
+	color: var(--text-2);
+	font-size: var(--text-small-size);
+	line-height: var(--text-small-line);
+	overflow-wrap: anywhere;
+}
+
+/* The dialog showing one, as wide as its image and at most as wide as the
+ * screen allows, rather than the dialog's 480px, so the image has room at
+ * its natural size. The element
+ * and the class, to outrank the dialog's own one class whichever loads
+ * first. Below 640px the dialog is already a full width sheet. */
+dialog.viewer {
+	width: fit-content;
+	max-width: calc(100vw - 2 * var(--space-6));
+}
+
+@media (max-width: 639.98px) {
+	dialog.viewer {
+		width: 100%;
+		max-width: 100%;
+	}
+}
+
+/* The image at its natural size, scrolling inside its frame, never the page
+ * (hard rule 13). */
+.frame {
+	max-height: 70vh;
+	overflow: auto;
+	border: 1px solid var(--border);
+	border-radius: var(--radius-md);
+	background: var(--surface-2);
+}
+
+.large {
+	display: block;
+	max-width: none;
+}

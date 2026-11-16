@@ -44,6 +44,7 @@ function item(overrides: Partial<WaitingItem> = {}): WaitingItem {
 		decisions: [],
 		other_decisions: 0,
 		reviewer_view: [],
+		screenshots: [],
 		read_at: new Date(NOW - 60_000).toISOString(),
 		...overrides,
 	};

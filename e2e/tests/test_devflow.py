@@ -18,9 +18,11 @@ from devflow_worlds import (
     REPOSITORY,
     add_conversation,
     add_pull_request,
+    add_screenshot,
     check_run,
     comment,
     one_repository,
+    png,
     repository,
     reviewer_comment,
     status,
@@ -961,3 +963,55 @@ def test_the_dot_goes_when_i_merge(
     expect(_devflow_link(page)).to_have_accessible_name("Dev flow")
     # The bar asked Dev flow again, and not the core for its links.
     assert navs == []
+
+
+def test_an_item_shows_its_screenshots(
+    page: Page, invite_code: str, base_url: str, viewport: str, devflow_world
+):
+    register_and_log_in(page, invite_code, base_url)
+    world = one_repository()
+    lines = [
+        add_screenshot(
+            world, 305, "devflow-poll-desktop", png(640, 400, (96, 140, 200))
+        ),
+        add_screenshot(world, 305, "devflow-poll-phone", png(195, 422, (200, 150, 90))),
+    ]
+    body = (
+        f"## Summary\n\nAdds the poll.\n\nCloses #{SLICE}\n\n## Verification\n\n"
+        "Screenshots, desktop and 390px phone width:\n\n" + "\n".join(lines) + "\n"
+    )
+    _approved(world, 305, "The poll", ["owner-merge"], body=body)
+    devflow_world(world)
+    _connect_and_read(page, base_url)
+
+    page.goto("/devflow")
+
+    poll = page.get_by_role("article", name="The poll")
+    shots = poll.get_by_role("list", name="Screenshots")
+    expect(shots.get_by_role("listitem")).to_have_count(1)
+    expect(shots.get_by_text("devflow-poll", exact=True)).to_be_visible()
+    for name, width in (("devflow-poll-desktop", 640), ("devflow-poll-phone", 195)):
+        thumbnail = shots.get_by_role("img", name=name)
+        expect(thumbnail).to_be_visible()
+        # Read from the fake as the PNG staged, and shown at most 160px high.
+        page.wait_for_function(
+            "img => img.complete && img.naturalWidth > 0",
+            arg=thumbnail.element_handle(),
+        )
+        assert thumbnail.evaluate("img => img.naturalWidth") == width
+        assert thumbnail.bounding_box()["height"] <= 160
+    capture(page, "devflow-item-screenshots")
+
+    shots.get_by_role("button", name="devflow-poll-desktop").click()
+
+    dialog = page.get_by_role("dialog", name="devflow-poll-desktop")
+    expect(dialog).to_be_visible()
+    large = dialog.get_by_role("img", name="devflow-poll-desktop")
+    expect(large).to_be_visible()
+    # At its natural size, larger than its thumbnail.
+    box = large.bounding_box()
+    assert (box["width"], box["height"]) == (640, 400)
+    capture(page, "devflow-screenshot-open")
+
+    dialog.get_by_role("button", name="Close").click()
+    expect(page.get_by_role("dialog")).to_have_count(0)

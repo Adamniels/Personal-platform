@@ -402,6 +402,10 @@ export interface components {
         ProjectList: {
             projects: components["schemas"]["Project"][];
         };
+        ScreenshotGroup: {
+            images: string[];
+            name: string;
+        };
         SendBackRequest: {
             comment: null | string;
         };
@@ -425,6 +429,7 @@ export interface components {
             read_at: string;
             reason: string;
             reviewer_view: string[];
+            screenshots: components["schemas"]["ScreenshotGroup"][];
             sent_back: boolean;
             /** Format: int32 */
             slice_number: null | number;

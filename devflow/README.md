@@ -146,7 +146,14 @@ answer's `count` as a badge once it is more than none. Its parts, top to bottom:
   was chosen, "Instead of" and the alternative, and "Because" and the reason, each when there is
   one, and "and <n> more it did not need you for" when the body records others; without
   decisions, "Why it waits" and the runner's reason, and a stopped item "Why it stopped". A
-  waiting item's reviewer points follow as "The reviewer". Last, its actions, `src/actions.tsx`,
+  waiting item's reviewer points follow as "The reviewer". Then, with screenshots,
+  `src/screenshots.tsx`, "Screenshots": each pair under its name in the mono font, the desktop
+  one and the phone one as thumbnails at most 160px high, loaded lazily and read from the
+  screenshot route, never from the body's addresses, each image with its name as its alternative
+  text; a name with only one of the two shows that one, and an image that fails to load shows
+  "<name> could not be loaded". A thumbnail is a button that opens the image in the package's
+  `Dialog`, titled by its name, at its natural size in a frame that scrolls, with one "Close".
+  Last, its actions, `src/actions.tsx`,
   and a ghost styled link "Open on GitHub" to the pull request, in a new tab with
   `rel="noreferrer"`, offered only when its address is `https`. On a phone it all stacks and the
   actions wrap.
@@ -808,8 +815,10 @@ and runs in the fake mode as well. With `DEVFLOW_POLL_SECONDS=0` it does not run
   Each item is a stored row with its project's id and repository name: `id`, `project_id`,
   `project_name`, `number`, `kind`, `waiting` or `stopped`, `sent_back`, `title`, `web_url`,
   `slice_number`, null when the body closes none, `head_commit`, `can_merge`, `summary`, `reason`,
-  `decisions`, each `{"chosen", "alternative", "why"}`, `other_decisions`, `reviewer_view` and
-  `read_at`, by project and number; what each means is `RunnerItem` in
+  `decisions`, each `{"chosen", "alternative", "why"}`, `other_decisions`, `reviewer_view`,
+  `screenshots` and `read_at`, by project and number. `screenshots` are the stored names paired for
+  the page by `Screenshots.Group`, each `{"name", "images"}`: the part of the names before
+  `-desktop` and `-phone`, and the names, the desktop one first; what each means is `RunnerItem` in
   `src/DevFlow/Runner/RunnerItem.cs`, and every text is plain text to show as text. `count` is the
   items not sent back, plus one when `needs_relink`, the caller's link needing renewal. A project is
   `stale` when its last success was more than five minutes ago or it was never read, and `failing`
