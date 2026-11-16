@@ -101,12 +101,12 @@ public static class ActionEndpoints
         }
 
         var userToken = await tokens.For(userId, cancellationToken);
-        if (userToken is not UserToken.Usable { AccessToken: var access })
+        if (userToken is not UserToken.Usable { Token: var access })
         {
             return TokenProblem(userToken, context, time);
         }
 
-        switch (await host.Comment(userId, new UserAccessToken(access), item.Repository, item.Number, comment, cancellationToken))
+        switch (await host.Comment(userId, access, item.Repository, item.Number, comment, cancellationToken))
         {
             case CommentResult.Posted:
                 await store.MarkSentBack(userId, id, cancellationToken);
@@ -167,12 +167,12 @@ public static class ActionEndpoints
         }
 
         var userToken = await tokens.For(userId, cancellationToken);
-        if (userToken is not UserToken.Usable { AccessToken: var access })
+        if (userToken is not UserToken.Usable { Token: var access })
         {
             return TokenProblem(userToken, context, time);
         }
 
-        switch (await host.Merge(userId, new UserAccessToken(access), item.Repository, item.Number, item.HeadCommit, cancellationToken))
+        switch (await host.Merge(userId, access, item.Repository, item.Number, item.HeadCommit, cancellationToken))
         {
             case MergeResult.Merged:
                 await ReadAgain(refresher, item, userId, time, cancellationToken);

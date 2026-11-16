@@ -272,8 +272,11 @@ page" and "The pages" in `devflow/README.md`.
 `UserTokens.For`, so they are recorded on GitHub as his, and the runner, which starts a fix run
 only on a comment by `Adamniels`, reads his comment as his input. The interface's two writes take a
 `UserAccessToken`, a type of its own, and nothing else that could authorise them; an installation's
-token is a string, so a write as the app does not compile, and the adapter's writes never ask for
-one. `CommentTests.NothingIsEverWrittenAsTheApp` and `GitHubWriteTests` keep it.
+token is a string, so handing one to a write does not compile, only `UserTokens` makes the type,
+which a test of the compiled code holds, and the adapter's writes never ask for an installation's
+token. What the compiler enforces and what the test does is the security entry "Writes are made
+only with a linked user's token". `CommentTests.NothingIsEverWrittenAsTheApp` and
+`GitHubWriteTests` keep it.
 
 **The snapshot is never trusted for the act itself.** The list is up to a minute old, so a merge
 names the commit the page showed: Dev flow refuses one that is not the stored head, and GitHub,
@@ -361,9 +364,16 @@ its reason, or a risk accepted on purpose; each slice adds the ones it builds.
   shared Mac mini it is exposed to the runner's agents like the vault's key, the risk the first
   entry accepts.
 - **Writes are made only with a linked user's token, and the code makes the other impossible.**
-  `ICodeHost.Merge` and `ICodeHost.Comment` take a `UserAccessToken`, made only from what
-  `UserTokens.For` answers, and an installation's token is a string, so passing one does not
-  compile; the adapter's writes never reach `InstallationTokens`. `GitHubWriteTests` checks the two
+  `ICodeHost.Merge` and `ICodeHost.Comment` take a `UserAccessToken`, and nothing else that could
+  authorise them. An installation's token is a string, so passing one where a write wants a
+  `UserAccessToken` does not compile. Turning a string into one takes its constructor, which is
+  `internal`, so no code outside Dev flow's assembly can, its test assembly apart. Within the
+  assembly C# cannot narrow an `internal` constructor to one class, so a test does:
+  `GitHubWriteTests.AUserTokenIsMadeOnlyByUserTokens` reads the compiled code of every method in
+  the assembly and fails when anything but `UserTokens` calls that constructor, a target typed
+  `new()` included. `UserTokens.For` answers `UserToken.Usable` already holding the typed token,
+  from the person's own token in the vault, so the routes pass it on and never make one. The
+  adapter's writes never reach `InstallationTokens`. `GitHubWriteTests` also checks the two
   signatures and the requests, and `CommentTests.NothingIsEverWrittenAsTheApp` that every write the
   routes make carries the user's own token.
 - **A merge names the commit that was shown.** The page sends the head commit it showed, Dev flow

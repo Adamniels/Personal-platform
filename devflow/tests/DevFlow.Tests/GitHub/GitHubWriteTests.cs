@@ -120,4 +120,26 @@ public sealed class GitHubWriteTests
         Assert.DoesNotContain(typeof(UserAccessToken).GetMethods(BindingFlags.Public | BindingFlags.Static), method => method.Name is "op_Implicit" or "op_Explicit");
         Assert.DoesNotContain(UserToken, Token.ToString(), StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void AUserTokenIsMadeOnlyByUserTokens()
+    {
+        // Its constructor is internal, so nothing outside the service can make one, and inside it
+        // the only code that does is UserTokens, from the person's stored token. Read from the
+        // compiled code rather than the source, so a target typed new() is found too.
+        // The record's own copy constructor, which a with expression calls, only copies a token
+        // that already exists, so the one constructor that matters is the one from a string.
+        var constructors = typeof(UserAccessToken).GetConstructors(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
+            .Where(constructor => constructor.GetParameters() is not [{ ParameterType: var copied }] || copied != typeof(UserAccessToken))
+            .ToList();
+        var fromString = Assert.Single(constructors);
+        Assert.Equal([typeof(string)], fromString.GetParameters().Select(parameter => parameter.ParameterType));
+        Assert.True(fromString.IsAssembly);
+
+        var makers = IlScan.MethodsCalling(typeof(UserAccessToken).Assembly, [fromString])
+            .Select(method => IlScan.Outermost(method.DeclaringType!))
+            .Distinct()
+            .ToList();
+        Assert.Equal([typeof(DevFlow.Link.UserTokens)], makers);
+    }
 }

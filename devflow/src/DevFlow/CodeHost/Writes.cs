@@ -4,13 +4,14 @@ namespace DevFlow.CodeHost;
 /// A person's access token at the code host, the one thing that authorises a write. A type of its
 /// own rather than a string, so the app's credentials, an installation's token, which
 /// <see cref="GitHub.InstallationTokens"/> makes as a string, cannot be passed where a write
-/// wants one: a write as the app does not compile. Made only from what
-/// <see cref="Link.UserTokens.For"/> answers. Prints nothing of the token. See "Acting from the
-/// page" in devflow/docs/devflow-architecture.md.
+/// wants one. Its constructor is internal, and <see cref="Link.UserTokens"/> is the one code that
+/// calls it, from the person's stored token; C# cannot narrow that further within the assembly,
+/// so <c>GitHubWriteTests.AUserTokenIsMadeOnlyByUserTokens</c> holds it. Prints nothing of the
+/// token. See "Acting from the page" in devflow/docs/devflow-architecture.md.
 /// </summary>
 public sealed record UserAccessToken
 {
-    public UserAccessToken(string value)
+    internal UserAccessToken(string value)
     {
         ArgumentException.ThrowIfNullOrEmpty(value);
         Value = value;

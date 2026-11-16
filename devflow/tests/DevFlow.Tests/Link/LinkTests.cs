@@ -408,7 +408,7 @@ public sealed class LinkTests
 
         var printed = string.Join('\n', logs.Lines) + renewed;
         Assert.NotEmpty(logs.Lines);
-        foreach (var secret in new[] { code, started["state"], started["code_challenge"], Assert.Single(scripted!.Verifiers), renewed.AccessToken, refresh! })
+        foreach (var secret in new[] { code, started["state"], started["code_challenge"], Assert.Single(scripted!.Verifiers), renewed.Token.Value, refresh! })
         {
             Assert.DoesNotContain(secret, printed, StringComparison.Ordinal);
         }

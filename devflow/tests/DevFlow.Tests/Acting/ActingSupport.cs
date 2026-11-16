@@ -136,7 +136,7 @@ internal sealed class Acting : IAsyncDisposable
 
     /// <summary>The user's access token, as <see cref="UserTokens.For"/> gives it now.</summary>
     public async Task<string> AccessToken() =>
-        Assert.IsType<UserToken.Usable>(await App.Services.GetRequiredService<UserTokens>().For(User, Reading.Reading.Ct)).AccessToken;
+        Assert.IsType<UserToken.Usable>(await App.Services.GetRequiredService<UserTokens>().For(User, Reading.Reading.Ct)).Token.Value;
 
     /// <summary>Runs <paramref name="sql"/> as the superuser, around row level security, as a test
     /// changes what a person did elsewhere.</summary>

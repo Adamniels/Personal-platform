@@ -457,9 +457,12 @@ Its write side, both as the person and never as the app:
   conversation, answering a `CommentResult`: `Posted`, `Refused` with the status and words, or
   `Unavailable`.
 
-Each takes a `UserAccessToken`, a type of its own made from what `UserTokens.For` answers, and
-nothing else that could authorise it: an installation's token is a string, so a write as the app
-does not compile.
+Each takes a `UserAccessToken`, a type of its own, and nothing else that could authorise it. An
+installation's token is a string, so passing one to a write does not compile. The type's
+constructor is `internal`, and the one code in the service that calls it is `UserTokens`, which
+answers `UserToken.Usable` holding it; `GitHubWriteTests.AUserTokenIsMadeOnlyByUserTokens` reads
+the compiled code and fails if anything else does. Why, and where the compiler's guarantee ends,
+is "Writes are made only with a linked user's token" in `devflow/docs/devflow-architecture.md`.
 
 A `Repository` is the installation it was reached through and its id, which identify it, with its
 owner and name carried for display and for GitHub's addresses, which name a repository by them; the
