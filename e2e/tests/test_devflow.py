@@ -3,6 +3,7 @@ repositories, reached through the proxy under /devflow and opened from the
 nav bar. See devflow/README.md."""
 
 import re
+from pathlib import Path
 
 from playwright.sync_api import Browser, Page, expect
 
@@ -10,6 +11,7 @@ from conftest import account_in_access_cookie, capture, register_and_log_in
 from devflow_worlds import (
     INSTALLATION,
     REPOSITORY,
+    add_conversation,
     add_pull_request,
     check_run,
     comment,
@@ -364,3 +366,298 @@ def test_what_waits_is_read_from_the_code_host(
     assert item["sent_back"] is False
     (state,) = listed["projects"]
     assert (state["id"], state["stale"], state["failing"]) == (project, False, False)
+
+
+AXE = Path(__file__).parents[2] / "design/ui/node_modules/axe-core/axe.min.js"
+OWNER_LOGIN = "octo-owner"
+SLICE = 272
+LATER = "2026-11-15T10:00:00+00:00"
+
+
+def _connect_and_read(page: Page, base_url: str) -> str:
+    """Links GitHub, connects the staged repository and reads it now, as the
+    loop would within a minute. Answers the project's id."""
+    page.goto("/devflow/projects")
+    _link_github(page, base_url)
+    connected = page.request.post(
+        "/devflow/api/projects",
+        data={"installation_id": INSTALLATION, "repository_id": REPOSITORY},
+        headers={"Origin": base_url},
+    )
+    assert connected.status == 201, connected.text()
+    project = connected.json()["id"]
+    _read(page, base_url, project)
+    return project
+
+
+def _read(page: Page, base_url: str, project: str) -> None:
+    refreshed = page.request.post(
+        f"/devflow/api/projects/{project}/refresh", headers={"Origin": base_url}
+    )
+    assert refreshed.status == 204, refreshed.text()
+
+
+def _approved(world: dict, number: int, title: str, labels: list[str], **extra):
+    """A pull request the reviewer approved for its head, with both checks
+    green, closing the slice."""
+    head = f"{number:040x}"
+    points = extra.pop("for_the_owner", None)
+    add_pull_request(
+        world,
+        number,
+        title=title,
+        labels=labels,
+        head_commit=head,
+        body=extra.pop(
+            "body", f"## Summary\n\nAdds {title.lower()}.\n\nCloses #{SLICE}\n"
+        ),
+        comments=[
+            reviewer_comment(9000 + number, "approve", head, for_the_owner=points)
+        ]
+        + extra.pop("comments", []),
+        statuses=[status("review-ok", "success")],
+        check_runs=[check_run("ci-ok")],
+    )
+
+
+DECISION_BODY = (
+    "## Summary\n\nSeals every token in the `vault`.\n\nCloses #272\n\n"
+    "## Decisions the agent made\n\n"
+    "- **owner-decision** The vault seals with AES-GCM. Alternative: libsodium. "
+    "Why: no new dependency.\n"
+    "- Kept the key in memory. Alternative: a file. Why: simpler.\n"
+)
+
+
+def _decision(world: dict) -> None:
+    _approved(
+        world,
+        304,
+        "The vault",
+        ["owner-decision"],
+        body=DECISION_BODY,
+        for_the_owner=["Agrees, the brain does the same."],
+    )
+
+
+def _ready_to_merge(world: dict) -> None:
+    _approved(world, 305, "The poll", ["owner-merge"])
+    add_conversation(
+        world,
+        SLICE,
+        [
+            comment(
+                7001,
+                "mac-mini-agent",
+                "@Adamniels PR #305 is ready for you to read and merge: "
+                "https://github.com/Adamniels/Personal-platform/pull/305 "
+                "(risk is not low).",
+            )
+        ],
+    )
+
+
+def _stopped(world: dict) -> None:
+    add_pull_request(
+        world,
+        306,
+        title="Import a photo",
+        labels=["owner-blocked"],
+        comments=[
+            comment(
+                7002,
+                "mac-mini-agent",
+                "@Adamniels slice #272 is Blocked: The tests still fail after "
+                "three rounds. Nothing more.",
+            )
+        ],
+    )
+
+
+def _sent_back(world: dict) -> None:
+    # The owner commented after the reviewer approved, so the runner has it.
+    _approved(
+        world,
+        307,
+        "The board",
+        ["owner-merge"],
+        comments=[comment(7003, OWNER_LOGIN, "Please rename it.", LATER)],
+    )
+
+
+def _axe_violations(page: Page) -> list[dict]:
+    if not page.evaluate("typeof axe !== 'undefined'"):
+        page.add_script_tag(path=str(AXE))
+    return page.evaluate(
+        """() => axe.run().then(result => result.violations.map(v => ({
+            id: v.id,
+            targets: v.nodes.map(node => node.target.join(" ")),
+        })))"""
+    )
+
+
+def test_the_waiting_list_shows_a_decision(
+    page: Page, invite_code: str, base_url: str, devflow_world
+):
+    register_and_log_in(page, invite_code, base_url)
+    world = one_repository()
+    _decision(world)
+    devflow_world(world)
+    _connect_and_read(page, base_url)
+
+    page.goto("/devflow")
+
+    group = page.get_by_role("region", name="Pull requests waiting")
+    vault = group.get_by_role("article", name="The vault")
+    expect(vault).to_be_visible()
+    expect(vault.get_by_text("Adamniels/Personal-platform")).to_be_visible()
+    expect(vault.get_by_text("#304")).to_be_visible()
+    expect(vault.get_by_text("Waiting for you")).to_be_visible()
+    # The summary's backticks are code, and the rest is text.
+    expect(vault.locator("code", has_text="vault")).to_be_visible()
+    decided = vault.get_by_role("list", name="The agent decided")
+    expect(decided.get_by_role("listitem")).to_have_text(
+        ["The vault seals with AES-GCM.Instead of libsodium.Because no new dependency."]
+    )
+    expect(vault.get_by_text("and 1 more it did not need you for")).to_be_visible()
+    expect(
+        vault.get_by_role("list", name="The reviewer").get_by_role("listitem")
+    ).to_have_text(["Agrees, the brain does the same."])
+    opened = vault.get_by_role("link", name="Open on GitHub")
+    expect(opened).to_have_attribute(
+        "href", "https://github.com/Adamniels/Personal-platform/pull/304"
+    )
+    expect(opened).to_have_attribute("rel", "noreferrer")
+    expect(page.get_by_role("tab", name="Waiting for you 1")).to_be_visible()
+
+
+def test_the_waiting_list_shows_why_a_pull_request_waits(
+    page: Page, invite_code: str, base_url: str, devflow_world
+):
+    register_and_log_in(page, invite_code, base_url)
+    world = one_repository()
+    _ready_to_merge(world)
+    devflow_world(world)
+    _connect_and_read(page, base_url)
+
+    page.goto("/devflow")
+
+    poll = page.get_by_role("region", name="Pull requests waiting").get_by_role(
+        "article", name="The poll"
+    )
+    expect(poll.get_by_text("Why it waits")).to_be_visible()
+    expect(poll.get_by_text("High risk slice.")).to_be_visible()
+    expect(poll.get_by_role("list", name="The agent decided")).to_have_count(0)
+
+
+def test_the_waiting_list_shows_a_stopped_pull_request(
+    page: Page, invite_code: str, base_url: str, devflow_world
+):
+    register_and_log_in(page, invite_code, base_url)
+    world = one_repository()
+    _stopped(world)
+    devflow_world(world)
+    _connect_and_read(page, base_url)
+
+    page.goto("/devflow")
+
+    stopped = page.get_by_role("region", name="Stopped").get_by_role(
+        "article", name="Import a photo"
+    )
+    expect(stopped.get_by_text("Stopped", exact=True)).to_be_visible()
+    expect(stopped.get_by_text("Why it stopped")).to_be_visible()
+    expect(
+        stopped.get_by_text(
+            "The slice is Blocked. The tests still fail after three rounds."
+        )
+    ).to_be_visible()
+    expect(page.get_by_role("region", name="Pull requests waiting")).to_have_count(0)
+
+
+def test_a_pull_request_that_is_not_my_turn_is_not_listed(
+    page: Page, invite_code: str, base_url: str, devflow_world
+):
+    register_and_log_in(page, invite_code, base_url)
+    world = one_repository()
+    _ready_to_merge(world)
+    add_pull_request(world, 308, title="Still in review", labels=["in-review"])
+    devflow_world(world)
+    _connect_and_read(page, base_url)
+
+    page.goto("/devflow")
+
+    expect(page.get_by_role("article", name="The poll")).to_be_visible()
+    expect(page.get_by_text("Still in review")).to_have_count(0)
+    expect(page.get_by_role("tab", name="Waiting for you 1")).to_be_visible()
+
+
+def test_the_waiting_list_passes_the_accessibility_check(
+    page: Page, invite_code: str, base_url: str, devflow_world, viewport: str
+):
+    register_and_log_in(page, invite_code, base_url)
+    world = one_repository()
+    _decision(world)
+    _ready_to_merge(world)
+    _stopped(world)
+    _sent_back(world)
+    devflow_world(world)
+    _connect_and_read(page, base_url)
+
+    page.goto("/devflow")
+
+    expect(page.get_by_role("article")).to_have_count(4)
+    sent_back = page.get_by_role("region", name="Sent back, the runner has it")
+    expect(sent_back.get_by_role("article", name="The board")).to_be_visible()
+    expect(page.get_by_text("Updated less than a minute ago")).to_be_visible()
+    # Three wait for the owner; the one sent back is the runner's.
+    expect(page.get_by_role("tab", name="Waiting for you 3")).to_be_visible()
+    assert _axe_violations(page) == []
+    capture(page, "devflow-waiting-list")
+
+
+def test_the_waiting_list_when_nothing_waits(
+    page: Page, invite_code: str, base_url: str, devflow_world, viewport: str
+):
+    register_and_log_in(page, invite_code, base_url)
+    devflow_world(one_repository())
+    _connect_and_read(page, base_url)
+
+    page.goto("/devflow")
+
+    panel = page.get_by_role("tabpanel")
+    expect(panel.get_by_text("Nothing waits for you")).to_be_visible()
+    expect(
+        panel.get_by_text("Your agents have nothing for you to decide.")
+    ).to_be_visible()
+    expect(panel.get_by_role("button", name="Refresh")).to_be_visible()
+    capture(page, "devflow-waiting-empty")
+
+
+def test_the_waiting_list_says_when_github_could_not_be_read(
+    page: Page, invite_code: str, base_url: str, devflow_world, viewport: str
+):
+    register_and_log_in(page, invite_code, base_url)
+    world = one_repository()
+    _ready_to_merge(world)
+    devflow_world(world)
+    page.goto("/devflow/projects")
+    _link_github(page, base_url)
+    connected = page.request.post(
+        "/devflow/api/projects",
+        data={"installation_id": INSTALLATION, "repository_id": REPOSITORY},
+        headers={"Origin": base_url},
+    )
+    assert connected.status == 201, connected.text()
+    # GitHub stops showing the repository before the project is ever read.
+    devflow_world({"installations": []})
+    _read(page, base_url, connected.json()["id"])
+
+    page.goto("/devflow")
+
+    expect(
+        page.get_by_text(
+            "Adamniels/Personal-platform: GitHub could not be read, "
+            "showing what was last seen"
+        )
+    ).to_be_visible()
+    capture(page, "devflow-waiting-stale")

@@ -196,7 +196,7 @@ function Age({
 	return (
 		<div className={styles.age}>
 			{lines.length > 0 ? (
-				<div className={styles.attention}>
+				<div className={`${styles.attention} ${styles.lines}`}>
 					{lines.map((line) => (
 						<p key={line} className={styles.line}>
 							{line}

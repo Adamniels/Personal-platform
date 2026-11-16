@@ -210,6 +210,13 @@
 	overflow-wrap: anywhere;
 }
 
+/* A line per project, a step apart, so two read as two. */
+.lines {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-1);
+}
+
 .line {
 	margin: 0;
 }
