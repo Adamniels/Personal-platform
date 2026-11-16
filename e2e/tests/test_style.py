@@ -14,6 +14,11 @@ import pytest
 from playwright.sync_api import Locator, Page, expect
 
 from conftest import VIEWPORTS, capture, log_in, register, register_and_log_in
+from look import (
+    assert_active_is_inverted,
+    assert_headings_are_capitals,
+    assert_nothing_scrolls_sideways,
+)
 
 THEMES = ["light", "dark"]
 AXE = Path(__file__).parents[2] / "design/ui/node_modules/axe-core/axe.min.js"
@@ -323,6 +328,107 @@ def test_canary_page_uses_the_platform_values(
 
     account = style(page.get_by_role("main").locator("code"))
     assert first_family(account["fontFamily"]) == "JetBrains Mono"
+
+
+def add_due_review_card(page: Page) -> None:
+    """Adds a deck and a card to review through its API, from the page, so
+    the front page's Review card has a card due now."""
+    status = page.evaluate(
+        """async () => {
+            const call = (path, body) => fetch(`/review/api${path}`, {
+                method: "POST",
+                credentials: "same-origin",
+                headers: {"content-type": "application/json"},
+                body: JSON.stringify(body),
+            });
+            const deck = await (await call("/decks", {name: "Compilers"})).json();
+            const card = await call("/cards", {
+                deck_id: deck.id,
+                front: "What does an LR parser build?",
+                back: "A rightmost derivation in reverse",
+                topics: [{slug: "parsing", name: "Parsing"}],
+            });
+            return card.status;
+        }"""
+    )
+    assert status in (200, 201), status
+
+
+def assert_the_look(page: Page, name: str) -> None:
+    """The three look checks of look.py, each naming the page it failed on."""
+    for check in (
+        assert_headings_are_capitals,
+        assert_nothing_scrolls_sideways,
+        assert_active_is_inverted,
+    ):
+        try:
+            check(page)
+        except AssertionError as error:
+            raise AssertionError(f"{name}: {error}") from None
+
+
+def test_the_look_checks_name_what_breaks_them(page: Page):
+    """Each look check fails on an element that breaks its rule, naming it,
+    so a page that passes them passes for a reason."""
+    open_page(page, "/login")
+    for check in (
+        assert_headings_are_capitals,
+        assert_nothing_scrolls_sideways,
+        assert_active_is_inverted,
+    ):
+        check(page)
+
+    page.locator("main").evaluate(
+        """main => main.insertAdjacentHTML("beforeend",
+            '<h2 id="lower" style="text-transform: none">Lower</h2>'
+            + '<div id="wide" style="overflow-x: auto; width: 100px">'
+            + '<div style="width: 300px">Wide</div></div>'
+            + '<a id="amber" href="/" aria-current="page"'
+            + ' style="border: 1px solid var(--accent-border)">Amber</a>')"""
+    )
+    for check, offender in (
+        (assert_headings_are_capitals, "h2#lower"),
+        (assert_nothing_scrolls_sideways, "div#wide"),
+        (assert_active_is_inverted, "a#amber"),
+    ):
+        with pytest.raises(AssertionError, match=offender):
+            check(page)
+
+    # The document itself scrolling sideways.
+    page.locator("main").evaluate(
+        """main => main.insertAdjacentHTML("beforeend",
+            '<div style="width: 3000px">Too wide</div>')"""
+    )
+    with pytest.raises(AssertionError, match="the document"):
+        assert_nothing_scrolls_sideways(page)
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_the_core_pages_follow_the_look(
+    page: Page, invite_code: str, base_url: str, viewport: str, theme: str
+):
+    for name, path in OPEN_PAGES.items():
+        open_page(page, path)
+        use_theme(page, theme)
+        assert_the_look(page, name)
+
+    # A refused form, with its message and the field marked.
+    open_page(page, "/login")
+    log_in(page, f"e2e-{uuid.uuid4()}@example.com", uuid.uuid4().hex[:20])
+    expect(page.get_by_role("alert")).to_be_visible()
+    assert_the_look(page, "login refused")
+
+    register_and_log_in(page, invite_code, base_url)
+    for name, path in SIGNED_IN_PAGES.items():
+        open_page(page, path)
+        expect(page.get_by_role("navigation").first).to_be_visible()
+        assert_the_look(page, name)
+
+    # The front page with a card that needs the person.
+    add_due_review_card(page)
+    open_page(page, "/")
+    expect(page.locator(".card.needs-you")).to_have_count(1)
+    assert_the_look(page, "front page, review due")
 
 
 @pytest.mark.parametrize("theme", THEMES)
