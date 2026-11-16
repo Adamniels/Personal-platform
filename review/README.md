@@ -274,7 +274,9 @@ build it with the rest, see `design/ui/README.md`. It is the memory centre's sta
 and its content sits in `<main class="page">`.
 
 The page is an `h1`, "Review", a line under it, then the package's `Tabs`, one per section, each
-with its own address:
+with its own address. The page names its section in the top bar's crumb, "Review / Cards", setting
+the `crumb` attribute of its `<platform-nav>` from `src/app.tsx`, a study session's being "Review /
+Study":
 
 | Section | Address         |
 | ------- | --------------- |

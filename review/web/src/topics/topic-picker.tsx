@@ -1,6 +1,7 @@
 // The topic picker: a card's one to five topics, picked from the owner's topics in the brain or
 // created there by name. It is the ARIA combobox pattern, a text field that controls a listbox
-// (https://www.w3.org/WAI/ARIA/apg/patterns/combobox/), built from the package's TextField and Chip.
+// (https://www.w3.org/WAI/ARIA/apg/patterns/combobox/), built from the package's TextField and Chip,
+// each picked topic drawn as the filter pill of "Table" in section 4 of design/DESIGN.md.
 // It stays in review's frontend until a second feature needs it, as "Only a component more than
 // one feature needs goes in" in design/ui/README.md says.
 import { Button, Chip, TextField } from "@platform/ui";
@@ -196,7 +197,7 @@ export function TopicPicker({
 				<ul className={styles.picked} aria-label="Picked topics">
 					{value.map((topic) => (
 						<li key={topic.slug} className={styles.pick}>
-							<Chip>{topic.name}</Chip>
+							<Chip className={styles.name}>{topic.name}</Chip>
 							<Button
 								kind="ghost"
 								className={styles.remove}

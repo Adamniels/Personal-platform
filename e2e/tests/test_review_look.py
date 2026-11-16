@@ -1,0 +1,473 @@
+"""Review's pages in the platform's look: the crumb in the top bar, the page
+header, the links drawn as buttons, the inset rows of the due lists and the
+deck list, the topic picker, the card table's edit row, the grade bar on
+phone, and the three look checks of look.py. See "The page" in
+review/README.md.
+
+Colours and sizes are compared with the token as the page resolves it, as
+test_memory_look.py does, so no value is written here but those DESIGN.md
+gives in pixels: a row's and a button's padding, the pill's height and its
+remove button's."""
+
+import re
+from itertools import pairwise
+
+import pytest
+from playwright.sync_api import Locator, Page, expect
+
+from conftest import VIEWPORTS, open_section, register_and_log_in, sections
+from look import (
+    assert_active_is_inverted,
+    assert_headings_are_capitals,
+    assert_nothing_scrolls_sideways,
+)
+
+THEMES = ["light", "dark"]
+LABEL = "Review sections"
+STORAGE_KEY = "platform-theme"
+TRANSPARENT = "rgba(0, 0, 0, 0)"
+
+PARSING = {"slug": "parsing", "name": "Parsing"}
+MVCC = {"slug": "mvcc", "name": "MVCC"}
+
+RESOLVE = """([token, property]) => {
+    const probe = document.createElement("div");
+    probe.style.setProperty(property, `var(${token})`);
+    document.body.append(probe);
+    const value = getComputedStyle(probe).getPropertyValue(property);
+    probe.remove();
+    return value;
+}"""
+
+STYLE = """element => {
+    const style = getComputedStyle(element);
+    return {
+        display: style.display,
+        flexWrap: style.flexWrap,
+        flex: [style.flexGrow, style.flexShrink, style.flexBasis],
+        position: style.position,
+        minWidth: style.minWidth,
+        minHeight: style.minHeight,
+        height: style.height,
+        width: style.width,
+        background: style.backgroundColor,
+        color: style.color,
+        fontSize: style.fontSize,
+        fontWeight: style.fontWeight,
+        lineHeight: style.lineHeight,
+        rowGap: style.rowGap,
+        columnGap: style.columnGap,
+        borderColors: [style.borderTopColor, style.borderRightColor,
+                       style.borderBottomColor, style.borderLeftColor],
+        borderWidths: [style.borderTopWidth, style.borderRightWidth,
+                       style.borderBottomWidth, style.borderLeftWidth],
+        borderStyles: [style.borderTopStyle, style.borderRightStyle,
+                       style.borderBottomStyle, style.borderLeftStyle],
+        radii: [style.borderTopLeftRadius, style.borderTopRightRadius,
+                style.borderBottomRightRadius, style.borderBottomLeftRadius],
+        padding: [style.paddingTop, style.paddingRight,
+                  style.paddingBottom, style.paddingLeft],
+    };
+}"""
+
+# The element around a table that scrolls it sideways: its frame.
+FRAME = """table => {
+    for (let element = table.parentElement; element; element = element.parentElement) {
+        const overflow = getComputedStyle(element).overflowX;
+        if (overflow === "auto" || overflow === "scroll") {
+            return [element.scrollWidth, element.clientWidth];
+        }
+    }
+    return null;
+}"""
+
+
+def resolve(page: Page, token: str, prop: str) -> str:
+    return page.evaluate(RESOLVE, [token, prop])
+
+
+def px(page: Page, token: str) -> float:
+    """A size token in pixels, as the page resolves it."""
+    return float(resolve(page, token, "width").removesuffix("px"))
+
+
+def style(locator: Locator) -> dict:
+    return locator.evaluate(STYLE)
+
+
+def call(page: Page, method: str, path: str, body: dict) -> dict:
+    """Calls review from the page, as the page does, so the session's cookie
+    and the platform's origin go with it."""
+    status, answer = page.evaluate(
+        """async ([method, path, body]) => {
+            const response = await fetch(`/review/api${path}`, {
+                method,
+                credentials: "same-origin",
+                headers: {"content-type": "application/json"},
+                body: JSON.stringify(body),
+            });
+            return [response.status, await response.json()];
+        }""",
+        [method, path, body],
+    )
+    assert status in (200, 201), answer
+    return answer
+
+
+def add_deck(page: Page, name: str) -> str:
+    return call(page, "POST", "/decks", {"name": name})["id"]
+
+
+def add_card(page: Page, deck: str, front: str, back: str, topic: dict) -> str:
+    card = {"deck_id": deck, "front": front, "back": back, "topics": [topic]}
+    return call(page, "POST", "/cards", card)["id"]
+
+
+def stage(page: Page) -> dict[str, str]:
+    """Two decks and three cards, all due now, under two topics, as the
+    study test stages them. Returns the decks' ids by name."""
+    compilers = add_deck(page, "Compilers")
+    databases = add_deck(page, "Databases")
+    add_card(
+        page,
+        compilers,
+        "What does an LL(1) parser look ahead at?",
+        "One token",
+        PARSING,
+    )
+    add_card(
+        page,
+        compilers,
+        "What does an LR parser build bottom up?",
+        "A rightmost derivation, in reverse",
+        PARSING,
+    )
+    add_card(page, databases, "What does MVCC keep per row?", "Versions", MVCC)
+    return {"Compilers": compilers, "Databases": databases}
+
+
+def open_review(page: Page, invite_code: str, base_url: str) -> None:
+    register_and_log_in(page, invite_code, base_url)
+    page.goto("/review")
+    expect(sections(page, LABEL)).to_be_visible()
+
+
+def rows(scope: Locator) -> Locator:
+    """A list's own rows."""
+    return scope.locator(":scope > li")
+
+
+def assert_inset_rows(page: Page, entries: Locator, count: int, where: str) -> None:
+    """Each row an inset row of "Inset list row" in section 4 of DESIGN.md,
+    --inset-gap apart with no line between them."""
+    expect(entries).to_have_count(count)
+    fill = resolve(page, "--surface-2", "background-color")
+    radius = resolve(page, "--radius-md", "border-top-left-radius")
+    row_h = resolve(page, "--row-h", "min-height")
+    for row in entries.all():
+        look = style(row)
+        assert look["background"] == fill, where
+        assert look["radii"] == [radius] * 4, where
+        assert look["padding"] == ["8px", "12px", "8px", "12px"], where
+        assert look["minHeight"] == row_h, where
+        assert look["borderWidths"] == ["0px"] * 4, where
+    gap = px(page, "--inset-gap")
+    boxes = [row.bounding_box() for row in entries.all()]
+    for above, below in pairwise(boxes):
+        between = below["y"] - (above["y"] + above["height"])
+        assert abs(between - gap) < 0.5, f"{where}: {between}px between rows"
+
+
+def open_card_form(page: Page) -> Locator:
+    page.goto("/review/cards")
+    page.get_by_role("button", name="Add card").click()
+    return page.get_by_role("form", name="New card")
+
+
+def test_the_top_bar_names_the_section(page: Page, invite_code: str, base_url: str):
+    open_review(page, invite_code, base_url)
+    crumb = page.locator("platform-nav .crumb")
+    expect(crumb).to_have_text("Review / Study")
+
+    # Opening a section moves the crumb with it, without a reload: the mark
+    # set on the window survives.
+    page.evaluate("window.notReloaded = true")
+    open_section(page, LABEL, "Cards")
+    expect(page).to_have_url(f"{base_url}/review/cards")
+    expect(crumb).to_have_text("Review / Cards")
+    open_section(page, LABEL, "Decks")
+    expect(crumb).to_have_text("Review / Decks")
+    assert page.evaluate("window.notReloaded === true")
+
+    # A study session is Study's.
+    page.goto("/review/study")
+    expect(page.get_by_text("Nothing due")).to_be_visible()
+    expect(crumb).to_have_text("Review / Study")
+
+
+def test_the_page_header_follows_the_layout(
+    page: Page, invite_code: str, base_url: str, viewport: str
+):
+    open_review(page, invite_code, base_url)
+    lede = page.get_by_text(
+        "Cards that come back to you, so what you mark as worth remembering sticks."
+    )
+    look = style(lede)
+    assert look["fontSize"] == resolve(page, "--text-body-lg-size", "font-size")
+    assert look["lineHeight"] == resolve(page, "--text-body-lg-line", "line-height")
+    assert look["color"] == resolve(page, "--text-2", "color")
+
+    header = page.locator("main > header")
+    header_box = header.bounding_box()
+    tabs_box = sections(page, LABEL).bounding_box()
+    gap = tabs_box["y"] - (header_box["y"] + header_box["height"])
+    assert abs(gap - px(page, "--space-4")) < 0.5, gap
+
+
+def test_a_link_drawn_as_a_button_is_a_pill(
+    page: Page, invite_code: str, base_url: str, viewport: str
+):
+    open_review(page, invite_code, base_url)
+    stage(page)
+    page.goto("/review")
+    everything = page.get_by_role("link", name="Start everything")
+    start = (
+        rows(page.get_by_role("list", name="By deck"))
+        .filter(has_text="Compilers")
+        .get_by_role("link", name="Start")
+    )
+    expect(everything).to_be_visible()
+    expect(start).to_be_visible()
+
+    control_h = px(page, "--control-h")
+    radius = resolve(page, "--radius-full", "border-top-left-radius")
+    for link, where in [(everything, "Start everything"), (start, "Start")]:
+        look = style(link)
+        assert abs(link.bounding_box()["height"] - control_h) < 0.5, where
+        assert look["radii"] == [radius] * 4, where
+        assert look["padding"][1] == look["padding"][3] == "18px", where
+
+    secondary = style(start)
+    assert secondary["background"] == TRANSPARENT
+    assert secondary["borderWidths"] == ["1px"] * 4
+    assert secondary["borderStyles"] == ["solid"] * 4
+    assert secondary["borderColors"] == [resolve(page, "--border-strong", "color")] * 4
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_due_lists_are_inset_rows(
+    page: Page, invite_code: str, base_url: str, viewport: str, theme: str
+):
+    open_review(page, invite_code, base_url)
+    page.evaluate(f"localStorage.setItem('{STORAGE_KEY}', '{theme}')")
+    stage(page)
+    page.goto("/review")
+    expect(page.locator("html")).to_have_attribute("data-theme", theme)
+    for name in ["By deck", "By topic"]:
+        assert_inset_rows(page, rows(page.get_by_role("list", name=name)), 2, name)
+
+
+def test_the_start_page_cards_are_a_wrapping_row(
+    page: Page, invite_code: str, base_url: str, viewport: str
+):
+    open_review(page, invite_code, base_url)
+    stage(page)
+    page.goto("/review")
+    cards = page.get_by_role("tabpanel", name="Study").get_by_role("article")
+    expect(cards).to_have_count(2)
+    row = cards.first.locator("xpath=..")
+
+    look = style(row)
+    assert look["display"] == "flex"
+    assert look["flexWrap"] == "wrap"
+    assert look["rowGap"] == look["columnGap"] == resolve(page, "--space-4", "row-gap")
+    for card in cards.all():
+        card_look = style(card)
+        assert card_look["flex"] == ["1", "1", "340px"]
+        assert card_look["minWidth"] == "0px"
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_the_deck_list_is_a_card_of_inset_rows(
+    page: Page, invite_code: str, base_url: str, viewport: str, theme: str
+):
+    open_review(page, invite_code, base_url)
+    page.evaluate(f"localStorage.setItem('{STORAGE_KEY}', '{theme}')")
+    stage(page)
+    page.goto("/review/decks")
+    expect(page.locator("html")).to_have_attribute("data-theme", theme)
+    decks = page.get_by_role("list", name="Decks")
+    expect(rows(decks)).to_have_count(2)
+
+    look = style(decks)
+    assert look["background"] == resolve(page, "--surface", "background-color")
+    assert look["borderWidths"] == ["1px"] * 4
+    assert look["borderStyles"] == ["solid"] * 4
+    assert look["borderColors"] == [resolve(page, "--border", "color")] * 4
+    radius = resolve(page, "--radius-lg", "border-top-left-radius")
+    assert look["radii"] == [radius] * 4
+    card_pad = resolve(page, "--card-pad", "padding-top")
+    assert look["padding"] == [card_pad] * 4
+
+    assert_inset_rows(page, rows(decks), 2, "Decks")
+
+
+def test_a_picked_topic_is_a_filled_pill(
+    page: Page, invite_code: str, base_url: str, viewport: str
+):
+    open_review(page, invite_code, base_url)
+    add_deck(page, "Compilers")
+    form = open_card_form(page)
+    topics = form.get_by_role("combobox", name="Topics")
+    topics.fill("Scheduling")
+    expect(form.get_by_role("option", name="Create topic Scheduling")).to_be_visible()
+    topics.press("Enter")
+
+    remove = form.get_by_role("button", name="Remove Scheduling")
+    expect(remove).to_be_visible()
+    pick = rows(form.get_by_role("list", name="Picked topics"))
+    expect(pick).to_have_count(1)
+
+    full = resolve(page, "--radius-full", "border-top-left-radius")
+    look = style(pick)
+    assert abs(pick.bounding_box()["height"] - 32) < 0.5
+    assert look["radii"] == [full] * 4
+    assert look["background"] == resolve(page, "--surface-3", "background-color")
+    assert look["borderWidths"] == ["0px"] * 4
+    assert look["color"] == resolve(page, "--text", "color")
+    assert look["fontSize"] == "13px"
+    assert look["padding"][1] == "4px" and look["padding"][3] == "14px"
+
+    # The remove button, a 26px circle inside the pill, with the name it has.
+    box = remove.bounding_box()
+    pill = pick.bounding_box()
+    assert abs(box["width"] - 26) < 0.5 and abs(box["height"] - 26) < 0.5
+    assert style(remove)["radii"] == [full] * 4
+    assert (
+        pill["x"] <= box["x"] and box["x"] + box["width"] <= pill["x"] + pill["width"]
+    )
+    assert (
+        pill["y"] <= box["y"] and box["y"] + box["height"] <= pill["y"] + pill["height"]
+    )
+
+    remove.click()
+    expect(pick).to_have_count(0)
+
+
+def test_the_topic_list_follows_the_field(
+    page: Page, invite_code: str, base_url: str, viewport: str
+):
+    open_review(page, invite_code, base_url)
+    add_deck(page, "Compilers")
+    form = open_card_form(page)
+    form.get_by_role("combobox", name="Topics").fill("Scheduling")
+    listbox = form.get_by_role("listbox", name="Topics")
+    option = listbox.get_by_role("option", name="Create topic Scheduling")
+    expect(option).to_be_visible()
+
+    look = style(listbox)
+    assert look["background"] == resolve(page, "--surface", "background-color")
+    assert look["borderWidths"] == ["1px"] * 4
+    assert look["borderStyles"] == ["solid"] * 4
+    assert look["borderColors"] == [resolve(page, "--border-strong", "color")] * 4
+    radius = resolve(page, "--radius-md", "border-top-left-radius")
+    assert look["radii"] == [radius] * 4
+
+    option_look = style(option)
+    assert option_look["padding"][1] == option_look["padding"][3] == "16px"
+    assert abs(option.bounding_box()["height"] - px(page, "--row-h")) < 0.5
+
+
+def test_editing_a_card_does_not_make_the_table_scroll(
+    page: Page, invite_code: str, base_url: str, viewport: str
+):
+    open_review(page, invite_code, base_url)
+    stage(page)
+    page.goto("/review/cards")
+    table = page.get_by_role("table", name="Cards")
+    table.get_by_role("row").filter(
+        has_text="What does MVCC keep per row?"
+    ).get_by_role("button", name="Edit").click()
+    edit = page.get_by_role("form", name="Edit card")
+    expect(edit.get_by_role("button", name="Remove MVCC")).to_be_visible()
+
+    frame = table.evaluate(FRAME)
+    assert frame is not None, "the table has no frame that scrolls"
+    scroll_width, client_width = frame
+    assert scroll_width <= client_width, f"{scroll_width}px in {client_width}px"
+
+
+def test_the_grade_bar_sits_above_the_tab_bar(
+    page: Page, invite_code: str, base_url: str
+):
+    page.set_viewport_size(VIEWPORTS["phone"])
+    open_review(page, invite_code, base_url)
+    decks = stage(page)
+    page.goto(f"/review/study?deck={decks['Compilers']}")
+    card = page.get_by_role("article", name="Compilers")
+    page.get_by_role("button", name="Show answer").click()
+    expect(card.get_by_text("One token")).to_be_visible()
+
+    again = page.get_by_role("button", name=re.compile(r"^Again · "))
+    bar = again.locator("xpath=..")
+    assert style(bar)["position"] == "fixed"
+    tab_bar = page.locator("platform-nav .links").bounding_box()
+    height = VIEWPORTS["phone"]["height"]
+
+    # Fixed above the tab bar, wherever the page is scrolled, and the card
+    # ends above it even scrolled to the end.
+    for scroll in [
+        "window.scrollTo(0, 0)",
+        "window.scrollTo(0, document.body.scrollHeight)",
+    ]:
+        page.evaluate(scroll)
+        box = bar.bounding_box()
+        bottom = box["y"] + box["height"]
+        assert abs(bottom - tab_bar["y"]) < 0.5, (bottom, tab_bar["y"])
+        assert abs(height - bottom - px(page, "--tab-bar-h")) < 0.5, bottom
+    card_box = card.bounding_box()
+    assert card_box["y"] + card_box["height"] <= bar.bounding_box()["y"] + 0.5
+
+
+def assert_the_look(page: Page, where: str) -> None:
+    # The bar has drawn with the account.
+    expect(page.get_by_role("button", name=re.compile("@"))).to_be_visible()
+    page.evaluate("document.fonts.ready.then(() => null)")
+    for check in (
+        assert_headings_are_capitals,
+        assert_nothing_scrolls_sideways,
+        assert_active_is_inverted,
+    ):
+        try:
+            check(page)
+        except AssertionError as error:
+            raise AssertionError(f"{where}: {error}") from None
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_review_follows_the_look(
+    page: Page, invite_code: str, base_url: str, viewport: str, theme: str
+):
+    open_review(page, invite_code, base_url)
+    page.evaluate(f"localStorage.setItem('{STORAGE_KEY}', '{theme}')")
+    stage(page)
+
+    page.goto("/review")
+    expect(page.locator("html")).to_have_attribute("data-theme", theme)
+    expect(page.get_by_role("heading", name="3 cards due", level=2)).to_be_visible()
+    assert_the_look(page, "/review")
+
+    page.get_by_role("link", name="Start everything").click()
+    expect(page.get_by_text("1 of 3", exact=True)).to_be_visible()
+    assert_the_look(page, "a session's front")
+    page.get_by_role("button", name="Show answer").click()
+    expect(page.get_by_role("button", name=re.compile(r"^Good · "))).to_be_visible()
+    assert_the_look(page, "a session's answer")
+
+    page.goto("/review/cards")
+    expect(page.get_by_role("table", name="Cards").get_by_role("row")).to_have_count(4)
+    assert_the_look(page, "/review/cards")
+
+    page.goto("/review/decks")
+    expect(rows(page.get_by_role("list", name="Decks"))).to_have_count(2)
+    assert_the_look(page, "/review/decks")

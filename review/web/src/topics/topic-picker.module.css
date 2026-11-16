@@ -1,7 +1,9 @@
 /* The topic picker: the package's text field, its listbox under it in the
  * flow of the form, so it never covers the topics already picked, and the
- * picked topics as tool chips under that, each with its remove button.
- * Every colour and size is a token. */
+ * picked topics under that, each a filled pill with its remove button inside
+ * it, as the filter pill of "Table" in section 4 of design/DESIGN.md. Every
+ * colour is a token; the 32px pill and the 26px remove button are the ones
+ * that entry gives. */
 
 .picker {
 	display: flex;
@@ -26,11 +28,14 @@
 	background: var(--surface);
 }
 
+/* 16px at the sides, the field's own, so an option's text lines up with
+ * what is typed. */
 .option {
+	box-sizing: border-box;
 	display: flex;
 	align-items: center;
 	min-height: var(--row-h);
-	padding: 0 10px;
+	padding: 0 16px;
 	color: var(--text);
 	cursor: pointer;
 	overflow-wrap: anywhere;
@@ -54,25 +59,67 @@
 	font-weight: 500;
 }
 
+/* --space-2 apart both ways, so a remove button's 44px target on phone
+ * reaches into the gap and never onto the next pill. */
 .picked {
 	display: flex;
 	flex-wrap: wrap;
-	gap: var(--space-1) var(--space-2);
+	gap: var(--space-2);
 	margin: 0;
 	padding: 0;
 	list-style: none;
 }
 
+/* The pill: 32px high, fully round, filled with the third surface and no
+ * border, 13px in text, 14px on the left and 4px on the right, where the
+ * remove button sits inside it. */
 .pick {
+	box-sizing: border-box;
 	display: inline-flex;
 	align-items: center;
+	gap: var(--space-1);
+	height: 32px;
 	min-width: 0;
+	padding: 0 var(--space-1) 0 14px;
+	background: var(--surface-3);
+	color: var(--text);
+	border-radius: var(--radius-full);
+	font-size: var(--text-small-size);
+	line-height: var(--text-small-line);
 }
 
-/* The remove button sits tight against its chip, a square the control's
- * height, so the target stays 44px on phone. */
-.remove {
-	width: var(--control-h);
+/* The topic's name, the chip it has always been, drawn as the pill's text:
+ * the pill is the outline. Two classes, to outrank the chip's own rule. */
+.pick .name {
+	height: auto;
+	min-width: 0;
 	padding: 0;
-	justify-content: center;
+	border: 0;
+	background: transparent;
+	color: inherit;
+	font-size: inherit;
+	line-height: inherit;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+/* The remove button: a 26px round ghost button, filled with surface-2 under
+ * the pointer as a ghost button is. Its target reaches 44px around it (hard
+ * rule 10), into the gap beside and between the pills. Two classes, to
+ * outrank the button's own height and padding. */
+.pick .remove {
+	position: relative;
+	flex: none;
+	width: 26px;
+	height: 26px;
+	padding: 0;
+	border: 0;
+	border-radius: var(--radius-full);
+}
+
+.pick .remove::after {
+	content: "";
+	position: absolute;
+	inset: -9px;
 }

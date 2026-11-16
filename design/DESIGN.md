@@ -12,7 +12,7 @@ As of 2026-11-15. The values, the fonts and this file are in place. The parts be
 * **Components, section 4, in `ui/`.** Each takes the new values, so colours, fonts and radii have changed, but not its shape:
   * The icon button, the arrow link, the switch, the stat pill, the inset list row, the needs you banner, and the progress bar's tick bar and steps are not built.
 * **The gallery** at `/design/gallery/` shows the components as they are built, so it shows the shapes above.
-* **Feature pages**, `Brain/web`, `review/web` and `devflow/web`: their own stylesheets take the new values but were laid out for the shapes above.
+* **Feature pages**, `Brain/web` and `devflow/web`: their own stylesheets take the new values but were laid out for the shapes above.
 
 ## 0. What this decides, and what it does not
 
