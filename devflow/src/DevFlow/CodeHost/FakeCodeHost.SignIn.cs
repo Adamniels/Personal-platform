@@ -117,8 +117,14 @@ public sealed partial class FakeCodeHost
 
     /// <summary>Whether <paramref name="accessToken"/> is the account's current access token and
     /// still works, as <see cref="WhoIs"/> decides it.</summary>
-    private bool TakesAccessToken(Guid userId, string accessToken) =>
-        Of(userId, signIns => signIns.Current is { } current && current.AccessToken == accessToken && _time.GetUtcNow() < current.AccessExpiresAt);
+    private bool TakesAccessToken(Guid userId, string accessToken) => ActingAs(userId, accessToken) is not null;
+
+    /// <summary>The person <paramref name="accessToken"/> acts as, when it is the account's current
+    /// access token and still works; null otherwise.</summary>
+    private FakeUser? ActingAs(Guid userId, string accessToken) =>
+        Of(userId, signIns => signIns.Current is { } current && current.AccessToken == accessToken && _time.GetUtcNow() < current.AccessExpiresAt
+            ? signIns.User
+            : null);
 
     /// <summary>Ends the account's current access token now, for a test of what follows; its
     /// refresh token still works.</summary>

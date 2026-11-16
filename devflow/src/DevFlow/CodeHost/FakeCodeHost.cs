@@ -29,28 +29,43 @@ public sealed partial class FakeCodeHost : ICodeHost, ICodeHostSignIn
         _time = time;
     }
 
-    /// <summary>An account's world, and whether every operation answers unavailable. Replaced
-    /// whole, never changed in place, so a reader sees one or the other.</summary>
-    private sealed record Account(FakeWorld World, bool Unavailable);
+    /// <summary>An account's world, whether every operation answers unavailable, and the writes
+    /// made to it, oldest first. Replaced whole, never changed in place, so a reader sees one or
+    /// the other.</summary>
+    private sealed record Account(FakeWorld World, bool Unavailable, IReadOnlyList<FakeWrite> Writes);
 
-    private static readonly Account Nothing = new(FakeWorld.Empty, Unavailable: false);
+    private static readonly Account Nothing = new(FakeWorld.Empty, Unavailable: false, Writes: []);
 
     private readonly ConcurrentDictionary<Guid, Account> _accounts = new();
+
+    /// <summary>Held while an account is changed, so a write and a test staging a world never
+    /// lose each other's change.</summary>
+    private readonly Lock _changing = new();
 
     /// <summary>The account's world, empty until one is staged.</summary>
     public FakeWorld World(Guid userId) => Of(userId).World;
 
-    /// <summary>Replaces the account's world whole. Whether it is unavailable is kept.</summary>
+    /// <summary>Replaces the account's world whole. Whether it is unavailable, and the writes
+    /// made, are kept.</summary>
     public void Replace(Guid userId, FakeWorld world)
     {
         ArgumentNullException.ThrowIfNull(world);
-        _accounts.AddOrUpdate(userId, _ => Nothing with { World = world }, (_, account) => account with { World = world });
+        Change(userId, account => account with { World = world });
     }
 
     /// <summary>Makes every operation for the account answer unavailable, or answer again. The
     /// world is kept either way.</summary>
     public void SetUnavailable(Guid userId, bool unavailable) =>
-        _accounts.AddOrUpdate(userId, _ => Nothing with { Unavailable = unavailable }, (_, account) => account with { Unavailable = unavailable });
+        Change(userId, account => account with { Unavailable = unavailable });
+
+    /// <summary>The account changed by <paramref name="change"/>, under the lock.</summary>
+    private void Change(Guid userId, Func<Account, Account> change)
+    {
+        lock (_changing)
+        {
+            _accounts[userId] = change(Of(userId));
+        }
+    }
 
     public Task<CodeHostResult<IReadOnlyList<PullRequest>>> OpenPullRequests(Guid userId, Repository repository, CancellationToken cancellationToken) =>
         Answer<IReadOnlyList<PullRequest>>(userId, repository, found => [.. found.PullRequests.Where(pullRequest => pullRequest.State == PullRequestState.Open)]);
@@ -127,7 +142,8 @@ public sealed partial class FakeCodeHost : ICodeHost, ICodeHostSignIn
         return Task.FromResult(result);
     }
 
-    /// <summary>The repository by its installation and id; its owner and name are display.</summary>
+    /// <summary>The repository by its installation and id; its owner and name are display. A
+    /// write finds it the same way, so a name that changed still reaches it.</summary>
     private static FakeRepository? Find(FakeWorld world, Repository repository) =>
         world.Installations
             .Where(installation => installation.Id == repository.Installation)

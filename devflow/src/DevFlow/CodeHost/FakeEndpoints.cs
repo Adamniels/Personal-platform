@@ -35,6 +35,11 @@ public static class FakeEndpoints
         fake.MapGet("/world", (HttpContext context, [FromServices] FakeCodeHost host) =>
             TypedResults.Json(host.World(context.UserId()), FakeJson.Options));
 
+        // The merges and comments the fake took for the caller, oldest first, each with whose
+        // token made it.
+        fake.MapGet("/writes", (HttpContext context, [FromServices] FakeCodeHost host) =>
+            TypedResults.Json(host.Writes(context.UserId()), FakeJson.Options));
+
         fake.MapPut("/world", async Task<Results<NoContent, ProblemHttpResult>> (HttpContext context, [FromServices] FakeCodeHost host) =>
         {
             var (world, error) = await FakeJson.Read<FakeWorld>(context.Request.Body, context.RequestAborted);
