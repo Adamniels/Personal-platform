@@ -7,8 +7,10 @@ Colours and sizes are compared with the token as the page resolves it, as
 test_review_look.py does, so no value is written here but those DESIGN.md
 gives in pixels: an inset row's padding and the 1px borders."""
 
+import re
 from itertools import pairwise
 
+import pytest
 from playwright.sync_api import Locator, Page, expect
 
 from conftest import (
@@ -31,6 +33,8 @@ from devflow_worlds import (
     status,
 )
 from look import (
+    assert_active_is_inverted,
+    assert_headings_are_capitals,
     assert_nothing_scrolls_sideways,
 )
 
@@ -395,3 +399,80 @@ def test_the_projects_tab_follows_the_look(
     expect(github.get_by_text("Your GitHub link has expired.")).to_be_visible()
     expect(github.get_by_text("Needs you")).to_be_attached()
     assert style(github)["borderColors"] == [accent] * 4
+
+
+def assert_the_look(page: Page, where: str) -> None:
+    # The bar has drawn with the account.
+    expect(page.get_by_role("button", name=re.compile("@"))).to_be_visible()
+    page.evaluate("document.fonts.ready.then(() => null)")
+    for check in (
+        assert_headings_are_capitals,
+        assert_nothing_scrolls_sideways,
+        assert_active_is_inverted,
+    ):
+        try:
+            check(page)
+        except AssertionError as error:
+            raise AssertionError(f"{where}: {error}") from None
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_devflow_follows_the_look(
+    page: Page,
+    invite_code: str,
+    base_url: str,
+    viewport: str,
+    theme: str,
+    devflow_world,
+):
+    open_devflow(page, invite_code, base_url)
+    page.evaluate(f"localStorage.setItem('{STORAGE_KEY}', '{theme}')")
+
+    # Nothing connected yet: the frame alone.
+    page.goto("/devflow")
+    expect(page.locator("html")).to_have_attribute("data-theme", theme)
+    expect(page.get_by_text("Connect a repository under Projects")).to_be_visible()
+    assert_the_look(page, "/devflow with nothing connected")
+    capture(page, f"devflow-shell-{theme}")
+
+    page.goto("/devflow/projects")
+    expect(page.get_by_role("button", name="Link GitHub")).to_be_visible()
+    assert_the_look(page, "/devflow/projects not linked")
+    capture(page, f"devflow-projects-unlinked-{theme}")
+
+    # Connected, with nothing waiting.
+    devflow_world(one_repository())
+    project = connect_and_read(page, base_url)
+    page.goto("/devflow")
+    expect(
+        page.get_by_text("Your agents have nothing for you to decide.")
+    ).to_be_visible()
+    assert_the_look(page, "/devflow with nothing waiting")
+    capture(page, f"devflow-nothing-waiting-{theme}")
+
+    page.goto("/devflow/projects")
+    expect(
+        page.get_by_role("region", name="Projects").get_by_text(
+            "Adamniels/Personal-platform"
+        )
+    ).to_be_visible()
+    assert_the_look(page, "/devflow/projects linked with a project")
+    capture(page, f"devflow-projects-{theme}")
+
+    # Waiting, stopped and sent back, and one with screenshots.
+    world = one_repository()
+    stage_items(world)
+    stage_screenshots(world, 2)
+    devflow_world(world)
+    read(page, base_url, project)
+    page.goto("/devflow")
+    expect(page.get_by_role("article")).to_have_count(4)
+    for thumbnail in (
+        page.get_by_role("list", name="Screenshots").get_by_role("img").all()
+    ):
+        page.wait_for_function(
+            "img => img.complete && img.naturalWidth > 0",
+            arg=thumbnail.element_handle(),
+        )
+    assert_the_look(page, "/devflow with waiting, stopped and sent back items")
+    capture(page, f"devflow-waiting-{theme}")
