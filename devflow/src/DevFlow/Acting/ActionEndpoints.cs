@@ -17,9 +17,14 @@ namespace DevFlow.Acting;
 /// be.</param>
 public sealed record MergeRequest(string? HeadCommit);
 
+/// <summary>What <c>POST /devflow/api/waiting/{id}/send-back</c> takes.</summary>
+/// <param name="Comment">What the owner wrote, posted trimmed and with nothing added.</param>
+public sealed record SendBackRequest(string? Comment);
+
 /// <summary>
 /// Acting on what waits, from the page, as the caller on the code host and never as the app:
-/// merging a waiting pull request. Under the <c>Api</c> policy and the origin check. Everything
+/// merging a waiting pull request, and sending a waiting or stopped one back with a comment, which
+/// the runner reads as the owner's input on its next turn. Under the <c>Api</c> policy and the origin check. Everything
 /// that can be refused without the code host is refused before it is asked; the commit the page
 /// showed travels to the code host, which refuses to merge a pull request that moved on, so a
 /// stale page can cost a click and never a wrong merge. Nothing the runner owns, a label or a
@@ -29,6 +34,9 @@ public static class ActionEndpoints
 {
     /// <summary>The title of the answer when the pull request is not as the page showed it.</summary>
     public const string Changed = "The pull request has changed since this was shown";
+
+    /// <summary>The most characters a comment may have once trimmed.</summary>
+    public const int MostComment = 10_000;
 
     public static IEndpointRouteBuilder MapActions(this IEndpointRouteBuilder routes)
     {
@@ -45,7 +53,74 @@ public static class ActionEndpoints
             .ProducesValidationProblem(StatusCodes.Status422UnprocessableEntity)
             .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
+        routes.MapPost("/devflow/api/waiting/{id:guid}/send-back", SendBack)
+            .RequireAuthorization(PlatformAuthPolicies.Api)
+            .WithName("sendBackWaiting")
+            .WithSummary("Send a waiting or stopped pull request back, with a comment as the caller")
+            .WithDescription("Posts comment, trimmed and with nothing added, on the pull request as the caller's linked GitHub account, which the runner reads as the owner's input on its next turn. In order: 404 for an item the caller does not have; 422 when comment is missing, empty once trimmed, or longer than 10,000 characters; 409 when GitHub is not linked or the link has expired; then GitHub is asked. 204 once posted, with the item marked sent back at once and the project read again. 409 when GitHub refuses, with its reason; 503 when GitHub did not answer. Without a valid token, 401 with an empty body; a change from another origin, 403.")
+            .Produces(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesValidationProblem(StatusCodes.Status422UnprocessableEntity)
+            .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
+
         return routes;
+    }
+
+    private static async Task<Results<NoContent, ProblemHttpResult>> SendBack(
+        Guid id,
+        SendBackRequest request,
+        HttpContext context,
+        [FromServices] ActionStore store,
+        [FromServices] UserTokens tokens,
+        [FromServices] ICodeHost host,
+        [FromServices] ProjectRefresher refresher,
+        [FromServices] TimeProvider time)
+    {
+        var userId = context.UserId();
+        var cancellationToken = context.RequestAborted;
+        if (await store.Find(userId, id, cancellationToken) is not { } item)
+        {
+            return NoSuchItem();
+        }
+
+        var comment = request.Comment?.Trim();
+        if (comment is null)
+        {
+            return Invalid("comment", "is missing");
+        }
+
+        if (comment.Length == 0)
+        {
+            return Invalid("comment", "is empty; write what the runner should do");
+        }
+
+        if (comment.Length > MostComment)
+        {
+            return Invalid("comment", string.Create(CultureInfo.InvariantCulture, $"is {comment.Length:N0} characters; it may have at most {MostComment:N0}"));
+        }
+
+        var userToken = await tokens.For(userId, cancellationToken);
+        if (userToken is not UserToken.Usable { AccessToken: var access })
+        {
+            return TokenProblem(userToken, context, time);
+        }
+
+        switch (await host.Comment(userId, new UserAccessToken(access), item.Repository, item.Number, comment, cancellationToken))
+        {
+            case CommentResult.Posted:
+                await store.MarkSentBack(userId, id, cancellationToken);
+                await ReadAgain(refresher, item, userId, time, cancellationToken);
+                return TypedResults.NoContent();
+            case CommentResult.Refused { Status: var status, Message: var message }:
+                return Conflict("GitHub refused the comment", HostSaid(status, message));
+            case CommentResult.Unavailable { RetryAt: var retryAt }:
+                // It may have been posted before the answer was lost, so the list is read again.
+                await ReadAgain(refresher, item, userId, time, cancellationToken);
+                return Unavailable(context, time, retryAt, "It is not known whether the comment was posted; the list was read again.");
+            default:
+                throw new InvalidOperationException("a comment result that is not one of the three");
+        }
     }
 
     private static async Task<Results<NoContent, ProblemHttpResult>> Merge(

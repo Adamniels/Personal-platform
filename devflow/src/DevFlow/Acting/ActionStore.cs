@@ -44,4 +44,14 @@ public sealed class ActionStore(UserDb database)
             new { itemId },
             transaction,
             cancellationToken: cancellationToken)), cancellationToken);
+
+    /// <summary>Marks the caller's item sent back at once, before the project is read again, so
+    /// the list says so even when that read fails. The next read sets it from the comments, the
+    /// owner's among them.</summary>
+    public Task MarkSentBack(Guid userId, Guid itemId, CancellationToken cancellationToken) =>
+        database.InUserTransaction(userId, transaction => transaction.Connection!.ExecuteAsync(new CommandDefinition(
+            "UPDATE waiting_items SET sent_back = true WHERE id = @itemId",
+            new { itemId },
+            transaction,
+            cancellationToken: cancellationToken)), cancellationToken);
 }
