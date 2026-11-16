@@ -586,8 +586,11 @@ use the component package in `design/ui/`: they follow the same written rules in
 `design/DESIGN.md` with plain classes. A form sits in a card, centred and at most 26rem wide, its
 submit button is the primary button and any other button secondary. A refused form names the
 field it is about, which is marked `aria-invalid` and shows the message under it, starting with
-"Error". The front page uses the card grid, with a feature that could not be reached as the
-empty state.
+"Error". The front page uses the row of cards from section 2, with a feature that could not be
+reached as the empty state. A card's first child is a `header` holding its title, an `h2` in the
+label style rather than a link, and on its right `a.open`, the arrow link that opens the feature,
+named "Open" and the feature's name. The checks every page shares, in `e2e/look.py`, run on each
+of these pages, see "The look checks" in `e2e/README.md`.
 
 **Styling has no build step either**, just that stylesheet and the design files.
 

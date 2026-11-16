@@ -8,11 +8,10 @@ The product is a private web application used for hours every day. The look is q
 
 As of 2026-11-15. The values, the fonts and this file are in place. The parts below still have the shape they were first built with, and each is brought to this file by the feature "Redesign: apply the new look". Until its slice has merged, the code is what a page gets, and a slice that touches one of these follows this file, not the code beside it. The last slice of that feature removes this section.
 
-* **Hard rule 12.** The heading font is set without capitals in the feature pages' own headings. Only the page title and the core's card titles are in capitals.
+* **Hard rule 12.** The heading font is set without capitals in the feature pages' own headings. Only the page title is in capitals.
 * **Components, section 4, in `ui/`.** Each takes the new values, so colours, fonts and radii have changed, but not its shape:
   * The icon button, the arrow link, the switch, the stat pill, the inset list row, the needs you banner, and the progress bar's tick bar and steps are not built.
 * **The gallery** at `/design/gallery/` shows the components as they are built, so it shows the shapes above.
-* **The core's pages**, `Core/assets/core.css` and its templates: forms and the front page's cards follow the shapes above, and a card's title is an h2 in the heading font.
 * **Feature pages**, `Brain/web`, `review/web` and `devflow/web`: their own stylesheets take the new values but were laid out for the shapes above.
 
 ## 0. What this decides, and what it does not

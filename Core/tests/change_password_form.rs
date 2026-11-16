@@ -351,7 +351,11 @@ async fn the_form_never_echoes_a_password() {
     let page = get(addr, PATH, Some(&token)).await;
     assert_eq!(page.status, 200, "{}", page.body);
     let body = &page.body;
-    assert!(body.contains("<platform-nav></platform-nav>"), "{body}");
+    // The bar without `current`, naming the page's own crumb.
+    assert!(
+        body.contains(r#"<platform-nav crumb="Settings / Password"></platform-nav>"#),
+        "{body}"
+    );
     assert!(
         body.contains(r#"<form method="post" action="/settings/password">"#),
         "{body}"

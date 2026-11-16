@@ -9,12 +9,12 @@
    every size that has a token, is a token; it defines no variable of its
    own, so none can shadow one. */
 
-/* A form sits in a card, centred, at most 26rem wide. */
+/* A form sits in a card, centred, at most 26rem wide, padded as a card. */
 .form-card {
   box-sizing: border-box;
   max-width: 26rem;
   margin: 0 auto;
-  padding: var(--space-4);
+  padding: var(--card-pad);
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
@@ -49,8 +49,7 @@ form {
   gap: var(--space-1);
 }
 
-/* The text field rule: the label in caption style above the field, help
-   text below it. */
+/* The text field rule: the label in caption style above the field. */
 label {
   display: grid;
   gap: var(--space-1);
@@ -64,9 +63,9 @@ input:not([type="hidden"]) {
   box-sizing: border-box;
   width: 100%;
   height: var(--control-h);
-  padding: 0 10px;
+  padding: 0 16px;
   border: 1px solid var(--border-strong);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-full);
   background: var(--surface);
   color: var(--text);
   font-family: var(--font-ui);
@@ -79,14 +78,17 @@ input::placeholder {
 }
 
 /* A field with an error: the 2px border, a pixel taken off the padding so
-   the field keeps its size. */
+   the field keeps its size and its text stays where it was. */
 input[aria-invalid="true"] {
   border: 2px solid var(--danger);
-  padding: 0 9px;
+  padding: 0 15px;
 }
 
+/* Help text, inside the label under its field, in caption style. */
 .hint {
-  font-weight: 400;
+  font-size: var(--text-caption-size);
+  line-height: var(--text-caption-line);
+  font-weight: 500;
   color: var(--text-3);
 }
 
@@ -100,7 +102,8 @@ input[aria-invalid="true"] {
   color: var(--danger);
 }
 
-/* What a form did. */
+/* What a form did: the done status, a 6px dot and its words, so it is
+   never colour alone, hard rule 5. */
 .notice {
   padding: var(--space-2) var(--space-3);
   border-radius: var(--radius-md);
@@ -109,14 +112,31 @@ input[aria-invalid="true"] {
   font-weight: 500;
 }
 
-/* The button rule. A form's submit button is the primary button, at most
-   one per view; any other button is secondary. */
+.notice::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: var(--space-2);
+  border-radius: 50%;
+  background: var(--ok);
+  vertical-align: middle;
+}
+
+/* The focus ring on everything a person can reach, hard rule 9. */
+.page :is(a, button, input):focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: var(--focus-offset);
+}
+
+/* The button rule, a pill. A form's submit button is the primary button,
+   at most one per view; any other button is secondary. */
 .page button {
   box-sizing: border-box;
   justify-self: start;
   height: var(--control-h);
-  padding: 0 14px;
-  border-radius: var(--radius-md);
+  padding: 0 18px;
+  border-radius: var(--radius-full);
   font-family: var(--font-ui);
   font-size: var(--text-body-size);
   cursor: pointer;
@@ -130,7 +150,7 @@ input[aria-invalid="true"] {
 }
 
 .page button:not([type="submit"]) {
-  background: var(--surface);
+  background: transparent;
   color: var(--text);
   border: 1px solid var(--border-strong);
   font-weight: 500;
@@ -140,58 +160,110 @@ input[aria-invalid="true"] {
   background: var(--surface-2);
 }
 
-/* The front page: the card grid from section 2. */
+/* The front page: the row of cards from section 2, wrapping, so cards
+   take unequal widths on desktop and stack on phone without a
+   breakpoint. */
 .cards {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(340px, 100%), 1fr));
+  display: flex;
+  flex-wrap: wrap;
   gap: var(--space-4);
 }
 
-/* The card rule: a header, one key fact, then at most three rows. */
+.cards > .card {
+  flex: 1 1 340px;
+}
+
+/* The card rule: a header, one key fact, then at most three rows, and an
+   action last. */
 .card {
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
+  gap: var(--space-4);
   min-width: 0;
-  padding: var(--space-4);
+  padding: var(--card-pad);
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-}
-
-.card h2 a {
-  color: var(--text);
-  text-decoration: none;
-}
-
-.card h2 a:hover {
-  text-decoration: underline;
 }
 
 .card p {
   margin: 0;
 }
 
-/* A card whose content needs the user, such as cards due in review: the
-   2px amber outline of section 4. */
-.card.needs-you {
-  border-color: var(--accent-border);
-  box-shadow: 0 0 0 1px var(--accent-border);
+/* The header: the card's label on the left, its heading, and the arrow
+   link on the right. */
+.card > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
 }
 
-/* The card's one key fact, a number in thin numerals with its words
-   beside it. */
+.card > header h2 {
+  min-width: 0;
+  font-family: var(--font-ui);
+  font-size: var(--text-label-size);
+  line-height: var(--text-label-line);
+  font-weight: 500;
+  text-transform: none;
+  color: var(--text-2);
+  overflow-wrap: anywhere;
+}
+
+/* The arrow link, a 36px circle that opens the page the card sums up. Its
+   target reaches 44px past the circle, for a finger on phone, hard rule
+   10. */
+.card .open {
+  position: relative;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-full);
+  background: var(--surface-2);
+  color: var(--text-2);
+}
+
+.card .open::after {
+  content: "";
+  position: absolute;
+  inset: -4px;
+}
+
+.card .open:hover {
+  color: var(--text);
+}
+
+/* A card whose content needs the user, such as cards due in review: its
+   1px border in amber. */
+.card.needs-you {
+  border-color: var(--accent-border);
+}
+
+/* The card's one key fact: the number it is about in thin numerals, its
+   words to its right on the same bottom line. Without a number, as
+   "Nothing due", it is one line at body size. */
 .card .key-fact {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  column-gap: var(--space-2);
   font-weight: 600;
 }
 
 .card .key-fact .count {
-  font-size: var(--text-num-l-size);
-  line-height: var(--text-num-l-line);
+  font-size: var(--text-num-xl-size);
+  line-height: var(--text-num-xl-line);
   font-weight: 300;
   letter-spacing: var(--tracking-num);
   font-variant-numeric: tabular-nums;
-  margin-right: var(--space-1);
+  color: var(--text);
+}
+
+.card .key-fact .words {
+  font-weight: 500;
 }
 
 .card .muted {
@@ -200,37 +272,43 @@ input[aria-invalid="true"] {
   color: var(--text-2);
 }
 
-/* At most three rows, a name on the left and its number on the right. */
+/* At most three rows of a label and its value: plain rows 36px high, a
+   line under each, the label in secondary text and the value in mono. */
 .card .rows {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
 .card .rows li {
+  box-sizing: border-box;
   display: flex;
+  align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
+  min-height: 36px;
+  border-bottom: 1px solid var(--border);
 }
 
 .card .rows .name {
   min-width: 0;
   overflow-wrap: anywhere;
+  color: var(--text-2);
 }
 
 .card .rows .number {
   font-family: var(--font-mono);
   font-size: var(--text-mono-size);
-  line-height: var(--text-body-line);
+  line-height: var(--text-mono-line);
   font-variant-numeric: tabular-nums;
-  color: var(--text-2);
+  color: var(--text);
 }
 
-/* The card's one action, a link drawn as a button and pushed to the bottom
-   so cards in a row align: secondary, or the page's one primary. */
+/* The card's one action, a link drawn as a button, a pill, and pushed to
+   the bottom so cards in a row align: secondary, or the page's one
+   primary. */
 .card .action {
   box-sizing: border-box;
   display: inline-flex;
@@ -238,11 +316,12 @@ input[aria-invalid="true"] {
   align-self: flex-start;
   height: var(--control-h);
   margin-top: auto;
-  padding: 0 14px;
-  border-radius: var(--radius-md);
+  padding: 0 18px;
+  border-radius: var(--radius-full);
   border: 1px solid var(--border-strong);
-  background: var(--surface);
+  background: transparent;
   color: var(--text);
+  font-size: var(--text-body-size);
   font-weight: 500;
   text-decoration: none;
 }
@@ -280,13 +359,14 @@ input[aria-invalid="true"] {
   gap: var(--space-1);
 }
 
-/* Its one line that says what is empty. */
+/* Its one line that says what is empty, in the heading font. */
 .card.unavailable h2,
 .empty {
-  font-family: var(--font-ui);
-  font-size: var(--text-body-size);
-  line-height: var(--text-body-line);
+  font-family: var(--font-heading);
+  font-size: var(--text-h2-size);
+  line-height: var(--text-h2-line);
   font-weight: 600;
+  text-transform: uppercase;
 }
 
 /* And the small line that says what happened. */

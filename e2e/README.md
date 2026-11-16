@@ -86,6 +86,25 @@ draw. See "Tabs" in `design/ui/README.md`.
 
 `/register` does not prefill the code from a query string, so tests fill the `code` field.
 
+## The look checks
+
+`look.py` beside this file holds three rules of `design/DESIGN.md` that hold on every page, as
+functions a test calls on an open page once it has drawn:
+
+- `assert_headings_are_capitals(page)`: every visible element in the heading font is in capitals at
+  weight 600, hard rule 12.
+- `assert_nothing_scrolls_sideways(page)`: the document does not scroll sideways, and no visible
+  element whose `overflow-x` is `auto` or `scroll` has more to scroll than it shows, hard rule 13.
+- `assert_active_is_inverted(page)`: no visible element with `aria-current="page"` or
+  `aria-selected="true"` is marked in `--accent-border`, and each tab or nav item among them has the
+  `--text` fill, hard rule 11. A selected table row or option keeps its own rule, `--info-soft`.
+
+Each reads the elements inside open shadow roots too, so the nav bar is checked as a person sees
+it, and fails naming the elements that break its rule. A slice that restyles a page calls all three
+on each of its pages and states, at desktop and phone width and in both themes, as
+`test_the_core_pages_follow_the_look` in `tests/test_style.py` does for the core's pages. They are
+not a replacement for the page's own tests of its look, only the rules every page shares.
+
 ## Markers
 
 Two markers, registered in `pyproject.toml`, which runs with `--strict-markers` so a misspelt one

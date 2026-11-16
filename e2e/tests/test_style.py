@@ -14,6 +14,11 @@ import pytest
 from playwright.sync_api import Locator, Page, expect
 
 from conftest import VIEWPORTS, capture, log_in, register, register_and_log_in
+from look import (
+    assert_active_is_inverted,
+    assert_headings_are_capitals,
+    assert_nothing_scrolls_sideways,
+)
 
 THEMES = ["light", "dark"]
 AXE = Path(__file__).parents[2] / "design/ui/node_modules/axe-core/axe.min.js"
@@ -60,6 +65,9 @@ STYLE = """element => {
         boxShadow: style.boxShadow,
         textAlign: style.textAlign,
         maxWidth: style.maxWidth,
+        gap: style.rowGap,
+        textTransform: style.textTransform,
+        lineHeight: style.lineHeight,
     };
 }"""
 
@@ -155,6 +163,32 @@ def test_the_login_page_uses_the_platform_values(page: Page, theme: str):
     assert first_family(heading["fontFamily"]) == "Barlow Condensed"
 
 
+@pytest.mark.parametrize("theme", THEMES)
+def test_the_core_buttons_and_fields_are_pills(page: Page, theme: str):
+    """The button and text field rules: --control-h high, --radius-full,
+    the fields with 16px at their sides and the button with 18px. The form
+    card is padded --card-pad."""
+    open_page(page, "/login")
+    use_theme(page, theme)
+    full = resolve(page, "--radius-full", "border-top-left-radius")
+    height = px(page, "--control-h")
+
+    for name in ["email", "password"]:
+        field = style(page.locator(f"[name={name}]"))
+        assert field["height"] == height, name
+        assert field["radii"] == [full] * 4, name
+        assert field["padding"][1] == field["padding"][3] == "16px", name
+
+    button = style(page.get_by_role("button", name="Log in"))
+    assert button["height"] == height
+    assert button["radii"] == [full] * 4
+    assert button["padding"][1] == button["padding"][3] == "18px"
+    assert button["fontSize"] == "14px"
+
+    card_pad = resolve(page, "--card-pad", "padding-top")
+    assert style(form_card(page))["padding"] == [card_pad] * 4
+
+
 def test_a_form_error_is_announced_and_styled(page: Page):
     open_page(page, "/login")
     log_in(page, f"e2e-{uuid.uuid4()}@example.com", uuid.uuid4().hex[:20])
@@ -173,8 +207,10 @@ def test_a_form_error_is_announced_and_styled(page: Page):
     look = style(field)
     assert look["borderWidths"] == ["2px"] * 4
     assert look["borderColors"] == [resolve(page, "--danger", "color")] * 4
-    # The 2px border does not change the field's size.
+    # The 2px border does not change the field's size, nor where its text
+    # starts: a pixel comes off each side's padding.
     assert look["height"] == px(page, "--control-h")
+    assert look["padding"][1] == look["padding"][3] == "15px"
 
     # The email the person typed is kept and not marked: the message is
     # about the pair, and the core does not say which one was wrong.
@@ -193,10 +229,49 @@ def test_the_home_page_cards_follow_the_card_rule(
     )
     expect(card).to_have_count(1)
     assert_card_frame(page, card)
-    assert style(card)["padding"] == [resolve(page, "--space-4", "padding-top")] * 4
-    title = style(card.get_by_role("heading", level=2))
-    assert first_family(title["fontFamily"]) == "Barlow Condensed"
-    assert title["fontSize"] == resolve(page, "--text-h2-size", "font-size")
+    look = style(card)
+    assert look["padding"] == [resolve(page, "--card-pad", "padding-top")] * 4
+
+    # The card row: a wrapping flex row, each card 340px at its basis.
+    row = page.locator(".cards").evaluate(
+        """cards => {
+            const style = getComputedStyle(cards);
+            const card = getComputedStyle(cards.firstElementChild);
+            return [style.display, style.flexWrap, style.rowGap, card.flexBasis,
+                    card.flexGrow, card.flexShrink];
+        }"""
+    )
+    gap = resolve(page, "--space-4", "row-gap")
+    assert row == ["flex", "wrap", gap, "340px", "1", "1"]
+    assert look["gap"] == resolve(page, "--space-4", "row-gap")
+
+    # The title is the card's label: plain text in the UI font, not a link.
+    heading = card.get_by_role("heading", level=2)
+    title = style(heading)
+    assert first_family(title["fontFamily"]) == "Inter"
+    assert title["fontSize"] == resolve(page, "--text-label-size", "font-size")
+    assert title["fontWeight"] == "500"
+    assert title["color"] == resolve(page, "--text-2", "color")
+    assert title["textTransform"] == "none"
+    expect(heading.get_by_role("link")).to_have_count(0)
+
+    # On its right, the arrow link that opens the feature: a 36px circle.
+    arrow = card.get_by_role("link", name="Open Canary", exact=True)
+    expect(arrow).to_have_attribute("href", "/canary")
+    look = style(arrow)
+    assert look["height"] == 36
+    assert arrow.bounding_box()["width"] == 36
+    full = resolve(page, "--radius-full", "border-top-left-radius")
+    assert look["radii"] == [full] * 4
+    assert look["background"] == resolve(page, "--surface-2", "background-color")
+    assert look["color"] == resolve(page, "--text-2", "color")
+    title_box = heading.bounding_box()
+    arrow_box = arrow.bounding_box()
+    assert arrow_box["x"] >= title_box["x"] + title_box["width"]
+    # Flush with the card's padding on the right, inside its 1px border.
+    card_box = card.bounding_box()
+    inner_right = card_box["x"] + card_box["width"] - 1 - px(page, "--card-pad")
+    assert abs(arrow_box["x"] + arrow_box["width"] - inner_right) <= 1
 
     # A feature the core could not reach. The e2e stack cannot take canary
     # away from one test, so the placeholder is the markup the core renders
@@ -222,10 +297,133 @@ def test_the_home_page_cards_follow_the_card_rule(
     assert look["padding"] == [vertical, side, vertical, side]
     assert look["textAlign"] == "center"
     assert look["boxShadow"] == "none"
-    assert style(placeholder.get_by_role("heading", level=2))["fontWeight"] == "600"
+    # Its first line in the heading font at the h2 size, in capitals.
+    first = style(placeholder.get_by_role("heading", level=2))
+    assert first_family(first["fontFamily"]) == "Barlow Condensed"
+    assert first["fontSize"] == resolve(page, "--text-h2-size", "font-size")
+    assert first["fontWeight"] == "600"
+    assert first["textTransform"] == "uppercase"
+    expect(placeholder.get_by_role("link")).to_have_count(0)
     line = style(placeholder.get_by_text("Desk could not be reached."))
     assert line["fontSize"] == resolve(page, "--text-small-size", "font-size")
     assert line["color"] == resolve(page, "--text-2", "color")
+
+
+def test_core_pages_name_their_crumb(page: Page, invite_code: str, base_url: str):
+    register_and_log_in(page, invite_code, base_url)
+    crumb = page.locator("platform-nav .crumb")
+    for path, name in [
+        ("/settings/password", "Settings / Password"),
+        ("/auth/logout", "Log out"),
+        ("/", "Home"),
+    ]:
+        open_page(page, path)
+        expect(crumb).to_have_text(name)
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_the_notice_is_a_dot_and_words(
+    page: Page, invite_code: str, base_url: str, theme: str
+):
+    """What a form did, such as a changed password: --ok words on --ok-soft,
+    after a 6px dot, so it is never colour alone."""
+    register_and_log_in(page, invite_code, base_url)
+    open_page(page, "/settings/password?changed=1")
+    use_theme(page, theme)
+
+    notice = page.get_by_role("status")
+    expect(notice).to_have_text(
+        "Password changed. Your other sessions were signed out."
+    )
+    look = style(notice)
+    assert look["background"] == resolve(page, "--ok-soft", "background-color")
+    assert look["color"] == resolve(page, "--ok", "color")
+    assert look["fontWeight"] == "500"
+    radius = resolve(page, "--radius-md", "border-top-left-radius")
+    assert look["radii"] == [radius] * 4
+    dot = notice.evaluate(
+        """element => {
+            const dot = getComputedStyle(element, "::before");
+            return [dot.content, dot.width, dot.height, dot.backgroundColor];
+        }"""
+    )
+    assert dot == ['""', "6px", "6px", look["color"]]
+
+
+def review_card_with_cards_due(page: Page, invite_code: str, base_url: str) -> Locator:
+    """Logs a fresh account in, gives it a card due in review, and returns
+    the front page's Review card."""
+    register_and_log_in(page, invite_code, base_url)
+    add_due_review_card(page)
+    open_page(page, "/")
+    card = page.get_by_role("article").filter(
+        has=page.get_by_role("heading", name="Review", level=2)
+    )
+    expect(card).to_have_count(1)
+    page.evaluate("document.fonts.ready.then(() => null)")
+    return card
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_the_card_number_is_a_thin_numeral(
+    page: Page, invite_code: str, base_url: str, viewport: str, theme: str
+):
+    card = review_card_with_cards_due(page, invite_code, base_url)
+    use_theme(page, theme)
+
+    count = card.locator(".key-fact .count")
+    expect(count).to_have_text("1")
+    look = style(count)
+    assert first_family(look["fontFamily"]) == "Inter"
+    assert look["fontSize"] == resolve(page, "--text-num-xl-size", "font-size")
+    assert look["fontWeight"] == "300"
+    assert look["color"] == resolve(page, "--text", "color")
+
+    # Its words to its right, their bottoms level.
+    words = card.locator(".key-fact .words")
+    expect(words).to_have_text("due now")
+    count_box = count.bounding_box()
+    words_box = words.bounding_box()
+    assert words_box["x"] >= count_box["x"] + count_box["width"]
+    count_bottom = count_box["y"] + count_box["height"]
+    words_bottom = words_box["y"] + words_box["height"]
+    assert abs(count_bottom - words_bottom) <= 1
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_a_card_that_needs_you_has_one_accent_border(
+    page: Page, invite_code: str, base_url: str, theme: str
+):
+    card = review_card_with_cards_due(page, invite_code, base_url)
+    use_theme(page, theme)
+
+    look = style(card)
+    assert look["borderWidths"] == ["1px"] * 4
+    assert look["borderStyles"] == ["solid"] * 4
+    assert look["borderColors"] == [resolve(page, "--accent-border", "color")] * 4
+    assert look["boxShadow"] == "none"
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_the_cards_rows_are_label_and_value(
+    page: Page, invite_code: str, base_url: str, theme: str
+):
+    card = review_card_with_cards_due(page, invite_code, base_url)
+    use_theme(page, theme)
+
+    rows = card.get_by_role("listitem")
+    expect(rows).to_have_count(1)
+    border = resolve(page, "--border", "color")
+    for row in rows.all():
+        look = style(row)
+        assert look["height"] == 36
+        assert look["borderWidths"] == ["0px", "0px", "1px", "0px"]
+        assert look["borderColors"][2] == border
+        name = style(row.locator(".name"))
+        assert name["color"] == resolve(page, "--text-2", "color")
+        number = style(row.locator(".number"))
+        assert first_family(number["fontFamily"]) == "JetBrains Mono"
+        assert number["color"] == resolve(page, "--text", "color")
 
 
 def test_every_core_page_has_one_primary_button_at_most(
@@ -323,6 +521,107 @@ def test_canary_page_uses_the_platform_values(
 
     account = style(page.get_by_role("main").locator("code"))
     assert first_family(account["fontFamily"]) == "JetBrains Mono"
+
+
+def add_due_review_card(page: Page) -> None:
+    """Adds a deck and a card to review through its API, from the page, so
+    the front page's Review card has a card due now."""
+    status = page.evaluate(
+        """async () => {
+            const call = (path, body) => fetch(`/review/api${path}`, {
+                method: "POST",
+                credentials: "same-origin",
+                headers: {"content-type": "application/json"},
+                body: JSON.stringify(body),
+            });
+            const deck = await (await call("/decks", {name: "Compilers"})).json();
+            const card = await call("/cards", {
+                deck_id: deck.id,
+                front: "What does an LR parser build?",
+                back: "A rightmost derivation in reverse",
+                topics: [{slug: "parsing", name: "Parsing"}],
+            });
+            return card.status;
+        }"""
+    )
+    assert status in (200, 201), status
+
+
+def assert_the_look(page: Page, name: str) -> None:
+    """The three look checks of look.py, each naming the page it failed on."""
+    for check in (
+        assert_headings_are_capitals,
+        assert_nothing_scrolls_sideways,
+        assert_active_is_inverted,
+    ):
+        try:
+            check(page)
+        except AssertionError as error:
+            raise AssertionError(f"{name}: {error}") from None
+
+
+def test_the_look_checks_name_what_breaks_them(page: Page):
+    """Each look check fails on an element that breaks its rule, naming it,
+    so a page that passes them passes for a reason."""
+    open_page(page, "/login")
+    for check in (
+        assert_headings_are_capitals,
+        assert_nothing_scrolls_sideways,
+        assert_active_is_inverted,
+    ):
+        check(page)
+
+    page.locator("main").evaluate(
+        """main => main.insertAdjacentHTML("beforeend",
+            '<h2 id="lower" style="text-transform: none">Lower</h2>'
+            + '<div id="wide" style="overflow-x: auto; width: 100px">'
+            + '<div style="width: 300px">Wide</div></div>'
+            + '<a id="amber" href="/" aria-current="page"'
+            + ' style="border: 1px solid var(--accent-border)">Amber</a>')"""
+    )
+    for check, offender in (
+        (assert_headings_are_capitals, "h2#lower"),
+        (assert_nothing_scrolls_sideways, "div#wide"),
+        (assert_active_is_inverted, "a#amber"),
+    ):
+        with pytest.raises(AssertionError, match=offender):
+            check(page)
+
+    # The document itself scrolling sideways.
+    page.locator("main").evaluate(
+        """main => main.insertAdjacentHTML("beforeend",
+            '<div style="width: 3000px">Too wide</div>')"""
+    )
+    with pytest.raises(AssertionError, match="the document"):
+        assert_nothing_scrolls_sideways(page)
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_the_core_pages_follow_the_look(
+    page: Page, invite_code: str, base_url: str, viewport: str, theme: str
+):
+    for name, path in OPEN_PAGES.items():
+        open_page(page, path)
+        use_theme(page, theme)
+        assert_the_look(page, name)
+
+    # A refused form, with its message and the field marked.
+    open_page(page, "/login")
+    log_in(page, f"e2e-{uuid.uuid4()}@example.com", uuid.uuid4().hex[:20])
+    expect(page.get_by_role("alert")).to_be_visible()
+    assert_the_look(page, "login refused")
+
+    register_and_log_in(page, invite_code, base_url)
+    for name, path in SIGNED_IN_PAGES.items():
+        open_page(page, path)
+        expect(page.get_by_role("navigation").first).to_be_visible()
+        assert_the_look(page, name)
+
+    # The front page with a card that needs the person.
+    add_due_review_card(page)
+    open_page(page, "/")
+    expect(page.locator(".card.needs-you")).to_have_count(1)
+    assert_the_look(page, "front page, review due")
 
 
 @pytest.mark.parametrize("theme", THEMES)
