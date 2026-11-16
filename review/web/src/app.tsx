@@ -1,5 +1,5 @@
 import { EmptyState, Tab, TabPanel, Tabs } from "@platform/ui";
-import type { ReactNode } from "react";
+import { type ReactNode, useEffect } from "react";
 import { navigate, usePathname } from "./address";
 import styles from "./app.module.css";
 import { CardsSection } from "./cards/cards-section";
@@ -22,6 +22,7 @@ function SectionContent({ section }: { section: Section }) {
  * address, and the section the address names. */
 export function App() {
 	const current = sectionAt(usePathname());
+	useCrumb(current);
 
 	return (
 		<main className="page">
@@ -54,6 +55,22 @@ export function App() {
 			{current ? null : <NotFound />}
 		</main>
 	);
+}
+
+/** Names the section in the top bar: the crumb of the page's
+ * `<platform-nav>`, which sits outside the React root in index.html, is
+ * "Review / " and the section's name, a study session's being Study's. Where
+ * the address names no section the attribute is removed, so the bar shows the
+ * name of its link, "Review". See "Navigation" in
+ * High-level/docs/platform-architecture.md. */
+function useCrumb(current: Section | undefined) {
+	const label = current?.label;
+	useEffect(() => {
+		const nav = document.querySelector("platform-nav");
+		if (!nav) return;
+		if (label) nav.setAttribute("crumb", `Review / ${label}`);
+		else nav.removeAttribute("crumb");
+	}, [label]);
 }
 
 function NotFound() {

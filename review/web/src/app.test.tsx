@@ -98,3 +98,43 @@ describe("the address decides the tab, and a tab changes the address", () => {
 		).toBeTruthy();
 	});
 });
+
+describe("the top bar names the section", () => {
+	afterEach(() => {
+		for (const nav of document.querySelectorAll("platform-nav")) nav.remove();
+	});
+
+	function crumb() {
+		return document.querySelector("platform-nav")?.getAttribute("crumb");
+	}
+
+	function withNav() {
+		document.body.append(document.createElement("platform-nav"));
+	}
+
+	test("the crumb is Review and the section, and follows a tab", async () => {
+		withNav();
+		openAt("/review");
+
+		expect(crumb()).toBe("Review / Study");
+		fireEvent.click(screen.getByRole("tab", { name: "Cards" }));
+		await waitFor(() => expect(crumb()).toBe("Review / Cards"));
+	});
+
+	test("a study session is Study's", () => {
+		withNav();
+		openAt("/review/study?deck=1");
+
+		expect(crumb()).toBe("Review / Study");
+	});
+
+	test("an unknown address leaves the bar to name Review", () => {
+		withNav();
+		document.querySelector("platform-nav")?.setAttribute("crumb", "Old");
+		openAt("/review/nothing");
+
+		expect(document.querySelector("platform-nav")?.hasAttribute("crumb")).toBe(
+			false,
+		);
+	});
+});
