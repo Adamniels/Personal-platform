@@ -12,6 +12,7 @@ from itertools import pairwise
 from playwright.sync_api import Locator, Page, expect
 
 from conftest import (
+    capture,
     link_github,
     open_section,
     register_and_log_in,
@@ -28,6 +29,9 @@ from devflow_worlds import (
     png,
     reviewer_comment,
     status,
+)
+from look import (
+    assert_nothing_scrolls_sideways,
 )
 
 THEMES = ["light", "dark"]
@@ -310,3 +314,84 @@ def test_rows_inside_an_item_are_inset_rows(
     assert_inset_rows(page, decided.locator(":scope > li"), 2, "the decisions")
     reviewer = vault.get_by_role("list", name="The reviewer")
     assert_inset_rows(page, reviewer.locator(":scope > li"), 2, "the reviewer's points")
+
+
+def test_screenshots_in_an_item_do_not_scroll_sideways(
+    page: Page, invite_code: str, base_url: str, viewport: str, devflow_world
+):
+    register_and_log_in(page, invite_code, base_url)
+    world = one_repository()
+    stage_screenshots(world, 5)
+    devflow_world(world)
+    connect_and_read(page, base_url)
+
+    page.goto("/devflow")
+
+    poll = page.get_by_role("article", name="The poll")
+    shots = poll.get_by_role("list", name="Screenshots")
+    expect(shots.get_by_role("listitem")).to_have_count(5)
+    thumbnails = shots.get_by_role("img")
+    expect(thumbnails).to_have_count(10)
+    for thumbnail in thumbnails.all():
+        page.wait_for_function(
+            "img => img.complete && img.naturalWidth > 0",
+            arg=thumbnail.element_handle(),
+        )
+
+    # They wrap onto further lines, each inside the item.
+    item = poll.bounding_box()
+    boxes = [thumbnail.bounding_box() for thumbnail in thumbnails.all()]
+    assert len({round(box["y"]) for box in boxes}) > 1, boxes
+    for box in boxes:
+        assert box["x"] >= item["x"] - 0.5, box
+        assert box["x"] + box["width"] <= item["x"] + item["width"] + 0.5, box
+    assert poll.evaluate("e => e.scrollWidth <= e.clientWidth")
+    assert_nothing_scrolls_sideways(page)
+    capture(page, "devflow-item-screenshots-wrapped")
+
+
+def test_the_projects_tab_follows_the_look(
+    page: Page, invite_code: str, base_url: str, devflow_world
+):
+    register_and_log_in(page, invite_code, base_url)
+    devflow_world(one_repository())
+    page.goto("/devflow/projects")
+    github = page.get_by_role("article", name="GitHub")
+    border = resolve(page, "--border", "border-top-color")
+    accent = resolve(page, "--accent-border", "border-top-color")
+
+    # Not linked: the state in words, on a plain card.
+    expect(github.get_by_text("Link your GitHub account")).to_be_visible()
+    assert style(github)["borderColors"] == [border] * 4
+
+    connect_and_read(page, base_url)
+    page.goto("/devflow/projects")
+
+    # Linked: the state in words, on a plain card.
+    expect(github.get_by_text("Linked as @octo-owner")).to_be_visible()
+    assert style(github)["borderColors"] == [border] * 4
+
+    # Each project's row holds its name, how it is read and Disconnect, more
+    # than a label and a value, so it is an inset row, with no line.
+    projects = page.get_by_role("region", name="Projects")
+    expect(projects.get_by_text("Adamniels/Personal-platform")).to_be_visible()
+    fill = resolve(page, "--surface-2", "background-color")
+    cells = projects.locator("tbody td")
+    expect(cells).to_have_count(2)
+    for cell in cells.all():
+        look = style(cell)
+        assert look["boxShadow"] == "none", look
+        assert look["borderWidths"] == ["0px"] * 4, look
+        assert look["background"] == fill, look
+
+    # Expired: the state in words, with the needs you outline and the words
+    # "Needs you" for assistive technology, never the colour alone.
+    revoked = page.request.post(
+        "/devflow/api/fake/revoke-token", headers={"Origin": base_url}
+    )
+    assert revoked.status == 204, revoked.text()
+    assert page.request.get("/devflow/api/github/repositories").status == 409
+    page.goto("/devflow/projects")
+    expect(github.get_by_text("Your GitHub link has expired.")).to_be_visible()
+    expect(github.get_by_text("Needs you")).to_be_attached()
+    assert style(github)["borderColors"] == [accent] * 4

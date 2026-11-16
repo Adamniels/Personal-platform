@@ -120,6 +120,7 @@ export function Projects({
 				)
 			) : (
 				<Table
+					className={styles.rows}
 					label="Projects"
 					rows={projects}
 					rowKey={(project) => project.id}
@@ -230,7 +231,7 @@ function Chooser({ load, connect, close }: ChooserProps) {
 				connectable.installations.map((installation) => (
 					<Table
 						key={installation.id}
-						className={styles.account}
+						className={`${styles.account} ${styles.rows}`}
 						label={installation.account}
 						rows={installation.repositories}
 						rowKey={(repository) => String(repository.id)}
