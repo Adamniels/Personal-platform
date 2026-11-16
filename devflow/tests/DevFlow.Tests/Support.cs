@@ -125,10 +125,13 @@ internal sealed class Harness : IAsyncDisposable
     public TestServer Server => _app.GetTestServer();
 
     /// <summary>The smallest environment the settings load from: the one required setting, the
-    /// app's database URL, which nothing here connects to.</summary>
+    /// app's database URL, which nothing here connects to, and the loop turned off.</summary>
     public static readonly IReadOnlyDictionary<string, string> MinimalEnvironment = new Dictionary<string, string>
     {
         ["DEVFLOW_APP_DATABASE_URL"] = "postgres://devflow_app:secret-a1b2@127.0.0.1:5432/devflow",
+        // The loop does not run, so no test's app reads the database on its own; the loop's
+        // tests start it themselves.
+        ["DEVFLOW_POLL_SECONDS"] = "0",
     };
 
     public static DevFlowSettings Defaults => DevFlowSettings.Load(name => MinimalEnvironment.GetValueOrDefault(name));

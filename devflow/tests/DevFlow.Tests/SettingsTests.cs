@@ -33,6 +33,18 @@ public sealed class SettingsTests
         Assert.False(defaults.ExposeOpenApi);
         Assert.Equal(("devflow_app", "127.0.0.1", 5432, "devflow"), (defaults.AppDatabase.Username, defaults.AppDatabase.Host, defaults.AppDatabase.Port, defaults.AppDatabase.Database));
 
+        // The loop looks every minute unless told otherwise; the tests' environment turns it off.
+        Assert.Null(defaults.PollInterval);
+        var unsetPoll = new Dictionary<string, string>(Harness.MinimalEnvironment);
+        unsetPoll.Remove("DEVFLOW_POLL_SECONDS");
+        Assert.Equal(TimeSpan.FromSeconds(60), DevFlowSettings.Load(name => unsetPoll.GetValueOrDefault(name)).PollInterval);
+        // Empty is unset, as the hosted copy passes it when its .env leaves it out.
+        Assert.Equal(TimeSpan.FromSeconds(60), Load(("DEVFLOW_POLL_SECONDS", "")).PollInterval);
+        Assert.Equal(TimeSpan.FromSeconds(10), Load(("DEVFLOW_POLL_SECONDS", "10")).PollInterval);
+        Assert.Equal(TimeSpan.FromSeconds(300), Load(("DEVFLOW_POLL_SECONDS", "300")).PollInterval);
+        Assert.Equal(TimeSpan.FromDays(1), Load(("DEVFLOW_POLL_SECONDS", "86400")).PollInterval);
+        Assert.Null(Load(("DEVFLOW_POLL_SECONDS", "0")).PollInterval);
+
         // The app's database is required, with no default to fall back on.
         var unset = Assert.Throws<StartupException>(() => DevFlowSettings.Load(_ => null));
         Assert.StartsWith("DEVFLOW_APP_DATABASE_URL: ", unset.Message, StringComparison.Ordinal);
@@ -85,6 +97,16 @@ public sealed class SettingsTests
         ("DEVFLOW_EXPOSE_OPENAPI", "true"),
         ("DEVFLOW_EXPOSE_OPENAPI", "yes"),
         ("DEVFLOW_EXPOSE_OPENAPI", " 1"),
+        ("DEVFLOW_POLL_SECONDS", "9"),
+        ("DEVFLOW_POLL_SECONDS", "1"),
+        ("DEVFLOW_POLL_SECONDS", "-60"),
+        ("DEVFLOW_POLL_SECONDS", "+60"),
+        ("DEVFLOW_POLL_SECONDS", " 60"),
+        ("DEVFLOW_POLL_SECONDS", "60s"),
+        ("DEVFLOW_POLL_SECONDS", "1.5"),
+        ("DEVFLOW_POLL_SECONDS", "86401"),
+        ("DEVFLOW_POLL_SECONDS", "99999999999"),
+        ("DEVFLOW_POLL_SECONDS", "٦٠"),
         ("DEVFLOW_APP_DATABASE_URL", ""),
         ("DEVFLOW_APP_DATABASE_URL", "devflow_app:secret-a1b2@127.0.0.1:5432/devflow"),
     ];

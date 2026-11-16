@@ -112,6 +112,28 @@ public sealed class IsolationTests
     }
 
     [Fact]
+    public async Task WithoutAUserEveryGuardedTableIsEmptyAndClosed()
+    {
+        // How the loop reads poll_targets, the one table it reads outside a user: nothing guarded
+        // is there for it, and nothing guarded can be written.
+        await using var database = await WithProbe();
+        await using var door = await UserDb.Open(DevFlowSettings.Service, database.App(), DevFlowSettings.AppDatabaseUrl, Ct);
+        await Insert(door, Alice, "alice's");
+
+        Assert.Equal(0, await door.WithoutUser(transaction => transaction.Connection!.QuerySingleAsync<long>(new CommandDefinition(
+            "SELECT count(*) FROM probe", transaction: transaction, cancellationToken: Ct)), Ct));
+        var refused = await Assert.ThrowsAsync<PostgresException>(() => door.WithoutUser(transaction => transaction.Connection!.ExecuteAsync(new CommandDefinition(
+            "INSERT INTO probe (id, user_id, note) VALUES (gen_random_uuid(), @alice, 'planted')", new { alice = Alice }, transaction, cancellationToken: Ct)), Ct));
+        Assert.Contains("row-level security", refused.MessageText, StringComparison.Ordinal);
+
+        // Even on a pooled connection a user's transaction has just used.
+        Assert.Equal(["alice's"], await Notes(door, Alice));
+        Assert.Equal(0, await door.WithoutUser(transaction => transaction.Connection!.QuerySingleAsync<long>(new CommandDefinition(
+            "SELECT count(*) FROM probe", transaction: transaction, cancellationToken: Ct)), Ct));
+        Assert.Equal(["alice's"], await Notes(door, Alice));
+    }
+
+    [Fact]
     public async Task TheDoorTakesOnlyAUser()
     {
         await using var door = UserDb.Unopened(DevFlowSettings.Service, Harness.Defaults.AppDatabase);

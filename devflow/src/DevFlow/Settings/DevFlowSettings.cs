@@ -35,6 +35,10 @@ namespace DevFlow.Settings;
 /// GitHub mode, and null in the fake one, which reads none of them; see <see cref="GitHubSettings"/>.
 /// It holds a secret and a private key, so <see cref="ToString"/> names the client id and the slug
 /// alone.</param>
+/// <param name="PollInterval">How often the loop reads every project, from
+/// <c>DEVFLOW_POLL_SECONDS</c>, a minute unless set, or null when it is <c>0</c>, which turns the
+/// loop off, as the service's own tests do. See "Reading and the snapshot" in
+/// devflow/docs/devflow-architecture.md.</param>
 public sealed record DevFlowSettings(
     string ListenHost,
     int ListenPort,
@@ -44,7 +48,8 @@ public sealed record DevFlowSettings(
     NpgsqlConnectionStringBuilder AppDatabase,
     CodeHostMode CodeHost,
     VaultSettings Vault,
-    GitHubSettings? GitHub)
+    GitHubSettings? GitHub,
+    TimeSpan? PollInterval)
 {
     public const string DefaultListenAddr = "127.0.0.1:8084";
     public const string DefaultCoreUrl = "http://127.0.0.1:8080";
@@ -63,6 +68,13 @@ public sealed record DevFlowSettings(
 
     /// <summary>The owner's database URL, which <c>migrate</c> reads and nothing else does.</summary>
     public const string OwnerDatabaseUrl = "DEVFLOW_OWNER_DATABASE_URL";
+
+    /// <summary>How often the loop reads every project, in seconds; see <see cref="PollInterval"/>.</summary>
+    public const string PollSeconds = "DEVFLOW_POLL_SECONDS";
+
+    public const int MinimumPollSeconds = 10;
+
+    public const int MaximumPollSeconds = 86400;
 
     /// <summary>The address Kestrel listens on.</summary>
     public string ListenUrl => $"http://{ListenHost}:{ListenPort.ToString(CultureInfo.InvariantCulture)}";
@@ -87,20 +99,28 @@ public sealed record DevFlowSettings(
             Setting(read, AppDatabaseUrl, fallback: null, DatabaseUrl.Parse),
             codeHost,
             VaultSettings.Load(read, codeHost),
-            GitHubSettings.Load(read, codeHost));
+            GitHubSettings.Load(read, codeHost),
+            // Empty is unset, as the hosted copy passes it when its .env leaves it out.
+            Setting(read, PollSeconds, "60", ParsePollSeconds, emptyIsUnset: true));
     }
 
     /// <summary>What the record prints, without the database's password, the vault's keys or the
     /// GitHub App's secret and key, which it holds.</summary>
     public override string ToString() => string.Create(
         CultureInfo.InvariantCulture,
-        $"DevFlowSettings {{ ListenHost = {ListenHost}, ListenPort = {ListenPort}, CoreUrl = {CoreUrl}, PublicOrigin = {PublicOrigin}, ExposeOpenApi = {ExposeOpenApi}, AppDatabase = {AppDatabase.Username}@{AppDatabase.Host}:{AppDatabase.Port}/{AppDatabase.Database}, CodeHost = {CodeHost}, Vault = {Vault}, GitHub = {GitHub?.ToString() ?? "none"} }}");
+        $"DevFlowSettings {{ ListenHost = {ListenHost}, ListenPort = {ListenPort}, CoreUrl = {CoreUrl}, PublicOrigin = {PublicOrigin}, ExposeOpenApi = {ExposeOpenApi}, AppDatabase = {AppDatabase.Username}@{AppDatabase.Host}:{AppDatabase.Port}/{AppDatabase.Database}, CodeHost = {CodeHost}, Vault = {Vault}, GitHub = {GitHub?.ToString() ?? "none"}, PollInterval = {PollInterval?.ToString() ?? "off"} }}");
 
     /// <summary>The setting parsed, or <paramref name="fallback"/> parsed when it is unset; with
-    /// no fallback, unset is refused.</summary>
-    private static T Setting<T>(Func<string, string?> read, string name, string? fallback, Func<string, T> parse)
+    /// no fallback, unset is refused. With <paramref name="emptyIsUnset"/>, empty is unset too.</summary>
+    private static T Setting<T>(Func<string, string?> read, string name, string? fallback, Func<string, T> parse, bool emptyIsUnset = false)
     {
-        var value = read(name) ?? fallback ?? throw new StartupException($"{name}: is not set, and Dev flow cannot serve without it");
+        var set = read(name);
+        if (emptyIsUnset && set is "")
+        {
+            set = null;
+        }
+
+        var value = set ?? fallback ?? throw new StartupException($"{name}: is not set, and Dev flow cannot serve without it");
         try
         {
             return parse(value);
@@ -163,6 +183,25 @@ public sealed record DevFlowSettings(
         "github" => CodeHostMode.GitHub,
         _ => throw new FormatException($"'{text}' is not fake or github"),
     };
+
+    /// <summary>
+    /// How often the loop reads every project, in whole seconds: <c>0</c>, which turns it off and
+    /// answers null, or from <see cref="MinimumPollSeconds"/> to <see cref="MaximumPollSeconds"/>, a
+    /// day, ASCII digits alone. Below the minimum would spend the code host's requests for nothing,
+    /// and above a day is a typo rather than a choice.
+    /// </summary>
+    internal static TimeSpan? ParsePollSeconds(string text)
+    {
+        if (text.Length is >= 1 and <= 5
+            && text.All(char.IsAsciiDigit)
+            && int.Parse(text, NumberStyles.None, CultureInfo.InvariantCulture) is var seconds
+            && seconds is 0 or (>= MinimumPollSeconds and <= MaximumPollSeconds))
+        {
+            return seconds == 0 ? null : TimeSpan.FromSeconds(seconds);
+        }
+
+        throw new FormatException($"'{text}' is not 0, which turns the loop off, or a number of seconds from {MinimumPollSeconds} to {MaximumPollSeconds}");
+    }
 
     /// <summary><c>1</c> for on, <c>0</c> for off, and nothing else.</summary>
     internal static bool ParseSwitch(string text) => text switch

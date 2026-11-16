@@ -121,6 +121,29 @@ public sealed class UserDb : IAsyncDisposable
         return result;
     }
 
+    /// <summary>
+    /// Runs <paramref name="work"/> in a transaction on behalf of nobody, committed when it returns
+    /// and rolled back if it throws: <c>&lt;service&gt;.user_id</c> is set empty for the
+    /// transaction, so every guarded table is empty to it and refuses its writes. It is for the one
+    /// thing a loop with no logged in user may read, a table a service leaves unguarded on purpose,
+    /// such as Dev flow's <c>poll_targets</c>; everything after that runs as a user, through
+    /// <see cref="InUserTransaction"/>. As with that, the transaction is lent for the work only.
+    /// </summary>
+    public async Task<T> WithoutUser<T>(Func<NpgsqlTransaction, Task<T>> work, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(work);
+        await using var connection = await _source.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        await connection.ExecuteAsync(new CommandDefinition(
+            "SELECT set_config(@setting, '', true)",
+            new { setting = _setting },
+            transaction,
+            cancellationToken: cancellationToken));
+        var result = await work(transaction);
+        await transaction.CommitAsync(cancellationToken);
+        return result;
+    }
+
     public ValueTask DisposeAsync() => _source.DisposeAsync();
 
     /// <summary>
