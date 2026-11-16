@@ -1,0 +1,79 @@
+using DevFlow.CodeHost;
+using DevFlow.Reading;
+using DevFlow.Settings;
+using DevFlow.Tests.Link;
+
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Time.Testing;
+
+using PlatformData;
+using PlatformData.Testing;
+
+namespace DevFlow.Tests.Reading;
+
+/// <summary>
+/// Dev flow on a test server over a migrated database of its own, with the fake code host behind a
+/// <see cref="CountingCodeHost"/> on the harness's clock, for the routes that read the snapshot and
+/// ask for a read. The caller is the fixture token's user, <see cref="User"/>; the loop is off, as
+/// in every test's app.
+/// </summary>
+internal sealed class Routes : IAsyncDisposable
+{
+    public const string WaitingPath = "/devflow/api/waiting";
+
+    private Routes(TestDatabase database, Harness app, FakeCodeHost fake, CountingCodeHost host)
+    {
+        Database = database;
+        App = app;
+        Fake = fake;
+        Host = host;
+    }
+
+    public static Guid User => Linking.User;
+
+    public static Guid Bob => Linking.Bob;
+
+    public TestDatabase Database { get; }
+
+    public Harness App { get; }
+
+    public FakeCodeHost Fake { get; }
+
+    public CountingCodeHost Host { get; }
+
+    public FakeTimeProvider Time => App.Time;
+
+    public UserDb Door => App.Services.GetRequiredService<UserDb>();
+
+    public ProjectReader Reader => App.Services.GetRequiredService<ProjectReader>();
+
+    public static async Task<Routes> Start()
+    {
+        var database = await Databases.DevFlow.Migrated(Reading.Ct);
+        var door = await UserDb.Open(DevFlowSettings.Service, database.App(), DevFlowSettings.AppDatabaseUrl, Reading.Ct);
+        var time = Harness.Clock();
+        var fake = new FakeCodeHost(time);
+        var host = new CountingCodeHost(fake);
+        var app = await Harness.Start(database: door, codeHost: host, signIn: fake, time: time);
+        return new Routes(database, app, fake, host);
+    }
+
+    /// <summary>A project of <paramref name="user"/>'s, as connecting stores one.</summary>
+    public Task<Guid> Project(Guid user, long repository = Reading.RepositoryId, string name = "Personal-platform") =>
+        Reading.InsertProject(Door, user, repository, name);
+
+    /// <summary>Reads the project as its user, as the loop would.</summary>
+    public async Task<ReadResult> Read(Guid project, Guid user) => await Reader.Read(project, user, Reading.Ct);
+
+    /// <summary>Asks for the project to be read, as the page does, a POST from the platform's
+    /// origin.</summary>
+    public Task<HttpContext> Refresh(Guid project) =>
+        App.Send("POST", $"/devflow/api/projects/{project}/refresh", Contract.Token, ("Origin", Linking.Origin));
+
+    public async ValueTask DisposeAsync()
+    {
+        await App.DisposeAsync();
+        await Database.DisposeAsync();
+    }
+}

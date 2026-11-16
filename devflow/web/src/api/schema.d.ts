@@ -110,6 +110,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/devflow/api/projects/{id}/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Read a project from GitHub now
+         * @description 204 once it has been read, whether or not GitHub answered, which the list then says; 202 when the read is still under way after 10 seconds, and it goes on. 404 for a project the caller does not have. Without a valid token, 401 with an empty body; a change from another origin, 403.
+         */
+        post: operations["refreshProject"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/devflow/api/status": {
         parameters: {
             query?: never;
@@ -122,6 +142,26 @@ export interface paths {
          * @description code_host is fake when GitHub is faked, which every Dev flow page then says in a banner, and github otherwise. github.state is none, linked or needs_relink, with the login it was linked as, null with none. Without a valid token, 401 with an empty body.
          */
         get: operations["status"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/devflow/api/waiting": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What waits for the caller, as last read
+         * @description Read from what Dev flow stored and never from GitHub. items are the pull requests that are the caller's turn in every project, by project and number; count is those not sent back, plus one when needs_relink; projects says for each when it was last read, stale when that is more than five minutes ago or never, and failing when its last read failed. Without a valid token, 401 with an empty body.
+         */
+        get: operations["listWaiting"];
         put?: never;
         post?: never;
         delete?: never;
@@ -208,6 +248,11 @@ export interface components {
             /** Format: uri */
             authorize_url: string;
         };
+        OwnerDecision: {
+            alternative: null | string;
+            chosen: string;
+            why: null | string;
+        };
         ProblemDetails: {
             detail?: null | string;
             instance?: null | string;
@@ -228,8 +273,53 @@ export interface components {
             /** Format: int64 */
             repository_id: number;
         };
+        ProjectFreshness: {
+            failing: boolean;
+            /** Format: uuid */
+            id: string;
+            /** Format: date-time */
+            last_success_at: null | string;
+            name: string;
+            owner: string;
+            stale: boolean;
+        };
         ProjectList: {
             projects: components["schemas"]["Project"][];
+        };
+        WaitingItem: {
+            can_merge: boolean;
+            decisions: components["schemas"]["OwnerDecision"][];
+            head_commit: string;
+            /** Format: uuid */
+            id: string;
+            kind: components["schemas"]["WaitingKind"];
+            /** Format: int32 */
+            number: number;
+            /** Format: int32 */
+            other_decisions: number;
+            /** Format: uuid */
+            project_id: string;
+            project_name: string;
+            /** Format: date-time */
+            read_at: string;
+            reason: string;
+            reviewer_view: string[];
+            sent_back: boolean;
+            /** Format: int32 */
+            slice_number: null | number;
+            summary: string;
+            title: string;
+            /** Format: uri */
+            web_url: string;
+        };
+        /** @enum {unknown} */
+        WaitingKind: "waiting" | "stopped";
+        WaitingList: {
+            /** Format: int32 */
+            count: number;
+            items: components["schemas"]["WaitingItem"][];
+            needs_relink: boolean;
+            projects: components["schemas"]["ProjectFreshness"][];
         };
         WhoAmI: {
             /** Format: uuid */
@@ -505,6 +595,49 @@ export interface operations {
             };
         };
     };
+    refreshProject: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
     status: {
         parameters: {
             query?: never;
@@ -521,6 +654,33 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DevFlowStatus"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    listWaiting: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WaitingList"];
                 };
             };
             /** @description Unauthorized */

@@ -86,6 +86,7 @@ public static class DevFlowApp
             database, provider.GetRequiredService<ICodeHost>(), provider.GetRequiredService<TimeProvider>(), provider.GetRequiredService<ILogger<ProjectReader>>()));
         builder.Services.AddSingleton(provider => new ProjectRefresher(
             provider.GetRequiredService<ProjectReader>(), provider.GetRequiredService<ILogger<ProjectRefresher>>()));
+        builder.Services.AddSingleton(provider => new WaitingStore(database, provider.GetRequiredService<TimeProvider>()));
         if (settings.PollInterval is { } interval)
         {
             builder.Services.AddHostedService(provider => new Poller(
@@ -110,6 +111,7 @@ public static class DevFlowApp
         app.MapStatus(settings.CodeHost);
         app.MapGitHubLink();
         app.MapProjects(new Uri(settings.PublicOrigin));
+        app.MapWaiting();
         app.MapPages(webRoot);
         if (settings.CodeHost == CodeHostMode.Fake)
         {
