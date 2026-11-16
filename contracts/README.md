@@ -58,6 +58,10 @@ exposes for the front page" in `Core/docs/core-architecture.md`.
   the same keys, each with the same JSON type, those of a deck in `decks` included. The core reads
   it into `ReviewCard` in `the_committed_review_fixture_reads_into_the_card` in
   `Core/src/cards.rs`.
+- `devflow.json`: Dev flow's data, an example response, pretty printed, with a trailing newline.
+  Dev flow's `DisplayTests.TheResponseMatchesTheCommittedFixture` checks that its real response
+  has the same keys, each with the same JSON type. The core reads it into `DevFlowCard` in
+  `the_committed_devflow_fixture_reads_into_the_card` in `Core/src/cards.rs`.
 
 Each file is written by hand and changed together with the feature that serves it.
 

@@ -10,7 +10,8 @@ is the service, its page, its database, which holds the vault, the code host's i
 fake and its GitHub adapter, which reads as the app, linking a user's GitHub account, so Dev
 flow holds a token that acts as them, connecting a repository, which makes it a project, and
 reading every project about once a minute into a stored list of what waits for the owner, which
-the API answers: everything else the tabs will show arrives with later slices.
+the API answers and the platform's front page counts: everything else the tabs will show arrives
+with later slices.
 
 ## What it serves
 
@@ -33,6 +34,15 @@ the API answers: everything else the tabs will show arrives with later slices.
 - `GET /devflow/api/waiting`, what waits for the caller as last read, and
   `POST /devflow/api/projects/{id}/refresh`, which reads one of their projects now, see "What
   waits". Without a valid token, `401` with an empty body.
+- `GET /devflow/api/display`, what the platform's front page shows of Dev flow,
+  `{"waiting": 2, "stopped": 1, "projects": 1, "stale": false, "needs_relink": false}`: the items
+  of kind `waiting` and of kind `stopped` that are not sent back, how many projects the caller has
+  connected, whether any of them is stale or failing, and whether their GitHub link has expired.
+  It reads the same stored picture as the waiting list, never GitHub, so it answers well inside the
+  core's deadline, and it sends no words or order meant for display. The core calls it with the
+  user's token in the `Authorization` header; `contracts/display/devflow.json` pins its shape, see
+  "What a feature exposes for the front page" in `Core/docs/core-architecture.md`. Without a valid
+  token, `401` with an empty body.
 - `GET /devflow/github/callback`, where the code host sends the browser back, answering `303` to
   `/devflow/projects`, or to `/devflow/projects?link=failed` when it did not link. Without a valid
   token, `303` to the refresh endpoint as a page answers, see "Linking GitHub".

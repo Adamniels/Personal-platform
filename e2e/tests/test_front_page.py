@@ -10,7 +10,14 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from playwright.sync_api import Locator, Page, expect
 
-from conftest import capture, register_and_log_in
+from conftest import capture, link_github, register_and_log_in
+from devflow_worlds import (
+    INSTALLATION,
+    REPOSITORY,
+    add_pull_request,
+    one_repository,
+    reviewer_comment,
+)
 
 
 def test_front_page_shows_canarys_card(
@@ -134,6 +141,102 @@ def test_the_home_page_says_when_nothing_is_due_in_review(
     expect(card.get_by_text(re.compile(r"^Next in \d+ minutes?$"))).to_be_visible()
     expect(card.get_by_role("link", name="Start review")).to_have_count(0)
     capture(page, "home-review-nothing")
+
+
+def devflow_card(page: Page) -> Locator:
+    return page.get_by_role("article").filter(
+        has=page.get_by_role("heading", name="Dev flow", level=2)
+    )
+
+
+def connect_and_read(page: Page, base_url: str, world: dict, devflow_world) -> None:
+    """Stages `world` in Dev flow's fake, links GitHub, connects the world's
+    repository and reads it now, as the Projects tab and its refresh do,
+    through the page's own session."""
+    devflow_world(world)
+    page.goto("/devflow/projects")
+    link_github(page, base_url)
+    connected = page.request.post(
+        "/devflow/api/projects",
+        data={"installation_id": INSTALLATION, "repository_id": REPOSITORY},
+        headers={"Origin": base_url},
+    )
+    assert connected.status == 201, connected.text()
+    project = connected.json()["id"]
+    refreshed = page.request.post(
+        f"/devflow/api/projects/{project}/refresh", headers={"Origin": base_url}
+    )
+    assert refreshed.status == 204, refreshed.text()
+
+
+def test_the_home_page_shows_what_waits_in_dev_flow(
+    page: Page, invite_code: str, viewport: str, base_url: str, devflow_world
+):
+    """Dev flow comes to the owner: the home page says how many pull requests
+    wait for him, the moment he opens the platform."""
+    register_and_log_in(page, invite_code, base_url)
+    world = one_repository()
+    head = "4" * 40
+    # Approved for its head and handed to the owner: it waits.
+    add_pull_request(
+        world,
+        304,
+        title="The vault",
+        labels=["owner-merge"],
+        head_commit=head,
+        comments=[reviewer_comment(9001, "approve", head)],
+    )
+    # The runner gave up on this one: it stopped.
+    add_pull_request(world, 305, title="The sealed key", labels=["owner-blocked"])
+    connect_and_read(page, base_url, world, devflow_world)
+
+    page.goto("/")
+
+    card = devflow_card(page)
+    expect(card).to_have_count(1)
+    expect(card.locator(".key-fact")).to_have_text("2 waiting for you")
+    expect(card.get_by_text("1 stopped", exact=True)).to_be_visible()
+    expect(card).to_have_class(re.compile(r"\bneeds-you\b"))
+    expect(
+        card.get_by_role("link", name="Open Dev flow", exact=True)
+    ).to_have_attribute("href", "/devflow")
+    expect(page.get_by_text("could not be reached")).to_have_count(0)
+    scroll_width = page.evaluate("document.documentElement.scrollWidth")
+    assert scroll_width <= page.viewport_size["width"]
+    capture(page, "home-devflow-waiting")
+
+    card.get_by_role("link", name="Open what waits").click()
+    expect(page).to_have_url(f"{base_url}/devflow")
+
+
+def test_the_home_page_says_when_nothing_waits_in_dev_flow(
+    page: Page, invite_code: str, viewport: str, base_url: str, devflow_world
+):
+    register_and_log_in(page, invite_code, base_url)
+
+    # With no project, the card says so and where to connect one.
+    card = devflow_card(page)
+    expect(card.locator(".key-fact")).to_have_text("No project connected yet")
+    expect(card.get_by_role("link", name="Connect a repository")).to_have_attribute(
+        "href", "/devflow/projects"
+    )
+
+    # Connected and read, with a pull request still in review: nothing is his
+    # turn.
+    world = one_repository()
+    add_pull_request(world, 306, labels=["in-review"])
+    connect_and_read(page, base_url, world, devflow_world)
+    page.goto("/")
+
+    card = devflow_card(page)
+    expect(card.locator(".key-fact")).to_have_text("Nothing waits for you")
+    expect(card).not_to_have_class(re.compile(r"\bneeds-you\b"))
+    expect(card.locator(".count")).to_have_count(0)
+    expect(card.get_by_text("Not updated for a while")).to_have_count(0)
+    expect(card.get_by_role("link", name="Connect a repository")).to_have_count(0)
+    scroll_width = page.evaluate("document.documentElement.scrollWidth")
+    assert scroll_width <= page.viewport_size["width"]
+    capture(page, "home-devflow-nothing")
 
 
 # The backup line. On the dev stack CORE_BACKUP_STATUS_FILE is unset, as on

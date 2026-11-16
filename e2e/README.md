@@ -67,7 +67,9 @@ Screenshots land in `screenshots/`, which is git ignored.
   `add_pull_request(world, number, ...)` adds a pull request with any fields the test cares about,
   its conversation, and the statuses and check runs on its head commit, made with `comment`,
   `status` and `check_run`, and `add_file` adds a file on a branch. It works on the dev stack and in
-  the hosted check, both of which fake GitHub.
+  the hosted check, both of which fake GitHub. `link_github(page, base_url)` links the account's
+  GitHub through the fake's sign in page, from Dev flow's Projects tab, which the page must be on,
+  as connecting a repository needs.
 - `viewport` runs the test twice, `[desktop]` (1280x800) and `[phone]` (390x844), and sizes the page.
 - `capture(page, name)` writes a full page screenshot to `screenshots/<name>-<viewport>.png` and
   returns the path. It needs the page to be sized by the `viewport` fixture.
