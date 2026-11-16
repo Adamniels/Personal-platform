@@ -1,6 +1,6 @@
 // GET /devflow/api/status, read once as the page loads and again after the page changes what it
 // says: which code host Dev flow talks to, for the banner, and the caller's GitHub link, for the
-// Projects tab. See "The page" in devflow/README.md.
+// Projects tab. See "The pages" in devflow/README.md.
 import { useCallback, useEffect, useState } from "react";
 import { createClient, type GetAnswer } from "./api/client";
 

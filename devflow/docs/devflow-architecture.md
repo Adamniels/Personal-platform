@@ -22,7 +22,8 @@ each part and its slices are in the feature issue, #268, and its sub issues.
 ## What exists
 
 The service, `devflow/`, a C# minimal API app like `review/`, and its page, `devflow/web/`, with
-two tabs, "Waiting for you" at `/devflow` and "Projects" at `/devflow/projects`, each still empty.
+two tabs, "Waiting for you" at `/devflow`, the list of what waits for the owner, and "Projects" at
+`/devflow/projects`.
 It answers through the proxy under `/devflow` in the dev stack and in the hosted copy, verifies the
 core's token itself through `PlatformAuth`, and has a database of its own, `devflow`, migrated by
 its `migrate` command. Its tables are the vault's, `secrets`, which seals a secret for a user,
@@ -32,15 +33,15 @@ see "The code host seam" and "GitHub" below. On the Projects tab the owner links
 account, and Dev flow then holds a token that acts as him, sealed in the vault and renewed by
 itself; with it he connects a repository the app is installed on, which makes it a project. A
 loop reads every project about once a minute into a stored list of what waits for him, which the
-API answers without asking GitHub, see "Reading and the snapshot" below; the platform's front page
-shows how many wait from the same picture, through the display data the core reads. What it serves, its settings, its database, the vault, the code host and how it
+API answers without asking GitHub, see "Reading and the snapshot" below, and "Waiting for you"
+shows, with each decision and the reviewer's view spelled out; the platform's front page shows
+how many wait from the same picture, through the display data the core reads. What it serves, its settings, its database, the vault, the code host and how it
 authenticates are in `devflow/README.md`. Whether a pull request waits for the owner, and why, is
 read by one pure function that knows this repository's runner, see "Reading this repository's
 runner" below.
 
-Only connecting uses the owner's token yet. The page that shows the list, merging and commenting
-as the owner, and everything else the tabs will show arrive with the later slices of the first
-part.
+Only connecting uses the owner's token yet. Merging and commenting as the owner from the list, and
+everything else the tabs will show, arrive with the later slices of the first part.
 
 ## The code host seam
 
@@ -271,6 +272,20 @@ its reason, or a risk accepted on purpose; each slice adds the ones it builds.
   is shown as text, never inserted as HTML, and never followed as an instruction, by Dev flow or by
   an agent it runs, since anyone who can write on the code host could otherwise write into the
   owner's page or steer an agent.
+
+  On the page, every such text is a React text child, which React escapes, and the one formatting
+  it gets is `devflow/web/src/format.tsx`: a backtick pair becomes a code element and a pair of
+  double asterisks a strong element, built as React elements, and everything else stays as written,
+  links and Markdown included, so a URL in a pull request is never made clickable. No Markdown
+  library, since one is a large surface for little a summary needs, and React's escape hatch for
+  inserting HTML appears nowhere in `devflow/web/`. Two tests hold it: `src/format.test.ts` feeds
+  the formatter markup and checks it stays text, and `src/waiting.test.tsx` shows a `<script>` and
+  an `<img onerror>` in every field of an item as text and fails if any source file under
+  `devflow/web/` names that escape hatch. The one link from an item, "Open on GitHub", is the
+  stored `web_url`, the code host's own address for the pull request and so data as well: it is a
+  link only when it parses as an `https` URL, so no other scheme, `javascript:` among them, can
+  run in the page, and it opens with `rel="noreferrer"`, so the page it opens can neither reach
+  back into Dev flow's window nor learn its address.
 - **The program asks GitHub for changes; there is no webhook.** The platform is not reachable from
   the internet, by design, so nothing outside can call it, and opening it to receive webhooks would
   add an exposed endpoint for a convenience polling gives without one. When it is reachable, a

@@ -21,6 +21,16 @@ function openAt(path: string) {
 				connect: () => Promise.resolve(),
 				disconnect: () => Promise.resolve(),
 			}}
+			waiting={{
+				loadWaiting: () =>
+					Promise.resolve({
+						count: 0,
+						needs_relink: false,
+						items: [],
+						projects: [],
+					}),
+				refresh: () => Promise.resolve(),
+			}}
 		/>,
 	);
 }

@@ -1,4 +1,5 @@
 import { EmptyState, Tab, TabPanel, Tabs } from "@platform/ui";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState } from "react";
 import { navigate, usePathname } from "./address";
 import { createClient } from "./api/client";
@@ -9,6 +10,7 @@ import { type Project, Projects, type ProjectsApi } from "./projects";
 import { GitHubLink } from "./projects-link";
 import { SECTIONS, sectionAt } from "./sections";
 import { loadStatus as readStatus, type Status, useStatus } from "./status";
+import { useWaiting, Waiting, type WaitingApi } from "./waiting";
 
 const client = createClient();
 
@@ -19,6 +21,12 @@ export type AppProps = {
 	/** How projects are read and changed, the service's by default; a test
 	 * passes its own. */
 	projects?: ProjectsApi;
+	/** How what waits is read and refreshed, the service's by default; a test
+	 * passes its own. */
+	waiting?: WaitingApi;
+	/** The time, in milliseconds since the epoch, the page says how old the
+	 * picture is by; a test passes its own. */
+	now?: () => number;
 };
 
 /** Projects through Dev flow's API. */
@@ -36,15 +44,44 @@ const projectsApi: ProjectsApi = {
 	},
 };
 
+/** What waits, through Dev flow's API. */
+const waitingApi: WaitingApi = {
+	loadWaiting: () => client.get("/waiting"),
+	refresh: async (id) => {
+		await client.send("POST", `/projects/${encodeURIComponent(id)}/refresh`);
+	},
+};
+
+/** Dev flow's page, with React Query for what it reads. */
+export function App(props: AppProps = {}) {
+	// One per page, so a test's page starts with nothing cached. A failure is
+	// shown at once rather than after three retries, as review's page does.
+	const [queries] = useState(
+		() => new QueryClient({ defaultOptions: { queries: { retry: false } } }),
+	);
+	return (
+		<QueryClientProvider client={queries}>
+			<Frame {...props} />
+		</QueryClientProvider>
+	);
+}
+
 /** Dev flow's frame: the fake mode's banner, the page's heading, a tab per
- * section, tied to the address, and the section the address names, the
- * Projects tab with the GitHub link above its projects. */
-export function App({
+ * section, tied to the address, and the section the address names: what
+ * waits, with its count on its tab, and the Projects tab with the GitHub link
+ * above its projects. */
+function Frame({
 	loadStatus = readStatus,
 	projects = projectsApi,
-}: AppProps = {}) {
+	waiting = waitingApi,
+	now = Date.now,
+}: AppProps) {
 	const current = sectionAt(usePathname());
 	const [status, reload] = useStatus(loadStatus);
+	const listed = useWaiting(waiting.loadWaiting);
+	// The answer's count, on its tab once it is more than none, as the nav's
+	// dot shows only when something waits.
+	const waitingCount = listed.data?.count || undefined;
 	// Read once: the return from the code host sends the browser here with
 	// ?link=failed when it did not link.
 	const [failed] = useState(
@@ -69,13 +106,25 @@ export function App({
 				}}
 			>
 				{SECTIONS.map((section) => (
-					<Tab key={section.key} value={section.key}>
+					<Tab
+						key={section.key}
+						value={section.key}
+						count={section.key === "waiting" ? waitingCount : undefined}
+					>
 						{section.label}
 					</Tab>
 				))}
 				{SECTIONS.map((section) => (
 					<TabPanel key={section.key} value={section.key}>
-						{section !== current ? null : section.key === "projects" ? (
+						{section !== current ? null : section.key === "waiting" ? (
+							<Waiting
+								list={listed.data}
+								failed={listed.isError}
+								refresh={waiting.refresh}
+								reload={listed.refetch}
+								now={now}
+							/>
+						) : section.key === "projects" ? (
 							<>
 								<GitHubLink
 									github={status?.github}
@@ -92,11 +141,6 @@ export function App({
 									{...projects}
 								/>
 							</>
-						) : section.empty ? (
-							<EmptyState
-								title={section.empty.title}
-								detail={section.empty.detail}
-							/>
 						) : null}
 					</TabPanel>
 				))}
