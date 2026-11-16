@@ -10,6 +10,7 @@ rules every page shares."""
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 
 import pytest
 from playwright.sync_api import Locator, Page, expect
@@ -24,6 +25,7 @@ from look import (
 
 THEMES = ["light", "dark"]
 STORAGE_KEY = "platform-theme"
+DESIGN = Path(__file__).parents[2] / "design"
 
 
 @dataclass(frozen=True)
@@ -250,3 +252,12 @@ def test_the_amber_check_names_what_breaks_it(page: Page):
     for offender in ("a#bordered", "button#outlined", "tr#shadowed"):
         with pytest.raises(AssertionError, match=offender):
             assert_nothing_active_is_amber(page)
+
+
+def test_the_design_file_has_nothing_in_transition():
+    design = (DESIGN / "DESIGN.md").read_text()
+    tokens = (DESIGN / "tokens.css").read_text()
+    headings = [line for line in design.splitlines() if line.startswith("#")]
+    assert not [line for line in headings if "in transition" in line.lower()], headings
+    assert "--nav-h" not in design
+    assert "--nav-h" not in tokens
