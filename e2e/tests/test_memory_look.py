@@ -571,6 +571,13 @@ def open_topic_page(page: Page, slug: str, name: str) -> None:
     expect(panel(page, "Knowledge").get_by_text("Loading…")).to_have_count(0)
 
 
+def open_decision_page(page: Page, decision: dict) -> None:
+    page.goto(f"/brain/history/{decision['id']}")
+    expect(
+        panel(page, "History").get_by_role("heading", name=decision["content"], level=2)
+    ).to_be_visible()
+
+
 def open_item_page(page: Page, item: dict) -> None:
     page.goto(f"/brain/everything/{item['id']}")
     expect(
@@ -674,3 +681,40 @@ def test_sub_headings_follow_the_type_rules(
         assert look["lineHeight"] == resolve(page, "--text-label-line", "line-height")
         assert look["fontWeight"] == "500"
         assert look["color"] == resolve(page, "--text-2", "color")
+
+
+def test_the_raw_answer_wraps(page: Page, invite_code: str, base_url: str):
+    page.set_viewport_size({"width": 390, "height": 844})
+    open_memory(page, invite_code, base_url)
+    stage_identity(page)
+
+    asked = ask_about(page, "Who is this person?", None, None)
+    asked.get_by_role("button", name="Show what a feature receives").click()
+    raw = asked.get_by_label("What a feature receives", exact=True)
+    expect(raw).to_contain_text(LONG_WORD)
+
+    frame = style(raw)
+    assert frame["whiteSpace"] == "pre-wrap"
+    assert frame["overflowX"] == "hidden"
+    assert frame["overflowY"] == "auto"
+    assert style(raw.locator("pre"))["whiteSpace"] == "pre-wrap"
+    width, client = raw.evaluate("e => [e.scrollWidth, e.clientWidth]")
+    assert width <= client, f"{width}px in {client}px"
+
+
+def test_topic_and_decision_cards_are_a_wrapping_row(
+    page: Page, invite_code: str, base_url: str, viewport: str
+):
+    open_memory(page, invite_code, base_url)
+    stage_knowledge(page)
+    decision = stage_decisions(page)
+
+    open_topic_page(page, "postgres", "Postgres")
+    cards = panel(page, "Knowledge").get_by_role("article")
+    expect(cards).to_have_count(5)
+    assert_a_wrapping_card_row(page, cards, viewport, "a topic's page")
+
+    open_decision_page(page, decision)
+    cards = panel(page, "History").get_by_role("article")
+    expect(cards).to_have_count(2)
+    assert_a_wrapping_card_row(page, cards, viewport, "a decision's page")

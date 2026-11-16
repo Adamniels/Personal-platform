@@ -1,5 +1,5 @@
 /* A topic's page: the breadcrumb, its name, its level and focus, then its
- * cards in the card grid of section 2 of design/DESIGN.md. */
+ * cards in a row of cards, section 2 of design/DESIGN.md. */
 
 .note {
 	margin: 0;
@@ -97,10 +97,18 @@
 	gap: var(--space-2);
 }
 
+/* The cards, a row of cards as section 2 of design/DESIGN.md has it: a
+ * wrapping flex row, so they take unequal widths on desktop and stack on
+ * phone without a breakpoint. */
 .grid {
-	display: grid;
-	grid-template-columns: repeat(auto-fit, minmax(min(340px, 100%), 1fr));
+	display: flex;
+	flex-wrap: wrap;
 	gap: var(--space-4);
+}
+
+.grid > * {
+	flex: 1 1 340px;
+	min-width: 0;
 }
 
 /* A card's rows, then its form when one is open. */

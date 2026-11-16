@@ -206,8 +206,9 @@
 	font-weight: 600;
 }
 
-/* The raw response: formatted JSON in the mono font on --surface-2, as the
- * slice settles it, scrolling inside itself so the page never does. */
+/* The raw response: formatted JSON in the mono font on --surface-2. Its
+ * lines wrap, a long word anywhere, so it scrolls only up and down and
+ * nothing scrolls sideways, hard rule 13 of design/DESIGN.md. */
 .raw,
 .rawBody {
 	display: flex;
@@ -220,7 +221,8 @@
 	max-height: 60vh;
 	margin: 0;
 	padding: var(--space-3);
-	overflow: auto;
+	overflow-x: hidden;
+	overflow-y: auto;
 	background: var(--surface-2);
 	border: 1px solid var(--border);
 	border-radius: var(--radius-md);
@@ -228,12 +230,15 @@
 	font-family: var(--font-mono);
 	font-size: var(--text-mono-size);
 	line-height: var(--text-mono-line);
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
 }
 
 .code {
 	margin: 0;
 	font: inherit;
-	white-space: pre;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
 }
 
 .json:focus-visible {
