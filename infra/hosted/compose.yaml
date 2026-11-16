@@ -175,6 +175,9 @@ services:
       DEVFLOW_GITHUB_CLIENT_ID: ${DEVFLOW_GITHUB_CLIENT_ID:-}
       DEVFLOW_GITHUB_CLIENT_SECRET: ${DEVFLOW_GITHUB_CLIENT_SECRET:-}
       DEVFLOW_GITHUB_APP_SLUG: ${DEVFLOW_GITHUB_APP_SLUG:-}
+      # How often Dev flow reads every project, passed empty when unset, which Dev flow takes as
+      # unset, so its default, a minute, stands.
+      DEVFLOW_POLL_SECONDS: ${DEVFLOW_POLL_SECONDS:-}
       # The app's private key, from the file the volume below mounts. In the .env this setting is
       # the file's path on the machine; Dev flow is given the path inside its container.
       DEVFLOW_GITHUB_PRIVATE_KEY_FILE: /run/secrets/github-app.pem

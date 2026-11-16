@@ -20,7 +20,11 @@ Two projects. `src/PlatformData/`, which a service's app references:
   cancellationToken)` takes a connection from the pool, opens a transaction, sets
   `<service>.user_id` for that transaction alone with `set_config(..., true)`, the `SET LOCAL` the
   isolation section requires, runs the work with the transaction, and commits, or rolls back if
-  the work throws. It refuses the empty user id, which names nobody. `UserDb.ConnectAsOwner` opens
+  the work throws. It refuses the empty user id, which names nobody. `WithoutUser(work,
+  cancellationToken)` does the same on behalf of nobody, with `<service>.user_id` set empty for the
+  transaction, so every guarded table is empty to it and refuses its writes: it is for a loop with
+  no logged in user to read the one table its service leaves unguarded on purpose, such as Dev
+  flow's `poll_targets`, and everything after that runs as a user. `UserDb.ConnectAsOwner` opens
   the owner's one connection, for `migrate` alone. A service opens no connection of its own.
 - **The guard.** Every scoped table has `user_id uuid NOT NULL`, row level security enabled and
   forced, and one policy, `USING (guard) WITH CHECK (guard)`, where the guard is

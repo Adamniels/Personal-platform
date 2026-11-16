@@ -225,6 +225,11 @@ first_inode="$(in_backup 'stat -c %i /status/backup.json' 2>&1)"
 
 # --- The second backup, through shims recording the arguments of each program it runs. ----------
 
+# Dev flow reads every project on its own, once a minute, so its tables would move on between this
+# dump and the comparison with its restored copy below. It is stopped until the comparison is done,
+# so nothing writes in between; the acceptance suite before has already run with it.
+compose stop devflow > "$tmp/devflow-stop.log" 2>&1
+
 mkdir -p "$tmp/shim"
 for program in curl pg_dump psql age; do
   cat > "$tmp/shim/$program" << 'EOF'
@@ -379,6 +384,7 @@ for file in $run_files; do
   fi
 done
 restored_problems="$problems"
+compose start devflow > "$tmp/devflow-start.log" 2>&1
 
 # --- a_table_under_forced_row_level_security_is_in_the_dump --------------------------------------
 

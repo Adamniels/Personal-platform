@@ -30,14 +30,16 @@ the GitHub link's, see "Acting as the owner" below, and the projects', see "Proj
 through one interface, with an in memory fake behind it and a GitHub adapter that reads as the app,
 see "The code host seam" and "GitHub" below. On the Projects tab the owner links his GitHub
 account, and Dev flow then holds a token that acts as him, sealed in the vault and renewed by
-itself; with it he connects a repository the app is installed on, which makes it a project. What it serves, its settings, its database, the vault, the code host and how it
+itself; with it he connects a repository the app is installed on, which makes it a project. A
+loop reads every project about once a minute into a stored list of what waits for him, which the
+API answers without asking GitHub, see "Reading and the snapshot" below. What it serves, its settings, its database, the vault, the code host and how it
 authenticates are in `devflow/README.md`. Whether a pull request waits for the owner, and why, is
 read by one pure function that knows this repository's runner, see "Reading this repository's
 runner" below.
 
-Only connecting uses the owner's token yet, and nothing calls the adapter's reads of a repository
-or that reader yet: the poll that reads GitHub, merging and commenting as the owner, and
-everything else the tabs will show arrive with the later slices of the first part.
+Only connecting uses the owner's token yet. The page that shows the list, merging and commenting
+as the owner, and everything else the tabs will show arrive with the later slices of the first
+part.
 
 ## The code host seam
 
@@ -167,8 +169,8 @@ changes nothing on GitHub, where the app stays installed until the owner removes
 are**, as "Who a worker and the program's own loop act as" in the spec has it: a loop has no
 logged in user, so it reads the one table without row level security, which holds a project's id
 and its user and nothing else, and then does all its work through the door as that user. A
-trigger on `projects` keeps it, so no code path can forget. The loop arrives with a later slice;
-why the table is safe is in the section below.
+trigger on `projects` keeps it, so no code path can forget. The loop is "Reading and the snapshot"
+below; why the table is safe is in the section after it.
 
 ## Reading this repository's runner
 
@@ -213,6 +215,47 @@ It goes when the runner does, part 10 of the development flow, since the program
 same things in its own tables. Its tests run against real pull requests of this repository,
 recorded in `contracts/github/runner/`.
 
+## Reading and the snapshot
+
+Dev flow keeps an up to date picture of what waits for the owner in every project, as decided with
+him for the first part: a loop reads GitHub into stored rows, and **the pages read what is stored
+and never GitHub**. So a page is fast, still answers while GitHub is down, and can give the front
+page its number inside the core's 500 ms. The cost is that the picture is up to a minute old, and
+it says how old. The routes, the tables and the setting are "What waits" in `devflow/README.md`.
+
+**Reading one project** is `ProjectReader`: the open pull requests in one list, then only for the
+few that are the owner's turn by the runner's labels, by the project's bot and carrying an owner
+label, their comments, their head's checks and their slice's comments, each through the reader
+above; and the result replaces the project's stored items in one transaction, as its user. A pull
+request without an owner label costs nothing beyond the list, and the list is a conditional
+request, free when nothing changed, see "Reading cheaply" under "GitHub" above, so a minute's
+reads stay small.
+
+**One seam asks for a read**, `ProjectRefresher.Request`: the loop for every project on each
+tick, the refresh route when the owner wants it now, later slices after they act on a pull request,
+and GitHub's webhook once the platform is reachable from the internet, which the owner wants then.
+A project is read by one reader at a time, and a request made during a read waits for it and then
+for one more read, since what changed may have come after the first began; every request during
+the same read shares that one, so a burst of them costs one read.
+
+**The loop** lists `poll_targets`, the one thing it reads outside a user, through the door's
+`WithoutUser`, to which every guarded table is empty, and asks for each project as that project's
+user, so everything it stores goes through the door as its owner. It reads as the app, never as the
+user, so it goes on when the owner's link has expired; it uses his link only to learn his login,
+which tells his own comments apart. It runs every `DEVFLOW_POLL_SECONDS`, a minute by default, in
+the fake mode as well, and not at all with `0`, which the service's own tests use so no test's app
+reads on its own; its time is `TimeProvider`'s, so its tests move it.
+
+**Stale and failing.** A project's picture is stale when its last successful read was more than
+five minutes ago, or there has been none, and failing when its last read failed. A read that fails
+leaves the stored items as they were, so the owner sees the last known list with how old it is
+rather than an empty one, and records why as a short fixed phrase, never the host's own text,
+which is data.
+
+**One project never stops another**, anti goal 7 of the spec: each read has its own `try`, inside
+the reader and again inside the refresher, so a project whose read throws is recorded as failing
+and the loop goes on to the next, and the next tick tries it again.
+
 ## Security decisions and accepted risks
 
 Kept for an audit the owner plans once the first part is in place. Each entry is a decision with
@@ -229,7 +272,9 @@ its reason, or a risk accepted on purpose; each slice adds the ones it builds.
   owner's page or steer an agent.
 - **The program asks GitHub for changes; there is no webhook.** The platform is not reachable from
   the internet, by design, so nothing outside can call it, and opening it to receive webhooks would
-  add an exposed endpoint for a convenience polling gives without one.
+  add an exposed endpoint for a convenience polling gives without one. When it is reachable, a
+  webhook is to call the same seam the loop does, `ProjectRefresher.Request`, see "Reading and the
+  snapshot" above, and verify GitHub's signature before it does.
 - **A secret Dev flow holds is sealed in its database, with a key that is not in it.** The owner's
   GitHub tokens, and later the Claude login and each project's test secrets, are put in the vault,
   `src/DevFlow/Vault/Vault.cs`: AES-256-GCM from .NET's own `AesGcm`, the standard authenticated
@@ -290,7 +335,9 @@ its reason, or a risk accepted on purpose; each slice adds the ones it builds.
   nothing else: no name, no repository, no token, so all it says about another user is that they
   have a project. `devflow_app` may only read it; the migration revokes `INSERT`, `UPDATE` and
   `DELETE`, and only a trigger on `projects` writes it, through a `SECURITY DEFINER` function owned
-  by `devflow_owner` with its `search_path` fixed. The alternative, decided against with the owner,
+  by `devflow_owner` with its `search_path` fixed. The loop reads it through the door's
+  `WithoutUser`, a transaction that sets the user empty, so every guarded table is empty to it in
+  that transaction and refuses its writes; all it does after is as each project's user. The alternative, decided against with the owner,
   was a second database role for the loop that bypasses row level security: less to build, but a
   bug in the loop could then read or write across users. `IsolationTests.EveryTableIsGuarded`
   passes the shared check `["poll_targets"]` and nothing else, so a second unguarded table fails

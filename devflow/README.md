@@ -8,8 +8,9 @@ issue, #268. "Dev flow" is its name in the nav and in headings, and `devflow` ev
 It is a C# feature on .NET 10, an ASP.NET Core minimal API app, built the way `review/` is. Today it
 is the service, its page, its database, which holds the vault, the code host's interface with its
 fake and its GitHub adapter, which reads as the app, linking a user's GitHub account, so Dev
-flow holds a token that acts as them, and connecting a repository, which makes it a project:
-everything else the tabs will show arrives with later slices.
+flow holds a token that acts as them, connecting a repository, which makes it a project, and
+reading every project about once a minute into a stored list of what waits for the owner, which
+the API answers: everything else the tabs will show arrives with later slices.
 
 ## What it serves
 
@@ -29,6 +30,9 @@ everything else the tabs will show arrives with later slices.
   `GET /devflow/api/projects`, `POST /devflow/api/projects` and
   `DELETE /devflow/api/projects/{id}`, their projects, see "Connecting a repository". Without a
   valid token, `401` with an empty body.
+- `GET /devflow/api/waiting`, what waits for the caller as last read, and
+  `POST /devflow/api/projects/{id}/refresh`, which reads one of their projects now, see "What
+  waits". Without a valid token, `401` with an empty body.
 - `GET /devflow/github/callback`, where the code host sends the browser back, answering `303` to
   `/devflow/projects`, or to `/devflow/projects?link=failed` when it did not link. Without a valid
   token, `303` to the refresh endpoint as a page answers, see "Linking GitHub".
@@ -226,6 +230,10 @@ shared, since no service imports from another's directory.
   - `DEVFLOW_GITHUB_APP_SLUG`: the app's name in its address, `github.com/apps/<slug>`, lowercase
     letters, digits and inner hyphens. It makes `install_url`, where the owner installs the app,
     see "Connecting a repository".
+- `DEVFLOW_POLL_SECONDS`, default `60`: how often the loop reads every project, in whole seconds,
+  ASCII digits alone, from `10` to `86400`, a day; or `0`, which turns the loop off, as the
+  service's own tests do, see "What waits". Empty is unset, so the hosted copy passes it empty when
+  its `.env` leaves it out and the default stands.
 
 The defaults are right on the Mac mini and in CI, so neither sets them, the code host's fake
 included, except the listen address,
@@ -256,8 +264,9 @@ what it holds; what is Dev flow's own is below.
 Its tables are the vault's, `secrets`, from `migrations/0002_secrets.sql`, see "The vault", the
 GitHub link's two, `github_sign_ins` and `github_accounts`, from
 `migrations/0003_github_link.sql`, see "Linking GitHub", and `projects` with `poll_targets`, from
-`migrations/0004_projects.sql`, see "Connecting a repository". `poll_targets` is the one table
-without row level security, which `devflow_app` may only read.
+`migrations/0004_projects.sql`, see "Connecting a repository", and `waiting_items` with
+`project_reads`, from `migrations/0005_waiting_items.sql`, see "What waits". `poll_targets` is the
+one table without row level security, which `devflow_app` may only read.
 
 ### Migrating
 
@@ -279,7 +288,9 @@ usage. On the Mac mini and in CI the manifest's `migrate` runs it; in the hosted
 ### The door
 
 Every query goes through `UserDb.InUserTransaction(userId, work, cancellationToken)`, the shared
-library's door, which sets `devflow.user_id` for that transaction alone. Dev flow registers one
+library's door, which sets `devflow.user_id` for that transaction alone, but one: the loop lists
+`poll_targets` through the door's `WithoutUser`, a transaction on behalf of nobody, to which every
+guarded table is empty, and then reads each project as its user, see "What waits". Dev flow registers one
 `UserDb`, opened at startup in `src/DevFlow/Commands.cs` with the name `devflow`,
 `DevFlowSettings.Service`, as `devflow_app`, so a database it cannot reach, or a wrong password,
 stops Dev flow there, naming `DEVFLOW_APP_DATABASE_URL` and never its password. It opens no
@@ -646,6 +657,63 @@ The two tables, from `migrations/0004_projects.sql`:
   `docs/devflow-architecture.md`, and `IsolationTests.EveryTableIsGuarded` names it as the one
   exception.
 
+## What waits
+
+Dev flow keeps a stored picture of what waits for the owner in every project, and the pages read
+it and never the code host, so they are fast and still answer while GitHub is down. Why it is
+built so is "Reading and the snapshot" in `docs/devflow-architecture.md`. It is `ProjectReader`,
+`ProjectRefresher`, `Poller`, `WaitingStore` and `WaitingEndpoints`, in `src/DevFlow/Reading/`.
+
+**Reading a project.** `ProjectReader.Read(projectId, userId)` reads one project as the app,
+through `ICodeHost`: its open pull requests in one list; then, only for those by the project's
+`bot_login` that carry `owner-merge`, `owner-decision` or `owner-blocked`, their comments, their
+head's statuses and check runs, and the comments of the slice issue their body closes; and passes
+each to `RunnerReader.Read`, with the owner's login from his link in `github_accounts`, whatever
+its state, or none without a link. A conversation, a commit or a slice that is not found is read as
+empty. It then replaces the project's items in one transaction through the door as the user: an
+item still there is updated and keeps its id, one gone is deleted, and the read is recorded as a
+success. A read that fails, because GitHub did not answer, does not show the repository, or
+anything throws, leaves the items as they were and records the time and a fixed phrase, "GitHub
+did not answer", "GitHub does not show this repository" or "Reading failed", never the host's own
+text.
+
+**Asking for a read.** `ProjectRefresher.Request(projectId, userId)` is the one way to ask, and
+answers a task that completes once a read that began after the request is done, whether it
+succeeded or not. A project is read by one reader at a time; requests made while it is read share
+one more read after it. The loop, the refresh route, later slices after an action and a webhook,
+when the platform is reachable, all call it.
+
+**The loop.** `Poller`, a hosted service, lists `poll_targets` as it starts and then every
+`DEVFLOW_POLL_SECONDS`, through the door's `WithoutUser`, the one read outside a user, and requests
+each project as its user. It reads as the app, so it goes on when the owner's link has expired,
+and runs in the fake mode as well. With `DEVFLOW_POLL_SECONDS=0` it does not run.
+
+**The routes**, under the `Api` policy and the origin check:
+
+- `GET /devflow/api/waiting` answers
+  `{"count", "needs_relink", "items": [...], "projects": [{"id", "owner", "name", "last_success_at", "stale", "failing"}]}`.
+  Each item is a stored row with its project's id and repository name: `id`, `project_id`,
+  `project_name`, `number`, `kind`, `waiting` or `stopped`, `sent_back`, `title`, `web_url`,
+  `slice_number`, null when the body closes none, `head_commit`, `can_merge`, `summary`, `reason`,
+  `decisions`, each `{"chosen", "alternative", "why"}`, `other_decisions`, `reviewer_view` and
+  `read_at`, by project and number; what each means is `RunnerItem` in
+  `src/DevFlow/Runner/RunnerItem.cs`, and every text is plain text to show as text. `count` is the
+  items not sent back, plus one when `needs_relink`, the caller's link needing renewal. A project is
+  `stale` when its last success was more than five minutes ago or it was never read, and `failing`
+  when its last read failed.
+- `POST /devflow/api/projects/{id}/refresh` requests the caller's project and answers `204` once it
+  is read, or `202` after ten seconds if it is not, while the read goes on. Whether it failed is in
+  the list. Another user's project, or none, is `404`.
+
+The two tables, from `migrations/0005_waiting_items.sql`, both guarded like every scoped table:
+
+- `waiting_items`: `id`, `user_id`, `project_id` referencing `projects` with `ON DELETE CASCADE`,
+  and the item's fields above, `decisions` and `reviewer_view` as `jsonb` arrays, unique on
+  `(project_id, number)`;
+- `project_reads`: `project_id`, its primary key with the same reference, `user_id`,
+  `last_attempt_at`, `last_success_at`, null before a read succeeds, and `last_error`, the phrase,
+  null after a success.
+
 ## Registering the GitHub App
 
 The owner's runbook, done once on GitHub, under Settings, Developer settings, GitHub Apps, New
@@ -699,8 +767,8 @@ and does three things with it, in `src/DevFlow/DevFlowApp.cs`:
 
 - `AddPlatformAuth` with `DEVFLOW_CORE_URL`, which registers the key cache, the handler and the two
   policies. The pages take `PlatformAuthPolicies.Page`, as do the return from the code host and the
-  fake's sign in page, and `whoami`, `status`, starting a link, unlinking and the fake's addresses
-  take `PlatformAuthPolicies.Api`; health and the built files take neither. A route reads its caller's
+  fake's sign in page, and `whoami`, `status`, starting a link, unlinking, the projects' routes,
+  the waiting list, refreshing a project and the fake's addresses take `PlatformAuthPolicies.Api`; health and the built files take neither. A route reads its caller's
   user id through `Api/Caller.cs`, as review's do.
 - `UsePlatformOriginCheck` with `DEVFLOW_PUBLIC_ORIGIN`, before routing, so every route, one added
   later included, is covered: starting a link, unlinking, and the fake's addresses and its sign in
@@ -729,7 +797,8 @@ in `libs/dotnet/PlatformAuth/README.md`.
 **One web project, not layered projects.** `src/DevFlow/` is the whole service, organised in
 feature folders: `Settings`, `Health` (health and whoami), `Status`, `CodeHost` (the interfaces, their
 records, the fake and, in `GitHub`, the adapter), `Link` (linking GitHub and a usable token), `Vault`,
-`Pages` and `Api` today, more with later slices, as `review/` is.
+`Projects` (connecting a repository), `Reading` (the snapshot, the loop and the waiting list), `Pages` and `Api` today, more with later
+slices, as `review/` is.
 
 **The GitHub adapter is written by hand on .NET's `HttpClient`**, with `System.Text.Json`, and
 signs the app's tokens with .NET's own `RSA`, and signs a person in with the same `HttpClient` and

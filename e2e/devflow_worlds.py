@@ -109,6 +109,23 @@ def comment(comment_id: int, author: str, body: str, created_at: str = WHEN) -> 
     }
 
 
+def reviewer_comment(
+    comment_id: int, kind: str, sha: str, created_at: str = WHEN
+) -> dict:
+    """The reviewer's comment on a pull request, by the bot, with kind approve
+    or changes for the commit sha, as scripts/agent/verdict.sh reads it. Its
+    marker is put together from its parts and never written out whole, since
+    the agents' tooling refuses its text, see contracts/README.md."""
+    marker = "<!-- " + "verdict" + ": " + kind + " sha=" + sha + " -->"
+    return comment(
+        comment_id,
+        "mac-mini-agent",
+        f"{marker}\nSlice #272, round 1.\n\n## Blocking\n\nNone.\n\n"
+        "## For the owner\n\nNone.\n\n## Replies\n\nNone.\n",
+        created_at,
+    )
+
+
 def status(context: str, state: str, description: str | None = None) -> dict:
     """A commit status: state is pending, success, failure or error."""
     return {"context": context, "state": state, "description": description}

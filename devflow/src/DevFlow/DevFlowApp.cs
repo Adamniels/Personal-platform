@@ -7,6 +7,7 @@ using DevFlow.Health;
 using DevFlow.Link;
 using DevFlow.Pages;
 using DevFlow.Projects;
+using DevFlow.Reading;
 using DevFlow.Settings;
 using DevFlow.Status;
 
@@ -78,6 +79,20 @@ public static class DevFlowApp
         // repository" in devflow/README.md.
         builder.Services.AddSingleton(provider => new ProjectStore(
             database, provider.GetRequiredService<UserTokens>(), provider.GetRequiredService<ICodeHost>(), provider.GetRequiredService<TimeProvider>()));
+        // Reading each project into the snapshot the pages read, the one seam that asks for a read,
+        // and the loop that asks for every project's. See "Reading and the snapshot" in
+        // devflow/docs/devflow-architecture.md.
+        builder.Services.AddSingleton(provider => new ProjectReader(
+            database, provider.GetRequiredService<ICodeHost>(), provider.GetRequiredService<TimeProvider>(), provider.GetRequiredService<ILogger<ProjectReader>>()));
+        builder.Services.AddSingleton(provider => new ProjectRefresher(
+            provider.GetRequiredService<ProjectReader>(), provider.GetRequiredService<ILogger<ProjectRefresher>>()));
+        builder.Services.AddSingleton(provider => new WaitingStore(database, provider.GetRequiredService<TimeProvider>()));
+        if (settings.PollInterval is { } interval)
+        {
+            builder.Services.AddHostedService(provider => new Poller(
+                database, provider.GetRequiredService<ProjectRefresher>(), provider.GetRequiredService<TimeProvider>(), interval, provider.GetRequiredService<ILogger<Poller>>()));
+        }
+
         if (settings.ExposeOpenApi)
         {
             builder.Services.AddDevFlowOpenApi();
@@ -96,6 +111,7 @@ public static class DevFlowApp
         app.MapStatus(settings.CodeHost);
         app.MapGitHubLink();
         app.MapProjects(new Uri(settings.PublicOrigin));
+        app.MapWaiting();
         app.MapPages(webRoot);
         if (settings.CodeHost == CodeHostMode.Fake)
         {
