@@ -27,6 +27,10 @@ pub struct Feature {
     /// The name of the icon the nav draws for the feature. The core checks
     /// only its shape: which icons exist is the design's, in design/nav.js.
     pub icon: Option<String>,
+    /// The feature's attention endpoint, under its own prefix, which the nav
+    /// bar asks whether something there needs the person. The core only
+    /// passes it along in `/api/nav` and never calls it.
+    pub attention: Option<String>,
 }
 
 // The file as a whole. Unknown keys are refused here as well as in each
@@ -121,13 +125,15 @@ impl Feature {
                 self.upstream
             ));
         }
-        if let Some(display) = &self.display
-            && !display.starts_with(&format!("{}/", self.prefix))
-        {
-            return Err(format!(
-                "display '{display}' is not under the feature's prefix, {}/",
-                self.prefix
-            ));
+        for (key, endpoint) in [("display", &self.display), ("attention", &self.attention)] {
+            if let Some(endpoint) = endpoint
+                && !endpoint.starts_with(&format!("{}/", self.prefix))
+            {
+                return Err(format!(
+                    "{key} '{endpoint}' is not under the feature's prefix, {}/",
+                    self.prefix
+                ));
+            }
         }
         if let Some(icon) = &self.icon
             && !is_icon(icon)
@@ -221,6 +227,7 @@ mod tests {
                     upstream: "https://desk.internal:9000".into(),
                     display: Some("/desk/api/display".into()),
                     icon: None,
+                    attention: None,
                 },
                 Feature {
                     name: "Canary".into(),
@@ -228,6 +235,48 @@ mod tests {
                     upstream: "http://127.0.0.1:8081".into(),
                     display: None,
                     icon: None,
+                    attention: None,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn a_registry_parses_with_and_without_an_attention_endpoint() {
+        let registry = Registry::parse(
+            r#"
+            [[feature]]
+            name = "Dev flow"
+            prefix = "/devflow"
+            upstream = "http://127.0.0.1:8084"
+            attention = "/devflow/api/attention"
+
+            [[feature]]
+            name = "Canary"
+            prefix = "/canary"
+            upstream = "http://127.0.0.1:8081"
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            registry.features(),
+            [
+                Feature {
+                    name: "Dev flow".into(),
+                    prefix: "/devflow".into(),
+                    upstream: "http://127.0.0.1:8084".into(),
+                    display: None,
+                    icon: None,
+                    attention: Some("/devflow/api/attention".into()),
+                },
+                Feature {
+                    name: "Canary".into(),
+                    prefix: "/canary".into(),
+                    upstream: "http://127.0.0.1:8081".into(),
+                    display: None,
+                    icon: None,
+                    attention: None,
                 },
             ]
         );
@@ -366,6 +415,21 @@ mod tests {
                 "display '/canary'",
             ),
             (
+                "attention outside the prefix",
+                canary_with("", r#"attention = "/desk/api/attention""#),
+                "attention '/desk/api/attention'",
+            ),
+            (
+                "attention sharing the prefix's start",
+                canary_with("", r#"attention = "/canaryfoo/attention""#),
+                "attention '/canaryfoo/attention'",
+            ),
+            (
+                "attention the prefix itself",
+                canary_with("", r#"attention = "/canary""#),
+                "attention '/canary'",
+            ),
+            (
                 "two features sharing a name",
                 two("name = \"Canary\"\nprefix = \"/other\"\nupstream = \"http://127.0.0.1:8082\""),
                 "name 'Canary' is also feature 1's",
@@ -441,6 +505,7 @@ mod tests {
             upstream: "http://127.0.0.1:8082".into(),
             display: None,
             icon: None,
+            attention: None,
         });
         assert_eq!(
             two.summary(),
