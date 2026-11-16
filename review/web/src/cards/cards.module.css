@@ -90,14 +90,8 @@
 	gap: var(--space-2);
 }
 
-/* In a card's row, the form takes the room of the row's cells it stands in
- * for, so its fields are not squeezed into the Front column. */
+/* In a card's row, the form takes the width of the cell it stands in, so it
+ * can never push the table past its frame, hard rule 13. */
 .inRow {
 	padding-block: var(--space-2);
-}
-
-@media (min-width: 640px) {
-	.inRow {
-		min-width: min(40rem, 70vw);
-	}
 }

@@ -304,3 +304,88 @@ def test_the_deck_list_is_a_card_of_inset_rows(
     assert look["padding"] == [card_pad] * 4
 
     assert_inset_rows(page, rows(decks), 2, "Decks")
+
+
+def test_a_picked_topic_is_a_filled_pill(
+    page: Page, invite_code: str, base_url: str, viewport: str
+):
+    open_review(page, invite_code, base_url)
+    add_deck(page, "Compilers")
+    form = open_card_form(page)
+    topics = form.get_by_role("combobox", name="Topics")
+    topics.fill("Scheduling")
+    expect(form.get_by_role("option", name="Create topic Scheduling")).to_be_visible()
+    topics.press("Enter")
+
+    remove = form.get_by_role("button", name="Remove Scheduling")
+    expect(remove).to_be_visible()
+    pick = rows(form.get_by_role("list", name="Picked topics"))
+    expect(pick).to_have_count(1)
+
+    full = resolve(page, "--radius-full", "border-top-left-radius")
+    look = style(pick)
+    assert abs(pick.bounding_box()["height"] - 32) < 0.5
+    assert look["radii"] == [full] * 4
+    assert look["background"] == resolve(page, "--surface-3", "background-color")
+    assert look["borderWidths"] == ["0px"] * 4
+    assert look["color"] == resolve(page, "--text", "color")
+    assert look["fontSize"] == "13px"
+    assert look["padding"][1] == "4px" and look["padding"][3] == "14px"
+
+    # The remove button, a 26px circle inside the pill, with the name it has.
+    box = remove.bounding_box()
+    pill = pick.bounding_box()
+    assert abs(box["width"] - 26) < 0.5 and abs(box["height"] - 26) < 0.5
+    assert style(remove)["radii"] == [full] * 4
+    assert (
+        pill["x"] <= box["x"] and box["x"] + box["width"] <= pill["x"] + pill["width"]
+    )
+    assert (
+        pill["y"] <= box["y"] and box["y"] + box["height"] <= pill["y"] + pill["height"]
+    )
+
+    remove.click()
+    expect(pick).to_have_count(0)
+
+
+def test_the_topic_list_follows_the_field(
+    page: Page, invite_code: str, base_url: str, viewport: str
+):
+    open_review(page, invite_code, base_url)
+    add_deck(page, "Compilers")
+    form = open_card_form(page)
+    form.get_by_role("combobox", name="Topics").fill("Scheduling")
+    listbox = form.get_by_role("listbox", name="Topics")
+    option = listbox.get_by_role("option", name="Create topic Scheduling")
+    expect(option).to_be_visible()
+
+    look = style(listbox)
+    assert look["background"] == resolve(page, "--surface", "background-color")
+    assert look["borderWidths"] == ["1px"] * 4
+    assert look["borderStyles"] == ["solid"] * 4
+    assert look["borderColors"] == [resolve(page, "--border-strong", "color")] * 4
+    radius = resolve(page, "--radius-md", "border-top-left-radius")
+    assert look["radii"] == [radius] * 4
+
+    option_look = style(option)
+    assert option_look["padding"][1] == option_look["padding"][3] == "16px"
+    assert abs(option.bounding_box()["height"] - px(page, "--row-h")) < 0.5
+
+
+def test_editing_a_card_does_not_make_the_table_scroll(
+    page: Page, invite_code: str, base_url: str, viewport: str
+):
+    open_review(page, invite_code, base_url)
+    stage(page)
+    page.goto("/review/cards")
+    table = page.get_by_role("table", name="Cards")
+    table.get_by_role("row").filter(
+        has_text="What does MVCC keep per row?"
+    ).get_by_role("button", name="Edit").click()
+    edit = page.get_by_role("form", name="Edit card")
+    expect(edit.get_by_role("button", name="Remove MVCC")).to_be_visible()
+
+    frame = table.evaluate(FRAME)
+    assert frame is not None, "the table has no frame that scrolls"
+    scroll_width, client_width = frame
+    assert scroll_width <= client_width, f"{scroll_width}px in {client_width}px"
