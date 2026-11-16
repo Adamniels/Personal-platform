@@ -34,6 +34,9 @@ with later slices.
 - `GET /devflow/api/waiting`, what waits for the caller as last read, and
   `POST /devflow/api/projects/{id}/refresh`, which reads one of their projects now, see "What
   waits". Without a valid token, `401` with an empty body.
+- `GET /devflow/api/waiting/{id}/screenshots/{name}`, one of the screenshots a waiting item's pull
+  request shows, as a PNG read from GitHub as the app, see "What waits". Without a valid token,
+  `401` with an empty body.
 - `POST /devflow/api/waiting/{id}/merge` and `POST /devflow/api/waiting/{id}/send-back`, which
   merge a waiting pull request and send one back with a comment, as the caller on GitHub, see
   "Acting from the page". Without a valid token, `401` with an empty body.
@@ -771,13 +774,14 @@ The two tables, from `migrations/0004_projects.sql`:
 Dev flow keeps a stored picture of what waits for the owner in every project, and the pages read
 it and never the code host, so they are fast and still answer while GitHub is down. Why it is
 built so is "Reading and the snapshot" in `docs/devflow-architecture.md`. It is `ProjectReader`,
-`ProjectRefresher`, `Poller`, `WaitingStore` and `WaitingEndpoints`, in `src/DevFlow/Reading/`.
+`ProjectRefresher`, `Poller`, `WaitingStore`, `WaitingEndpoints` and `ScreenshotEndpoints`, in
+`src/DevFlow/Reading/`.
 
 **Reading a project.** `ProjectReader.Read(projectId, userId)` reads one project as the app,
 through `ICodeHost`: its open pull requests in one list; then, only for those by the project's
 `bot_login` that carry `owner-merge`, `owner-decision` or `owner-blocked`, their comments, their
 head's statuses and check runs, and the comments of the slice issue their body closes; and passes
-each to `RunnerReader.Read`, with the owner's login from his link in `github_accounts`, whatever
+each to `RunnerReader.Read`, with the project's repository and the owner's login from his link in `github_accounts`, whatever
 its state, or none without a link. A conversation, a commit or a slice that is not found is read as
 empty. It then replaces the project's items in one transaction through the door as the user: an
 item still there is updated and keeps its id, one gone is deleted, and the read is recorded as a
@@ -813,12 +817,24 @@ and runs in the fake mode as well. With `DEVFLOW_POLL_SECONDS=0` it does not run
 - `POST /devflow/api/projects/{id}/refresh` requests the caller's project and answers `204` once it
   is read, or `202` after ten seconds if it is not, while the read goes on. Whether it failed is in
   the list. Another user's project, or none, is `404`.
+- `GET /devflow/api/waiting/{id}/screenshots/{name}` answers one of the item's screenshots, read
+  when it is asked for and never stored. In order: another user's item, or none, is `404`; a
+  `name` that is not one of the item's stored `screenshots` is `404`, without asking GitHub; then
+  `ICodeHost.File` reads `<number>/<name>.png` on the branch `pr-screenshots` of the item's own
+  repository, as the app, the path built here and never taken from the body. What it finds is
+  served only when it begins with the PNG signature and is at most 5 MB, always as `image/png`,
+  with `Cache-Control: private, max-age=3600`; anything else it finds is `502`, a file not there
+  `404`, and GitHub not answering `503`, with `Retry-After` when GitHub said when. Every answer
+  carries `X-Content-Type-Options: nosniff` and `Content-Security-Policy: default-src 'none'`, and
+  a refusal `Cache-Control: no-store`. Why it is built so is "A code host's bytes handed to the
+  browser" in `docs/devflow-architecture.md`.
 
 The two tables, from `migrations/0005_waiting_items.sql`, both guarded like every scoped table:
 
 - `waiting_items`: `id`, `user_id`, `project_id` referencing `projects` with `ON DELETE CASCADE`,
   and the item's fields above, `decisions` and `reviewer_view` as `jsonb` arrays, unique on
-  `(project_id, number)`;
+  `(project_id, number)`; and `screenshots`, from `migrations/0006_waiting_screenshots.sql`, the
+  names `RunnerReader` accepted from the body, a `jsonb` array of strings, empty by default;
 - `project_reads`: `project_id`, its primary key with the same reference, `user_id`,
   `last_attempt_at`, `last_success_at`, null before a read succeeds, and `last_error`, the phrase,
   null after a success.

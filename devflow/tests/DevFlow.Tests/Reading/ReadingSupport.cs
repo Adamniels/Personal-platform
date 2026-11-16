@@ -291,7 +291,7 @@ internal sealed class CountingCodeHost(ICodeHost inner) : ICodeHost
 
     public Task<CodeHostResult<byte[]>> File(Guid userId, CodeHost.Repository repository, string path, string branch, CancellationToken cancellationToken)
     {
-        Record("File", userId, repository, path);
+        Record("File", userId, repository, $"{path} {branch}");
         return inner.File(userId, repository, path, branch, cancellationToken);
     }
 

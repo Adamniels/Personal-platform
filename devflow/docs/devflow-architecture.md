@@ -337,6 +337,24 @@ its reason, or a risk accepted on purpose; each slice adds the ones it builds.
   link only when it parses as an `https` URL, so no other scheme, `javascript:` among them, can
   run in the page, and it opens with `rel="noreferrer"`, so the page it opens can neither reach
   back into Dev flow's window nor learn its address.
+- **A code host's bytes handed to the browser.** The item's screenshots are the one place Dev
+  flow hands the browser bytes that came from a code host, rather than text it shows as text. The
+  addresses the pull request body embeds need a GitHub session, so the page cannot show them, and
+  Dev flow reads the files as the app, through `ICodeHost.File`, when the page asks,
+  `GET /devflow/api/waiting/{id}/screenshots/{name}`, see "What waits" in `devflow/README.md`. So:
+  the name can only be one the reader already accepted, of lowercase letters, digits and hyphens,
+  for the pull request's own repository and number, and a name the item does not list is refused
+  before the code host is asked; the path, `<number>/<name>.png` on `pr-screenshots`, is built by
+  the server, so a body cannot point the read anywhere else; the content type is fixed,
+  `image/png`, and never taken from the host; the bytes are checked to begin with the PNG
+  signature and to be at most 5 MB; and every answer carries `X-Content-Type-Options: nosniff`
+  and `Content-Security-Policy: default-src 'none'`, so a file that is something else cannot be
+  sniffed as HTML or script, nor run anything if it is opened on its own. The browser keeps a
+  screenshot for an hour, `private`, so no shared cache does. The address in the body is never
+  fetched, shown or made a link. Accepted: the GitHub adapter reads a file's whole answer into
+  memory before the route can refuse one over 5 MB, so a large file on `pr-screenshots` costs a
+  read of it; the branch is written only by the runner's `screenshots.sh`, and GitHub's contents
+  API answers files up to 100 MB.
 - **The program asks GitHub for changes; there is no webhook.** The platform is not reachable from
   the internet, by design, so nothing outside can call it, and opening it to receive webhooks would
   add an exposed endpoint for a convenience polling gives without one. When it is reachable, a
