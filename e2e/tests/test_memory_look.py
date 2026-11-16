@@ -395,6 +395,8 @@ def test_the_frame_and_first_sections_follow_the_look(
 # sub pages, staged through the API the sections use.
 
 DISAGREE = "The brain holds things that disagree"
+# A word too long for a phone's width, so the raw answer has to wrap it.
+LONG_WORD = "https://example.com/" + "a-path-without-any-space-in-it/" * 4
 
 
 def add(page: Page, body: dict) -> dict:
@@ -526,6 +528,17 @@ def stage_decisions(page: Page) -> dict:
     return first
 
 
+def stage_identity(page: Page) -> None:
+    add(
+        page,
+        {"kind": "profile", "category": "identity", "content": "A student in Uppsala"},
+    )
+    add(
+        page,
+        {"kind": "profile", "category": "identity", "content": f"Writes {LONG_WORD}"},
+    )
+
+
 def question(page: Page, name: str) -> Locator:
     """Chooses one of Ask's questions, and returns its panel."""
     panel(page, "Ask").get_by_role("tab", name=name, exact=True).click()
@@ -556,6 +569,13 @@ def open_topic_page(page: Page, slug: str, name: str) -> None:
         panel(page, "Knowledge").get_by_role("heading", name=name, level=2)
     ).to_be_visible()
     expect(panel(page, "Knowledge").get_by_text("Loading…")).to_have_count(0)
+
+
+def open_item_page(page: Page, item: dict) -> None:
+    page.goto(f"/brain/everything/{item['id']}")
+    expect(
+        panel(page, "Everything").get_by_role("heading", name=item["content"], level=2)
+    ).to_be_visible()
 
 
 def card(scope: Locator, title: str) -> Locator:
@@ -600,3 +620,57 @@ def test_conflicts_are_inset_rows_without_lines(
     conflicts = card_rows(card(asked, DISAGREE))
     expect(conflicts).to_have_count(2)
     assert_inset_rows(page, conflicts, "the conflicts")
+
+
+def test_answer_items_and_the_ask_form_have_the_card_padding(
+    page: Page, invite_code: str, base_url: str, viewport: str
+):
+    open_memory(page, invite_code, base_url)
+    stage_identity(page)
+
+    asked = ask_about(page, "Who is this person?", None, None)
+    card_pad = resolve(page, "--card-pad", "padding-top")
+    radius = resolve(page, "--radius-lg", "border-top-left-radius")
+    for where, surface in [
+        ("the item", card(asked, "A student in Uppsala")),
+        ("the form", asked.get_by_role("form", name="Question")),
+    ]:
+        look = style(surface)
+        assert look["padding"] == [card_pad] * 4, where
+        assert look["radii"] == [radius] * 4, where
+
+
+def test_sub_headings_follow_the_type_rules(
+    page: Page, invite_code: str, base_url: str, viewport: str
+):
+    open_memory(page, invite_code, base_url)
+    stage_knowledge(page)
+    decision = stage_decisions(page)
+
+    # A part of an item's page is a section heading.
+    open_item_page(page, decision)
+    part = panel(page, "Everything").get_by_role(
+        "heading", name="Why the brain holds this", level=3
+    )
+    look = style(part)
+    assert look["fontFamily"] == resolve(page, "--font-heading", "font-family")
+    assert look["fontSize"] == resolve(page, "--text-h2-size", "font-size")
+    assert look["lineHeight"] == resolve(page, "--text-h2-line", "line-height")
+    assert look["fontWeight"] == "600"
+    assert look["textTransform"] == "uppercase"
+
+    # A broad topic's group is a section heading; a narrower one under it
+    # is a label.
+    asked = ask_about(page, "What do they know?", "Topic", "Databases")
+    top = style(asked.get_by_role("heading", level=2).first)
+    assert top["fontFamily"] == resolve(page, "--font-heading", "font-family")
+    assert top["textTransform"] == "uppercase"
+    nested = asked.get_by_role("heading", level=3)
+    expect(nested.first).to_be_visible()
+    for heading in nested.all():
+        look = style(heading)
+        assert look["fontFamily"] == resolve(page, "--font-ui", "font-family")
+        assert look["fontSize"] == resolve(page, "--text-label-size", "font-size")
+        assert look["lineHeight"] == resolve(page, "--text-label-line", "line-height")
+        assert look["fontWeight"] == "500"
+        assert look["color"] == resolve(page, "--text-2", "color")
