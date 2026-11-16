@@ -754,11 +754,12 @@ def test_i_send_a_pull_request_back(
 
     poll.get_by_role("button", name="Send back").click()
     poll.get_by_role("textbox", name="Comment").fill(text)
-    # At phone width the fixed tab bar would sit over the box's buttons, so they
-    # are brought to the middle of the screen first, where the shot shows them.
-    poll.get_by_role("button", name="Send", exact=True).evaluate(
-        "button => button.scrollIntoView({ block: 'center' })"
-    )
+    if viewport == "phone":
+        # The fixed tab bar would sit over the box's buttons, so they are
+        # brought to the middle of the screen first, where the shot shows them.
+        poll.get_by_role("button", name="Send", exact=True).evaluate(
+            "button => button.scrollIntoView({ block: 'center' })"
+        )
     capture(page, "devflow-send-back")
     poll.get_by_role("button", name="Send").click()
 
