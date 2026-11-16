@@ -127,3 +127,52 @@
 	outline: var(--focus-ring);
 	outline-offset: var(--focus-offset);
 }
+
+/* The decisions, each on an inset of its own, hard rule 3: a row that holds
+ * more than a label and a value sits on --surface-2. */
+.decisions {
+	display: flex;
+	flex-direction: column;
+	gap: var(--inset-gap);
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.decision {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-1);
+	min-width: 0;
+	padding: var(--space-2) var(--space-3);
+	border-radius: var(--radius-md);
+	background: var(--surface-2);
+}
+
+.chosen {
+	margin: 0;
+	font-weight: 600;
+	overflow-wrap: anywhere;
+}
+
+/* "Instead of" and "Because", quieter than what follows them. */
+.prefix {
+	color: var(--text-2);
+	font-weight: 500;
+}
+
+.more {
+	margin: 0;
+	color: var(--text-2);
+	font-size: var(--text-small-size);
+	line-height: var(--text-small-line);
+}
+
+/* The reviewer's points, a plain list. */
+.points {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-1);
+	margin: 0;
+	padding-left: var(--space-5);
+}

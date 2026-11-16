@@ -305,7 +305,7 @@ describe("decisions, the reviewer's view and the reasons", () => {
 
 		const vault = await card("The vault");
 		expect(vault.getByText("and 2 more it did not need you for")).toBeTruthy();
-		expect(vault.getAllByRole("button")).toHaveLength(0);
+		expect(vault.queryAllByRole("button")).toHaveLength(0);
 	});
 
 	test("without a reviewer's view, there is no reviewer block", async () => {
