@@ -528,12 +528,13 @@ at boot, which is a distributed systems problem that does not otherwise exist he
 
 Four fields per feature are enough to build against: display name, path prefix, upstream address,
 and the display endpoint if it has one. A fifth, optional, names the feature's icon in the nav, since
-a rail item shows only its icon. The fuller manifest, a read API version, the entity types
+a rail item shows only its icon, and a sixth, optional, its attention endpoint, which the nav bar
+asks for the dot on the feature's link. The fuller manifest, a read API version, the entity types
 a feature exposes, the scopes it requests, has no consumer yet. It belongs to the brain and to a
 platform with several features, and writing it before either exists would be guessing.
 
 The file is `infra/features.toml`, one `[[feature]]` table per feature in the order they appear,
-with the keys `name`, `prefix`, `upstream` and the optional `display` and `icon`. The comment at its top
+with the keys `name`, `prefix`, `upstream` and the optional `display`, `icon` and `attention`. The comment at its top
 gives the rule for each; the core checks them, along with unique names and prefixes, and refuses
 an unknown key, so a typo cannot silently drop a setting. The core reads the file from
 `CORE_FEATURE_REGISTRY`, which is unset everywhere today and then means `../infra/features.toml`,
@@ -541,7 +542,10 @@ relative to `Core/`, where the core runs. A file it cannot read or parse stops i
 the path and the reason rather than starting without its features, and it prints the features it
 found. The core checks only the shape of `icon`, lowercase letters, digits and hyphens, and passes it
 in `/api/nav`: which icons exist is the design's, in `design/nav.js`, so the core never learns
-their names. The rules and the loading are in `src/registry.rs`.
+their names. `attention`, like `display`, must be a path under the feature's own prefix, and the
+core passes it in `/api/nav` as `attention_url` and never calls it: the nav bar asks it from the
+browser, see "The attention endpoint" in `High-level/docs/feature-contract.md`. The rules and the
+loading are in `src/registry.rs`.
 
 The cost is that adding or disabling a feature needs a restart, which is consistent with the core
 changing as features arrive being the workflow rather than a smell.
@@ -617,7 +621,9 @@ coherent rather than a patchwork, and what keeps the endpoint useful to anything
 want to read it later.
 
 Nothing is required. A feature with nothing worth showing exposes nothing, and the registry
-records which features have one and where.
+records which features have one and where. Whether something in a feature needs the person, the
+dot on its link in the nav, is a different endpoint that the browser asks and the core never
+calls, see "The attention endpoint" in `High-level/docs/feature-contract.md`.
 
 **There is no shared display shape, and there is not going to be one.** Each feature exposes
 whatever its own data naturally is, and the core gets rendering written for that feature

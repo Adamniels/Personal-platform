@@ -269,11 +269,11 @@ The proxy serves the script with the rest of `design/`, and the core serves the 
 
 ```
 GET /design/nav.js  ->  defines <platform-nav>, which fetches /api/nav and renders
-GET /api/nav        ->  { "features": [ {"name": "Wiki", "path": "/wiki", "icon": "book-open"} ], "user": {"email": "..."} }
+GET /api/nav        ->  { "features": [ {"name": "Wiki", "path": "/wiki", "icon": "book-open", "attention_url": "/wiki/api/attention"} ], "user": {"email": "..."} }
 ```
 
 `/api/nav` lists the features in registry order, each by its display name, its prefix and, when
-its registry entry names one, its `icon`, and the logged in account's email; the account id is not in it. It needs a valid access token and answers
+its registry entry names them, its `icon` and its `attention_url`, and the logged in account's email; the account id is not in it. It needs a valid access token and answers
 anything else with 401 and an empty body, never a redirect, since a script cannot follow one.
 `/design/nav.js`, with `theme.js` and `page.css` beside it, is a plain file the proxy serves like
 the rest of the design folder, revalidated on every load, see "The design folder" in
@@ -318,9 +318,27 @@ out", to its logout page `/auth/logout`: links rather than forms, so the bar sti
 links, and both work from every feature's page without any of them changing. On phone the rail
 goes: the top bar gains the mark, the pill shows the letter alone, the theme toggle moves into its
 menu, and the links move to a tab bar at the bottom, where past five the first four show and More
-holds the rest. A link whose entry carries `attention: true` gets the dot that marks something
-needing the person; the core sends no such field yet. How each of these looks is section 3 of
-`design/DESIGN.md`.
+holds the rest. How each of these looks is section 3 of `design/DESIGN.md`.
+
+**The attention dot.** A feature's link gets the dot that marks something needing the person,
+with the words ", needs you" added to its name for a screen reader, while the feature says so. The
+bar draws its links from `/api/nav` first, and only then, for each entry with an `attention_url`
+that is a path under the feature's own, asks it with `credentials: "same-origin"` and
+`redirect: "error"`, without waiting on one to ask another, and adds the dot when the answer is
+`{"attention": true}`. Any failure, a status other than `200`, a redirect, a body that is not
+exactly that shape, or no answer within 5 seconds, is no dot and nothing shown. An answer is
+remembered per address in `sessionStorage`, under `platform-nav-attention:<path>` with when it was
+asked, and used without asking again for 60 seconds, so moving between pages does not ask every
+feature on every load. `sessionStorage` rather than `localStorage`, so it ends with the tab and
+another account on the same browser never sees it; a failure is not remembered, so the next page
+asks again. A page that has just changed what needs the person dispatches a
+`platform-nav-attention` event on `window`, and the bar forgets what it remembered and asks each
+address again, so the dot follows what the person did: Dev flow's page does after a merge and
+after sending back. An answer that arrives changes only the links it is about, in place, so an
+open menu or the focus is not lost under the person. Otherwise the dot updates when a page loads,
+at most a minute late; nothing pushes a change to an open page. The contract a feature answers, and
+why the browser asks and not the core, is "The attention endpoint" in
+`High-level/docs/feature-contract.md`.
 
 `current` names what the page is: `home` on the core's front page, `brain` in the memory centre,
 otherwise the feature's prefix without the slash. The matching link is marked `aria-current="page"`, and changing the attribute
@@ -334,7 +352,8 @@ session. The core's own pages use it
 too, see "The core's frontend" in `Core/docs/core-architecture.md`, and leave it off the login and
 registration pages, where nobody is logged in.
 
-The theme is the one piece of state the bar keeps, and it is the person's, not the platform's: the
+The theme is the one piece of state the bar keeps for good, and it is the person's, not the
+platform's; the attention answers above are kept only for a minute and only in the tab. The
 toggle writes `light` or `dark` to `localStorage["platform-theme"]` and sets `data-theme` on the
 root, which `tokens.css` reads. With nothing stored, the system setting applies.
 
@@ -352,7 +371,10 @@ same work as hardcoding one, except the mechanism is in place. Listing features,
 are, and anything later all land by editing one script, or the core's endpoint, once.
 
 **The rule that keeps it cheap: the nav renders and links, and does nothing else.** No shared
-state beyond the theme a person picked, no auth helpers, no component library riding along. That is what makes pulling a feature
+state beyond the theme a person picked and the attention answers it keeps for a minute, no auth
+helpers, no component library riding along. Asking a feature's attention address is reading one
+more thing to render, with the session the browser already holds; it never refreshes the session
+or redirects, and a failure only leaves the dot off. That is what makes pulling a feature
 out later mean deleting two lines rather than unpicking a design system, and it is the failure
 mode a shared package tends toward on its own.
 
