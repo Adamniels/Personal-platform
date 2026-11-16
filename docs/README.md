@@ -114,10 +114,11 @@ features" in `High-level/docs/platform-architecture.md`.
   run it and its tests, its settings, its database and roles, migrating, the door, the vault that
   seals a user's secrets and its key, the code host's interface, its fake and how a test stages a
   world in it, linking a user's GitHub account and the one way to a token that acts as them,
-  registering the GitHub App, how it authenticates a request with `PlatformAuth`, and the
+  connecting a repository with its routes and tables, registering the GitHub App, how it authenticates a request with `PlatformAuth`, and the
   libraries it is built on
 - `devflow/docs/devflow-architecture.md` — what Dev flow is, what of it exists, the code host seam
-  and why its fake sits there, acting as the owner on GitHub, reading this repository's runner and the conventions it knows, and
+  and why its fake sits there, acting as the owner on GitHub, projects and how a loop learns whose
+  they are, reading this repository's runner and the conventions it knows, and
   its security decisions and accepted risks, kept for an audit, the vault's and the fake's among
   them
 - `docs/superpowers/specs/2026-11-14-development-flow-design.md` — the design of the whole

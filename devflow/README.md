@@ -7,9 +7,9 @@ issue, #268. "Dev flow" is its name in the nav and in headings, and `devflow` ev
 
 It is a C# feature on .NET 10, an ASP.NET Core minimal API app, built the way `review/` is. Today it
 is the service, its page, its database, which holds the vault, the code host's interface with its
-fake and its GitHub adapter, which reads as the app, and linking a user's GitHub account, so Dev
-flow holds a token that acts as them: the other tables and everything the tabs will show arrive
-with later slices.
+fake and its GitHub adapter, which reads as the app, linking a user's GitHub account, so Dev
+flow holds a token that acts as them, and connecting a repository, which makes it a project:
+everything else the tabs will show arrives with later slices.
 
 ## What it serves
 
@@ -25,11 +25,16 @@ with later slices.
 - `POST /devflow/api/github/link`, `{"authorize_url": "..."}`, starts linking the caller's GitHub
   account, and `DELETE /devflow/api/github/link`, `204`, unlinks it. Without a valid token, `401`
   with an empty body.
+- `GET /devflow/api/github/repositories`, what the caller can connect, and
+  `GET /devflow/api/projects`, `POST /devflow/api/projects` and
+  `DELETE /devflow/api/projects/{id}`, their projects, see "Connecting a repository". Without a
+  valid token, `401` with an empty body.
 - `GET /devflow/github/callback`, where the code host sends the browser back, answering `303` to
   `/devflow/projects`, or to `/devflow/projects?link=failed` when it did not link. Without a valid
   token, `303` to the refresh endpoint as a page answers, see "Linking GitHub".
 - In the fake mode only, the fake's addresses under `/devflow/api/fake/`, see "Staging a world",
-  and its sign in page, `/devflow/fake-github/authorize`, see "The fake".
+  its sign in page, `/devflow/fake-github/authorize`, and its install page,
+  `/devflow/fake-github/install`, see "The fake".
 - `GET /devflow` and `/devflow/projects`, with any query, the page: `web/dist/index.html`,
   revalidated on every load. Without a valid token each answers `303` to
   `/auth/refresh?return_to=<the path and query as received, URL encoded>`.
@@ -76,7 +81,20 @@ to merge and comment as yourself." and a primary "Link GitHub", which posts to
 `?link=failed`, or when starting fails, it says "GitHub was not linked. Try again." as an alert.
 Before the status answers it shows nothing.
 
-Each section shows the package's `EmptyState` until its slice lands. "Running now" and "Usage and
+Under the link are the projects, `src/projects.tsx`. A primary "Connect a repository", enabled only
+while GitHub is linked, opens "Choose a repository": the repositories the app reaches for the
+owner, read from `GET /devflow/api/github/repositories`, as one package `Table` per account, named
+and headed by it, each repository a row with "Connect", or a `Badge` "Connected" when it is a
+project already; with the app installed nowhere he can reach, "The GitHub App is not installed on
+any repository you can reach." with a link "Install it on GitHub" to the answer's `install_url`.
+Connecting closes it and reads the projects again. The projects are a `Table` named "Projects",
+each row "<owner>/<name>" over "Read the way this repository's runner writes." with a ghost
+"Disconnect" behind a destructive `Dialog`, "Disconnect <owner>/<name>?", which says Dev flow
+forgets the project and everything it read for it and that nothing changes on GitHub; with none,
+and the choice closed, the `EmptyState` "No project connected yet". A read, a connect or a
+disconnect that fails says so as an alert. A project has no page of its own yet.
+
+Waiting for you shows the package's `EmptyState` until its slice lands. "Running now" and "Usage and
 history" join with the parts that build them, never as empty tabs. The address is the state,
 through the History API and no router library (`src/address.ts`): a tab pushes its section's
 address, Back and Forward come back as `popstate`, and an address that names no section shows a
@@ -88,8 +106,8 @@ the session cookie, a `401` is refreshed once, shared by every call that got one
 `/auth/refresh` and repeating the call, and a second `401` sends the browser to
 `/auth/refresh?return_to=<path>`, as review's client does. Its GETs are typed from
 `src/api/schema.d.ts`. The page reads the status once as it loads, in `src/status.ts`, for the
-banner and the link, and again after unlinking; starting a link and unlinking are its only other
-calls.
+banner and the link, and again after unlinking; its other calls are starting a link, unlinking,
+and the projects' four, which `src/app.tsx` gives the tab, so a test gives its own.
 
 ## The schema
 
@@ -234,9 +252,11 @@ what it holds; what is Dev flow's own is below.
   `DELETE` on every table the owner creates and `USAGE` on every sequence, never `TRUNCATE`, and
   takes `CREATE` on `public` from everyone but its owner, as review's first migration does.
 
-Its tables are the vault's, `secrets`, from `migrations/0002_secrets.sql`, see "The vault", and
-the GitHub link's two, `github_sign_ins` and `github_accounts`, from
-`migrations/0003_github_link.sql`, see "Linking GitHub".
+Its tables are the vault's, `secrets`, from `migrations/0002_secrets.sql`, see "The vault", the
+GitHub link's two, `github_sign_ins` and `github_accounts`, from
+`migrations/0003_github_link.sql`, see "Linking GitHub", and `projects` with `poll_targets`, from
+`migrations/0004_projects.sql`, see "Connecting a repository". `poll_targets` is the one table
+without row level security, which `devflow_app` may only read.
 
 ### Migrating
 
@@ -337,7 +357,16 @@ does. Its read side, all this part needs so far:
 - `Statuses(user, repository, commit)`: each context with its state and description;
 - `CheckRuns(user, repository, commit)`: each name with its status, conclusion and the slug of the
   app that made it;
-- `File(user, repository, path, branch)`: the bytes.
+- `File(user, repository, path, branch)`: the bytes;
+- `Installations(user, userToken)`: the installations of the app the person whose token it is can
+  reach, each with its id and the login of the account it is on;
+- `Repositories(user, userToken, installation)`: the repositories of one of them the person can
+  reach, each a `Repository`; not found for an installation they cannot reach;
+- `InstallAddress(origin)`: where a person installs the app, GitHub's page for it, or the fake's
+  own under the platform's origin.
+
+The two that take a user's token read as that person, never as the app, so what they list is what
+the person may connect; the token comes from `UserTokens.For`, see "Linking GitHub".
 
 A `Repository` is the installation it was reached through and its id, which identify it, with its
 owner and name carried for display and for GitHub's addresses, which name a repository by them; the
@@ -346,8 +375,8 @@ another repository read. Every operation takes the platform account it is asked 
 the fake keeps a world per account, and the GitHub adapter reads as the app and will write as the
 account's linked user. Each answers a `CodeHostResult<T>`: `Found` with the value, `NotFound`, or
 `Unavailable` with when to try again if the host said, and the caller handles all three; nothing is
-thrown for an expected condition. Later slices add listing what a user can connect, merging and
-commenting, each to the interface, the fake and the adapter together.
+thrown for an expected condition. Later slices add merging and commenting, each to the interface,
+the fake and the adapter together.
 
 Signing a person in is a second interface beside it in the same folder, `ICodeHostSignIn`, which
 both implementations implement, since its reads are as the app and these are as a person:
@@ -384,6 +413,13 @@ can only read and what it does with GitHub's failures are "GitHub" in
 | `Statuses` | `GET /repos/{owner}/{repo}/commits/{sha}/statuses?per_page=100`, the first of each context, which is its latest |
 | `CheckRuns` | `GET /repos/{owner}/{repo}/commits/{sha}/check-runs?per_page=100` |
 | `File` | `GET /repos/{owner}/{repo}/contents/{path}?ref={branch}`, with `Accept: application/vnd.github.raw+json` |
+| `Installations` | `GET /user/installations?per_page=100`, with the user's token, each installation's `id` and its account's `login`, or an enterprise's `slug` |
+| `Repositories` | `GET /user/installations/{id}/repositories?per_page=100`, with the user's token |
+| `InstallAddress` | `https://github.com/apps/<DEVFLOW_GITHUB_APP_SLUG>/installations/new`, on GitHub's site |
+
+The two read with the user's token follow every page as the others do, and nothing of them is
+remembered for a conditional request, since an answer read with one person's token is never one to
+give another.
 
 Signing a person in, in `GitHubCodeHost.SignIn.cs`, is GitHub's web flow exactly as GitHub
 documents it:
@@ -429,6 +465,7 @@ records, so staging something is writing what the interface would answer:
   "installations": [
     {
       "id": 1,
+      "account": "Adamniels",
       "repositories": [
         {
           "id": 1001, "owner": "Adamniels", "name": "Personal-platform",
@@ -459,7 +496,8 @@ It is read strictly, by `FakeJson` in `src/DevFlow/CodeHost/FakeWorld.cs`: every
 `user`, null only where the record allows it, no field the records do not have, numbers as numbers, and states
 as their snake case words, `open`, `in_progress`, `timed_out`. What identifies a thing is listed
 once: an installation's id, a repository's id within it, a pull request's or a conversation's
-number, a commit's id, and a file's path and branch. A pull request's number reaches its
+number, a commit's id, and a file's path and branch. An installation's `account` is the login of
+the account it is on, which the list to choose from groups by. A pull request's number reaches its
 conversation, empty unless one is listed; a commit that is not listed is not found.
 
 The fake signs a person in too, in `FakeCodeHost.SignIn.cs`, per account and apart from its world,
@@ -473,6 +511,13 @@ sends it only to a registered one. Its codes last ten minutes and are taken once
 challenge, and a verifier the challenge was not made from is refused. Its tokens are random and
 last as long as GitHub's, eight hours and six months, and a refresh token is taken once, so a test
 of renewal means something. With the account set unavailable, signing in is unavailable too.
+
+Listing what a person can connect reads the world's installations and their repositories, and
+only with the account's current access token from its sign in, as GitHub takes only the person's
+own: another token, or one that has expired, is unavailable, as the adapter answers GitHub's `401`.
+Its install page, `GET /devflow/fake-github/install`, mapped only in the fake mode and under the
+`Page` policy, is a plain "Fake GitHub" page that installs nothing and says a test stages
+installations in its world.
 
 ### Staging a world
 
@@ -545,6 +590,61 @@ address's query and so the return's code and state, is raised to `Warning` in `D
 and `LinkTests.NothingPrintsACodeAVerifierAStateOrAToken` reads every log line of a whole link and
 a renewal for each of them.
 
+## Connecting a repository
+
+A project is one connected repository with its settings, and in this part it has almost none:
+every project is read the way this repository's runner writes, and one without the runner's
+labels shows nothing waiting. What it is for is "Projects" in `docs/devflow-architecture.md`.
+
+**As the owner does it.** On the Projects tab, with GitHub linked, press "Connect a repository",
+find the repository under the account it is on, and press "Connect": it is listed under the
+tab's projects from then on. A repository that is not listed is one the app is not installed on,
+or one the GitHub account linked cannot reach: install the app on it, through "Install it on
+GitHub" or the app's page, see "Registering the GitHub App", and press "Connect a repository"
+again. "Disconnect" removes the project and everything Dev flow read for it, after asking, and
+changes nothing on GitHub.
+
+It is `ProjectStore` and `ProjectEndpoints`, in `src/DevFlow/Projects/`, under the `Api` policy
+and the origin check:
+
+- `GET /devflow/api/github/repositories` answers
+  `{"installations": [{"id", "account", "repositories": [{"id", "owner", "name", "connected"}]}], "install_url": "..."}`:
+  every installation the caller's GitHub account can reach, read as them, sorted by account, its
+  repositories by owner and name, each saying whether it is already one of their projects, and
+  where to install the app. An installation gone between the two reads is left out.
+- `POST /devflow/api/projects` with `{"installation_id", "repository_id"}` asks the code host, as
+  the caller, for that installation's repositories, and only when the id is among them stores the
+  project, with the owner and name the code host gave and never the request's, answering `201` with
+  `{"id", "installation_id", "repository_id", "owner", "name", "created_at"}`. A repository it does
+  not list there, or an installation the caller cannot reach, is `404`; one already a project of
+  theirs is `409`; a field missing or not a positive number is `422` naming it. Nothing is stored
+  for any of them.
+- `GET /devflow/api/projects` answers `{"projects": [...]}`, each as above, by owner and name.
+- `DELETE /devflow/api/projects/{id}` answers `204`, or `404` for a project the caller does not
+  have, another user's among them.
+
+The first two need a linked account: without one each is `409`, a problem document titled "GitHub
+is not linked", and with a link GitHub stopped taking, "Your GitHub link has expired". When GitHub
+does not answer, either is `503`, "GitHub did not answer", with `Retry-After` when GitHub said when
+to try again. Listing projects and disconnecting need no link.
+
+The two tables, from `migrations/0004_projects.sql`:
+
+- `projects`, guarded like every scoped table: `id` its primary key, `user_id`, `code_host`, always
+  `github`, `installation_id`, `repository_id`, `owner`, `name`, `bot_login`, the login whose pull
+  requests the runner's reader looks at, `mac-mini-agent` by default and changed from no page yet,
+  and `created_at`, unique on `(user_id, repository_id)`. Two users may connect the same
+  repository, each as their own project. Everything later slices store for a project references
+  its id with `ON DELETE CASCADE`, so disconnecting removes it.
+- `poll_targets`: `project_id`, its primary key, and `user_id`, nothing else, and **no** row level
+  security, so a loop with no logged in user can learn which projects exist and whose they are, and
+  then works through the door as each one's user. A trigger on `projects`, with a
+  `SECURITY DEFINER` function, `sync_poll_target`, owned by `devflow_owner`, adds a row after an
+  insert, removes it after a delete and follows a changed id, so no code path can forget;
+  `devflow_app` may only `SELECT` it. Why it is safe is "Security decisions and accepted risks" in
+  `docs/devflow-architecture.md`, and `IsolationTests.EveryTableIsGuarded` names it as the one
+  exception.
+
 ## Registering the GitHub App
 
 The owner's runbook, done once on GitHub, under Settings, Developer settings, GitHub Apps, New
@@ -579,7 +679,8 @@ Then, on the app's page:
 3. **Install App**, on the repositories Dev flow is to read, only those.
 4. **Try the link on the laptop first.** Start Dev flow there with `DEVFLOW_CODE_HOST=github`, a
    `DEVFLOW_VAULT_KEY` made as "The vault" says, and the app's four settings, open the Projects
-   tab, press "Link GitHub", authorize on GitHub, and see "Linked as @<your login>". Then release
+   tab, press "Link GitHub", authorize on GitHub, and see "Linked as @<your login>"; then press
+   "Connect a repository" and see the repositories you installed it on. Then release
    the hosted copy, see `infra/hosted/README.md`.
 
 **Revoking.** Unlinking forgets the tokens in Dev flow and revokes nothing. To end what GitHub

@@ -25,26 +25,26 @@ The service, `devflow/`, a C# minimal API app like `review/`, and its page, `dev
 two tabs, "Waiting for you" at `/devflow` and "Projects" at `/devflow/projects`, each still empty.
 It answers through the proxy under `/devflow` in the dev stack and in the hosted copy, verifies the
 core's token itself through `PlatformAuth`, and has a database of its own, `devflow`, migrated by
-its `migrate` command. Its tables are the vault's, `secrets`, which seals a secret for a user, and
-the GitHub link's, see "Acting as the owner" below. Everything it will ask of a code host goes
+its `migrate` command. Its tables are the vault's, `secrets`, which seals a secret for a user,
+the GitHub link's, see "Acting as the owner" below, and the projects', see "Projects" below. Everything it will ask of a code host goes
 through one interface, with an in memory fake behind it and a GitHub adapter that reads as the app,
 see "The code host seam" and "GitHub" below. On the Projects tab the owner links his GitHub
 account, and Dev flow then holds a token that acts as him, sealed in the vault and renewed by
-itself. What it serves, its settings, its database, the vault, the code host and how it
+itself; with it he connects a repository the app is installed on, which makes it a project. What it serves, its settings, its database, the vault, the code host and how it
 authenticates are in `devflow/README.md`. Whether a pull request waits for the owner, and why, is
 read by one pure function that knows this repository's runner, see "Reading this repository's
 runner" below.
 
-Nothing uses the owner's token yet, and nothing calls the adapter's reads or that reader yet:
-connecting a repository, the poll that reads GitHub, merging and commenting as the owner, and
-everything the tabs will show arrive with the later slices of the first part.
+Only connecting uses the owner's token yet, and nothing calls the adapter's reads of a repository
+or that reader yet: the poll that reads GitHub, merging and commenting as the owner, and
+everything else the tabs will show arrive with the later slices of the first part.
 
 ## The code host seam
 
 Everything Dev flow asks of a code host goes through `ICodeHost`, in `src/DevFlow/CodeHost/`:
 today the reads the waiting list needs, open pull requests, one pull request, a conversation's
-comments, a commit's statuses and check runs, and a file on a branch; later, listing what a user
-can connect, merging and commenting. Signing a person in is a second interface beside it,
+comments, a commit's statuses and check runs, and a file on a branch, and listing what a person
+can connect, read with their own token; later, merging and commenting. Signing a person in is a second interface beside it,
 `ICodeHostSignIn`, since its reads are as the app and signing in is as a person; both
 implementations implement both. It names things as the spec does, so a second
 host can sit behind it, and GitHub is the only one built. Every operation answers its value or one
@@ -109,8 +109,10 @@ time. Nothing is retried inside the adapter: its caller is a loop that comes bac
 
 **Who may read what is the caller's to decide.** The adapter reads as the app, so any repository
 the app is installed on can be read through it, whatever platform account asks. Which account may
-ask about which repository is decided by the callers the next slices add, from the repositories
-that account connected, which the database keeps per account under row level security.
+ask about which repository is decided by the callers, from the repositories that account
+connected, its `projects`, which the database keeps per account under row level security; and an
+account connects only what GitHub, asked as its linked person, lists for them, see "Projects"
+below.
 
 ## Acting as the owner
 
@@ -138,6 +140,35 @@ the page asks the owner to link again; GitHub not answering ends nothing.
 **One GitHub account per platform user.** The link is a row per user, under row level security
 like every table, and its tokens are sealed in the vault under that user, so one user's token is
 never reachable as another's.
+
+## Projects
+
+A project is one connected repository with its settings, as the spec defines it. In this part it
+has almost none: every project is read the way this repository's runner writes, through the
+reader below, and `bot_login` names the login whose pull requests that reader looks at, this
+repository's bot by default and a column without a page. The settings and presets of the spec
+are part 5. How the owner connects one, the routes and the tables are "Connecting a repository"
+in `devflow/README.md`.
+
+**A person connects only what GitHub lists for them.** The repositories to choose from are read as
+the person, with their user token, `GET /user/installations` and each installation's
+repositories, never as the app: the app may be installed where the person cannot reach, and the
+list must be theirs. Connecting asks GitHub again, as them, and stores the repository only when
+it is among those of that installation, with the owner and name GitHub gave, so a request cannot
+name a repository the person cannot reach, or give one a name of its choosing. Nothing assumes one
+installation: the owner's own account and each organisation he installs the app on are one each.
+
+**Every project belongs to one user**, under row level security like every table, and two users
+connecting the same repository have a project each. Disconnecting deletes the project and,
+through each later table's foreign key with `ON DELETE CASCADE`, everything stored for it; it
+changes nothing on GitHub, where the app stays installed until the owner removes it.
+
+**The loop that watches GitHub learns from `poll_targets` which projects exist and whose they
+are**, as "Who a worker and the program's own loop act as" in the spec has it: a loop has no
+logged in user, so it reads the one table without row level security, which holds a project's id
+and its user and nothing else, and then does all its work through the door as that user. A
+trigger on `projects` keeps it, so no code path can forget. The loop arrives with a later slice;
+why the table is safe is in the section below.
 
 ## Reading this repository's runner
 
@@ -253,6 +284,18 @@ its reason, or a risk accepted on purpose; each slice adds the ones it builds.
   Settings, Applications, Authorized GitHub Apps, which "Registering the GitHub App" in
   `devflow/README.md` says. Revoking it from Dev flow would need the client secret sent to delete
   the grant, and adds nothing while Dev flow is the only holder of the tokens.
+- **The polling targets are the one table without row level security.** `poll_targets` tells a
+  background loop, which has no logged in user, which projects exist and whose they are, so it
+  can then work through the door as each one's user. It holds a project's id and its user id and
+  nothing else: no name, no repository, no token, so all it says about another user is that they
+  have a project. `devflow_app` may only read it; the migration revokes `INSERT`, `UPDATE` and
+  `DELETE`, and only a trigger on `projects` writes it, through a `SECURITY DEFINER` function owned
+  by `devflow_owner` with its `search_path` fixed. The alternative, decided against with the owner,
+  was a second database role for the loop that bypasses row level security: less to build, but a
+  bug in the loop could then read or write across users. `IsolationTests.EveryTableIsGuarded`
+  passes the shared check `["poll_targets"]` and nothing else, so a second unguarded table fails
+  it, and `PollTargetTests` keeps the table's two columns, the app role's read only access and the
+  trigger.
 - **The app is registered for one account.** "Only on this account" means only the owner's account
   can install it. Installing it on an organisation needs it opened to any account first, and then
   any stranger could install it on their own repositories too; that gains them nothing, since
