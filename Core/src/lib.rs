@@ -414,9 +414,20 @@ mod tests {
             ],
         });
 
-        assert!(body.contains(r#"<a href="/review">Review</a>"#), "{body}");
+        // The header: the title as plain text, and the arrow link that
+        // opens review where the title used to.
         assert!(
-            body.contains(r#"<span class="count">12</span> due now"#),
+            body.contains(
+                r#"<header><h2>Review</h2><a class="open" href="/review" aria-label="Open Review">"#
+            ),
+            "{body}"
+        );
+        assert!(!body.contains(r#"<a href="/review">Review</a>"#), "{body}");
+        // The key fact: the count, then its words beside it.
+        assert!(
+            body.contains(
+                r#"<p class="key-fact"><span class="count">12</span> <span class="words">due now</span></p>"#
+            ),
             "{body}"
         );
         assert!(body.contains("6 more later today"), "{body}");
@@ -449,7 +460,7 @@ mod tests {
             decks: vec![deck("Rust", 3)],
         });
         assert!(
-            body.contains(r#"<span class="count">3</span> due now"#),
+            body.contains(r#"<span class="count">3</span> <span class="words">due now</span>"#),
             "{body}"
         );
         assert!(!body.contains("later today"), "{body}");
@@ -464,7 +475,18 @@ mod tests {
             decks: vec![],
         });
 
-        assert!(body.contains("Nothing due"), "{body}");
+        // Nothing due is one line with no number, under the same header.
+        assert!(
+            body.contains(
+                r#"<header><h2>Review</h2><a class="open" href="/review" aria-label="Open Review">"#
+            ),
+            "{body}"
+        );
+        assert!(
+            body.contains(r#"<p class="key-fact">Nothing due</p>"#),
+            "{body}"
+        );
+        assert!(!body.contains(r#"class="count""#), "{body}");
         assert!(body.contains("Next in 3 hours"), "{body}");
         assert!(!body.contains("due now"), "{body}");
         assert!(!body.contains("Start review"), "{body}");

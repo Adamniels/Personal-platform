@@ -65,6 +65,9 @@ STYLE = """element => {
         boxShadow: style.boxShadow,
         textAlign: style.textAlign,
         maxWidth: style.maxWidth,
+        gap: style.rowGap,
+        textTransform: style.textTransform,
+        lineHeight: style.lineHeight,
     };
 }"""
 
@@ -226,10 +229,37 @@ def test_the_home_page_cards_follow_the_card_rule(
     )
     expect(card).to_have_count(1)
     assert_card_frame(page, card)
-    assert style(card)["padding"] == [resolve(page, "--space-4", "padding-top")] * 4
-    title = style(card.get_by_role("heading", level=2))
-    assert first_family(title["fontFamily"]) == "Barlow Condensed"
-    assert title["fontSize"] == resolve(page, "--text-h2-size", "font-size")
+    look = style(card)
+    assert look["padding"] == [resolve(page, "--card-pad", "padding-top")] * 4
+    assert look["gap"] == resolve(page, "--space-4", "row-gap")
+
+    # The title is the card's label: plain text in the UI font, not a link.
+    heading = card.get_by_role("heading", level=2)
+    title = style(heading)
+    assert first_family(title["fontFamily"]) == "Inter"
+    assert title["fontSize"] == resolve(page, "--text-label-size", "font-size")
+    assert title["fontWeight"] == "500"
+    assert title["color"] == resolve(page, "--text-2", "color")
+    assert title["textTransform"] == "none"
+    expect(heading.get_by_role("link")).to_have_count(0)
+
+    # On its right, the arrow link that opens the feature: a 36px circle.
+    arrow = card.get_by_role("link", name="Open Canary", exact=True)
+    expect(arrow).to_have_attribute("href", "/canary")
+    look = style(arrow)
+    assert look["height"] == 36
+    assert arrow.bounding_box()["width"] == 36
+    full = resolve(page, "--radius-full", "border-top-left-radius")
+    assert look["radii"] == [full] * 4
+    assert look["background"] == resolve(page, "--surface-2", "background-color")
+    assert look["color"] == resolve(page, "--text-2", "color")
+    title_box = heading.bounding_box()
+    arrow_box = arrow.bounding_box()
+    assert arrow_box["x"] >= title_box["x"] + title_box["width"]
+    # Flush with the card's padding on the right, inside its 1px border.
+    card_box = card.bounding_box()
+    inner_right = card_box["x"] + card_box["width"] - 1 - px(page, "--card-pad")
+    assert abs(arrow_box["x"] + arrow_box["width"] - inner_right) <= 1
 
     # A feature the core could not reach. The e2e stack cannot take canary
     # away from one test, so the placeholder is the markup the core renders
@@ -256,9 +286,86 @@ def test_the_home_page_cards_follow_the_card_rule(
     assert look["textAlign"] == "center"
     assert look["boxShadow"] == "none"
     assert style(placeholder.get_by_role("heading", level=2))["fontWeight"] == "600"
+    expect(placeholder.get_by_role("link")).to_have_count(0)
     line = style(placeholder.get_by_text("Desk could not be reached."))
     assert line["fontSize"] == resolve(page, "--text-small-size", "font-size")
     assert line["color"] == resolve(page, "--text-2", "color")
+
+
+def review_card_with_cards_due(page: Page, invite_code: str, base_url: str) -> Locator:
+    """Logs a fresh account in, gives it a card due in review, and returns
+    the front page's Review card."""
+    register_and_log_in(page, invite_code, base_url)
+    add_due_review_card(page)
+    open_page(page, "/")
+    card = page.get_by_role("article").filter(
+        has=page.get_by_role("heading", name="Review", level=2)
+    )
+    expect(card).to_have_count(1)
+    page.evaluate("document.fonts.ready.then(() => null)")
+    return card
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_the_card_number_is_a_thin_numeral(
+    page: Page, invite_code: str, base_url: str, viewport: str, theme: str
+):
+    card = review_card_with_cards_due(page, invite_code, base_url)
+    use_theme(page, theme)
+
+    count = card.locator(".key-fact .count")
+    expect(count).to_have_text("1")
+    look = style(count)
+    assert first_family(look["fontFamily"]) == "Inter"
+    assert look["fontSize"] == resolve(page, "--text-num-xl-size", "font-size")
+    assert look["fontWeight"] == "300"
+    assert look["color"] == resolve(page, "--text", "color")
+
+    # Its words to its right, their bottoms level.
+    words = card.locator(".key-fact .words")
+    expect(words).to_have_text("due now")
+    count_box = count.bounding_box()
+    words_box = words.bounding_box()
+    assert words_box["x"] >= count_box["x"] + count_box["width"]
+    count_bottom = count_box["y"] + count_box["height"]
+    words_bottom = words_box["y"] + words_box["height"]
+    assert abs(count_bottom - words_bottom) <= 1
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_a_card_that_needs_you_has_one_accent_border(
+    page: Page, invite_code: str, base_url: str, theme: str
+):
+    card = review_card_with_cards_due(page, invite_code, base_url)
+    use_theme(page, theme)
+
+    look = style(card)
+    assert look["borderWidths"] == ["1px"] * 4
+    assert look["borderStyles"] == ["solid"] * 4
+    assert look["borderColors"] == [resolve(page, "--accent-border", "color")] * 4
+    assert look["boxShadow"] == "none"
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_the_cards_rows_are_label_and_value(
+    page: Page, invite_code: str, base_url: str, theme: str
+):
+    card = review_card_with_cards_due(page, invite_code, base_url)
+    use_theme(page, theme)
+
+    rows = card.get_by_role("listitem")
+    expect(rows).to_have_count(1)
+    border = resolve(page, "--border", "color")
+    for row in rows.all():
+        look = style(row)
+        assert look["height"] == 36
+        assert look["borderWidths"] == ["0px", "0px", "1px", "0px"]
+        assert look["borderColors"][2] == border
+        name = style(row.locator(".name"))
+        assert name["color"] == resolve(page, "--text-2", "color")
+        number = style(row.locator(".number"))
+        assert first_family(number["fontFamily"]) == "JetBrains Mono"
+        assert number["color"] == resolve(page, "--text", "color")
 
 
 def test_every_core_page_has_one_primary_button_at_most(

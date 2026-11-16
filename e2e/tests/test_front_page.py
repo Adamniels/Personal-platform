@@ -29,7 +29,9 @@ def test_front_page_shows_canarys_card(
         has=page.get_by_role("heading", name="Canary", level=2)
     )
     expect(card).to_have_count(1)
-    expect(card.get_by_role("link", name="Canary")).to_have_attribute("href", "/canary")
+    expect(card.get_by_role("link", name="Open Canary", exact=True)).to_have_attribute(
+        "href", "/canary"
+    )
     expect(card.get_by_text(account_id)).to_be_visible()
     expect(card.get_by_text("Verified your token in Python")).to_be_visible()
     expect(page.get_by_text("could not be reached")).to_have_count(0)

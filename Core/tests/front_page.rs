@@ -114,7 +114,15 @@ async fn the_front_page_renders_canarys_card() {
     let (status, body, _) = front_page(addr, &token).await;
 
     assert_eq!(status, 200, "{body}");
-    assert!(body.contains(r#"<a href="/canary">Canary</a>"#), "{body}");
+    // The header: the title as plain text, and the arrow link that opens
+    // canary where the title used to.
+    assert!(
+        body.contains(
+            r#"<header><h2>Canary</h2><a class="open" href="/canary" aria-label="Open Canary">"#
+        ),
+        "{body}"
+    );
+    assert!(!body.contains(r#"<a href="/canary">Canary</a>"#), "{body}");
     assert!(
         body.contains("01900000-0000-7000-8000-000000000001"),
         "{body}"
@@ -171,6 +179,8 @@ async fn a_feature_that_is_refused_fails_hangs_or_sends_nonsense_gets_a_placehol
             ),
             "{case}: {body}"
         );
+        // A feature that could not be reached has nothing to open.
+        assert!(!body.contains(r#"class="open""#), "{case}: {body}");
         assert!(!body.contains("Verified your token"), "{case}: {body}");
         assert!(
             elapsed < DEADLINE + MARGIN,
@@ -225,6 +235,8 @@ async fn data_of_the_wrong_shape_gets_a_placeholder() {
             body.contains("Canary could not be reached."),
             "{case}: {body}"
         );
+        // A feature that could not be reached has nothing to open.
+        assert!(!body.contains(r#"class="open""#), "{case}: {body}");
         assert!(!body.contains("Verified your token"), "{case}: {body}");
     }
 
