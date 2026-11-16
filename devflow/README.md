@@ -224,7 +224,8 @@ shared, since no service imports from another's directory.
     `RSA.ImportFromPem`. It must be an RSA private key of at least 2048 bits in PEM, unencrypted,
     either `BEGIN RSA PRIVATE KEY`, as GitHub gives it, or `BEGIN PRIVATE KEY`.
   - `DEVFLOW_GITHUB_APP_SLUG`: the app's name in its address, `github.com/apps/<slug>`, lowercase
-    letters, digits and inner hyphens. Read here, and first used by a later slice.
+    letters, digits and inner hyphens. It makes `install_url`, where the owner installs the app,
+    see "Connecting a repository".
 
 The defaults are right on the Mac mini and in CI, so neither sets them, the code host's fake
 included, except the listen address,
