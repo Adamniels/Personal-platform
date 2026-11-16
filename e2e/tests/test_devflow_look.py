@@ -24,6 +24,7 @@ from devflow_worlds import (
     add_screenshot,
     check_run,
     comment,
+    one_repository,
     png,
     reviewer_comment,
     status,
@@ -259,3 +260,53 @@ def test_the_page_header_follows_the_layout(
     tabs_box = sections(page, LABEL).bounding_box()
     gap = tabs_box["y"] - (header_box["y"] + header_box["height"])
     assert abs(gap - px(page, "--space-4")) < 0.5, gap
+
+
+def test_an_item_follows_the_card_rule(
+    page: Page, invite_code: str, base_url: str, devflow_world
+):
+    register_and_log_in(page, invite_code, base_url)
+    world = one_repository()
+    stage_items(world)
+    devflow_world(world)
+    connect_and_read(page, base_url)
+
+    page.goto("/devflow")
+
+    surface = resolve(page, "--surface", "background-color")
+    radius = resolve(page, "--radius-lg", "border-top-left-radius")
+    pad = resolve(page, "--card-pad", "padding-top")
+    accent = resolve(page, "--accent-border", "border-top-color")
+    border = resolve(page, "--border", "border-top-color")
+    for name, outline in (
+        ("The vault", accent),
+        ("Import a photo", border),
+        ("The board", border),
+    ):
+        item = page.get_by_role("article", name=name)
+        expect(item).to_be_visible()
+        look = style(item)
+        assert look["background"] == surface, name
+        assert look["borderWidths"] == ["1px"] * 4, name
+        assert look["radii"] == [radius] * 4, name
+        assert look["padding"] == [pad] * 4, name
+        assert look["borderColors"] == [outline] * 4, name
+        assert look["boxShadow"] == "none", name
+
+
+def test_rows_inside_an_item_are_inset_rows(
+    page: Page, invite_code: str, base_url: str, devflow_world
+):
+    register_and_log_in(page, invite_code, base_url)
+    world = one_repository()
+    stage_items(world)
+    devflow_world(world)
+    connect_and_read(page, base_url)
+
+    page.goto("/devflow")
+
+    vault = page.get_by_role("article", name="The vault")
+    decided = vault.get_by_role("list", name="The agent decided")
+    assert_inset_rows(page, decided.locator(":scope > li"), 2, "the decisions")
+    reviewer = vault.get_by_role("list", name="The reviewer")
+    assert_inset_rows(page, reviewer.locator(":scope > li"), 2, "the reviewer's points")

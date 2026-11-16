@@ -447,7 +447,7 @@ function Decisions({ item }: { item: WaitingItem }) {
 	);
 }
 
-/** What the reviewer wrote for the owner, a point each. */
+/** What the reviewer wrote for the owner, a point each, on an inset row. */
 function Reviewer({ points }: { points: string[] }) {
 	const id = useId();
 	return (
@@ -458,7 +458,7 @@ function Reviewer({ points }: { points: string[] }) {
 			<ul aria-labelledby={id} className={styles.points}>
 				{points.map((point, index) => (
 					// biome-ignore lint/suspicious/noArrayIndexKey: points have no id, and are replaced whole
-					<li key={index} className={styles.text}>
+					<li key={index} className={`${styles.text} ${styles.point}`}>
 						<Inline text={point} />
 					</li>
 				))}
