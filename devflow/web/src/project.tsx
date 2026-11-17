@@ -43,7 +43,7 @@ export const rebuildNotice = (
 export const heldNotice = (held: string): string =>
 	held === "stopped"
 		? "Dev flow hands out no work on this project: something landed on its default branch that Dev flow did not put there. Look at it under Waiting for you, and resume it there."
-		: "Dev flow hands out no work on this project: it has not been able to read its default branch for five minutes. It starts again once it has.";
+		: "Dev flow hands out no work on this project: it has not read its default branch in the last five minutes. It starts again once it has.";
 /** After this long without a word from a worker, it shows as not seen
  * since then, as the slice settles. */
 export const QUIET_MS = 10 * 60 * 1000;
