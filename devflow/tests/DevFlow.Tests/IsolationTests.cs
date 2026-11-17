@@ -142,10 +142,11 @@ public sealed class IsolationTests
         await Assert.ThrowsAsync<ArgumentException>(() => door.InUserTransaction(Guid.Empty, _ => Task.FromResult(0), Ct));
     }
 
-    /// <summary>The one table Dev flow leaves unguarded, decided with the owner: the ids a loop with
-    /// no logged in user reads. See "Security decisions and accepted risks" in
+    /// <summary>The two tables Dev flow leaves unguarded, each decided with the owner: the ids a loop
+    /// with no logged in user reads, and the hash a worker's key is looked up by, with its project
+    /// and user. See "Security decisions and accepted risks" in
     /// devflow/docs/devflow-architecture.md. Nothing else belongs here.</summary>
-    private static readonly string[] Unguarded = ["poll_targets"];
+    private static readonly string[] Unguarded = ["poll_targets", "worker_key_lookup"];
 
     [Fact]
     public async Task EveryTableIsGuarded()
@@ -155,8 +156,10 @@ public sealed class IsolationTests
         await using var database = await Databases.DevFlow.Migrated(Ct);
         Assert.Empty(await IsolationChecks.Unguarded(database, Unguarded, Ct));
 
-        // The exception is named, not overlooked: without it, the table fails the check.
-        Assert.Contains("poll_targets: row level security is not enabled", await IsolationChecks.Unguarded(database, unguarded: [], Ct));
+        // The exceptions are named, not overlooked: without them, each table fails the check.
+        var unnamed = await IsolationChecks.Unguarded(database, unguarded: [], Ct);
+        Assert.Contains("poll_targets: row level security is not enabled", unnamed);
+        Assert.Contains("worker_key_lookup: row level security is not enabled", unnamed);
 
         // And a table made the way the slice settles passes, so the check is not refusing all.
         await using (var owner = await database.OpenOwner(Ct))
@@ -166,7 +169,7 @@ public sealed class IsolationTests
 
         Assert.Empty(await IsolationChecks.Unguarded(database, Unguarded, Ct));
 
-        // While a second unguarded table fails it, the exception for the first notwithstanding.
+        // While another unguarded table fails it, the named exceptions notwithstanding.
         await using (var owner = await database.OpenOwner(Ct))
         {
             await TestDatabase.Execute(owner, "CREATE TABLE second_targets (project_id uuid PRIMARY KEY, user_id uuid NOT NULL)", Ct);
