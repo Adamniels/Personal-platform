@@ -175,6 +175,35 @@ describe("the client sends a state changing request as JSON and reads errors as 
 		});
 	});
 
+	test("a validation problem keeps what is wrong with each field", async () => {
+		const problem = await problemOf(
+			json(
+				422,
+				{
+					title: "The settings break a rule",
+					status: 422,
+					detail: "hold_label must be a different label from the other two",
+					errors: {
+						hold_label: ["must be a different label from the other two"],
+						// Anything but a list of strings is not kept.
+						pickup_label: "not a list",
+						waits_for_owner: [3],
+					},
+				},
+				"application/problem+json",
+			),
+		);
+
+		expect(problem).toEqual({
+			status: 422,
+			title: "The settings break a rule",
+			detail: "hold_label must be a different label from the other two",
+			errors: {
+				hold_label: ["must be a different label from the other two"],
+			},
+		});
+	});
+
 	test("a body that is not JSON, or no answer at all, is still a problem", async () => {
 		expect(
 			await problemOf(

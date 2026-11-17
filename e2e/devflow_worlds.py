@@ -18,6 +18,9 @@ REPOSITORY = 1001
 OWNER = "Adamniels"
 NAME = "Personal-platform"
 WHEN = "2026-11-15T09:30:00+00:00"
+# Who the account is at the fake when a world names no user: the person linking
+# GitHub links, and so the owner whose cards are picked.
+FAKE_USER = "octo-owner"
 
 
 def one_repository(owner: str = OWNER, name: str = NAME) -> dict:
@@ -36,6 +39,7 @@ def one_repository(owner: str = OWNER, name: str = NAME) -> dict:
                         "conversations": [],
                         "commits": [],
                         "files": [],
+                        "issues": [],
                     }
                 ],
             }
@@ -134,6 +138,43 @@ def reviewer_comment(
         f"## For the owner\n\n{points}\n\n## Replies\n\nNone.\n",
         created_at,
     )
+
+
+def add_issue(
+    world: dict,
+    number: int,
+    title: str,
+    author: str = FAKE_USER,
+    labels: list[str] | None = None,
+    open_: bool = True,
+    blocked_by: list[int] | None = None,
+    edits: list[dict] | None = None,
+    created_at: str = WHEN,
+) -> dict:
+    """Adds an issue to the world's repository, written by the fake's user,
+    the owner once GitHub is linked, unless said, open unless said, with the
+    labels, the issues in the same repository it is blocked by, and its edits,
+    none unless given. Returns it, so a test can change it."""
+    issue = {
+        "number": number,
+        "title": title,
+        "author": author,
+        "labels": labels or [],
+        "body": f"The card {title}.",
+        "url": f"https://github.com/{OWNER}/{NAME}/issues/{number}",
+        "created_at": created_at,
+        "open": open_,
+        "blocked_by": blocked_by or [],
+        "edits": edits or [],
+    }
+    repository(world)["issues"].append(issue)
+    return issue
+
+
+def edit(edit_id: str, editor: str, kind: str = "body", at: str = WHEN) -> dict:
+    """An edit of an issue's body, or its title with kind title, by the
+    login."""
+    return {"id": edit_id, "editor": editor, "at": at, "kind": kind}
 
 
 def add_conversation(world: dict, number: int, comments: list[dict]) -> None:

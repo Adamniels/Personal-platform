@@ -11,8 +11,9 @@ namespace DevFlow.Projects;
 
 /// <summary>
 /// Projects over HTTP, every route under the <c>Api</c> policy and the origin check: what the
-/// person can connect, connecting, listing and disconnecting. Each needs a linked GitHub account,
-/// except listing and disconnecting. See "Connecting a repository" in devflow/README.md.
+/// person can connect, connecting, listing and disconnecting, and a project's settings. Each needs
+/// a linked GitHub account, except listing, disconnecting and the settings. See "Connecting a
+/// repository" and "Cards" in devflow/README.md.
 /// </summary>
 public static class ProjectEndpoints
 {
@@ -52,8 +53,42 @@ public static class ProjectEndpoints
                 "204, and everything Dev flow stored for it goes with it. Nothing changes on GitHub. 404 for a project the caller does not have.",
                 StatusCodes.Status404NotFound);
 
+        projects.MapGet("/{id:guid}/settings", async Task<Results<Ok<ProjectSettings>, ProblemHttpResult>> (Guid id, HttpContext context, [FromServices] ProjectSettingsStore store) =>
+                await store.Get(context.UserId(), id, context.RequestAborted) is { } settings
+                    ? TypedResults.Ok(settings)
+                    : NoSuchProject())
+            .Route("getProjectSettings", "A project's settings",
+                "The labels that pick and hold its cards and mark what needs the caller, and whether a card's pull request waits for them, never or always. 404 for a project the caller does not have.",
+                StatusCodes.Status404NotFound);
+
+        projects.MapPut("/{id:guid}/settings", SaveSettings)
+            .Route("saveProjectSettings", "Change a project's settings",
+                "Takes all four and answers them as saved. A label is written, at most 50 characters, with no space at either end and no comma, and the three are different names whatever their case; waits_for_owner is never or always. 422 naming each field that breaks a rule, 404 for a project the caller does not have.",
+                StatusCodes.Status404NotFound, StatusCodes.Status422UnprocessableEntity);
+
         return routes;
     }
+
+    private static async Task<Results<Ok<ProjectSettings>, ProblemHttpResult>> SaveSettings(Guid id, SettingsRequest request, HttpContext context, [FromServices] ProjectSettingsStore store)
+    {
+        var (settings, errors) = request.Check();
+        if (settings is null)
+        {
+            return TypedResults.Problem(new HttpValidationProblemDetails(errors)
+            {
+                Status = StatusCodes.Status422UnprocessableEntity,
+                Title = "The settings break a rule",
+                Detail = string.Join("; ", errors.Select(pair => $"{pair.Key} {pair.Value[0]}")),
+            });
+        }
+
+        return await store.Save(context.UserId(), id, settings, context.RequestAborted)
+            ? TypedResults.Ok(settings)
+            : NoSuchProject();
+    }
+
+    private static ProblemHttpResult NoSuchProject() =>
+        TypedResults.Problem(statusCode: StatusCodes.Status404NotFound, title: "No such project", detail: "the project does not exist");
 
     private static async Task<Results<Created<Project>, ProblemHttpResult>> Connect(ConnectRequest request, HttpContext context, [FromServices] ProjectStore store)
     {

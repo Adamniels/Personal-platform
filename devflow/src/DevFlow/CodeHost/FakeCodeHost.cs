@@ -102,6 +102,37 @@ public sealed partial class FakeCodeHost : ICodeHost, ICodeHostSignIn
             ? new FileAtCommit(file.Content.ToArray(), Convert.ToHexStringLower(SHA256.HashData(file.Content)))
             : null);
 
+    /// <summary>The open issues carrying the label, whatever its case as GitHub matches it, and the
+    /// open pull requests carrying it, marked, as GitHub lists them; a pull request was made when
+    /// it was last updated, since the fake keeps no other time for one.</summary>
+    public Task<CodeHostResult<IReadOnlyList<Issue>>> LabelledIssues(Guid userId, Repository repository, string label, CancellationToken cancellationToken) =>
+        Answer<IReadOnlyList<Issue>>(userId, repository, found =>
+        [
+            .. found.Issues
+                .Where(issue => issue.Open && issue.Labels.Contains(label, StringComparer.OrdinalIgnoreCase))
+                .Select(issue => new Issue(issue.Number, issue.Title, issue.Author, issue.Labels, issue.Body, issue.Url, issue.CreatedAt, IsPullRequest: false)),
+            .. found.PullRequests
+                .Where(pull => pull.State == PullRequestState.Open && pull.Labels.Contains(label, StringComparer.OrdinalIgnoreCase))
+                .Select(pull => new Issue(pull.Number, pull.Title, pull.Author, pull.Labels, pull.Body, pull.Url, pull.UpdatedAt, IsPullRequest: true)),
+        ]);
+
+    /// <summary>The issues it is blocked by, each in the same repository, as the world holds
+    /// them.</summary>
+    public Task<CodeHostResult<IReadOnlyList<Dependency>>> BlockedBy(Guid userId, Repository repository, int number, CancellationToken cancellationToken) =>
+        Answer<IReadOnlyList<Dependency>>(userId, repository, found =>
+            found.Issues.FirstOrDefault(issue => issue.Number == number) is { } blocked
+                ? [.. blocked.BlockedBy
+                    .Select(blocker => found.Issues.First(issue => issue.Number == blocker))
+                    .Select(blocker => new Dependency(found.Owner, found.Name, blocker.Number, blocker.Open, blocker.Url))]
+                : null);
+
+    /// <summary>The issue's edits as staged, its body's first and then its title's.</summary>
+    public Task<CodeHostResult<IReadOnlyList<IssueEdit>>> Edits(Guid userId, Repository repository, int number, CancellationToken cancellationToken) =>
+        Answer<IReadOnlyList<IssueEdit>>(userId, repository, found =>
+            found.Issues.FirstOrDefault(issue => issue.Number == number) is { } edited
+                ? [.. edited.Edits.Where(edit => edit.Kind == EditKind.Body), .. edited.Edits.Where(edit => edit.Kind == EditKind.Title)]
+                : null);
+
     /// <summary>The world's installations, with the account's access token only, see
     /// <see cref="AsPerson{T}"/>.</summary>
     public Task<CodeHostResult<IReadOnlyList<Installation>>> Installations(Guid userId, string userToken, CancellationToken cancellationToken) =>

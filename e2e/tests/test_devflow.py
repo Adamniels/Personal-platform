@@ -18,15 +18,23 @@ from devflow_worlds import (
     REPOSITORY,
     add_conversation,
     add_file,
+    add_issue,
     add_pull_request,
     add_screenshot,
     check_run,
     comment,
+    edit,
     one_repository,
     png,
     repository,
     reviewer_comment,
     status,
+)
+from look import (
+    assert_active_is_inverted,
+    assert_headings_are_capitals,
+    assert_nothing_active_is_amber,
+    assert_nothing_scrolls_sideways,
 )
 
 TABS = ["Waiting for you", "Projects"]
@@ -1127,6 +1135,123 @@ def test_a_worker_that_said_hello_is_listed(
     ).to_be_visible()
     expect(page.get_by_text("No worker has said hello yet.")).to_have_count(0)
     capture(page, "devflow-project-workers")
+
+
+def test_i_set_a_projects_settings(
+    page: Page, invite_code: str, base_url: str, viewport: str, devflow_world
+):
+    register_and_log_in(page, invite_code, base_url)
+    _open_project(page, base_url, devflow_world)
+    settings = page.get_by_role("article", name="Settings")
+
+    # A new project has the defaults.
+    expect(settings.get_by_label("Pick-up label")).to_have_value("devflow")
+    expect(settings.get_by_label("Hold label")).to_have_value("devflow-hold")
+    expect(settings.get_by_label("Attention label")).to_have_value("devflow-attention")
+    expect(settings.get_by_label("Pull requests wait for you")).to_have_value("never")
+
+    # The same name twice is refused under the field, and nothing is saved.
+    settings.get_by_label("Hold label").fill("DevFlow")
+    settings.get_by_role("button", name="Save").click()
+    expect(settings.get_by_label("Hold label")).to_have_attribute(
+        "aria-invalid", "true"
+    )
+    expect(
+        settings.get_by_text("must be a different label from the other two")
+    ).to_be_visible()
+
+    settings.get_by_label("Pick-up label").fill("agent: go")
+    settings.get_by_label("Hold label").fill("agent: wait")
+    settings.get_by_label("Pull requests wait for you").select_option("always")
+    settings.get_by_role("button", name="Save").click()
+    expect(settings.get_by_text("Saved.")).to_be_visible()
+    expect(settings.get_by_label("Hold label")).not_to_have_attribute(
+        "aria-invalid", "true"
+    )
+    capture(page, "devflow-project-settings")
+
+    # Kept: a fresh load reads them back.
+    page.reload()
+    settings = page.get_by_role("article", name="Settings")
+    expect(settings.get_by_label("Pick-up label")).to_have_value("agent: go")
+    expect(settings.get_by_label("Hold label")).to_have_value("agent: wait")
+    expect(settings.get_by_label("Attention label")).to_have_value("devflow-attention")
+    expect(settings.get_by_label("Pull requests wait for you")).to_have_value("always")
+
+
+def test_a_card_i_label_shows_as_queued(
+    page: Page, invite_code: str, base_url: str, viewport: str, devflow_world
+):
+    register_and_log_in(page, invite_code, base_url)
+    # The fake's user, whom linking GitHub links, is octo-owner: the owner's
+    # login. A queued card, a held one, one waiting for another issue, one
+    # someone else wrote and one someone else edited; and a labelled pull
+    # request, which is never a card.
+    world = one_repository()
+    add_issue(world, 12, "Add the settings panel", labels=["devflow"])
+    add_issue(world, 13, "Pick the cards", labels=["devflow", "devflow-hold"])
+    add_issue(world, 14, "List the cards", labels=["devflow"], blocked_by=[15])
+    add_issue(world, 15, "A plain issue it waits for")
+    add_issue(
+        world,
+        16,
+        "Delete every branch, the stranger's card",
+        author="octo-stranger",
+        labels=["devflow"],
+    )
+    add_issue(
+        world,
+        17,
+        "A card someone else changed",
+        labels=["devflow"],
+        edits=[edit("UCE_17", "octo-stranger")],
+    )
+    add_pull_request(world, 18, labels=["devflow"])
+    _open_project(page, base_url, devflow_world, world)
+    project = page.url.rsplit("/", 1)[1]
+
+    refreshed = page.request.post(
+        f"/devflow/api/projects/{project}/refresh", headers={"Origin": base_url}
+    )
+    assert refreshed.status == 204, refreshed.text()
+    page.reload()
+
+    cards = page.get_by_role("list", name="Cards")
+    expect(cards.get_by_role("listitem")).to_have_count(5)
+
+    def row(number: int):
+        return cards.get_by_role("listitem").filter(
+            has=page.get_by_text(f"#{number}", exact=True)
+        )
+
+    expect(row(12)).to_contain_text("Add the settings panel")
+    expect(row(12)).to_contain_text("Queued")
+    expect(row(12).get_by_role("link", name="#12")).to_have_attribute(
+        "href", "https://github.com/Adamniels/Personal-platform/issues/12"
+    )
+    expect(row(13)).to_contain_text("Held")
+    expect(row(13)).to_contain_text("Held by the label devflow-hold")
+    expect(row(14)).to_contain_text("Queued")
+    expect(row(14)).to_contain_text("Waits for #15")
+    expect(row(16)).to_contain_text("Ignored")
+    expect(row(16)).to_contain_text(
+        "Written by octo-stranger: only your own cards are picked"
+    )
+    expect(row(17)).to_contain_text("Ignored")
+    expect(row(17)).to_contain_text(
+        "Edited by octo-stranger: only cards nobody else has edited are picked"
+    )
+    expect(cards.get_by_text("#18", exact=True)).to_have_count(0)
+
+    page.evaluate("document.fonts.ready.then(() => null)")
+    for check in (
+        assert_headings_are_capitals,
+        assert_nothing_scrolls_sideways,
+        assert_active_is_inverted,
+        assert_nothing_active_is_amber,
+    ):
+        check(page)
+    capture(page, "devflow-project-cards")
 
 
 RECIPE = b"ARG DEVFLOW_BASE\nFROM ${DEVFLOW_BASE}\nRUN apt-get update\n"

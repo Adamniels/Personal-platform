@@ -376,7 +376,7 @@ function Item({
 /** Whether the code host's address for an item may be a link: https only,
  * since the address is data, and a link to any other scheme could run
  * script in the page or open something that is not the code host. */
-function linkable(address: string): boolean {
+export function linkable(address: string): boolean {
 	try {
 		return new URL(address).protocol === "https:";
 	} catch {
