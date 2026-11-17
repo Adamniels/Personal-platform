@@ -43,6 +43,7 @@ public sealed class WorkerApiTests
             JsonNode.Parse($$"""
                 {
                   "key_made_at": "{{made:yyyy-MM-ddTHH:mm:ss}}+00:00",
+                  "recipe_version": null,
                   "workers": [
                     {
                       "id": "{{worker}}",
@@ -50,12 +51,13 @@ public sealed class WorkerApiTests
                       "recipe_version": "{{Workers.RecipeVersion}}",
                       "base_image": "{{Workers.BaseImage}}",
                       "first_seen_at": "{{first:yyyy-MM-ddTHH:mm:ss}}+00:00",
-                      "last_seen_at": "{{first:yyyy-MM-ddTHH:mm:ss}}+00:00"
+                      "last_seen_at": "{{first:yyyy-MM-ddTHH:mm:ss}}+00:00",
+                      "rebuild": "base_image"
                     }
                   ]
                 }
                 """),
-            await Workers.List(routes, project)));
+            WithoutCommand(await Workers.List(routes, project))));
         var row = Assert.Single(await Workers.Rows(routes.Database));
         Assert.Equal(new Workers.WorkerRow(project, worker, Workers.User, "fodr-worker-1", Workers.RecipeVersion, Workers.BaseImage), row);
 
@@ -83,8 +85,8 @@ public sealed class WorkerApiTests
         var project = await routes.Project(Workers.User);
 
         Assert.True(JsonNode.DeepEquals(
-            JsonNode.Parse("""{"key_made_at": null, "workers": []}"""),
-            await Workers.List(routes, project)));
+            JsonNode.Parse("""{"key_made_at": null, "recipe_version": null, "workers": []}"""),
+            WithoutCommand(await Workers.List(routes, project))));
     }
 
     [Fact]
@@ -325,6 +327,14 @@ public sealed class WorkerApiTests
             .Select(method => $"{IlScan.Outermost(method.DeclaringType!).Name}.{method.Name}")
             .ToList();
         Assert.Empty(comparing);
+    }
+
+    /// <summary>The list without its start command, which <c>StartCommandTests</c> checks.</summary>
+    private static JsonNode WithoutCommand(JsonNode list)
+    {
+        Assert.Contains("docker run", (string)list["start_command"]!, StringComparison.Ordinal);
+        list.AsObject().Remove("start_command");
+        return list;
     }
 
     private static async Task<List<string>> Names(UserDb door, Guid user) =>

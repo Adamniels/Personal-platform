@@ -159,7 +159,8 @@ stays selected there. Its header is a link "Back to Projects" over the repositor
 "<owner>/<name>" as a section heading; a project the caller does not have is the `EmptyState`
 "There is no such project". Under it is the Workers panel, the package's `Card` titled "Workers",
 read from `GET /devflow/api/projects/{id}/workers` as the page loads: a line saying a worker holds
-the project's key and asks Dev flow for work with it, then the key, then the workers. With no key,
+the project's key and asks Dev flow for work with it, then the key, then the region "Start a
+worker", then the workers. With no key,
 "It has no key yet." and a primary "Make a key". Making one shows it once, in the region "The new
 key", on an inset in the mono font, with "Shown once. Copy it now: Dev flow keeps only a hash of it
 and cannot show it again." and a secondary "Copy the key", which copies it and then reads
@@ -170,8 +171,16 @@ once and every worker holding it is refused until it is given the new one, and m
 it is confirmed. The workers are the list "Workers", each an inset row, by when it first said
 hello: its name, "Recipe <version> on <base image>" in the mono font, and "Last seen <time> ago",
 or, after ten minutes without a word, "Not seen since <date and time>", in `--text` at weight 600;
-with none, "No worker has said hello yet." The commands to start a worker arrive with a later
-slice.
+with none, "No worker has said hello yet."
+
+The region "Start a worker" says to paste the commands in a terminal on the machine that runs the
+workers, and that running the second again replaces the worker. Right after "Make a key" it holds
+the region "Save the key", the command that saves it, with it; always, the region "Build and start
+the worker", the command from `start_command`; each in the mono font on an inset that wraps, with a
+secondary "Copy the save command" or "Copy the start command" that reads "Copied" once it has,
+and an alert when copying fails, see "Starting a worker". A worker that needs a rebuild shows, under
+its name, the `needs-you` status "Rebuild" and, in `--text` at weight 600, "<repository>'s recipe
+has changed: run the command again" or "A new base image was released: run the command again".
 
 Waiting for you, `src/waiting.tsx`, is one list of what waits for the owner across his projects,
 read from `GET /devflow/api/waiting`, see "What waits", through React Query: as the page loads,
@@ -374,11 +383,23 @@ shared, since no service imports from another's directory.
   ASCII digits alone, from `10` to `86400`, a day; or `0`, which turns the loop off, as the
   service's own tests do, see "What waits". Empty is unset, so the hosted copy passes it empty when
   its `.env` leaves it out and the default stands.
+- `DEVFLOW_WORKER_IMAGE`, default `platform-hosted/devflow-worker:dev`: the worker's base image, which
+  the command on a project's page builds a worker FROM, and which a worker must report to be given
+  work, see "Starting a worker". At most 255 characters, beginning with a lowercase letter or a
+  digit, of letters, digits and `._/:@-` alone, since the command shows it unquoted.
+- `DEVFLOW_WORKER_URL`, default `http://host.docker.internal:8084`: the address a worker calls Dev
+  flow at from its container, which the command starts each worker with. A scheme, a host that is
+  not an IPv6 address, whose brackets a shell reads as a pattern, and an optional port, nothing
+  after it. The default is Dev flow on the dev stack as Docker Desktop's containers reach the
+  host.
 
 The defaults are right on the Mac mini and in CI, so neither sets them, the code host's fake
 included, except the listen address,
 which the manifest's `start` sets, and the database URLs, which `scripts/agent/services.sh` and
-`.github/workflows/dotnet.yml` build. The hosted copy sets the four it needs to serve and passes the
+`.github/workflows/dotnet.yml` build. The hosted copy sets `DEVFLOW_WORKER_IMAGE` to the base image
+of its own release, `platform-hosted/devflow-worker:<PLATFORM_RELEASE>`, and `DEVFLOW_WORKER_URL`
+to its `.env`'s, `http://host.docker.internal:9080` unless set, the proxy's published port, so a
+release does not refuse without it. It sets the four it needs to serve and passes the
 vault's two, the code host's mode and the GitHub App's settings in `infra/hosted/compose.yaml`, from
 its `.env`, and the owner's URL only on `devflow-migrate`. The app's key file is mounted read only
 at `/run/secrets/github-app.pem`, which is the path Dev flow is given; the `.env` names the file on
@@ -516,6 +537,12 @@ does. Its read side:
 - `CheckRuns(user, repository, commit)`: each name with its status, conclusion and the slug of the
   app that made it;
 - `File(user, repository, path, branch)`: the bytes;
+- `DefaultBranchFile(user, repository, path)`: the file on the repository's default branch, read at
+  the newest commit of that branch that changed it, and that commit's id, which changes when the
+  file does and not when the rest of the repository does; not found when no commit has it. On
+  GitHub it is `GET /repos/{owner}/{repo}/commits?path=…&per_page=1`, which with no `sha` lists the
+  default branch, then the file raw at exactly that commit; in the fake, the file on `main`, its
+  commit the SHA-256 of its content in hex, since the fake keeps no history;
 - `Installations(user, userToken)`: the installations of the app the person whose token it is can
   reach, each with its id and the login of the account it is on;
 - `Repositories(user, userToken, installation)`: the repositories of one of them the person can
@@ -965,13 +992,14 @@ owner's input on its next turn and moves the label itself.
 
 A worker is a program in a container on one of the owner's machines that builds a project's cards.
 Every worker belongs to one project, and so to that project's user, and calls Dev flow; Dev flow
-never calls it. This part gives a project its key and a worker its first two calls, which the
-worker program, "The worker" below, makes; its image and the commands to start it come with later
-slices. Why it is built so is "Workers" in `docs/devflow-architecture.md`.
+never calls it. A project has a key and a worker its calls, which the worker program, "The worker"
+below, makes; the image it runs in and the commands that start it are "Starting a worker". Why it
+is built so is "Workers" in `docs/devflow-architecture.md`.
 
 **As the owner does it.** On the Projects tab, open a project by its name, and in its Workers panel
-press "Make a key". Copy the key then: it is shown once and never again. A worker started with it
-says hello and is listed under the panel. "Make a new key" replaces it, and every worker holding
+press "Make a key". Copy the key then, or the command under it that saves it: it is shown once and
+never again. A worker started with it, as "Starting a worker" says, says hello and is listed under
+the panel, with a notice when it needs building again. "Make a new key" replaces it, and every worker holding
 the old one is refused from then on.
 
 **The key.** One per project, shared by every worker of that project: 32 random bytes from .NET's
@@ -991,19 +1019,24 @@ key, and a key is not a token the core signed.
 The routes, in `WorkerEndpoints`:
 
 - `POST /devflow/api/projects/{id}/worker-key`, the user's, origin checked, answers
-  `{"key": "dfw_…"}` with `Cache-Control: no-store`, the one time the key is sent, and replaces the
-  project's last key at once. `404` for a project the caller does not have, another user's among
+  `{"key": "dfw_…", "save_command": "…"}` with `Cache-Control: no-store`, the one time the key is
+  sent, with the command that saves it, see "Starting a worker", and replaces the project's last
+  key at once. `404` for a project the caller does not have, another user's among
   them, and nothing is stored.
 - `GET /devflow/api/projects/{id}/workers`, the user's, answers
-  `{"key_made_at": "<time>" or null, "workers": [{"id", "name", "recipe_version", "base_image", "first_seen_at", "last_seen_at"}]}`,
-  by when each worker first said hello. Never the key. `404` as above.
+  `{"key_made_at": "<time>" or null, "recipe_version": "<commit>" or null, "start_command": "…", "workers": [{"id", "name", "recipe_version", "base_image", "first_seen_at", "last_seen_at", "rebuild"}]}`,
+  by when each worker first said hello: `recipe_version`, the project's recipe as Dev flow last
+  read it, null before it has been or when the default branch has none; `start_command`, the
+  command that builds and starts a worker; and each worker's `rebuild`, `recipe`, `base_image` or
+  null, see "Starting a worker". Never the key. `404` as above.
 - `POST /devflow/api/worker/hello`, the worker's, with
   `{"worker_id": "<uuid>", "name": "<the container's hostname>", "recipe_version", "base_image"}`,
   records the worker in its key's project, or brings it up to date, keeping when it was first
   seen, and answers `204`. Each field is required; `worker_id` is a UUID that is not all zeros, and
   each text has 1 to 255 characters, not only spaces; otherwise `422` naming the field.
 - `POST /devflow/api/worker/jobs/next`, the worker's, with `{"worker_id"}`, marks the worker seen
-  and answers its next job; in this part there is none, so `204`. A worker that has not said hello
+  and answers its next job; in this part there is none, so `204`. A worker that needs a rebuild is
+  never given one. A worker that has not said hello
   in the key's project is `409` "Say hello first", and says hello and asks again; no `worker_id`
   is `422`.
 
@@ -1026,6 +1059,110 @@ The tables, from `migrations/0007_workers.sql`:
 query tries, and disconnecting removes them; the migration adds the unique constraint on
 `projects (id, user_id)` they need.
 
+`migrations/0009_recipe_version.sql` adds `projects.recipe_version`, the version of the project's
+recipe as Dev flow last read it, a full commit id of 40 or 64 lowercase hex digits, or null.
+
+## Starting a worker
+
+A worker runs in a container built in three layers: the **base image**, built by every release of
+the platform; the project's **recipe**, its `.devflow/Dockerfile`, which adds the project's own
+tools on top; and the worker, started from that image with the project's key. The owner builds and
+starts it by pasting two commands from the project's page into a terminal on the machine that
+runs the workers, the Mac mini. Why it is built so is "Workers" in `docs/devflow-architecture.md`.
+
+**The base image** is `worker.Dockerfile`, built from the repository root like every hosted image,
+and built at each release as the service `devflow-worker` in `infra/hosted/compose.yaml`, never
+started: it has no replica. Its build stage publishes `DevFlow.Worker` as one self-contained file
+for the build's architecture. Its final stage is `node:26-trixie-slim` with `git`,
+`ca-certificates`, `jq`, `procps`, `util-linux` and Claude Code 2.1.325, installed with `npm ci`
+from `worker/package-lock.json`, which pins it with its integrity, and on `PATH` as `claude`. Two
+users are in it:
+
+- root runs the worker program, the image's entrypoint, `/usr/local/bin/devflow-worker`, and keeps
+  a job's secrets in `/run/devflow/`, mode 700, owned by root;
+- `agent`, uid 1000, home `/home/agent`, runs Claude Code, the project's check and its start, which
+  the worker starts with `setpriv --reuid agent --regid agent --init-groups --reset-env`, and owns
+  the working copies under `/work`, the image's working directory.
+
+Claude Code adds a `Co-Authored-By` trailer to every commit and a line to every pull request unless
+told not to, so `/home/agent/.claude/settings.json` sets
+`{"attribution": {"commit": "", "pr": "", "sessionUrl": false}}`: the `attribution` setting, which
+replaced the deprecated `includeCoAuthoredBy` in Claude Code 2.0.62, and where an empty string
+hides each. The image also turns two build arguments a project's build passes into the variables
+the worker reports in `hello`, with `ONBUILD`: `DEVFLOW_BASE` becomes `DEVFLOW_BASE_IMAGE`, and
+`DEVFLOW_RECIPE_VERSION` stays itself.
+
+Its test is `tests/image/base-image.test.sh`, which `infra/hosted/check.sh` runs: it builds the
+image under a tag of its own, never the hosted name, and checks that `agent` cannot list or read
+`/run/devflow/`, that the worker runs, that `claude --version` answers 2.1.325, that `git` and
+`node` run, that the attribution is off, and that a recipe built FROM it reports its base and
+version. From the repository root, with Docker running:
+
+```zsh
+bash devflow/tests/image/base-image.test.sh
+```
+
+**The format of `.devflow/`**, in the project's own repository, on its default branch:
+
+- `.devflow/Dockerfile`, the recipe: it begins `ARG DEVFLOW_BASE` and `FROM ${DEVFLOW_BASE}`, and
+  installs what the project's check needs with `RUN`, as root. It is built with no context, so it
+  cannot `COPY` or `ADD`, and Dev flow refuses one that does: the project's own packages are
+  installed by its check, in each card's working copy.
+- `.devflow/project.json`, how a card is checked and the project started:
+  `{"version": 1, "check": "<command>", "start": "<command or empty>", "url": "<http://localhost… or empty>"}`,
+  every field there and no other. Its schema is `contracts/devflow/project.schema.json`, and
+  `DevFlow.Protocol`'s `ProjectFile` reads it by the same rules; the worker and Dev flow read it in
+  later slices.
+
+**The recipe route**, `GET /devflow/api/worker/recipe`, in `src/DevFlow/Recipes/`, under the
+worker scheme: the key's project's `.devflow/Dockerfile`, from `DefaultBranchFile`, read as the app,
+as `text/plain` with `X-Devflow-Recipe-Version: <the commit>`, `X-Content-Type-Options: nosniff` and
+`Cache-Control: no-store`. It records the commit as the project's `recipe_version`. A line beginning
+`COPY` or `ADD`, in any case, alone or after `ONBUILD`, after continued lines are joined, comment
+lines inside them dropped and the `escape` directive honoured, is `422` with `line` and a detail
+naming it; text that is not UTF-8, or over 64 KB, is `422` too; no file is `404` "This repository
+has no .devflow/Dockerfile"; GitHub not answering is `503`.
+
+**The two commands**, below the key on the project's page, for a project named by its repository,
+lowercased with every other run of characters one hyphen, here `fodr`:
+
+1. Saving the key, shown only right after "Make a key", with the key in it, in a subshell so the
+   terminal's own umask is kept:
+
+   ```zsh
+   (umask 077 && mkdir -p ~/.devflow && printf 'DEVFLOW_PROJECT_KEY=%s\n' 'dfw_…' > ~/.devflow/fodr.env)
+   ```
+
+2. Building and starting, shown always, without the key, which it reads from that file:
+
+   ```zsh
+   sed -n 's/^DEVFLOW_PROJECT_KEY=/Authorization: Bearer /p' ~/.devflow/fodr.env | curl -fsS -H @- -D /tmp/devflow-fodr.headers -o /tmp/devflow-fodr.Dockerfile '<DEVFLOW_PUBLIC_ORIGIN>/devflow/api/worker/recipe' && \
+     docker build --build-arg DEVFLOW_BASE=<DEVFLOW_WORKER_IMAGE> --build-arg DEVFLOW_RECIPE_VERSION="$(awk 'tolower($1) == "x-devflow-recipe-version:" { print $2 }' /tmp/devflow-fodr.headers | tr -d '\r')" -t devflow-fodr - < /tmp/devflow-fodr.Dockerfile && \
+     { docker rm -f devflow-fodr-1 2>/dev/null; docker run -d --name devflow-fodr-1 --restart unless-stopped --memory 2g --env-file ~/.devflow/fodr.env -e DEVFLOW_URL=<DEVFLOW_WORKER_URL> devflow-fodr; }
+   ```
+
+The recipe is fetched from the platform's public origin, the address the browser is on, and not
+from `DEVFLOW_WORKER_URL`: Docker Desktop's `host.docker.internal` resolves inside a container and
+not on the Mac itself. The version reaches the build from the response's header, so it is the
+commit the bytes were read at. `curl` reads the key's header on stdin, `-H @-`, and not as an
+argument, since every user on the machine sees a process's arguments in `ps`. Running the second
+again replaces the worker. When `curl` fails, its message names the status: `404` is a repository
+without a recipe, and `422` one that copies files, whose reason the same `curl` without `-f`
+shows. `WorkerStart`, in `src/DevFlow/Recipes/`, writes both.
+
+**Memory.** Each worker is started with `--memory 2g`; one run of a real task peaked at 1.05 GiB.
+On the Mac mini, with Docker's 8 GB, start at most two workers beside the hosted copy until its
+memory has been measured.
+
+**A worker that needs a rebuild** runs another version of the recipe than Dev flow last read, or
+another base image than `DEVFLOW_WORKER_IMAGE`. It gets `204` from `jobs/next`, so no new work, a
+card it is on finishes, and its row on the page shows "<project>'s recipe has changed: run the
+command again" or "A new base image was released: run the command again". The recipe's version is
+recorded by the recipe route and by the loop each time it reads the project; GitHub not answering
+keeps the last, and a default branch without the recipe clears it. A project whose recipe has not
+been read judges its workers by their base image alone. The comparison is in SQL, in
+`WorkerStore`, so the workers' namespace compares no strings, which the constant time test checks.
+
 ## The worker
 
 The worker is the program in a worker's container, `src/DevFlow.Worker/`: started with Dev flow's
@@ -1034,8 +1171,8 @@ behind one narrow interface. What it says to Dev flow is `src/DevFlow.Protocol/`
 paths, its requests and their JSON, which Dev flow's worker routes take too, so a change that breaks
 either side fails to compile. Why it is built so is "Workers" in `docs/devflow-architecture.md`.
 In this part it asks for work and is told there is none; fetching the code, the check and pushing
-come with later slices of the feature, and its image and the command that starts it with "The base
-image and the start commands".
+come with later slices of the feature. The image it runs in and the commands that start it are
+"Starting a worker".
 
 **Its settings**, from the environment:
 
@@ -1164,8 +1301,9 @@ against a Dev flow played from a script, on a clock the test moves. `ClaudeAgent
 `ClaudeCodeAgent` on a fake process starter answering with Claude Code's answers recorded in
 `Claude/`, whose README says where they come from; `ProcessStarterTests` checks that a real process
 gets only the environment given. `ProtocolTests` checks that Dev flow's routes take the shared
-types and that both sides write them as `contracts/devflow/openapi.json` says, and `PublishTests`
-publishes for both runtimes, in locked mode, in a folder of its own.
+types and that both sides write them as `contracts/devflow/openapi.json` says, `ProjectFileTests`
+reads `project.json` and keeps `ProjectFile` and its schema in step, and `PublishTests` publishes
+for both runtimes, in locked mode, in a folder of its own.
 
 ## Claude login
 

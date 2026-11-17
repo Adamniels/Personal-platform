@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://platform.test/contracts/devflow/project.schema.json",
+  "title": "A project's .devflow/project.json",
+  "description": "How Dev flow's worker checks a card's working copy and starts the project for its screenshots. Every field is required and no other is allowed. DevFlow.Protocol's ProjectFile reads it with the same rules, and ProjectFileTests keeps the two in step. See \"The format of .devflow/\" in devflow/README.md.",
+  "type": "object",
+  "properties": {
+    "version": {
+      "description": "The file's format; 1 is the only one.",
+      "type": "integer",
+      "const": 1
+    },
+    "check": {
+      "description": "The command that checks a working copy, installing its packages first, run in the copy's folder as the agent.",
+      "type": "string",
+      "minLength": 1
+    },
+    "start": {
+      "description": "The command that starts the project for its screenshots; empty when it has nothing to start.",
+      "type": "string"
+    },
+    "url": {
+      "description": "Where the started project answers: empty, or an http address on localhost, such as http://localhost:5173.",
+      "type": "string",
+      "pattern": "^$|^http://localhost(:[0-9]{1,5})?(/[^\\s]*)?$"
+    }
+  },
+  "required": ["version", "check", "start", "url"],
+  "additionalProperties": false
+}

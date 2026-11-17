@@ -141,4 +141,7 @@ public sealed partial class GitHubCodeHost
     /// <summary>The account's login, or an enterprise's slug, and the ghost's login when GitHub
     /// gives neither, since it is only ever shown.</summary>
     private static string AccountName(AccountAnswer? account) => account?.Login ?? account?.Slug ?? Ghost;
+
+    /// <summary>A commit in a list of commits, of which the adapter reads its id.</summary>
+    private sealed record CommitAnswer(string Sha);
 }

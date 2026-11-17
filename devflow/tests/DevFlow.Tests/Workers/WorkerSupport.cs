@@ -4,6 +4,7 @@ using System.Text.Json.Nodes;
 
 using Dapper;
 
+using DevFlow.Recipes;
 using DevFlow.Tests.Link;
 using DevFlow.Tests.Reading;
 using DevFlow.Workers;
@@ -107,6 +108,19 @@ internal static class Workers
     /// <summary>A worker asking for work with its key.</summary>
     public static Task<HttpContext> AskForWork(Routes routes, string key, Guid worker) =>
         AsWorker(routes.App, NextPath, Next(worker), null, Bearer(key));
+
+    /// <summary>The project's recipe as a worker's build fetches it: a GET with the key, when one
+    /// is given, in the <c>Authorization</c> header, no cookie and no <c>Origin</c>.</summary>
+    public static Task<HttpContext> GetRecipe(Routes routes, string? key) =>
+        routes.App.Server.SendAsync(context =>
+        {
+            context.Request.Method = "GET";
+            context.Request.Path = RecipeEndpoints.Path;
+            if (key is not null)
+            {
+                context.Request.Headers.Authorization = Bearer(key);
+            }
+        }, Ct);
 
     /// <summary>The SHA-256 of the key as written, which is all Dev flow keeps of it.</summary>
     public static byte[] Hash(string key) => SHA256.HashData(Encoding.UTF8.GetBytes(key));

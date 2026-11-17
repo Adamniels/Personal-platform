@@ -49,7 +49,9 @@ Each project has a page of its own, under the Projects tab, where the owner make
 worker key, shown once, and sees the workers that have introduced themselves with it; a worker
 holding the key says hello and asks for work, and is told there is none yet, see "Workers" below.
 The worker program that does so exists, with the agent it will run behind one narrow interface,
-and publishes as one file for each Linux a worker runs on.
+and publishes as one file for each Linux a worker runs on. Every release builds the image it runs
+in, and the project's page shows the two commands that build a project's worker from its own
+recipe and start it, and says when one needs building again.
 On the Projects tab the owner also gives Dev flow his Claude login once, which it keeps sealed and
 warns him about a month before it is due.
 
@@ -325,11 +327,11 @@ and builds them, as the spec's rounds 3 and 9 have it. Every worker belongs to e
 project, and a worker calls Dev flow and is never called. What exists of it is the start: a
 project's key, the scheme a worker's request authenticates with, the worker API's first two
 calls, `hello`, which records the worker, and `jobs/next`, which answers that there is no work, and
-the worker program that makes them, with the agent interface it will run a job behind. Its base
-image, the commands the page shows to start one, and handing out work are later slices of the
-feature "Dev flow: one card, end to end". The routes, the tables and the panel are "Workers" and
-"The pages" in `devflow/README.md`, and the program, its settings, loop and exit codes "The worker"
-there.
+the worker program that makes them, with the agent interface it will run a job behind, the base
+image it runs in, and the commands the page shows to build and start one. Handing out work is a
+later slice of the feature "Dev flow: one card, end to end". The routes, the tables and the panel
+are "Workers" and "The pages" in `devflow/README.md`, the image and the commands "Starting a
+worker", and the program, its settings, loop and exit codes "The worker" there.
 
 **One key per project, shared by its workers**, as the feature's slice settles. A worker is started
 from a command with its project's key in it, so a key per worker would only add a step to starting
@@ -359,6 +361,36 @@ console program, not a hosted service, since it serves nothing: it loops, and en
 stopped or its key is wrong. Dev flow being away is a wait, never an exit, so a worker outlives a
 restart of the hosted copy without anyone starting it again; the wait grows from 5 seconds to a
 minute while there is nothing, so idle workers cost Dev flow a request a minute each.
+
+**Three layers make a worker**, as the feature settles. The base image holds what every worker
+needs, the worker program, Node, git and a pinned Claude Code; the project's recipe, its own
+`.devflow/Dockerfile`, adds what that project's check needs on top; and the worker is a container
+of that image with the project's key. The base is the platform's and moves with its releases, the
+recipe is the project's and moves with its repository, and neither has to know the other's
+contents. A project's packages are not in any layer: its check installs them in each card's
+working copy, so a change to a lockfile never needs a rebuild.
+
+**The release builds the base image, and never starts it.** It is `devflow-worker` in the hosted
+compose file with no replica, so the release's `compose build` builds it at the release's tag
+beside every other image, from the same commit, and `compose up` starts nothing; the release
+script is unchanged. A worker started from an image the release did not build would run a worker
+program that may not speak the release's API; built together, the image's tag is the release, and
+`DEVFLOW_WORKER_IMAGE` names it, so a worker on an older one is told apart.
+
+**Dev flow hands out the recipe, and refuses one that copies files.** The terminal that builds a
+worker holds no checkout of the project, so the command fetches the recipe from Dev flow with the
+project's key, read from the default branch as the app, rather than asking the owner to clone the
+repository on the machine; and the image is built with no context. A `COPY` or an `ADD` could then
+only fail, or, with `ADD`'s addresses, fetch something no lockfile pins, so Dev flow refuses it
+naming the line, before Docker gives a stranger error. The recipe's version is the newest commit of
+the default branch that changed it, so it changes when the recipe does and not with every push.
+
+**A worker on an old recipe or base image gets no work**, and the page says to run the command
+again. The version Dev flow compares with is the one it last read, by the recipe route or the
+loop, so a recipe pushed to the default branch is noticed within a minute; a project whose recipe
+has not been read judges by the base image alone, since holding a worker back for what Dev flow
+does not know would stop work on a guess. Rebuilding itself, and a registry for the images, are
+part 9 of the feature.
 
 **The agent runs behind one narrow interface**, `IAgent`, as the spec's round 4 has it: given the
 working copy, the brief, the report's schema, the limits and the credential, it answers a success
@@ -455,6 +487,34 @@ its reason, or a risk accepted on purpose; each slice adds the ones it builds.
   Accepted: the agent runs with the token in its environment and can read it, which a run cannot
   avoid, and could send it out encoded; the token is the owner's subscription alone, and is revoked
   and made again if it is ever exposed.
+- **The agent cannot read the worker's files.** In the base image the worker runs as root and keeps
+  a job's secrets in `/run/devflow/`, mode 700, owned by root, and starts every process the agent
+  runs, Claude Code, the check and the start, as the user `agent`, uid 1000, through `setpriv`
+  with its environment reset. So what a job gives the worker, such as the push key, stays out of
+  the reach of the code the agent writes and runs. `base-image.test.sh`, which `check.sh` runs on
+  the built image, checks that `agent` can neither list nor read the folder. Accepted: the agent
+  shares the container's network and kernel with the worker; a container per job is a later
+  choice, if the agent turns out to need less trust than that.
+- **The key is never in the command that starts a worker.** The page shows the key once, in the
+  command that saves it, to `~/.devflow/<project>.env`, readable by the owner alone; the command
+  that builds and starts a worker has `sed` read the key from that file and pipe it to `curl` as
+  its header on stdin, `-H @-`, and passes it to the container with `--env-file`, so it is never in
+  the command's text, the shell's history, any process's arguments in `ps`, or `docker inspect`'s
+  command line. A `-H "Authorization: Bearer $(…)"` would not do: the shell expands it before
+  `curl` starts, and `curl` hides `-u` from `ps` but not `-H`. `StartCommandTests` checks the start
+  command holds no key, and runs its fetch in a shell with a `curl` that records its arguments, to
+  check the key reaches it on stdin and not in them. The recipe route is the worker scheme's, so only a holder of the project's key reads the
+  project's recipe, and it answers it as `text/plain` with `nosniff` and `no-store`, as the
+  screenshot route hands on a code host's bytes. Accepted: the key is in the container's
+  environment, which `docker inspect` shows to anyone who can run Docker on the machine, who can
+  already read the file.
+- **A worker on an old recipe gets no work.** A worker that reports another recipe version than
+  Dev flow last read, or another base image than the release's, is answered `204` by `jobs/next`
+  whatever work waits, so a worker built before a fix to its recipe or to the worker program does
+  not run a card with what the fix replaced. The comparison is in SQL, so the workers' namespace,
+  which the constant time test keeps free of string comparisons, stays so. Accepted: a worker
+  reports its versions itself, so one built by hand could claim the current ones; it holds the
+  project's key, which already lets it do anything a worker may.
 - **The program asks GitHub for changes; there is no webhook.** The platform is not reachable from
   the internet, by design, so nothing outside can call it, and opening it to receive webhooks would
   add an exposed endpoint for a convenience polling gives without one. When it is reachable, a
