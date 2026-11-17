@@ -8,8 +8,9 @@ namespace DevFlow.Tests.GitHub;
 /// <summary>
 /// The installation tokens the adapter makes for itself: each asks for read access alone, to the
 /// one repository being read; each is kept in memory until five minutes before it expires; and
-/// none is ever printed. The request body's test is what keeps "only the owner writes" true by
-/// construction. See "GitHub" in devflow/docs/devflow-architecture.md.
+/// none is ever printed. The request body's test is what keeps every read token read only by
+/// construction; the app's write keys are AppWriteTokenTests'. See "GitHub" in
+/// devflow/docs/devflow-architecture.md.
 /// </summary>
 public sealed class InstallationTokenTests
 {

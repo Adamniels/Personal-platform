@@ -30,7 +30,8 @@ its `migrate` command. Its tables are the vault's, `secrets`, which seals a secr
 the GitHub link's, see "Acting as the owner" below, the projects', see "Projects" below, and the
 workers' and the Claude login's, see "Workers" below. Everything it will ask of a code host goes
 through one interface, with an in memory fake behind it and a GitHub adapter that reads as the app,
-see "The code host seam" and "GitHub" below. On the Projects tab the owner links his GitHub
+and can write as the app with a key narrowed to one purpose, which nothing uses yet, see "The code
+host seam" and "GitHub" below. On the Projects tab the owner links his GitHub
 account, and Dev flow then holds a token that acts as him, sealed in the vault and renewed by
 itself; with it he connects a repository the app is installed on, which makes it a project. A
 loop reads every project about once a minute into a stored list of what waits for him, which the
@@ -58,8 +59,10 @@ warns him about a month before it is due.
 Everything Dev flow asks of a code host goes through `ICodeHost`, in `src/DevFlow/CodeHost/`:
 today the reads the waiting list needs, open pull requests, one pull request, a conversation's
 comments, a commit's statuses and check runs, and a file on a branch, and listing what a person
-can connect, read with their own token; and its two writes, merging and commenting, made only with
-a person's token. Signing a person in is a second interface beside it,
+can connect, read with their own token; the owner's two writes, merging and commenting, made only
+with his token; and the program's own writes, opening a pull request or an issue, commenting,
+labelling and merging, made as the app with a key for one purpose, with where git reaches a
+repository. Signing a person in is a second interface beside it,
 `ICodeHostSignIn`, since its reads are as the app and signing in is as a person; both
 implementations implement both. It names things as the spec does, so a second
 host can sit behind it, and GitHub is the only one built. Every operation answers its value or one
@@ -85,9 +88,10 @@ his phone, is the first time the two meet for real.
 
 ## GitHub
 
-Dev flow acts on GitHub as a GitHub App, as the spec's round 3 decided. It reads as the app, and
-signs the owner in so it holds a token that acts as him, see "Acting as the owner" below, and
-writes only with that token, see "Acting from the page" below. The adapter,
+Dev flow acts on GitHub as a GitHub App, as the spec's round 3 decided. It reads as the app. What
+the owner does from the page it writes with a token that acts as him, see "Acting as the owner" and
+"Acting from the page" below, and what the program does itself it writes as the app, see "The
+program's own writes" below. The adapter,
 `GitHubCodeHost` in `src/DevFlow/CodeHost/GitHub/`, is written by hand on .NET's `HttpClient`,
 since its calls are few, and no automated test touches GitHub: its tests run against GitHub's real
 answers, recorded once in `contracts/github/`. Its addresses and settings are in
@@ -99,13 +103,51 @@ token it signs a JSON Web Token with it, RS256, with `iss` the app's client id, 
 the past against clock drift and `exp` 9 minutes ahead, inside GitHub's limit of 10. That token is
 made when needed and never stored; it can do nothing but ask for installation tokens.
 
-**Its own keys can only read.** Every installation token is asked for with `permissions` of exactly
+**Its reads stay read only.** Every installation token it reads with is asked for with `permissions` of exactly
 `contents`, `pull_requests`, `issues`, `statuses`, `checks` and `metadata`, each `read`, and
 `repository_ids` holding the one repository being read. GitHub never grants more than the app holds,
 and narrows to what the request asks. A token is kept in memory per installation and repository
 until five minutes before its hour is up, and written nowhere. A repository is addressed by its
 owner and name, as GitHub's addresses are, but the token reaches its id alone, so a name that
 points elsewhere since is not found rather than another repository read.
+
+**The program's own writes.** What the program does on GitHub, opening a card's pull request,
+commenting on it, moving its labels, opening an issue and merging, is done as the app, so GitHub
+marks it as the app's and it is traced back to a card and a run, the spec's anti goal 8, rather
+than passed off as the owner's. It goes through a second write path, as typed as the owner's: each
+write takes an `AppWriteToken`, a type of its own with an `internal` constructor, made only by
+`InstallationTokens.ForWrite(repository, purpose)` and, in the fake, by the fake's own issuer, and
+reached by callers only through `ICodeHost.ForWrite`. A read token is a string and the owner's is a
+`UserAccessToken`, so neither can be passed where an `AppWriteToken` is wanted, and the compiler
+keeps the three apart. Each key is asked for with exactly its purpose's permissions and
+`repository_ids` holding the one repository:
+
+| Purpose | Permissions | For |
+|---|---|---|
+| `Push` | `contents: write`, `metadata: read` | a worker fetching and pushing code |
+| `Post` | `issues: write`, `pull_requests: write`, `metadata: read` | opening a pull request or an issue, commenting, labelling |
+| `Merge` | `contents: write`, `pull_requests: read`, `metadata: read` | merging only |
+
+No purpose asks for `workflows`, so no key Dev flow makes can change a project's CI. A write key is
+never kept: each `ForWrite` asks GitHub for a new one, so a push key handed to one worker is never
+another's, and no write key is ever used to read. A write refuses a key for another purpose or
+repository before GitHub is asked, so a bug that hands a push key to a merge fails loudly rather
+than at GitHub. GitHub answers `422` when the installation has not granted a permission asked for,
+which reads as not found, as a repository outside the installation does.
+
+The push key needs a correction to the spec, which said the worker's key "cannot merge": GitHub
+files merging a pull request under Contents, and there is no narrower permission, so a push key can
+push to any branch of its repository, `main` included, and could merge through the API. It is
+accepted as the spec accepted a push to `main`, on the condition that `main` is watched, and
+anything landing there that Dev flow did not merge stops the project; that is the slice "Watching
+main", which comes before anything hands out a push key. A push key leaves Dev flow only inside a
+job's answer, or a fresh key's, to the worker holding that job, and is kept in memory only, never
+stored. Nothing uses these writes yet; the later slices of the feature do.
+
+The reads cannot reach a write key: `ReadPathTests` reads the compiled code and fails if anything
+under `Reading/` or `Runner/`, or anything a read of the adapter runs, through its helpers, lambdas
+and async state machines, names an `AppWriteToken` or a `WritePurpose`. `AppWriteTokenTests` holds
+each purpose's request body, that none names `workflows`, and that only the two issuers make a key.
 
 **Reading cheaply.** The program will ask GitHub about every pull request it follows once a minute.
 Each answer is remembered, in memory, per installation, media type and address, with its `ETag`,
@@ -291,13 +333,13 @@ page" and "The pages" in `devflow/README.md`.
 
 **Only as the owner, by construction.** Both writes are made with his linked account's token from
 `UserTokens.For`, so they are recorded on GitHub as his, and the runner, which starts a fix run
-only on a comment by `Adamniels`, reads his comment as his input. The interface's two writes take a
+only on a comment by `Adamniels`, reads his comment as his input. The owner's two writes take a
 `UserAccessToken`, a type of its own, and nothing else that could authorise them; an installation's
-token is a string, so handing one to a write does not compile, only `UserTokens` makes the type,
-which a test of the compiled code holds, and the adapter's writes never ask for an installation's
-token. What the compiler enforces and what the test does is the security entry "Writes are made
-only with a linked user's token". `CommentTests.NothingIsEverWrittenAsTheApp` and
-`GitHubWriteTests` keep it.
+token is a string and an app's key an `AppWriteToken`, so handing either to one of his writes does
+not compile, only `UserTokens` makes the type, which a test of the compiled code holds, and his
+writes never ask for an installation's token. What the compiler enforces and what the test does is
+the security entry "The owner's actions from the page are made only with his token".
+`CommentTests.TheOwnersActionsAreNeverWrittenAsTheApp` and `GitHubWriteTests` keep it.
 
 **The snapshot is never trusted for the act itself.** The list is up to a minute old, so a merge
 names the commit the page showed: Dev flow refuses one that is not the stored head, and GitHub,
@@ -494,31 +536,36 @@ its reason, or a risk accepted on purpose; each slice adds the ones it builds.
   user, must hold it; the spec's experiment named this, and its round 5 looks at narrowing it. And
   Dev flow does not check the token with Anthropic when it is saved, so a mistyped one is found by
   the worker's check, not the page.
-- **The app holds write access to code, and the program's own keys never use it.** Merging needs
-  the app to hold `contents: write`, so the app as GitHub sees it can write. Every key the program
-  makes for itself is narrowed, in the request for it, to read access on one repository, see
-  "GitHub" above, and only a linked user's own token, see "Acting as the owner" above, is written
-  with, so what is written is recorded on GitHub as done by him. "Only the owner writes" is so by
-  construction, not by care: the test of that request's body, `InstallationTokenTests`, keeps the
-  program's keys read only, and the writes' token type keeps them from being written with, see the
-  next entry. Someone
-  who holds the app's private key could still make a key that writes; the key is a file on the
-  machine, outside the repository, mounted read only into Dev flow's container alone, and on the
-  shared Mac mini it is exposed to the runner's agents like the vault's key, the risk the first
-  entry accepts.
-- **Writes are made only with a linked user's token, and the code makes the other impossible.**
+- **The program writes as the app, through a second typed path.** What the program does on GitHub
+  is the app's, see "The program's own writes" above, made with an `AppWriteToken`, which only the
+  installation token issuer and the fake's make, and which a read token or the owner's token
+  cannot stand in for. Each key is narrowed, in the request for it, to one purpose and one
+  repository, and is never kept; no key asks for `workflows`, so none can change a project's CI;
+  and the program's reads stay read only, which `InstallationTokenTests` keeps, and cannot reach a
+  write key, which `ReadPathTests` keeps. Accepted: a push key can push to any branch of its
+  repository, `main` included, and merge through the API, since GitHub files merging under
+  Contents; `main` is to be watched, and anything landing there that Dev flow did not merge stops
+  the project, see "The program's own writes". Someone who holds the app's private key could still
+  make any key the app's permissions allow; the key is a file on the machine, outside the
+  repository, mounted read only into Dev flow's container alone, and on the shared Mac mini it is
+  exposed to the runner's agents like the vault's key, the risk the first entry accepts.
+- **The owner's actions from the page are made only with his token, and the code makes the other
+  impossible.** What the owner does from the waiting list is recorded on GitHub as his, so the
+  runner reads his comment as his input; what the program does is the app's, so it is traced back
+  to a card and a run, the spec's anti goal 8, and never passed off as his.
   `ICodeHost.Merge` and `ICodeHost.Comment` take a `UserAccessToken`, and nothing else that could
-  authorise them. An installation's token is a string, so passing one where a write wants a
-  `UserAccessToken` does not compile. Turning a string into one takes its constructor, which is
-  `internal`, so no code outside Dev flow's assembly can, its test assembly apart. Within the
-  assembly C# cannot narrow an `internal` constructor to one class, so a test does:
-  `GitHubWriteTests.AUserTokenIsMadeOnlyByUserTokens` reads the compiled code of every method in
-  the assembly and fails when anything but `UserTokens` calls that constructor, a target typed
-  `new()` included. `UserTokens.For` answers `UserToken.Usable` already holding the typed token,
-  from the person's own token in the vault, so the routes pass it on and never make one. The
-  adapter's writes never reach `InstallationTokens`. `GitHubWriteTests` also checks the two
-  signatures and the requests, and `CommentTests.NothingIsEverWrittenAsTheApp` that every write the
-  routes make carries the user's own token.
+  authorise them. An installation's token is a string and an app's key an `AppWriteToken`, so
+  passing either where his writes want a `UserAccessToken` does not compile. Turning a string into
+  one takes its constructor, which is `internal`, so no code outside Dev flow's assembly can, its
+  test assembly apart. Within the assembly C# cannot narrow an `internal` constructor to one class,
+  so a test does: `GitHubWriteTests.AUserTokenIsMadeOnlyByUserTokens` reads the compiled code of
+  every method in the assembly and fails when anything but `UserTokens` calls that constructor, a
+  target typed `new()` included. `UserTokens.For` answers `UserToken.Usable` already holding the
+  typed token, from the person's own token in the vault, so the routes pass it on and never make
+  one. His writes never reach `InstallationTokens`. `GitHubWriteTests` also checks the two
+  signatures and the requests, and `CommentTests.TheOwnersActionsAreNeverWrittenAsTheApp` that
+  every write the routes make carries his own token, and that they ask for no app key and make no
+  write as the app.
 - **A merge names the commit that was shown.** The page sends the head commit it showed, Dev flow
   refuses it unless it is the stored head, and GitHub is given it as `sha`, which it must match, so
   neither a stale page nor a commit pushed since can be merged unseen.

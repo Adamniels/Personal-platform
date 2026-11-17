@@ -7,7 +7,8 @@ issue, #268. "Dev flow" is its name in the nav and in headings, and `devflow` ev
 
 It is a C# feature on .NET 10, an ASP.NET Core minimal API app, built the way `review/` is. Today it
 is the service, its page, its database, which holds the vault, the code host's interface with its
-fake and its GitHub adapter, which reads as the app, linking a user's GitHub account, so Dev
+fake and its GitHub adapter, which reads as the app and can write as it with a key narrowed to one
+purpose, linking a user's GitHub account, so Dev
 flow holds a token that acts as them, connecting a repository, which makes it a project, and
 reading every project about once a minute into a stored list of what waits for the owner, which
 the API answers and the platform's front page counts, and each project's worker key, with the
@@ -526,7 +527,7 @@ does. Its read side:
 The two that take a user's token read as that person, never as the app, so what they list is what
 the person may connect; the token comes from `UserTokens.For`, see "Linking GitHub".
 
-Its write side, both as the person and never as the app:
+The owner's write side, both as the person and never as the app:
 
 - `Merge(user, token, repository, number, commit)`: merges the pull request with a merge commit
   while its head is `commit`, answering a `MergeResult`: `Merged`, `HeadMoved` when the head is
@@ -541,7 +542,36 @@ installation's token is a string, so passing one to a write does not compile. Th
 constructor is `internal`, and the one code in the service that calls it is `UserTokens`, which
 answers `UserToken.Usable` holding it; `GitHubWriteTests.AUserTokenIsMadeOnlyByUserTokens` reads
 the compiled code and fails if anything else does. Why, and where the compiler's guarantee ends,
-is "Writes are made only with a linked user's token" in `devflow/docs/devflow-architecture.md`.
+is "The owner's actions from the page are made only with his token" in
+`devflow/docs/devflow-architecture.md`.
+
+The program's own write side, as the app, each with an `AppWriteToken`, a key the app made for one
+purpose on one repository, see "The program's own writes" in `docs/devflow-architecture.md`:
+
+- `ForWrite(user, repository, purpose)`: a new key for `Push`, `Post` or `Merge`, never kept, as a
+  `CodeHostResult<AppWriteToken>`; not found when the repository is not one the app reaches or the
+  installation has not granted what the purpose needs. The one way to a key;
+- `CloneAddress(user, repository)`: where git fetches and pushes it, GitHub's `https` address, or
+  the fake's `file://` one;
+- `OpenPullRequest(user, token, repository, headBranch, baseBranch, title, body)`: the pull request
+  as the host made it;
+- `CommentOnIssue(user, token, repository, number, body)`: on an issue or a pull request, the
+  comment;
+- `AddLabel` and `RemoveLabel(user, token, repository, number, label)`: the labels it carries after;
+  removing one it does not carry is refused with `404`;
+- `OpenIssue(user, token, repository, title, body, labels)`: the issue, its number, title, labels
+  and web address;
+- `MergeAsApp(user, token, repository, number, commit)`: a merge commit while its head is `commit`,
+  answered as `Merge` is.
+
+The first five writes take a `Post` key and `MergeAsApp` a `Merge` key; a `Push` key is for git
+alone. A key for another purpose or repository is refused with an `ArgumentException` before the
+host is asked, since it is a bug in Dev flow, not a condition to handle. Each but the merge answers
+a `WriteResult<T>`: `Written` with its value, `Refused` with the host's status and words, or
+`Unavailable` when it did not answer, or answered a success that does not parse. Nothing is
+retried in a code host. `AppWriteToken`'s constructor is `internal`, and
+`AppWriteTokenTests.OnlyTheIssuerMakesOne` reads the compiled code and fails if anything but the two
+issuers, `InstallationTokens` and the fake, calls it.
 
 A `Repository` is the installation it was reached through and its id, which identify it, with its
 owner and name carried for display and for GitHub's addresses, which name a repository by them; the
@@ -592,11 +622,22 @@ can only read and what it does with GitHub's failures are "GitHub" in
 | `InstallAddress` | `https://github.com/apps/<DEVFLOW_GITHUB_APP_SLUG>/installations/new`, on GitHub's site |
 | `Merge` | `PUT /repos/{owner}/{repo}/pulls/{number}/merge` with `{"sha": "<commit>", "merge_method": "merge"}`, with the user's token: `200` merged, `409` head moved, `405` not mergeable, any other status refused with it |
 | `Comment` | `POST /repos/{owner}/{repo}/issues/{number}/comments` with `{"body": "<text>"}`, with the user's token: `201` posted, any other status refused with it |
+| `ForWrite` | `POST /app/installations/{id}/access_tokens` with `repository_ids` and the purpose's `permissions`, as the app |
+| `CloneAddress` | `https://github.com/{owner}/{repo}.git`, with no request |
+| `OpenPullRequest` | `POST /repos/{owner}/{repo}/pulls` with `title`, `head`, `base` and `body`: `201` written |
+| `CommentOnIssue` | `POST /repos/{owner}/{repo}/issues/{number}/comments` with `body`: `201` written |
+| `AddLabel` | `POST /repos/{owner}/{repo}/issues/{number}/labels` with `{"labels": ["<label>"]}`: `200` written |
+| `RemoveLabel` | `DELETE /repos/{owner}/{repo}/issues/{number}/labels/{name}`, the name escaped: `200` written |
+| `OpenIssue` | `POST /repos/{owner}/{repo}/issues` with `title`, `body` and `labels`: `201` written |
+| `MergeAsApp` | `PUT /repos/{owner}/{repo}/pulls/{number}/merge` with `sha` and `merge_method` `merge`, answered as `Merge` |
+
+The app's writes carry the key `ForWrite` made, and any status but the one written is refused with
+it and GitHub's words.
 
 The two read with the user's token follow every page as the others do, and nothing of them is
 remembered for a conditional request, since an answer read with one person's token is never one to
-give another. The two writes never ask for an installation token, are never retried, and keep at
-most 500 characters of GitHub's `message` from a refusal.
+give another. The owner's two writes never ask for an installation token. No write is retried, and
+each keeps at most 500 characters of GitHub's `message` from a refusal.
 
 Signing a person in, in `GitHubCodeHost.SignIn.cs`, is GitHub's web flow exactly as GitHub
 documents it:
@@ -703,7 +744,27 @@ answers head moved unless its head is the commit named, and otherwise marks it m
 A comment is refused with `404` for a number with neither a pull request nor a conversation, and is
 otherwise added to the end of the conversation, by the login the token acts as, at the fake's now.
 Each write taken is recorded, with whose token made it, and the record survives staging a world
-again, so a test asserts who wrote and that nothing was written as the app.
+again, so a test asserts who wrote.
+
+The app's writes, in `FakeCodeHost.AppWrites.cs`, take only a key the fake issued. `ForWrite` makes
+one, random and an hour long, recorded for the account; a write with a key the account's record
+does not hold for that repository and purpose, or one past its hour, is refused with `401`, "Bad
+credentials", and a key for another purpose or repository throws, as the adapter does. Each write
+is the app's, by the login `devflow-fake[bot]`, and recorded with its key's purpose. A pull request
+is opened only between two branches its git repository holds, see below, with no open one already
+between them, and otherwise refused with `422`; its head is the branch's commit and its number the
+next after every pull request's, issue's and conversation's. A comment goes on a pull request, an
+issue or a conversation, and a label on a pull request or an issue; removing a label it does not
+carry is refused with `404`, "Label does not exist". An issue is kept in the repository's `issues`,
+a field of the world that may be left out and is written back only when there are some, each
+`{"number": 312, "title": "...", "body": "...", "labels": ["devflow"]}`, its number not a pull
+request's. A merge is the owner's merge, by the app.
+
+Each repository has a bare git repository of its own, in a temporary folder deleted with the fake,
+made empty, `main` its default branch, the first time `CloneAddress` is asked for it, which answers
+its `file://` address. A worker in a test clones it, pushes to it and fetches from it with git, as
+it would from GitHub; the address takes no key, so the fake does not check the push key. Merging
+does not change it. The fake needs `git` on the machine only for this.
 
 ### Staging a world
 
@@ -729,10 +790,13 @@ of what Dev flow is:
 - `POST /devflow/api/fake/claude-login-age` with `{"days": 340}` moves when the caller's Claude
   login was given to that many days before now, so a test sees it due without waiting a year,
   `204`; `404` without a login, and `400` for a negative or malformed number.
-- `GET /devflow/api/fake/writes` lists the merges and comments the fake took for the caller,
-  oldest first, each `{"kind": "merge", "repository": 1001, "number": 304, "commit": "<40 hex>",
-  "method": "merge", "body": null, "by": "octo-owner"}`, or with `kind` `comment`, the `body`, and
-  `commit` and `method` null.
+- `GET /devflow/api/fake/writes` lists the writes the fake took for the caller, oldest first, each
+  `{"kind": "merge", "repository": 1001, "number": 304, "commit": "<40 hex>", "method": "merge",
+  "body": null, "by": "octo-owner"}`, or with `kind` `comment`, the `body`, and `commit` and
+  `method` null. A write by the app has `by` `devflow-fake[bot]` and a `purpose`, `post` or `merge`,
+  and may be of `kind` `pull_request`, with `title`, `head`, `base`, its head commit and its body;
+  `issue`, with `title` and `body`; or `label_added` or `label_removed`, with `label`. A field
+  that is null past `by` is left out, so the owner's writes read as before.
 
 In the GitHub mode none of them exists, `404`. An acceptance test stages a world through the
 `devflow_world` fixture, which puts it through the page's own session, with `e2e/devflow_worlds.py`
@@ -1237,7 +1301,7 @@ GitHub App, as the account that owns the repositories. Every field on the form, 
 | Setup URL | Empty |
 | Redirect on update | Off |
 | Webhook, Active | Off: Dev flow polls, see "The program asks GitHub for changes; there is no webhook" |
-| Repository permissions | Contents read and write, Pull requests read and write, Issues read, Commit statuses read, Checks read, Metadata read, and nothing else |
+| Repository permissions | Contents read and write, Pull requests read and write, Issues read and write, Commit statuses read, Checks read, Metadata read, and nothing else; never Workflows |
 | Organization permissions | None |
 | Account permissions | None |
 | Subscribe to events | None |
@@ -1257,6 +1321,12 @@ Then, on the app's page:
    tab, press "Link GitHub", authorize on GitHub, and see "Linked as @<your login>"; then press
    "Connect a repository" and see the repositories you installed it on. Then release
    the hosted copy, see `infra/hosted/README.md`.
+
+**Issues at write level.** The program opens issues and comments and labels as the app, which
+needs Issues read and write. An app registered before it asked for Issues read only: change it on
+the app's page, under Permissions and events, then approve the new permission on each installation,
+under Settings, Applications, Installed GitHub Apps, where GitHub asks for it. Until it is approved
+a `Post` key is not found, and nothing the program posts can be written.
 
 **Revoking.** Unlinking forgets the tokens in Dev flow and revokes nothing. To end what GitHub
 granted, revoke the app's authorization under your GitHub Settings, Applications, Authorized

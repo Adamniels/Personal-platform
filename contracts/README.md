@@ -162,6 +162,24 @@ Recorded once, on 2026 11 15, from this repository with `gh api` as the bot, fro
 - `check-runs.json`: `gh api repos/Adamniels/Personal-platform/commits/<sha>/check-runs`, trimmed
   with `jq '.check_runs |= .[0:2] | .total_count = 2'` to two runs, a success and a skipped one.
 
+The app's own writes are answered with the same shapes as these reads, so four more are recorded
+for them, read by `devflow/tests/DevFlow.Tests/GitHub/GitHubAppWriteTests.cs`, and checked by
+`ContractTests.TheRecordedWriteAnswersHoldWhatTheAdapterReads` for every field the adapter reads.
+Recorded on 2026 11 17, as the bot, with the reads below, since recording the writes themselves
+would write to this repository:
+
+- `pull-opened.json`: `gh api repos/Adamniels/Personal-platform/pulls/352`, cut with
+  `jq 'del(.head.repo, .base.repo, ._links)'` as the runner's are, an open pull request with two
+  labels, the shape `POST /repos/{owner}/{repo}/pulls` answers with `201`.
+- `labels.json`: `gh api repos/Adamniels/Personal-platform/issues/267/labels`, the list of labels
+  adding one or removing one answers with `200`.
+- `issue.json`: `gh api repos/Adamniels/Personal-platform/issues/336`, an open issue, the shape
+  `POST /repos/{owner}/{repo}/issues` answers with `201`.
+- `merge.json`, written by hand from GitHub's documented `200` answer to merging a pull request,
+  `sha`, `merged` and `message`.
+
+The answer to commenting as the app is the first entry of `issue-comments.json`, the same shape.
+
 `installation-token.json` is written by hand from GitHub's documented answer to
 `POST /app/installations/{installation_id}/access_tokens`, with a made up token. The tests set its
 `expires_at` from their clock.
