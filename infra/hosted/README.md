@@ -84,12 +84,12 @@ and its settings `infra/hosted/.env` in that clone.
 
 1. **Docker's memory.** In Docker Desktop's settings, Resources, set the memory to 8 GB, see
    "Resources".
-2. **The bucket and the key pair.** Set the bucket up as "Setting up the bucket" says: Object Lock
-   with a default retention of 30 days in compliance mode, the lifecycle rule, and the restricted
-   key. Make the `age` key pair on another machine, as "Making the age key pair" says: its public
-   key goes into `.env` in step 3, and its private key never comes onto the Mac mini. Step 4 of the
-   bucket's setup, checking that an uploaded file cannot be deleted, waits for the first upload, in
-   step 8.
+2. **The bucket and the key pair.** Set the bucket up as "Setting up the bucket" says: versioning
+   and Object Lock with a default retention of 30 days in governance mode, the lifecycle rule for
+   current and noncurrent versions, and the restricted key. Make the `age` key pair on another
+   machine, as "Making the age key pair" says: its public key goes into `.env` in step 3, and its
+   private key never comes onto the Mac mini. Step 4 of the bucket's setup, checking that an
+   uploaded file cannot be deleted, waits for the first upload, in step 8.
 3. **The clone and its settings.** The real copy is released from a clone of its own, never from
    `~/dev/Personal-platform`, where the runner checks out slice branches. The release script does
    not check the path; this step is what keeps them apart.
@@ -112,8 +112,9 @@ and its settings `infra/hosted/.env` in that clone.
    The key file stays outside the clone, for example `chmod 600` in `~/.config/platform/`, and
    in the password manager; `compose.yaml` mounts it read only into Dev flow's container at
    `/run/secrets/github-app.pem`, and a path that names no file stops compose before anything
-   starts. Registering the app is in the runbook the next slice of Dev flow writes. Then make the signing key in the core's own image, which appends its line
-   to the file:
+   starts. Register the app first, as "Registering the GitHub App" in `devflow/README.md` says; its
+   homepage and callback are the origin from step 4, so step 4 comes before it. Then make the
+   signing key in the core's own image, which appends its line to the file:
 
    ```zsh
    docker compose -p platform-hosted --env-file infra/hosted/.env -f infra/hosted/compose.yaml build core
@@ -143,7 +144,10 @@ and its settings `infra/hosted/.env` in that clone.
    ```
 
    If the installed version documents another form for sharing `http://127.0.0.1:9080`, use that;
-   `tailscale serve --help` says. **Never `tailscale funnel`**, which would put the platform on the
+   `tailscale serve --help` says. With the Mac app, the command is not on the `PATH` over SSH
+   unless its command line was installed; the app's own is
+   `/Applications/Tailscale.app/Contents/MacOS/Tailscale`, which takes the same arguments. The
+   setting survives a restart. **Never `tailscale funnel`**, which would put the platform on the
    public internet. Then open `PLATFORM_PUBLIC_ORIGIN` on the phone, with Tailscale on, and check
    the login page loads with a valid certificate.
 7. **An account, and the memory.** Make an invite code in the core's container, and register with
@@ -159,19 +163,23 @@ and its settings `infra/hosted/.env` in that clone.
 
    ```zsh
    docker compose -p platform-hosted --env-file infra/hosted/.env -f infra/hosted/compose.yaml exec -T postgres psql -U postgres -d core -c 'SELECT id, email FROM accounts'
-   docker compose -p platform-hosted --env-file infra/hosted/.env -f infra/hosted/compose.yaml run --rm -T -v "$PWD/memory.json:/import/memory.json:ro" brain brain import /import/memory.json --as <account-id>
+   PLATFORM_RELEASE="$(head -n 1 infra/hosted/.release | cut -c 1-12)" docker compose -p platform-hosted --env-file infra/hosted/.env -f infra/hosted/compose.yaml run --rm -T -v "$PWD/memory.json:/import/memory.json:ro" brain brain import /import/memory.json --as <account-id>
    rm memory.json
    ```
 
-   The file is the whole memory in plain text, so it is removed from both machines once imported.
+   The file is the whole memory in plain text, so it is removed from both machines once imported,
+   and the clone must hold no untracked file at the next release anyway. A `run` after a release
+   names the release's tag, the first 12 characters of the commit in `infra/hosted/.release`, as
+   above: without it compose looks for the `dev` image, says pull access is denied, and builds one
+   from the clone. An `exec` uses the running container and needs no tag.
 8. **A backup, and the bucket.** The release took one already; take another by hand and look:
 
    ```zsh
-   docker compose -p platform-hosted --env-file infra/hosted/.env -f infra/hosted/compose.yaml run --rm backup now
+   PLATFORM_RELEASE="$(head -n 1 infra/hosted/.release | cut -c 1-12)" docker compose -p platform-hosted --env-file infra/hosted/.env -f infra/hosted/compose.yaml run --rm backup now
    ```
 
    Look in the bucket for one file per database under the prefix, and do step 4 of "Setting up the
-   bucket": deleting one of them must be refused.
+   bucket": deleting a version of one of them must be refused.
 
 ## Releasing
 
@@ -209,9 +217,8 @@ as it starts:
    database, so a copy set up before them refuses every release until both are added, each from
    its own run of `openssl rand -hex 24`. So does Dev flow's code host, `DEVFLOW_CODE_HOST=github`,
    which came with the code host's slice: the hosted copy names its mode, since Dev flow's default
-   elsewhere is the fake, which must never be on where real data is. Until the GitHub adapter is
-   built, the next slice of Dev flow, #268, Dev flow refuses to start with `github`, so a release
-   in between fails at step 8 and rolls back.
+   elsewhere is the fake, which must never be on where real data is. With `github`, the GitHub
+   App's four settings are required too, see step 3 of "Setting it up".
 5. **Back up**, with `backup now`. Its time names the backup in any later message.
 6. **Migrate**, each `<name>-migrate` service in the compose file's order, one at a time.
 7. **Start** the new containers, `docker compose up -d`, which replaces those whose image or
@@ -376,14 +383,43 @@ over `.env`, `TZ` included.
 
 Once, by the owner, at a provider that speaks S3 and supports Object Lock:
 
-1. Create the bucket with **Object Lock** on, and a default retention of **30 days** in compliance
-   mode, so nothing uploaded can be deleted or overwritten for 30 days, by anyone.
-2. Add a **lifecycle rule** removing objects under the prefix 30 days after they were created,
-   so the bucket keeps a month of nights.
-3. Create a **key restricted to this bucket**, allowed to put objects and nothing more: no delete,
-   no change to the bucket's rules. Its id and key are `BACKUP_S3_KEY_ID` and `BACKUP_S3_KEY`.
-4. **Check the lock**: after the first backup, try to delete one of its files in the provider's
-   console with an account that may. It must be refused.
+1. Create the bucket with versioning and **Object Lock** on, and a default retention of **30 days**
+   in **governance** mode, as a fixed retention rather than an event hold, which would keep every
+   file until someone lifts the hold. Nothing uploaded can then be deleted or overwritten for 30
+   days by the job's key or by the lifecycle rule; only an account allowed to bypass governance
+   retention can, which is the owner's login at the provider and never the key on the Mac mini.
+   Compliance mode would refuse the owner too. Governance is chosen so that the owner can still
+   remove what a leaked key uploaded, at the cost of trusting the provider account, which has MFA
+   and is not used day to day.
+2. Add a **lifecycle rule** for the prefix that expires current versions 30 days after they were
+   created and permanently deletes noncurrent versions 1 day after they become noncurrent, so the
+   bucket keeps a month of nights. Object Lock needs versioning, and in a versioned bucket an
+   expiry only adds a delete marker, so without the second action nothing is ever removed and the
+   bucket grows every night. A locked version is removed only once its retention has passed, which
+   on day 31 it has.
+3. Create a **key restricted to this bucket**, allowed to put objects under the prefix and nothing
+   more: no delete, no list, no change to the bucket's rules and no bypass of its retention. The
+   job makes one `PUT` per file and sends no lock headers of its own, so on AWS this is an IAM user
+   without console access whose one inline policy is:
+
+   ```json
+   {
+     "Version": "2012-10-17",
+     "Statement": [
+       {
+         "Effect": "Allow",
+         "Action": "s3:PutObject",
+         "Resource": "arn:aws:s3:::<bucket>/platform/*"
+       }
+     ]
+   }
+   ```
+
+   Its access key id and secret are `BACKUP_S3_KEY_ID` and `BACKUP_S3_KEY`.
+4. **Check the lock**: after the first backup, in the provider's console with an account that may
+   delete, show the bucket's versions and delete one version of one of its files, without
+   bypassing governance retention. It must be refused. Deleting a file without choosing a version
+   only adds a delete marker, which the lock allows, so it proves nothing.
 
 ### Making the age key pair
 
@@ -407,7 +443,12 @@ docker compose -p <project> run --rm backup now
 docker compose -p <project> run --rm --entrypoint cat backup /status/backup.json
 ```
 
-It prints each database dumped and each file uploaded, and exits non zero if any step failed. The
+In the hosted copy each `run` names the release's tag, as step 8 of "Setting it up" does.
+
+It prints each database dumped and each file uploaded, and exits non zero if any step failed. A
+refused upload shows only its status, such as `403`, since `curl --fail` keeps the provider's
+reply out of the log. The likeliest cause on a first run is a value pasted by hand that lost a
+character: an AWS key id is 20 characters and starts with `AKIA`, and its secret is 40. The
 stand in bucket of the tests checks no signature, so **this first real run is the check** that the
 provider accepts `curl`'s signature and the `Content-MD5`: look in the bucket for one file per
 database under the prefix, and do step 4 of the bucket's setup. Every release runs `backup now`
