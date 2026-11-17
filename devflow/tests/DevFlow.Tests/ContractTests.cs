@@ -78,6 +78,27 @@ public sealed class ContractTests
     }
 
     [Fact]
+    public async Task TheWorkersRoutesArePinned()
+    {
+        // The user's two and the worker's two, each under its own way to authenticate, so a worker
+        // program written against the file finds its calls there.
+        var paths = JsonNode.Parse(await File.ReadAllTextAsync(Schema, TestContext.Current.CancellationToken))!["paths"]!.AsObject();
+
+        foreach (var (path, method, operation) in new[]
+        {
+            ("/devflow/api/projects/{id}/worker-key", "post", "makeWorkerKey"),
+            ("/devflow/api/projects/{id}/workers", "get", "listWorkers"),
+            ("/devflow/api/worker/hello", "post", "workerHello"),
+            ("/devflow/api/worker/jobs/next", "post", "workerNextJob"),
+        })
+        {
+            Assert.Equal(operation, (string?)paths[path]?[method]?["operationId"]);
+        }
+
+        Assert.Contains("Authorization: Bearer dfw_", (string)paths["/devflow/api/worker/hello"]!["post"]!["description"]!, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task TheRunningServiceServesNoSchema()
     {
         await using var devflow = await Harness.Start();

@@ -96,6 +96,7 @@ public static class DevFlowApp
         // which leads to its project's user. See "Workers" in devflow/README.md.
         builder.Services.AddSingleton(provider => new WorkerKeys(database, provider.GetRequiredService<TimeProvider>()));
         builder.Services.AddWorkerAuthentication();
+        builder.Services.AddSingleton(provider => new WorkerStore(database, provider.GetRequiredService<TimeProvider>()));
         if (settings.PollInterval is { } interval)
         {
             builder.Services.AddHostedService(provider => new Poller(

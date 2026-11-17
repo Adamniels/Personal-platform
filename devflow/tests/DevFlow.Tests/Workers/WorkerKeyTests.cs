@@ -72,8 +72,39 @@ public sealed partial class WorkerKeyTests
             Assert.True(found == 0, $"{table} holds the key");
         }
 
+        // The page reads when a key was made, never the key.
+        var listed = await Workers.List(routes, project);
+        Assert.DoesNotContain(key[4..], listed.ToJsonString(), StringComparison.Ordinal);
+        Assert.Equal($"{now:yyyy-MM-ddTHH:mm:ss}+00:00", (string)listed["key_made_at"]!);
+
         // A second key is another key.
         Assert.NotEqual(key, await Workers.NewKey(routes, project));
+    }
+
+    [Fact]
+    public async Task MakingANewKeyEndsTheOldOne()
+    {
+        await using var routes = await Routes.Start();
+        var project = await routes.Project(Workers.User);
+        var worker = Guid.NewGuid();
+        var old = await Workers.NewKey(routes, project);
+        Assert.Equal(StatusCodes.Status204NoContent, (await Workers.SayHello(routes, old, worker)).Response.StatusCode);
+
+        var replacement = await Workers.NewKey(routes, project);
+
+        // At once: the next request with the old key is refused, and the new one works.
+        var refused = await Workers.SayHello(routes, old, worker);
+        Assert.Equal(StatusCodes.Status401Unauthorized, refused.Response.StatusCode);
+        Assert.Equal("", await Harness.Body(refused));
+        Assert.Equal(StatusCodes.Status401Unauthorized, (await Workers.AskForWork(routes, old, worker)).Response.StatusCode);
+        Assert.Equal(StatusCodes.Status204NoContent, (await Workers.SayHello(routes, replacement, worker)).Response.StatusCode);
+
+        // One key per project, the new one's hash, in both tables.
+        await using var admin = await routes.Database.OpenAdmin(Ct);
+        Assert.Equal([Workers.Hash(replacement)], await admin.QueryAsync<byte[]>(new CommandDefinition(
+            "SELECT key_hash FROM worker_keys", cancellationToken: Ct)));
+        Assert.Equal([Workers.Hash(replacement)], await admin.QueryAsync<byte[]>(new CommandDefinition(
+            "SELECT key_hash FROM worker_key_lookup", cancellationToken: Ct)));
     }
 
     [Fact]
@@ -85,11 +116,13 @@ public sealed partial class WorkerKeyTests
         var response = await Workers.MakeKey(routes, bobs);
 
         Assert.Equal(StatusCodes.Status404NotFound, response.Response.StatusCode);
-        // No key was made for it.
+        // No key was made for it, and its workers are not the caller's to read either.
         await using var admin = await routes.Database.OpenAdmin(Ct);
         Assert.Equal(0, await admin.QuerySingleAsync<long>(new CommandDefinition("SELECT count(*) FROM worker_keys", cancellationToken: Ct)));
+        Assert.Equal(StatusCodes.Status404NotFound, (await routes.App.Get(Workers.ListPath(bobs), Contract.Token)).Response.StatusCode);
         // As for a project nobody has.
         Assert.Equal(StatusCodes.Status404NotFound, (await Workers.MakeKey(routes, Guid.NewGuid())).Response.StatusCode);
+        Assert.Equal(StatusCodes.Status404NotFound, (await routes.App.Get(Workers.ListPath(Guid.NewGuid()), Contract.Token)).Response.StatusCode);
     }
 
     [Fact]
@@ -104,8 +137,28 @@ public sealed partial class WorkerKeyTests
 
         Assert.Equal(StatusCodes.Status403Forbidden, elsewhere.Response.StatusCode);
         Assert.Equal(StatusCodes.Status401Unauthorized, anonymous.Response.StatusCode);
+        Assert.Equal(StatusCodes.Status401Unauthorized, (await routes.App.Get(Workers.ListPath(project), null)).Response.StatusCode);
         await using var admin = await routes.Database.OpenAdmin(Ct);
         Assert.Equal(0, await admin.QuerySingleAsync<long>(new CommandDefinition("SELECT count(*) FROM worker_keys", cancellationToken: Ct)));
+    }
+
+    [Fact]
+    public async Task DisconnectingTheProjectEndsItsKeyAndItsWorkers()
+    {
+        await using var routes = await Routes.Start();
+        var project = await routes.Project(Workers.User);
+        var key = await Workers.NewKey(routes, project);
+        Assert.Equal(StatusCodes.Status204NoContent, (await Workers.SayHello(routes, key, Guid.NewGuid())).Response.StatusCode);
+
+        var gone = await routes.App.Send("DELETE", $"/devflow/api/projects/{project}", Contract.Token, ("Origin", Linking.Origin));
+
+        Assert.Equal(StatusCodes.Status204NoContent, gone.Response.StatusCode);
+        Assert.Equal(StatusCodes.Status401Unauthorized, (await Workers.SayHello(routes, key, Guid.NewGuid())).Response.StatusCode);
+        await using var admin = await routes.Database.OpenAdmin(Ct);
+        foreach (var table in new[] { "worker_keys", "worker_key_lookup", "workers" })
+        {
+            Assert.Equal(0, await admin.QuerySingleAsync<long>(new CommandDefinition($"SELECT count(*) FROM {table}", cancellationToken: Ct)));
+        }
     }
 
     [Fact]
