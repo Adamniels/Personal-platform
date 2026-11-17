@@ -28,7 +28,7 @@ It answers through the proxy under `/devflow` in the dev stack and in the hosted
 core's token itself through `PlatformAuth`, and has a database of its own, `devflow`, migrated by
 its `migrate` command. Its tables are the vault's, `secrets`, which seals a secret for a user,
 the GitHub link's, see "Acting as the owner" below, the projects', see "Projects" below, and the
-workers', see "Workers" below. Everything it will ask of a code host goes
+workers' and the Claude login's, see "Workers" below. Everything it will ask of a code host goes
 through one interface, with an in memory fake behind it and a GitHub adapter that reads as the app,
 see "The code host seam" and "GitHub" below. On the Projects tab the owner links his GitHub
 account, and Dev flow then holds a token that acts as him, sealed in the vault and renewed by
@@ -48,6 +48,8 @@ will show arrives with the later slices of the first part.
 Each project has a page of its own, under the Projects tab, where the owner makes the project's
 worker key, shown once, and sees the workers that have introduced themselves with it; a worker
 holding the key says hello and asks for work, and is told there is none yet, see "Workers" below.
+On the Projects tab the owner also gives Dev flow his Claude login once, which it keeps sealed and
+warns him about a month before it is due.
 
 ## The code host seam
 
@@ -344,6 +346,18 @@ the project expects. Its primary key is the project and that id together, so a w
 can never collide with one of another's. One not seen for ten minutes shows as "not seen since"
 then; nothing removes a worker yet.
 
+**A run's one credential is the Claude login, and Dev flow holds it**, as the spec's rounds 3 and
+4b have it. The owner runs `claude setup-token` once and pastes the token on the Projects tab, so a
+new worker needs no login step of its own: the program hands the token to each run inside the job,
+as `CLAUDE_CODE_OAUTH_TOKEN`, when "Handing out work and the brief" builds that. It is one per
+user, not per project, since the subscription is the user's, and it is sealed in the vault like
+the GitHub tokens. Claude Code does not report when a setup token runs out, the experiment of
+2026 11 16 found, so Dev flow counts a year from when it was given and warns a month before,
+through the Projects tab, the nav's dot and the front page's card, which say it apart from what
+waits rather than counting it. It checks only that what is pasted looks like a setup token; whether
+it works is the worker's check before every run. The routes, the table and the section are "Claude
+login" and "The pages" in `devflow/README.md`.
+
 ## Security decisions and accepted risks
 
 Kept for an audit the owner plans once the first part is in place. Each entry is a decision with
@@ -396,7 +410,7 @@ its reason, or a risk accepted on purpose; each slice adds the ones it builds.
   webhook is to call the same seam the loop does, `ProjectRefresher.Request`, see "Reading and the
   snapshot" above, and verify GitHub's signature before it does.
 - **A secret Dev flow holds is sealed in its database, with a key that is not in it.** The owner's
-  GitHub tokens, and later the Claude login and each project's test secrets, are put in the vault,
+  GitHub tokens and Claude login, and later each project's test secrets, are put in the vault,
   `src/DevFlow/Vault/Vault.cs`: AES-256-GCM from .NET's own `AesGcm`, the standard authenticated
   cipher, with no other library, under a 32 byte key from `DEVFLOW_VAULT_KEY`, a random 12 byte
   nonce per put and the user and the purpose as associated data. So a row is unreadable without the
@@ -416,6 +430,19 @@ its reason, or a risk accepted on purpose; each slice adds the ones it builds.
   fake code host, used by tests, CI and the runner's stack, makes one in memory at startup, and
   with `DEVFLOW_CODE_HOST=github` Dev flow refuses to start. How it works is "The vault" in
   `devflow/README.md`.
+- **The Claude token is sealed per user, never answered, and leaves Dev flow only inside a job.**
+  It is the one credential a run holds, and it can spend the owner's subscription, so: it is put
+  in the vault under `claude-login`, bound to its user, and nothing else in the database holds it;
+  no route answers it or any part of it, the status route says only whether one is set and when,
+  and a refused one is not repeated in the error; the page never reads it back, and its field is a
+  password field emptied on every save; and it is opened by one method alone,
+  `ClaudeLogins.ForRun`, which takes the run's user, opens as that user, and answers a type that
+  never prints its value, so the only way out of Dev flow is a job's answer to that user's own
+  worker. A test holds each of these, in `ClaudeLoginTests`. Accepted: inside the container, code a
+  run executes can read the token, since Claude Code, which runs as the container's unprivileged
+  user, must hold it; the spec's experiment named this, and its round 5 looks at narrowing it. And
+  Dev flow does not check the token with Anthropic when it is saved, so a mistyped one is found by
+  the worker's check, not the page.
 - **The app holds write access to code, and the program's own keys never use it.** Merging needs
   the app to hold `contents: write`, so the app as GitHub sees it can write. Every key the program
   makes for itself is narrowed, in the request for it, to read access on one repository, see
