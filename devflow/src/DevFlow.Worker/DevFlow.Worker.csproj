@@ -1,10 +1,29 @@
 <!--
-  The worker program: started with Dev flow's address and a project's key, it says hello and asks
-  for work in a loop. See "The worker" in devflow/README.md.
+  The worker program: started with Dev flow's address and a project's key, it says hello, asks for
+  work in a loop and runs an agent behind one narrow interface. Published as one file carrying its
+  own .NET runtime, so a project's image needs no .NET:
+
+    dotnet publish src/DevFlow.Worker -c Release -r linux-arm64
+
+  See "The worker" in devflow/README.md.
 -->
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
+    <!-- The machines a worker runs on: the Mac mini's containers, and an x64 Linux machine. -->
+    <RuntimeIdentifiers>linux-arm64;linux-x64</RuntimeIdentifiers>
+    <!-- A worker formats nothing by culture, so the image needs no ICU. -->
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- Warns, in every build, of what breaks in a single file; and restores the same packages with
+         a runtime named or without, so one lock file serves the build and the publish. -->
+    <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
+  </PropertyGroup>
+  <!-- Self-contained and one file only when a runtime is named, as publishing names one; a build
+       without one, as CI's and the tests' are, cannot be self-contained. -->
+  <PropertyGroup Condition="'$(RuntimeIdentifier)' != ''">
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <DebugType>embedded</DebugType>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../DevFlow.Protocol/DevFlow.Protocol.csproj" />
