@@ -36,6 +36,7 @@ function openAt(path: string) {
 				makeKey: () => new Promise(() => {}),
 				loadSettings: () => new Promise(() => {}),
 				saveSettings: () => new Promise(() => {}),
+				loadCards: () => new Promise(() => {}),
 			}}
 			projects={{
 				loadProjects: () => Promise.resolve([]),

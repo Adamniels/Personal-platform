@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 
 using DevFlow.Acting;
+using DevFlow.Cards;
 using DevFlow.ClaudeLogin;
 using DevFlow.CodeHost;
 using DevFlow.CodeHost.GitHub;
@@ -140,6 +141,7 @@ public static class DevFlowApp
         app.MapDisplay();
         app.MapAttention();
         app.MapWorkers();
+        app.MapCards();
         app.MapRecipe();
         app.MapClaudeLogin();
         app.MapPages(webRoot);

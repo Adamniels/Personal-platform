@@ -78,6 +78,10 @@ const projectApi: ProjectApi = {
 		client.get(
 			`/projects/${encodeURIComponent(id)}/settings` as "/projects/{id}/settings",
 		),
+	loadCards: (id) =>
+		client.get(
+			`/projects/${encodeURIComponent(id)}/cards` as "/projects/{id}/cards",
+		),
 	saveSettings: (id, settings) =>
 		client.send<ProjectSettings>(
 			"PUT",

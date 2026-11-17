@@ -129,6 +129,35 @@ public static class CardStore
             cancellationToken: cancellationToken)), cancellationToken)];
     }
 
+    /// <summary>The project's cards as last read, newest change first, or null when the user has
+    /// no such project.</summary>
+    public static async Task<CardList?> List(UserDb database, Guid userId, Guid projectId, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(database);
+        return await database.InUserTransaction<CardList?>(userId, async transaction =>
+        {
+            if (await transaction.Connection!.ExecuteScalarAsync<int?>(new CommandDefinition(
+                    "SELECT 1 FROM projects WHERE id = @projectId", new { projectId }, transaction, cancellationToken: cancellationToken)) is null)
+            {
+                return null;
+            }
+
+            var rows = await transaction.Connection!.QueryAsync<ListedCard>(new CommandDefinition(
+                """
+                SELECT number AS Number, title AS Title, web_url AS WebUrl, state AS State, reason AS Reason, waits_for AS WaitsFor,
+                       priority AS Priority, changed_at AS ChangedAt
+                FROM cards WHERE project_id = @projectId
+                ORDER BY changed_at DESC, number DESC
+                """,
+                new { projectId },
+                transaction,
+                cancellationToken: cancellationToken));
+            return new CardList([.. rows.Select(row => new CardView(
+                row.Number, row.Title, row.WebUrl, row.State, row.Reason, row.WaitsFor, row.Priority,
+                new DateTimeOffset(DateTime.SpecifyKind(row.ChangedAt, DateTimeKind.Utc))))]);
+        }, cancellationToken);
+    }
+
     private static string State(Verdict verdict) => verdict switch
     {
         Verdict.Queued => "queued",
@@ -136,6 +165,26 @@ public static class CardStore
         Verdict.Ignored => "ignored",
         _ => throw new ArgumentOutOfRangeException(nameof(verdict), verdict, "not a verdict"),
     };
+
+    /// <summary>A card as listed, set by property, as <see cref="StoredCard"/> is.</summary>
+    private sealed class ListedCard
+    {
+        public int Number { get; init; }
+
+        public string Title { get; init; } = "";
+
+        public string WebUrl { get; init; } = "";
+
+        public string State { get; init; } = "";
+
+        public string? Reason { get; init; }
+
+        public string[] WaitsFor { get; init; } = [];
+
+        public string Priority { get; init; } = "";
+
+        public DateTime ChangedAt { get; init; }
+    }
 
     /// <summary>A card as stored, set by property: Dapper reads <c>text[]</c> as an array no
     /// constructor parameter matches.</summary>

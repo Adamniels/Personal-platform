@@ -18,6 +18,9 @@ REPOSITORY = 1001
 OWNER = "Adamniels"
 NAME = "Personal-platform"
 WHEN = "2026-11-15T09:30:00+00:00"
+# Who the account is at the fake when a world names no user: the person linking
+# GitHub links, and so the owner whose cards are picked.
+FAKE_USER = "octo-owner"
 
 
 def one_repository(owner: str = OWNER, name: str = NAME) -> dict:
@@ -141,14 +144,15 @@ def add_issue(
     world: dict,
     number: int,
     title: str,
-    author: str = OWNER,
+    author: str = FAKE_USER,
     labels: list[str] | None = None,
     open_: bool = True,
     blocked_by: list[int] | None = None,
     edits: list[dict] | None = None,
     created_at: str = WHEN,
 ) -> dict:
-    """Adds an issue to the world's repository, open unless said, with the
+    """Adds an issue to the world's repository, written by the fake's user,
+    the owner once GitHub is linked, unless said, open unless said, with the
     labels, the issues in the same repository it is blocked by, and its edits,
     none unless given. Returns it, so a test can change it."""
     issue = {

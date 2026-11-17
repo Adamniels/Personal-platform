@@ -89,6 +89,7 @@ function renderPage(
 			}),
 		),
 		saveSettings: vi.fn((_: string, settings) => Promise.resolve(settings)),
+		loadCards: vi.fn(() => Promise.resolve({ cards: [] })),
 		copy: vi.fn(() => Promise.resolve()),
 		back: vi.fn(),
 	};
@@ -125,15 +126,20 @@ describe("a project's page", () => {
 		expect(screen.queryByRole("article", { name: "Settings" })).toBeNull();
 	});
 
-	test("shows the project's settings above its workers", async () => {
-		const { loadSettings } = renderPage();
+	test("shows the project's settings, then its cards, then its workers", async () => {
+		const { loadSettings, loadCards } = renderPage();
 
 		const settings = await screen.findByRole("article", { name: "Settings" });
+		const cards = await screen.findByRole("article", { name: "Cards" });
 		const workers = await panel();
 		expect(loadSettings).toHaveBeenCalledWith(ID);
+		expect(loadCards).toHaveBeenCalledWith(ID);
 		expect(
-			settings.compareDocumentPosition(workers) &
+			settings.compareDocumentPosition(cards) &
 				Node.DOCUMENT_POSITION_FOLLOWING,
+		).toBeTruthy();
+		expect(
+			cards.compareDocumentPosition(workers) & Node.DOCUMENT_POSITION_FOLLOWING,
 		).toBeTruthy();
 	});
 
