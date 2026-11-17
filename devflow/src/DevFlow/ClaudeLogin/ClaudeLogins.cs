@@ -61,6 +61,21 @@ public sealed record ClaudeLoginStatus(bool Set, DateTimeOffset? GivenAt, DateTi
 }
 
 /// <summary>
+/// A user's Claude token, opened for one of their runs by <see cref="ClaudeLogins.ForRun"/>, the
+/// only way to one. It prints as a placeholder, never as its value, so a log line or an exception
+/// that names it does not reveal it.
+/// </summary>
+public sealed class ClaudeToken
+{
+    internal ClaudeToken(string value) => Value = value;
+
+    /// <summary>The token, for the run's <c>CLAUDE_CODE_OAUTH_TOKEN</c> and nowhere else.</summary>
+    public string Value { get; }
+
+    public override string ToString() => "ClaudeToken { sealed }";
+}
+
+/// <summary>
 /// Each user's Claude login: the token <c>claude setup-token</c> makes, which a run of theirs is
 /// handed so it runs on their subscription. One per user, since the subscription is theirs. The
 /// token is sealed in the vault under <see cref="Purpose"/>, and <c>claude_logins</c> holds only
@@ -147,6 +162,31 @@ public sealed partial class ClaudeLogins(UserDb database, Vault vault, TimeProvi
                 cancellationToken: cancellationToken));
             return await vault.Delete(transaction, userId, Purpose, cancellationToken);
         }, cancellationToken);
+
+    /// <summary>
+    /// <paramref name="runUserId"/>'s token, opened for one of their runs, or null when they have
+    /// given none. The one method that opens it, called only when a job is handed out, so the
+    /// token leaves Dev flow only inside a job's answer to its own user's worker. It opens through
+    /// the door as the run's user, so row level security shows no one else's, and the vault's
+    /// binding to the user it was sealed for refuses a token moved to another. An expired login is
+    /// still handed out: when it runs out is only a year counted from when it was given, and the
+    /// worker checks the login before every run.
+    /// </summary>
+    /// <exception cref="VaultException">The token does not open as this user's: it was moved
+    /// from another user, or changed.</exception>
+    public async Task<ClaudeToken?> ForRun(Guid runUserId, CancellationToken cancellationToken)
+    {
+        var sealedToken = await database.InUserTransaction(runUserId, async transaction =>
+        {
+            var given = await transaction.Connection!.ExecuteScalarAsync<bool>(new CommandDefinition(
+                "SELECT EXISTS (SELECT 1 FROM claude_logins WHERE user_id = @runUserId)",
+                new { runUserId },
+                transaction,
+                cancellationToken: cancellationToken));
+            return given ? await vault.Get(transaction, runUserId, Purpose, cancellationToken) : null;
+        }, cancellationToken);
+        return sealedToken is null ? null : new ClaudeToken(Encoding.UTF8.GetString(sealedToken));
+    }
 
     /// <summary>Now, as Postgres keeps it, to the microsecond.</summary>
     private DateTimeOffset Now()

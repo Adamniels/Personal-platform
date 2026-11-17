@@ -149,6 +149,7 @@ public sealed class ClaudeLoginTests
         Assert.Equal(replaced.UtcDateTime, logins[0].Given, TimeSpan.FromMilliseconds(1));
         Assert.Equal([(Routes.User, "claude-login")], secrets);
         Assert.NotEqual(before, await Sealed(routes));
+        Assert.Equal(Replacement, (await Logins(routes).ForRun(Routes.User, Ct))!.Value);
         Assert.Equal($"{replaced.AddDays(365):yyyy-MM-ddTHH:mm:ss}+00:00", (string)(await Status(routes))["renew_by"]!);
     }
 
@@ -164,6 +165,7 @@ public sealed class ClaudeLoginTests
         var (logins, secrets) = await Rows(routes);
         Assert.Empty(logins);
         Assert.Empty(secrets);
+        Assert.Null(await Logins(routes).ForRun(Routes.User, Ct));
         Assert.Equal("none", (string)(await Status(routes))["state"]!);
         // Removing what is not there is the same answer.
         Assert.Equal(StatusCodes.Status204NoContent, (await Remove(routes)).Response.StatusCode);
@@ -207,6 +209,16 @@ public sealed class ClaudeLoginTests
 
         Assert.Equal(StatusCodes.Status422UnprocessableEntity, refused.Response.StatusCode);
         Assert.Empty((await Rows(routes)).Logins);
+    }
+
+    [Fact]
+    public async Task APastedTokenLosesTheSpaceAroundIt()
+    {
+        await using var routes = await Routes.Start();
+
+        Assert.Equal(StatusCodes.Status200OK, (await Save(routes, $"  {Token}\n")).Response.StatusCode);
+
+        Assert.Equal(Token, (await Logins(routes).ForRun(Routes.User, Ct))!.Value);
     }
 
     [Fact]
@@ -270,11 +282,55 @@ public sealed class ClaudeLoginTests
         Assert.Equal(StatusCodes.Status204NoContent, (await Remove(routes)).Response.StatusCode);
         Assert.Equal(StatusCodes.Status200OK, (await Save(routes, Token)).Response.StatusCode);
 
+        Assert.Equal(BobsToken, (await logins.ForRun(Routes.Bob, Ct))!.Value);
+        Assert.Equal(Token, (await logins.ForRun(Routes.User, Ct))!.Value);
         var (rows, secrets) = await Rows(routes);
         Assert.Equal(new[] { Routes.Bob, Routes.User }.Order(), rows.Select(row => row.User).Order());
         Assert.Equal(2, secrets.Count);
         Assert.True((await logins.Status(Routes.Bob, Ct)).Set);
         Assert.DoesNotContain(BobsToken[10..], (await Status(routes)).ToJsonString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ItIsHandedOnlyToItsUsersRuns()
+    {
+        await using var routes = await Routes.Start();
+        var logins = Logins(routes);
+        await logins.Set(Routes.User, Token, Ct);
+        await logins.Set(Routes.Bob, BobsToken, Ct);
+        var carol = Guid.Parse("0190a8f0-0000-7000-8000-0000000ca201");
+
+        // Each run gets its own user's, and a user without one gets none.
+        Assert.Equal(Token, (await logins.ForRun(Routes.User, Ct))!.Value);
+        Assert.Equal(BobsToken, (await logins.ForRun(Routes.Bob, Ct))!.Value);
+        Assert.Null(await logins.ForRun(carol, Ct));
+
+        // The user's sealed token copied to another user, past row level security, does not open
+        // for that user's run: it is bound to the user it was sealed for.
+        await using (var admin = await routes.Database.OpenAdmin(Ct))
+        {
+            await admin.ExecuteAsync(new CommandDefinition(
+                """
+                INSERT INTO secrets (user_id, purpose, key_id, nonce, ciphertext, updated_at)
+                SELECT @carol, purpose, key_id, nonce, ciphertext, updated_at FROM secrets WHERE user_id = @user AND purpose = 'claude-login';
+                INSERT INTO claude_logins (user_id, secret_purpose, given_at)
+                SELECT @carol, secret_purpose, given_at FROM claude_logins WHERE user_id = @user;
+                """,
+                new { carol, user = Routes.User },
+                cancellationToken: Ct));
+        }
+
+        await Assert.ThrowsAsync<VaultException>(() => logins.ForRun(carol, Ct));
+
+        // The token leaves Dev flow through this one method: nothing else public answers one.
+        var handing = typeof(ClaudeLogins).Assembly.GetExportedTypes()
+            .SelectMany(type => type.GetMethods())
+            .Where(method => method.ReturnType == typeof(Task<ClaudeToken?>) || method.ReturnType == typeof(Task<ClaudeToken>) || method.ReturnType == typeof(ClaudeToken))
+            .Select(method => $"{method.DeclaringType!.Name}.{method.Name}");
+        Assert.Equal(["ClaudeLogins.ForRun"], handing);
+
+        // And a token is never printed by accident, in a log line or an exception.
+        Assert.DoesNotContain(Token[10..], (await logins.ForRun(Routes.User, Ct))!.ToString(), StringComparison.Ordinal);
     }
 
     [Fact]
