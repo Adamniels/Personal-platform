@@ -22,6 +22,10 @@
     <ProjectReference Include="../DevFlow.Tests/DevFlow.Tests.csproj" />
   </ItemGroup>
   <ItemGroup>
+    <!-- Claude Code's answers, read by ClaudeAgentTests in place of running it; see Claude/README.md. -->
+    <None Include="Claude/**" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <ItemGroup>
     <Using Include="Xunit" />
   </ItemGroup>
 </Project>

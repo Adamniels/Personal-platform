@@ -1,0 +1,38 @@
+{
+  "type": "result",
+  "subtype": "success",
+  "is_error": false,
+  "duration_ms": 184213,
+  "duration_api_ms": 171552,
+  "num_turns": 23,
+  "result": "Added the empty state to the habits list and its test.",
+  "session_id": "6a0f1c62-4b1e-4f3c-9d2a-0b7c1e5d9a11",
+  "total_cost_usd": 1.8342,
+  "usage": {
+    "input_tokens": 41,
+    "cache_creation_input_tokens": 18204,
+    "cache_read_input_tokens": 512870,
+    "output_tokens": 6113,
+    "server_tool_use": { "web_search_requests": 0, "web_fetch_requests": 0 },
+    "service_tier": "standard"
+  },
+  "modelUsage": {
+    "claude-opus-5-5": {
+      "inputTokens": 41,
+      "outputTokens": 6113,
+      "cacheReadInputTokens": 512870,
+      "cacheCreationInputTokens": 18204,
+      "webSearchRequests": 0,
+      "costUSD": 1.8342,
+      "contextWindow": 200000
+    }
+  },
+  "permission_denials": [],
+  "structured_output": {
+    "summary": "Added the empty state to the habits list.",
+    "files_changed": ["src/habits/list.tsx", "src/habits/list.test.tsx"],
+    "handover": "The empty state lives in list.tsx; its copy is in en.json."
+  },
+  "terminal_reason": "completed",
+  "uuid": "0d7e5b0a-6c55-4a43-8f63-3f2b8e3f6a20"
+}

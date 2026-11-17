@@ -1,0 +1,21 @@
+{
+  "type": "result",
+  "subtype": "success",
+  "is_error": false,
+  "duration_ms": 30456,
+  "duration_api_ms": 28890,
+  "num_turns": 6,
+  "result": "I could not write the file: permission was denied.",
+  "session_id": "6a0f1c62-4b1e-4f3c-9d2a-0b7c1e5d9a18",
+  "total_cost_usd": 0.1903,
+  "usage": { "input_tokens": 18, "cache_creation_input_tokens": 7120, "cache_read_input_tokens": 61004, "output_tokens": 1220 },
+  "modelUsage": {
+    "claude-opus-5-5": { "inputTokens": 18, "outputTokens": 1220, "cacheReadInputTokens": 61004, "cacheCreationInputTokens": 7120, "webSearchRequests": 0, "costUSD": 0.1903, "contextWindow": 200000 }
+  },
+  "permission_denials": [
+    { "tool_name": "Write", "tool_use_id": "toolu_01", "tool_input": { "file_path": "/etc/hosts", "content": "x" } }
+  ],
+  "structured_output": { "summary": "Could not write the file." },
+  "terminal_reason": "completed",
+  "uuid": "0d7e5b0a-6c55-4a43-8f63-3f2b8e3f6a27"
+}
