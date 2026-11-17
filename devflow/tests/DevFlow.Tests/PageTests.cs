@@ -25,6 +25,7 @@ public sealed class PageTests : IAsyncLifetime
     [InlineData("/devflow/projects")]
     [InlineData("/devflow?tab=1")]
     [InlineData("/devflow/projects?x=1")]
+    [InlineData("/devflow/projects/0190a8f0-0000-7000-8000-000000000001")]
     public async Task EachSectionAnswersTheAppWithAToken(string address)
     {
         var response = await DevFlow.Get(address, Contract.Token);
@@ -51,6 +52,7 @@ public sealed class PageTests : IAsyncLifetime
     [InlineData("/devflowx")]
     [InlineData("/devflow/other")]
     [InlineData("/devflow/projects/deeper")]
+    [InlineData("/devflow/projects/0190a8f0-0000-7000-8000-000000000001/more")]
     [InlineData("/devflow/assets/missing.js")]
     public async Task AnythingElseIs404(string address)
     {

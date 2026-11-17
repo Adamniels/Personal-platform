@@ -1,0 +1,288 @@
+import {
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+	within,
+} from "@testing-library/react";
+import { afterEach, describe, expect, test, vi } from "vitest";
+import {
+	NO_WORKER,
+	NOT_COPIED,
+	NOT_MADE,
+	NOT_READ,
+	ProjectPage,
+	type ProjectPageProps,
+	SHOWN_ONCE,
+	type Worker,
+	type WorkerList,
+} from "./project";
+import type { Project } from "./projects";
+
+// jsdom has HTMLDialogElement and its `open` attribute, but neither showModal
+// nor close, as in projects.test.tsx.
+HTMLDialogElement.prototype.showModal ??= function (this: HTMLDialogElement) {
+	this.open = true;
+	this.querySelector("button")?.focus();
+};
+HTMLDialogElement.prototype.close ??= function (this: HTMLDialogElement) {
+	if (!this.open) return;
+	this.open = false;
+	this.dispatchEvent(new Event("close"));
+};
+
+afterEach(cleanup);
+
+const ID = "0190a8f0-0000-7000-8000-000000000001";
+const NOW = Date.parse("2026-11-17T12:00:00Z");
+const KEY = `dfw_${"a".repeat(43)}`;
+
+const PLATFORM: Project = {
+	id: ID,
+	installation_id: 41,
+	repository_id: 9001,
+	owner: "Adamniels",
+	name: "Personal-platform",
+	created_at: "2026-11-16T10:00:00+00:00",
+};
+
+const worker = (name: string, lastSeen: string): Worker => ({
+	id: `0190a8f0-0000-7000-8000-0000000000${name.length}${name.length}`,
+	name,
+	recipe_version: "3",
+	base_image: "platform-hosted/devflow-worker:2026.11.17",
+	first_seen_at: "2026-11-17T09:00:00+00:00",
+	last_seen_at: lastSeen,
+});
+
+function renderPage(
+	props: Partial<ProjectPageProps> & { list?: WorkerList } = {},
+) {
+	let list: WorkerList = props.list ?? { key_made_at: null, workers: [] };
+	const api = {
+		loadProjects: vi.fn(() => Promise.resolve([PLATFORM])),
+		loadWorkers: vi.fn(() => Promise.resolve(list)),
+		makeKey: vi.fn(() => {
+			list = { ...list, key_made_at: "2026-11-17T12:00:00+00:00" };
+			return Promise.resolve(KEY);
+		}),
+		copy: vi.fn(() => Promise.resolve()),
+		back: vi.fn(),
+	};
+	render(<ProjectPage id={ID} now={() => NOW} {...api} {...props} />);
+	return api;
+}
+
+const panel = () => screen.findByRole("article", { name: "Workers" });
+
+describe("a project's page", () => {
+	test("is headed by the repository's name, with the way back", async () => {
+		const { back } = renderPage();
+
+		expect(
+			(
+				await screen.findByRole("heading", {
+					level: 2,
+					name: "Adamniels/Personal-platform",
+				})
+			).textContent,
+		).toBe("Adamniels/Personal-platform");
+		const link = screen.getByRole("link", { name: "Back to Projects" });
+		expect(link.getAttribute("href")).toBe("/devflow/projects");
+		fireEvent.click(link);
+		expect(back).toHaveBeenCalledOnce();
+	});
+
+	test("a project the caller does not have is not found", async () => {
+		renderPage({ id: "0190a8f0-0000-7000-8000-00000000ffff" });
+
+		expect(await screen.findByText("There is no such project")).toBeTruthy();
+		expect(screen.queryByRole("article", { name: "Workers" })).toBeNull();
+	});
+
+	test("without a key or a worker, it offers to make the key", async () => {
+		renderPage();
+
+		const workers = within(await panel());
+		expect(await workers.findByText(NO_WORKER)).toBeTruthy();
+		expect(workers.getByText("It has no key yet.")).toBeTruthy();
+		expect(workers.getByRole("button", { name: "Make a key" })).toBeTruthy();
+		expect(
+			workers.queryByRole("button", { name: "Make a new key" }),
+		).toBeNull();
+	});
+});
+
+describe("the worker key", () => {
+	test("is shown once, with a button that copies it", async () => {
+		const { makeKey, copy, loadWorkers } = renderPage();
+		const workers = within(await panel());
+
+		fireEvent.click(await workers.findByRole("button", { name: "Make a key" }));
+
+		const shown = within(
+			await workers.findByRole("region", { name: "The new key" }),
+		);
+		expect(shown.getByText(KEY).tagName).toBe("CODE");
+		expect(shown.getByText(SHOWN_ONCE)).toBeTruthy();
+		expect(makeKey).toHaveBeenCalledWith(ID);
+		// Read again, so the page knows there is a key now.
+		await waitFor(() => expect(loadWorkers).toHaveBeenCalledTimes(2));
+		expect(
+			await workers.findByRole("button", { name: "Make a new key" }),
+		).toBeTruthy();
+
+		fireEvent.click(shown.getByRole("button", { name: "Copy the key" }));
+
+		expect(await shown.findByRole("button", { name: "Copied" })).toBeTruthy();
+		expect(copy).toHaveBeenCalledWith(KEY);
+	});
+
+	test("a key that could not be copied says so", async () => {
+		renderPage({ copy: () => Promise.reject(new Error("denied")) });
+		const workers = within(await panel());
+		fireEvent.click(await workers.findByRole("button", { name: "Make a key" }));
+		const shown = within(
+			await workers.findByRole("region", { name: "The new key" }),
+		);
+
+		fireEvent.click(shown.getByRole("button", { name: "Copy the key" }));
+
+		expect((await shown.findByRole("alert")).textContent).toBe(NOT_COPIED);
+		expect(shown.getByText(KEY)).toBeTruthy();
+	});
+
+	test("once one was made, the page shows when and never the key", async () => {
+		renderPage({
+			list: { key_made_at: "2026-11-17T08:30:00+00:00", workers: [] },
+		});
+		const workers = within(await panel());
+
+		expect(await workers.findByText(/^Its key was made/)).toBeTruthy();
+		expect(
+			workers
+				.getByText(/^Its key was made/)
+				.querySelector("time")
+				?.getAttribute("dateTime"),
+		).toBe("2026-11-17T08:30:00+00:00");
+		expect(workers.queryByRole("region", { name: "The new key" })).toBeNull();
+		expect(workers.queryByRole("button", { name: "Make a key" })).toBeNull();
+	});
+
+	test("making a new one warns that the old one stops working, and waits for a yes", async () => {
+		const { makeKey } = renderPage({
+			list: { key_made_at: "2026-11-17T08:30:00+00:00", workers: [] },
+		});
+		const workers = within(await panel());
+
+		fireEvent.click(
+			await workers.findByRole("button", { name: "Make a new key" }),
+		);
+
+		const dialog = within(
+			screen.getByRole("dialog", { name: "Make a new key?" }),
+		);
+		expect(dialog.getByText(/The old key stops working at once/)).toBeTruthy();
+		expect(makeKey).not.toHaveBeenCalled();
+		fireEvent.click(dialog.getByRole("button", { name: "Cancel" }));
+		expect(makeKey).not.toHaveBeenCalled();
+
+		fireEvent.click(workers.getByRole("button", { name: "Make a new key" }));
+		fireEvent.click(
+			within(screen.getByRole("dialog", { name: "Make a new key?" })).getByRole(
+				"button",
+				{
+					name: "Make a new key",
+				},
+			),
+		);
+
+		expect(await workers.findByText(KEY)).toBeTruthy();
+		expect(makeKey).toHaveBeenCalledOnce();
+	});
+
+	test("a key that was not made says so", async () => {
+		renderPage({ makeKey: () => Promise.reject(new Error("503")) });
+		const workers = within(await panel());
+
+		fireEvent.click(await workers.findByRole("button", { name: "Make a key" }));
+
+		expect((await workers.findByRole("alert")).textContent).toBe(NOT_MADE);
+		expect(workers.queryByRole("region", { name: "The new key" })).toBeNull();
+	});
+});
+
+describe("the workers", () => {
+	test("each is listed with what it runs and when it was last seen", async () => {
+		renderPage({
+			list: {
+				key_made_at: "2026-11-17T08:30:00+00:00",
+				workers: [worker("fodr-worker-1", "2026-11-17T11:57:00+00:00")],
+			},
+		});
+
+		const list = within(await screen.findByRole("list", { name: "Workers" }));
+		const row = within(list.getByRole("listitem"));
+		expect(row.getByText("fodr-worker-1")).toBeTruthy();
+		expect(row.getByText("3")).toBeTruthy();
+		expect(
+			row.getByText("platform-hosted/devflow-worker:2026.11.17"),
+		).toBeTruthy();
+		expect(row.getByText(/^Last seen/).textContent).toBe(
+			"Last seen 3 minutes ago",
+		);
+		expect(screen.queryByText(NO_WORKER)).toBeNull();
+	});
+
+	test("one quiet for ten minutes shows as not seen since then", async () => {
+		renderPage({
+			list: {
+				key_made_at: "2026-11-17T08:30:00+00:00",
+				workers: [
+					worker("quiet", "2026-11-17T11:50:00+00:00"),
+					worker("recent", "2026-11-17T11:50:01+00:00"),
+				],
+			},
+		});
+
+		const [quiet, recent] = within(
+			await screen.findByRole("list", { name: "Workers" }),
+		).getAllByRole("listitem");
+		const since = within(quiet as HTMLElement).getByText(/^Not seen since/);
+		expect(since.querySelector("time")?.getAttribute("dateTime")).toBe(
+			"2026-11-17T11:50:00+00:00",
+		);
+		expect(within(quiet as HTMLElement).queryByText(/^Last seen/)).toBeNull();
+		expect(
+			within(recent as HTMLElement).getByText(/^Last seen/).textContent,
+		).toBe("Last seen 9 minutes ago");
+	});
+
+	test("a list that could not be read says so", async () => {
+		renderPage({ loadWorkers: () => Promise.reject(new Error("503")) });
+		const workers = within(await panel());
+
+		expect((await workers.findByRole("alert")).textContent).toBe(NOT_READ);
+	});
+
+	test("a worker's name and what it reports are shown as text", async () => {
+		const markup = '<img src=x onerror="window.pwned=1">';
+		renderPage({
+			list: {
+				key_made_at: "2026-11-17T08:30:00+00:00",
+				workers: [
+					{
+						...worker("w", "2026-11-17T11:59:00+00:00"),
+						name: markup,
+						base_image: markup,
+					},
+				],
+			},
+		});
+
+		const list = await screen.findByRole("list", { name: "Workers" });
+		expect(within(list).getAllByText(markup)).toHaveLength(2);
+		expect(list.querySelector("img")).toBeNull();
+	});
+});

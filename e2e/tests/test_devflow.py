@@ -1015,3 +1015,112 @@ def test_an_item_shows_its_screenshots(
 
     dialog.get_by_role("button", name="Close").click()
     expect(page.get_by_role("dialog")).to_have_count(0)
+
+
+KEY = re.compile(r"^dfw_[A-Za-z0-9_-]{43}$")
+SHOWN_ONCE = "Shown once."
+
+
+def _open_project(page: Page, base_url: str, devflow_world) -> None:
+    """Connects the staged repository and opens its page from its row on the
+    Projects tab."""
+    devflow_world(one_repository())
+    page.goto("/devflow/projects")
+    link_github(page, base_url)
+    _choose(page)
+    page.get_by_role("button", name="Connect Adamniels/Personal-platform").click()
+    page.get_by_role("region", name="Projects").get_by_role(
+        "link", name="Adamniels/Personal-platform"
+    ).click()
+    expect(page).to_have_url(
+        re.compile(rf"{re.escape(base_url)}/devflow/projects/[0-9a-f-]{{36}}$")
+    )
+    expect(
+        page.get_by_role("heading", name="Adamniels/Personal-platform")
+    ).to_be_visible()
+
+
+def _make_key(page: Page) -> str:
+    """Presses "Make a key" in the Workers panel and returns the key shown."""
+    workers = page.get_by_role("article", name="Workers")
+    workers.get_by_role("button", name="Make a key").click()
+    shown = workers.get_by_role("region", name="The new key")
+    expect(shown.get_by_text(KEY)).to_be_visible()
+    return shown.get_by_text(KEY).inner_text()
+
+
+def test_i_make_a_worker_key_and_see_it_once(
+    page: Page, invite_code: str, base_url: str, viewport: str, devflow_world
+):
+    register_and_log_in(page, invite_code, base_url)
+    page.context.grant_permissions(
+        ["clipboard-read", "clipboard-write"], origin=base_url
+    )
+    _open_project(page, base_url, devflow_world)
+    workers = page.get_by_role("article", name="Workers")
+    expect(workers.get_by_text("No worker has said hello yet.")).to_be_visible()
+
+    key = _make_key(page)
+
+    shown = workers.get_by_role("region", name="The new key")
+    expect(shown).to_contain_text(SHOWN_ONCE)
+    capture(page, "devflow-worker-key")
+    shown.get_by_role("button", name="Copy the key").click()
+    expect(shown.get_by_role("button", name="Copied")).to_be_visible()
+    assert page.evaluate("navigator.clipboard.readText()") == key
+
+    # A fresh load shows no key, and offers a new one with a warning first.
+    page.reload()
+    expect(page.get_by_role("article", name="Workers")).to_be_visible()
+    expect(page.get_by_text(KEY)).to_have_count(0)
+    expect(page.get_by_text(SHOWN_ONCE)).to_have_count(0)
+    page.get_by_role("article", name="Workers").get_by_role(
+        "button", name="Make a new key"
+    ).click()
+    dialog = page.get_by_role("dialog", name="Make a new key?")
+    expect(dialog).to_contain_text("The old key stops working at once")
+    dialog.get_by_role("button", name="Make a new key").click()
+    replaced = page.get_by_role("region", name="The new key").get_by_text(KEY)
+    expect(replaced).to_be_visible()
+    assert replaced.inner_text() != key
+
+
+def test_a_worker_that_said_hello_is_listed(
+    page: Page,
+    invite_code: str,
+    base_url: str,
+    viewport: str,
+    devflow_world,
+    playwright,
+):
+    register_and_log_in(page, invite_code, base_url)
+    _open_project(page, base_url, devflow_world)
+    key = _make_key(page)
+
+    # The worker, as it calls Dev flow: its key in the header, no cookie, no
+    # Origin, from outside the browser.
+    worker = playwright.request.new_context(base_url=base_url, ignore_https_errors=True)
+    try:
+        response = worker.post(
+            "/devflow/api/worker/hello",
+            data={
+                "worker_id": "0190a8f0-0000-7000-8000-0000000000f1",
+                "name": "fodr-worker-1",
+                "recipe_version": "3",
+                "base_image": "platform-hosted/devflow-worker:2026.11.17",
+            },
+            headers={"Authorization": f"Bearer {key}"},
+        )
+        assert response.status == 204, response.text()
+    finally:
+        worker.dispose()
+
+    page.reload()
+    listed = page.get_by_role("list", name="Workers")
+    expect(listed.get_by_text("fodr-worker-1")).to_be_visible()
+    expect(listed.get_by_text(re.compile(r"^Last seen "))).to_be_visible()
+    expect(
+        listed.get_by_text("platform-hosted/devflow-worker:2026.11.17")
+    ).to_be_visible()
+    expect(page.get_by_text("No worker has said hello yet.")).to_have_count(0)
+    capture(page, "devflow-project-workers")

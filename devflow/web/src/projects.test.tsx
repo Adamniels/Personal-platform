@@ -102,6 +102,13 @@ describe("the projects on the Projects tab", () => {
 
 		const list = await screen.findByRole("region", { name: "Projects" });
 		expect(within(list).getByText("Adamniels/Personal-platform")).toBeTruthy();
+		// The name opens the project's page, an address of its own.
+		const open = within(list).getByRole("link", {
+			name: "Adamniels/Personal-platform",
+		});
+		expect(open.getAttribute("href")).toBe(`/devflow/projects/${PLATFORM.id}`);
+		fireEvent.click(open);
+		expect(window.location.pathname).toBe(`/devflow/projects/${PLATFORM.id}`);
 		expect(within(list).getByText(RUNNER_LINE)).toBeTruthy();
 		expect(
 			within(list).getByRole("button", {
