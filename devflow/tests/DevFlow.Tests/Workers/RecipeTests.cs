@@ -155,7 +155,8 @@ public sealed class RecipeTests
             new FakeInstallation(Staging.Installation, "Adamniels",
             [
                 new FakeRepository(Staging.RepositoryId, "Adamniels", "Personal-platform", [], [], [],
-                    [.. files.Select(file => new FakeFile(file.Path, file.Branch, file.Content))]),
+                    [.. files.Select(file => new FakeFile(file.Path, file.Branch, file.Content))],
+                    []),
             ]),
         ]));
 }

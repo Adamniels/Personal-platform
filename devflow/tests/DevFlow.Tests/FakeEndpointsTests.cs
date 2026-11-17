@@ -74,7 +74,20 @@ public sealed class FakeEndpointsTests
                       "check_runs": [{ "name": "ci-ok", "status": "completed", "conclusion": "success", "app": "github-actions" }]
                     }
                   ],
-                  "files": [{ "path": "AGENTS.md", "branch": "main", "content": "IyBXb3JraW5nIGluIHRoaXMgcmVwb3NpdG9yeQo=" }]
+                  "files": [{ "path": "AGENTS.md", "branch": "main", "content": "IyBXb3JraW5nIGluIHRoaXMgcmVwb3NpdG9yeQo=" }],
+                  "issues": [
+                    {
+                      "number": 338, "title": "Settings and picking cards", "author": "Adamniels", "labels": ["devflow"],
+                      "body": "## Goal", "url": "https://github.com/Adamniels/Personal-platform/issues/338",
+                      "created_at": "2026-11-17T07:46:17+00:00", "open": true, "blocked_by": [339],
+                      "edits": [{ "id": "UCE_1", "editor": "Adamniels", "at": "2026-11-17T08:00:00+00:00", "kind": "title" }]
+                    },
+                    {
+                      "number": 339, "title": "Handing out work", "author": "Adamniels", "labels": [],
+                      "body": "", "url": "https://github.com/Adamniels/Personal-platform/issues/339",
+                      "created_at": "2026-11-17T07:47:00+00:00", "open": false, "blocked_by": [], "edits": []
+                    }
+                  ]
                 }
               ]
             }
@@ -148,6 +161,16 @@ public sealed class FakeEndpointsTests
         { "installations[1].id", Changed(world => world["installations"]!.AsArray().Add(world["installations"]![0]!.DeepClone())) },
         { "installations[0].repositories[0].pull_requests[1].number", Changed(world => Repo(world)["pull_requests"]!.AsArray().Add(Repo(world)["pull_requests"]![0]!.DeepClone())) },
         { "installations[0].repositories[0].files[1]", Changed(world => Repo(world)["files"]!.AsArray().Add(Repo(world)["files"]![0]!.DeepClone())) },
+        { "installations[0].repositories[0].issues", Changed(world => Repo(world).Remove("issues")) },
+        { "installations[0].repositories[0].issues[0].edits[0].kind", Changed(world => Repo(world)["issues"]![0]!["edits"]![0]!["kind"] = "label") },
+        { "installations[0].repositories[0].issues[1].number", Changed(world => Repo(world)["issues"]![1]!["number"] = 338) },
+        { "installations[0].repositories[0].issues[1].number", Changed(world =>
+        {
+            // 304 is the pull request's; nothing else blocks on 339 by then.
+            Repo(world)["issues"]![0]!["blocked_by"] = new JsonArray();
+            Repo(world)["issues"]![1]!["number"] = 304;
+        }) },
+        { "installations[0].repositories[0].issues[0].blocked_by[0]", Changed(world => Repo(world)["issues"]![0]!["blocked_by"]![0] = 400) },
         { "the body", "{\"installations\": [" },
         { "the body", "" },
     };
