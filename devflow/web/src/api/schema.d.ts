@@ -181,7 +181,7 @@ export interface paths {
         put?: never;
         /**
          * Make the project's worker key
-         * @description A new key for the project's workers, answered this once: Dev flow keeps only its SHA-256 and never shows it again. It replaces the project's last key at once, so a worker holding that one is refused from then on. 404 for a project the caller does not have. Without a valid token, 401 with an empty body; a change from another origin, 403.
+         * @description A new key for the project's workers, answered this once with save_command, the command that saves it in ~/.devflow/<project>.env for the start command to read: Dev flow keeps only its SHA-256 and never shows it again. It replaces the project's last key at once, so a worker holding that one is refused from then on. 404 for a project the caller does not have. Without a valid token, 401 with an empty body; a change from another origin, 403.
          */
         post: operations["makeWorkerKey"];
         delete?: never;
@@ -199,7 +199,7 @@ export interface paths {
         };
         /**
          * The project's workers
-         * @description Every worker that has said hello with the project's key, by when it first did, with what it reported and when it was last seen; and key_made_at, when the project's key was made, null before one has been. The key itself is never in it. 404 for a project the caller does not have. Without a valid token, 401 with an empty body; a change from another origin, 403.
+         * @description Every worker that has said hello with the project's key, by when it first did, with what it reported, when it was last seen, and rebuild: recipe when it runs another version of the recipe than Dev flow last read, base_image when it runs on another base image than the one released, or null; key_made_at, when the project's key was made, null before one has been; recipe_version, the recipe's version as last read, null before then or when the default branch has none; and start_command, the command that builds and starts the project's worker. The key itself is never in it. 404 for a project the caller does not have. Without a valid token, 401 with an empty body; a change from another origin, 403.
          */
         get: operations["listWorkers"];
         put?: never;
@@ -361,7 +361,7 @@ export interface paths {
         put?: never;
         /**
          * A worker asks for work
-         * @description Marks the worker seen and answers its next job; in this part there is none, so it is always 204. 409 for a worker that has not said hello in the key's project, which says hello and asks again; 422 without worker_id. Takes the project's worker key as Authorization: Bearer dfw_…, and nothing else: without a key the project has now, 401 with an empty body. No Origin is needed, and no cookie is read or set.
+         * @description Marks the worker seen and answers its next job; in this part there is none, so it is always 204. A worker that needs a rebuild, running another version of the recipe than Dev flow last read or another base image than the one released, is never given one. 409 for a worker that has not said hello in the key's project, which says hello and asks again; 422 without worker_id. Takes the project's worker key as Authorization: Bearer dfw_…, and nothing else: without a key the project has now, 401 with an empty body. No Origin is needed, and no cookie is read or set.
          */
         post: operations["workerNextJob"];
         delete?: never;
@@ -571,14 +571,18 @@ export interface components {
             /** Format: date-time */
             last_seen_at: string;
             name: string;
+            rebuild: null | string;
             recipe_version: string;
         };
         WorkerKey: {
             key: string;
+            save_command: string;
         };
         WorkerList: {
             /** Format: date-time */
             key_made_at: null | string;
+            recipe_version: null | string;
+            start_command: string;
             workers: components["schemas"]["Worker"][];
         };
     };

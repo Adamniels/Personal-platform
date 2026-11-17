@@ -10,8 +10,10 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import {
 	NO_WORKER,
 	NOT_COPIED,
+	NOT_COPIED_COMMAND,
 	NOT_MADE,
 	NOT_READ,
+	PASTE,
 	ProjectPage,
 	type ProjectPageProps,
 	SHOWN_ONCE,
@@ -37,6 +39,9 @@ afterEach(cleanup);
 const ID = "0190a8f0-0000-7000-8000-000000000001";
 const NOW = Date.parse("2026-11-17T12:00:00Z");
 const KEY = `dfw_${"a".repeat(43)}`;
+const SAVE = `(umask 077 && mkdir -p ~/.devflow && printf 'DEVFLOW_PROJECT_KEY=%s\\n' '${KEY}' > ~/.devflow/personal-platform.env)`;
+const START =
+	"curl -fsS -H \"Authorization: Bearer $(sed -n 's/^DEVFLOW_PROJECT_KEY=//p' ~/.devflow/personal-platform.env)\" … && \\\n  docker run -d --name devflow-personal-platform-1 devflow-personal-platform";
 
 const PLATFORM: Project = {
 	id: ID,
@@ -54,23 +59,32 @@ const worker = (name: string, lastSeen: string): Worker => ({
 	base_image: "platform-hosted/devflow-worker:2026.11.17",
 	first_seen_at: "2026-11-17T09:00:00+00:00",
 	last_seen_at: lastSeen,
+	rebuild: null,
 });
 
+const EMPTY: WorkerList = {
+	key_made_at: null,
+	recipe_version: null,
+	start_command: START,
+	workers: [],
+};
+
 function renderPage(
-	props: Partial<ProjectPageProps> & { list?: WorkerList } = {},
+	props: Partial<ProjectPageProps> & { list?: Partial<WorkerList> } = {},
 ) {
-	let list: WorkerList = props.list ?? { key_made_at: null, workers: [] };
+	let list: WorkerList = { ...EMPTY, ...props.list };
 	const api = {
 		loadProjects: vi.fn(() => Promise.resolve([PLATFORM])),
 		loadWorkers: vi.fn(() => Promise.resolve(list)),
 		makeKey: vi.fn(() => {
 			list = { ...list, key_made_at: "2026-11-17T12:00:00+00:00" };
-			return Promise.resolve(KEY);
+			return Promise.resolve({ key: KEY, save_command: SAVE });
 		}),
 		copy: vi.fn(() => Promise.resolve()),
 		back: vi.fn(),
 	};
-	render(<ProjectPage id={ID} now={() => NOW} {...api} {...props} />);
+	const { list: _, ...rest } = props;
+	render(<ProjectPage id={ID} now={() => NOW} {...api} {...rest} />);
 	return api;
 }
 
@@ -213,7 +227,108 @@ describe("the worker key", () => {
 	});
 });
 
+describe("starting a worker", () => {
+	test("the start command is shown before a key, with a button that copies it", async () => {
+		const { copy } = renderPage();
+		const start = within(
+			await screen.findByRole("region", { name: "Start a worker" }),
+		);
+
+		expect(start.getByText(PASTE)).toBeTruthy();
+		expect(start.queryByRole("region", { name: "Save the key" })).toBeNull();
+		const command = within(
+			start.getByRole("region", { name: "Build and start the worker" }),
+		);
+		expect(command.getByText(START, { normalizer: (t) => t }).tagName).toBe(
+			"CODE",
+		);
+		expect(
+			command.getByText(START, { normalizer: (t) => t }).textContent,
+		).not.toContain("dfw_");
+
+		fireEvent.click(
+			command.getByRole("button", { name: "Copy the start command" }),
+		);
+
+		expect(await command.findByRole("button", { name: "Copied" })).toBeTruthy();
+		expect(copy).toHaveBeenCalledWith(START);
+	});
+
+	test("the save command is shown once, after the key is made", async () => {
+		const { copy } = renderPage();
+		const workers = within(await panel());
+		fireEvent.click(await workers.findByRole("button", { name: "Make a key" }));
+
+		const save = within(
+			await workers.findByRole("region", { name: "Save the key" }),
+		);
+		expect(save.getByText(SAVE, { normalizer: (t) => t })).toBeTruthy();
+		fireEvent.click(
+			save.getByRole("button", { name: "Copy the save command" }),
+		);
+		expect(await save.findByRole("button", { name: "Copied" })).toBeTruthy();
+		expect(copy).toHaveBeenCalledWith(SAVE);
+		// The start command stays, after it.
+		expect(
+			workers.getByRole("region", { name: "Build and start the worker" }),
+		).toBeTruthy();
+	});
+
+	test("a command that could not be copied says so", async () => {
+		renderPage({ copy: () => Promise.reject(new Error("denied")) });
+		const command = within(
+			await screen.findByRole("region", { name: "Build and start the worker" }),
+		);
+
+		fireEvent.click(
+			command.getByRole("button", { name: "Copy the start command" }),
+		);
+
+		expect((await command.findByRole("alert")).textContent).toBe(
+			NOT_COPIED_COMMAND,
+		);
+	});
+});
+
 describe("the workers", () => {
+	test("one on an old recipe or base image says to run the command again", async () => {
+		renderPage({
+			list: {
+				key_made_at: "2026-11-17T08:30:00+00:00",
+				workers: [
+					{
+						...worker("old-recipe", "2026-11-17T11:59:00+00:00"),
+						rebuild: "recipe",
+					},
+					{
+						...worker("old-base", "2026-11-17T11:59:00+00:00"),
+						rebuild: "base_image",
+					},
+					worker("current", "2026-11-17T11:59:00+00:00"),
+				],
+			},
+		});
+
+		const [recipe, base, current] = within(
+			await screen.findByRole("list", { name: "Workers" }),
+		).getAllByRole("listitem");
+		expect(
+			within(recipe as HTMLElement).getByText(
+				"Personal-platform's recipe has changed: run the command again",
+			),
+		).toBeTruthy();
+		expect(within(recipe as HTMLElement).getByText("Rebuild")).toBeTruthy();
+		expect(
+			within(base as HTMLElement).getByText(
+				"A new base image was released: run the command again",
+			),
+		).toBeTruthy();
+		expect(within(current as HTMLElement).queryByText("Rebuild")).toBeNull();
+		expect(
+			within(current as HTMLElement).queryByText(/run the command again/),
+		).toBeNull();
+	});
+
 	test("each is listed with what it runs and when it was last seen", async () => {
 		renderPage({
 			list: {

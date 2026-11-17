@@ -71,6 +71,7 @@ public static class DevFlowApp
         // Seals and opens a user's secrets, through the door's transaction. See "The vault" in
         // devflow/README.md.
         builder.Services.AddSingleton(new Vault(settings.Vault));
+        builder.Services.AddSingleton(new WorkerStart(settings.WorkerImage, settings.WorkerUrl, settings.PublicOrigin));
         // Linking a user's GitHub account, and the one way to a token that acts as them. See
         // "Linking GitHub" in devflow/README.md.
         var redirect = GitHubLink.RedirectFor(settings.PublicOrigin);

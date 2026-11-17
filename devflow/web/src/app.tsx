@@ -60,13 +60,11 @@ const projectApi: ProjectApi = {
 		client.get(
 			`/projects/${encodeURIComponent(id)}/workers` as "/projects/{id}/workers",
 		),
-	makeKey: async (id) =>
-		(
-			await client.send<components["schemas"]["WorkerKey"]>(
-				"POST",
-				`/projects/${encodeURIComponent(id)}/worker-key`,
-			)
-		).key,
+	makeKey: (id) =>
+		client.send<components["schemas"]["WorkerKey"]>(
+			"POST",
+			`/projects/${encodeURIComponent(id)}/worker-key`,
+		),
 };
 
 /** What waits, through Dev flow's API. */

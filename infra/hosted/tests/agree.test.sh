@@ -233,12 +233,13 @@ check_initdb() {
   return 0
 }
 
-# The compose file names no project, and platform-hosted is in it only as each image's prefix.
+# The compose file names no project, and platform-hosted is in it only as an image's prefix: each
+# service's image, and Dev flow's DEVFLOW_WORKER_IMAGE, the worker's base image by name.
 check_no_project() {
   local compose="$1/infra/hosted/compose.yaml" all images
   grep -q '^name:' "$compose" && echo "compose.yaml has a top level name"
   all="$(grep -o 'platform-hosted' "$compose" | grep -c .)"
-  images="$(grep -Ec '^ +image: platform-hosted/[a-z0-9-]+:' "$compose")"
+  images="$(grep -Ec '^ +(image|DEVFLOW_WORKER_IMAGE): platform-hosted/[a-z0-9-]+:' "$compose")"
   [ "$images" -eq 0 ] && echo "no image is named platform-hosted/<service>"
   [ "$all" != "$images" ] && echo "platform-hosted appears $all times, $images of them as an image prefix"
   return 0
