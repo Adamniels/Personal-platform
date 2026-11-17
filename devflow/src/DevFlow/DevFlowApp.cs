@@ -8,12 +8,14 @@ using DevFlow.CodeHost;
 using DevFlow.CodeHost.GitHub;
 using DevFlow.Health;
 using DevFlow.Link;
+using DevFlow.Merging;
 using DevFlow.Pages;
 using DevFlow.Projects;
 using DevFlow.Reading;
 using DevFlow.Recipes;
 using DevFlow.Settings;
 using DevFlow.Status;
+using DevFlow.Watching;
 using DevFlow.Workers;
 
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -103,6 +105,11 @@ public static class DevFlowApp
         builder.Services.AddSingleton(provider => new WorkerKeys(database, provider.GetRequiredService<TimeProvider>()));
         builder.Services.AddWorkerAuthentication();
         builder.Services.AddSingleton(provider => new WorkerStore(database, provider.GetRequiredService<TimeProvider>()));
+        // Watching each project's default branch: whether it hands out work, its stopped projects and
+        // resuming one, and Dev flow's own merges, recorded so the watch finds them fine. See
+        // "Watching the default branch" in devflow/README.md.
+        builder.Services.AddSingleton(provider => new WatchStore(database, provider.GetRequiredService<TimeProvider>()));
+        builder.Services.AddSingleton(provider => new AppMerges(database, provider.GetRequiredService<ICodeHost>(), provider.GetRequiredService<TimeProvider>()));
         // Each user's Claude login, sealed in the vault and opened only for one of their runs. See
         // "Claude login" in devflow/README.md.
         builder.Services.AddSingleton(provider => new ClaudeLogins(
@@ -141,6 +148,7 @@ public static class DevFlowApp
         app.MapDisplay();
         app.MapAttention();
         app.MapWorkers();
+        app.MapWatch();
         app.MapCards();
         app.MapRecipe();
         app.MapClaudeLogin();

@@ -1,0 +1,160 @@
+using Dapper;
+
+using PlatformData;
+
+namespace DevFlow.Watching;
+
+/// <summary>Why a project hands out no new work, if it does not.</summary>
+public enum ProjectHold
+{
+    /// <summary>It hands out work.</summary>
+    None,
+
+    /// <summary>Something landed on its default branch that Dev flow did not put there, and its user
+    /// has not resumed it.</summary>
+    Stopped,
+
+    /// <summary>Its default branch's changes have not been read for
+    /// <see cref="BranchWatch.UnwatchedAfter"/>, or ever.</summary>
+    Unwatched,
+}
+
+/// <summary>What resuming a project answers.</summary>
+public enum ResumeOutcome
+{
+    /// <summary>Resumed, and recorded.</summary>
+    Resumed,
+
+    /// <summary>The user has no such project.</summary>
+    NoSuchProject,
+
+    /// <summary>It is not stopped.</summary>
+    NotStopped,
+
+    /// <summary>It is stopped by another commit than the one named, which landed since the page
+    /// was shown.</summary>
+    Changed,
+}
+
+/// <summary>A stopped project, as its user's waiting list reads it.</summary>
+/// <param name="Owner">Its repository's owner, as connected.</param>
+/// <param name="Name">Its repository's name, as connected.</param>
+/// <param name="Branch">The branch something landed on.</param>
+/// <param name="ActivityType">What it was, as the tables store it.</param>
+/// <param name="Actor">Who did it, data, or null when the code host names nobody.</param>
+/// <param name="Commit">The commit the branch was at after it.</param>
+/// <param name="LandedAt">When it landed.</param>
+/// <param name="StoppedAt">When the project stopped.</param>
+public sealed record ProjectStop(Guid ProjectId, string Owner, string Name, string Branch, string ActivityType, string? Actor, string Commit, DateTimeOffset LandedAt, DateTimeOffset StoppedAt);
+
+/// <summary>
+/// A project's watch as the rest of Dev flow reads it: whether it hands out work, its user's stopped
+/// projects, and resuming one. Every query goes through the door as the user, so only a project's
+/// own user sees it or resumes it. See "Watching the default branch" in devflow/README.md.
+/// </summary>
+public sealed class WatchStore(UserDb database, TimeProvider time)
+{
+    /// <summary>Why the user's project hands out no new work, stopped first; none when it does, or
+    /// when the user has no such project, which has no work either.</summary>
+    public async Task<ProjectHold> Hold(Guid userId, Guid projectId, CancellationToken cancellationToken)
+    {
+        var word = await database.InUserTransaction(userId, transaction => transaction.Connection!.QuerySingleOrDefaultAsync<string?>(new CommandDefinition(
+            $"SELECT {HoldSql} FROM projects p WHERE p.id = @projectId",
+            new { projectId, watchedSince = WatchedSince() },
+            transaction,
+            cancellationToken: cancellationToken)), cancellationToken);
+        return Read(word);
+    }
+
+    /// <summary>
+    /// Why a project <c>p</c> holds new work, in SQL, with <c>@watchedSince</c> the oldest last read
+    /// that still counts: <c>stopped</c>, then <c>unwatched</c>, or null. Shared with the workers'
+    /// list, which says it on the project's page.
+    /// </summary>
+    public const string HoldSql = """
+        CASE
+            WHEN EXISTS (SELECT 1 FROM project_stops s WHERE s.project_id = p.id) THEN 'stopped'
+            WHEN NOT EXISTS (SELECT 1 FROM branch_watches b WHERE b.project_id = p.id AND b.last_read_at >= @watchedSince) THEN 'unwatched'
+        END
+        """;
+
+    /// <summary>The oldest last read of a branch's changes that still lets its project hand out
+    /// work.</summary>
+    public DateTimeOffset WatchedSince() => time.GetUtcNow() - BranchWatch.UnwatchedAfter;
+
+    /// <summary>A hold as <see cref="HoldSql"/> words it.</summary>
+    public static ProjectHold Read(string? word) => word switch
+    {
+        null => ProjectHold.None,
+        "stopped" => ProjectHold.Stopped,
+        "unwatched" => ProjectHold.Unwatched,
+        _ => throw new ArgumentOutOfRangeException(nameof(word), word, "not a hold"),
+    };
+
+    /// <summary>The user's stopped projects, by owner and name.</summary>
+    public async Task<IReadOnlyList<ProjectStop>> Stops(Guid userId, CancellationToken cancellationToken)
+    {
+        var rows = await database.InUserTransaction(userId, transaction => transaction.Connection!.QueryAsync<StopRow>(new CommandDefinition(
+            """
+            SELECT s.project_id AS ProjectId, p.owner AS Owner, p.name AS Name, s.branch AS Branch, s.activity_type AS ActivityType,
+                   s.actor AS Actor, s.commit AS Commit, s.landed_at AS LandedAt, s.stopped_at AS StoppedAt
+            FROM project_stops s JOIN projects p ON p.id = s.project_id
+            ORDER BY lower(p.owner), lower(p.name), p.id
+            """,
+            transaction: transaction,
+            cancellationToken: cancellationToken)), cancellationToken);
+        return [.. rows.Select(row => new ProjectStop(row.ProjectId, row.Owner, row.Name, row.Branch, row.ActivityType, row.Actor, row.Commit,
+            Utc(row.LandedAt), Utc(row.StoppedAt)))];
+    }
+
+    /// <summary>
+    /// Resumes the user's stopped project, accepting <paramref name="commit"/>, which must be the
+    /// commit it is stopped by now, the one the page showed: the stop is kept as a resume, with who
+    /// resumed it, when and the commit accepted, and removed, in one transaction under the lock the
+    /// watch takes, so a change judged at the same moment is never lost between the two.
+    /// </summary>
+    public async Task<ResumeOutcome> Resume(Guid userId, Guid projectId, string commit, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(commit);
+        var now = time.GetUtcNow();
+        now = now.AddTicks(-(now.Ticks % 10));
+        return await database.InUserTransaction(userId, async transaction =>
+        {
+            if (!await BranchWatch.Lock(transaction, projectId, cancellationToken))
+            {
+                return ResumeOutcome.NoSuchProject;
+            }
+
+            var stopped = await transaction.Connection!.QuerySingleOrDefaultAsync<string?>(new CommandDefinition(
+                "SELECT commit FROM project_stops WHERE project_id = @projectId",
+                new { projectId },
+                transaction,
+                cancellationToken: cancellationToken));
+            if (stopped is null)
+            {
+                return ResumeOutcome.NotStopped;
+            }
+
+            if (!string.Equals(stopped, commit, StringComparison.Ordinal))
+            {
+                return ResumeOutcome.Changed;
+            }
+
+            await transaction.Connection!.ExecuteAsync(new CommandDefinition(
+                """
+                INSERT INTO project_resumes (id, project_id, user_id, resumed_by, resumed_at, accepted_commit, branch, activity_type, actor, stopped_at, landed_at)
+                SELECT @id, project_id, user_id, @userId, @now, commit, branch, activity_type, actor, stopped_at, landed_at
+                FROM project_stops WHERE project_id = @projectId;
+                DELETE FROM project_stops WHERE project_id = @projectId;
+                """,
+                new { id = Guid.CreateVersion7(now), projectId, userId, now },
+                transaction,
+                cancellationToken: cancellationToken));
+            return ResumeOutcome.Resumed;
+        }, cancellationToken);
+    }
+
+    private static DateTimeOffset Utc(DateTime at) => new(DateTime.SpecifyKind(at, DateTimeKind.Utc));
+
+    private sealed record StopRow(Guid ProjectId, string Owner, string Name, string Branch, string ActivityType, string? Actor, string Commit, DateTime LandedAt, DateTime StoppedAt);
+}

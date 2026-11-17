@@ -38,6 +38,12 @@ export const rebuildNotice = (
 	rebuild === "recipe"
 		? `${project}'s recipe has changed: run the command again`
 		: "A new base image was released: run the command again";
+/** Why the project hands out no work, when it does not, as the Workers
+ * panel says it. */
+export const heldNotice = (held: string): string =>
+	held === "stopped"
+		? "Dev flow hands out no work on this project: something landed on its default branch that Dev flow did not put there. Look at it under Waiting for you, and resume it there."
+		: "Dev flow hands out no work on this project: it has not been able to read its default branch for five minutes. It starts again once it has.";
 /** After this long without a word from a worker, it shows as not seen
  * since then, as the slice settles. */
 export const QUIET_MS = 10 * 60 * 1000;
@@ -250,6 +256,9 @@ function WorkersPanel({
 						A worker holds this project's key, and asks Dev flow for work with
 						it.
 					</p>
+					{list?.held ? (
+						<p className={styles.held}>{heldNotice(list.held)}</p>
+					) : null}
 					{error === null ? null : (
 						<p className={styles.error} role="alert">
 							{error}

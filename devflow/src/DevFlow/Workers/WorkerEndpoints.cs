@@ -1,6 +1,7 @@
 using DevFlow.Api;
 using DevFlow.Protocol;
 using DevFlow.Recipes;
+using DevFlow.Watching;
 
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
@@ -51,7 +52,7 @@ public static class WorkerEndpoints
                     ? TypedResults.Ok(list)
                     : NoSuchProject())
             .UserRoute("listWorkers", "The project's workers",
-                "Every worker that has said hello with the project's key, by when it first did, with what it reported, when it was last seen, and rebuild: recipe when it runs another version of the recipe than Dev flow last read, base_image when it runs on another base image than the one released, or null; key_made_at, when the project's key was made, null before one has been; recipe_version, the recipe's version as last read, null before then or when the default branch has none; and start_command, the command that builds and starts the project's worker. The key itself is never in it. 404 for a project the caller does not have.",
+                "Every worker that has said hello with the project's key, by when it first did, with what it reported, when it was last seen, and rebuild: recipe when it runs another version of the recipe than Dev flow last read, base_image when it runs on another base image than the one released, or null; key_made_at, when the project's key was made, null before one has been; recipe_version, the recipe's version as last read, null before then or when the default branch has none; start_command, the command that builds and starts the project's worker; and held, why the project hands out no work: stopped, when something landed on its default branch that Dev flow did not put there, unwatched, when its default branch has not been read for five minutes, or null. The key itself is never in it. 404 for a project the caller does not have.",
                 StatusCodes.Status404NotFound);
 
         routes.MapPost(WorkerApi.HelloPath, Hello)
@@ -61,7 +62,7 @@ public static class WorkerEndpoints
 
         routes.MapPost(WorkerApi.NextJobPath, NextJob)
             .WorkerRoute("workerNextJob", "A worker asks for work",
-                "Marks the worker seen and answers its next job; in this part there is none, so it is always 204. A worker that needs a rebuild, running another version of the recipe than Dev flow last read or another base image than the one released, is never given one. 409 for a worker that has not said hello in the key's project, which says hello and asks again; 422 without worker_id.",
+                "Marks the worker seen and answers its next job; in this part there is none, so it is always 204. A project that is stopped, or whose default branch has not been watched for five minutes, hands out none. A worker that needs a rebuild, running another version of the recipe than Dev flow last read or another base image than the one released, is never given one. 409 for a worker that has not said hello in the key's project, which says hello and asks again; 422 without worker_id.",
                 StatusCodes.Status409Conflict, StatusCodes.Status422UnprocessableEntity);
 
         return routes;
@@ -89,7 +90,7 @@ public static class WorkerEndpoints
             : TypedResults.Unauthorized();
     }
 
-    private static async Task<Results<NoContent, ProblemHttpResult>> NextJob(NextJobRequest request, HttpContext context, [FromServices] WorkerStore store, [FromServices] WorkerStart start)
+    private static async Task<Results<NoContent, ProblemHttpResult>> NextJob(NextJobRequest request, HttpContext context, [FromServices] WorkerStore store, [FromServices] WorkerStart start, [FromServices] WatchStore watch)
     {
         var errors = new Dictionary<string, string[]>();
         CheckId(request.WorkerId, errors);
@@ -98,7 +99,17 @@ public static class WorkerEndpoints
             return Invalid(errors);
         }
 
-        return await store.Seen(context.Worker(), request.WorkerId!.Value, start.Image, context.RequestAborted) switch
+        var caller = context.Worker();
+        var state = await store.Seen(caller, request.WorkerId!.Value, start.Image, context.RequestAborted);
+        if (state != WorkerState.Unknown && await watch.Hold(caller.UserId, caller.ProjectId, context.RequestAborted) != ProjectHold.None)
+        {
+            // Stopped, or its default branch not watched for five minutes: no new work, whatever
+            // waits, until its user resumes it or the branch is read again. See "Watching the
+            // default branch" in devflow/README.md.
+            return TypedResults.NoContent();
+        }
+
+        return state switch
         {
             WorkerState.Unknown => TypedResults.Problem(statusCode: StatusCodes.Status409Conflict, title: "Say hello first",
                 detail: "This worker has not said hello in its key's project. Send hello, then ask again."),

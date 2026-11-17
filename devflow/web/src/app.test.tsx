@@ -32,6 +32,7 @@ function openAt(path: string) {
 						recipe_version: null,
 						start_command: "docker run",
 						workers: [],
+						held: null,
 					}),
 				makeKey: () => new Promise(() => {}),
 				loadSettings: () => new Promise(() => {}),
