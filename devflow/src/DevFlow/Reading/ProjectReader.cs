@@ -2,7 +2,9 @@ using System.Text.Json;
 
 using Dapper;
 
+using DevFlow.Cards;
 using DevFlow.CodeHost;
+using DevFlow.Projects;
 using DevFlow.Runner;
 using DevFlow.Workers;
 
@@ -31,8 +33,10 @@ public enum ReadResult
 /// Reads one project from the code host into the snapshot the pages read: its open pull requests in
 /// one list, then, only for those by the project's <c>bot_login</c> that carry an owner label, the
 /// comments, the head's statuses and check runs, and the comments of the slice the body closes;
-/// each through <see cref="RunnerReader.Read"/>; and the result in place of the project's stored
-/// items, in one transaction through the door as the user. A read that fails leaves the items as
+/// each through <see cref="RunnerReader.Read"/>; then its cards, through
+/// <see cref="CardPicker.Pick"/>; and the result in place of the project's stored items, and
+/// merged into its cards, in one transaction through the door as the user, so the two always
+/// describe the same read. A read that fails leaves the items as
 /// they were and records why, as a fixed phrase. The reads are as the app, through
 /// <see cref="ICodeHost"/>, so they work whether or not the user's own link does. See "Reading and
 /// the snapshot" in devflow/docs/devflow-architecture.md.
@@ -71,9 +75,10 @@ public sealed partial class ProjectReader(UserDb database, ICodeHost host, TimeP
 
         string? failure;
         IReadOnlyList<RunnerItem> items = [];
+        IReadOnlyList<PickedCard> cards = [];
         try
         {
-            (items, failure) = await Fetch(target, userId, cancellationToken);
+            (items, cards, failure) = await Fetch(target, userId, cancellationToken);
         }
         catch (Exception error) when (error is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
@@ -86,7 +91,7 @@ public sealed partial class ProjectReader(UserDb database, ICodeHost host, TimeP
         {
             try
             {
-                if (!await Store(projectId, userId, items, now, cancellationToken))
+                if (!await Store(projectId, userId, items, cards, now, cancellationToken))
                 {
                     return ReadResult.NoSuchProject;
                 }
@@ -113,22 +118,49 @@ public sealed partial class ProjectReader(UserDb database, ICodeHost host, TimeP
     }
 
     /// <summary>What reading the project needs, through the door as the user: its repository, the
-    /// bot whose pull requests are read, and the owner's login from his link, whatever its state,
-    /// or null when he has none. Null when the user has no such project.</summary>
+    /// bot whose pull requests are read, the owner's login from his link, whatever its state, or
+    /// null when he has none, and the labels its cards are picked by. Null when the user has no
+    /// such project.</summary>
     private async Task<ProjectTarget?> Find(Guid projectId, Guid userId, CancellationToken cancellationToken) =>
         await database.InUserTransaction(userId, transaction => transaction.Connection!.QuerySingleOrDefaultAsync<ProjectTarget>(new CommandDefinition(
             """
             SELECT p.installation_id AS Installation, p.repository_id AS RepositoryId, p.owner AS Owner, p.name AS Name,
-                   p.bot_login AS Bot, a.login AS OwnerLogin
-            FROM projects p LEFT JOIN github_accounts a ON a.user_id = p.user_id
+                   p.bot_login AS Bot, a.login AS OwnerLogin,
+                   s.pickup_label AS PickupLabel, s.hold_label AS HoldLabel, s.attention_label AS AttentionLabel,
+                   s.waits_for_owner AS WaitsForOwner
+            FROM projects p
+            JOIN project_settings s ON s.project_id = p.id
+            LEFT JOIN github_accounts a ON a.user_id = p.user_id
             WHERE p.id = @projectId
             """,
             new { projectId },
             transaction,
             cancellationToken: cancellationToken)), cancellationToken);
 
-    /// <summary>The project's items as the code host answers now, or why it could not be read.</summary>
-    private async Task<(IReadOnlyList<RunnerItem> Items, string? Failure)> Fetch(ProjectTarget target, Guid userId, CancellationToken cancellationToken)
+    /// <summary>The project's items and cards as the code host answers now, or why it could not be
+    /// read.</summary>
+    private async Task<(IReadOnlyList<RunnerItem> Items, IReadOnlyList<PickedCard> Cards, string? Failure)> Fetch(ProjectTarget target, Guid userId, CancellationToken cancellationToken)
+    {
+        var (items, failure) = await FetchItems(target, userId, cancellationToken);
+        if (failure is not null)
+        {
+            return ([], [], failure);
+        }
+
+        var settings = new ProjectSettings(target.PickupLabel, target.HoldLabel, target.AttentionLabel, target.WaitsForOwner);
+        var repository = new Repository(target.Installation, target.RepositoryId, target.Owner, target.Name);
+        return await CardPicker.Pick(host, userId, repository, settings, target.OwnerLogin, cancellationToken) switch
+        {
+            CodeHostResult<IReadOnlyList<PickedCard>>.Found { Value: var cards } => (items, cards, null),
+            CodeHostResult<IReadOnlyList<PickedCard>>.NotFound => ([], [], RepositoryNotFound),
+            CodeHostResult<IReadOnlyList<PickedCard>>.Unavailable => ([], [], HostUnavailable),
+            _ => throw new InvalidOperationException("a code host result that is not one of the three"),
+        };
+    }
+
+    /// <summary>The project's waiting items as the code host answers now, or why they could not be
+    /// read.</summary>
+    private async Task<(IReadOnlyList<RunnerItem> Items, string? Failure)> FetchItems(ProjectTarget target, Guid userId, CancellationToken cancellationToken)
     {
         var repository = new Repository(target.Installation, target.RepositoryId, target.Owner, target.Name);
         IReadOnlyList<PullRequest> open;
@@ -186,13 +218,14 @@ public sealed partial class ProjectReader(UserDb database, ICodeHost host, TimeP
     };
 
     /// <summary>
-    /// The project's items replaced by <paramref name="items"/>, and the read recorded as a success,
-    /// in one transaction through the door: an item still there is updated in place and keeps its
-    /// id, one gone is deleted. The project's row is locked for share first, so a disconnect waits
+    /// The project's items replaced by <paramref name="items"/>, its cards merged with
+    /// <paramref name="cards"/> by <see cref="CardStore.Store"/>, and the read recorded as a
+    /// success, in one transaction through the door: an item still there is updated in place and
+    /// keeps its id, one gone is deleted. The project's row is locked for share first, so a disconnect waits
     /// for the transaction, and a project disconnected before it stores nothing.
     /// </summary>
     /// <returns>Whether the project was still there.</returns>
-    private async Task<bool> Store(Guid projectId, Guid userId, IReadOnlyList<RunnerItem> items, DateTimeOffset now, CancellationToken cancellationToken) =>
+    private async Task<bool> Store(Guid projectId, Guid userId, IReadOnlyList<RunnerItem> items, IReadOnlyList<PickedCard> cards, DateTimeOffset now, CancellationToken cancellationToken) =>
         await database.InUserTransaction(userId, async transaction =>
         {
             if (await transaction.Connection!.ExecuteScalarAsync<int?>(new CommandDefinition(
@@ -210,6 +243,8 @@ public sealed partial class ProjectReader(UserDb database, ICodeHost host, TimeP
             {
                 await Upsert(transaction, projectId, userId, item, now, cancellationToken);
             }
+
+            await CardStore.Store(transaction, projectId, userId, cards, now, cancellationToken);
 
             await transaction.Connection!.ExecuteAsync(new CommandDefinition(
                 """
@@ -316,5 +351,15 @@ public sealed partial class ProjectReader(UserDb database, ICodeHost host, TimeP
         }
     }
 
-    private sealed record ProjectTarget(long Installation, long RepositoryId, string Owner, string Name, string Bot, string? OwnerLogin);
+    private sealed record ProjectTarget(
+        long Installation,
+        long RepositoryId,
+        string Owner,
+        string Name,
+        string Bot,
+        string? OwnerLogin,
+        string PickupLabel,
+        string HoldLabel,
+        string AttentionLabel,
+        string WaitsForOwner);
 }

@@ -176,13 +176,14 @@ public sealed class ProjectReaderTests
         Assert.Equal(ReadResult.Read, await reading.Reader.Read(project, Reading.Alice, Ct));
 
         // The list, then for each of the bot's pull requests with an owner label alone: its
-        // comments, its head's statuses and check runs, and its slice's comments; and last the
-        // recipe, for its version.
+        // comments, its head's statuses and check runs, and its slice's comments; then the issues
+        // carrying the pick-up label, none here; and last the recipe, for its version.
         Assert.Equal(
             [
                 ("OpenPullRequests", ""),
                 ("Comments", "42"), ("Statuses", World.Head), ("CheckRuns", World.Head), ("Comments", "7"),
                 ("Comments", "43"), ("Statuses", new string('c', 40)), ("CheckRuns", new string('c', 40)), ("Comments", "7"),
+                ("LabelledIssues", "devflow"),
                 ("DefaultBranchFile", ".devflow/Dockerfile"),
             ],
             reading.Host.Calls.Select(call => (call.Operation, call.Argument)));
