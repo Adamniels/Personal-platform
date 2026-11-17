@@ -1,5 +1,7 @@
 using Dapper;
 
+using DevFlow.CodeHost;
+
 using DevFlow.Link;
 
 using PlatformData;
@@ -68,6 +70,41 @@ public sealed class WorkerStore(UserDb database, TimeProvider time)
             new { projectId = caller.ProjectId, workerId, now },
             transaction,
             cancellationToken: cancellationToken)), cancellationToken) > 0;
+    }
+
+    /// <summary>The repository of the worker's project, or null when the project is gone.</summary>
+    public async Task<Repository?> RepositoryOf(WorkerCaller caller, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(caller);
+        return await database.InUserTransaction(caller.UserId, transaction => transaction.Connection!.QuerySingleOrDefaultAsync<Repository>(new CommandDefinition(
+            """
+            SELECT installation_id AS Installation, repository_id AS Id, owner AS Owner, name AS Name
+            FROM projects WHERE id = @projectId
+            """,
+            new { projectId = caller.ProjectId },
+            transaction,
+            cancellationToken: cancellationToken)), cancellationToken);
+    }
+
+    /// <summary>Records <paramref name="version"/> as the version of the worker's project's recipe,
+    /// the commit it was just read at.</summary>
+    public async Task RecipeRead(WorkerCaller caller, string version, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(caller);
+        await RecipeRead(database, caller.UserId, caller.ProjectId, version, cancellationToken);
+    }
+
+    /// <summary>Records the version of the project's recipe as last read, through the door as its
+    /// user: the commit it was read at, or null when its default branch has none. The loop's reader
+    /// records it too, see <see cref="Reading.ProjectReader"/>.</summary>
+    public static async Task RecipeRead(UserDb database, Guid userId, Guid projectId, string? version, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(database);
+        await database.InUserTransaction(userId, transaction => transaction.Connection!.ExecuteAsync(new CommandDefinition(
+            "UPDATE projects SET recipe_version = @version WHERE id = @projectId AND recipe_version IS DISTINCT FROM @version",
+            new { projectId, version },
+            transaction,
+            cancellationToken: cancellationToken)), cancellationToken);
     }
 
     /// <summary>The project's workers and when its key was made, or null when the user has no

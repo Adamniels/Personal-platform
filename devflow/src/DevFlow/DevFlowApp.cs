@@ -9,6 +9,7 @@ using DevFlow.Link;
 using DevFlow.Pages;
 using DevFlow.Projects;
 using DevFlow.Reading;
+using DevFlow.Recipes;
 using DevFlow.Settings;
 using DevFlow.Status;
 using DevFlow.Workers;
@@ -131,6 +132,7 @@ public static class DevFlowApp
         app.MapDisplay();
         app.MapAttention();
         app.MapWorkers();
+        app.MapRecipe();
         app.MapPages(webRoot);
         if (settings.CodeHost == CodeHostMode.Fake)
         {

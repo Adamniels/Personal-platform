@@ -110,6 +110,38 @@ public sealed partial class GitHubCodeHost : ICodeHost, ICodeHostSignIn, IDispos
             page => page.Body);
     }
 
+    /// <summary>
+    /// <c>GET /repos/{owner}/{repo}/commits?path=…&amp;per_page=1</c>, which with no <c>sha</c>
+    /// lists the default branch's history, newest first, of commits that changed the path; then the
+    /// file raw at exactly that commit, so the bytes answered are the commit's. Not found when no
+    /// commit is listed. A commit id that is not 40 or 64 lowercase hex digits is an answer that
+    /// does not parse, since it is handed on as a header and in a shell command.
+    /// </summary>
+    public async Task<CodeHostResult<FileAtCommit>> DefaultBranchFile(Guid userId, Repository repository, string path, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(path);
+        var commits = Map(
+            await Get(repository, Address($"{Repo(repository)}/commits?path={Escape(path)}&per_page=1"), GitHubHttp.JsonMediaType, cancellationToken),
+            page => Parse<IReadOnlyList<CommitAnswer>>(page.Body) ?? throw new JsonException("the answer does not parse"));
+        if (commits is not CodeHostResult<IReadOnlyList<CommitAnswer>>.Found found)
+        {
+            return Fail<IReadOnlyList<CommitAnswer>, FileAtCommit>(commits);
+        }
+
+        if (found.Value.Count == 0)
+        {
+            return new CodeHostResult<FileAtCommit>.NotFound();
+        }
+
+        var commit = found.Value[0].Sha;
+        if (!CommitId().IsMatch(commit))
+        {
+            return new CodeHostResult<FileAtCommit>.Unavailable(RetryAt: null);
+        }
+
+        return Map(await File(userId, repository, path, commit, cancellationToken), bytes => new FileAtCommit(bytes, commit));
+    }
+
     /// <summary><c>GET /user/installations</c>, as the person: the installations of this app they
     /// can reach.</summary>
     public async Task<CodeHostResult<IReadOnlyList<Installation>>> Installations(Guid userId, string userToken, CancellationToken cancellationToken) =>
@@ -296,6 +328,10 @@ public sealed partial class GitHubCodeHost : ICodeHost, ICodeHostSignIn, IDispos
 
     /// <summary>An address relative to GitHub's API, made absolute.</summary>
     private static Uri Address(string relative) => new(GitHubHttp.BaseAddress, relative);
+
+    /// <summary>A full commit id, SHA-1 or SHA-256, as GitHub writes it.</summary>
+    [GeneratedRegex("^(?:[0-9a-f]{40}|[0-9a-f]{64})$", RegexOptions.CultureInvariant)]
+    private static partial Regex CommitId();
 
     [GeneratedRegex("<(?<url>[^>]*)>\\s*;\\s*rel=\"(?<rel>[^\"]*)\"", RegexOptions.CultureInvariant)]
     private static partial Regex LinkPattern();
