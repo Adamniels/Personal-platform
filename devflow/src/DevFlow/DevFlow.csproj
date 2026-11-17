@@ -24,6 +24,8 @@
       library's versions. See "The database" in devflow/README.md.
     -->
     <ProjectReference Include="../../../libs/dotnet/PlatformData/src/PlatformData/PlatformData.csproj" />
+    <!-- What a worker and Dev flow say to each other, which the worker routes take. -->
+    <ProjectReference Include="../DevFlow.Protocol/DevFlow.Protocol.csproj" />
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="DevFlow.Tests" />
