@@ -1,3 +1,5 @@
+using System.Text.RegularExpressions;
+
 namespace DevFlow.Recipes;
 
 /// <summary>An instruction a recipe may not hold, and the line it starts on, counted from 1.</summary>
@@ -16,7 +18,7 @@ public sealed record RefusedInstruction(int Line, string Instruction);
 /// It errs on the side of refusing: a line inside a heredoc that begins with <c>COPY</c> is
 /// refused too, though Docker would read it as the heredoc's text.
 /// </remarks>
-public static class Recipe
+public static partial class Recipe
 {
     private static readonly string[] Refused = ["COPY", "ADD"];
 
@@ -25,7 +27,8 @@ public static class Recipe
     public static RefusedInstruction? FirstRefused(string text)
     {
         ArgumentNullException.ThrowIfNull(text);
-        var lines = text.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n');
+        // Docker drops a byte order mark at the start, so it hides no instruction.
+        var lines = text.TrimStart('\uFEFF').Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n');
         var escape = EscapeOf(lines);
         var joined = "";
         var start = 0;
@@ -88,30 +91,37 @@ public static class Recipe
             : null;
     }
 
-    /// <summary>The escape character, from an <c>escape</c> parser directive among the comment
-    /// lines at the very top, a backslash without one. Docker reads directives only before the
-    /// first line that is not one.</summary>
+    /// <summary>The parser directives Docker knows. Any other comment ends the directives.</summary>
+    private static readonly string[] Directives = ["syntax", "escape", "check"];
+
+    /// <summary>A parser directive's line, as BuildKit's parser matches it once leading whitespace
+    /// is dropped.</summary>
+    [GeneratedRegex(@"^#\s*([a-zA-Z][a-zA-Z0-9]*)\s*=\s*(.+?)\s*$")]
+    private static partial Regex DirectiveLine();
+
+    /// <summary>
+    /// The escape character, from an <c>escape</c> parser directive at the very top, a backslash
+    /// without one. Docker reads directives only up to the first line that is not a known one: an
+    /// instruction, a blank line, or any other comment, including one shaped like a directive with
+    /// a name it does not know. After that, <c># escape=`</c> is only a comment.
+    /// </summary>
     private static char EscapeOf(string[] lines)
     {
-        foreach (var line in lines)
+        for (var i = 0; i < lines.Length; i++)
         {
-            var trimmed = line.Trim();
-            if (!trimmed.StartsWith('#'))
+            var line = lines[i].TrimStart();
+            var match = DirectiveLine().Match(line);
+            if (!match.Success
+                || !Directives.Contains(match.Groups[1].Value, StringComparer.OrdinalIgnoreCase))
             {
                 break;
             }
 
-            var directive = trimmed[1..].Split('=', 2);
-            if (directive.Length != 2)
+            if (string.Equals(match.Groups[1].Value, "escape", StringComparison.OrdinalIgnoreCase))
             {
-                break;
-            }
-
-            if (string.Equals(directive[0].Trim(), "escape", StringComparison.OrdinalIgnoreCase)
-                && directive[1].Trim() is { Length: 1 } value
-                && value[0] is '\\' or '`')
-            {
-                return value[0];
+                // Docker refuses any other value, and a second escape directive, so the build
+                // fails and the first one is all that matters.
+                return match.Groups[2].Value is ['\\' or '`'] ? match.Groups[2].Value[0] : '\\';
             }
         }
 

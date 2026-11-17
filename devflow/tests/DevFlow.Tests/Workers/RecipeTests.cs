@@ -79,7 +79,14 @@ public sealed class RecipeTests
             ("FROM base\nRUN echo a \\\n# a comment inside the continuation\n  && echo b\nONBUILD ADD x y\n", 5, "ADD"),
             // With the escape directive the continuation is a backtick, so a backslash ends a line.
             ("# escape=`\nFROM base\nRUN echo \\\nCOPY x y\n", 4, "COPY"),
+            // Docker stops reading directives at the first comment that is not a known one, or a
+            // blank line, so an escape directive after either is a comment and the backslash stays.
+            ("# foo=bar\n# escape=`\nFROM x\nRUN echo `\nCOPY . /app\n", 5, "COPY"),
+            ("\n# escape=`\nFROM x\nRUN echo `\nADD . /app\n", 5, "ADD"),
+            ("# a note\n# escape=`\nFROM x\nRUN echo `\nCOPY . /app\n", 5, "COPY"),
             ("FROM base\r\nADD x y\r\n", 2, "ADD"),
+            // A byte order mark Docker drops does not hide the first line's instruction.
+            ("\uFEFFADD x /x\nFROM base\n", 1, "ADD"),
         })
         {
             Stage(routes, Workers.User, (".devflow/Dockerfile", "main", Encoding.UTF8.GetBytes(recipe)));
@@ -101,6 +108,8 @@ public sealed class RecipeTests
             "FROM base\nCOPYRIGHT_YEAR=2026\n",
             "FROM base\n# COPY . /work\n",
             "FROM base\nRUN echo \\\n  ADD\n",
+            // Known directives, in any case, keep the block open, so the escape after them holds.
+            "# syntax=docker/dockerfile:1\n# CHECK=skip=all\n# escape=`\nFROM base\nRUN echo `\n  ADD\n",
         })
         {
             Stage(routes, Workers.User, (".devflow/Dockerfile", "main", Encoding.UTF8.GetBytes(fine)));
