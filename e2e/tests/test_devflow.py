@@ -1139,12 +1139,8 @@ def test_i_set_a_projects_settings(
     # A new project has the defaults.
     expect(settings.get_by_label("Pick-up label")).to_have_value("devflow")
     expect(settings.get_by_label("Hold label")).to_have_value("devflow-hold")
-    expect(settings.get_by_label("Attention label")).to_have_value(
-        "devflow-attention"
-    )
-    expect(settings.get_by_label("Pull requests wait for you")).to_have_value(
-        "never"
-    )
+    expect(settings.get_by_label("Attention label")).to_have_value("devflow-attention")
+    expect(settings.get_by_label("Pull requests wait for you")).to_have_value("never")
 
     # The same name twice is refused under the field, and nothing is saved.
     settings.get_by_label("Hold label").fill("DevFlow")
@@ -1171,12 +1167,8 @@ def test_i_set_a_projects_settings(
     settings = page.get_by_role("article", name="Settings")
     expect(settings.get_by_label("Pick-up label")).to_have_value("agent: go")
     expect(settings.get_by_label("Hold label")).to_have_value("agent: wait")
-    expect(settings.get_by_label("Attention label")).to_have_value(
-        "devflow-attention"
-    )
-    expect(settings.get_by_label("Pull requests wait for you")).to_have_value(
-        "always"
-    )
+    expect(settings.get_by_label("Attention label")).to_have_value("devflow-attention")
+    expect(settings.get_by_label("Pull requests wait for you")).to_have_value("always")
 
 
 RECIPE = b"ARG DEVFLOW_BASE\nFROM ${DEVFLOW_BASE}\nRUN apt-get update\n"
