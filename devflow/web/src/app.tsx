@@ -7,9 +7,10 @@ import { createClient } from "./api/client";
 import type { components } from "./api/schema";
 import styles from "./app.module.css";
 import { CodeHostBanner } from "./banner";
+import { type ProjectApi, ProjectPage } from "./project";
 import { type Project, Projects, type ProjectsApi } from "./projects";
 import { GitHubLink } from "./projects-link";
-import { SECTIONS, type Section, sectionAt } from "./sections";
+import { projectAt, SECTIONS, type Section, sectionAt } from "./sections";
 import { loadStatus as readStatus, type Status, useStatus } from "./status";
 import { useWaiting, Waiting, type WaitingApi } from "./waiting";
 
@@ -22,6 +23,9 @@ export type AppProps = {
 	/** How projects are read and changed, the service's by default; a test
 	 * passes its own. */
 	projects?: ProjectsApi;
+	/** How a project's page reads its workers and makes its key, the
+	 * service's by default; a test passes its own. */
+	project?: ProjectApi;
 	/** How what waits is read and refreshed, the service's by default; a test
 	 * passes its own. */
 	waiting?: WaitingApi;
@@ -46,6 +50,23 @@ const projectsApi: ProjectsApi = {
 	disconnect: async (id) => {
 		await client.send("DELETE", `/projects/${encodeURIComponent(id)}`);
 	},
+};
+
+/** A project's page, through Dev flow's API. */
+const projectApi: ProjectApi = {
+	loadProjects: projectsApi.loadProjects,
+	// The schema names the path with its parameter; the call fills it in.
+	loadWorkers: (id) =>
+		client.get(
+			`/projects/${encodeURIComponent(id)}/workers` as "/projects/{id}/workers",
+		),
+	makeKey: async (id) =>
+		(
+			await client.send<components["schemas"]["WorkerKey"]>(
+				"POST",
+				`/projects/${encodeURIComponent(id)}/worker-key`,
+			)
+		).key,
 };
 
 /** What waits, through Dev flow's API. */
@@ -90,15 +111,21 @@ export function App(props: AppProps = {}) {
 /** Dev flow's frame: the fake mode's banner, the page's heading, a tab per
  * section, tied to the address, and the section the address names: what
  * waits, with its count on its tab, and the Projects tab with the GitHub link
- * above its projects. */
+ * above its projects, or, at a project's address, that project's page. */
 function Frame({
 	loadStatus = readStatus,
 	projects = projectsApi,
+	project = projectApi,
 	waiting = waitingApi,
 	actions = actionsApi,
 	now = Date.now,
 }: AppProps) {
-	const current = sectionAt(usePathname());
+	const pathname = usePathname();
+	// A project's page is under the Projects tab, which stays selected there.
+	const projectId = projectAt(pathname);
+	const current = projectId
+		? SECTIONS.find((section) => section.key === "projects")
+		: sectionAt(pathname);
 	useCrumb(current);
 	const [status, reload] = useStatus(loadStatus);
 	const listed = useWaiting(waiting.loadWaiting);
@@ -148,6 +175,14 @@ function Frame({
 								now={now}
 								link={status?.github.state}
 								actions={actions}
+							/>
+						) : section.key === "projects" && projectId ? (
+							<ProjectPage
+								key={projectId}
+								id={projectId}
+								now={now}
+								back={() => navigate(section.path)}
+								{...project}
 							/>
 						) : section.key === "projects" ? (
 							<>

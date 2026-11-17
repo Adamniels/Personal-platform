@@ -11,6 +11,7 @@ using DevFlow.Projects;
 using DevFlow.Reading;
 using DevFlow.Settings;
 using DevFlow.Status;
+using DevFlow.Workers;
 
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
@@ -91,6 +92,11 @@ public static class DevFlowApp
         // Merging and sending back from the page, as the user and never as the app. See "Acting
         // from the page" in devflow/README.md.
         builder.Services.AddSingleton(new ActionStore(database));
+        // Each project's worker key, and the second way a request authenticates, a worker's key,
+        // which leads to its project's user. See "Workers" in devflow/README.md.
+        builder.Services.AddSingleton(provider => new WorkerKeys(database, provider.GetRequiredService<TimeProvider>()));
+        builder.Services.AddWorkerAuthentication();
+        builder.Services.AddSingleton(provider => new WorkerStore(database, provider.GetRequiredService<TimeProvider>()));
         if (settings.PollInterval is { } interval)
         {
             builder.Services.AddHostedService(provider => new Poller(
@@ -104,8 +110,12 @@ public static class DevFlowApp
 
         var app = builder.Build();
         app.UseExceptionHandler();
-        // In front of routing, so every route, one added later included, is covered.
-        app.UsePlatformOriginCheck(settings.PublicOrigin);
+        // In front of routing, so every route, one added later included, is covered, but the
+        // worker's: a worker is not a browser, sends no Origin, and its routes never read a cookie,
+        // so there is no session for another site to ride.
+        app.UseWhen(
+            context => !WorkerAuthentication.IsWorkerPath(context.Request.Path),
+            browser => browser.UsePlatformOriginCheck(settings.PublicOrigin));
         app.UseBuiltFiles(webRoot);
         app.UseRouting();
         app.UseAuthentication();
@@ -120,6 +130,7 @@ public static class DevFlowApp
         app.MapActions();
         app.MapDisplay();
         app.MapAttention();
+        app.MapWorkers();
         app.MapPages(webRoot);
         if (settings.CodeHost == CodeHostMode.Fake)
         {

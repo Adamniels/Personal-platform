@@ -29,3 +29,21 @@ export function navigate(path: string, { replace = false } = {}): void {
 	else window.history.pushState(null, "", path);
 	for (const listener of listeners) listener();
 }
+
+/** A click the page handles itself: the main button, with no key that asks
+ * the browser for a new tab or window. */
+export function plainClick(event: {
+	button: number;
+	metaKey: boolean;
+	ctrlKey: boolean;
+	shiftKey: boolean;
+	altKey: boolean;
+}): boolean {
+	return (
+		event.button === 0 &&
+		!event.metaKey &&
+		!event.ctrlKey &&
+		!event.shiftKey &&
+		!event.altKey
+	);
+}

@@ -1,11 +1,12 @@
-// The projects on the Projects tab, under the GitHub link: the connected repositories, connecting
-// one from those the GitHub App reaches for the owner, and disconnecting one behind a
-// confirmation. A project has no page of its own yet. See "The pages" and "Connecting a
-// repository" in devflow/README.md.
+// The projects on the Projects tab, under the GitHub link: the connected repositories, each a link
+// to its page, connecting one from those the GitHub App reaches for the owner, and disconnecting
+// one behind a confirmation. See "The pages" and "Connecting a repository" in devflow/README.md.
 import { Badge, Button, Dialog, EmptyState, Table } from "@platform/ui";
 import { useCallback, useEffect, useState } from "react";
+import { navigate, plainClick } from "./address";
 import type { GetAnswer } from "./api/client";
 import styles from "./projects.module.css";
+import { projectPath } from "./sections";
 
 export type Project = GetAnswer<"/projects">["projects"][number];
 export type Connectable = GetAnswer<"/github/repositories">;
@@ -130,7 +131,18 @@ export function Projects({
 							header: "Repository",
 							cell: (project) => (
 								<div className={styles.repository}>
-									<span className={styles.name}>{fullName(project)}</span>
+									<a
+										className={`${styles.name} ${styles.open}`}
+										href={projectPath(project.id)}
+										onClick={(event) => {
+											if (plainClick(event)) {
+												event.preventDefault();
+												navigate(projectPath(project.id));
+											}
+										}}
+									>
+										{fullName(project)}
+									</a>
 									<span className={styles.how}>{RUNNER_LINE}</span>
 								</div>
 							),
