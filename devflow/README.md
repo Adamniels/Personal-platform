@@ -10,8 +10,8 @@ is the service, its page, its database, which holds the vault, the code host's i
 fake and its GitHub adapter, which reads as the app, linking a user's GitHub account, so Dev
 flow holds a token that acts as them, connecting a repository, which makes it a project, and
 reading every project about once a minute into a stored list of what waits for the owner, which
-the API answers and the platform's front page counts: everything else the tabs will show arrives
-with later slices.
+the API answers and the platform's front page counts, and each project's worker key, with the
+worker API a worker calls with it: everything else the tabs will show arrives with later slices.
 
 ## What it serves
 
@@ -40,6 +40,12 @@ with later slices.
 - `POST /devflow/api/waiting/{id}/merge` and `POST /devflow/api/waiting/{id}/send-back`, which
   merge a waiting pull request and send one back with a comment, as the caller on GitHub, see
   "Acting from the page". Without a valid token, `401` with an empty body.
+- `POST /devflow/api/projects/{id}/worker-key`, which makes a project's worker key and answers it
+  once, and `GET /devflow/api/projects/{id}/workers`, the workers that have said hello with it,
+  see "Workers". Without a valid token, `401` with an empty body.
+- `POST /devflow/api/worker/hello` and `POST /devflow/api/worker/jobs/next`, the worker API, which
+  takes a project's worker key in `Authorization: Bearer dfw_…` and never a user's token, see
+  "Workers". Without a key the project has now, `401` with an empty body.
 - `GET /devflow/api/display`, what the platform's front page shows of Dev flow,
   `{"waiting": 2, "stopped": 1, "projects": 1, "stale": false, "needs_relink": false}`: the items
   of kind `waiting` and of kind `stopped` that are not sent back, how many projects the caller has
@@ -62,14 +68,14 @@ with later slices.
 - In the fake mode only, the fake's addresses under `/devflow/api/fake/`, see "Staging a world",
   its sign in page, `/devflow/fake-github/authorize`, and its install page,
   `/devflow/fake-github/install`, see "The fake".
-- `GET /devflow` and `/devflow/projects`, with any query, the page: `web/dist/index.html`,
-  revalidated on every load. Without a valid token each answers `303` to
+- `GET /devflow`, `/devflow/projects` and `/devflow/projects/{id}`, a project's page, with any
+  query, the page: `web/dist/index.html`, revalidated on every load; `{id}` must be a UUID. Without a valid token each answers `303` to
   `/auth/refresh?return_to=<the path and query as received, URL encoded>`.
 - `GET /devflow/assets/*`, the page's built files from `web/dist/assets/`, without a token, as
   review and the brain serve their own: they are the same for everyone and hold no data.
 
 Everything else is `404`, and any request that changes state from another origin is `403`, before
-routing, see "How Dev flow authenticates a request" below. An error the service did not plan for is
+routing, but a worker route's, see "How Dev flow authenticates a request" below. An error the service did not plan for is
 an RFC 9457 problem document, `application/problem+json` with `status`, `title` and `detail`,
 through ASP.NET Core's `AddProblemDetails`, as review's are.
 
@@ -122,7 +128,27 @@ each row "<owner>/<name>" over "Read the way this repository's runner writes." w
 "Disconnect" behind a destructive `Dialog`, "Disconnect <owner>/<name>?", which says Dev flow
 forgets the project and everything it read for it and that nothing changes on GitHub; with none,
 and the choice closed, the `EmptyState` "No project connected yet". A read, a connect or a
-disconnect that fails says so as an alert. A project has no page of its own yet.
+disconnect that fails says so as an alert. Each row's "<owner>/<name>" is a link to the project's
+page.
+
+A project's page, `src/project.tsx`, is at `/devflow/projects/<id>`, under the Projects tab, which
+stays selected there. Its header is a link "Back to Projects" over the repository's
+"<owner>/<name>" as a section heading; a project the caller does not have is the `EmptyState`
+"There is no such project". Under it is the Workers panel, the package's `Card` titled "Workers",
+read from `GET /devflow/api/projects/{id}/workers` as the page loads: a line saying a worker holds
+the project's key and asks Dev flow for work with it, then the key, then the workers. With no key,
+"It has no key yet." and a primary "Make a key". Making one shows it once, in the region "The new
+key", on an inset in the mono font, with "Shown once. Copy it now: Dev flow keeps only a hash of it
+and cannot show it again." and a secondary "Copy the key", which copies it and then reads
+"Copied"; a copy that fails says so as an alert. The page never reads the key back: after a
+reload it says "Its key was made <date and time>.", and the button is a secondary "Make a new
+key", which opens a destructive `Dialog`, "Make a new key?", saying the old key stops working at
+once and every worker holding it is refused until it is given the new one, and makes nothing until
+it is confirmed. The workers are the list "Workers", each an inset row, by when it first said
+hello: its name, "Recipe <version> on <base image>" in the mono font, and "Last seen <time> ago",
+or, after ten minutes without a word, "Not seen since <date and time>", in `--text` at weight 600;
+with none, "No worker has said hello yet." The commands to start a worker arrive with a later
+slice.
 
 Waiting for you, `src/waiting.tsx`, is one list of what waits for the owner across his projects,
 read from `GET /devflow/api/waiting`, see "What waits", through React Query: as the page loads,
@@ -188,8 +214,10 @@ data" in `docs/devflow-architecture.md`.
 "Running now" and "Usage and history" join with the parts that build them, never as empty tabs. The address is the state,
 through the History API and no router library (`src/address.ts`): a tab pushes its section's
 address, Back and Forward come back as `popstate`, and an address that names no section shows a
-not found state under the tabs. The list of sections lives in `src/sections.ts`, and the addresses
-the service answers the page for in `src/DevFlow/Pages/PageEndpoints.cs`; the two change together.
+not found state under the tabs; a project's name pushes its page's address, and "Back to Projects"
+the tab's. The list of sections and the project page's address live in `src/sections.ts`, and the
+addresses the service answers the page for in `src/DevFlow/Pages/PageEndpoints.cs`; the two change
+together.
 
 `src/api/client.ts` is the page's one way to call Dev flow: every call goes to `/devflow/api/` with
 the session cookie, a `401` is refreshed once, shared by every call that got one, by posting to
@@ -197,8 +225,9 @@ the session cookie, a `401` is refreshed once, shared by every call that got one
 `/auth/refresh?return_to=<path>`, as review's client does. Its GETs are typed from
 `src/api/schema.d.ts`. The page reads the status once as it loads, in `src/status.ts`, for the
 banner and the link, and again after unlinking; its other calls are starting a link, unlinking,
-the projects' four, reading what waits and refreshing a project, and merging and sending back,
-which `src/app.tsx` gives the tabs, so a test gives its own, with its own clock.
+the projects' four, reading what waits and refreshing a project, merging and sending back, and a
+project's workers and making its key, which `src/app.tsx` gives the tabs, so a test gives its own,
+with its own clock.
 
 ## The schema
 
@@ -352,8 +381,10 @@ Its tables are the vault's, `secrets`, from `migrations/0002_secrets.sql`, see "
 GitHub link's two, `github_sign_ins` and `github_accounts`, from
 `migrations/0003_github_link.sql`, see "Linking GitHub", and `projects` with `poll_targets`, from
 `migrations/0004_projects.sql`, see "Connecting a repository", and `waiting_items` with
-`project_reads`, from `migrations/0005_waiting_items.sql`, see "What waits". `poll_targets` is the
-one table without row level security, which `devflow_app` may only read.
+`project_reads`, from `migrations/0005_waiting_items.sql`, see "What waits", and `worker_keys`,
+`worker_key_lookup` and `workers`, from `migrations/0007_workers.sql`, see "Workers".
+`poll_targets` and `worker_key_lookup` are the two tables without row level security, which
+`devflow_app` may only read.
 
 ### Migrating
 
@@ -375,9 +406,11 @@ usage. On the Mac mini and in CI the manifest's `migrate` runs it; in the hosted
 ### The door
 
 Every query goes through `UserDb.InUserTransaction(userId, work, cancellationToken)`, the shared
-library's door, which sets `devflow.user_id` for that transaction alone, but one: the loop lists
-`poll_targets` through the door's `WithoutUser`, a transaction on behalf of nobody, to which every
-guarded table is empty, and then reads each project as its user, see "What waits". Dev flow registers one
+library's door, which sets `devflow.user_id` for that transaction alone, but two, each through
+the door's `WithoutUser`, a transaction on behalf of nobody, to which every guarded table is
+empty: the loop lists `poll_targets` and then reads each project as its user, see "What waits",
+and a worker's request looks its key's hash up in `worker_key_lookup` and then does everything as
+that project's user, see "Workers". Dev flow registers one
 `UserDb`, opened at startup in `src/DevFlow/Commands.cs` with the name `devflow`,
 `DevFlowSettings.Service`, as `devflow_app`, so a database it cannot reach, or a wrong password,
 stops Dev flow there, naming `DEVFLOW_APP_DATABASE_URL` and never its password. It opens no
@@ -386,8 +419,9 @@ connection of its own, which `IsolationTests.OnlyTheDoorOpensConnections` checks
 Every scoped table has `user_id uuid NOT NULL`, row level security enabled
 and forced, and one policy using `UserDb.GuardFor("devflow")` for `USING` and `WITH CHECK`.
 `tests/DevFlow.Tests/IsolationTests.cs` proves the policy on a probe table, and fails for any table
-a later migration adds to `public` without exactly that one policy, `schema_migrations` aside; Dev
-flow leaves no table unguarded on purpose, and has no path around the policies.
+a later migration adds to `public` without exactly that one policy, `schema_migrations` aside and
+the two tables left unguarded on purpose, `poll_targets` and `worker_key_lookup`, which the test
+names; Dev flow has no other path around the policies.
 
 ## The vault
 
@@ -899,6 +933,71 @@ an expired link among them. It is `askNavAgain` in `web/src/nav-attention.ts`. N
 writes a label, a status or anything else the runner owns: after a comment, the runner sees the
 owner's input on its next turn and moves the label itself.
 
+## Workers
+
+A worker is a program in a container on one of the owner's machines that builds a project's cards.
+Every worker belongs to one project, and so to that project's user, and calls Dev flow; Dev flow
+never calls it. This part gives a project its key and a worker its first two calls; the worker
+program, its image and the commands to start it come with later slices. Why it is built so is
+"Workers" in `docs/devflow-architecture.md`.
+
+**As the owner does it.** On the Projects tab, open a project by its name, and in its Workers panel
+press "Make a key". Copy the key then: it is shown once and never again. A worker started with it
+says hello and is listed under the panel. "Make a new key" replaces it, and every worker holding
+the old one is refused from then on.
+
+**The key.** One per project, shared by every worker of that project: 32 random bytes from .NET's
+`RandomNumberGenerator`, written as `dfw_` and their base64url without padding, 47 characters. Only
+the SHA-256 of that text is stored. There is no way to list a key or show one again, and a key is
+never logged or put in an address. It is `WorkerKeys`, in `src/DevFlow/Workers/`.
+
+**The worker scheme.** A worker sends `Authorization: Bearer dfw_…` and nothing else: no cookie and
+no `Origin`. `WorkerAuthentication` reads the one header, refuses a second one, another scheme or a
+key of the wrong shape, hashes the key, looks the hash up in `worker_key_lookup` through the door's
+`WithoutUser`, and then, as the project's user through `InUserTransaction`, confirms that
+`worker_keys` holds that hash for that project. Everything the request does after that runs as that
+user. Anything else is `401` with an empty body, the same whatever the reason. A worker route takes
+only this scheme, and a user's route only the user's token: a user's token is not the shape of a
+key, and a key is not a token the core signed.
+
+The routes, in `WorkerEndpoints`:
+
+- `POST /devflow/api/projects/{id}/worker-key`, the user's, origin checked, answers
+  `{"key": "dfw_…"}` with `Cache-Control: no-store`, the one time the key is sent, and replaces the
+  project's last key at once. `404` for a project the caller does not have, another user's among
+  them, and nothing is stored.
+- `GET /devflow/api/projects/{id}/workers`, the user's, answers
+  `{"key_made_at": "<time>" or null, "workers": [{"id", "name", "recipe_version", "base_image", "first_seen_at", "last_seen_at"}]}`,
+  by when each worker first said hello. Never the key. `404` as above.
+- `POST /devflow/api/worker/hello`, the worker's, with
+  `{"worker_id": "<uuid>", "name": "<the container's hostname>", "recipe_version", "base_image"}`,
+  records the worker in its key's project, or brings it up to date, keeping when it was first
+  seen, and answers `204`. Each field is required; `worker_id` is a UUID that is not all zeros, and
+  each text has 1 to 255 characters, not only spaces; otherwise `422` naming the field.
+- `POST /devflow/api/worker/jobs/next`, the worker's, with `{"worker_id"}`, marks the worker seen
+  and answers its next job; in this part there is none, so `204`. A worker that has not said hello
+  in the key's project is `409` "Say hello first", and says hello and asks again; no `worker_id`
+  is `422`.
+
+The tables, from `migrations/0007_workers.sql`:
+
+- `worker_keys`, guarded like every scoped table: `project_id`, its primary key, `user_id`,
+  `key_hash`, the 32 byte SHA-256, unique, and `created_at`.
+- `worker_key_lookup`: `key_hash`, its primary key, `project_id` and `user_id`, nothing else, and
+  **no** row level security, so a worker's request, which carries no user, can be led to one. A
+  trigger on `worker_keys`, with a `SECURITY DEFINER` function, `sync_worker_key_lookup`, owned by
+  `devflow_owner`, keeps it, so a replaced key and a disconnected project leave nothing behind;
+  `devflow_app` may only `SELECT` it, as with `poll_targets`.
+- `workers`, guarded: `project_id` and `id`, the worker's own, together its primary key, so the
+  same id in two projects is two workers and one user's worker never meets another's, `user_id`,
+  `name`, `recipe_version`, `base_image`, each 1 to 255 characters, `first_seen_at` and
+  `last_seen_at`.
+
+`worker_keys` and `workers` reference `projects (id, user_id)`, not `projects (id)` alone, with
+`ON DELETE CASCADE`, so a key or a worker can only belong to its project's own user, whatever a
+query tries, and disconnecting removes them; the migration adds the unique constraint on
+`projects (id, user_id)` they need.
+
 ## Registering the GitHub App
 
 The owner's runbook, done once on GitHub, under Settings, Developer settings, GitHub Apps, New
@@ -953,11 +1052,18 @@ and does three things with it, in `src/DevFlow/DevFlowApp.cs`:
 - `AddPlatformAuth` with `DEVFLOW_CORE_URL`, which registers the key cache, the handler and the two
   policies. The pages take `PlatformAuthPolicies.Page`, as do the return from the code host and the
   fake's sign in page, and `whoami`, `status`, starting a link, unlinking, the projects' routes,
-  the waiting list, refreshing a project and the fake's addresses take `PlatformAuthPolicies.Api`; health and the built files take neither. A route reads its caller's
-  user id through `Api/Caller.cs`, as review's do.
+  the waiting list, refreshing a project, making a project's worker key, listing its workers and
+  the fake's addresses take `PlatformAuthPolicies.Api`; health and the built files take neither. A
+  route reads its caller's user id through `Api/Caller.cs`, as review's do.
+- `AddWorkerAuthentication`, Dev flow's own, in `src/DevFlow/Workers/WorkerAuthentication.cs`: the
+  second way a request authenticates, a project's worker key, and the policy
+  `WorkerAuthentication.Policy`, which the worker routes, `hello` and `jobs/next`, take and nothing
+  else does. A worker route reads its project and user through `context.Worker()`. See "Workers".
 - `UsePlatformOriginCheck` with `DEVFLOW_PUBLIC_ORIGIN`, before routing, so every route, one added
-  later included, is covered: starting a link, unlinking, and the fake's addresses and its sign in
-  form. The return from the code host, `GET /devflow/github/callback`, is the one route that
+  later included, is covered: starting a link, unlinking, making a worker key, and the fake's
+  addresses and its sign in form. It runs for every path but those under `/devflow/api/worker/`,
+  matched case and all, which the worker scheme alone guards and which read no cookie, see
+  "Workers". The return from the code host, `GET /devflow/github/callback`, is the one route that
   changes state on a GET, which "How a feature authenticates" otherwise forbids; why it is safe is
   in "Security decisions and accepted risks" in `docs/devflow-architecture.md`.
 - `DevFlowApp.Build(settings, database, webRoot, configure)` builds the app, with the door; `configure` runs before it is
@@ -982,8 +1088,9 @@ in `libs/dotnet/PlatformAuth/README.md`.
 **One web project, not layered projects.** `src/DevFlow/` is the whole service, organised in
 feature folders: `Settings`, `Health` (health and whoami), `Status`, `CodeHost` (the interfaces, their
 records, the fake and, in `GitHub`, the adapter), `Link` (linking GitHub and a usable token), `Vault`,
-`Projects` (connecting a repository), `Reading` (the snapshot, the loop and the waiting list), `Pages` and `Api` today, more with later
-slices, as `review/` is.
+`Projects` (connecting a repository), `Reading` (the snapshot, the loop and the waiting list),
+`Workers` (the worker key, the worker scheme and the worker API), `Pages` and `Api` today, more with
+later slices, as `review/` is.
 
 **The GitHub adapter is written by hand on .NET's `HttpClient`**, with `System.Text.Json`, and
 signs the app's tokens with .NET's own `RSA`, and signs a person in with the same `HttpClient` and

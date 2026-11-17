@@ -2,7 +2,7 @@
 
 Status: exploratory. The walking skeleton is being built.
 
-Last updated: 2026 11 16
+Last updated: 2026 11 17
 
 These are planning notes, not specifications. Everything here is the current best idea with the
 reasoning attached, and it is expected to change as building teaches things planning could not.
@@ -117,14 +117,16 @@ features" in `High-level/docs/platform-architecture.md`.
   world in it, linking a user's GitHub account and the one way to a token that acts as them,
   connecting a repository with its routes and tables, what waits for the owner, the loop that
   reads it and refreshing a project, merging and sending back from the page and what each refusal
-  means, registering the GitHub App, how it authenticates a request
-  with `PlatformAuth`, and the libraries it is built on
+  means, a project's worker key, the worker scheme and the worker API with their routes and
+  tables, registering the GitHub App, how it authenticates a request with `PlatformAuth` and with
+  a worker's key, and the libraries it is built on
 - `devflow/docs/devflow-architecture.md` — what Dev flow is, what of it exists, the code host seam
   and why its fake sits there, acting as the owner on GitHub, projects and how a loop learns whose
   they are, reading this repository's runner and the conventions it knows, reading every project
   into a stored picture the pages read instead of GitHub, acting from the page as the owner and
-  never as the app, and its security decisions and accepted risks, kept for an audit, the vault's and the fake's among
-  them
+  never as the app, workers and how a worker's key leads to its project's user, and its security
+  decisions and accepted risks, kept for an audit, the vault's, the fake's and the worker key's
+  among them
 - `docs/superpowers/specs/2026-11-14-development-flow-design.md` — the design of the whole
   development flow, frozen on 2026 11 15 when the slices of its first part were cut; the
   architecture document above is the living description from then on

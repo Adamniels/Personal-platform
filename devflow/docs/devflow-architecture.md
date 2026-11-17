@@ -2,7 +2,7 @@
 
 Status: living. It describes what is built, and changes in the same pull request as the code.
 
-Last updated: 2026 11 16
+Last updated: 2026 11 17
 
 ## What Dev flow is
 
@@ -27,7 +27,8 @@ two tabs, "Waiting for you" at `/devflow`, the list of what waits for the owner,
 It answers through the proxy under `/devflow` in the dev stack and in the hosted copy, verifies the
 core's token itself through `PlatformAuth`, and has a database of its own, `devflow`, migrated by
 its `migrate` command. Its tables are the vault's, `secrets`, which seals a secret for a user,
-the GitHub link's, see "Acting as the owner" below, and the projects', see "Projects" below. Everything it will ask of a code host goes
+the GitHub link's, see "Acting as the owner" below, the projects', see "Projects" below, and the
+workers', see "Workers" below. Everything it will ask of a code host goes
 through one interface, with an in memory fake behind it and a GitHub adapter that reads as the app,
 see "The code host seam" and "GitHub" below. On the Projects tab the owner links his GitHub
 account, and Dev flow then holds a token that acts as him, sealed in the vault and renewed by
@@ -43,6 +44,10 @@ runner" below.
 From the list the owner merges a waiting pull request, after a confirmation, or sends one back with
 a comment, both as himself on GitHub, see "Acting from the page" below. Everything else the tabs
 will show arrives with the later slices of the first part.
+
+Each project has a page of its own, under the Projects tab, where the owner makes the project's
+worker key, shown once, and sees the workers that have introduced themselves with it; a worker
+holding the key says hello and asks for work, and is told there is none yet, see "Workers" below.
 
 ## The code host seam
 
@@ -171,7 +176,7 @@ changes nothing on GitHub, where the app stays installed until the owner removes
 
 **The loop that watches GitHub learns from `poll_targets` which projects exist and whose they
 are**, as "Who a worker and the program's own loop act as" in the spec has it: a loop has no
-logged in user, so it reads the one table without row level security, which holds a project's id
+logged in user, so it reads a table without row level security, which holds a project's id
 and its user and nothing else, and then does all its work through the door as that user. A
 trigger on `projects` keeps it, so no code path can forget. The loop is "Reading and the snapshot"
 below; why the table is safe is in the section after it.
@@ -309,6 +314,36 @@ confirmation, since a comment can be answered.
 comment the runner sees the owner's input on its next turn and moves the label itself, and a merge
 is the merge the runner's gate would make, a merge commit on a head with both checks green.
 
+## Workers
+
+A worker is a program in a container on one of the owner's machines that takes a project's cards
+and builds them, as the spec's rounds 3 and 9 have it. Every worker belongs to exactly one
+project, and a worker calls Dev flow and is never called. What exists of it is the start: a
+project's key, the scheme a worker's request authenticates with, and the worker API's first two
+calls, `hello`, which records the worker, and `jobs/next`, which answers that there is no work. The
+worker program, its base image, the commands the page shows to start one, and handing out work
+are later slices of the feature "Dev flow: one card, end to end". The routes, the tables and the
+panel are "Workers" and "The pages" in `devflow/README.md`.
+
+**One key per project, shared by its workers**, as the feature's slice settles. A worker is started
+from a command with its project's key in it, so a key per worker would only add a step to starting
+one; the price is that a key is ended for every worker of the project at once, which is what
+replacing it is for. Removing a single worker, and a key per worker, are left for when a project
+has workers it wants to tell apart.
+
+**A key leads to a project and so to a user**, as "Who a worker and the program's own loop act as"
+in the spec has it, and everything a worker's request does runs through the door as that user.
+That is the second way a request authenticates, beside a user's token, and "How a feature
+authenticates" in `High-level/docs/feature-contract.md` describes it. The scheme is Dev flow's own,
+`WorkerAuthentication`, not `PlatformAuth`'s, since it is the only feature with workers; it is a
+dozen lines that call the store, and the store holds the security, see the next section.
+
+**A worker is the id it made when it started**, a UUID, with the name it sends, its container's
+hostname, and the recipe version and base image it reports, which later slices compare with what
+the project expects. Its primary key is the project and that id together, so a worker of one user
+can never collide with one of another's. One not seen for ten minutes shows as "not seen since"
+then; nothing removes a worker yet.
+
 ## Security decisions and accepted risks
 
 Kept for an audit the owner plans once the first part is in place. Each entry is a decision with
@@ -443,7 +478,7 @@ its reason, or a risk accepted on purpose; each slice adds the ones it builds.
   Settings, Applications, Authorized GitHub Apps, which "Registering the GitHub App" in
   `devflow/README.md` says. Revoking it from Dev flow would need the client secret sent to delete
   the grant, and adds nothing while Dev flow is the only holder of the tokens.
-- **The polling targets are the one table without row level security.** `poll_targets` tells a
+- **The polling targets are the first of two tables without row level security.** `poll_targets` tells a
   background loop, which has no logged in user, which projects exist and whose they are, so it
   can then work through the door as each one's user. It holds a project's id and its user id and
   nothing else: no name, no repository, no token, so all it says about another user is that they
@@ -454,9 +489,51 @@ its reason, or a risk accepted on purpose; each slice adds the ones it builds.
   that transaction and refuses its writes; all it does after is as each project's user. The alternative, decided against with the owner,
   was a second database role for the loop that bypasses row level security: less to build, but a
   bug in the loop could then read or write across users. `IsolationTests.EveryTableIsGuarded`
-  passes the shared check `["poll_targets"]` and nothing else, so a second unguarded table fails
-  it, and `PollTargetTests` keeps the table's two columns, the app role's read only access and the
-  trigger.
+  passes the shared check `["poll_targets", "worker_key_lookup"]` and nothing else, so a third
+  unguarded table fails it, and `PollTargetTests` keeps the table's two columns, the app role's
+  read only access and the trigger. The second is the worker key lookup, the next entry.
+- **The worker key lookup is the second table without row level security.** A worker's request
+  carries a key and no user, and a key must lead to a user before anything else can run through the
+  door. `worker_key_lookup` holds a key's SHA-256, its project's id and the user's id and nothing
+  else, and is read only through the door's `WithoutUser`, by the hash. It is safe for the reasons
+  `poll_targets` is, and kept the same way: `devflow_app` may only read it, and only a trigger on
+  `worker_keys`, through a `SECURITY DEFINER` function owned by `devflow_owner` with its
+  `search_path` fixed, writes it. What it adds over `poll_targets` is a hash, which gives nothing
+  back: a key is 256 random bits, so neither its hash nor the table opens anything to someone who
+  reads it. And the lookup alone decides nothing: the request then confirms, as the user it found
+  and under row level security, that the user's own `worker_keys` holds that hash for that
+  project, so a lookup row that disagreed with the keys, by a bug or by someone who could write the
+  table, would open nothing; `WorkerApiTests.AWorkerActsAsItsProjectsUserOnly` points a key's
+  lookup row at another user and at another user's project and sees `401` both times. A key and a
+  worker reference `projects (id, user_id)`, so neither can be stored for a user other than its
+  project's, whatever row level security let through. The alternative, a second database role
+  that bypasses row level security for the lookup, was decided against with `poll_targets`, for
+  the same reason. `WorkerKeyLookupTests` keeps the table's three columns, the app role's read
+  only access, the trigger and the foreign keys.
+- **A worker key is stored only as a hash, and is replaced, not listed.** A key is 32 bytes from a
+  cryptographic generator, written as `dfw_` and their base64url, so a scanner for leaked secrets
+  can recognise one. It is sent once, in the answer that made it, with `Cache-Control: no-store`,
+  and only the SHA-256 of it is stored; nothing lists keys or shows one again, and making a new one
+  replaces the last in the same statement, so the old one is refused from the next request. A
+  plain SHA-256 is enough where a password needs a slow hash, since there is nothing to guess in
+  256 random bits. The key is never logged, never put in an address and never in a cookie:
+  `WorkerKeyTests.TheKeyIsNeverLogged` reads every log line at every level, and
+  `AKeyIsShownOnceAndOnlyItsHashIsStored` searches every table for it. A presented key is never
+  compared with a stored value: it is hashed and the hash is looked up, so the time a lookup takes
+  says nothing an attacker could use, and `WorkerApiTests.TheKeyIsComparedInConstantTime` reads
+  the compiled code of the worker's namespace and fails if anything there compares strings or
+  spans for equality. Accepted: the key sits in the command that starts a worker, and so in that
+  machine's shell history and the container's environment; on the shared Mac mini that is the risk
+  the first entry accepts, and replacing the key ends a leaked one.
+- **Worker routes are outside the `Origin` check, and read no cookie.** A worker is not a browser
+  and sends no `Origin`, so `/devflow/api/worker/` is the one path the check leaves out, matched
+  as written, case and all, so a path that only routes the same way is still checked. That is safe
+  because what the check defends against, another site riding the owner's session, cannot reach
+  those routes: the worker scheme reads only the `Authorization` header, never a cookie, so a
+  browser's request carries nothing they accept, and a user's token in the header is refused there
+  as well. A worker's key sent to a user's route is refused the same way, so the two ways to
+  authenticate never stand in for each other; `WorkerApiTests.AWorkerKeyCannotCallTheUsersRoutes`
+  keeps both.
 - **The app is registered for one account.** "Only on this account" means only the owner's account
   can install it. Installing it on an organisation needs it opened to any account first, and then
   any stranger could install it on their own repositories too; that gains them nothing, since

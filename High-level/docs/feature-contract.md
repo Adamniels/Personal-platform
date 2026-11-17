@@ -2,7 +2,7 @@
 
 Status: exploratory. Nothing is built.
 
-Last updated: 2026 11 14
+Last updated: 2026 11 17
 
 Isolation of implementation, coupling through contracts. This is what someone building a feature
 needs to know. The brain's own internals are in `Brain/docs/`, and the platform wide thinking
@@ -229,15 +229,30 @@ it:
   default, see `Core/docs/core-architecture.md` for the value and why. The identity is whatever the
   verified token says.
 - On anything that changes state, check that the `Origin` header is the platform's own, and never
-  change state on a GET. That is the CSRF defence in full. The one known exception is Dev flow's
-  return from GitHub, `GET /devflow/github/callback`, which GitHub can only send as a GET and which
-  a single use state bound to the user makes safe instead; see "Security decisions and accepted
-  risks" in `devflow/docs/devflow-architecture.md`.
+  change state on a GET. That is the CSRF defence in full. The known exceptions are two, both Dev
+  flow's: its return from GitHub, `GET /devflow/github/callback`, which GitHub can only send as a
+  GET and which a single use state bound to the user makes safe instead, and its worker routes,
+  which take a worker's key and never a cookie, so no browser's session reaches them, see the
+  second way below; both are in "Security decisions and accepted risks" in
+  `devflow/docs/devflow-architecture.md`.
 - Treat a missing token, an expired one and one that fails verification the same way. An API call
   returns 401 and the frontend refreshes and retries; a plain page load redirects to the core's
   refresh endpoint with the path to come back to. The feature never decides whether someone needs
   to log in, since it cannot tell a logged out browser from one whose access cookie simply ran
   out, and the core can.
+
+**A second way, a worker's key, on a feature's worker routes only.** A worker is a program on one
+of the owner's machines, not a browser and not a user, so it holds no token. Dev flow's workers
+each hold their project's key and send it as `Authorization: Bearer dfw_…`. The key leads to its
+project and so to that project's user, and everything the request does then runs through the door
+as that user, so every query still runs as a user, as "Multi user, and how isolation is enforced"
+in `High-level/docs/platform-architecture.md` requires. The two ways never stand in for each
+other: a worker route accepts only a key and a user's route only the user's token. Worker routes
+read no cookie, so a browser's session cannot reach them, and for that reason they are the one
+place outside the `Origin` check. A key is stored only as a hash and is replaced rather than
+listed. How Dev flow does it, and why it is safe, is "Workers" in `devflow/README.md` and
+"Security decisions and accepted risks" in `devflow/docs/devflow-architecture.md`. A feature that
+wants a key of its own follows that, not a token of its own making.
 
 So a feature frontend needing no authentication code is not quite true. It needs none to be
 authenticated, since the browser attaches the session cookie by itself on a shared origin, but the
