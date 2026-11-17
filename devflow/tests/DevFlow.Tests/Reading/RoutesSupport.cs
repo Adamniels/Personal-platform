@@ -3,6 +3,7 @@ using DevFlow.Reading;
 using DevFlow.Settings;
 using DevFlow.Tests.Link;
 
+using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Time.Testing;
@@ -48,14 +49,15 @@ internal sealed class Routes : IAsyncDisposable
 
     public ProjectReader Reader => App.Services.GetRequiredService<ProjectReader>();
 
-    public static async Task<Routes> Start()
+    /// <param name="configure">More, run after the harness's own, such as a log provider.</param>
+    public static async Task<Routes> Start(Action<WebApplicationBuilder>? configure = null)
     {
         var database = await Databases.DevFlow.Migrated(Reading.Ct);
         var door = await UserDb.Open(DevFlowSettings.Service, database.App(), DevFlowSettings.AppDatabaseUrl, Reading.Ct);
         var time = Harness.Clock();
         var fake = new FakeCodeHost(time);
         var host = new CountingCodeHost(fake);
-        var app = await Harness.Start(database: door, codeHost: host, signIn: fake, time: time);
+        var app = await Harness.Start(database: door, codeHost: host, signIn: fake, time: time, configure: configure);
         return new Routes(database, app, fake, host);
     }
 
