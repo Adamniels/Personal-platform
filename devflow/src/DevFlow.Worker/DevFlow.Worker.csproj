@@ -1,0 +1,15 @@
+<!--
+  The worker program: started with Dev flow's address and a project's key, it says hello and asks
+  for work in a loop. See "The worker" in devflow/README.md.
+-->
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../DevFlow.Protocol/DevFlow.Protocol.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="DevFlow.Worker.Tests" />
+  </ItemGroup>
+</Project>

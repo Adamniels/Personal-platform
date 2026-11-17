@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <!-- Run through VSTest, as tests/DevFlow.Tests/ is; see the note there. -->
+    <UseMicrosoftTestingPlatformRunner>false</UseMicrosoftTestingPlatformRunner>
+    <IsTestingPlatformApplication>false</IsTestingPlatformApplication>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/DevFlow.Worker/DevFlow.Worker.csproj" />
+    <ProjectReference Include="../../src/DevFlow.Protocol/DevFlow.Protocol.csproj" />
+    <!--
+      Dev flow on a test server over a database of its own, the harness its own tests use, so the
+      worker is tested against Dev flow in process rather than a copy of its routes.
+    -->
+    <ProjectReference Include="../DevFlow.Tests/DevFlow.Tests.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+</Project>
