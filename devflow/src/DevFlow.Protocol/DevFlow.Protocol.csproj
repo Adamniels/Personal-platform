@@ -1,0 +1,14 @@
+<!--
+  What a worker and Dev flow say to each other: the worker API's paths, its requests and how they
+  are written as JSON. Dev flow's worker routes take these types and the worker sends them, so a
+  change that breaks either side fails to compile. See "The worker" in devflow/README.md.
+-->
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- The worker's runtimes, which publishing it restores this project for too, so the lock file
+         holds them. -->
+    <RuntimeIdentifiers>linux-arm64;linux-x64</RuntimeIdentifiers>
+    <!-- Its symbols inside the assembly, so the worker publishes as one file and nothing beside it. -->
+    <DebugType>embedded</DebugType>
+  </PropertyGroup>
+</Project>

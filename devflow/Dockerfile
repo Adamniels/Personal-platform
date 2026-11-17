@@ -25,6 +25,7 @@ COPY libs/dotnet/PlatformData libs/dotnet/PlatformData
 COPY devflow/global.json devflow/Directory.Build.props devflow/Directory.Packages.props devflow/.editorconfig devflow/
 COPY devflow/migrations devflow/migrations
 COPY devflow/src/DevFlow devflow/src/DevFlow
+COPY devflow/src/DevFlow.Protocol devflow/src/DevFlow.Protocol
 WORKDIR /src/devflow
 # sharing=locked: every C# image restores into this one cache, and NuGet's package folder is not
 # safe for two restores at once, which compose's parallel builds would otherwise run.

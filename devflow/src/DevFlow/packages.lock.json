@@ -39,6 +39,9 @@
           "libsodium": "[1.0.22, 1.0.23)"
         }
       },
+      "devflow.protocol": {
+        "type": "Project"
+      },
       "platformauth": {
         "type": "Project",
         "dependencies": {

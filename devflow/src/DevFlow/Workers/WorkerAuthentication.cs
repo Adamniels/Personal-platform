@@ -1,6 +1,8 @@
 using System.Security.Claims;
 using System.Text.Encodings.Web;
 
+using DevFlow.Protocol;
+
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.Extensions.Options;
@@ -24,7 +26,7 @@ public static class WorkerAuthentication
 
     /// <summary>Where every worker route is, and the one path the <c>Origin</c> check leaves
     /// out.</summary>
-    public const string RoutePrefix = "/devflow/api/worker";
+    public const string RoutePrefix = WorkerApi.Prefix;
 
     /// <summary>Registers the scheme and its policy. <see cref="WorkerKeys"/> must be registered
     /// too.</summary>

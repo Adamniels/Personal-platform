@@ -1,0 +1,16 @@
+{
+  "type": "result",
+  "subtype": "success",
+  "is_error": false,
+  "duration_ms": 40112,
+  "duration_api_ms": 38001,
+  "num_turns": 9,
+  "result": "Done.",
+  "session_id": "6a0f1c62-4b1e-4f3c-9d2a-0b7c1e5d9a19",
+  "total_cost_usd": 0.3301,
+  "usage": { "input_tokens": 22, "cache_creation_input_tokens": 8120, "cache_read_input_tokens": 90210, "output_tokens": 1502 },
+  "modelUsage": {},
+  "permission_denials": [],
+  "terminal_reason": "completed",
+  "uuid": "0d7e5b0a-6c55-4a43-8f63-3f2b8e3f6a28"
+}

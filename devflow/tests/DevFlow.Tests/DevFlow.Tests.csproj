@@ -25,4 +25,8 @@
   <ItemGroup>
     <Using Include="Xunit" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- The worker's tests run it against Dev flow on this harness, see that project. -->
+    <InternalsVisibleTo Include="DevFlow.Worker.Tests" />
+  </ItemGroup>
 </Project>

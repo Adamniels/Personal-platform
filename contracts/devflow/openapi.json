@@ -1556,10 +1556,10 @@
       "name": "ActionEndpoints"
     },
     {
-      "name": "ProjectEndpoints"
+      "name": "WorkerEndpoints"
     },
     {
-      "name": "WorkerEndpoints"
+      "name": "ProjectEndpoints"
     }
   ]
 }

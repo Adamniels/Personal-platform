@@ -508,10 +508,14 @@
       "devflow": {
         "type": "Project",
         "dependencies": {
+          "DevFlow.Protocol": "[1.0.0, )",
           "Microsoft.AspNetCore.OpenApi": "[10.0.15, )",
           "PlatformAuth": "[1.0.0, )",
           "PlatformData": "[1.0.0, )"
         }
+      },
+      "devflow.protocol": {
+        "type": "Project"
       },
       "platformauth": {
         "type": "Project",

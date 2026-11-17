@@ -1,4 +1,5 @@
 using DevFlow.Api;
+using DevFlow.Protocol;
 
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
@@ -10,17 +11,13 @@ namespace DevFlow.Workers;
 /// <summary>What making a key answers, the one time the key is ever sent.</summary>
 public sealed record WorkerKey(string Key);
 
-/// <summary>What a worker sends with <c>hello</c>. Every field is required.</summary>
-public sealed record HelloRequest(Guid? WorkerId, string? Name, string? RecipeVersion, string? BaseImage);
-
-/// <summary>What a worker sends when it asks for work.</summary>
-public sealed record NextJobRequest(Guid? WorkerId);
-
 /// <summary>
 /// Workers over HTTP. The user's two, under the <c>Api</c> policy and the origin check: making a
 /// project's key, and listing its workers. The worker's two, under
 /// <see cref="WorkerAuthentication.Policy"/> and outside the origin check: <c>hello</c>, and
-/// asking for work, which answers nothing in this part. See "Workers" in devflow/README.md.
+/// asking for work, which answers nothing in this part. The worker's two take and answer
+/// <c>DevFlow.Protocol</c>'s types at its paths, which the worker program sends, so a change that
+/// breaks either side fails to compile. See "Workers" in devflow/README.md.
 /// </summary>
 public static class WorkerEndpoints
 {
@@ -51,14 +48,12 @@ public static class WorkerEndpoints
                 "Every worker that has said hello with the project's key, by when it first did, with what it reported and when it was last seen; and key_made_at, when the project's key was made, null before one has been. The key itself is never in it. 404 for a project the caller does not have.",
                 StatusCodes.Status404NotFound);
 
-        var worker = routes.MapGroup(WorkerAuthentication.RoutePrefix);
-
-        worker.MapPost("/hello", Hello)
+        routes.MapPost(WorkerApi.HelloPath, Hello)
             .WorkerRoute("workerHello", "A worker introduces itself",
                 "The worker's id, a UUID it made when it started, its name, the container's hostname, and the recipe version and base image it runs. Records the worker in the key's project, or brings it up to date, and marks it seen. 204. 422 naming a field that is missing or breaks a rule: every one is required, and each text is at most 255 characters.",
                 StatusCodes.Status422UnprocessableEntity);
 
-        worker.MapPost("/jobs/next", NextJob)
+        routes.MapPost(WorkerApi.NextJobPath, NextJob)
             .WorkerRoute("workerNextJob", "A worker asks for work",
                 "Marks the worker seen and answers its next job; in this part there is none, so it is always 204. 409 for a worker that has not said hello in the key's project, which says hello and asks again; 422 without worker_id.",
                 StatusCodes.Status409Conflict, StatusCodes.Status422UnprocessableEntity);

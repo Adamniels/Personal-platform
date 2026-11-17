@@ -1,0 +1,182 @@
+using System.Net;
+using System.Text;
+using System.Threading.Channels;
+
+using DevFlow.Protocol;
+
+using Microsoft.Extensions.Time.Testing;
+
+namespace DevFlow.Worker.Tests;
+
+/// <summary>What the worker's tests share.</summary>
+internal static class Support
+{
+    public const string Key = "dfw_AAAAbbbbCCCCddddEEEEffffGGGGhhhhIIIIjjjjKKK";
+
+    public static CancellationToken Ct => TestContext.Current.CancellationToken;
+
+    /// <summary>An environment holding exactly <paramref name="variables"/>.</summary>
+    public static Func<string, string?> Environment(params (string Name, string? Value)[] variables) =>
+        name => variables.FirstOrDefault(pair => pair.Name == name).Value;
+
+    /// <summary>A synchronized writer, so a test reads what the loop writes while it runs.</summary>
+    public static TextWriter Writer(out StringBuilder text)
+    {
+        text = new StringBuilder();
+        return TextWriter.Synchronized(new StringWriter(text));
+    }
+
+    public static HttpResponseMessage Status(HttpStatusCode status, string? json = null) =>
+        new(status)
+        {
+            Content = json is null ? null : new StringContent(json, Encoding.UTF8, "application/json"),
+        };
+}
+
+/// <summary>
+/// A fake clock that says each time something starts waiting on it, and for how long, so a test
+/// moves time only once the loop waits, and reads the waits it chose.
+/// </summary>
+internal sealed class WatchedClock : FakeTimeProvider
+{
+    private readonly Channel<TimeSpan> _waits = Channel.CreateUnbounded<TimeSpan>();
+
+    public WatchedClock()
+        : base(new DateTimeOffset(2026, 11, 17, 9, 0, 0, TimeSpan.Zero))
+    {
+    }
+
+    public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
+    {
+        var timer = base.CreateTimer(callback, state, dueTime, period);
+        _waits.Writer.TryWrite(dueTime);
+        return timer;
+    }
+
+    /// <summary>The next wait started, at most ten seconds of real time from now.</summary>
+    public async Task<TimeSpan> NextWait() =>
+        await _waits.Reader.ReadAsync(Support.Ct).AsTask().WaitAsync(TimeSpan.FromSeconds(10), Support.Ct);
+
+    /// <summary>Waits for the next wait, checks it is <paramref name="expected"/>, and lets it
+    /// pass.</summary>
+    public async Task Pass(TimeSpan expected)
+    {
+        Assert.Equal(expected, await NextWait());
+        Advance(expected);
+    }
+}
+
+/// <summary>A call the worker made, and what it was answered: the status, or the failure.</summary>
+internal sealed record Call(string Path, string Body, string Answer);
+
+/// <summary>
+/// Dev flow played from a script: each call takes the next step, which must be for the path it
+/// names, and answers it or throws. Past the script, a call waits until the test ends, so the
+/// worker is never answered something the test did not say.
+/// </summary>
+internal sealed class ScriptedDevFlow : HttpMessageHandler
+{
+    private readonly Queue<(string Path, Func<HttpResponseMessage> Answer)> _steps = new();
+    private readonly List<Call> _calls = [];
+
+    public IReadOnlyList<Call> Calls
+    {
+        get
+        {
+            lock (_calls)
+            {
+                return [.. _calls];
+            }
+        }
+    }
+
+    /// <summary>The headers of the last request, to check what the worker sent.</summary>
+    public string? Authorization { get; private set; }
+
+    public ScriptedDevFlow Then(string path, HttpStatusCode status, string? json = null) =>
+        Then(path, () => Support.Status(status, json));
+
+    public ScriptedDevFlow Then(string path, Func<HttpResponseMessage> answer)
+    {
+        _steps.Enqueue((path, answer));
+        return this;
+    }
+
+    protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        var path = request.RequestUri!.AbsolutePath;
+        var body = request.Content is null ? "" : await request.Content.ReadAsStringAsync(cancellationToken);
+        Authorization = request.Headers.Authorization?.ToString();
+        (string Path, Func<HttpResponseMessage> Answer) step;
+        lock (_steps)
+        {
+            if (!_steps.TryDequeue(out step))
+            {
+                step = default;
+            }
+        }
+
+        if (step.Answer is null)
+        {
+            await Task.Delay(Timeout.Infinite, cancellationToken);
+        }
+
+        Assert.Equal(step.Path, path);
+        try
+        {
+            var response = step.Answer!();
+            Record(new Call(path, body, ((int)response.StatusCode).ToString(System.Globalization.CultureInfo.InvariantCulture)));
+            return response;
+        }
+        catch (Exception e)
+        {
+            Record(new Call(path, body, e.GetType().Name));
+            throw;
+        }
+    }
+
+    private void Record(Call call)
+    {
+        lock (_calls)
+        {
+            _calls.Add(call);
+        }
+    }
+}
+
+/// <summary>Passes every call to <paramref name="inner"/>, Dev flow in process, and records it
+/// with the status it answered.</summary>
+internal sealed class RecordingHandler(HttpMessageHandler inner) : DelegatingHandler(inner)
+{
+    private readonly List<Call> _calls = [];
+
+    public IReadOnlyList<Call> Calls
+    {
+        get
+        {
+            lock (_calls)
+            {
+                return [.. _calls];
+            }
+        }
+    }
+
+    protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        var body = request.Content is null ? "" : await request.Content.ReadAsStringAsync(cancellationToken);
+        var response = await base.SendAsync(request, cancellationToken);
+        lock (_calls)
+        {
+            _calls.Add(new Call(request.RequestUri!.AbsolutePath, body, ((int)response.StatusCode).ToString(System.Globalization.CultureInfo.InvariantCulture)));
+        }
+
+        return response;
+    }
+}
+
+/// <summary>The worker API's paths, short.</summary>
+internal static class Paths
+{
+    public const string Hello = WorkerApi.HelloPath;
+    public const string Next = WorkerApi.NextJobPath;
+}

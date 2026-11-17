@@ -1,0 +1,17 @@
+{
+  "type": "result",
+  "subtype": "error_max_budget_usd",
+  "is_error": false,
+  "duration_ms": 95004,
+  "duration_api_ms": 90122,
+  "num_turns": 5,
+  "session_id": "6a0f1c62-4b1e-4f3c-9d2a-0b7c1e5d9a17",
+  "total_cost_usd": 0.0731,
+  "usage": { "input_tokens": 20, "cache_creation_input_tokens": 3001, "cache_read_input_tokens": 22870, "output_tokens": 640 },
+  "modelUsage": {
+    "claude-opus-5-5": { "inputTokens": 20, "outputTokens": 640, "cacheReadInputTokens": 22870, "cacheCreationInputTokens": 3001, "webSearchRequests": 0, "costUSD": 0.0731, "contextWindow": 200000 }
+  },
+  "permission_denials": [],
+  "terminal_reason": "budget_exhausted",
+  "uuid": "0d7e5b0a-6c55-4a43-8f63-3f2b8e3f6a26"
+}
