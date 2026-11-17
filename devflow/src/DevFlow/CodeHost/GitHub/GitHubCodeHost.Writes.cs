@@ -34,7 +34,14 @@ public sealed partial class GitHubCodeHost
     public async Task<MergeResult> Merge(Guid userId, UserAccessToken token, Repository repository, int number, string commit, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(commit);
-        var answer = await Write(HttpMethod.Put, Invariant($"{Repo(repository)}/pulls/{number}/merge"), new MergeBody(commit, "merge"), token, cancellationToken);
+        return ToMergeResult(await Write(HttpMethod.Put, Invariant($"{Repo(repository)}/pulls/{number}/merge"), new MergeBody(commit, "merge"), token, cancellationToken));
+    }
+
+    /// <summary>A merge's answer: <c>200</c> merged, <c>409</c> head moved, <c>405</c> not
+    /// mergeable, any other status refused with it, and none unavailable. The owner's merge and
+    /// the app's read it alike.</summary>
+    private static MergeResult ToMergeResult(GitHubHttp.Answer? answer)
+    {
         if (answer is null)
         {
             return new MergeResult.Unavailable(RetryAt: null);
@@ -71,9 +78,21 @@ public sealed partial class GitHubCodeHost
     private async Task<GitHubHttp.Answer?> Write<T>(HttpMethod method, string address, T body, UserAccessToken token, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(token);
+        return await Send(method, address, body, token.Value, cancellationToken);
+    }
+
+    /// <summary>A write to <paramref name="address"/> with <paramref name="bearer"/>, a person's
+    /// token or the app's key, and <paramref name="body"/> as JSON, or no body when it is null;
+    /// GitHub's answer, or null when there was none. Never retried.</summary>
+    private async Task<GitHubHttp.Answer?> Send<T>(HttpMethod method, string address, T? body, string bearer, CancellationToken cancellationToken)
+    {
         using var request = GitHubHttp.Request(method, Address(address), GitHubHttp.JsonMediaType);
-        request.Headers.Authorization = new("Bearer", token.Value);
-        request.Content = new StringContent(JsonSerializer.Serialize(body, Json), Encoding.UTF8, GitHubHttp.PlainJsonMediaType);
+        request.Headers.Authorization = new("Bearer", bearer);
+        if (body is not null)
+        {
+            request.Content = new StringContent(JsonSerializer.Serialize(body, Json), Encoding.UTF8, GitHubHttp.PlainJsonMediaType);
+        }
+
         return await GitHubHttp.Send(_factory, request, cancellationToken);
     }
 

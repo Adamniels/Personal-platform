@@ -327,6 +327,48 @@ internal sealed class CountingCodeHost(ICodeHost inner) : ICodeHost
         return inner.ForWrite(userId, repository, purpose, cancellationToken);
     }
 
+    public Task<CodeHostResult<Uri>> CloneAddress(Guid userId, CodeHost.Repository repository, CancellationToken cancellationToken)
+    {
+        Record("CloneAddress", userId, repository, "");
+        return inner.CloneAddress(userId, repository, cancellationToken);
+    }
+
+    public Task<WriteResult<PullRequest>> OpenPullRequest(Guid userId, AppWriteToken token, CodeHost.Repository repository, string headBranch, string baseBranch, string title, string body, CancellationToken cancellationToken)
+    {
+        Record("OpenPullRequest", userId, repository, $"{headBranch} {baseBranch}");
+        return inner.OpenPullRequest(userId, token, repository, headBranch, baseBranch, title, body, cancellationToken);
+    }
+
+    public Task<WriteResult<Comment>> CommentOnIssue(Guid userId, AppWriteToken token, CodeHost.Repository repository, int number, string body, CancellationToken cancellationToken)
+    {
+        Record("CommentOnIssue", userId, repository, $"{number}");
+        return inner.CommentOnIssue(userId, token, repository, number, body, cancellationToken);
+    }
+
+    public Task<WriteResult<IReadOnlyList<string>>> AddLabel(Guid userId, AppWriteToken token, CodeHost.Repository repository, int number, string label, CancellationToken cancellationToken)
+    {
+        Record("AddLabel", userId, repository, $"{number} {label}");
+        return inner.AddLabel(userId, token, repository, number, label, cancellationToken);
+    }
+
+    public Task<WriteResult<IReadOnlyList<string>>> RemoveLabel(Guid userId, AppWriteToken token, CodeHost.Repository repository, int number, string label, CancellationToken cancellationToken)
+    {
+        Record("RemoveLabel", userId, repository, $"{number} {label}");
+        return inner.RemoveLabel(userId, token, repository, number, label, cancellationToken);
+    }
+
+    public Task<WriteResult<Issue>> OpenIssue(Guid userId, AppWriteToken token, CodeHost.Repository repository, string title, string body, IReadOnlyList<string> labels, CancellationToken cancellationToken)
+    {
+        Record("OpenIssue", userId, repository, "");
+        return inner.OpenIssue(userId, token, repository, title, body, labels, cancellationToken);
+    }
+
+    public Task<MergeResult> MergeAsApp(Guid userId, AppWriteToken token, CodeHost.Repository repository, int number, string commit, CancellationToken cancellationToken)
+    {
+        Record("MergeAsApp", userId, repository, $"{number} {commit}");
+        return inner.MergeAsApp(userId, token, repository, number, commit, cancellationToken);
+    }
+
     public Uri InstallAddress(Uri origin) => inner.InstallAddress(origin);
 
     private void Record(string operation, Guid userId, CodeHost.Repository repository, string argument)

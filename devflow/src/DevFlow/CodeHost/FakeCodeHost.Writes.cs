@@ -1,18 +1,44 @@
+using System.Text.Json.Serialization;
+
 namespace DevFlow.CodeHost;
 
-/// <summary>A write the fake took, as GitHub records one: what was done, to which pull request, and
-/// whose token did it. <c>GET /devflow/api/fake/writes</c> lists them, so a test asserts who
-/// wrote.</summary>
-/// <param name="Kind"><c>merge</c> or <c>comment</c>.</param>
+/// <summary>A write the fake took, as GitHub records one: what was done, to which issue or pull
+/// request, and who did it, a person by their access token or the app by a key it made for a
+/// purpose. <c>GET /devflow/api/fake/writes</c> lists them, so a test asserts who wrote. The fields
+/// after <paramref name="By"/> are left out of the JSON when null, so a person's write reads as it
+/// always has.</summary>
+/// <param name="Kind"><c>merge</c> or <c>comment</c>, by a person or the app; or, by the app
+/// alone, <c>pull_request</c>, <c>issue</c>, <c>label_added</c> or <c>label_removed</c>.</param>
 /// <param name="Repository">The repository's id.</param>
-/// <param name="Number">The pull request's number.</param>
-/// <param name="Commit">For a merge, the commit its head had to be; null for a comment.</param>
-/// <param name="Method">For a merge, how it merged, always <c>merge</c>, a merge commit; null for a
-/// comment.</param>
-/// <param name="Body">For a comment, its text exactly; null for a merge.</param>
-/// <param name="By">The login of the person whose access token made it. The fake takes a write
-/// with nothing else, so there is no write by the app to record.</param>
-public sealed record FakeWrite(string Kind, long Repository, int Number, string? Commit, string? Method, string? Body, string By);
+/// <param name="Number">The issue's or pull request's number, the new one for what was
+/// opened.</param>
+/// <param name="Commit">For a merge, the commit its head had to be; for a pull request opened, its
+/// head commit; otherwise null.</param>
+/// <param name="Method">For a merge, how it merged, always <c>merge</c>, a merge commit; otherwise
+/// null.</param>
+/// <param name="Body">For a comment, a pull request or an issue, its text exactly; otherwise
+/// null.</param>
+/// <param name="By">The login GitHub would show: the person's whose access token made it, or the
+/// app's, <see cref="FakeCodeHost.AppLogin"/>.</param>
+/// <param name="Purpose">For the app's write, the purpose of the key that made it, <c>post</c> or
+/// <c>merge</c>; null for a person's, which is how a test tells the two apart.</param>
+/// <param name="Title">For a pull request or an issue opened, its title.</param>
+/// <param name="Head">For a pull request opened, the branch it merges from.</param>
+/// <param name="Base">For a pull request opened, the branch it merges into.</param>
+/// <param name="Label">For a label added or removed, its name.</param>
+public sealed record FakeWrite(
+    string Kind,
+    long Repository,
+    int Number,
+    string? Commit,
+    string? Method,
+    string? Body,
+    string By,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Purpose = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Title = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Head = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Base = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Label = null);
 
 /// <summary>
 /// The fake's writes, <see cref="ICodeHost.Merge"/> and <see cref="ICodeHost.Comment"/>, answered
@@ -87,7 +113,7 @@ public sealed partial class FakeCodeHost
     }
 
     /// <summary>Not found for a repository the world does not hold, or a number with neither a
-    /// pull request nor a conversation; otherwise posted, as the person, at the end of the
+    /// pull request, an issue nor a conversation; otherwise posted, as the person, at the end of the
     /// conversation, with an id after every comment in the repository.</summary>
     public Task<CommentResult> Comment(Guid userId, UserAccessToken token, Repository repository, int number, string body, CancellationToken cancellationToken)
     {
@@ -106,24 +132,16 @@ public sealed partial class FakeCodeHost
             {
                 result = new CommentResult.Refused(StatusCodes.Status401Unauthorized, BadCredentials);
             }
-            else if (Find(account.World, repository) is not { } found
-                || (!found.PullRequests.Any(pull => pull.Number == number) && !found.Conversations.Any(conversation => conversation.Number == number)))
+            else if (Find(account.World, repository) is not { } found || !Holds(found, number))
             {
                 result = new CommentResult.Refused(StatusCodes.Status404NotFound, NotFoundMessage);
             }
             else
             {
-                var now = _time.GetUtcNow();
-                var id = found.Conversations.SelectMany(conversation => conversation.Comments).Select(comment => comment.Id).DefaultIfEmpty(0).Max() + 1;
-                var comment = new Comment(id, person.Login, body, now, now);
-                var conversations = found.Conversations.Any(conversation => conversation.Number == number)
-                    ? found.Conversations.Select(conversation => conversation.Number == number
-                        ? conversation with { Comments = [.. conversation.Comments, comment] }
-                        : conversation)
-                    : [.. found.Conversations, new FakeConversation(number, [comment])];
+                var (changed, _) = WithComment(found, number, person.Login, body);
                 _accounts[userId] = account with
                 {
-                    World = WithRepository(account.World, repository, found with { Conversations = [.. conversations] }),
+                    World = WithRepository(account.World, repository, changed),
                     Writes = [.. account.Writes, new FakeWrite("comment", repository.Id, number, null, null, body, person.Login)],
                 };
                 result = new CommentResult.Posted();
@@ -131,6 +149,22 @@ public sealed partial class FakeCodeHost
 
             return Task.FromResult(result);
         }
+    }
+
+    /// <summary>The repository with a comment by <paramref name="author"/> at the end of the
+    /// conversation with the number, made when there is none, at the fake's now, with an id after
+    /// every comment in the repository; and the comment.</summary>
+    private (FakeRepository Changed, Comment Comment) WithComment(FakeRepository found, int number, string author, string body)
+    {
+        var now = _time.GetUtcNow();
+        var id = found.Conversations.SelectMany(conversation => conversation.Comments).Select(comment => comment.Id).DefaultIfEmpty(0).Max() + 1;
+        var comment = new Comment(id, author, body, now, now);
+        var conversations = found.Conversations.Any(conversation => conversation.Number == number)
+            ? found.Conversations.Select(conversation => conversation.Number == number
+                ? conversation with { Comments = [.. conversation.Comments, comment] }
+                : conversation)
+            : [.. found.Conversations, new FakeConversation(number, [comment])];
+        return (found with { Conversations = [.. conversations] }, comment);
     }
 
     /// <summary>The world with <paramref name="repository"/>'s entry, found by installation and

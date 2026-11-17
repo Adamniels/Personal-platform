@@ -99,6 +99,55 @@ public sealed class ContractTests
     }
 
     [Fact]
+    public void TheRecordedWriteAnswersHoldWhatTheAdapterReads()
+    {
+        // GitHub's answers to the app's writes, recorded in contracts/github/ and read by
+        // GitHubAppWriteTests: each still has every field the adapter reads, of the kind it reads,
+        // so recording one again that GitHub changed fails here, naming the file and the field.
+        static JsonNode Recorded(string name) =>
+            JsonNode.Parse(File.ReadAllText(Repository.Path("contracts", "github", name)))!;
+
+        static void Has(JsonNode node, string file, params (string Path, JsonValueKind Kind)[] fields)
+        {
+            foreach (var (path, kind) in fields)
+            {
+                var names = path.Split('.');
+                var parent = names[..^1].Aggregate((JsonNode?)node, (at, name) => at?[name]) as JsonObject;
+                // A JSON null is a null node, so a field that is null is told from one that is missing.
+                var found = parent is not null && parent.TryGetPropertyValue(names[^1], out var value)
+                    ? value?.GetValueKind() ?? JsonValueKind.Null
+                    : JsonValueKind.Undefined;
+                Assert.True(found == kind, $"{file}: {path} is {(found == JsonValueKind.Undefined ? "missing" : found)}, not {kind}");
+            }
+        }
+
+        var pull = Recorded("pull-opened.json");
+        Has(pull, "pull-opened.json",
+            ("number", JsonValueKind.Number), ("title", JsonValueKind.String), ("user.login", JsonValueKind.String),
+            ("labels", JsonValueKind.Array), ("head.sha", JsonValueKind.String), ("head.ref", JsonValueKind.String),
+            ("base.ref", JsonValueKind.String), ("draft", JsonValueKind.False), ("html_url", JsonValueKind.String),
+            ("updated_at", JsonValueKind.String), ("state", JsonValueKind.String), ("merged_at", JsonValueKind.Null));
+        Assert.Equal("open", (string)pull["state"]!);
+
+        var labels = Recorded("labels.json").AsArray();
+        Assert.NotEmpty(labels);
+        Assert.All(labels, label => Has(label!, "labels.json", ("name", JsonValueKind.String)));
+
+        var issue = Recorded("issue.json");
+        Has(issue, "issue.json",
+            ("number", JsonValueKind.Number), ("title", JsonValueKind.String), ("labels", JsonValueKind.Array), ("html_url", JsonValueKind.String));
+        Assert.Null(issue["pull_request"]);
+
+        Has(Recorded("merge.json"), "merge.json", ("sha", JsonValueKind.String), ("merged", JsonValueKind.True), ("message", JsonValueKind.String));
+
+        // No recorded answer holds a token, made up or not, but the token fixture's own.
+        foreach (var name in new[] { "pull-opened.json", "labels.json", "issue.json", "merge.json" })
+        {
+            Assert.DoesNotMatch(@"gh[pousr]_[A-Za-z0-9]", File.ReadAllText(Repository.Path("contracts", "github", name)));
+        }
+    }
+
+    [Fact]
     public async Task TheRunningServiceServesNoSchema()
     {
         await using var devflow = await Harness.Start();

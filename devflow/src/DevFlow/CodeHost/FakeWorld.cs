@@ -43,6 +43,8 @@ public sealed record FakeInstallation(long Id, string Account, IReadOnlyList<Fak
 /// request without one has an empty conversation.</param>
 /// <param name="Commits">The statuses and check runs posted on a commit, by its id. A commit not
 /// listed is not found.</param>
+/// <param name="Issues">The issues the app opened, or a test staged, with their labels; a field a
+/// world may leave out, and left out when it is written back while there are none.</param>
 public sealed record FakeRepository(
     long Id,
     string Owner,
@@ -50,7 +52,12 @@ public sealed record FakeRepository(
     IReadOnlyList<PullRequest> PullRequests,
     IReadOnlyList<FakeConversation> Conversations,
     IReadOnlyList<FakeCommit> Commits,
-    IReadOnlyList<FakeFile> Files);
+    IReadOnlyList<FakeFile> Files,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<FakeIssue>? Issues = null);
+
+/// <summary>An issue, by its number, which it shares with the repository's pull requests. Its
+/// comments are its conversation, under the same number.</summary>
+public sealed record FakeIssue(int Number, string Title, string Body, IReadOnlyList<string> Labels);
 
 /// <summary>The conversation of the issue or pull request with the number, oldest first.</summary>
 public sealed record FakeConversation(int Number, IReadOnlyList<Comment> Comments);
@@ -136,7 +143,11 @@ public static partial class FakeJson
         Duplicate(repository.PullRequests, pullRequest => pullRequest.Number, i => $"{at}.pull_requests[{i}].number")
         ?? Duplicate(repository.Conversations, conversation => conversation.Number, i => $"{at}.conversations[{i}].number")
         ?? Duplicate(repository.Commits, commit => commit.Id, i => $"{at}.commits[{i}].id")
-        ?? Duplicate(repository.Files, file => (file.Path, file.Branch), i => $"{at}.files[{i}]");
+        ?? Duplicate(repository.Files, file => (file.Path, file.Branch), i => $"{at}.files[{i}]")
+        ?? Duplicate(repository.Issues ?? [], issue => issue.Number, i => $"{at}.issues[{i}].number")
+        ?? (repository.Issues ?? []).Select((issue, i) => repository.PullRequests.Any(pull => pull.Number == issue.Number)
+            ? new Malformed($"{at}.issues[{i}].number", "is a pull request's number; an issue and a pull request share numbers")
+            : null).FirstOrDefault(error => error is not null);
 
     /// <summary>The first item whose key an earlier one has, named by <paramref name="field"/>.</summary>
     private static Malformed? Duplicate<T, TKey>(IReadOnlyList<T> items, Func<T, TKey> key, Func<int, string> field)

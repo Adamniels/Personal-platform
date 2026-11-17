@@ -70,6 +70,37 @@ public interface ICodeHost
     /// </summary>
     Task<CodeHostResult<AppWriteToken>> ForWrite(Guid userId, Repository repository, WritePurpose purpose, CancellationToken cancellationToken);
 
+    /// <summary>Where git fetches and pushes the repository: GitHub's <c>https</c> address, which
+    /// a push key authorises, or for the fake a <c>file://</c> address of a bare repository of its
+    /// own.</summary>
+    Task<CodeHostResult<Uri>> CloneAddress(Guid userId, Repository repository, CancellationToken cancellationToken);
+
+    /// <summary>Opens a pull request from <paramref name="headBranch"/> into <paramref name="baseBranch"/>, as
+    /// the app, with a <see cref="WritePurpose.Post"/> key; answers it as the host made it.</summary>
+    Task<WriteResult<PullRequest>> OpenPullRequest(Guid userId, AppWriteToken token, Repository repository, string headBranch, string baseBranch, string title, string body, CancellationToken cancellationToken);
+
+    /// <summary>Writes <paramref name="body"/>, exactly, in the conversation of the issue or pull
+    /// request with the number, as the app, with a <see cref="WritePurpose.Post"/> key.</summary>
+    Task<WriteResult<Comment>> CommentOnIssue(Guid userId, AppWriteToken token, Repository repository, int number, string body, CancellationToken cancellationToken);
+
+    /// <summary>Adds the label to the issue or pull request, as the app, with a
+    /// <see cref="WritePurpose.Post"/> key; answers the names of its labels after.</summary>
+    Task<WriteResult<IReadOnlyList<string>>> AddLabel(Guid userId, AppWriteToken token, Repository repository, int number, string label, CancellationToken cancellationToken);
+
+    /// <summary>Takes the label off the issue or pull request, as the app, with a
+    /// <see cref="WritePurpose.Post"/> key; answers the names of its labels after, and refused
+    /// with <c>404</c> when it did not carry it.</summary>
+    Task<WriteResult<IReadOnlyList<string>>> RemoveLabel(Guid userId, AppWriteToken token, Repository repository, int number, string label, CancellationToken cancellationToken);
+
+    /// <summary>Opens an issue with the labels, as the app, with a
+    /// <see cref="WritePurpose.Post"/> key.</summary>
+    Task<WriteResult<Issue>> OpenIssue(Guid userId, AppWriteToken token, Repository repository, string title, string body, IReadOnlyList<string> labels, CancellationToken cancellationToken);
+
+    /// <summary>Merges the pull request with a merge commit, as the app, with a
+    /// <see cref="WritePurpose.Merge"/> key, and only while its head is
+    /// <paramref name="commit"/>, which the host checks; answers as <see cref="Merge"/> does.</summary>
+    Task<MergeResult> MergeAsApp(Guid userId, AppWriteToken token, Repository repository, int number, string commit, CancellationToken cancellationToken);
+
     /// <summary>Where a person installs Dev flow's app on the code host: GitHub's page for the
     /// app, or for the fake a page of its own under <paramref name="origin"/>, the platform's
     /// public origin.</summary>
