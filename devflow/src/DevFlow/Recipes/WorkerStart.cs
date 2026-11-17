@@ -68,7 +68,9 @@ public sealed record WorkerStart(string Image, Uri WorkerUrl, string Origin)
     }
 
     /// <summary>
-    /// The command that fetches the recipe with the key from the file, builds it FROM the base
+    /// The command that fetches the recipe with the key from the file, which <c>curl</c> reads as
+    /// its header on stdin rather than in its arguments, since every user on the machine sees a
+    /// process's arguments in <c>ps</c>; builds it FROM the base
     /// image with the version Dev flow read it at, from the response's header, and replaces the
     /// project's worker with one started from it, with 2 GB of memory. One block, its lines joined
     /// by <c>&amp;&amp;</c>, so a step that fails stops the rest.
@@ -81,7 +83,7 @@ public sealed record WorkerStart(string Image, Uri WorkerUrl, string Origin)
         var recipe = $"/tmp/devflow-{name}.Dockerfile";
         var url = WorkerUrl.GetLeftPart(UriPartial.Authority);
         return string.Join(" && \\\n  ",
-            $"curl -fsS -H \"Authorization: Bearer $(sed -n 's/^DEVFLOW_PROJECT_KEY=//p' {file})\" -D {headers} -o {recipe} '{Origin}{RecipeEndpoints.Path}'",
+            $"sed -n 's/^DEVFLOW_PROJECT_KEY=/Authorization: Bearer /p' {file} | curl -fsS -H @- -D {headers} -o {recipe} '{Origin}{RecipeEndpoints.Path}'",
             $"docker build --build-arg DEVFLOW_BASE={Image} --build-arg DEVFLOW_RECIPE_VERSION=\"$({VersionFrom(headers)})\" -t devflow-{name} - < {recipe}",
             $"{{ docker rm -f devflow-{name}-1 2>/dev/null; docker run -d --name devflow-{name}-1 --restart unless-stopped --memory 2g --env-file {file} -e DEVFLOW_URL={url} devflow-{name}; }}");
     }

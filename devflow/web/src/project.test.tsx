@@ -41,7 +41,7 @@ const NOW = Date.parse("2026-11-17T12:00:00Z");
 const KEY = `dfw_${"a".repeat(43)}`;
 const SAVE = `(umask 077 && mkdir -p ~/.devflow && printf 'DEVFLOW_PROJECT_KEY=%s\\n' '${KEY}' > ~/.devflow/personal-platform.env)`;
 const START =
-	"curl -fsS -H \"Authorization: Bearer $(sed -n 's/^DEVFLOW_PROJECT_KEY=//p' ~/.devflow/personal-platform.env)\" … && \\\n  docker run -d --name devflow-personal-platform-1 devflow-personal-platform";
+	"sed -n 's/^DEVFLOW_PROJECT_KEY=/Authorization: Bearer /p' ~/.devflow/personal-platform.env | curl -fsS -H @- … && \\\n  docker run -d --name devflow-personal-platform-1 devflow-personal-platform";
 
 const PLATFORM: Project = {
 	id: ID,

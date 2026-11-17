@@ -37,7 +37,7 @@ public sealed class StartCommandTests
         // The recipe is fetched from the platform's own address with the key read from the file,
         // built FROM the base image with the version from the header, and run with the worker's
         // address, the key file and 2 GB of memory, replacing the last worker of the project.
-        Assert.Contains("-H \"Authorization: Bearer $(sed -n 's/^DEVFLOW_PROJECT_KEY=//p' ~/.devflow/fodr.env)\"", command, StringComparison.Ordinal);
+        Assert.Contains("sed -n 's/^DEVFLOW_PROJECT_KEY=/Authorization: Bearer /p' ~/.devflow/fodr.env | curl -fsS -H @- ", command, StringComparison.Ordinal);
         Assert.Contains($"{Origin}/devflow/api/worker/recipe", command, StringComparison.Ordinal);
         Assert.Contains($"--build-arg DEVFLOW_BASE={Image} ", command, StringComparison.Ordinal);
         Assert.Contains("--build-arg DEVFLOW_RECIPE_VERSION=\"$(", command, StringComparison.Ordinal);
@@ -49,6 +49,45 @@ public sealed class StartCommandTests
         // Never the key, nor anything shaped like one.
         Assert.DoesNotContain("dfw_", command, StringComparison.Ordinal);
         Assert.DoesNotContain(Key, command, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task TheKeyIsNeverInAProcesssArguments()
+    {
+        // The fetch, the command's first step, run as the shell runs it, with a curl in its place
+        // that writes down its arguments and what it read on stdin. Every user on the machine can
+        // see a process's arguments in ps, so the key may travel on stdin, never in argv.
+        var folder = Directory.CreateTempSubdirectory("devflow-start-");
+        try
+        {
+            var home = Directory.CreateDirectory(Path.Combine(folder.FullName, "home")).FullName;
+            Directory.CreateDirectory(Path.Combine(home, ".devflow"));
+            await File.WriteAllTextAsync(Path.Combine(home, ".devflow", "fodr.env"), $"DEVFLOW_PROJECT_KEY={Key}\n", Ct);
+            var bin = Directory.CreateDirectory(Path.Combine(folder.FullName, "bin")).FullName;
+            var curl = Path.Combine(bin, "curl");
+            await File.WriteAllTextAsync(curl, $"#!/bin/sh\nprintf '%s\\n' \"$@\" > '{folder.FullName}/argv'\ncat > '{folder.FullName}/stdin'\n", Ct);
+
+            var fetch = new WorkerStart(Image, new Uri(WorkerUrl), Origin).StartCommand("Fodr").Split(" && \\\n", 2)[0];
+            // Its own stdin, closed at once, so a curl that reads stdin without a pipe ends.
+            var start = new ProcessStartInfo("/bin/sh") { RedirectStandardInput = true };
+            start.ArgumentList.Add("-c");
+            start.ArgumentList.Add($"chmod 700 '{curl}' && {fetch}");
+            start.Environment["HOME"] = home;
+            start.Environment["PATH"] = $"{bin}:/usr/bin:/bin";
+            using var process = Process.Start(start)!;
+            process.StandardInput.Close();
+            await process.WaitForExitAsync(Ct);
+
+            Assert.Equal(0, process.ExitCode);
+            var argv = await File.ReadAllTextAsync(Path.Combine(folder.FullName, "argv"), Ct);
+            Assert.Contains("-H\n@-\n", argv, StringComparison.Ordinal);
+            Assert.DoesNotContain(Key, argv, StringComparison.Ordinal);
+            Assert.Equal($"Authorization: Bearer {Key}\n", await File.ReadAllTextAsync(Path.Combine(folder.FullName, "stdin"), Ct));
+        }
+        finally
+        {
+            folder.Delete(recursive: true);
+        }
     }
 
     [Fact]

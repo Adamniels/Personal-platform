@@ -1136,7 +1136,7 @@ lowercased with every other run of characters one hyphen, here `fodr`:
 2. Building and starting, shown always, without the key, which it reads from that file:
 
    ```zsh
-   curl -fsS -H "Authorization: Bearer $(sed -n 's/^DEVFLOW_PROJECT_KEY=//p' ~/.devflow/fodr.env)" -D /tmp/devflow-fodr.headers -o /tmp/devflow-fodr.Dockerfile '<DEVFLOW_PUBLIC_ORIGIN>/devflow/api/worker/recipe' && \
+   sed -n 's/^DEVFLOW_PROJECT_KEY=/Authorization: Bearer /p' ~/.devflow/fodr.env | curl -fsS -H @- -D /tmp/devflow-fodr.headers -o /tmp/devflow-fodr.Dockerfile '<DEVFLOW_PUBLIC_ORIGIN>/devflow/api/worker/recipe' && \
      docker build --build-arg DEVFLOW_BASE=<DEVFLOW_WORKER_IMAGE> --build-arg DEVFLOW_RECIPE_VERSION="$(awk 'tolower($1) == "x-devflow-recipe-version:" { print $2 }' /tmp/devflow-fodr.headers | tr -d '\r')" -t devflow-fodr - < /tmp/devflow-fodr.Dockerfile && \
      { docker rm -f devflow-fodr-1 2>/dev/null; docker run -d --name devflow-fodr-1 --restart unless-stopped --memory 2g --env-file ~/.devflow/fodr.env -e DEVFLOW_URL=<DEVFLOW_WORKER_URL> devflow-fodr; }
    ```
@@ -1144,10 +1144,11 @@ lowercased with every other run of characters one hyphen, here `fodr`:
 The recipe is fetched from the platform's public origin, the address the browser is on, and not
 from `DEVFLOW_WORKER_URL`: Docker Desktop's `host.docker.internal` resolves inside a container and
 not on the Mac itself. The version reaches the build from the response's header, so it is the
-commit the bytes were read at. Running the second again replaces the worker. When `curl` fails,
-its message names the status: `404` is a repository without a recipe, and `422` one that copies
-files, whose reason the same `curl` without `-f` shows. `WorkerStart`, in `src/DevFlow/Recipes/`,
-writes both.
+commit the bytes were read at. `curl` reads the key's header on stdin, `-H @-`, and not as an
+argument, since every user on the machine sees a process's arguments in `ps`. Running the second
+again replaces the worker. When `curl` fails, its message names the status: `404` is a repository
+without a recipe, and `422` one that copies files, whose reason the same `curl` without `-f`
+shows. `WorkerStart`, in `src/DevFlow/Recipes/`, writes both.
 
 **Memory.** Each worker is started with `--memory 2g`; one run of a real task peaked at 1.05 GiB.
 On the Mac mini, with Docker's 8 GB, start at most two workers beside the hosted copy until its

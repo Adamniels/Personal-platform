@@ -497,10 +497,13 @@ its reason, or a risk accepted on purpose; each slice adds the ones it builds.
   choice, if the agent turns out to need less trust than that.
 - **The key is never in the command that starts a worker.** The page shows the key once, in the
   command that saves it, to `~/.devflow/<project>.env`, readable by the owner alone; the command
-  that builds and starts a worker reads the key from that file with `sed` inside `$(…)` and passes
-  it to the container with `--env-file`, so it is never in the command's text, the shell's history,
-  `ps` or `docker inspect`'s command line. `StartCommandTests` checks the start command holds no
-  key. The recipe route is the worker scheme's, so only a holder of the project's key reads the
+  that builds and starts a worker has `sed` read the key from that file and pipe it to `curl` as
+  its header on stdin, `-H @-`, and passes it to the container with `--env-file`, so it is never in
+  the command's text, the shell's history, any process's arguments in `ps`, or `docker inspect`'s
+  command line. A `-H "Authorization: Bearer $(…)"` would not do: the shell expands it before
+  `curl` starts, and `curl` hides `-u` from `ps` but not `-H`. `StartCommandTests` checks the start
+  command holds no key, and runs its fetch in a shell with a `curl` that records its arguments, to
+  check the key reaches it on stdin and not in them. The recipe route is the worker scheme's, so only a holder of the project's key reads the
   project's recipe, and it answers it as `text/plain` with `nosniff` and `no-store`, as the
   screenshot route hands on a code host's bytes. Accepted: the key is in the container's
   environment, which `docker inspect` shows to anyone who can run Docker on the machine, who can
