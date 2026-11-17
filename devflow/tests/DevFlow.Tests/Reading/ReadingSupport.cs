@@ -321,6 +321,12 @@ internal sealed class CountingCodeHost(ICodeHost inner) : ICodeHost
         return inner.Comment(userId, token, repository, number, body, cancellationToken);
     }
 
+    public Task<CodeHostResult<AppWriteToken>> ForWrite(Guid userId, CodeHost.Repository repository, WritePurpose purpose, CancellationToken cancellationToken)
+    {
+        Record("ForWrite", userId, repository, $"{purpose}");
+        return inner.ForWrite(userId, repository, purpose, cancellationToken);
+    }
+
     public Uri InstallAddress(Uri origin) => inner.InstallAddress(origin);
 
     private void Record(string operation, Guid userId, CodeHost.Repository repository, string argument)

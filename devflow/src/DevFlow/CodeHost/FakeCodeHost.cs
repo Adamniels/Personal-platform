@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Collections.Immutable;
 
 namespace DevFlow.CodeHost;
 
@@ -29,12 +30,12 @@ public sealed partial class FakeCodeHost : ICodeHost, ICodeHostSignIn
         _time = time;
     }
 
-    /// <summary>An account's world, whether every operation answers unavailable, and the writes
-    /// made to it, oldest first. Replaced whole, never changed in place, so a reader sees one or
-    /// the other.</summary>
-    private sealed record Account(FakeWorld World, bool Unavailable, IReadOnlyList<FakeWrite> Writes);
+    /// <summary>An account's world, whether every operation answers unavailable, the writes
+    /// made to it, oldest first, and the keys the fake issued for the app's writes in it, by their
+    /// value. Replaced whole, never changed in place, so a reader sees one or the other.</summary>
+    private sealed record Account(FakeWorld World, bool Unavailable, IReadOnlyList<FakeWrite> Writes, ImmutableDictionary<string, IssuedKey> Keys);
 
-    private static readonly Account Nothing = new(FakeWorld.Empty, Unavailable: false, Writes: []);
+    private static readonly Account Nothing = new(FakeWorld.Empty, Unavailable: false, Writes: [], Keys: ImmutableDictionary.Create<string, IssuedKey>(StringComparer.Ordinal));
 
     private readonly ConcurrentDictionary<Guid, Account> _accounts = new();
 
