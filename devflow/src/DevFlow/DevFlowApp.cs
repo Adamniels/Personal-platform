@@ -163,6 +163,7 @@ public static class DevFlowApp
             // in devflow/README.md.
             app.MapFakeCodeHost();
             app.MapFakeSignIn(redirect);
+            app.MapFakeWorker();
         }
 
         if (settings.ExposeOpenApi)

@@ -135,6 +135,53 @@ public sealed partial class FakeCodeHost : IDisposable
         }
     }
 
+    /// <summary>
+    /// Makes a commit on <paramref name="branch"/> in the repository's git repository, as a worker's
+    /// push would leave it, by <paramref name="committer"/>, on top of <paramref name="baseBranch"/>
+    /// when it has a commit and as the first commit otherwise, with its tree unchanged; and points
+    /// the branch at it. The fake worker's, so a test's chain has a branch to open a pull request
+    /// from. Its id, or null when the repository is not the world's or git fails.
+    /// </summary>
+    internal async Task<string?> CommitOnBranch(Guid userId, Repository repository, string branch, string baseBranch, string message, Committer committer, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(branch);
+        ArgumentNullException.ThrowIfNull(committer);
+        if (await CloneAddress(userId, repository, cancellationToken) is not CodeHostResult<Uri>.Found)
+        {
+            return null;
+        }
+
+        await _git.WaitAsync(cancellationToken);
+        try
+        {
+            string[] who = ["-c", $"user.name={committer.Name}", "-c", $"user.email={committer.Email}", "--git-dir", GitPath(userId, repository)];
+            var parent = await BranchCommit(userId, repository, baseBranch, cancellationToken);
+            var tree = parent is null
+                ? await Git(cancellationToken, [.. who, "hash-object", "-t", "tree", "-w", "/dev/null"])
+                : await Git(cancellationToken, [.. who, "rev-parse", $"{parent}^{{tree}}"]);
+            if (tree.Exit != 0)
+            {
+                return null;
+            }
+
+            string[] commitTree = parent is null
+                ? [.. who, "commit-tree", tree.Output.Trim(), "-m", message]
+                : [.. who, "commit-tree", tree.Output.Trim(), "-p", parent, "-m", message];
+            var commit = await Git(cancellationToken, commitTree);
+            if (commit.Exit != 0)
+            {
+                return null;
+            }
+
+            var id = commit.Output.Trim();
+            return (await Git(cancellationToken, [.. who, "update-ref", $"refs/heads/{branch}", id])).Exit == 0 ? id : null;
+        }
+        finally
+        {
+            _git.Release();
+        }
+    }
+
     /// <summary>Refused with <c>422</c> unless both branches are in the repository's git
     /// repository and no open pull request is already from the head into the base, as GitHub
     /// refuses; otherwise opened by the app with the next number, its head the branch's commit.</summary>

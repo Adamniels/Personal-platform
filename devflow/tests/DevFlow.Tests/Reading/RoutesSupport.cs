@@ -57,7 +57,12 @@ internal sealed class Routes : IAsyncDisposable
         var time = Harness.Clock();
         var fake = new FakeCodeHost(time);
         var host = new CountingCodeHost(fake);
-        var app = await Harness.Start(database: door, codeHost: host, signIn: fake, time: time, configure: configure);
+        // The fake as itself too, for the fake mode's own routes, as the app registers it there.
+        var app = await Harness.Start(database: door, codeHost: host, signIn: fake, time: time, configure: builder =>
+        {
+            builder.Services.AddSingleton(fake);
+            configure?.Invoke(builder);
+        });
         return new Routes(database, app, fake, host);
     }
 
