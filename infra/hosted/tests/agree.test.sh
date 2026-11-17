@@ -22,7 +22,7 @@ bad() { echo "FAIL $1"; [ -n "${2:-}" ] && echo "     $2"; fail=$((fail + 1)); }
 FILES="infra/services.json infra/features.toml infra/Caddyfile
 infra/hosted/compose.yaml infra/hosted/Caddyfile infra/hosted/features.toml infra/hosted/.env.example
 Core/Dockerfile canary/Dockerfile Brain/Dockerfile review/Dockerfile devflow/Dockerfile
-infra/hosted/proxy/Dockerfile"
+devflow/worker.Dockerfile infra/hosted/proxy/Dockerfile"
 
 # block <compose file> <service>: prints the lines of one service's entry under `services:`,
 # without its first line, nothing when there is no such service.
@@ -207,7 +207,7 @@ check_env() {
 check_locked() {
   local root="$1" out
   out="$(cd "$root" && bash "$repo/scripts/ci/dockerfile.sh" unlocked Core/Dockerfile canary/Dockerfile \
-    Brain/Dockerfile review/Dockerfile devflow/Dockerfile infra/hosted/proxy/Dockerfile)"
+    Brain/Dockerfile review/Dockerfile devflow/Dockerfile devflow/worker.Dockerfile infra/hosted/proxy/Dockerfile)"
   grep -v '^checked ' <<< "$out"
   [ "$(sed -n 's/^checked //p' <<< "$out")" = 0 ] && echo "no install found in any Dockerfile"
   return 0
@@ -321,6 +321,8 @@ expect "uv sync without --locked" check_locked "Brain/Dockerfile: uv sync withou
 expect "npm install" check_locked "canary/Dockerfile: npm installs other than npm ci" \
   canary/Dockerfile '$a\
 RUN npm install'
+expect "the worker's tools installed with npm install" check_locked "devflow/worker.Dockerfile: npm installs other than npm ci" \
+  devflow/worker.Dockerfile 's/npm ci --omit=dev/npm install -g @anthropic-ai\/claude-code@2.1.325/'
 expect "dotnet restore without --locked-mode" check_locked "dotnet restore without --locked-mode" \
   review/Dockerfile 's/ --locked-mode//'
 expect "dotnet publish that restores again" check_locked "dotnet publish restores again" \

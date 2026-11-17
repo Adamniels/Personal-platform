@@ -201,6 +201,18 @@ services:
     environment:
       DEVFLOW_OWNER_DATABASE_URL: postgres://devflow_owner:${DEVFLOW_OWNER_PASSWORD:?set DEVFLOW_OWNER_PASSWORD, see .env.example}@postgres:5432/devflow
 
+  # The worker's base image, built at every release and never started: no replica, so `compose build`
+  # in the release script builds it and `compose up` starts nothing. A project's worker is built
+  # FROM it and started by the command on the project's page, outside this project; see "The
+  # images" in README.md and "Starting a worker" in devflow/README.md.
+  devflow-worker:
+    image: platform-hosted/devflow-worker:${PLATFORM_RELEASE:-dev}
+    build:
+      context: ../..
+      dockerfile: devflow/worker.Dockerfile
+    deploy:
+      replicas: 0
+
   proxy:
     image: platform-hosted/proxy:${PLATFORM_RELEASE:-dev}
     build:
