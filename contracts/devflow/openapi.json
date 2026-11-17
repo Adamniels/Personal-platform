@@ -428,6 +428,69 @@
         ],
         "type": "object"
       },
+      "OwnItem": {
+        "properties": {
+          "activity_type": {
+            "type": "string"
+          },
+          "actor": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "branch": {
+            "type": "string"
+          },
+          "commit": {
+            "type": "string"
+          },
+          "commit_url": {
+            "format": "uri",
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/OwnItemKind"
+          },
+          "landed_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "owner": {
+            "type": "string"
+          },
+          "project_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "project_name": {
+            "type": "string"
+          },
+          "stopped_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "project_id",
+          "project_name",
+          "owner",
+          "branch",
+          "activity_type",
+          "actor",
+          "commit",
+          "commit_url",
+          "landed_at",
+          "stopped_at"
+        ],
+        "type": "object"
+      },
+      "OwnItemKind": {
+        "enum": [
+          "project_stopped"
+        ]
+      },
       "OwnerDecision": {
         "properties": {
           "alternative": {
@@ -801,6 +864,12 @@
           "needs_relink": {
             "type": "boolean"
           },
+          "own_items": {
+            "items": {
+              "$ref": "#/components/schemas/OwnItem"
+            },
+            "type": "array"
+          },
           "projects": {
             "items": {
               "$ref": "#/components/schemas/ProjectFreshness"
@@ -812,7 +881,8 @@
           "count",
           "needs_relink",
           "items",
-          "projects"
+          "projects",
+          "own_items"
         ],
         "type": "object"
       },
@@ -934,7 +1004,7 @@
   "paths": {
     "/devflow/api/attention": {
       "get": {
-        "description": "Read from what Dev flow stored and never from GitHub. attention is true when the caller has a pull request, waiting or stopped, that is not sent back, a GitHub link that has expired, or a Claude login due for renewal within a month or past it, and false otherwise. The nav bar asks it with the session's cookie. Without a valid token, 401 with an empty body.",
+        "description": "Read from what Dev flow stored and never from GitHub. attention is true when the caller has a pull request, waiting or stopped, that is not sent back, a stopped project, a GitHub link that has expired, or a Claude login due for renewal within a month or past it, and false otherwise. The nav bar asks it with the session's cookie. Without a valid token, 401 with an empty body.",
         "operationId": "getAttention",
         "responses": {
           "200": {
@@ -1043,7 +1113,7 @@
     },
     "/devflow/api/display": {
       "get": {
-        "description": "Read from what Dev flow stored and never from GitHub. waiting, the pull requests that wait for the caller and were not sent back; stopped, those the runner stopped on, not sent back; projects, how many the caller has connected; stale, whether any project is stale or failing, as the waiting list says them; needs_relink, whether the caller's GitHub link has expired; and claude_login, where their Claude login stands, none, ok, due_soon or expired, as GET /devflow/api/claude-login says it. The core calls it with the user's token in the Authorization header. Without a valid token, 401 with an empty body.",
+        "description": "Read from what Dev flow stored and never from GitHub. waiting, the pull requests that wait for the caller and were not sent back; stopped, those the runner stopped on, not sent back, and the caller's projects stopped because something landed on their default branch that Dev flow did not put there; projects, how many the caller has connected; stale, whether any project is stale or failing, as the waiting list says them; needs_relink, whether the caller's GitHub link has expired; and claude_login, where their Claude login stands, none, ok, due_soon or expired, as GET /devflow/api/claude-login says it. The core calls it with the user's token in the Authorization header. Without a valid token, 401 with an empty body.",
         "operationId": "getDisplay",
         "responses": {
           "200": {
@@ -1703,7 +1773,7 @@
     },
     "/devflow/api/waiting": {
       "get": {
-        "description": "Read from what Dev flow stored and never from GitHub. items are the pull requests that are the caller's turn in every project, by project and number; count is those not sent back, plus one when needs_relink; projects says for each when it was last read, stale when that is more than five minutes ago or never, and failing when its last read failed. Without a valid token, 401 with an empty body.",
+        "description": "Read from what Dev flow stored and never from GitHub. items are the pull requests that are the caller's turn in every project, by project and number; own_items are Dev flow's own, read from its own tables, in this part each a project stopped because something landed on its default branch that Dev flow did not put there, with the commit, who did it, when, and the commit's address on GitHub, by project; count is the items not sent back and the own items, plus one when needs_relink; projects says for each when it was last read, stale when that is more than five minutes ago or never, and failing when its last read failed. Without a valid token, 401 with an empty body.",
         "operationId": "listWaiting",
         "responses": {
           "200": {

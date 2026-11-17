@@ -11,7 +11,7 @@ export interface paths {
         };
         /**
          * Whether something needs the caller, for the nav bar
-         * @description Read from what Dev flow stored and never from GitHub. attention is true when the caller has a pull request, waiting or stopped, that is not sent back, a GitHub link that has expired, or a Claude login due for renewal within a month or past it, and false otherwise. The nav bar asks it with the session's cookie. Without a valid token, 401 with an empty body.
+         * @description Read from what Dev flow stored and never from GitHub. attention is true when the caller has a pull request, waiting or stopped, that is not sent back, a stopped project, a GitHub link that has expired, or a Claude login due for renewal within a month or past it, and false otherwise. The nav bar asks it with the session's cookie. Without a valid token, 401 with an empty body.
          */
         get: operations["getAttention"];
         put?: never;
@@ -59,7 +59,7 @@ export interface paths {
         };
         /**
          * What waits, for the front page
-         * @description Read from what Dev flow stored and never from GitHub. waiting, the pull requests that wait for the caller and were not sent back; stopped, those the runner stopped on, not sent back; projects, how many the caller has connected; stale, whether any project is stale or failing, as the waiting list says them; needs_relink, whether the caller's GitHub link has expired; and claude_login, where their Claude login stands, none, ok, due_soon or expired, as GET /devflow/api/claude-login says it. The core calls it with the user's token in the Authorization header. Without a valid token, 401 with an empty body.
+         * @description Read from what Dev flow stored and never from GitHub. waiting, the pull requests that wait for the caller and were not sent back; stopped, those the runner stopped on, not sent back, and the caller's projects stopped because something landed on their default branch that Dev flow did not put there; projects, how many the caller has connected; stale, whether any project is stale or failing, as the waiting list says them; needs_relink, whether the caller's GitHub link has expired; and claude_login, where their Claude login stands, none, ok, due_soon or expired, as GET /devflow/api/claude-login says it. The core calls it with the user's token in the Authorization header. Without a valid token, 401 with an empty body.
          */
         get: operations["getDisplay"];
         put?: never;
@@ -331,7 +331,7 @@ export interface paths {
         };
         /**
          * What waits for the caller, as last read
-         * @description Read from what Dev flow stored and never from GitHub. items are the pull requests that are the caller's turn in every project, by project and number; count is those not sent back, plus one when needs_relink; projects says for each when it was last read, stale when that is more than five minutes ago or never, and failing when its last read failed. Without a valid token, 401 with an empty body.
+         * @description Read from what Dev flow stored and never from GitHub. items are the pull requests that are the caller's turn in every project, by project and number; own_items are Dev flow's own, read from its own tables, in this part each a project stopped because something landed on its default branch that Dev flow did not put there, with the commit, who did it, when, and the commit's address on GitHub, by project; count is the items not sent back and the own items, plus one when needs_relink; projects says for each when it was last read, stale when that is more than five minutes ago or never, and failing when its last read failed. Without a valid token, 401 with an empty body.
          */
         get: operations["listWaiting"];
         put?: never;
@@ -596,6 +596,25 @@ export interface components {
             /** Format: uuid */
             worker_id: null | string;
         };
+        OwnItem: {
+            activity_type: string;
+            actor: null | string;
+            branch: string;
+            commit: string;
+            /** Format: uri */
+            commit_url: string;
+            kind: components["schemas"]["OwnItemKind"];
+            /** Format: date-time */
+            landed_at: string;
+            owner: string;
+            /** Format: uuid */
+            project_id: string;
+            project_name: string;
+            /** Format: date-time */
+            stopped_at: string;
+        };
+        /** @enum {unknown} */
+        OwnItemKind: "project_stopped";
         OwnerDecision: {
             alternative: null | string;
             chosen: string;
@@ -692,6 +711,7 @@ export interface components {
             count: number;
             items: components["schemas"]["WaitingItem"][];
             needs_relink: boolean;
+            own_items: components["schemas"]["OwnItem"][];
             projects: components["schemas"]["ProjectFreshness"][];
         };
         WhoAmI: {

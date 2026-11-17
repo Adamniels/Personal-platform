@@ -65,6 +65,7 @@ function list(items: WaitingItem[]): WaitingList {
 				failing: false,
 			},
 		],
+		own_items: [],
 	};
 }
 
@@ -110,7 +111,7 @@ function open(
 				disconnect: () => Promise.resolve(),
 			}}
 			waiting={waiting}
-			actions={{ merge, sendBack }}
+			actions={{ merge, sendBack, resume: () => Promise.resolve() }}
 			now={() => NOW}
 		/>,
 	);

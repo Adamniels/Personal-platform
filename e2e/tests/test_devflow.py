@@ -14,8 +14,12 @@ from conftest import (
     register_and_log_in,
 )
 from devflow_worlds import (
+    APP_LOGIN,
     INSTALLATION,
+    NAME,
+    OWNER,
     REPOSITORY,
+    add_activity,
     add_conversation,
     add_file,
     add_issue,
@@ -577,6 +581,63 @@ def test_the_waiting_list_shows_a_stopped_pull_request(
         )
     ).to_be_visible()
     expect(page.get_by_role("region", name="Pull requests waiting")).to_have_count(0)
+
+
+LANDED = "ab12cd34" + "0" * 32
+
+
+def test_something_landed_on_main_and_i_resume(
+    page: Page, invite_code: str, base_url: str, devflow_world, viewport: str
+):
+    """A push the app made that Dev flow did not: the project stops and waits
+    for the owner, who looks and resumes it. See "Watching the default branch"
+    in devflow/README.md."""
+    register_and_log_in(page, invite_code, base_url)
+    world = one_repository()
+    devflow_world(world)
+    # The first read only records where main stands.
+    project = _connect_and_read(page, base_url)
+
+    staged = page.request.get("/devflow/api/fake/world").json()
+    add_activity(staged, 1, after=LANDED, at=LATER)
+    devflow_world(staged)
+    _read(page, base_url, project)
+
+    page.goto("/devflow")
+    expect(page.get_by_role("tab", name="Waiting for you 1")).to_be_visible()
+    stopped = page.get_by_role("region", name="Stopped").get_by_role(
+        "article", name="Something landed on main that Dev flow did not put there"
+    )
+    expect(stopped.get_by_text("Stopped", exact=True)).to_be_visible()
+    expect(stopped.get_by_text(f"{OWNER}/{NAME}")).to_be_visible()
+    expect(stopped.locator("code")).to_have_text(LANDED[:7])
+    expect(stopped.get_by_text(APP_LOGIN)).to_be_visible()
+    commit = stopped.get_by_role("link", name="Open the commit on GitHub")
+    expect(commit).to_have_attribute(
+        "href", f"https://github.com/{OWNER}/{NAME}/commit/{LANDED}"
+    )
+    capture(page, "devflow-main-watch")
+
+    stopped.get_by_role("button", name="I have looked, resume").click()
+    dialog = page.get_by_role("dialog", name=f"Resume {OWNER}/{NAME}?")
+    expect(dialog).to_be_visible()
+    expect(dialog.get_by_text("Resuming accepts what landed on main")).to_be_visible()
+    expect(dialog.locator("code")).to_have_text(LANDED[:7])
+    capture(page, "devflow-main-watch-resume")
+
+    # Cancelling changes nothing.
+    dialog.get_by_role("button", name="Cancel").click()
+    expect(dialog).to_have_count(0)
+    expect(stopped).to_be_visible()
+
+    stopped.get_by_role("button", name="I have looked, resume").click()
+    page.get_by_role("dialog", name=f"Resume {OWNER}/{NAME}?").get_by_role(
+        "button", name="Resume"
+    ).click()
+
+    expect(page.get_by_text(f"Resumed {OWNER}/{NAME}")).to_be_visible()
+    expect(stopped).to_have_count(0)
+    expect(page.get_by_role("tab", name="Waiting for you", exact=True)).to_be_visible()
 
 
 def test_a_pull_request_that_is_not_my_turn_is_not_listed(

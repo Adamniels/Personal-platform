@@ -12,11 +12,13 @@ import type { Status } from "./status";
 import type { WaitingItem } from "./waiting";
 import styles from "./waiting.module.css";
 
-/** How an item is merged and sent back, Dev flow's API in the page and a
- * test's own in a test. */
+/** How an item is merged and sent back, and a stopped project resumed, Dev
+ * flow's API in the page and a test's own in a test. */
 export type ActionsApi = {
 	merge: (id: string, headCommit: string) => Promise<void>;
 	sendBack: (id: string, comment: string) => Promise<void>;
+	/** Resumes a stopped project, accepting the commit the page showed. */
+	resume: (projectId: string, commit: string) => Promise<void>;
 };
 
 /** The caller's GitHub link, undefined until the status has been read. */
@@ -195,7 +197,7 @@ export function ItemActions({
 
 /** A refusal in words: the problem's title and what it adds, or a line of
  * our own for anything that is not an answer from Dev flow. */
-function describe(error: unknown): string {
+export function describe(error: unknown): string {
 	if (!(error instanceof ApiError)) return FAILED;
 	const { title, detail } = error.problem;
 	return detail === null ? title : `${title}. ${detail}`;

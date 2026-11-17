@@ -25,7 +25,7 @@ public static class WaitingEndpoints
             .RequireAuthorization(PlatformAuthPolicies.Api)
             .WithName("listWaiting")
             .WithSummary("What waits for the caller, as last read")
-            .WithDescription("Read from what Dev flow stored and never from GitHub. items are the pull requests that are the caller's turn in every project, by project and number; count is those not sent back, plus one when needs_relink; projects says for each when it was last read, stale when that is more than five minutes ago or never, and failing when its last read failed. Without a valid token, 401 with an empty body.")
+            .WithDescription("Read from what Dev flow stored and never from GitHub. items are the pull requests that are the caller's turn in every project, by project and number; own_items are Dev flow's own, read from its own tables, in this part each a project stopped because something landed on its default branch that Dev flow did not put there, with the commit, who did it, when, and the commit's address on GitHub, by project; count is the items not sent back and the own items, plus one when needs_relink; projects says for each when it was last read, stale when that is more than five minutes ago or never, and failing when its last read failed. Without a valid token, 401 with an empty body.")
             .Produces(StatusCodes.Status401Unauthorized);
 
         routes.MapPost("/devflow/api/projects/{id:guid}/refresh", Refresh)

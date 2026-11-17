@@ -121,6 +121,13 @@ const actionsApi: ActionsApi = {
 			comment,
 		});
 	},
+	resume: async (projectId, commit) => {
+		await client.send(
+			"POST",
+			`/projects/${encodeURIComponent(projectId)}/resume`,
+			{ commit },
+		);
+	},
 };
 
 /** Dev flow's page, with React Query for what it reads and the toasts its

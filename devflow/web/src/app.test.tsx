@@ -52,6 +52,7 @@ function openAt(path: string) {
 						needs_relink: false,
 						items: [],
 						projects: [],
+						own_items: [],
 					}),
 				refresh: () => Promise.resolve(),
 			}}

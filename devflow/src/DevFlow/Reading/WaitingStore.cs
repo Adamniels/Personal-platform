@@ -60,11 +60,51 @@ public sealed record ScreenshotSource(Repository Repository, int Number, IReadOn
 /// <param name="Failing">Whether its last read failed.</param>
 public sealed record ProjectFreshness(Guid Id, string Owner, string Name, DateTimeOffset? LastSuccessAt, bool Stale, bool Failing);
 
+/// <summary>What kind of thing of Dev flow's own waits for the owner.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter<OwnItemKind>))]
+public enum OwnItemKind
+{
+    /// <summary>Something landed on a project's default branch that Dev flow did not put there,
+    /// and the project is stopped until he looks and resumes it.</summary>
+    [JsonStringEnumMemberName("project_stopped")]
+    ProjectStopped,
+}
+
+/// <summary>Something of Dev flow's own that waits for the owner, read from its own tables rather
+/// than a pull request: in this part only a stopped project. Every text the code host gave, the
+/// actor among them, is shown as text.</summary>
+/// <param name="ProjectName">The repository's name, as connected.</param>
+/// <param name="Owner">The repository's owner, as connected.</param>
+/// <param name="Branch">The default branch something landed on.</param>
+/// <param name="ActivityType">What landed: <c>push</c>, <c>force_push</c>,
+/// <c>branch_creation</c>, <c>branch_deletion</c>, <c>pull_request_merge</c> or
+/// <c>merge_queue_merge</c>.</param>
+/// <param name="Actor">Who did it, as the code host named them, or null when it named nobody.</param>
+/// <param name="Commit">The full id of the commit the branch was at after it, which resuming
+/// names.</param>
+/// <param name="CommitUrl">Where the commit is on the code host.</param>
+/// <param name="LandedAt">When it landed.</param>
+/// <param name="StoppedAt">When the project stopped.</param>
+public sealed record OwnItem(
+    OwnItemKind Kind,
+    Guid ProjectId,
+    string ProjectName,
+    string Owner,
+    string Branch,
+    string ActivityType,
+    string? Actor,
+    string Commit,
+    Uri CommitUrl,
+    DateTimeOffset LandedAt,
+    DateTimeOffset StoppedAt);
+
 /// <summary>What <c>GET /devflow/api/waiting</c> answers.</summary>
-/// <param name="Count">The items not sent back, and one more when the link needs renewing: what
-/// waits for the owner to act.</param>
+/// <param name="Count">The items not sent back, Dev flow's own items, and one more when the link
+/// needs renewing: what waits for the owner to act.</param>
 /// <param name="NeedsRelink">Whether GitHub stopped taking the owner's link.</param>
-public sealed record WaitingList(int Count, bool NeedsRelink, IReadOnlyList<WaitingItem> Items, IReadOnlyList<ProjectFreshness> Projects);
+/// <param name="OwnItems">Dev flow's own items, read from its own tables beside the runner's, by
+/// project.</param>
+public sealed record WaitingList(int Count, bool NeedsRelink, IReadOnlyList<WaitingItem> Items, IReadOnlyList<ProjectFreshness> Projects, IReadOnlyList<OwnItem> OwnItems);
 
 /// <summary>
 /// What waits for a user, read from the snapshot <see cref="ProjectReader"/> stores and never from
@@ -81,7 +121,7 @@ public sealed class WaitingStore(UserDb database, TimeProvider time)
     /// name, and whether their link needs renewing, read in one transaction.</summary>
     public async Task<WaitingList> For(Guid userId, CancellationToken cancellationToken)
     {
-        var (items, projects, relink) = await database.InUserTransaction(userId, async transaction =>
+        var (items, projects, relink, stops) = await database.InUserTransaction(userId, async transaction =>
         {
             var items = await transaction.Connection!.QueryAsync<ItemRow>(new CommandDefinition(
                 """
@@ -108,21 +148,49 @@ public sealed class WaitingStore(UserDb database, TimeProvider time)
                 "SELECT state = 'needs_relink' FROM github_accounts",
                 transaction: transaction,
                 cancellationToken: cancellationToken));
-            return (items.ToList(), projects.ToList(), relink);
+            var stops = await transaction.Connection!.QueryAsync<StopRow>(new CommandDefinition(
+                """
+                SELECT s.project_id AS ProjectId, p.name AS Name, p.owner AS Owner, s.branch AS Branch, s.activity_type AS ActivityType,
+                       s.actor AS Actor, s.commit AS Commit, s.landed_at AS LandedAt, s.stopped_at AS StoppedAt
+                FROM project_stops s JOIN projects p ON p.id = s.project_id
+                ORDER BY lower(p.owner), lower(p.name), p.id
+                """,
+                transaction: transaction,
+                cancellationToken: cancellationToken));
+            return (items.ToList(), projects.ToList(), relink, stops.ToList());
         }, cancellationToken);
 
         var now = time.GetUtcNow();
         var waiting = items.Select(Item).ToList();
+        var own = stops.Select(stop => new OwnItem(
+            OwnItemKind.ProjectStopped,
+            stop.ProjectId,
+            stop.Name,
+            stop.Owner,
+            stop.Branch,
+            stop.ActivityType,
+            stop.Actor,
+            stop.Commit,
+            CommitUrl(stop.Owner, stop.Name, stop.Commit),
+            GitHubLink.Utc(stop.LandedAt),
+            GitHubLink.Utc(stop.StoppedAt))).ToList();
         return new WaitingList(
-            waiting.Count(item => !item.SentBack) + (relink ? 1 : 0),
+            waiting.Count(item => !item.SentBack) + own.Count + (relink ? 1 : 0),
             relink,
             waiting,
             [.. projects.Select(project =>
             {
                 DateTimeOffset? success = project.LastSuccessAt is { } at ? GitHubLink.Utc(at) : null;
                 return new ProjectFreshness(project.Id, project.Owner, project.Name, success, success is null || now - success > StaleAfter, project.Failing);
-            })]);
+            })],
+            own);
     }
+
+    /// <summary>The commit's page on GitHub, the one code host a project can be on, from the
+    /// repository's owner and name as connected, each escaped; the commit is a full id, checked
+    /// when it was read and by the table.</summary>
+    private static Uri CommitUrl(string owner, string name, string commit) =>
+        new($"https://github.com/{Uri.EscapeDataString(owner)}/{Uri.EscapeDataString(name)}/commit/{commit}");
 
     /// <summary>Whether the user has the project.</summary>
     public async Task<bool> Has(Guid userId, Guid projectId, CancellationToken cancellationToken) =>
@@ -198,4 +266,6 @@ public sealed class WaitingStore(UserDb database, TimeProvider time)
     private sealed record ScreenshotRow(long Installation, long RepositoryId, string Owner, string Name, int Number, string Screenshots);
 
     private sealed record ProjectRow(Guid Id, string Owner, string Name, DateTime? LastSuccessAt, bool Failing);
+
+    private sealed record StopRow(Guid ProjectId, string Name, string Owner, string Branch, string ActivityType, string? Actor, string Commit, DateTime LandedAt, DateTime StoppedAt);
 }

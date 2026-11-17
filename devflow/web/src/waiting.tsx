@@ -10,10 +10,12 @@ import { navigate } from "./address";
 import type { GetAnswer } from "./api/client";
 import { Inline } from "./format";
 import { Screenshots } from "./screenshots";
+import { StoppedProject } from "./stopped";
 import styles from "./waiting.module.css";
 
 export type WaitingList = GetAnswer<"/waiting">;
 export type WaitingItem = WaitingList["items"][number];
+export type OwnItem = WaitingList["own_items"][number];
 type Freshness = WaitingList["projects"][number];
 
 /** How the tab reads the list and asks for a project to be read again,
@@ -43,6 +45,8 @@ export function useWaiting(load: WaitingApi["loadWaiting"]) {
 type Group = {
 	label: string;
 	items: WaitingItem[];
+	/** Dev flow's own items in the group, shown before the runner's. */
+	own?: OwnItem[];
 	muted?: boolean;
 	/** Whether the first item's Merge is the view's one primary button,
 	 * design/DESIGN.md's rule; the others are secondary. */
@@ -57,8 +61,13 @@ type Act = {
 };
 
 /** The three groups, in their order: waiting and stopped items not sent
- * back, and every item sent back. */
-function groups(items: WaitingItem[], name: (item: WaitingItem) => string) {
+ * back, with the stopped projects first among the stopped, and every item
+ * sent back. */
+function groups(
+	items: WaitingItem[],
+	own: OwnItem[],
+	name: (item: WaitingItem) => string,
+) {
 	const sorted = [...items].sort(
 		(a, b) => compare(name(a), name(b)) || a.number - b.number,
 	);
@@ -75,6 +84,7 @@ function groups(items: WaitingItem[], name: (item: WaitingItem) => string) {
 			items: sorted.filter(
 				(item) => item.kind === "stopped" && !item.sent_back,
 			),
+			own: own.filter((each) => each.kind === "project_stopped"),
 		},
 		{
 			label: "Sent back, the runner has it",
@@ -82,7 +92,9 @@ function groups(items: WaitingItem[], name: (item: WaitingItem) => string) {
 			muted: true,
 		},
 	];
-	return all.filter((group) => group.items.length > 0);
+	return all.filter(
+		(group) => group.items.length + (group.own?.length ?? 0) > 0,
+	);
 }
 
 const compare = new Intl.Collator("en", { sensitivity: "base" }).compare;
@@ -160,13 +172,13 @@ export function Waiting({
 							await reload();
 						}}
 					/>
-					{list.items.length === 0 ? (
+					{list.items.length === 0 && list.own_items.length === 0 ? (
 						<EmptyState
 							title="Nothing waits for you"
 							detail="Your agents have nothing for you to decide."
 						/>
 					) : (
-						groups(list.items, name).map((group) => (
+						groups(list.items, list.own_items, name).map((group) => (
 							<GroupSection
 								key={group.label}
 								group={group}
@@ -292,8 +304,19 @@ function GroupSection({
 		>
 			<h2 className={styles.heading}>
 				<span id={id}>{group.label}</span>{" "}
-				<span className={styles.count}>{group.items.length}</span>
+				<span className={styles.count}>
+					{group.items.length + (group.own?.length ?? 0)}
+				</span>
 			</h2>
+			{(group.own ?? []).map((stop) => (
+				<StoppedProject
+					key={stop.project_id}
+					stop={stop}
+					api={act.api}
+					reload={act.reload}
+					linkable={linkable}
+				/>
+			))}
 			{group.items.map((item, index) => (
 				<Item
 					key={item.id}
