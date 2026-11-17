@@ -11,7 +11,8 @@ fake and its GitHub adapter, which reads as the app, linking a user's GitHub acc
 flow holds a token that acts as them, connecting a repository, which makes it a project, and
 reading every project about once a minute into a stored list of what waits for the owner, which
 the API answers and the platform's front page counts, and each project's worker key, with the
-worker API a worker calls with it: everything else the tabs will show arrives with later slices.
+worker API a worker calls with it, and the worker program that calls it: everything else the tabs
+will show arrives with later slices.
 
 ## What it serves
 
@@ -937,9 +938,9 @@ owner's input on its next turn and moves the label itself.
 
 A worker is a program in a container on one of the owner's machines that builds a project's cards.
 Every worker belongs to one project, and so to that project's user, and calls Dev flow; Dev flow
-never calls it. This part gives a project its key and a worker its first two calls; the worker
-program, its image and the commands to start it come with later slices. Why it is built so is
-"Workers" in `docs/devflow-architecture.md`.
+never calls it. This part gives a project its key and a worker its first two calls, which the
+worker program, "The worker" below, makes; its image and the commands to start it come with later
+slices. Why it is built so is "Workers" in `docs/devflow-architecture.md`.
 
 **As the owner does it.** On the Projects tab, open a project by its name, and in its Workers panel
 press "Make a key". Copy the key then: it is shown once and never again. A worker started with it
@@ -997,6 +998,144 @@ The tables, from `migrations/0007_workers.sql`:
 `ON DELETE CASCADE`, so a key or a worker can only belong to its project's own user, whatever a
 query tries, and disconnecting removes them; the migration adds the unique constraint on
 `projects (id, user_id)` they need.
+
+## The worker
+
+The worker is the program in a worker's container, `src/DevFlow.Worker/`: started with Dev flow's
+address and a project's key, it introduces itself, asks for work in a loop, and runs an agent
+behind one narrow interface. What it says to Dev flow is `src/DevFlow.Protocol/`, the worker API's
+paths, its requests and their JSON, which Dev flow's worker routes take too, so a change that breaks
+either side fails to compile. Why it is built so is "Workers" in `docs/devflow-architecture.md`.
+In this part it asks for work and is told there is none; fetching the code, the check and pushing
+come with later slices of the feature, and its image and the command that starts it with "The base
+image and the start commands".
+
+**Its settings**, from the environment:
+
+| Variable | What it is |
+|---|---|
+| `DEVFLOW_URL` | Required. Dev flow's address, an `http` or `https` origin with no path, such as `http://host.docker.internal:9080` |
+| `DEVFLOW_PROJECT_KEY` | Required. The project's worker key, `dfw_…`, made on the project's page; sent as `Authorization: Bearer` and nowhere else, and never printed |
+| `DEVFLOW_RECIPE_VERSION` | The version of the project's recipe the image was built from, which the image sets; sent in `hello` |
+| `DEVFLOW_BASE_IMAGE` | The base image the image was built on, which the image sets; sent in `hello` |
+
+A value of only spaces counts as unset. Unset, each version is sent as `unset`: `hello` requires
+both, each 1 to 255 characters, so an empty one would be refused, and `unset` says plainly that the
+worker runs outside a project's image and never matches a version Dev flow expects.
+
+**The loop.** The worker makes its id, a UUIDv7, when it starts, and takes its container's
+hostname as its name. It says `hello`, then asks `jobs/next`:
+
+- `204`: no work. It waits and asks again, 5 seconds at first, doubling each time to at most 60.
+- A job: it runs it and asks again at once, and the wait starts again from 5 seconds. Dev flow
+  hands out no job yet, and one arriving is logged and left.
+- `409`: it says `hello` and asks again, at once, or after a wait when it has just said it.
+- Dev flow away, which is no connection, no answer in 30 seconds or a `5xx`: a wait of the same
+  length and another try, never an exit, and the next answer from Dev flow begins with `hello`
+  again. So does an answer this worker does not know.
+- `401`, to either call: it ends, see below.
+
+Time is a `TimeProvider`, so the tests move it. The log is a line per event, its time in UTC
+first, on standard output; nothing is logged while there is no work.
+
+**Exit codes:**
+
+| Code | When |
+|---|---|
+| `0` | Stopped by `SIGTERM` or `SIGINT`, as `docker stop` sends |
+| `2` | A setting is missing or wrong, named on standard error before anything is sent; or Dev flow refused the key, `401`, with a line naming `DEVFLOW_PROJECT_KEY` and never the key; or refused what `hello` reports, `422`, with Dev flow's reason |
+
+Anything else is a crash, with .NET's own code and message.
+
+**The agent interface.** `IAgent`, in `src/DevFlow.Worker/Agents/`, has one method: given the
+working copy, the brief as text, the report's JSON Schema, the limits and the credential, it
+answers a result, a success with the report, an object, or a failure with its reason and which
+side it lies on, in the card or outside it; and either way the usage as the agent gave it, its
+standard error, and how it was logged in. Two implementations:
+
+- `FakeAgent` answers a prepared report and writes or removes the files it is told to, refusing a
+  path outside the working copy. It spends no usage, so the worker's own tests use it.
+- `ClaudeCodeAgent` runs Claude Code headless. First `claude auth status --json`, which must answer
+  `"loggedIn": true` and `"authMethod": "oauth_token"`, or the run never starts and fails outside
+  the card; the method is recorded either way. Then, in the working copy:
+
+  ```zsh
+  claude -p <brief> --model claude-opus-5-5 --permission-mode bypassPermissions --output-format json \
+    --json-schema <schema> --max-turns 200 --max-budget-usd 25
+  ```
+
+  never with `--bare`, which refuses the subscription token. Both get an environment built from
+  nothing: `HOME`, the agent's home, `/home/agent`; `PATH`; `LANG`; `CLAUDE_CONFIG_DIR`, `.claude`
+  in that home; and `CLAUDE_CODE_OAUTH_TOKEN`. The arguments are a list, never through a shell.
+
+**When a run succeeds**: only when every one of these holds: exit `0`; standard output is valid
+JSON; `is_error` is false; `terminal_reason` is `completed`; `structured_output` is present and an
+object; `permission_denials` is empty. `subtype` is never read, since it says `success` on some
+failures. The report's schema is checked by Dev flow, which hands it out with the brief; the
+worker checks only that it is an object. Anything else is a failure, judged in this order:
+
+| What Claude Code answered | Where it lies |
+|---|---|
+| Past the time limit, ended by the worker | In the card |
+| Nothing on standard output, as root with `bypassPermissions` | Outside |
+| Something that is not JSON | Outside |
+| `terminal_reason` `api_error`: not logged in, a refused key (`api_error_status` 401), a usage limit | Outside |
+| `terminal_reason` `max_turns` | In the card |
+| `terminal_reason` `budget_exhausted` | In the card |
+| `permission_denials` not empty, a refused action | In the card |
+| Any other exit code | Outside |
+| `is_error` true, whatever `subtype` says | Outside |
+| Any other `terminal_reason` | Outside |
+| No `structured_output`, or one that is not an object | In the card |
+
+Outside the card means another try may well succeed and the card is not to blame: the login, the
+API or the machine. The usage is taken as Claude Code gives it: `usage`, `modelUsage`,
+`total_cost_usd`, `duration_ms` and `num_turns`.
+
+**The limits for now**, fixed in code as `AgentLimits.Default` until Dev flow's settings hold them:
+200 turns and 25 USD, which Claude Code enforces, overshooting by about a turn, and 90 minutes,
+which the worker enforces by ending the process and everything it started.
+
+**The token** is handed to the run in its environment only. The worker never writes it to a file,
+logs it or sends it back: `AgentCredential` prints as redacted, and the token's value is replaced
+by `[redacted]` in Claude Code's standard output and standard error before anything reads them, so
+neither the report, the stderr kept nor a reason can carry it out.
+
+**Its own user.** The process starter, `SystemProcessStarter`, takes the user to run as, `agent`
+in the image, and starts Claude Code through `setpriv --reuid agent --regid agent --init-groups`,
+which keeps the environment as built; Claude Code refuses `bypassPermissions` as root. The worker
+itself runs as root, so what a job needs kept from the agent stays out of the agent's reach.
+Without a user, as in the tests, it starts the program directly.
+
+**Publishing.** One self-contained file carrying its own .NET runtime, so a project's image needs
+no .NET, for each Linux a worker runs on:
+
+```zsh
+dotnet publish src/DevFlow.Worker -c Release -r linux-arm64 -o <folder>
+dotnet publish src/DevFlow.Worker -c Release -r linux-x64 -o <folder>
+```
+
+Naming a runtime makes it self-contained and one file, with its symbols inside it, and
+`InvariantGlobalization` means the image needs no ICU either. `RuntimeIdentifiers` in the worker's
+and `DevFlow.Protocol`'s project files, and the single-file analyzer on in every build, keep one
+`packages.lock.json` that holds for the build and the publish alike.
+
+**Running it** by hand, against Dev flow from "Running it" above, with a key made on a project's
+page:
+
+```zsh
+DEVFLOW_URL=http://127.0.0.1:8084 DEVFLOW_PROJECT_KEY=<the key> dotnet run --project src/DevFlow.Worker
+```
+
+**Its tests** are `tests/DevFlow.Worker.Tests/`, run by the same `dotnet test` as Dev flow's own,
+with the same two database strings. `WorkerLoopTests` runs the worker against Dev flow in process,
+on a database of its own, through `DevFlow.Tests`' harness, which that project references, and
+against a Dev flow played from a script, on a clock the test moves. `ClaudeAgentTests` runs
+`ClaudeCodeAgent` on a fake process starter answering with Claude Code's answers recorded in
+`Claude/`, whose README says where they come from; `ProcessStarterTests` checks that a real process
+gets only the environment given. `ProtocolTests` checks that Dev flow's routes take the shared
+types and that both sides write them as `contracts/devflow/openapi.json` says, and `PublishTests`
+publishes for both runtimes, in locked mode, in a folder of its own.
 
 ## Registering the GitHub App
 
@@ -1085,12 +1224,19 @@ rather than shared files, since each C# folder builds from its own directory alo
 the analyzers as the linter and `dotnet format` as the formatter are in "Libraries it is built on"
 in `libs/dotnet/PlatformAuth/README.md`.
 
-**One web project, not layered projects.** `src/DevFlow/` is the whole service, organised in
+**One web project, not layered projects**, beside the worker. `src/DevFlow/` is the whole
+service, organised in
 feature folders: `Settings`, `Health` (health and whoami), `Status`, `CodeHost` (the interfaces, their
 records, the fake and, in `GitHub`, the adapter), `Link` (linking GitHub and a usable token), `Vault`,
 `Projects` (connecting a repository), `Reading` (the snapshot, the loop and the waiting list),
 `Workers` (the worker key, the worker scheme and the worker API), `Pages` and `Api` today, more with
-later slices, as `review/` is.
+later slices, as `review/` is. Two projects stand beside it because a second program needs them:
+`src/DevFlow.Worker/`, the worker, a console program, and `src/DevFlow.Protocol/`, the types it and
+Dev flow share, which hold nothing else.
+
+**The worker is built on .NET alone**: `HttpClient` and `System.Text.Json` for Dev flow,
+`System.Diagnostics.Process` for Claude Code, and `TimeProvider` for its waits, so it adds no
+package. It is published self-contained, see "The worker" above.
 
 **The GitHub adapter is written by hand on .NET's `HttpClient`**, with `System.Text.Json`, and
 signs the app's tokens with .NET's own `RSA`, and signs a person in with the same `HttpClient` and
