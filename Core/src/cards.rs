@@ -153,6 +153,19 @@ pub struct DevFlowCard {
     pub stale: bool,
     /// Whether the user's GitHub link has expired.
     pub needs_relink: bool,
+    /// Where the user's Claude login stands.
+    pub claude_login: ClaudeLogin,
+}
+
+/// Where the user's Claude login stands, as Dev flow says it: none given,
+/// fine, due for renewal within a month, or past its renewal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ClaudeLogin {
+    None,
+    Ok,
+    DueSoon,
+    Expired,
 }
 
 impl DevFlowCard {
@@ -163,9 +176,21 @@ impl DevFlowCard {
     }
 
     /// Whether the card takes the outline of content that needs the user:
-    /// something waits, or the link must be renewed.
+    /// something waits, the link must be renewed, or the Claude login is
+    /// due.
     pub fn needs_you(&self) -> bool {
-        self.waits() > 0 || self.needs_relink
+        self.waits() > 0 || self.needs_relink || self.claude_login_line().is_some()
+    }
+
+    /// The line the card says of the Claude login, from a month before it
+    /// is due; None while it is fine or there is none. Said apart, like the
+    /// link, rather than counted among what waits.
+    pub fn claude_login_line(&self) -> Option<&'static str> {
+        match self.claude_login {
+            ClaudeLogin::DueSoon => Some("Your Claude login is due for renewal"),
+            ClaudeLogin::Expired => Some("Your Claude login has expired"),
+            ClaudeLogin::None | ClaudeLogin::Ok => None,
+        }
     }
 }
 
@@ -497,6 +522,7 @@ mod tests {
                 projects: 1,
                 stale: false,
                 needs_relink: false,
+                claude_login: ClaudeLogin::Ok,
             }
         );
 
@@ -514,6 +540,13 @@ mod tests {
         extra["label"] = json!("3 waiting for you");
         let mut missing = devflow_fixture();
         missing.as_object_mut().unwrap().remove("needs_relink");
+        let mut missing_login = devflow_fixture();
+        missing_login
+            .as_object_mut()
+            .unwrap()
+            .remove("claude_login");
+        let mut unknown_login = devflow_fixture();
+        unknown_login["claude_login"] = json!("due");
         let mut negative = devflow_fixture();
         negative["waiting"] = json!(-1);
         let mut string_count = devflow_fixture();
@@ -525,6 +558,8 @@ mod tests {
         for (case, data) in [
             ("an unknown field", extra),
             ("a field missing", missing),
+            ("the login missing", missing_login),
+            ("an unknown login state", unknown_login),
             ("a negative count", negative),
             ("a count as a string", string_count),
             ("a flag as a string", string_flag),
@@ -548,6 +583,7 @@ mod tests {
             projects: 1,
             stale: false,
             needs_relink,
+            claude_login: ClaudeLogin::Ok,
         };
 
         assert_eq!(card(2, 1, false).waits(), 3);
@@ -560,6 +596,35 @@ mod tests {
         assert!(card(0, 1, false).needs_you());
         assert!(card(0, 0, true).needs_you());
         assert!(!card(0, 0, false).needs_you());
+    }
+
+    #[test]
+    fn a_claude_login_needs_him_from_a_month_before_it_is_due() {
+        let card = |claude_login| DevFlowCard {
+            waiting: 0,
+            stopped: 0,
+            projects: 1,
+            stale: false,
+            needs_relink: false,
+            claude_login,
+        };
+
+        assert_eq!(card(ClaudeLogin::None).claude_login_line(), None);
+        assert_eq!(card(ClaudeLogin::Ok).claude_login_line(), None);
+        assert_eq!(
+            card(ClaudeLogin::DueSoon).claude_login_line(),
+            Some("Your Claude login is due for renewal")
+        );
+        assert_eq!(
+            card(ClaudeLogin::Expired).claude_login_line(),
+            Some("Your Claude login has expired")
+        );
+        assert!(!card(ClaudeLogin::None).needs_you());
+        assert!(!card(ClaudeLogin::Ok).needs_you());
+        assert!(card(ClaudeLogin::DueSoon).needs_you());
+        assert!(card(ClaudeLogin::Expired).needs_you());
+        // Said apart, never counted among what waits.
+        assert_eq!(card(ClaudeLogin::Expired).waits(), 0);
     }
 
     #[test]

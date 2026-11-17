@@ -11,7 +11,7 @@ export interface paths {
         };
         /**
          * Whether something needs the caller, for the nav bar
-         * @description Read from what Dev flow stored and never from GitHub. attention is true when the caller has a pull request, waiting or stopped, that is not sent back, or a GitHub link that has expired, and false otherwise. The nav bar asks it with the session's cookie. Without a valid token, 401 with an empty body.
+         * @description Read from what Dev flow stored and never from GitHub. attention is true when the caller has a pull request, waiting or stopped, that is not sent back, a GitHub link that has expired, or a Claude login due for renewal within a month or past it, and false otherwise. The nav bar asks it with the session's cookie. Without a valid token, 401 with an empty body.
          */
         get: operations["getAttention"];
         put?: never;
@@ -59,7 +59,7 @@ export interface paths {
         };
         /**
          * What waits, for the front page
-         * @description Read from what Dev flow stored and never from GitHub. waiting, the pull requests that wait for the caller and were not sent back; stopped, those the runner stopped on, not sent back; projects, how many the caller has connected; stale, whether any project is stale or failing, as the waiting list says them; and needs_relink, whether the caller's GitHub link has expired. The core calls it with the user's token in the Authorization header. Without a valid token, 401 with an empty body.
+         * @description Read from what Dev flow stored and never from GitHub. waiting, the pull requests that wait for the caller and were not sent back; stopped, those the runner stopped on, not sent back; projects, how many the caller has connected; stale, whether any project is stale or failing, as the waiting list says them; needs_relink, whether the caller's GitHub link has expired; and claude_login, where their Claude login stands, none, ok, due_soon or expired, as GET /devflow/api/claude-login says it. The core calls it with the user's token in the Authorization header. Without a valid token, 401 with an empty body.
          */
         get: operations["getDisplay"];
         put?: never;
@@ -449,6 +449,7 @@ export interface components {
             github: components["schemas"]["GitHubLinkStatus"];
         };
         DisplayData: {
+            claude_login: components["schemas"]["ClaudeLoginState"];
             needs_relink: boolean;
             /** Format: int32 */
             projects: number;

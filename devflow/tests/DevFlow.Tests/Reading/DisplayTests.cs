@@ -63,6 +63,7 @@ public sealed class DisplayTests
         ["projects"] = projects,
         ["stale"] = stale,
         ["needs_relink"] = needsRelink,
+        ["claude_login"] = "none",
     };
 
     private static void AssertDisplay(JsonObject expected, JsonObject actual) =>

@@ -1,4 +1,5 @@
 using DevFlow.Api;
+using DevFlow.ClaudeLogin;
 
 using Microsoft.AspNetCore.Mvc;
 
@@ -21,12 +22,14 @@ public static class DisplayEndpoints
     {
         ArgumentNullException.ThrowIfNull(routes);
 
-        routes.MapGet("/devflow/api/display", async (HttpContext context, [FromServices] WaitingStore store) =>
-                TypedResults.Ok(DisplayData.From(await store.For(context.UserId(), context.RequestAborted))))
+        routes.MapGet("/devflow/api/display", async (HttpContext context, [FromServices] WaitingStore store, [FromServices] ClaudeLogins logins) =>
+                TypedResults.Ok(DisplayData.From(
+                    await store.For(context.UserId(), context.RequestAborted),
+                    await logins.Status(context.UserId(), context.RequestAborted))))
             .RequireAuthorization(PlatformAuthPolicies.Api)
             .WithName("getDisplay")
             .WithSummary("What waits, for the front page")
-            .WithDescription("Read from what Dev flow stored and never from GitHub. waiting, the pull requests that wait for the caller and were not sent back; stopped, those the runner stopped on, not sent back; projects, how many the caller has connected; stale, whether any project is stale or failing, as the waiting list says them; and needs_relink, whether the caller's GitHub link has expired. The core calls it with the user's token in the Authorization header. Without a valid token, 401 with an empty body.")
+            .WithDescription("Read from what Dev flow stored and never from GitHub. waiting, the pull requests that wait for the caller and were not sent back; stopped, those the runner stopped on, not sent back; projects, how many the caller has connected; stale, whether any project is stale or failing, as the waiting list says them; needs_relink, whether the caller's GitHub link has expired; and claude_login, where their Claude login stands, none, ok, due_soon or expired, as GET /devflow/api/claude-login says it. The core calls it with the user's token in the Authorization header. Without a valid token, 401 with an empty body.")
             .Produces(StatusCodes.Status401Unauthorized);
 
         return routes;
@@ -40,19 +43,22 @@ public static class DisplayEndpoints
 /// <param name="Stale">Whether any project is stale or failing, by <see cref="WaitingStore"/>'s
 /// rule.</param>
 /// <param name="NeedsRelink">Whether GitHub stopped taking the caller's link.</param>
-public sealed record DisplayData(int Waiting, int Stopped, int Projects, bool Stale, bool NeedsRelink)
+/// <param name="ClaudeLogin">Where the caller's Claude login stands.</param>
+public sealed record DisplayData(int Waiting, int Stopped, int Projects, bool Stale, bool NeedsRelink, ClaudeLoginState ClaudeLogin)
 {
-    /// <summary>The display data of a waiting list. A sent back item is the runner's turn, so it is
-    /// counted in neither; a needed relink is said apart rather than counted, unlike the list's
-    /// <c>count</c>.</summary>
-    public static DisplayData From(WaitingList list)
+    /// <summary>The display data of a waiting list and the Claude login. A sent back item is the
+    /// runner's turn, so it is counted in neither; a needed relink is said apart rather than
+    /// counted, unlike the list's <c>count</c>, and so is a login that is due.</summary>
+    public static DisplayData From(WaitingList list, ClaudeLoginStatus login)
     {
         ArgumentNullException.ThrowIfNull(list);
+        ArgumentNullException.ThrowIfNull(login);
         return new(
             list.Items.Count(item => item.Kind == WaitingKind.Waiting && !item.SentBack),
             list.Items.Count(item => item.Kind == WaitingKind.Stopped && !item.SentBack),
             list.Projects.Count,
             list.Projects.Any(project => project.Stale || project.Failing),
-            list.NeedsRelink);
+            list.NeedsRelink,
+            login.State);
     }
 }

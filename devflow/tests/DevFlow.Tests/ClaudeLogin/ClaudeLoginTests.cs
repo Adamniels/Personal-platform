@@ -271,6 +271,38 @@ public sealed class ClaudeLoginTests
     }
 
     [Fact]
+    public async Task ADueLoginNeedsTheOwner()
+    {
+        await using var routes = await Routes.Start();
+        Assert.Equal(StatusCodes.Status200OK, (await Save(routes, Token)).Response.StatusCode);
+
+        async Task<(bool Attention, string Display)> Aged(TimeSpan age)
+        {
+            await Age(routes, age);
+            var attention = JsonNode.Parse(await Harness.Body(await routes.App.Get("/devflow/api/attention", Contract.Token)))!;
+            var display = JsonNode.Parse(await Harness.Body(await routes.App.Get("/devflow/api/display", Contract.Token)))!;
+            return ((bool)attention["attention"]!, (string)display["claude_login"]!);
+        }
+
+        // The nav's dot and the front page's card, from a month before it is due, with nothing
+        // else waiting.
+        Assert.Equal((false, "ok"), await Aged(TimeSpan.FromDays(333)));
+        Assert.Equal((true, "due_soon"), await Aged(TimeSpan.FromDays(340)));
+        Assert.Equal((true, "expired"), await Aged(TimeSpan.FromDays(366)));
+
+        // Said apart rather than counted: the waiting list's count is what waits on its tab.
+        var waiting = JsonNode.Parse(await Harness.Body(await routes.App.Get("/devflow/api/waiting", Contract.Token)))!;
+        Assert.Equal(0, (int)waiting["count"]!);
+
+        // Without a login there is nothing to renew, so nothing needs him.
+        Assert.Equal(StatusCodes.Status204NoContent, (await Remove(routes)).Response.StatusCode);
+        var none = JsonNode.Parse(await Harness.Body(await routes.App.Get("/devflow/api/attention", Contract.Token)))!;
+        Assert.False((bool)none["attention"]!);
+        var display = JsonNode.Parse(await Harness.Body(await routes.App.Get("/devflow/api/display", Contract.Token)))!;
+        Assert.Equal("none", (string)display["claude_login"]!);
+    }
+
+    [Fact]
     public async Task AnotherUserNeverSeesIt()
     {
         await using var routes = await Routes.Start();
