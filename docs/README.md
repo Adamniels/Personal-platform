@@ -118,8 +118,10 @@ features" in `High-level/docs/platform-architecture.md`.
   connecting a repository with its routes and tables, what waits for the owner, the loop that
   reads it and refreshing a project, merging and sending back from the page and what each refusal
   means, a project's worker key, the worker scheme and the worker API with their routes and
-  tables, the worker program with its settings, its loop, its exit codes, the agent interface, when
-  a run succeeds, publishing it and its tests, registering the GitHub App, how it authenticates a
+  tables, starting a worker, with the base image, the format of `.devflow/`, the recipe route, the
+  two commands, the memory rule and when a worker needs a rebuild, the worker program with its
+  settings, its loop, its exit codes, the agent interface, when a run succeeds, publishing it and
+  its tests, registering the GitHub App, how it authenticates a
   request with `PlatformAuth` and with a worker's key, and the libraries it is built on
 - `devflow/docs/devflow-architecture.md` — what Dev flow is, what of it exists, the code host seam
   and why its fake sits there, acting as the owner on GitHub, projects and how a loop learns whose
