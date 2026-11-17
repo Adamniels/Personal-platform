@@ -90,6 +90,10 @@ public sealed class GitHubAppWriteTests
         Assert.Equal((string)recordedIssue["title"]!, opens.Title);
         Assert.Equal(recordedIssue["labels"]!.AsArray().Select(label => (string)label!["name"]!), opens.Labels);
         Assert.Equal(new Uri((string)recordedIssue["html_url"]!), opens.Url);
+        Assert.Equal((string)recordedIssue["user"]!["login"]!, opens.Author);
+        Assert.Equal((string)recordedIssue["body"]!, opens.Body);
+        Assert.Equal(DateTimeOffset.Parse((string)recordedIssue["created_at"]!, CultureInfo.InvariantCulture), opens.CreatedAt);
+        Assert.False(opens.IsPullRequest);
 
         Assert.IsType<MergeResult.Merged>(merged);
 

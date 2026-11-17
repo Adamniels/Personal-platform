@@ -37,7 +37,7 @@ public sealed class ConnectTests
         new FakeInstallation(52, "uppsala-lab", [Empty(9101, "uppsala-lab", "thesis")]),
     ]);
 
-    private static FakeRepository Empty(long id, string owner, string name) => new(id, owner, name, [], [], [], []);
+    private static FakeRepository Empty(long id, string owner, string name) => new(id, owner, name, [], [], [], [], []);
 
     /// <summary>Dev flow with the world staged for the user, who has linked GitHub.</summary>
     private static async Task<Linking> Linked()

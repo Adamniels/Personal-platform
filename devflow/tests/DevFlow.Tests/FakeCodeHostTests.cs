@@ -73,7 +73,8 @@ public sealed class FakeCodeHostTests
                 PullRequests: [Waiting, Merged],
                 Conversations: [new FakeConversation(304, [Verdict, Edited]), new FakeConversation(273, [])],
                 Commits: [new FakeCommit(Head, [ReviewOk], [CiOk, E2e])],
-                Files: [new FakeFile("AGENTS.md", "main", Agents)]),
+                Files: [new FakeFile("AGENTS.md", "main", Agents)],
+                Issues: []),
         ]),
     ]);
 
@@ -136,7 +137,7 @@ public sealed class FakeCodeHostTests
         // A world the stranger stages replaces theirs alone.
         host.Replace(Stranger, FakeWorld.Empty with
         {
-            Installations = [new FakeInstallation(41, "Adamniels", [new FakeRepository(Platform.Id, "x", "y", [], [], [], [])])],
+            Installations = [new FakeInstallation(41, "Adamniels", [new FakeRepository(Platform.Id, "x", "y", [], [], [], [], [])])],
         });
         Assert.Empty(Found(await host.OpenPullRequests(Stranger, Platform, Ct)));
         Assert.Single(Found(await host.OpenPullRequests(Owner, Platform, Ct)));
@@ -179,7 +180,7 @@ public sealed class FakeCodeHostTests
     public async Task WhatAPersonCanConnectIsTheirWorldsInstallationsReadWithTheirToken()
     {
         var host = new FakeCodeHost();
-        var thesis = new FakeRepository(9101, "uppsala-lab", "thesis", [], [], [], []);
+        var thesis = new FakeRepository(9101, "uppsala-lab", "thesis", [], [], [], [], []);
         host.Replace(Owner, World with { Installations = [.. World.Installations, new FakeInstallation(52, "uppsala-lab", [thesis])] });
         var token = await SignIn(host, Owner);
         var code = Through(host);
@@ -240,5 +241,54 @@ public sealed class FakeCodeHostTests
         Assert.Equal(World.Installations[0].Id, host.World(Owner).Installations[0].Id);
         host.SetUnavailable(Owner, unavailable: false);
         Assert.Single(Found(await host.OpenPullRequests(Owner, Platform, Ct)));
+    }
+
+    [Fact]
+    public async Task IssuesAreListedByLabelWithWhatBlocksThemAndWhoEditedThem()
+    {
+        var host = new FakeCodeHost();
+        var title = new IssueEdit("RTE_1", "Adamniels", At.AddHours(2), EditKind.Title);
+        var body = new IssueEdit("UCE_1", "octo-stranger", At.AddHours(1), EditKind.Body);
+        static FakeIssue Issue(int number, bool open, IReadOnlyList<string> labels, IReadOnlyList<int> blockedBy, IReadOnlyList<IssueEdit> edits) => new(
+            number, $"Card {number}", "Adamniels", labels, $"Body of {number}",
+            new Uri($"https://github.com/Adamniels/Personal-platform/issues/{number}"), At.AddDays(-number), open, blockedBy, edits);
+        var world = World;
+        var repository = world.Installations[0].Repositories[0] with
+        {
+            PullRequests = [Waiting with { Labels = ["devflow"] }, Merged with { Labels = ["devflow"] }],
+            Issues =
+            [
+                Issue(338, open: true, ["DevFlow"], [339], [title, body]),
+                Issue(339, open: false, ["devflow"], [], []),
+                Issue(340, open: true, [], [], []),
+            ],
+        };
+        host.Replace(Owner, world with { Installations = [world.Installations[0] with { Repositories = [repository] }] });
+
+        // The open issues with the label, whatever its case, and the open pull request with it,
+        // marked; never a closed one.
+        var listed = Found(await host.LabelledIssues(Owner, Platform, "devflow", Ct));
+        Assert.Equal([(338, false), (304, true)], listed.Select(issue => (issue.Number, issue.IsPullRequest)));
+        // A record compares its list of labels by reference, so they are compared on their own.
+        Assert.Equal(["DevFlow"], listed[0].Labels);
+        Assert.Equal(new Issue(338, "Card 338", "Adamniels", [], "Body of 338",
+            new Uri("https://github.com/Adamniels/Personal-platform/issues/338"), At.AddDays(-338), IsPullRequest: false), listed[0] with { Labels = [] });
+        Assert.Empty(Found(await host.LabelledIssues(Owner, Platform, "devflow-hold", Ct)));
+
+        // What blocks it, closed here; and its edits, the body's first.
+        Assert.Equal([new Dependency("Adamniels", "Personal-platform", 339, Open: false, new Uri("https://github.com/Adamniels/Personal-platform/issues/339"))],
+            Found(await host.BlockedBy(Owner, Platform, 338, Ct)));
+        Assert.Equal([body, title], Found(await host.Edits(Owner, Platform, 338, Ct)));
+        Assert.Empty(Found(await host.Edits(Owner, Platform, 340, Ct)));
+
+        // An issue that is not there is not found; another account sees nothing of it.
+        Assert.IsType<CodeHostResult<IReadOnlyList<Dependency>>.NotFound>(await host.BlockedBy(Owner, Platform, 999, Ct));
+        Assert.IsType<CodeHostResult<IReadOnlyList<IssueEdit>>.NotFound>(await host.Edits(Owner, Platform, 304, Ct));
+        Assert.IsType<CodeHostResult<IReadOnlyList<Issue>>.NotFound>(await host.LabelledIssues(Stranger, Platform, "devflow", Ct));
+
+        host.SetUnavailable(Owner, unavailable: true);
+        Assert.IsType<CodeHostResult<IReadOnlyList<Issue>>.Unavailable>(await host.LabelledIssues(Owner, Platform, "devflow", Ct));
+        Assert.IsType<CodeHostResult<IReadOnlyList<Dependency>>.Unavailable>(await host.BlockedBy(Owner, Platform, 338, Ct));
+        Assert.IsType<CodeHostResult<IReadOnlyList<IssueEdit>>.Unavailable>(await host.Edits(Owner, Platform, 338, Ct));
     }
 }

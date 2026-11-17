@@ -135,7 +135,8 @@ public sealed class ContractTests
 
         var issue = Recorded("issue.json");
         Has(issue, "issue.json",
-            ("number", JsonValueKind.Number), ("title", JsonValueKind.String), ("labels", JsonValueKind.Array), ("html_url", JsonValueKind.String));
+            ("number", JsonValueKind.Number), ("title", JsonValueKind.String), ("labels", JsonValueKind.Array), ("html_url", JsonValueKind.String),
+            ("user.login", JsonValueKind.String), ("body", JsonValueKind.String), ("created_at", JsonValueKind.String));
         Assert.Null(issue["pull_request"]);
 
         Has(Recorded("merge.json"), "merge.json", ("sha", JsonValueKind.String), ("merged", JsonValueKind.True), ("message", JsonValueKind.String));

@@ -17,6 +17,9 @@ export type Problem = {
 	status: number;
 	title: string;
 	detail: string | null;
+	/** What is wrong with each field, by its name on the wire, when Dev
+	 * flow refused a request's values: a validation problem's `errors`. */
+	errors?: Record<string, string[]>;
 };
 
 export class ApiError extends Error {
@@ -165,8 +168,8 @@ export function createClient(env: ClientEnvironment = browser): Client {
 }
 
 /** A problem document's title and detail, RFC 9457 as ASP.NET Core's
- * AddProblemDetails writes it, or the status alone when the body says
- * nothing readable. */
+ * AddProblemDetails writes it, with a validation problem's `errors` when it
+ * has them, or the status alone when the body says nothing readable. */
 async function readProblem(response: Response): Promise<Problem> {
 	const body: unknown = await response.json().catch(() => null);
 	const fields: Record<string, unknown> =
@@ -178,5 +181,18 @@ async function readProblem(response: Response): Promise<Problem> {
 				? fields.title
 				: `The request failed (${response.status})`,
 		detail: typeof fields.detail === "string" ? fields.detail : null,
+		...fieldErrors(fields.errors),
 	};
+}
+
+/** A validation problem's `errors`, keeping only the fields whose value is a
+ * list of strings; nothing when none is. */
+function fieldErrors(errors: unknown): { errors?: Record<string, string[]> } {
+	if (typeof errors !== "object" || errors === null) return {};
+	const kept = Object.entries(errors).filter(
+		(entry): entry is [string, string[]] =>
+			Array.isArray(entry[1]) &&
+			entry[1].every((message) => typeof message === "string"),
+	);
+	return kept.length === 0 ? {} : { errors: Object.fromEntries(kept) };
 }

@@ -42,6 +42,9 @@ will show arrives with later slices.
 - `POST /devflow/api/waiting/{id}/merge` and `POST /devflow/api/waiting/{id}/send-back`, which
   merge a waiting pull request and send one back with a comment, as the caller on GitHub, see
   "Acting from the page". Without a valid token, `401` with an empty body.
+- `GET /devflow/api/projects/{id}/settings` and `PUT /devflow/api/projects/{id}/settings`, a
+  project's settings, and `GET /devflow/api/projects/{id}/cards`, its cards, see "Cards". Without a
+  valid token, `401` with an empty body.
 - `POST /devflow/api/projects/{id}/worker-key`, which makes a project's worker key and answers it
   once, and `GET /devflow/api/projects/{id}/workers`, the workers that have said hello with it,
   see "Workers". Without a valid token, `401` with an empty body.
@@ -158,7 +161,8 @@ page.
 A project's page, `src/project.tsx`, is at `/devflow/projects/<id>`, under the Projects tab, which
 stays selected there. Its header is a link "Back to Projects" over the repository's
 "<owner>/<name>" as a section heading; a project the caller does not have is the `EmptyState`
-"There is no such project". Under it is the Workers panel, the package's `Card` titled "Workers",
+"There is no such project". Under the header is the Settings panel, then the Cards panel, see
+"Cards", then the Workers panel, the package's `Card` titled "Workers",
 read from `GET /devflow/api/projects/{id}/workers` as the page loads: a line saying a worker holds
 the project's key and asks Dev flow for work with it, then the key, then the region "Start a
 worker", then the workers. With no key,
@@ -182,6 +186,24 @@ secondary "Copy the save command" or "Copy the start command" that reads "Copied
 and an alert when copying fails, see "Starting a worker". A worker that needs a rebuild shows, under
 its name, the `needs-you` status "Rebuild" and, in `--text` at weight 600, "<repository>'s recipe
 has changed: run the command again" or "A new base image was released: run the command again".
+
+The Settings panel, `src/settings.tsx`, the package's `Card` titled "Settings", read from
+`GET /devflow/api/projects/{id}/settings` as the page loads, is a form: a line saying Dev flow picks
+up the open issues the owner wrote that carry the pick-up label, then the text fields "Pick-up
+label", "Hold label" and "Attention label" and the select "Pull requests wait for you", "Never" or
+"Always", each with a help line saying what it does, two by two at desktop width and one under
+another at phone width, and a secondary "Save", which puts all four and then says "Saved.". A value
+Dev flow refuses is shown under its field as the field's error, from the problem's `errors`; any
+other failure is the alert "The settings were not saved. Try again.", and what was typed is kept.
+
+The Cards panel, `src/cards.tsx`, the package's `Card` titled "Cards", read from
+`GET /devflow/api/projects/{id}/cards` as the page loads, is the list "Cards", in the order the
+answer gives, each card an inset row: its number, `#12` in the mono font, a link to the issue on
+GitHub in a new tab when its address is https and plain text otherwise; its title, as text; its
+state as a status, "Queued" and "Held" `idle`, "Ignored" and "Stopped" `failed`, "Building",
+"Checking", "Reviewing" and "Fixing" `running`, "Waiting for you" `needs-you` and "Done" `done`;
+and its reason under them as a caption. With none, "No cards yet. An open issue you wrote with the
+pick-up label becomes one."; a list that could not be read is an alert.
 
 Waiting for you, `src/waiting.tsx`, is one list of what waits for the owner across his projects,
 read from `GET /devflow/api/waiting`, see "What waits", through React Query: as the page loads,
@@ -701,7 +723,7 @@ network and a `FakeTimeProvider`: no test reaches GitHub. They build it as Dev f
 
 `FakeCodeHost` keeps a world per platform account, in memory, lost at a restart: installations,
 their repositories, and each repository's pull requests, conversations, commits with their statuses
-and check runs, and files. Per account, since every acceptance test registers its own account and
+and check runs, files, and issues, each with what it is blocked by and its edits. Per account, since every acceptance test registers its own account and
 they all run against one Dev flow. A world is one JSON document whose shape is the interface's
 records, so staging something is writing what the interface would answer:
 
@@ -724,7 +746,11 @@ records, so staging something is writing what the interface would answer:
             "statuses": [ { "context": "review-ok", "state": "success", "description": null } ],
             "check_runs": [ { "name": "ci-ok", "status": "completed", "conclusion": "success",
               "app": "github-actions" } ] } ],
-          "files": [ { "path": "AGENTS.md", "branch": "main", "content": "<base64>" } ]
+          "files": [ { "path": "AGENTS.md", "branch": "main", "content": "<base64>" } ],
+          "issues": [ { "number": 338, "title": "Settings and picking cards", "author": "octo-owner",
+            "labels": ["devflow"], "body": "...", "url": "https://github.com/...",
+            "created_at": "...", "open": true, "blocked_by": [339],
+            "edits": [ { "id": "UCE_1", "editor": "octo-owner", "at": "...", "kind": "body" } ] } ]
         }
       ]
     }
@@ -741,9 +767,14 @@ It is read strictly, by `FakeJson` in `src/DevFlow/CodeHost/FakeWorld.cs`: every
 `user`, null only where the record allows it, no field the records do not have, numbers as numbers, and states
 as their snake case words, `open`, `in_progress`, `timed_out`. What identifies a thing is listed
 once: an installation's id, a repository's id within it, a pull request's or a conversation's
-number, a commit's id, and a file's path and branch. An installation's `account` is the login of
+number, a commit's id, a file's path and branch, and an issue's number, which no pull request may
+share. An installation's `account` is the login of
 the account it is on, which the list to choose from groups by. A pull request's number reaches its
-conversation, empty unless one is listed; a commit that is not listed is not found.
+conversation, empty unless one is listed; a commit that is not listed is not found. An issue's
+`blocked_by` names issues listed in the same repository, by number. Listing issues by label answers
+the open issues carrying it, whatever its case, and the open pull requests carrying it, marked as
+pull requests, as GitHub lists them; an issue's edits are answered as staged, its body's first and
+then its title's, `kind` `body` or `title`.
 
 The fake signs a person in too, in `FakeCodeHost.SignIn.cs`, per account and apart from its world,
 so staging a world again signs nobody out. Its sign in page, `GET /devflow/fake-github/authorize`,
@@ -782,10 +813,9 @@ is opened only between two branches its git repository holds, see below, with no
 between them, and otherwise refused with `422`; its head is the branch's commit and its number the
 next after every pull request's, issue's and conversation's. A comment goes on a pull request, an
 issue or a conversation, and a label on a pull request or an issue; removing a label it does not
-carry is refused with `404`, "Label does not exist". An issue is kept in the repository's `issues`,
-a field of the world that may be left out and is written back only when there are some, each
-`{"number": 312, "title": "...", "body": "...", "labels": ["devflow"]}`, its number not a pull
-request's. A merge is the owner's merge, by the app.
+carry is refused with `404`, "Label does not exist". An issue the app opens is kept in the repository's
+`issues`, as a staged one is, by `devflow-fake[bot]`, open, blocked by nothing and never edited, so
+listing issues by label answers it. A merge is the owner's merge, by the app.
 
 Each repository has a bare git repository of its own, in a temporary folder deleted with the fake,
 made empty, `main` its default branch, the first time `CloneAddress` is asked for it, which answers
@@ -1003,6 +1033,77 @@ The two tables, from `migrations/0005_waiting_items.sql`, both guarded like ever
 - `project_reads`: `project_id`, its primary key with the same reference, `user_id`,
   `last_attempt_at`, `last_success_at`, null before a read succeeds, and `last_error`, the phrase,
   null after a success.
+
+## Cards
+
+A project's settings, and the cards each read of it picks. Why they are built so is "Cards" in
+`docs/devflow-architecture.md`. It is `ProjectSettings.cs` and `ProjectEndpoints.cs` in
+`src/DevFlow/Projects/`, and `CardPicker`, `CardStore` and `CardEndpoints` in `src/DevFlow/Cards/`.
+
+### Settings
+
+Four, and only the four something reads:
+
+| Setting | Default | What it does |
+|---|---|---|
+| `pickup_label` | `devflow` | An open issue carrying it is a card |
+| `hold_label` | `devflow-hold` | A card carrying it is held |
+| `attention_label` | `devflow-attention` | What a later part marks a card or an issue that needs the owner with |
+| `waits_for_owner` | `never` | `never` or `always`: whether a card's pull request waits for the owner, read by a later part |
+
+A label is written, at most 50 characters, GitHub's limit, with no space at either end, no comma,
+since GitHub's list of issues by label takes a comma separated list, and no control character; and
+the three are different names whatever their case, as GitHub's label names are.
+
+- `GET /devflow/api/projects/{id}/settings` answers the four,
+  `{"pickup_label", "hold_label", "attention_label", "waits_for_owner"}`. Another user's project,
+  or none, is `404`.
+- `PUT /devflow/api/projects/{id}/settings` takes all four and answers them as saved. One that
+  breaks a rule, or is missing, is `422`, a validation problem whose `errors` names each field, and
+  nothing changes; another user's project, or none, is `404`. From another origin, `403`.
+
+The table, from `migrations/0010_project_settings.sql`, guarded like every scoped table:
+`project_settings`, `project_id`, its primary key, and `user_id`, referencing `projects` with
+`ON DELETE CASCADE` and `ON UPDATE CASCADE`, and the four columns with their defaults and checks. A
+trigger on `projects` makes a project's row when the project is made, running as the caller, and the
+migration made one for every project before it.
+
+### Cards
+
+Each read of a project, `ProjectReader.Read`, picks its cards after its waiting items, see "Reading
+a project" under "What waits", and stores both in one transaction:
+
+- `ICodeHost.LabelledIssues` lists the open issues carrying `pickup_label`; a pull request among them
+  is never a card.
+- A card the owner's linked login did not write, or written while he has no link, is `ignored`;
+  otherwise `ICodeHost.Edits` reads who edited its body and title, and one anyone else edited is
+  `ignored`. A card carrying `hold_label` is `held`. Otherwise `ICodeHost.BlockedBy` reads what it is
+  blocked by, and it is `queued`, waiting for what of that is still open.
+- Its priority is `high` with the label `priority: high`, `low` with `priority: low`, and `none`
+  otherwise.
+- `CardStore.Store` merges them into the project's cards: a new card is inserted, one that has not
+  started is updated, one that has started keeps its state unless it is now ignored, and one no
+  longer listed is deleted, unless its run is under way, when it is marked `unlabelled`.
+
+The reasons, as stored and shown: "Dev flow does not know your GitHub login: link GitHub on the
+Projects tab", "Written by <login>: only your own cards are picked", "Edited by <login>: only cards
+nobody else has edited are picked", "Held by the label <hold label>", and "Waits for #12", "Waits for
+#12 and #14" or "Waits for owner/name#3"; null when a card is queued with nothing to wait for.
+
+`CardStore.Queue(projectId)` answers the numbers of the queued cards with nothing to wait for, in
+the order they are handed out: high, none, low, each oldest first.
+
+- `GET /devflow/api/projects/{id}/cards` answers `{"cards": [...]}`, every card as last read, newest
+  change first: `number`, `title`, `web_url`, `state`, `reason`, `waits_for`, `priority` and
+  `changed_at`. It reads what is stored, never GitHub. Another user's project, or none, is `404`.
+
+The table, from `migrations/0011_cards.sql`, guarded like every scoped table: `cards`, `id`,
+`project_id` and `user_id` referencing `projects` as `project_settings` does, `number`, unique per
+project, `title`, `web_url`, `state`, one of `queued`, `building`, `checking`, `reviewing`, `fixing`,
+`waiting_for_owner`, `done`, `stopped`, `held` and `ignored`, `reason`, `waits_for`, a `text[]`,
+`priority`, `issue_created_at`, the record of what was picked, `picked_body_sha256`, `picked_title`
+and `picked_edit`, null for a card never picked, `unlabelled`, `changed_at`, when its state, reason or
+what it waits for last changed, and `read_at`.
 
 ## Acting from the page
 

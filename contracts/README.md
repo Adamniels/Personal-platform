@@ -184,11 +184,34 @@ would write to this repository:
 - `labels.json`: `gh api repos/Adamniels/Personal-platform/issues/267/labels`, the list of labels
   adding one or removing one answers with `200`.
 - `issue.json`: `gh api repos/Adamniels/Personal-platform/issues/336`, an open issue, the shape
-  `POST /repos/{owner}/{repo}/issues` answers with `201`.
+  `POST /repos/{owner}/{repo}/issues` answers with `201`. The adapter reads it as it reads an entry
+  of `issues-labelled.json` below, the same fields.
 - `merge.json`, written by hand from GitHub's documented `200` answer to merging a pull request,
   `sha`, `merged` and `message`.
 
 The answer to commenting as the app is the first entry of `issue-comments.json`, the same shape.
+
+What picking cards reads was recorded on 2026 11 17 the same way, read by
+`devflow/tests/DevFlow.Tests/GitHub/GitHubIssueTests.cs`; see "Cards" in `devflow/README.md`. The
+two REST answers have each `body` cut to its first line with
+`jq 'map(.body |= (if . == null then . else (split("\n")[0]) end))'`, since the adapter keeps a
+body as it is and the full ones are long:
+
+- `issues-labelled.json`: `gh api 'repos/Adamniels/Personal-platform/issues?state=open&per_page=2'`,
+  the list the adapter reads with `labels=<the pick-up label>`, in the same shape. No issue carried
+  a label when it was recorded, so it holds the two newest open ones: 353, a pull request, which
+  GitHub marks with a `pull_request` field, and 347, an issue. The adapter reads `number`, `title`,
+  `user.login`, `labels[].name`, `body`, `html_url`, `created_at` and whether `pull_request` is
+  there.
+- `issue-blocked-by.json`: `gh api repos/Adamniels/Personal-platform/issues/339/dependencies/blocked_by`,
+  the four issues 339 is blocked by, two open and two closed, of which the adapter reads `number`,
+  `state`, `html_url`, `repository.name` and `repository.owner.login`.
+- `issue-edits.json`: `gh api graphql` with the query `GitHubCodeHost.EditsQuery` in
+  `devflow/src/DevFlow/CodeHost/GitHub/GitHubCodeHost.Issues.cs`, exactly, and `owner`
+  `Adamniels`, `name` `Personal-platform`, `number` 4 and both `with` variables true: issue 4's two
+  body edits, the first version among them, and its one change of title.
+- `issue-edits-not-found.json`: the same query for issue 99999, which does not exist, GraphQL's
+  `200` with `issue` null and an error of type `NOT_FOUND`.
 
 `installation-token.json` is written by hand from GitHub's documented answer to
 `POST /app/installations/{installation_id}/access_tokens`, with a made up token. The tests set its

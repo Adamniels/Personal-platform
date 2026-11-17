@@ -80,6 +80,16 @@ function renderPage(
 			list = { ...list, key_made_at: "2026-11-17T12:00:00+00:00" };
 			return Promise.resolve({ key: KEY, save_command: SAVE });
 		}),
+		loadSettings: vi.fn(() =>
+			Promise.resolve({
+				pickup_label: "devflow",
+				hold_label: "devflow-hold",
+				attention_label: "devflow-attention",
+				waits_for_owner: "never",
+			}),
+		),
+		saveSettings: vi.fn((_: string, settings) => Promise.resolve(settings)),
+		loadCards: vi.fn(() => Promise.resolve({ cards: [] })),
 		copy: vi.fn(() => Promise.resolve()),
 		back: vi.fn(),
 	};
@@ -113,6 +123,24 @@ describe("a project's page", () => {
 
 		expect(await screen.findByText("There is no such project")).toBeTruthy();
 		expect(screen.queryByRole("article", { name: "Workers" })).toBeNull();
+		expect(screen.queryByRole("article", { name: "Settings" })).toBeNull();
+	});
+
+	test("shows the project's settings, then its cards, then its workers", async () => {
+		const { loadSettings, loadCards } = renderPage();
+
+		const settings = await screen.findByRole("article", { name: "Settings" });
+		const cards = await screen.findByRole("article", { name: "Cards" });
+		const workers = await panel();
+		expect(loadSettings).toHaveBeenCalledWith(ID);
+		expect(loadCards).toHaveBeenCalledWith(ID);
+		expect(
+			settings.compareDocumentPosition(cards) &
+				Node.DOCUMENT_POSITION_FOLLOWING,
+		).toBeTruthy();
+		expect(
+			cards.compareDocumentPosition(workers) & Node.DOCUMENT_POSITION_FOLLOWING,
+		).toBeTruthy();
 	});
 
 	test("without a key or a worker, it offers to make the key", async () => {

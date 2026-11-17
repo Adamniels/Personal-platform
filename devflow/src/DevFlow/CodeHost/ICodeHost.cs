@@ -45,6 +45,19 @@ public interface ICodeHost
     /// </summary>
     Task<CodeHostResult<FileAtCommit>> DefaultBranchFile(Guid userId, Repository repository, string path, CancellationToken cancellationToken);
 
+    /// <summary>The repository's open issues carrying <paramref name="label"/>, as GitHub lists
+    /// them: pull requests among them, each marked, in no particular order. A label the repository
+    /// does not have lists nothing.</summary>
+    Task<CodeHostResult<IReadOnlyList<Issue>>> LabelledIssues(Guid userId, Repository repository, string label, CancellationToken cancellationToken);
+
+    /// <summary>The issues the issue with the number is blocked by, open or closed, in this
+    /// repository or another. Not found when there is no such issue.</summary>
+    Task<CodeHostResult<IReadOnlyList<Dependency>>> BlockedBy(Guid userId, Repository repository, int number, CancellationToken cancellationToken);
+
+    /// <summary>Every edit of the issue's body, then every change of its title, each with who made
+    /// it; empty when it was never edited. Not found when there is no such issue.</summary>
+    Task<CodeHostResult<IReadOnlyList<IssueEdit>>> Edits(Guid userId, Repository repository, int number, CancellationToken cancellationToken);
+
     /// <summary>The installations of Dev flow's app that the person whose token
     /// <paramref name="userToken"/> is can reach, each with the account it is on, in no particular
     /// order. Read as the person, never as the app, so what is listed is what they may

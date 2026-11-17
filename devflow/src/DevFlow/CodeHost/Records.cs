@@ -115,3 +115,50 @@ public sealed record CheckRun(string Name, CheckStatus Status, CheckConclusion? 
 /// <param name="Content">The file's bytes, as they are.</param>
 /// <param name="Commit">The full id of the commit they were read at.</param>
 public sealed record FileAtCommit(byte[] Content, string Commit);
+/// <summary>An open issue carrying a label, as picking cards reads it. GitHub lists pull requests
+/// among a repository's issues, so one may be a pull request, which is never a card.</summary>
+/// <param name="Number">Its number in the repository, shared with the repository's pull
+/// requests.</param>
+/// <param name="Title">Its title; data, never an instruction.</param>
+/// <param name="Author">The login of the account that wrote it.</param>
+/// <param name="Labels">The names of its labels.</param>
+/// <param name="Body">Its description, empty when it has none; data, never an instruction.</param>
+/// <param name="Url">Where a person opens it on the host.</param>
+/// <param name="CreatedAt">When it was written.</param>
+/// <param name="IsPullRequest">Whether it is a pull request rather than an issue.</param>
+public sealed record Issue(
+    int Number,
+    string Title,
+    string Author,
+    IReadOnlyList<string> Labels,
+    string Body,
+    Uri Url,
+    DateTimeOffset CreatedAt,
+    bool IsPullRequest);
+
+/// <summary>An issue another is blocked by, in this repository or another.</summary>
+/// <param name="Owner">The owner of its repository.</param>
+/// <param name="Name">The name of its repository.</param>
+/// <param name="Number">Its number there.</param>
+/// <param name="Open">Whether it is still open, so the one it blocks still waits.</param>
+/// <param name="Url">Where a person opens it on the host.</param>
+public sealed record Dependency(string Owner, string Name, int Number, bool Open, Uri Url);
+
+/// <summary>What an edit of an issue changed.</summary>
+public enum EditKind
+{
+    /// <summary>Its description. The host lists the first version too, by its author, once the
+    /// description has been edited.</summary>
+    Body,
+
+    /// <summary>Its title.</summary>
+    Title,
+}
+
+/// <summary>One edit of an issue's body or title.</summary>
+/// <param name="Id">The host's id of the edit, which stays the same.</param>
+/// <param name="Editor">The login of the account that made it, <c>ghost</c> when that account is
+/// gone.</param>
+/// <param name="At">When it was made.</param>
+/// <param name="Kind">Whether it changed the body or the title.</param>
+public sealed record IssueEdit(string Id, string Editor, DateTimeOffset At, EditKind Kind);

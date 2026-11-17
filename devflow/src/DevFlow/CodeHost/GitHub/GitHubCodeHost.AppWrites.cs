@@ -76,8 +76,7 @@ public sealed partial class GitHubCodeHost
         Require(token, WritePurpose.Post, repository);
         ArgumentNullException.ThrowIfNull(labels);
         var answer = await Send(HttpMethod.Post, $"{Repo(repository)}/issues", new IssueBody(title, body, labels), token.Value, cancellationToken);
-        return Written<IssueAnswer, Issue>(answer, HttpStatusCode.Created, issue =>
-            new Issue(issue.Number, issue.Title, Names(issue.Labels), issue.HtmlUrl));
+        return Written<IssueAnswer, Issue>(answer, HttpStatusCode.Created, ToIssue);
     }
 
     /// <summary><c>PUT /repos/{owner}/{repo}/pulls/{number}/merge</c> with <c>sha</c> and
@@ -135,7 +134,4 @@ public sealed partial class GitHubCodeHost
 
     /// <summary>What opening an issue sends.</summary>
     private sealed record IssueBody(string Title, string Body, IReadOnlyList<string> Labels);
-
-    /// <summary>The fields of an issue GitHub answers that the adapter reads.</summary>
-    private sealed record IssueAnswer(int Number, string Title, IReadOnlyList<LabelAnswer> Labels, Uri HtmlUrl);
 }

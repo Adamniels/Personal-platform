@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 
 using DevFlow.Acting;
+using DevFlow.Cards;
 using DevFlow.ClaudeLogin;
 using DevFlow.CodeHost;
 using DevFlow.CodeHost.GitHub;
@@ -84,6 +85,8 @@ public static class DevFlowApp
         // repository" in devflow/README.md.
         builder.Services.AddSingleton(provider => new ProjectStore(
             database, provider.GetRequiredService<UserTokens>(), provider.GetRequiredService<ICodeHost>(), provider.GetRequiredService<TimeProvider>()));
+        // A project's settings, made with it. See "Cards" in devflow/README.md.
+        builder.Services.AddSingleton(new ProjectSettingsStore(database));
         // Reading each project into the snapshot the pages read, the one seam that asks for a read,
         // and the loop that asks for every project's. See "Reading and the snapshot" in
         // devflow/docs/devflow-architecture.md.
@@ -138,6 +141,7 @@ public static class DevFlowApp
         app.MapDisplay();
         app.MapAttention();
         app.MapWorkers();
+        app.MapCards();
         app.MapRecipe();
         app.MapClaudeLogin();
         app.MapPages(webRoot);

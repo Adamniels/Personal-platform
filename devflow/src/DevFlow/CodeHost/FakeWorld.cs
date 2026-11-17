@@ -43,8 +43,7 @@ public sealed record FakeInstallation(long Id, string Account, IReadOnlyList<Fak
 /// request without one has an empty conversation.</param>
 /// <param name="Commits">The statuses and check runs posted on a commit, by its id. A commit not
 /// listed is not found.</param>
-/// <param name="Issues">The issues the app opened, or a test staged, with their labels; a field a
-/// world may leave out, and left out when it is written back while there are none.</param>
+/// <param name="Issues">Its issues, by number, which pull requests' numbers are not.</param>
 public sealed record FakeRepository(
     long Id,
     string Owner,
@@ -53,11 +52,26 @@ public sealed record FakeRepository(
     IReadOnlyList<FakeConversation> Conversations,
     IReadOnlyList<FakeCommit> Commits,
     IReadOnlyList<FakeFile> Files,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<FakeIssue>? Issues = null);
+    IReadOnlyList<FakeIssue> Issues);
 
-/// <summary>An issue, by its number, which it shares with the repository's pull requests. Its
-/// comments are its conversation, under the same number.</summary>
-public sealed record FakeIssue(int Number, string Title, string Body, IReadOnlyList<string> Labels);
+/// <summary>An issue, as picking cards reads it.</summary>
+/// <param name="Open">Whether it is open; a closed one is never listed by label, and no longer
+/// holds back what it blocks.</param>
+/// <param name="BlockedBy">The numbers of the issues in the same repository it is blocked by,
+/// each listed among the repository's issues.</param>
+/// <param name="Edits">Its edits, as <see cref="ICodeHost.Edits"/> answers them; empty when it was
+/// never edited.</param>
+public sealed record FakeIssue(
+    int Number,
+    string Title,
+    string Author,
+    IReadOnlyList<string> Labels,
+    string Body,
+    Uri Url,
+    DateTimeOffset CreatedAt,
+    bool Open,
+    IReadOnlyList<int> BlockedBy,
+    IReadOnlyList<IssueEdit> Edits);
 
 /// <summary>The conversation of the issue or pull request with the number, oldest first.</summary>
 public sealed record FakeConversation(int Number, IReadOnlyList<Comment> Comments);
@@ -144,10 +158,14 @@ public static partial class FakeJson
         ?? Duplicate(repository.Conversations, conversation => conversation.Number, i => $"{at}.conversations[{i}].number")
         ?? Duplicate(repository.Commits, commit => commit.Id, i => $"{at}.commits[{i}].id")
         ?? Duplicate(repository.Files, file => (file.Path, file.Branch), i => $"{at}.files[{i}]")
-        ?? Duplicate(repository.Issues ?? [], issue => issue.Number, i => $"{at}.issues[{i}].number")
-        ?? (repository.Issues ?? []).Select((issue, i) => repository.PullRequests.Any(pull => pull.Number == issue.Number)
-            ? new Malformed($"{at}.issues[{i}].number", "is a pull request's number; an issue and a pull request share numbers")
-            : null).FirstOrDefault(error => error is not null);
+        ?? Duplicate(repository.Issues, issue => issue.Number, i => $"{at}.issues[{i}].number")
+        ?? repository.Issues.Select((issue, i) => repository.PullRequests.Any(pull => pull.Number == issue.Number)
+                ? new Malformed($"{at}.issues[{i}].number", "is a pull request's number; an issue and a pull request never share one")
+                : issue.BlockedBy.Select((number, j) => repository.Issues.Any(other => other.Number == number)
+                        ? null
+                        : new Malformed($"{at}.issues[{i}].blocked_by[{j}]", "names no issue listed in this repository"))
+                    .FirstOrDefault(error => error is not null))
+            .FirstOrDefault(error => error is not null);
 
     /// <summary>The first item whose key an earlier one has, named by <paramref name="field"/>.</summary>
     private static Malformed? Duplicate<T, TKey>(IReadOnlyList<T> items, Func<T, TKey> key, Func<int, string> field)

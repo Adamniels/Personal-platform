@@ -110,10 +110,3 @@ public abstract record WriteResult<T>
     /// whether it was done, or what it made, is not known.</summary>
     public sealed record Unavailable(DateTimeOffset? RetryAt) : WriteResult<T>;
 }
-
-/// <summary>An issue the app opened.</summary>
-/// <param name="Number">Its number, shared with the repository's pull requests.</param>
-/// <param name="Title">Its title.</param>
-/// <param name="Labels">The names of the labels it was opened with.</param>
-/// <param name="Url">Where a person opens it on the host.</param>
-public sealed record Issue(int Number, string Title, IReadOnlyList<string> Labels, Uri Url);

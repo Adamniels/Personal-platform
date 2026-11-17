@@ -45,7 +45,7 @@ public sealed class FakeAppWriteTests
     [
         new FakeInstallation(41, "Adamniels",
         [
-            new FakeRepository(Platform.Id, Platform.Owner, Platform.Name, [Waiting], [new FakeConversation(310, [])], [], []),
+            new FakeRepository(Platform.Id, Platform.Owner, Platform.Name, [Waiting], [new FakeConversation(310, [])], [], [], []),
         ]),
     ]);
 
@@ -88,6 +88,7 @@ public sealed class FakeAppWriteTests
             (opened.HeadCommit, opened.HeadBranch, opened.BaseBranch, opened.Author, opened.State));
         Assert.Equal((FakeCodeHost.AppLogin, "Picked up."), (comment.Author, comment.Body));
         Assert.Equal(["devflow"], issue.Labels);
+        Assert.Equal((FakeCodeHost.AppLogin, "Something landed.", false), (issue.Author, issue.Body, issue.IsPullRequest));
 
         // Each write recorded with who made it: the app with its key's purpose, or the person.
         var by = FakeCodeHost.AppLogin;
@@ -111,8 +112,8 @@ public sealed class FakeAppWriteTests
         Assert.Equal(["in-review"], repository.PullRequests.Single(pull => pull.Number == 304).Labels);
         Assert.Equal(["has-decision"], repository.PullRequests.Single(pull => pull.Number == 311).Labels);
         Assert.Equal([FakeCodeHost.AppLogin, FakeUser.Default.Login], Assert.IsType<CodeHostResult<IReadOnlyList<Comment>>.Found>(await host.Comments(Owner, Platform, 311, Ct)).Value.Select(each => each.Author));
-        var stored = Assert.Single(repository.Issues!);
-        Assert.Equal((312, "Main moved", "Something landed.", "devflow"), (stored.Number, stored.Title, stored.Body, Assert.Single(stored.Labels)));
+        var stored = Assert.Single(repository.Issues);
+        Assert.Equal((312, "Main moved", "Something landed.", "devflow", FakeCodeHost.AppLogin, true), (stored.Number, stored.Title, stored.Body, Assert.Single(stored.Labels), stored.Author, stored.Open));
     }
 
     [Fact]

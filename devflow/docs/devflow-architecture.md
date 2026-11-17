@@ -56,6 +56,11 @@ recipe and start it, and says when one needs building again.
 On the Projects tab the owner also gives Dev flow his Claude login once, which it keeps sealed and
 warns him about a month before it is due.
 
+A project's page also holds its settings, the labels that pick and hold its cards and whether a
+card's pull request waits for the owner, and lists its cards: each read of the project picks the
+open issues he wrote that carry the pick-up label, and each card shows as queued, held, waiting for
+what blocks it, or ignored with why, see "Cards" below. Nothing hands a card to a worker yet.
+
 ## The code host seam
 
 Everything Dev flow asks of a code host goes through `ICodeHost`, in `src/DevFlow/CodeHost/`:
@@ -324,6 +329,71 @@ which is data.
 **One project never stops another**, anti goal 7 of the spec: each read has its own `try`, inside
 the reader and again inside the refresher, so a project whose read throws is recorded as failing
 and the loop goes on to the next, and the next tick tries it again.
+
+## Cards
+
+A card is one piece of work the owner hands Dev flow: an open issue, never a pull request, that
+carries the project's pick-up label, `devflow` unless its settings say otherwise. Picking, as the
+spec's round 2 decided, is by a label and only by a label. The routes, the tables and the page are
+"Cards" in `devflow/README.md`.
+
+**Picking is part of each project's read.** After the waiting list, `ProjectReader` asks
+`CardPicker` for the project's cards, through the same `ICodeHost` and as the app, and stores them
+with `CardStore` in the same transaction as the waiting items, so the two always describe one read,
+and a read that fails changes neither and is recorded as failing like any other. Cards are read on
+each project's minute, through the same seam, as the waiting list is.
+
+**How a card is picked.** `CardPicker` lists the open issues carrying the pick-up label, which
+GitHub answers with pull requests among them, and drops the pull requests. Then, for each, in this
+order, the first that holds decides:
+
+1. The owner has not linked GitHub: ignored, since Dev flow does not know which login is his.
+2. Another login wrote it: ignored, saying who.
+3. Anyone but the owner edited its body or its title: ignored, saying who. Who edited an issue is
+   read through GraphQL, since REST does not say; a deleted account shows as `ghost`, which is not
+   the owner either.
+4. It carries the hold label: held.
+5. Something it is blocked by is still open: queued, and its reason names what it waits for, `#12`,
+   or `owner/name#12` in another repository, so the queue says which card it waits for, as the spec
+   asks. It is not free to start until that is closed.
+6. Otherwise queued and free to start.
+
+The reads are ordered so a card costs only what decides it: one by someone else costs nothing
+beyond the list, and only a card nobody else touched costs the read of what blocks it. A picked
+card keeps a record of what was read, its body's SHA-256, its title, and the id of its edit
+history's newest entry, which later parts compare against before building on it and before
+merging, as "Not edited since it was read" in the spec's clarifications asks. Logins and labels are
+compared whatever their case, as GitHub's are.
+
+**Only the owner's cards count, fixed in code until part 5.** The spec gives each project a list of
+trusted accounts; until part 5 builds that setting, the list is the project's user's linked login
+alone. A card that is anything else is never queued, and is listed as ignored with the reason, so a
+card that does not run says why rather than vanishing.
+
+**A card that changes.** A card that has not started is decided afresh on every read. One that has
+started stays where its run put it: when the owner changed its body or title, its record is
+replaced and it stays; when anyone else did, it is ignored with the reason, and a run on it is not
+merged, since its state is no longer one a run merges from. An ignored card keeps the record it had,
+so a run already under way is still checked against what was picked.
+
+**Taking the label off** removes a card that has not started. One whose run is under way is marked
+unlabelled and finishes its run, and the part that ends a run removes it then; one that has
+finished, done or stopped, is removed.
+
+**The order** in which queued cards free to start are handed out is `CardStore.Queue`:
+`priority: high`, then no priority label, then `priority: low`, each oldest first by when the issue
+was written. The spec left where priority is read from to round 6; it is these two labels, matched
+whatever their case.
+
+**The settings table is a deliberate exception** to "A table arrives with the first slice that
+needs it, in its documented final shape" in `High-level/docs/how-we-build.md`. `project_settings`
+holds the four settings this part reads, the three labels and whether a card's pull request waits
+for the owner, and nothing else. The spec's other settings, questions before starting, where a
+feature's cards land, "sometimes", trusted accounts, the model per job, subscription or API key and
+schedules, arrive with the parts that build them, each with its own migration: the spec's list of
+settings is not a designed table, and a column for behaviour not yet built would be a setting the
+page shows and the code ignores. A row is made with each project by a trigger, so no way of making
+a project can forget it.
 
 ## Acting from the page
 
@@ -719,6 +789,15 @@ its reason, or a risk accepted on purpose; each slice adds the ones it builds.
   as well. A worker's key sent to a user's route is refused the same way, so the two ways to
   authenticate never stand in for each other; `WorkerApiTests.AWorkerKeyCannotCallTheUsersRoutes`
   keeps both.
+- **Only the owner's own, unedited cards are instructions.** A card is picked only when the owner's
+  linked login wrote it and nobody else has edited its body or title, by GitHub's own edit history,
+  read through GraphQL; until part 5 adds a project's trusted accounts, the owner is the only
+  account that counts. Anything else carrying the pick-up label, a stranger's issue, the owner's
+  issue edited by someone else, or any issue while the owner has no link, is ignored, and the page
+  lists it as ignored with why, so it is seen rather than silently dropped. A card's title and body
+  are data, shown as text. The accepted risk: anyone who can label issues in a repository can make
+  a card appear as ignored on the owner's page, which shows a stranger's title there as text and
+  runs nothing. GitHub's edit history does not cover a comment, which no card is read from yet.
 - **The app is registered for one account.** "Only on this account" means only the owner's account
   can install it. Installing it on an organisation needs it opened to any account first, and then
   any stranger could install it on their own repositories too; that gains them nothing, since

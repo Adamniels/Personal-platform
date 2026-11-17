@@ -115,8 +115,9 @@ internal sealed class Reading : IAsyncDisposable
                     [.. pulls.Select(p => p.Pull)],
                     [.. pulls.Select(p => new FakeConversation(p.Pull.Number, p.Comments)), .. slices ?? []],
                     [.. pulls.Where(p => p.Statuses.Count > 0 || p.CheckRuns.Count > 0).Select(p => new FakeCommit(p.Pull.HeadCommit, p.Statuses, p.CheckRuns))],
+                    [],
                     []),
-                .. more.Select(id => new FakeRepository(id, "Adamniels", $"repository-{id}", [], [], [], [])),
+                .. more.Select(id => new FakeRepository(id, "Adamniels", $"repository-{id}", [], [], [], [], [])),
             ]),
         ]);
 
@@ -299,6 +300,24 @@ internal sealed class CountingCodeHost(ICodeHost inner) : ICodeHost
     {
         Record("DefaultBranchFile", userId, repository, path);
         return inner.DefaultBranchFile(userId, repository, path, cancellationToken);
+    }
+
+    public Task<CodeHostResult<IReadOnlyList<Issue>>> LabelledIssues(Guid userId, CodeHost.Repository repository, string label, CancellationToken cancellationToken)
+    {
+        Record("LabelledIssues", userId, repository, label);
+        return inner.LabelledIssues(userId, repository, label, cancellationToken);
+    }
+
+    public Task<CodeHostResult<IReadOnlyList<Dependency>>> BlockedBy(Guid userId, CodeHost.Repository repository, int number, CancellationToken cancellationToken)
+    {
+        Record("BlockedBy", userId, repository, $"{number}");
+        return inner.BlockedBy(userId, repository, number, cancellationToken);
+    }
+
+    public Task<CodeHostResult<IReadOnlyList<IssueEdit>>> Edits(Guid userId, CodeHost.Repository repository, int number, CancellationToken cancellationToken)
+    {
+        Record("Edits", userId, repository, $"{number}");
+        return inner.Edits(userId, repository, number, cancellationToken);
     }
 
     public Task<CodeHostResult<IReadOnlyList<Installation>>> Installations(Guid userId, string userToken, CancellationToken cancellationToken) =>

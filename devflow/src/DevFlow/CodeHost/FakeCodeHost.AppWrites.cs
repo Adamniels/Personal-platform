@@ -182,8 +182,8 @@ public sealed partial class FakeCodeHost : IDisposable
     public Task<WriteResult<IReadOnlyList<string>>> RemoveLabel(Guid userId, AppWriteToken token, Repository repository, int number, string label, CancellationToken cancellationToken) =>
         Label(userId, token, repository, number, label, add: false);
 
-    /// <summary>Opened by the app with the next number and the labels, in the world's
-    /// issues.</summary>
+    /// <summary>Opened by the app with the next number and the labels, open, blocked by nothing and
+    /// never edited, in the world's issues.</summary>
     public Task<WriteResult<Issue>> OpenIssue(Guid userId, AppWriteToken token, Repository repository, string title, string body, IReadOnlyList<string> labels, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(token);
@@ -194,9 +194,9 @@ public sealed partial class FakeCodeHost : IDisposable
         return Task.FromResult(AsApp<WriteResult<Issue>>(userId, token, repository, Unavailable<Issue>(), Refused<Issue>, found =>
         {
             var number = NextNumber(found);
-            var issue = new FakeIssue(number, title, body, [.. labels.Distinct(StringComparer.Ordinal)]);
-            return (new WriteResult<Issue>.Written(new Issue(number, title, issue.Labels, WebAddress(found, $"issues/{number}"))),
-                found with { Issues = [.. found.Issues ?? [], issue] },
+            var issue = new FakeIssue(number, title, AppLogin, [.. labels.Distinct(StringComparer.Ordinal)], body, WebAddress(found, $"issues/{number}"), _time.GetUtcNow(), Open: true, BlockedBy: [], Edits: []);
+            return (new WriteResult<Issue>.Written(new Issue(issue.Number, issue.Title, issue.Author, issue.Labels, issue.Body, issue.Url, issue.CreatedAt, IsPullRequest: false)),
+                found with { Issues = [.. found.Issues, issue] },
                 new FakeWrite("issue", repository.Id, number, null, null, body, AppLogin, Post, Title: title));
         }));
     }
@@ -244,7 +244,7 @@ public sealed partial class FakeCodeHost : IDisposable
         return Task.FromResult(AsApp<WriteResult<IReadOnlyList<string>>>(userId, token, repository, Unavailable<IReadOnlyList<string>>(), Refused<IReadOnlyList<string>>, found =>
         {
             var pull = found.PullRequests.FirstOrDefault(each => each.Number == number);
-            var issue = found.Issues?.FirstOrDefault(each => each.Number == number);
+            var issue = found.Issues.FirstOrDefault(each => each.Number == number);
             if ((pull?.Labels ?? issue?.Labels) is not { } labels)
             {
                 return (Refused<IReadOnlyList<string>>(StatusCodes.Status404NotFound, NotFoundMessage), null, null);
@@ -260,7 +260,7 @@ public sealed partial class FakeCodeHost : IDisposable
                 : [.. labels.Where(each => each != label)];
             var changed = pull is not null
                 ? found with { PullRequests = [.. found.PullRequests.Select(each => each.Number == number ? each with { Labels = after } : each)] }
-                : found with { Issues = [.. found.Issues!.Select(each => each.Number == number ? each with { Labels = after } : each)] };
+                : found with { Issues = [.. found.Issues.Select(each => each.Number == number ? each with { Labels = after } : each)] };
             return (new WriteResult<IReadOnlyList<string>>.Written(after), changed,
                 new FakeWrite(add ? "label_added" : "label_removed", repository.Id, number, null, null, null, AppLogin, Post, Label: label));
         }));
@@ -326,14 +326,14 @@ public sealed partial class FakeCodeHost : IDisposable
     /// repository.</summary>
     private static bool Holds(FakeRepository repository, int number) =>
         repository.PullRequests.Any(pull => pull.Number == number)
-        || (repository.Issues ?? []).Any(issue => issue.Number == number)
+        || repository.Issues.Any(issue => issue.Number == number)
         || repository.Conversations.Any(conversation => conversation.Number == number);
 
     /// <summary>The number after every pull request's, issue's and conversation's, which share
     /// their numbers as GitHub's do.</summary>
     private static int NextNumber(FakeRepository repository) =>
         repository.PullRequests.Select(pull => pull.Number)
-            .Concat((repository.Issues ?? []).Select(issue => issue.Number))
+            .Concat(repository.Issues.Select(issue => issue.Number))
             .Concat(repository.Conversations.Select(conversation => conversation.Number))
             .DefaultIfEmpty(0).Max() + 1;
 
