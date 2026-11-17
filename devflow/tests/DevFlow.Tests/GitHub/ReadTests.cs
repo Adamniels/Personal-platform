@@ -275,6 +275,45 @@ public sealed class ReadTests
     }
 
     [Fact]
+    public async Task ADefaultBranchFileIsReadAtTheLastCommitThatChangedIt()
+    {
+        using var host = new GitHubHost();
+        var commit = (string)Fixture.Node("commits-path.json")[0]!["sha"]!;
+        var bytes = Encoding.UTF8.GetBytes("FROM base\n");
+        host.Stub.Answer = request => request.Path switch
+        {
+            $"{Repo}/commits" => StubGitHub.Json(Fixture.Text("commits-path.json")),
+            $"{Repo}/contents/devflow/Dockerfile" => new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(bytes) },
+            _ => new HttpResponseMessage(HttpStatusCode.NotFound),
+        };
+
+        var read = Results.Value(await host.CodeHost.DefaultBranchFile(GitHubHost.User, GitHubHost.Platform, "devflow/Dockerfile", Ct));
+
+        Assert.Equal(commit, read.Commit);
+        Assert.Equal(bytes, read.Content);
+        Assert.Equal(2, host.Stub.Reads.Count);
+        // The newest commit of the default branch that changed the path, GitHub's default when no
+        // sha is named; then the file at exactly that commit, so the bytes and the commit agree.
+        var commits = host.Stub.Reads[0];
+        Assert.Equal($"{Repo}/commits", commits.Path);
+        Assert.Equal(new Dictionary<string, string> { ["path"] = "devflow/Dockerfile", ["per_page"] = "1" }, commits.Query);
+        var file = host.Stub.Reads[1];
+        Assert.Equal($"{Repo}/contents/devflow/Dockerfile", file.Path);
+        Assert.Equal(new Dictionary<string, string> { ["ref"] = commit }, file.Query);
+        Assert.Equal("application/vnd.github.raw+json", file.Header("Accept"));
+
+        // No commit ever changed the path: the file is not found, and its contents are not asked for.
+        host.Stub.Answer = request => request.Path == $"{Repo}/commits"
+            ? StubGitHub.Json("[]")
+            : throw new InvalidOperationException("the contents were asked for");
+        Assert.Equal("NotFound { }", (await host.CodeHost.DefaultBranchFile(GitHubHost.User, GitHubHost.Platform, "devflow/Dockerfile", Ct)).ToString());
+
+        // A sha that is not a commit id is an answer that does not parse.
+        host.Stub.Answer = _ => StubGitHub.Json("""[{"sha": "main"}]""");
+        Assert.Equal("Unavailable { RetryAt =  }", (await host.CodeHost.DefaultBranchFile(GitHubHost.User, GitHubHost.Platform, "devflow/Dockerfile", Ct)).ToString());
+    }
+
+    [Fact]
     public async Task A404IsNotFoundAndA5xxIsUnavailable()
     {
         using var host = new GitHubHost();
@@ -382,6 +421,7 @@ public sealed class ReadTests
         await host.CodeHost.Comments(GitHubHost.User, GitHubHost.Platform, 1, Ct),
         await host.CodeHost.Statuses(GitHubHost.User, GitHubHost.Platform, "abc", Ct),
         await host.CodeHost.CheckRuns(GitHubHost.User, GitHubHost.Platform, "abc", Ct),
+        await host.CodeHost.DefaultBranchFile(GitHubHost.User, GitHubHost.Platform, ".devflow/Dockerfile", Ct),
         await host.CodeHost.File(GitHubHost.User, GitHubHost.Platform, "README.md", "main", Ct),
     ];
 

@@ -4,6 +4,7 @@ using Dapper;
 
 using DevFlow.CodeHost;
 using DevFlow.Runner;
+using DevFlow.Workers;
 
 using Npgsql;
 
@@ -85,7 +86,13 @@ public sealed partial class ProjectReader(UserDb database, ICodeHost host, TimeP
         {
             try
             {
-                return await Store(projectId, userId, items, now, cancellationToken) ? ReadResult.Read : ReadResult.NoSuchProject;
+                if (!await Store(projectId, userId, items, now, cancellationToken))
+                {
+                    return ReadResult.NoSuchProject;
+                }
+
+                await ReadRecipe(target, projectId, userId, cancellationToken);
+                return ReadResult.Read;
             }
             catch (Exception error) when (error is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
             {
@@ -273,6 +280,41 @@ public sealed partial class ProjectReader(UserDb database, ICodeHost host, TimeP
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Storing what project {Project} read failed; its items stay as they were")]
     private static partial void LogStoreFailed(ILogger logger, Guid project, Exception failed);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Reading the recipe of project {Project} failed; its version stays as it was")]
+    private static partial void LogRecipeFailed(ILogger logger, Guid project, Exception failed);
+
+    /// <summary>
+    /// Records the version of the project's recipe as its default branch has it now, so a worker
+    /// built from an older one is told apart; null when the branch has none. When the code host
+    /// does not answer, or reading fails, the version stays as it was, and the project's own read
+    /// is not failed for it: the recipe is the workers' business, not the waiting list's.
+    /// </summary>
+    private async Task ReadRecipe(ProjectTarget target, Guid projectId, Guid userId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var repository = new Repository(target.Installation, target.RepositoryId, target.Owner, target.Name);
+            string? version;
+            switch (await host.DefaultBranchFile(userId, repository, Recipes.RecipeEndpoints.RecipePath, cancellationToken))
+            {
+                case CodeHostResult<FileAtCommit>.Found { Value: var file }:
+                    version = file.Commit;
+                    break;
+                case CodeHostResult<FileAtCommit>.NotFound:
+                    version = null;
+                    break;
+                default:
+                    return;
+            }
+
+            await WorkerStore.RecipeRead(database, userId, projectId, version, cancellationToken);
+        }
+        catch (Exception error) when (error is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+        {
+            LogRecipeFailed(log, projectId, error);
+        }
+    }
 
     private sealed record ProjectTarget(long Installation, long RepositoryId, string Owner, string Name, string Bot, string? OwnerLogin);
 }

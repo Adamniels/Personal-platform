@@ -1,5 +1,6 @@
 using DevFlow.Api;
 using DevFlow.Protocol;
+using DevFlow.Recipes;
 
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
@@ -9,7 +10,10 @@ using PlatformAuth;
 namespace DevFlow.Workers;
 
 /// <summary>What making a key answers, the one time the key is ever sent.</summary>
-public sealed record WorkerKey(string Key);
+/// <param name="Key">The key.</param>
+/// <param name="SaveCommand">The command that saves it in the file the start command reads, with
+/// the key in it, so shown this once too.</param>
+public sealed record WorkerKey(string Key, string SaveCommand);
 
 /// <summary>
 /// Workers over HTTP. The user's two, under the <c>Api</c> policy and the origin check: making a
@@ -25,27 +29,29 @@ public static class WorkerEndpoints
     {
         ArgumentNullException.ThrowIfNull(routes);
 
-        routes.MapPost("/devflow/api/projects/{id:guid}/worker-key", async Task<Results<Ok<WorkerKey>, ProblemHttpResult>> (Guid id, HttpContext context, [FromServices] WorkerKeys keys) =>
+        routes.MapPost("/devflow/api/projects/{id:guid}/worker-key", async Task<Results<Ok<WorkerKey>, ProblemHttpResult>> (Guid id, HttpContext context, [FromServices] WorkerKeys keys, [FromServices] WorkerStore store, [FromServices] WorkerStart start) =>
             {
-                if (await keys.Make(context.UserId(), id, context.RequestAborted) is not { } key)
+                var userId = context.UserId();
+                if (await store.ProjectName(userId, id, context.RequestAborted) is not { } name
+                    || await keys.Make(userId, id, context.RequestAborted) is not { } key)
                 {
                     return NoSuchProject();
                 }
 
                 // Sent once, and kept by no cache on the way.
                 context.Response.Headers.CacheControl = "no-store";
-                return TypedResults.Ok(new WorkerKey(key));
+                return TypedResults.Ok(new WorkerKey(key, start.SaveCommand(name, key)));
             })
             .UserRoute("makeWorkerKey", "Make the project's worker key",
-                "A new key for the project's workers, answered this once: Dev flow keeps only its SHA-256 and never shows it again. It replaces the project's last key at once, so a worker holding that one is refused from then on. 404 for a project the caller does not have.",
+                "A new key for the project's workers, answered this once with save_command, the command that saves it in ~/.devflow/<project>.env for the start command to read: Dev flow keeps only its SHA-256 and never shows it again. It replaces the project's last key at once, so a worker holding that one is refused from then on. 404 for a project the caller does not have.",
                 StatusCodes.Status404NotFound);
 
-        routes.MapGet("/devflow/api/projects/{id:guid}/workers", async Task<Results<Ok<WorkerList>, ProblemHttpResult>> (Guid id, HttpContext context, [FromServices] WorkerStore store) =>
-                await store.List(context.UserId(), id, context.RequestAborted) is { } list
+        routes.MapGet("/devflow/api/projects/{id:guid}/workers", async Task<Results<Ok<WorkerList>, ProblemHttpResult>> (Guid id, HttpContext context, [FromServices] WorkerStore store, [FromServices] WorkerStart start) =>
+                await store.List(context.UserId(), id, start, context.RequestAborted) is { } list
                     ? TypedResults.Ok(list)
                     : NoSuchProject())
             .UserRoute("listWorkers", "The project's workers",
-                "Every worker that has said hello with the project's key, by when it first did, with what it reported and when it was last seen; and key_made_at, when the project's key was made, null before one has been. The key itself is never in it. 404 for a project the caller does not have.",
+                "Every worker that has said hello with the project's key, by when it first did, with what it reported, when it was last seen, and rebuild: recipe when it runs another version of the recipe than Dev flow last read, base_image when it runs on another base image than the one released, or null; key_made_at, when the project's key was made, null before one has been; recipe_version, the recipe's version as last read, null before then or when the default branch has none; and start_command, the command that builds and starts the project's worker. The key itself is never in it. 404 for a project the caller does not have.",
                 StatusCodes.Status404NotFound);
 
         routes.MapPost(WorkerApi.HelloPath, Hello)
@@ -55,7 +61,7 @@ public static class WorkerEndpoints
 
         routes.MapPost(WorkerApi.NextJobPath, NextJob)
             .WorkerRoute("workerNextJob", "A worker asks for work",
-                "Marks the worker seen and answers its next job; in this part there is none, so it is always 204. 409 for a worker that has not said hello in the key's project, which says hello and asks again; 422 without worker_id.",
+                "Marks the worker seen and answers its next job; in this part there is none, so it is always 204. A worker that needs a rebuild, running another version of the recipe than Dev flow last read or another base image than the one released, is never given one. 409 for a worker that has not said hello in the key's project, which says hello and asks again; 422 without worker_id.",
                 StatusCodes.Status409Conflict, StatusCodes.Status422UnprocessableEntity);
 
         return routes;
@@ -83,7 +89,7 @@ public static class WorkerEndpoints
             : TypedResults.Unauthorized();
     }
 
-    private static async Task<Results<NoContent, ProblemHttpResult>> NextJob(NextJobRequest request, HttpContext context, [FromServices] WorkerStore store)
+    private static async Task<Results<NoContent, ProblemHttpResult>> NextJob(NextJobRequest request, HttpContext context, [FromServices] WorkerStore store, [FromServices] WorkerStart start)
     {
         var errors = new Dictionary<string, string[]>();
         CheckId(request.WorkerId, errors);
@@ -92,10 +98,16 @@ public static class WorkerEndpoints
             return Invalid(errors);
         }
 
-        return await store.Seen(context.Worker(), request.WorkerId!.Value, context.RequestAborted)
-            ? TypedResults.NoContent()
-            : TypedResults.Problem(statusCode: StatusCodes.Status409Conflict, title: "Say hello first",
-                detail: "This worker has not said hello in its key's project. Send hello, then ask again.");
+        return await store.Seen(context.Worker(), request.WorkerId!.Value, start.Image, context.RequestAborted) switch
+        {
+            WorkerState.Unknown => TypedResults.Problem(statusCode: StatusCodes.Status409Conflict, title: "Say hello first",
+                detail: "This worker has not said hello in its key's project. Send hello, then ask again."),
+            // Built from an older recipe or on another base image: no work, until the owner runs
+            // the start command again, as the project's page says.
+            WorkerState.NeedsRebuild => TypedResults.NoContent(),
+            // No jobs exist in this part.
+            _ => TypedResults.NoContent(),
+        };
     }
 
     private static void CheckId(Guid? id, Dictionary<string, string[]> errors)

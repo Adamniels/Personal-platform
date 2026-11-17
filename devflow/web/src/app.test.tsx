@@ -26,7 +26,13 @@ function openAt(path: string) {
 			loadStatus={() => new Promise(() => {})}
 			project={{
 				loadProjects: () => Promise.resolve([PROJECT]),
-				loadWorkers: () => Promise.resolve({ key_made_at: null, workers: [] }),
+				loadWorkers: () =>
+					Promise.resolve({
+						key_made_at: null,
+						recipe_version: null,
+						start_command: "docker run",
+						workers: [],
+					}),
 				makeKey: () => new Promise(() => {}),
 			}}
 			projects={{

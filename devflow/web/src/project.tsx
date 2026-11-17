@@ -1,18 +1,21 @@
 // A project's page, /devflow/projects/<id>, opened from its row on the Projects tab: a header with
-// the repository's name, and the Workers panel, with the project's worker key and the workers that
-// have said hello with it. The key is shown once, as the answer that made it, and never read back:
-// after a reload the page knows only when it was made. See "The pages" and "Workers" in
-// devflow/README.md.
-import { Button, Card, Dialog, EmptyState } from "@platform/ui";
+// the repository's name, and the Workers panel, with the project's worker key, the two commands
+// that start a worker, and the workers that have said hello with it, each saying when it needs
+// building again. The key is shown once, as the answer that made it, with the command that saves
+// it, and never read back: after a reload the page knows only when it was made. See "The pages",
+// "Workers" and "Starting a worker" in devflow/README.md.
+import { Button, Card, Dialog, EmptyState, Status } from "@platform/ui";
 import { useCallback, useEffect, useState } from "react";
 import { plainClick } from "./address";
 import type { GetAnswer } from "./api/client";
+import type { components } from "./api/schema";
 import styles from "./project.module.css";
 import type { Project } from "./projects";
 import { duration } from "./waiting";
 
 export type WorkerList = GetAnswer<"/projects/{id}/workers">;
 export type Worker = WorkerList["workers"][number];
+export type WorkerKey = components["schemas"]["WorkerKey"];
 
 export const NO_WORKER = "No worker has said hello yet.";
 export const NOT_READ = "The workers could not be read. Try again.";
@@ -21,6 +24,18 @@ export const NOT_COPIED =
 	"The key could not be copied. Select it and copy it by hand.";
 export const SHOWN_ONCE =
 	"Shown once. Copy it now: Dev flow keeps only a hash of it and cannot show it again.";
+export const NOT_COPIED_COMMAND =
+	"The command could not be copied. Select it and copy it by hand.";
+export const PASTE =
+	"Paste these in a terminal on the machine that runs the workers. Running the second again replaces the worker.";
+/** What a worker that needs building again says, by why. */
+export const rebuildNotice = (
+	project: string,
+	rebuild: NonNullable<Worker["rebuild"]>,
+) =>
+	rebuild === "recipe"
+		? `${project}'s recipe has changed: run the command again`
+		: "A new base image was released: run the command again";
 /** After this long without a word from a worker, it shows as not seen
  * since then, as the slice settles. */
 export const QUIET_MS = 10 * 60 * 1000;
@@ -30,8 +45,9 @@ export const QUIET_MS = 10 * 60 * 1000;
 export type ProjectApi = {
 	loadProjects: () => Promise<Project[]>;
 	loadWorkers: (id: string) => Promise<WorkerList>;
-	/** Makes the project's key, replacing its last, and answers it. */
-	makeKey: (id: string) => Promise<string>;
+	/** Makes the project's key, replacing its last, and answers it with
+	 * the command that saves it. */
+	makeKey: (id: string) => Promise<WorkerKey>;
 };
 
 export type ProjectPageProps = ProjectApi & {
@@ -118,6 +134,7 @@ export function ProjectPage({
 			</header>
 			<WorkersPanel
 				id={id}
+				project={project.name}
 				now={now}
 				copy={copy}
 				loadWorkers={loadWorkers}
@@ -130,13 +147,18 @@ export function ProjectPage({
 type WorkersPanelProps = Pick<
 	ProjectPageProps,
 	"id" | "now" | "loadWorkers" | "makeKey"
-> & { copy: (text: string) => Promise<void> };
+> & {
+	/** The repository's name, as the rebuild notice names the project. */
+	project: string;
+	copy: (text: string) => Promise<void>;
+};
 
 /** The Workers panel: what the key is for, the key when it has just been
- * made, the workers, and "Make a key", or "Make a new key" behind a warning
- * once there is one. */
+ * made, the commands that start a worker, the workers, and "Make a key", or
+ * "Make a new key" behind a warning once there is one. */
 function WorkersPanel({
 	id,
+	project,
 	now,
 	copy,
 	loadWorkers,
@@ -144,7 +166,7 @@ function WorkersPanel({
 }: WorkersPanelProps) {
 	const [list, setList] = useState<WorkerList>();
 	const [readFailed, setReadFailed] = useState(false);
-	const [key, setKey] = useState<string | null>(null);
+	const [key, setKey] = useState<WorkerKey | null>(null);
 	const [making, setMaking] = useState(false);
 	const [confirming, setConfirming] = useState(false);
 	const [error, setError] = useState<string | null>(null);
@@ -222,7 +244,7 @@ function WorkersPanel({
 						</p>
 					)}
 					{key !== null ? (
-						<ShownKey value={key} copy={copy} />
+						<ShownKey value={key.key} copy={copy} />
 					) : list?.key_made_at ? (
 						<p className={styles.line}>
 							Its key was made <When at={list.key_made_at} />.
@@ -230,6 +252,25 @@ function WorkersPanel({
 					) : list ? (
 						<p className={styles.line}>It has no key yet.</p>
 					) : null}
+					{list === undefined ? null : (
+						<section className={styles.start} aria-label="Start a worker">
+							<p className={styles.line}>{PASTE}</p>
+							{key !== null ? (
+								<Command
+									label="Save the key"
+									copyLabel="Copy the save command"
+									text={key.save_command}
+									copy={copy}
+								/>
+							) : null}
+							<Command
+								label="Build and start the worker"
+								copyLabel="Copy the start command"
+								text={list.start_command}
+								copy={copy}
+							/>
+						</section>
+					)}
 					{readFailed ? (
 						<p className={styles.error} role="alert">
 							{NOT_READ}
@@ -239,7 +280,12 @@ function WorkersPanel({
 					) : (
 						<ul className={styles.workers} aria-label="Workers">
 							{list.workers.map((worker) => (
-								<WorkerRow key={worker.id} worker={worker} now={now()} />
+								<WorkerRow
+									key={worker.id}
+									worker={worker}
+									project={project}
+									now={now()}
+								/>
 							))}
 						</ul>
 					)}
@@ -299,14 +345,75 @@ function ShownKey({
 	);
 }
 
-/** A worker as an inset row: its name, what it runs, and when it was last
- * seen, or, quiet for ten minutes, since when it has not been. */
-function WorkerRow({ worker, now }: { worker: Worker; now: number }) {
+/** A command to paste, labelled, in the mono font on an inset, with a
+ * button that copies it. */
+function Command({
+	label,
+	copyLabel,
+	text,
+	copy,
+}: {
+	label: string;
+	copyLabel: string;
+	text: string;
+	copy: (text: string) => Promise<void>;
+}) {
+	const [copied, setCopied] = useState(false);
+	const [failed, setFailed] = useState(false);
+
+	const copyCommand = async () => {
+		try {
+			await copy(text);
+			setCopied(true);
+			setFailed(false);
+		} catch {
+			setFailed(true);
+		}
+	};
+
+	return (
+		<section className={styles.command} aria-label={label}>
+			<p className={styles.commandLabel}>{label}</p>
+			<pre className={styles.commandText}>
+				<code>{text}</code>
+			</pre>
+			{failed ? (
+				<p className={styles.error} role="alert">
+					{NOT_COPIED_COMMAND}
+				</p>
+			) : null}
+			<div>
+				<Button kind="secondary" onClick={copyCommand}>
+					{copied ? "Copied" : copyLabel}
+				</Button>
+			</div>
+		</section>
+	);
+}
+
+/** A worker as an inset row: its name, what it runs, when it was last seen,
+ * or, quiet for ten minutes, since when it has not been, and, when it needs
+ * building again, why. */
+function WorkerRow({
+	worker,
+	project,
+	now,
+}: {
+	worker: Worker;
+	project: string;
+	now: number;
+}) {
 	const seen = Date.parse(worker.last_seen_at);
 	const quiet = now - seen >= QUIET_MS;
 	return (
 		<li className={styles.worker}>
 			<span className={styles.workerName}>{worker.name}</span>
+			{worker.rebuild ? (
+				<span className={styles.rebuild}>
+					<Status tone="needs-you">Rebuild</Status>
+					<span>{rebuildNotice(project, worker.rebuild)}</span>
+				</span>
+			) : null}
 			<span className={styles.runs}>
 				Recipe <span className={styles.mono}>{worker.recipe_version}</span> on{" "}
 				<span className={styles.mono}>{worker.base_image}</span>

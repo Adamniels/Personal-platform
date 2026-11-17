@@ -3,9 +3,10 @@
 # starts the compose project hostedcheck the way the real copy is released, by
 # scripts/deploy/release.sh --local, puts a test HTTPS front before the proxy and a stand in bucket
 # beside the backup job, checks what the cases
-# below say through it, runs tests/backup.test.sh and the acceptance suite in e2e/ against it, and
+# below say through it, runs tests/backup.test.sh and the acceptance suite in e2e/ against it and
+# devflow/tests/image/base-image.test.sh on the worker's base image, and
 # takes the project down again, volumes included, whatever happened.
-# It runs agree.test.sh first. It needs Docker, and for the suite uv and Playwright's Chromium,
+# It runs agree.test.sh first. It needs Docker and jq, and for the suite uv and Playwright's Chromium,
 # which it never installs; it works while the dev stack is up, since it uses neither its ports nor
 # its project.
 # See infra/hosted/README.md.
@@ -277,8 +278,9 @@ stack() {
   fi
   if [ "$reached" -ne 1 ]; then
     for line in the_stack_builds_and_every_service_answers the_design_files_and_the_gallery_are_served \
-      nothing_but_the_proxy_is_published no_container_runs_as_root \
-      the_acceptance_suite_passes_against_the_containers backup_test; do
+      nothing_but_the_proxy_is_published the_worker_base_image_is_built_and_never_started \
+      no_container_runs_as_root the_acceptance_suite_passes_against_the_containers base_image_test \
+      backup_test; do
       bad "$line" "not reached, a step above failed"
     done
     compose ps -a > "$tmp/ps.log" 2>&1
@@ -328,11 +330,29 @@ stack() {
     bad nothing_but_the_proxy_is_published "$bad_lines"
   fi
 
-  # no_container_runs_as_root: every process of each service of the hosted compose file, the
-  # front not among them, runs as a user id other than 0. docker top needs the pid column; a
-  # container it lists no process for fails, so the case cannot pass by reading nothing.
+  # the_worker_base_image_is_built_and_never_started: the release built devflow-worker's image,
+  # and, with no replica, no container of it exists. Its name is read from the compose file, so it
+  # is this run's tag.
+  got="$(docker compose -p "$project" --env-file "$env_file" -f "$here/compose.yaml" config --format json |
+    jq -r '.services["devflow-worker"].image // empty')"
+  if [ -z "$got" ]; then
+    bad the_worker_base_image_is_built_and_never_started "the compose file has no devflow-worker image"
+  elif ! docker image inspect "$got" > /dev/null 2>&1; then
+    bad the_worker_base_image_is_built_and_never_started "the release did not build $got"
+  elif [ -n "$(compose ps -a -q devflow-worker)" ]; then
+    bad the_worker_base_image_is_built_and_never_started "a devflow-worker container exists"
+  else
+    ok the_worker_base_image_is_built_and_never_started
+  fi
+
+  # no_container_runs_as_root: every process of each service of the hosted compose file that has
+  # replicas, the front not among them, runs as a user id other than 0. A service with none, the
+  # worker's base image, is never started, and the worker it is built into runs as root by design,
+  # outside this project; see "The base image" in devflow/README.md. docker top needs the pid
+  # column; a container it lists no process for fails, so the case cannot pass by reading nothing.
   bad_lines=""
-  for service in $(docker compose -p "$project" --env-file "$env_file" -f "$here/compose.yaml" config --services); do
+  for service in $(docker compose -p "$project" --env-file "$env_file" -f "$here/compose.yaml" config --format json |
+    jq -r '.services | to_entries[] | select(.value.deploy.replicas != 0) | .key'); do
     id="$(compose ps -q "$service")"
     if [ -z "$id" ]; then
       bad_lines="$bad_lines $service:not-running"
@@ -364,6 +384,16 @@ stack() {
     ok the_acceptance_suite_passes_against_the_containers
   else
     bad the_acceptance_suite_passes_against_the_containers "$(cat "$tmp/suite.reason")"
+  fi
+
+  # base_image_test: devflow/tests/image/base-image.test.sh passes, its output shown as it runs. It
+  # builds the worker's base image under a tag of its own, from the cache the release's build
+  # warmed, so it never names the hosted copy's image.
+  echo "-- devflow/tests/image/base-image.test.sh"
+  if bash "$repo/devflow/tests/image/base-image.test.sh" | tee "$tmp/base-image.log"; then
+    ok base_image_test
+  else
+    bad base_image_test "$(grep -E '^FAIL' "$tmp/base-image.log" | tr '\n' ' ')"
   fi
 
   # backup_test: tests/backup.test.sh passes against this project, its output shown as it runs.

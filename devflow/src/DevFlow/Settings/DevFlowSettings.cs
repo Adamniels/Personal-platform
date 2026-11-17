@@ -39,6 +39,13 @@ namespace DevFlow.Settings;
 /// <c>DEVFLOW_POLL_SECONDS</c>, a minute unless set, or null when it is <c>0</c>, which turns the
 /// loop off, as the service's own tests do. See "Reading and the snapshot" in
 /// devflow/docs/devflow-architecture.md.</param>
+/// <param name="WorkerImage">The worker's base image, from <c>DEVFLOW_WORKER_IMAGE</c>,
+/// <see cref="Recipes.WorkerStart.DefaultImage"/> unless set: what the command on a project's page
+/// builds a worker FROM, and what a worker must report to be given work. An image reference of
+/// letters, digits and <c>._/:@-</c>, since the command shows it unquoted.</param>
+/// <param name="WorkerUrl">The address a worker calls Dev flow at from its container, from
+/// <c>DEVFLOW_WORKER_URL</c>, <see cref="Recipes.WorkerStart.DefaultWorkerUrl"/> unless set; a
+/// scheme, a host that is not an IPv6 address and an optional port, nothing after it.</param>
 public sealed record DevFlowSettings(
     string ListenHost,
     int ListenPort,
@@ -49,7 +56,9 @@ public sealed record DevFlowSettings(
     CodeHostMode CodeHost,
     VaultSettings Vault,
     GitHubSettings? GitHub,
-    TimeSpan? PollInterval)
+    TimeSpan? PollInterval,
+    string WorkerImage,
+    Uri WorkerUrl)
 {
     public const string DefaultListenAddr = "127.0.0.1:8084";
     public const string DefaultCoreUrl = "http://127.0.0.1:8080";
@@ -101,14 +110,16 @@ public sealed record DevFlowSettings(
             VaultSettings.Load(read, codeHost),
             GitHubSettings.Load(read, codeHost),
             // Empty is unset, as the hosted copy passes it when its .env leaves it out.
-            Setting(read, PollSeconds, "60", ParsePollSeconds, emptyIsUnset: true));
+            Setting(read, PollSeconds, "60", ParsePollSeconds, emptyIsUnset: true),
+            Setting(read, "DEVFLOW_WORKER_IMAGE", Recipes.WorkerStart.DefaultImage, ParseWorkerImage),
+            Setting(read, "DEVFLOW_WORKER_URL", Recipes.WorkerStart.DefaultWorkerUrl, ParseWorkerUrl));
     }
 
     /// <summary>What the record prints, without the database's password, the vault's keys or the
     /// GitHub App's secret and key, which it holds.</summary>
     public override string ToString() => string.Create(
         CultureInfo.InvariantCulture,
-        $"DevFlowSettings {{ ListenHost = {ListenHost}, ListenPort = {ListenPort}, CoreUrl = {CoreUrl}, PublicOrigin = {PublicOrigin}, ExposeOpenApi = {ExposeOpenApi}, AppDatabase = {AppDatabase.Username}@{AppDatabase.Host}:{AppDatabase.Port}/{AppDatabase.Database}, CodeHost = {CodeHost}, Vault = {Vault}, GitHub = {GitHub?.ToString() ?? "none"}, PollInterval = {PollInterval?.ToString() ?? "off"} }}");
+        $"DevFlowSettings {{ ListenHost = {ListenHost}, ListenPort = {ListenPort}, CoreUrl = {CoreUrl}, PublicOrigin = {PublicOrigin}, ExposeOpenApi = {ExposeOpenApi}, AppDatabase = {AppDatabase.Username}@{AppDatabase.Host}:{AppDatabase.Port}/{AppDatabase.Database}, CodeHost = {CodeHost}, Vault = {Vault}, GitHub = {GitHub?.ToString() ?? "none"}, PollInterval = {PollInterval?.ToString() ?? "off"}, WorkerImage = {WorkerImage}, WorkerUrl = {WorkerUrl} }}");
 
     /// <summary>The setting parsed, or <paramref name="fallback"/> parsed when it is unset; with
     /// no fallback, unset is refused. With <paramref name="emptyIsUnset"/>, empty is unset too.</summary>
@@ -201,6 +212,35 @@ public sealed record DevFlowSettings(
         }
 
         throw new FormatException($"'{text}' is not 0, which turns the loop off, or a number of seconds from {MinimumPollSeconds} to {MaximumPollSeconds}");
+    }
+
+    /// <summary>An image reference such as <c>platform-hosted/devflow-worker:2026.11.17</c>: at most
+    /// 255 characters, beginning with a lowercase letter or a digit, of letters, digits and
+    /// <c>._/:@-</c> alone, so it is safe unquoted in a shell command.</summary>
+    internal static string ParseWorkerImage(string text)
+    {
+        if (text.Length is < 1 or > 255
+            || !(char.IsAsciiLetterLower(text[0]) || char.IsAsciiDigit(text[0]))
+            || !text.All(c => char.IsAsciiLetterOrDigit(c) || c is '.' or '_' or '/' or ':' or '@' or '-'))
+        {
+            throw new FormatException($"'{text}' is not an image like platform-hosted/devflow-worker:2026.11.17");
+        }
+
+        return text;
+    }
+
+    /// <summary>A scheme, a host and an optional port, nothing after it, as
+    /// <see cref="ParseCoreUrl"/>, and a host that is not an IPv6 address, whose brackets a shell
+    /// would read as a pattern.</summary>
+    internal static Uri ParseWorkerUrl(string text)
+    {
+        if (Split(text) is not { } parts || parts.Host.StartsWith('['))
+        {
+            throw new FormatException(
+                $"'{text}' is not a URL like http://host.docker.internal:9080: scheme, a host that is not IPv6, and optional port, nothing after it");
+        }
+
+        return new Uri(text, UriKind.Absolute);
     }
 
     /// <summary><c>1</c> for on, <c>0</c> for off, and nothing else.</summary>

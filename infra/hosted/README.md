@@ -22,6 +22,13 @@ backs up every database each night, see "Backups". The owner sets the real copy 
 | `devflow`  | `platform-hosted/devflow`   | 8084       | through the proxy                        |
 | `proxy`    | `platform-hosted/proxy`     | 80         | published, `127.0.0.1:9080` by default   |
 | `backup`   | `platform-hosted/backup`    | nothing    | runs the nightly backup, see "Backups"   |
+| `devflow-worker` | `platform-hosted/devflow-worker` | nothing | built, never started              |
+
+`devflow-worker` is the image Dev flow's workers are built FROM, and has no replica: the release's
+`docker compose build` builds it at the release's tag beside the rest, and `docker compose up`
+starts nothing of it. A worker is built from it and started by the command on a project's page,
+outside this project, see "Starting a worker" in `devflow/README.md`; Dev flow is given its name as
+`DEVFLOW_WORKER_IMAGE`, so a worker on an older one is told to rebuild.
 
 The proxy is the only container published, plain HTTP on the loopback. HTTPS is terminated in
 front of it, by `tailscale serve` on the real copy and by a test front in `check.sh`, so the proxy
@@ -75,6 +82,14 @@ environment, by the names it reads natively, see each service's "Settings".
 
 The proxy's image holds the served files of `design/` and the built component gallery, so the
 look is part of what is released rather than mounted from a checkout.
+
+The worker's base image, `devflow/worker.Dockerfile`, is built and never started. Its build stage
+publishes the worker program from the committed `packages.lock.json` files, and its final stage
+installs Claude Code with `npm ci` from `devflow/worker/package-lock.json`, so it is held to the
+same rules, which `agree.test.sh` checks. It is the one image whose final stage runs as root: the
+worker program keeps a job's secrets from the agent, which runs as `agent`, uid 1000, see "The
+base image" in `devflow/README.md`. Since no container of it runs here, `no_container_runs_as_root`
+leaves it out, and `devflow/tests/image/base-image.test.sh` checks it instead.
 
 ## Setting it up
 
@@ -549,8 +564,11 @@ It prints `ok <name>` or `FAIL <name>` for each case and exits non zero if any f
   answer `200`, and `/design/DESIGN.md` answers `404`;
 - `nothing_but_the_proxy_is_published`: of the project's containers only the proxy and the front
   publish a port, both on `127.0.0.1`;
-- `no_container_runs_as_root`: every process of each service in `compose.yaml` runs as a user id
-  other than 0. The front, which is not one of them, runs as Caddy's image does;
+- `the_worker_base_image_is_built_and_never_started`: the release built `devflow-worker`'s image,
+  and no container of it exists;
+- `no_container_runs_as_root`: every process of each service in `compose.yaml` that has replicas
+  runs as a user id other than 0. The front, which is not one of them, runs as Caddy's image does,
+  and `devflow-worker`, which has none, is never started;
 - `the_acceptance_suite_passes_against_the_containers`: one `backup now`, so the status file the
   front page's backup line reads exists, then the whole suite in `e2e/`, every test but
   those marked `dev_stack_only`, passes against `https://platform.test:9443`, with invite codes and
@@ -560,6 +578,9 @@ It prints `ok <name>` or `FAIL <name>` for each case and exits non zero if any f
   runs, and it says so when `uv` or Chromium is missing. A test that fails here because of the
   hosted shape is fixed in the image or the compose file, never marked; see "Markers" in
   `e2e/README.md`. Its screenshots land in `e2e/screenshots/` and are not published;
+- `base_image_test`, `devflow/tests/image/base-image.test.sh` passes: it builds the worker's base
+  image under a tag of its own, from the cache the release's build warmed, and checks the agent
+  cannot read the worker's files and that the worker, Claude Code, git and node run;
 - `backup_test`, `tests/backup.test.sh` passes, after the suite so the databases it backs up hold
   the suite's data, see "Testing the backups";
 - `it_leaves_nothing_behind`: after the run, and after a run made to fail once Postgres is up, no
@@ -580,10 +601,12 @@ uses neither its ports, 80, 443 and 5432, nor its project. Later slices add thei
 `scripts/ci/services.test.sh`: each manifest entry is a compose service on its port with its
 `-migrate` service, no serving service has an owner's URL, the hosted registry and Caddyfile match
 the dev ones, the proxy's image holds every design path it serves, every variable the compose file
-reads is in `.env.example`, every install in a Dockerfile is locked, by the rules in
+reads is in `.env.example`, every install in a Dockerfile, `devflow/worker.Dockerfile` among them,
+is locked, by the rules in
 `scripts/ci/dockerfile.sh`, which `scripts/ci/workflows-locked.test.sh` also holds every Dockerfile
 to on every pull request, the compose file names no
-project, and each script in `infra/postgres/initdb/` is mounted into the hosted Postgres with the
+project, and `platform-hosted` is in it only as an image's name, a service's or Dev flow's
+`DEVFLOW_WORKER_IMAGE`, and each script in `infra/postgres/initdb/` is mounted into the hosted Postgres with the
 backup role's last. Each check also runs on a broken copy, so it cannot pass by matching nothing.
 
 The suite runs after the cases above, and takes as long as a dev run of it, several minutes, on top

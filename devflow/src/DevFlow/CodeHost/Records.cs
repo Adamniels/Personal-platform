@@ -111,3 +111,7 @@ public enum CheckConclusion
 /// <param name="App">The slug of the app that made it, so a check of the same name from another
 /// app is told apart.</param>
 public sealed record CheckRun(string Name, CheckStatus Status, CheckConclusion? Conclusion, string App);
+/// <summary>A file's bytes as they were at a commit, and that commit.</summary>
+/// <param name="Content">The file's bytes, as they are.</param>
+/// <param name="Commit">The full id of the commit they were read at.</param>
+public sealed record FileAtCommit(byte[] Content, string Commit);

@@ -123,6 +123,11 @@ flow is C#, so this is the same pin as `review/`.
   `GET /devflow/api/openapi.json`, with keys sorted, a two space indent and a trailing newline. The
   route is mapped only when `DEVFLOW_EXPOSE_OPENAPI=1`, for the test and for regenerating this
   file, so the running service serves it nowhere.
+- `project.schema.json`: the JSON Schema of a project's `.devflow/project.json`, written by hand,
+  for people and editors. .NET does not validate against a schema, so `DevFlow.Protocol`'s
+  `ProjectFile` reads the file by the same rules, and `ProjectFileTests` checks the two hold the
+  same fields, the same required ones, and the same pattern for `url`. See "The format of
+  .devflow/" in `devflow/README.md`.
 
 Dev flow's `ContractTests` check that the app still generates exactly these bytes, as review's do.
 From `devflow/`:
@@ -162,6 +167,11 @@ Recorded once, on 2026 11 15, from this repository with `gh api` as the bot, fro
 - `check-runs.json`: `gh api repos/Adamniels/Personal-platform/commits/<sha>/check-runs`, trimmed
   with `jq '.check_runs |= .[0:2] | .total_count = 2'` to two runs, a success and a skipped one.
 
+`commits-path.json` was recorded on 2026 11 17, the same way: `gh api
+'repos/Adamniels/Personal-platform/commits?path=devflow/Dockerfile&per_page=1'`, the newest commit of
+the default branch that changed `devflow/Dockerfile`, a commit by the bot, of which the adapter reads
+`sha` to read a project's recipe at, see "Starting a worker" in `devflow/README.md`.
+
 The app's own writes are answered with the same shapes as these reads, so four more are recorded
 for them, read by `devflow/tests/DevFlow.Tests/GitHub/GitHubAppWriteTests.cs`, and checked by
 `ContractTests.TheRecordedWriteAnswersHoldWhatTheAdapterReads` for every field the adapter reads.
@@ -169,8 +179,8 @@ Recorded on 2026 11 17, as the bot, with the reads below, since recording the wr
 would write to this repository:
 
 - `pull-opened.json`: `gh api repos/Adamniels/Personal-platform/pulls/352`, cut with
-  `jq 'del(.head.repo, .base.repo, ._links)'` as the runner's are, an open pull request with two
-  labels, the shape `POST /repos/{owner}/{repo}/pulls` answers with `201`.
+  `jq 'del(.head.repo, .base.repo, ._links)'` as the runner's are, a pull request open, with two
+  labels, when it was recorded, the shape `POST /repos/{owner}/{repo}/pulls` answers with `201`.
 - `labels.json`: `gh api repos/Adamniels/Personal-platform/issues/267/labels`, the list of labels
   adding one or removing one answers with `200`.
 - `issue.json`: `gh api repos/Adamniels/Personal-platform/issues/336`, an open issue, the shape

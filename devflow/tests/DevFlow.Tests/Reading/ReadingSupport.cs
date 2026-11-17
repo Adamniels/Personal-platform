@@ -295,6 +295,12 @@ internal sealed class CountingCodeHost(ICodeHost inner) : ICodeHost
         return inner.File(userId, repository, path, branch, cancellationToken);
     }
 
+    public Task<CodeHostResult<FileAtCommit>> DefaultBranchFile(Guid userId, CodeHost.Repository repository, string path, CancellationToken cancellationToken)
+    {
+        Record("DefaultBranchFile", userId, repository, path);
+        return inner.DefaultBranchFile(userId, repository, path, cancellationToken);
+    }
+
     public Task<CodeHostResult<IReadOnlyList<Installation>>> Installations(Guid userId, string userToken, CancellationToken cancellationToken) =>
         inner.Installations(userId, userToken, cancellationToken);
 

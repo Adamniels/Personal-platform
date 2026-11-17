@@ -37,6 +37,14 @@ public interface ICodeHost
     /// <summary>A file's bytes on a branch.</summary>
     Task<CodeHostResult<byte[]>> File(Guid userId, Repository repository, string path, string branch, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// The file at <paramref name="path"/> on the repository's default branch, read at the newest
+    /// commit of that branch that changed it, and that commit's id: so the id changes when the
+    /// file does, and not when the rest of the repository does. Not found when no commit of the
+    /// default branch has the file, a commit that removed it included.
+    /// </summary>
+    Task<CodeHostResult<FileAtCommit>> DefaultBranchFile(Guid userId, Repository repository, string path, CancellationToken cancellationToken);
+
     /// <summary>The installations of Dev flow's app that the person whose token
     /// <paramref name="userToken"/> is can reach, each with the account it is on, in no particular
     /// order. Read as the person, never as the app, so what is listed is what they may

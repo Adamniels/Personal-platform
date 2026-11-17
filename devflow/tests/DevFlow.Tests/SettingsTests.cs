@@ -45,6 +45,14 @@ public sealed class SettingsTests
         Assert.Equal(TimeSpan.FromDays(1), Load(("DEVFLOW_POLL_SECONDS", "86400")).PollInterval);
         Assert.Null(Load(("DEVFLOW_POLL_SECONDS", "0")).PollInterval);
 
+        // The worker's base image and address: the dev stack's unless set.
+        Assert.Equal("platform-hosted/devflow-worker:dev", defaults.WorkerImage);
+        Assert.Equal(new Uri("http://host.docker.internal:8084"), defaults.WorkerUrl);
+        var worker = Load(("DEVFLOW_WORKER_IMAGE", "platform-hosted/devflow-worker:2026.11.17"), ("DEVFLOW_WORKER_URL", "http://host.docker.internal:9080"));
+        Assert.Equal("platform-hosted/devflow-worker:2026.11.17", worker.WorkerImage);
+        Assert.Equal(new Uri("http://host.docker.internal:9080"), worker.WorkerUrl);
+        Assert.Equal("registry.example:5000/a_b/worker@sha256:0123abcd", Load(("DEVFLOW_WORKER_IMAGE", "registry.example:5000/a_b/worker@sha256:0123abcd")).WorkerImage);
+
         // The app's database is required, with no default to fall back on.
         var unset = Assert.Throws<StartupException>(() => DevFlowSettings.Load(_ => null));
         Assert.StartsWith("DEVFLOW_APP_DATABASE_URL: ", unset.Message, StringComparison.Ordinal);
@@ -107,6 +115,20 @@ public sealed class SettingsTests
         ("DEVFLOW_POLL_SECONDS", "86401"),
         ("DEVFLOW_POLL_SECONDS", "99999999999"),
         ("DEVFLOW_POLL_SECONDS", "٦٠"),
+        // Shown unquoted in a shell command, so nothing a shell would read.
+        ("DEVFLOW_WORKER_IMAGE", ""),
+        ("DEVFLOW_WORKER_IMAGE", "Platform/worker"),
+        ("DEVFLOW_WORKER_IMAGE", "-worker"),
+        ("DEVFLOW_WORKER_IMAGE", "worker; rm -rf ~"),
+        ("DEVFLOW_WORKER_IMAGE", "worker $(id)"),
+        ("DEVFLOW_WORKER_IMAGE", "worker'x"),
+        ("DEVFLOW_WORKER_IMAGE", new string('a', 256)),
+        ("DEVFLOW_WORKER_URL", ""),
+        ("DEVFLOW_WORKER_URL", "host.docker.internal:9080"),
+        ("DEVFLOW_WORKER_URL", "http://host.docker.internal:9080/"),
+        ("DEVFLOW_WORKER_URL", "http://[::1]:9080"),
+        ("DEVFLOW_WORKER_URL", "http://host.docker.internal:9080;id"),
+        ("DEVFLOW_WORKER_URL", "ftp://host.docker.internal"),
         ("DEVFLOW_APP_DATABASE_URL", ""),
         ("DEVFLOW_APP_DATABASE_URL", "devflow_app:secret-a1b2@127.0.0.1:5432/devflow"),
     ];

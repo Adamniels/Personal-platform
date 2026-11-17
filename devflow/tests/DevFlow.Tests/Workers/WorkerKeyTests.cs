@@ -34,11 +34,11 @@ public sealed partial class WorkerKeyTests
 
         var response = await Workers.MakeKey(routes, project);
 
-        // The key alone, never kept by a cache on the way.
+        // The key and the command that saves it, never kept by a cache on the way.
         Assert.Equal(StatusCodes.Status200OK, response.Response.StatusCode);
         Assert.Equal("no-store", response.Response.Headers.CacheControl.ToString());
         var answer = (await Workers.Json(response)).AsObject();
-        Assert.Equal(["key"], answer.Select(pair => pair.Key));
+        Assert.Equal(["key", "save_command"], answer.Select(pair => pair.Key));
         var key = (string)answer["key"]!;
         // dfw_ and the base64url of 32 random bytes.
         Assert.Matches(KeyShape(), key);

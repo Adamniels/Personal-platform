@@ -1,0 +1,84 @@
+[
+  {
+    "sha": "c574655fd7976fb2d77b8bb5fe9176873518063b",
+    "node_id": "C_kwDOUMYTddoAKGM1NzQ2NTVmZDc5NzZmYjJkNzdiOGJiNWZlOTE3Njg3MzUxODA2M2I",
+    "commit": {
+      "author": {
+        "name": "mac-mini-agent",
+        "email": "340709305+mac-mini-agent@users.noreply.github.com",
+        "date": "2026-11-17T10:23:35Z"
+      },
+      "committer": {
+        "name": "mac-mini-agent",
+        "email": "340709305+mac-mini-agent@users.noreply.github.com",
+        "date": "2026-11-17T10:23:35Z"
+      },
+      "message": "Add DevFlow.Protocol and use it from the worker routes\n\nThe worker API's paths, its two requests and their JSON move into a project of their own,\nwhich Dev flow's hello and jobs/next routes now take and the worker program will send, so a\nchange that breaks either side fails to compile. The type names are kept, so the contract's\nschemas are unchanged; mapping the routes outside a group only reorders two tags. The\nhosted image copies the new project, since Dev flow now references it.",
+      "tree": {
+        "sha": "9dcb60b87717ea3985b32b21c128d46e73df6eb3",
+        "url": "https://api.github.com/repos/Adamniels/Personal-platform/git/trees/9dcb60b87717ea3985b32b21c128d46e73df6eb3"
+      },
+      "url": "https://api.github.com/repos/Adamniels/Personal-platform/git/commits/c574655fd7976fb2d77b8bb5fe9176873518063b",
+      "comment_count": 0,
+      "verification": {
+        "verified": false,
+        "reason": "unsigned",
+        "signature": null,
+        "payload": null,
+        "verified_at": null
+      }
+    },
+    "url": "https://api.github.com/repos/Adamniels/Personal-platform/commits/c574655fd7976fb2d77b8bb5fe9176873518063b",
+    "html_url": "https://github.com/Adamniels/Personal-platform/commit/c574655fd7976fb2d77b8bb5fe9176873518063b",
+    "comments_url": "https://api.github.com/repos/Adamniels/Personal-platform/commits/c574655fd7976fb2d77b8bb5fe9176873518063b/comments",
+    "author": {
+      "login": "mac-mini-agent",
+      "id": 340709305,
+      "node_id": "U_kgDOFE7PuQ",
+      "avatar_url": "https://avatars.githubusercontent.com/u/340709305?v=4",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/mac-mini-agent",
+      "html_url": "https://github.com/mac-mini-agent",
+      "followers_url": "https://api.github.com/users/mac-mini-agent/followers",
+      "following_url": "https://api.github.com/users/mac-mini-agent/following{/other_user}",
+      "gists_url": "https://api.github.com/users/mac-mini-agent/gists{/gist_id}",
+      "starred_url": "https://api.github.com/users/mac-mini-agent/starred{/owner}{/repo}",
+      "subscriptions_url": "https://api.github.com/users/mac-mini-agent/subscriptions",
+      "organizations_url": "https://api.github.com/users/mac-mini-agent/orgs",
+      "repos_url": "https://api.github.com/users/mac-mini-agent/repos",
+      "events_url": "https://api.github.com/users/mac-mini-agent/events{/privacy}",
+      "received_events_url": "https://api.github.com/users/mac-mini-agent/received_events",
+      "type": "User",
+      "user_view_type": "public",
+      "site_admin": false
+    },
+    "committer": {
+      "login": "mac-mini-agent",
+      "id": 340709305,
+      "node_id": "U_kgDOFE7PuQ",
+      "avatar_url": "https://avatars.githubusercontent.com/u/340709305?v=4",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/mac-mini-agent",
+      "html_url": "https://github.com/mac-mini-agent",
+      "followers_url": "https://api.github.com/users/mac-mini-agent/followers",
+      "following_url": "https://api.github.com/users/mac-mini-agent/following{/other_user}",
+      "gists_url": "https://api.github.com/users/mac-mini-agent/gists{/gist_id}",
+      "starred_url": "https://api.github.com/users/mac-mini-agent/starred{/owner}{/repo}",
+      "subscriptions_url": "https://api.github.com/users/mac-mini-agent/subscriptions",
+      "organizations_url": "https://api.github.com/users/mac-mini-agent/orgs",
+      "repos_url": "https://api.github.com/users/mac-mini-agent/repos",
+      "events_url": "https://api.github.com/users/mac-mini-agent/events{/privacy}",
+      "received_events_url": "https://api.github.com/users/mac-mini-agent/received_events",
+      "type": "User",
+      "user_view_type": "public",
+      "site_admin": false
+    },
+    "parents": [
+      {
+        "sha": "fe422a7961164908b6abdff86163cf21a6037789",
+        "url": "https://api.github.com/repos/Adamniels/Personal-platform/commits/fe422a7961164908b6abdff86163cf21a6037789",
+        "html_url": "https://github.com/Adamniels/Personal-platform/commit/fe422a7961164908b6abdff86163cf21a6037789"
+      }
+    ]
+  }
+]
