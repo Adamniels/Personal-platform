@@ -115,7 +115,8 @@ features" in `High-level/docs/platform-architecture.md`.
   shows, the schema it pins, how to run it and its tests, its settings, its database and roles, migrating, the door, the vault that
   seals a user's secrets and its key, the code host's interface, its fake and how a test stages a
   world in it, linking a user's GitHub account and the one way to a token that acts as them,
-  connecting a repository with its routes and tables, what waits for the owner, the loop that
+  connecting a repository with its routes and tables, a project's settings and its cards with
+  their routes and tables, what waits for the owner, the loop that
   reads it and refreshing a project, merging and sending back from the page and what each refusal
   means, a project's worker key, the worker scheme and the worker API with their routes and
   tables, starting a worker, with the base image, the format of `.devflow/`, the recipe route, the
@@ -127,7 +128,8 @@ features" in `High-level/docs/platform-architecture.md`.
 - `devflow/docs/devflow-architecture.md` — what Dev flow is, what of it exists, the code host seam
   and why its fake sits there, acting as the owner on GitHub, projects and how a loop learns whose
   they are, reading this repository's runner and the conventions it knows, reading every project
-  into a stored picture the pages read instead of GitHub, acting from the page as the owner and
+  into a stored picture the pages read instead of GitHub, cards and how one is picked, with why only
+  the owner's own count and why the settings table holds only what is read, acting from the page as the owner and
   never as the app, workers and how a worker's key leads to its project's user, the worker
   program, the agent interface and the rule a run succeeds by, the Claude login Dev flow holds for
   a user's runs, and its security decisions and accepted risks, kept for an audit, the vault's,
