@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 
 using DevFlow.Acting;
+using DevFlow.ClaudeLogin;
 using DevFlow.CodeHost;
 using DevFlow.CodeHost.GitHub;
 using DevFlow.Health;
@@ -99,6 +100,10 @@ public static class DevFlowApp
         builder.Services.AddSingleton(provider => new WorkerKeys(database, provider.GetRequiredService<TimeProvider>()));
         builder.Services.AddWorkerAuthentication();
         builder.Services.AddSingleton(provider => new WorkerStore(database, provider.GetRequiredService<TimeProvider>()));
+        // Each user's Claude login, sealed in the vault and opened only for one of their runs. See
+        // "Claude login" in devflow/README.md.
+        builder.Services.AddSingleton(provider => new ClaudeLogins(
+            database, provider.GetRequiredService<Vault>(), provider.GetRequiredService<TimeProvider>()));
         if (settings.PollInterval is { } interval)
         {
             builder.Services.AddHostedService(provider => new Poller(
@@ -134,6 +139,7 @@ public static class DevFlowApp
         app.MapAttention();
         app.MapWorkers();
         app.MapRecipe();
+        app.MapClaudeLogin();
         app.MapPages(webRoot);
         if (settings.CodeHost == CodeHostMode.Fake)
         {

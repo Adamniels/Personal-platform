@@ -131,19 +131,20 @@ public sealed partial class Vault(VaultSettings keys)
     private static VaultException DidNotOpen(string purpose) =>
         new($"the secret {purpose} did not open: it was changed, or moved from another user or purpose");
 
-    /// <summary>A purpose is a short fixed name the caller chooses, such as <c>github.access</c>.</summary>
+    /// <summary>A purpose is a short fixed name the caller chooses, such as <c>github.access</c> or
+    /// <c>claude-login</c>.</summary>
     private static void CheckPurpose(string purpose)
     {
         ArgumentNullException.ThrowIfNull(purpose);
         if (!PurposeName().IsMatch(purpose))
         {
-            throw new ArgumentException("is not a purpose's name, lowercase ASCII letters, digits and dots, starting with a letter", nameof(purpose));
+            throw new ArgumentException("is not a purpose's name, lowercase ASCII letters, digits, dots and hyphens, starting with a letter", nameof(purpose));
         }
     }
 
     /// <summary>The same rule as the table's check, ending at <c>\z</c>, since <c>$</c> would let a
     /// trailing newline through.</summary>
-    [GeneratedRegex(@"^[a-z][a-z0-9.]*\z", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"^[a-z][a-z0-9.-]*\z", RegexOptions.CultureInvariant)]
     private static partial Regex PurposeName();
 
     /// <summary>A row as stored.</summary>

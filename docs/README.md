@@ -121,16 +121,18 @@ features" in `High-level/docs/platform-architecture.md`.
   tables, starting a worker, with the base image, the format of `.devflow/`, the recipe route, the
   two commands, the memory rule and when a worker needs a rebuild, the worker program with its
   settings, its loop, its exit codes, the agent interface, when a run succeeds, publishing it and
-  its tests, registering the GitHub App, how it authenticates a
-  request with `PlatformAuth` and with a worker's key, and the libraries it is built on
+  its tests, the Claude login, its routes and its table, registering the GitHub App, how it
+  authenticates a request with `PlatformAuth` and with a worker's key, and the libraries it is built
+  on
 - `devflow/docs/devflow-architecture.md` — what Dev flow is, what of it exists, the code host seam
   and why its fake sits there, acting as the owner on GitHub, projects and how a loop learns whose
   they are, reading this repository's runner and the conventions it knows, reading every project
   into a stored picture the pages read instead of GitHub, acting from the page as the owner and
   never as the app, workers and how a worker's key leads to its project's user, the worker
-  program, the agent interface and the rule a run succeeds by, and its security decisions and
-  accepted risks, kept for an audit, the vault's, the fake's, the worker key's and the agent run's
-  environment and token among them
+  program, the agent interface and the rule a run succeeds by, the Claude login Dev flow holds for
+  a user's runs, and its security decisions and accepted risks, kept for an audit, the vault's,
+  the fake's, the worker key's, the agent run's environment and token, and the Claude token's
+  among them
 - `docs/superpowers/specs/2026-11-14-development-flow-design.md` — the design of the whole
   development flow, frozen on 2026 11 15 when the slices of its first part were cut; the
   architecture document above is the living description from then on

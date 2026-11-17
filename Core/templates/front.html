@@ -62,7 +62,8 @@
   {%- endif %}
 {%- when Card::DevFlow(devflow) %}
   {#- What waits for the user, the stopped included, as the key fact; the
-      outline when something waits or the link must be renewed. The action
+      outline when something waits, the link must be renewed or the Claude
+      login is due, each of the last two said on a line of its own. The action
       is secondary, since the page's one primary is review's. #}
   <article class="card devflow{% if devflow.needs_you() %} needs-you{% endif %}">
     {% call card_header("Dev flow", "/devflow") %}{% endcall %}
@@ -81,6 +82,9 @@
     {%- endif %}
     {%- if devflow.needs_relink %}
     <p class="relink"><a href="/devflow/projects">Your GitHub link has expired</a></p>
+    {%- endif %}
+    {%- if let Some(line) = devflow.claude_login_line() %}
+    <p class="relink"><a href="/devflow/projects">{{ line }}</a></p>
     {%- endif %}
     {%- if devflow.waits() > 0 %}
     <a class="action" href="/devflow">Open what waits</a>

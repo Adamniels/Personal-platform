@@ -7,6 +7,11 @@ import { createClient } from "./api/client";
 import type { components } from "./api/schema";
 import styles from "./app.module.css";
 import { CodeHostBanner } from "./banner";
+import {
+	ClaudeLogin,
+	type ClaudeLoginApi,
+	type ClaudeLoginStatus,
+} from "./claude-login";
 import { type ProjectApi, ProjectPage } from "./project";
 import { type Project, Projects, type ProjectsApi } from "./projects";
 import { GitHubLink } from "./projects-link";
@@ -26,6 +31,9 @@ export type AppProps = {
 	/** How a project's page reads its workers and makes its key, the
 	 * service's by default; a test passes its own. */
 	project?: ProjectApi;
+	/** How the Claude login is read, given and removed, the service's by
+	 * default; a test passes its own. */
+	claudeLogin?: ClaudeLoginApi;
 	/** How what waits is read and refreshed, the service's by default; a test
 	 * passes its own. */
 	waiting?: WaitingApi;
@@ -65,6 +73,17 @@ const projectApi: ProjectApi = {
 			"POST",
 			`/projects/${encodeURIComponent(id)}/worker-key`,
 		),
+};
+
+/** The Claude login, through Dev flow's API. The token is sent, never
+ * read back. */
+const claudeLoginApi: ClaudeLoginApi = {
+	loadLogin: () => client.get("/claude-login"),
+	saveLogin: (token) =>
+		client.send<ClaudeLoginStatus>("PUT", "/claude-login", { token }),
+	removeLogin: async () => {
+		await client.send("DELETE", "/claude-login");
+	},
 };
 
 /** What waits, through Dev flow's API. */
@@ -109,11 +128,13 @@ export function App(props: AppProps = {}) {
 /** Dev flow's frame: the fake mode's banner, the page's heading, a tab per
  * section, tied to the address, and the section the address names: what
  * waits, with its count on its tab, and the Projects tab with the GitHub link
- * above its projects, or, at a project's address, that project's page. */
+ * and the Claude login above its projects, or, at a project's address, that
+ * project's page. */
 function Frame({
 	loadStatus = readStatus,
 	projects = projectsApi,
 	project = projectApi,
+	claudeLogin = claudeLoginApi,
 	waiting = waitingApi,
 	actions = actionsApi,
 	now = Date.now,
@@ -194,6 +215,7 @@ function Frame({
 									}}
 									go={(url) => window.location.assign(url)}
 								/>
+								<ClaudeLogin {...claudeLogin} />
 								<Projects
 									linked={status?.github.state === "linked"}
 									{...projects}

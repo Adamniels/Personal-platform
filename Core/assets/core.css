@@ -273,7 +273,7 @@ input[aria-invalid="true"] {
 }
 
 /* A line inside a card that needs the user, such as Dev flow's expired
-   GitHub link: a link in amber text after the status dot, so it is a dot
+   GitHub link or its Claude login due for renewal: a link in amber text after the status dot, so it is a dot
    plus words and never colour alone, as the backup line in attention. */
 .card .relink {
   font-size: var(--text-small-size);

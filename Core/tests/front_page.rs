@@ -298,6 +298,7 @@ fn devflow_data(waiting: u32, stopped: u32, projects: u32, stale: bool, relink: 
         "projects": projects,
         "stale": stale,
         "needs_relink": relink,
+        "claude_login": "ok",
     })
 }
 
@@ -417,6 +418,37 @@ async fn the_devflow_card_renders_what_waits() {
         "{card}"
     );
     assert!(card.contains("Nothing waits for you"), "{card}");
+
+    // A Claude login due, and then expired: its line, linking to where it is
+    // replaced, and the outline, with nothing else waiting.
+    for (state, line) in [
+        ("due_soon", "Your Claude login is due for renewal"),
+        ("expired", "Your Claude login has expired"),
+    ] {
+        let mut data = devflow_data(0, 0, 1, false, false);
+        data["claude_login"] = json!(state);
+        let card = devflow_card(&db, data).await;
+        assert!(
+            card.starts_with(r#"<article class="card devflow needs-you">"#),
+            "{card}"
+        );
+        assert!(
+            card.contains(&format!(
+                r#"<p class="relink"><a href="/devflow/projects">{line}</a></p>"#
+            )),
+            "{card}"
+        );
+        assert!(card.contains("Nothing waits for you"), "{card}");
+    }
+
+    // None given, or one that is fine, says nothing and needs nothing.
+    for state in ["none", "ok"] {
+        let mut data = devflow_data(0, 0, 1, false, false);
+        data["claude_login"] = json!(state);
+        let card = devflow_card(&db, data).await;
+        assert!(!card.contains("Claude login"), "{card}");
+        assert!(!card.contains("needs-you"), "{card}");
+    }
 
     db.close().await;
 }

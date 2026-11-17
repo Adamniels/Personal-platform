@@ -65,7 +65,7 @@ public sealed class VaultTests
         Assert.Equal(bytes, await Get(door, vault, Alice, "github.refresh"));
         Assert.Equal(Array.Empty<byte>(), await Get(door, vault, Alice, "empty"));
         // Nothing put is nothing got.
-        Assert.Null(await Get(door, vault, Alice, "claude.login"));
+        Assert.Null(await Get(door, vault, Alice, "claude-login"));
         // And a vault loaded again from the same key opens what the first sealed.
         Assert.Equal(Value, await Get(door, TheVault, Alice, Purpose));
     }
@@ -77,7 +77,7 @@ public sealed class VaultTests
         await using var door = await Door(database);
         var vault = TheVault;
 
-        foreach (var purpose in new[] { "", "GitHub.access", "1github", ".github", "github access", "github-access", "github.access\n", "gïthub" })
+        foreach (var purpose in new[] { "", "GitHub.access", "1github", ".github", "github access", "-github", "github_access", "github.access\n", "gïthub" })
         {
             await Assert.ThrowsAsync<ArgumentException>(() => Put(door, vault, Alice, purpose, Value));
             await Assert.ThrowsAsync<ArgumentException>(() => Get(door, vault, Alice, purpose));

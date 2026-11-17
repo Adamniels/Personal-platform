@@ -1236,3 +1236,113 @@ def test_the_page_says_when_a_worker_needs_a_rebuild(
         listed.get_by_text("Fodr's recipe has changed: run the command again")
     ).to_be_visible()
     capture(page, "devflow-worker-rebuild")
+
+
+# The shape of a setup token from `claude setup-token`, never a real one.
+CLAUDE_TOKEN = "sk-ant-oat01-ZTJlLXRlc3RzLW9ubHktbm90LWEtcmVhbC10b2tlbg_AAAAAA"
+CLAUDE_PURPOSE = (
+    "Agents run on your subscription with this. Make it with claude setup-token."
+)
+
+
+def _claude_login(page: Page):
+    return page.get_by_role("article", name="Claude login")
+
+
+def _day(page: Page, at: str) -> str:
+    """A time from the API as the page writes a date, in the browser's own
+    zone and language."""
+    return page.evaluate(
+        "at => new Intl.DateTimeFormat('en-GB', {dateStyle: 'medium'})"
+        ".format(new Date(at))",
+        at,
+    )
+
+
+def test_i_give_dev_flow_my_claude_login(
+    page: Page, invite_code: str, base_url: str, viewport: str
+):
+    register_and_log_in(page, invite_code, base_url)
+    page.goto("/devflow/projects")
+    login = _claude_login(page)
+    expect(login).to_contain_text(CLAUDE_PURPOSE)
+    expect(login.get_by_text("Not set yet.")).to_be_visible()
+    expect(login.get_by_role("button", name="Remove")).to_have_count(0)
+    capture(page, "devflow-claude-login-empty")
+
+    field = login.get_by_label("Claude token")
+    expect(field).to_have_attribute("type", "password")
+    field.fill(CLAUDE_TOKEN)
+    login.get_by_role("button", name="Save").click()
+
+    # The field empties, and the section says when it was given and is due.
+    expect(field).to_have_value("")
+    status = page.request.get("/devflow/api/claude-login").json()
+    assert status["state"] == "ok"
+    said = (
+        f"Set on {_day(page, status['given_at'])}, "
+        f"renew by {_day(page, status['renew_by'])}."
+    )
+    expect(login.get_by_text(said)).to_be_visible()
+    expect(login.get_by_role("button", name="Replace")).to_be_visible()
+    expect(login.get_by_role("button", name="Remove")).to_be_visible()
+    capture(page, "devflow-claude-login")
+
+    # Never shown again, not even in part, and still set after a reload.
+    page.reload()
+    expect(login.get_by_text(said)).to_be_visible()
+    expect(login.get_by_label("Claude token")).to_have_value("")
+    assert CLAUDE_TOKEN[10:] not in page.content()
+    assert CLAUDE_TOKEN[-12:] not in page.content()
+
+    # Removing it asks first, and then it is gone.
+    login.get_by_role("button", name="Remove").click()
+    page.get_by_role("dialog", name="Remove the Claude login?").get_by_role(
+        "button", name="Remove the login"
+    ).click()
+    expect(login.get_by_text("Not set yet.")).to_be_visible()
+    assert page.request.get("/devflow/api/claude-login").json()["set"] is False
+
+
+def test_dev_flow_tells_me_when_my_claude_login_is_due(
+    page: Page, invite_code: str, base_url: str, viewport: str
+):
+    register_and_log_in(page, invite_code, base_url)
+    saved = page.request.put(
+        "/devflow/api/claude-login",
+        data={"token": CLAUDE_TOKEN},
+        headers={"Origin": base_url},
+    )
+    assert saved.status == 200
+    aged = page.request.post(
+        "/devflow/api/fake/claude-login-age",
+        data={"days": 340},
+        headers={"Origin": base_url},
+    )
+    assert aged.status == 204
+    status = page.request.get("/devflow/api/claude-login").json()
+    assert status["state"] == "due_soon"
+
+    page.goto("/devflow/projects")
+    login = _claude_login(page)
+    # In the attention style, the card's outline and "Needs you" for a reader.
+    expect(login).to_contain_text("Needs you")
+    expect(
+        login.get_by_text(
+            f"Renew it by {_day(page, status['renew_by'])}: "
+            "agents cannot run once it runs out."
+        )
+    ).to_be_visible()
+    capture(page, "devflow-claude-login-due")
+
+    # The front page's card and the nav's dot say it too.
+    _forget_attention(page)
+    page.goto("/")
+    card = page.get_by_role("article").filter(
+        has=page.get_by_role("heading", name="Dev flow", level=2)
+    )
+    expect(card).to_have_class(re.compile(r"\bneeds-you\b"))
+    expect(
+        card.get_by_role("link", name="Your Claude login is due for renewal")
+    ).to_have_attribute("href", "/devflow/projects")
+    expect(_devflow_link(page)).to_have_accessible_name("Dev flow, needs you")

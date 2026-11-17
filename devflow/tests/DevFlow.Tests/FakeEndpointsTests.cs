@@ -194,6 +194,7 @@ public sealed class FakeEndpointsTests
         { "PUT", WorldPath, StagedWorld },
         { "POST", UnavailablePath, """{"unavailable": true}""" },
         { "POST", "/devflow/api/fake/expire-token", "{}" },
+        { "POST", "/devflow/api/fake/claude-login-age", """{"days": 340}""" },
     };
 
     [Theory]
