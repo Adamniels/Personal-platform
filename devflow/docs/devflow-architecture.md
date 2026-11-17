@@ -48,6 +48,8 @@ will show arrives with the later slices of the first part.
 Each project has a page of its own, under the Projects tab, where the owner makes the project's
 worker key, shown once, and sees the workers that have introduced themselves with it; a worker
 holding the key says hello and asks for work, and is told there is none yet, see "Workers" below.
+The worker program that does so exists, with the agent it will run behind one narrow interface,
+and publishes as one file for each Linux a worker runs on.
 On the Projects tab the owner also gives Dev flow his Claude login once, which it keeps sealed and
 warns him about a month before it is due.
 
@@ -321,11 +323,13 @@ is the merge the runner's gate would make, a merge commit on a head with both ch
 A worker is a program in a container on one of the owner's machines that takes a project's cards
 and builds them, as the spec's rounds 3 and 9 have it. Every worker belongs to exactly one
 project, and a worker calls Dev flow and is never called. What exists of it is the start: a
-project's key, the scheme a worker's request authenticates with, and the worker API's first two
-calls, `hello`, which records the worker, and `jobs/next`, which answers that there is no work. The
-worker program, its base image, the commands the page shows to start one, and handing out work
-are later slices of the feature "Dev flow: one card, end to end". The routes, the tables and the
-panel are "Workers" and "The pages" in `devflow/README.md`.
+project's key, the scheme a worker's request authenticates with, the worker API's first two
+calls, `hello`, which records the worker, and `jobs/next`, which answers that there is no work, and
+the worker program that makes them, with the agent interface it will run a job behind. Its base
+image, the commands the page shows to start one, and handing out work are later slices of the
+feature "Dev flow: one card, end to end". The routes, the tables and the panel are "Workers" and
+"The pages" in `devflow/README.md`, and the program, its settings, loop and exit codes "The worker"
+there.
 
 **One key per project, shared by its workers**, as the feature's slice settles. A worker is started
 from a command with its project's key in it, so a key per worker would only add a step to starting
@@ -345,6 +349,34 @@ hostname, and the recipe version and base image it reports, which later slices c
 the project expects. Its primary key is the project and that id together, so a worker of one user
 can never collide with one of another's. One not seen for ten minutes shows as "not seen since"
 then; nothing removes a worker yet.
+
+**The worker program is the hands, and knows nothing else**, as the spec's round 4 has it: the
+program decides which card is next and judges every result, and a worker asks for work, does one
+job and forgets it. It is C#, like the program, so the two share the definitions of what they say
+to each other, `DevFlow.Protocol`, and a change that breaks either side fails to compile; and it is
+published as one file carrying its own .NET runtime, so a project's image needs no .NET. It is a
+console program, not a hosted service, since it serves nothing: it loops, and ends only when it is
+stopped or its key is wrong. Dev flow being away is a wait, never an exit, so a worker outlives a
+restart of the hosted copy without anyone starting it again; the wait grows from 5 seconds to a
+minute while there is nothing, so idle workers cost Dev flow a request a minute each.
+
+**The agent runs behind one narrow interface**, `IAgent`, as the spec's round 4 has it: given the
+working copy, the brief, the report's schema, the limits and the credential, it answers a success
+with the report or a failure with its reason. The reason says where the failure lies, in the card
+or outside it, since the two are answered differently: a card that ran out of turns has to change,
+and a run that hit the usage limit only has to wait. Claude Code run headless is the one real
+implementation, and a fake answering a prepared report is the other, so the worker's own tests
+spend no usage. The Agent SDK, another agent or a side program in another language would be a
+third implementation of the same interface.
+
+**A run succeeds only by a rule of six conditions, never by what Claude Code calls it**, from the
+experiment of 2026-11-16 on the Mac mini with Claude Code 2.1.325, which found that its `subtype`
+reads `success` on a run that failed, that a run refused a write still exits `0` as `completed`,
+and that a run as root with `bypassPermissions` answers nothing at all. So every condition is
+checked, exit `0`, valid JSON, `is_error` false, `terminal_reason` `completed`, a report present
+and an object, and no refused action, and anything else is a failure; the table of which failure
+lies where is "The worker" in `devflow/README.md`. The report's schema is checked by Dev flow
+rather than the worker, which needs no JSON Schema library for it.
 
 **A run's one credential is the Claude login, and Dev flow holds it**, as the spec's rounds 3 and
 4b have it. The owner runs `claude setup-token` once and pastes the token on the Projects tab, so a
@@ -404,6 +436,25 @@ its reason, or a risk accepted on purpose; each slice adds the ones it builds.
   memory before the route can refuse one over 5 MB, so a large file on `pr-screenshots` costs a
   read of it; the branch is written only by the runner's `screenshots.sh`, and GitHub's contents
   API answers files up to 100 MB.
+- **An agent's run gets an environment built from nothing.** Claude Code is started with exactly
+  `HOME`, `PATH`, `LANG`, `CLAUDE_CONFIG_DIR` and `CLAUDE_CODE_OAUTH_TOKEN`, and the process starter
+  clears everything else, rather than passing the worker's environment and taking out what is
+  known to be dangerous. The experiment found that an `ANTHROPIC_API_KEY` in the environment
+  silently wins over the subscription token and bills the API, and a list of what to take out
+  misses the next such variable, where a list of what to put in cannot. `--bare` is never passed,
+  since it refuses the token, and the login is checked with `claude auth status` before every run,
+  which must say the token is what it is logged in with. Two tests hold it:
+  `ClaudeAgentTests.TheEnvironmentIsBuiltFromNothing`, of what is asked for, and
+  `ProcessStarterTests.TheProcessGetsOnlyTheEnvironmentGiven`, which sets an API key in the test's
+  own process and checks a real child process never sees it.
+- **The worker never writes the token.** The Claude token reaches a run in its environment and
+  nowhere else: the worker does not write it to a file, log it or send it back, `AgentCredential`
+  prints as redacted, and its value is replaced in Claude Code's output before anything reads it,
+  so an agent that prints its own environment cannot carry the token out in its report or its
+  stderr. `ClaudeAgentTests.TheTokenIsNeverWrittenAnywhere` checks every answer the worker keeps.
+  Accepted: the agent runs with the token in its environment and can read it, which a run cannot
+  avoid, and could send it out encoded; the token is the owner's subscription alone, and is revoked
+  and made again if it is ever exposed.
 - **The program asks GitHub for changes; there is no webhook.** The platform is not reachable from
   the internet, by design, so nothing outside can call it, and opening it to receive webhooks would
   add an exposed endpoint for a convenience polling gives without one. When it is reachable, a

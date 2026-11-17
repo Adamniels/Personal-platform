@@ -1,8 +1,11 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/DevFlow/DevFlow.csproj" />
+    <Project Path="src/DevFlow.Protocol/DevFlow.Protocol.csproj" />
+    <Project Path="src/DevFlow.Worker/DevFlow.Worker.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/DevFlow.Tests/DevFlow.Tests.csproj" />
+    <Project Path="tests/DevFlow.Worker.Tests/DevFlow.Worker.Tests.csproj" />
   </Folder>
 </Solution>

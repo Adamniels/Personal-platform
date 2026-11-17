@@ -1,0 +1,16 @@
+{
+  "type": "result",
+  "subtype": "success",
+  "is_error": true,
+  "duration_ms": 312,
+  "duration_api_ms": 0,
+  "num_turns": 1,
+  "result": "Not logged in · Please run /login",
+  "session_id": "6a0f1c62-4b1e-4f3c-9d2a-0b7c1e5d9a13",
+  "total_cost_usd": 0,
+  "usage": { "input_tokens": 0, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0, "output_tokens": 0 },
+  "modelUsage": {},
+  "permission_denials": [],
+  "terminal_reason": "api_error",
+  "uuid": "0d7e5b0a-6c55-4a43-8f63-3f2b8e3f6a22"
+}
