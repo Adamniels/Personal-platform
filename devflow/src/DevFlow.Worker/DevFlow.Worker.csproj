@@ -14,9 +14,13 @@
     <RuntimeIdentifiers>linux-arm64;linux-x64</RuntimeIdentifiers>
     <!-- A worker formats nothing by culture, so the image needs no ICU. -->
     <InvariantGlobalization>true</InvariantGlobalization>
-    <!-- Warns, in every build, of what breaks in a single file; and restores the same packages with
-         a runtime named or without, so one lock file serves the build and the publish. -->
-    <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
+    <!--
+      Off, though publishing one file would turn it on: the analyzer comes in an implicit package,
+      Microsoft.NET.ILLink.Tasks, which a source-built SDK serves from its own library-packs with a
+      different hash than nuget.org's, so a lock file holding it fails restore on one machine or
+      the other. Off, no build or publish restores it, and one lock file serves both.
+    -->
+    <EnableSingleFileAnalyzer>false</EnableSingleFileAnalyzer>
   </PropertyGroup>
   <!-- Self-contained and one file only when a runtime is named, as publishing names one; a build
        without one, as CI's and the tests' are, cannot be self-contained. -->

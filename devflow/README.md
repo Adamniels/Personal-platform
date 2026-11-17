@@ -1117,8 +1117,11 @@ dotnet publish src/DevFlow.Worker -c Release -r linux-x64 -o <folder>
 
 Naming a runtime makes it self-contained and one file, with its symbols inside it, and
 `InvariantGlobalization` means the image needs no ICU either. `RuntimeIdentifiers` in the worker's
-and `DevFlow.Protocol`'s project files, and the single-file analyzer on in every build, keep one
-`packages.lock.json` that holds for the build and the publish alike.
+and `DevFlow.Protocol`'s project files, and the single-file analyzer turned off, keep one
+`packages.lock.json` that holds for the build and the publish alike, on any machine: the analyzer
+comes in an implicit package, `Microsoft.NET.ILLink.Tasks`, that a source-built SDK, such as
+Homebrew's on the Mac mini, serves with another hash than nuget.org's, which fails a locked
+restore on one side or the other.
 
 **Running it** by hand, against Dev flow from "Running it" above, with a key made on a project's
 page:
