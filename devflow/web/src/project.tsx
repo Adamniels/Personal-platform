@@ -1,5 +1,5 @@
 // A project's page, /devflow/projects/<id>, opened from its row on the Projects tab: a header with
-// the repository's name, and the Workers panel, with the project's worker key, the two commands
+// the repository's name, the Settings panel under it, and the Workers panel, with the project's worker key, the two commands
 // that start a worker, and the workers that have said hello with it, each saying when it needs
 // building again. The key is shown once, as the answer that made it, with the command that saves
 // it, and never read back: after a reload the page knows only when it was made. See "The pages",
@@ -11,6 +11,7 @@ import type { GetAnswer } from "./api/client";
 import type { components } from "./api/schema";
 import styles from "./project.module.css";
 import type { Project } from "./projects";
+import { type SettingsApi, SettingsPanel } from "./settings";
 import { duration } from "./waiting";
 
 export type WorkerList = GetAnswer<"/projects/{id}/workers">;
@@ -42,7 +43,7 @@ export const QUIET_MS = 10 * 60 * 1000;
 
 /** How the page reads and changes a project's workers, Dev flow's API in
  * the page and a test's own in a test. */
-export type ProjectApi = {
+export type ProjectApi = SettingsApi & {
 	loadProjects: () => Promise<Project[]>;
 	loadWorkers: (id: string) => Promise<WorkerList>;
 	/** Makes the project's key, replacing its last, and answers it with
@@ -64,7 +65,7 @@ const fullName = (project: Project) => `${project.owner}/${project.name}`;
 
 const clipboard = (text: string) => navigator.clipboard.writeText(text);
 
-/** The project's header and its Workers panel, or a not found state when the
+/** The project's header, its Settings and its Workers panel, or a not found state when the
  * caller has no project by that id. Nothing before the projects answer. */
 export function ProjectPage({
 	id,
@@ -74,6 +75,8 @@ export function ProjectPage({
 	loadProjects,
 	loadWorkers,
 	makeKey,
+	loadSettings,
+	saveSettings,
 }: ProjectPageProps) {
 	const [project, setProject] = useState<Project | null>();
 	const [failed, setFailed] = useState(false);
@@ -132,6 +135,11 @@ export function ProjectPage({
 				{backLink}
 				<h2 className={styles.name}>{fullName(project)}</h2>
 			</header>
+			<SettingsPanel
+				id={id}
+				loadSettings={loadSettings}
+				saveSettings={saveSettings}
+			/>
 			<WorkersPanel
 				id={id}
 				project={project.name}

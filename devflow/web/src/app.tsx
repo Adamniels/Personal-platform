@@ -16,6 +16,7 @@ import { type ProjectApi, ProjectPage } from "./project";
 import { type Project, Projects, type ProjectsApi } from "./projects";
 import { GitHubLink } from "./projects-link";
 import { projectAt, SECTIONS, type Section, sectionAt } from "./sections";
+import type { ProjectSettings } from "./settings";
 import { loadStatus as readStatus, type Status, useStatus } from "./status";
 import { useWaiting, Waiting, type WaitingApi } from "./waiting";
 
@@ -72,6 +73,16 @@ const projectApi: ProjectApi = {
 		client.send<components["schemas"]["WorkerKey"]>(
 			"POST",
 			`/projects/${encodeURIComponent(id)}/worker-key`,
+		),
+	loadSettings: (id) =>
+		client.get(
+			`/projects/${encodeURIComponent(id)}/settings` as "/projects/{id}/settings",
+		),
+	saveSettings: (id, settings) =>
+		client.send<ProjectSettings>(
+			"PUT",
+			`/projects/${encodeURIComponent(id)}/settings`,
+			settings,
 		),
 };
 

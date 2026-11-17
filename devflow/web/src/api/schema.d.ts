@@ -198,6 +198,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/devflow/api/projects/{id}/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A project's settings
+         * @description The labels that pick and hold its cards and mark what needs the caller, and whether a card's pull request waits for them, never or always. 404 for a project the caller does not have. Without a valid token, 401 with an empty body; a change from another origin, 403.
+         */
+        get: operations["getProjectSettings"];
+        /**
+         * Change a project's settings
+         * @description Takes all four and answers them as saved. A label is written, at most 50 characters, with no space at either end and no comma, and the three are different names whatever their case; waits_for_owner is never or always. 422 naming each field that breaks a rule, 404 for a project the caller does not have. Without a valid token, 401 with an empty body; a change from another origin, 403.
+         */
+        put: operations["saveProjectSettings"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/devflow/api/projects/{id}/worker-key": {
         parameters: {
             query?: never;
@@ -555,12 +579,24 @@ export interface components {
         ProjectList: {
             projects: components["schemas"]["Project"][];
         };
+        ProjectSettings: {
+            attention_label: string;
+            hold_label: string;
+            pickup_label: string;
+            waits_for_owner: string;
+        };
         ScreenshotGroup: {
             images: string[];
             name: string;
         };
         SendBackRequest: {
             comment: null | string;
+        };
+        SettingsRequest: {
+            attention_label: null | string;
+            hold_label: null | string;
+            pickup_label: null | string;
+            waits_for_owner: null | string;
         };
         /** Format: binary */
         Stream: string;
@@ -1082,6 +1118,95 @@ export interface operations {
                 };
                 content: {
                     "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    getProjectSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectSettings"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    saveProjectSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SettingsRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectSettings"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
                 };
             };
         };

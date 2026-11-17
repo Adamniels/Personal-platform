@@ -1129,6 +1129,56 @@ def test_a_worker_that_said_hello_is_listed(
     capture(page, "devflow-project-workers")
 
 
+def test_i_set_a_projects_settings(
+    page: Page, invite_code: str, base_url: str, viewport: str, devflow_world
+):
+    register_and_log_in(page, invite_code, base_url)
+    _open_project(page, base_url, devflow_world)
+    settings = page.get_by_role("article", name="Settings")
+
+    # A new project has the defaults.
+    expect(settings.get_by_label("Pick-up label")).to_have_value("devflow")
+    expect(settings.get_by_label("Hold label")).to_have_value("devflow-hold")
+    expect(settings.get_by_label("Attention label")).to_have_value(
+        "devflow-attention"
+    )
+    expect(settings.get_by_label("Pull requests wait for you")).to_have_value(
+        "never"
+    )
+
+    # The same name twice is refused under the field, and nothing is saved.
+    settings.get_by_label("Hold label").fill("DevFlow")
+    settings.get_by_role("button", name="Save").click()
+    expect(settings.get_by_label("Hold label")).to_have_attribute(
+        "aria-invalid", "true"
+    )
+    expect(
+        settings.get_by_text("must be a different label from the other two")
+    ).to_be_visible()
+
+    settings.get_by_label("Pick-up label").fill("agent: go")
+    settings.get_by_label("Hold label").fill("agent: wait")
+    settings.get_by_label("Pull requests wait for you").select_option("always")
+    settings.get_by_role("button", name="Save").click()
+    expect(settings.get_by_text("Saved.")).to_be_visible()
+    expect(settings.get_by_label("Hold label")).not_to_have_attribute(
+        "aria-invalid", "true"
+    )
+    capture(page, "devflow-project-settings")
+
+    # Kept: a fresh load reads them back.
+    page.reload()
+    settings = page.get_by_role("article", name="Settings")
+    expect(settings.get_by_label("Pick-up label")).to_have_value("agent: go")
+    expect(settings.get_by_label("Hold label")).to_have_value("agent: wait")
+    expect(settings.get_by_label("Attention label")).to_have_value(
+        "devflow-attention"
+    )
+    expect(settings.get_by_label("Pull requests wait for you")).to_have_value(
+        "always"
+    )
+
+
 RECIPE = b"ARG DEVFLOW_BASE\nFROM ${DEVFLOW_BASE}\nRUN apt-get update\n"
 
 
