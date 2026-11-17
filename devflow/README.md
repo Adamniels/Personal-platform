@@ -44,13 +44,19 @@ will show arrives with later slices.
 - `POST /devflow/api/projects/{id}/worker-key`, which makes a project's worker key and answers it
   once, and `GET /devflow/api/projects/{id}/workers`, the workers that have said hello with it,
   see "Workers". Without a valid token, `401` with an empty body.
+- `GET /devflow/api/claude-login`, `PUT /devflow/api/claude-login` and
+  `DELETE /devflow/api/claude-login`, whether the caller's Claude login is set and when it is due,
+  giving or replacing it, and removing it, see "Claude login". None ever answers the token. Without
+  a valid token, `401` with an empty body.
 - `POST /devflow/api/worker/hello` and `POST /devflow/api/worker/jobs/next`, the worker API, which
   takes a project's worker key in `Authorization: Bearer dfw_…` and never a user's token, see
   "Workers". Without a key the project has now, `401` with an empty body.
 - `GET /devflow/api/display`, what the platform's front page shows of Dev flow,
-  `{"waiting": 2, "stopped": 1, "projects": 1, "stale": false, "needs_relink": false}`: the items
-  of kind `waiting` and of kind `stopped` that are not sent back, how many projects the caller has
-  connected, whether any of them is stale or failing, and whether their GitHub link has expired.
+  `{"waiting": 2, "stopped": 1, "projects": 1, "stale": false, "needs_relink": false, "claude_login": "ok"}`:
+  the items of kind `waiting` and of kind `stopped` that are not sent back, how many projects the
+  caller has connected, whether any of them is stale or failing, whether their GitHub link has
+  expired, and where their Claude login stands, `none`, `ok`, `due_soon` or `expired`, as
+  `GET /devflow/api/claude-login` says it, which the core says apart as it does the link.
   It reads the same stored picture as the waiting list, never GitHub, so it answers well inside the
   core's deadline, and it sends no words or order meant for display. The core calls it with the
   user's token in the `Authorization` header; `contracts/display/devflow.json` pins its shape, see
@@ -59,7 +65,9 @@ will show arrives with later slices.
 - `GET /devflow/api/attention`, `{"attention": true}` or `{"attention": false}`, Dev flow's answer
   to the nav bar, which draws the dot on Dev flow's link while it is true: true when the caller has
   an item, waiting or stopped, that is not sent back, or a GitHub link that has expired, which is
-  what the waiting list's `count` counts. It reads the same stored picture, never GitHub. Both
+  what the waiting list's `count` counts, or a Claude login `due_soon` or `expired`, which it does
+  not, since the login is not on that tab. It reads the same stored picture and the login, never
+  GitHub. Both
   registries name it as Dev flow's `attention`; the contract every feature's answers to is "The
   attention endpoint" in `High-level/docs/feature-contract.md`. Without a valid token, `401` with an
   empty body.
@@ -118,7 +126,21 @@ to merge and comment as yourself." and a primary "Link GitHub", which posts to
 `?link=failed`, or when starting fails, it says "GitHub was not linked. Try again." as an alert.
 Before the status answers it shows nothing.
 
-Under the link are the projects, `src/projects.tsx`. A primary "Connect a repository", enabled only
+Under the link is the Claude login, `src/claude-login.tsx`, the package's `Card` titled "Claude
+login", read from `GET /devflow/api/claude-login` as the tab loads: "Agents run on your
+subscription with this. Make it with `claude setup-token`.", then where it stands, "Not set yet.",
+or "Set on <date>, renew by <date>.", the dates in the reader's own zone. From a month before it is
+due the card takes the attention style and says "Set on <date>. Renew it by <date>: agents cannot
+run once it runs out.", and once past it "Set on <date>. It ran out on <date>: agents cannot run
+until you replace it.", in `--accent-text` at weight 600. Under that, a password field labelled
+"Claude token" and a secondary "Save", or "Replace" once one is set, enabled only while the field
+holds something, and, once set, a ghost "Remove" behind a destructive `Dialog`, "Remove the Claude
+login?". Saving empties the field whatever the answer; a token the service refuses says "That is
+not a setup token. Make one with claude setup-token and paste all of it." on the field, and any
+other failure says so as an alert. The page never reads the token back, not even a part of it.
+The buttons are secondary, since the tab's one primary is "Link GitHub" or "Connect a repository".
+
+Under it are the projects, `src/projects.tsx`. A primary "Connect a repository", enabled only
 while GitHub is linked, opens "Choose a repository": the repositories the app reaches for the
 owner, read from `GET /devflow/api/github/repositories`, as one package `Table` per account, named
 and headed by it, each repository a row with "Connect", or a `Badge` "Connected" when it is a
@@ -226,8 +248,9 @@ the session cookie, a `401` is refreshed once, shared by every call that got one
 `/auth/refresh?return_to=<path>`, as review's client does. Its GETs are typed from
 `src/api/schema.d.ts`. The page reads the status once as it loads, in `src/status.ts`, for the
 banner and the link, and again after unlinking; its other calls are starting a link, unlinking,
-the projects' four, reading what waits and refreshing a project, merging and sending back, and a
-project's workers and making its key, which `src/app.tsx` gives the tabs, so a test gives its own,
+the projects' four, reading what waits and refreshing a project, merging and sending back, a
+project's workers and making its key, and reading, giving and removing the Claude login, which
+`src/app.tsx` gives the tabs, so a test gives its own,
 with its own clock.
 
 ## The schema
@@ -438,8 +461,9 @@ secret is only ever touched as its user:
 - `Delete(transaction, userId, purpose, cancellationToken)` removes it, saying whether there was
   one.
 
-A purpose is a short fixed name the caller chooses, such as `github.access`, matching
-`^[a-z][a-z0-9.]*$`; anything else is an `ArgumentException`.
+A purpose is a short fixed name the caller chooses, such as `github.access` or `claude-login`,
+matching `^[a-z][a-z0-9.-]*$`; anything else is an `ArgumentException`. The hyphen arrived with
+`claude-login`, in `migrations/0008_claude_logins.sql`, which changes the table's check with it.
 
 Each row of `secrets` is one user's secret for one purpose: `key_id`, `nonce` and `ciphertext`,
 with `updated_at`. A put seals with AES-256-GCM, from .NET's own `AesGcm`, under the current key, a
@@ -702,6 +726,9 @@ of what Dev flow is:
 - `POST /devflow/api/fake/revoke-token` ends both of the caller's tokens at the fake, as revoking
   the app on GitHub does, and the access token in Dev flow's record, so the next use renews, the
   renewal is refused and the link becomes `needs_relink`, `204`.
+- `POST /devflow/api/fake/claude-login-age` with `{"days": 340}` moves when the caller's Claude
+  login was given to that many days before now, so a test sees it due without waiting a year,
+  `204`; `404` without a login, and `400` for a negative or malformed number.
 - `GET /devflow/api/fake/writes` lists the merges and comments the fake took for the caller,
   oldest first, each `{"kind": "merge", "repository": 1001, "number": 304, "commit": "<40 hex>",
   "method": "merge", "body": null, "by": "octo-owner"}`, or with `kind` `comment`, the `body`, and
@@ -1139,6 +1166,59 @@ against a Dev flow played from a script, on a clock the test moves. `ClaudeAgent
 gets only the environment given. `ProtocolTests` checks that Dev flow's routes take the shared
 types and that both sides write them as `contracts/devflow/openapi.json` says, and `PublishTests`
 publishes for both runtimes, in locked mode, in a folder of its own.
+
+## Claude login
+
+The Claude login is the token the owner makes with `claude setup-token`, which every run of his
+is handed so it runs on his subscription. Why it is held by Dev flow, and how it reaches a run, is
+"Workers" in `docs/devflow-architecture.md`.
+
+**As the owner does it.** In a normal terminal, run `claude setup-token`, and paste what it prints
+into "Claude login" on the Projects tab, then "Save". The field empties and the section says when
+it was given and when to renew it, a year later. A month before then the section, the nav's dot
+and the front page's card say it is due: make a new token the same way and "Replace" the old one.
+"Remove" forgets it.
+
+**One per user**, not per project, since the subscription is the user's. The token is sealed in
+the vault, see "The vault", under the purpose `claude-login`, and nowhere else.
+`ClaudeLogins`, in `src/DevFlow/ClaudeLogin/`, does everything with it, through the door as the
+user.
+
+**Its year is counted from when it was given.** Claude Code does not say when a setup token runs
+out: `claude auth status --json` reports `loginExpiresAt` as `null` for one. So Dev flow records
+`given_at` and counts: `renew_by` is `given_at` plus 365 days, the state is `due_soon` from 31
+days before `renew_by`, and `expired` from `renew_by` on. Replacing it starts the year again. The
+clock is the app's `TimeProvider`, so a test moves it.
+
+**The check on save** is only that it looks like a setup token: `sk-ant-oat` followed by at least
+one more visible ASCII character, no space or line break, at most 512 characters, once the space
+around a paste is dropped. Dev flow does not ask Anthropic whether it works; a worker checks the
+login before every run.
+
+The routes, in `ClaudeLoginEndpoints`, the user's, origin checked:
+
+- `GET /devflow/api/claude-login` answers
+  `{"set": true, "given_at": "<time>", "renew_by": "<time>", "state": "ok"}`, with `state` one of
+  `none`, `ok`, `due_soon` and `expired`, and both times null with `none`. Never the token.
+- `PUT /devflow/api/claude-login` with `{"token": "sk-ant-oat…"}` seals it, replacing any before
+  it, given now, and answers the status it leaves, `200`. Anything that does not look like a setup
+  token is `422` naming `token`, never repeating what was sent, and nothing is stored.
+- `DELETE /devflow/api/claude-login` forgets the login and its sealed token, `204`, whether or not
+  there was one.
+
+**Opening it for a run** is one method, `ClaudeLogins.ForRun(runUserId)`, and nothing else opens
+it. It opens through the door as the run's user, so no one else's is visible, and the vault's
+binding to the user it was sealed for refuses a token moved to another, with `VaultException`. It
+answers a `ClaudeToken`, which prints as `ClaudeToken { sealed }`, so a log line or an exception
+naming it does not reveal it. It is called only when a job is handed out, so the token leaves Dev
+flow only inside a job's answer to its own user's worker; nothing calls it until "Handing out work
+and the brief". An expired login is still handed out, since its expiry is only counted.
+
+The table, from `migrations/0008_claude_logins.sql`, guarded like every scoped one:
+`claude_logins`, `user_id`, its primary key, `secret_purpose`, always `claude-login`, and
+`given_at`. `(user_id, secret_purpose)` references `secrets (user_id, purpose)` with
+`ON DELETE CASCADE`, so a login cannot be recorded without its sealed token, and removing the
+token removes the login.
 
 ## Registering the GitHub App
 

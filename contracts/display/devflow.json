@@ -3,5 +3,6 @@
   "stopped": 1,
   "projects": 1,
   "stale": false,
-  "needs_relink": false
+  "needs_relink": false,
+  "claude_login": "ok"
 }

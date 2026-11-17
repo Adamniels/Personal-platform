@@ -681,8 +681,8 @@ the deadline, `DISPLAY_DEADLINE`, as a parameter so the tests can pass a short o
 **Canary, review and Dev flow are the features on the page.** Canary was the first, proving the
 pattern; review's card is how review comes to the owner, the count due now and its decks, and Dev
 flow's is how what waits for him there does, the pull requests waiting and stopped, with a line
-when its picture is stale or his GitHub link has expired, both until a notifications service
-exists. A feature's card is two pieces of the core: a type in `src/cards.rs` that its display data
+when its picture is stale, his GitHub link has expired, or his Claude login is due or has run
+out, each until a notifications service exists. A feature's card is two pieces of the core: a type in `src/cards.rs` that its display data
 deserialises into, `CanaryCard`, `ReviewCard` and `DevFlowCard`, and its
 branch of `templates/front.html` that renders it. `Card::from_fetched` picks the type by the feature's registry prefix, which is
 unique, rather than by its name. A type refuses any other shape, an unknown field included, and

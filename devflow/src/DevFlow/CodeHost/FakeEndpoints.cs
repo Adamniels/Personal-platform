@@ -15,6 +15,10 @@ namespace DevFlow.CodeHost;
 /// <param name="Unavailable">Whether every operation answers unavailable for the caller.</param>
 public sealed record FakeUnavailable(bool Unavailable);
 
+/// <summary>What <c>POST /devflow/api/fake/claude-login-age</c> takes.</summary>
+/// <param name="Days">How many days ago the caller's Claude login is to have been given.</param>
+public sealed record FakeClaudeLoginAge(int Days);
+
 /// <summary>
 /// The fake code host's addresses, through which a test stages its account's world. Mapped only
 /// in the fake mode, so in the GitHub mode each is <c>404</c>; under the <c>Api</c> policy and the
@@ -83,6 +87,28 @@ public static class FakeEndpoints
             host.RevokeTokens(context.UserId());
             await EndAccess(context, database, time);
             return TypedResults.NoContent();
+        });
+
+        // Moves when the caller's Claude login was given back by a number of days, so a test sees
+        // it due without waiting a year. 404 without a login.
+        fake.MapPost("/claude-login-age", async Task<Results<NoContent, ProblemHttpResult>> (HttpContext context, [FromServices] UserDb database, [FromServices] TimeProvider time) =>
+        {
+            var (body, error) = await FakeJson.Read<FakeClaudeLoginAge>(context.Request.Body, context.RequestAborted);
+            error ??= body is { Days: < 0 } ? new Malformed("days", "must not be negative") : null;
+            if (error is not null)
+            {
+                return Refused("The age is malformed", error);
+            }
+
+            var userId = context.UserId();
+            var aged = await database.InUserTransaction(userId, transaction => transaction.Connection!.ExecuteAsync(new CommandDefinition(
+                "UPDATE claude_logins SET given_at = @givenAt WHERE user_id = @userId",
+                new { userId, givenAt = time.GetUtcNow() - TimeSpan.FromDays(body!.Days) },
+                transaction,
+                cancellationToken: context.RequestAborted)), context.RequestAborted);
+            return aged > 0
+                ? TypedResults.NoContent()
+                : TypedResults.Problem(statusCode: StatusCodes.Status404NotFound, title: "No Claude login", detail: "the caller has no Claude login to age");
         });
 
         return routes;
