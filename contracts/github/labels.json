@@ -1,0 +1,24 @@
+[
+  {
+    "id": 13052032229,
+    "node_id": "LA_kwDOUMYTdc8AAAADCfY05Q",
+    "url": "https://api.github.com/repos/Adamniels/Personal-platform/labels/owner-decision",
+    "name": "owner-decision",
+    "color": "FBCA04",
+    "default": false,
+    "description": "A decision the agent made waits for the owner's answer",
+    "archived_at": null,
+    "archived_by": null
+  },
+  {
+    "id": 13065928285,
+    "node_id": "LA_kwDOUMYTdc8AAAADCso-XQ",
+    "url": "https://api.github.com/repos/Adamniels/Personal-platform/labels/has-decision",
+    "name": "has-decision",
+    "color": "EDEDED",
+    "default": false,
+    "description": "The implementer flagged a decision. Read by the gate and the runner, not a signal to the owner",
+    "archived_at": null,
+    "archived_by": null
+  }
+]

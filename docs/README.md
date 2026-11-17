@@ -130,7 +130,8 @@ features" in `High-level/docs/platform-architecture.md`.
   they are, reading this repository's runner and the conventions it knows, reading every project
   into a stored picture the pages read instead of GitHub, cards and how one is picked, with why only
   the owner's own count and why the settings table holds only what is read, acting from the page as the owner and
-  never as the app, workers and how a worker's key leads to its project's user, the worker
+  never as the app, the program's own writes as the app with a key narrowed to one purpose, workers
+  and how a worker's key leads to its project's user, the worker
   program, the agent interface and the rule a run succeeds by, the Claude login Dev flow holds for
   a user's runs, and its security decisions and accepted risks, kept for an audit, the vault's,
   the fake's, the worker key's, the agent run's environment and token, and the Claude token's

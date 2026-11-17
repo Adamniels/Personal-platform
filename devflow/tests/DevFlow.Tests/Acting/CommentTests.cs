@@ -124,10 +124,12 @@ public sealed class CommentTests
     }
 
     [Fact]
-    public async Task NothingIsEverWrittenAsTheApp()
+    public async Task TheOwnersActionsAreNeverWrittenAsTheApp()
     {
-        // Every write this slice makes, and every refusal, in one world: a merge, a comment on a
-        // waiting item and on a stopped one, a stale merge and a merge the host refuses.
+        // What the owner does from the waiting list is his, never the app's: the program's own
+        // writes are the app's, through AppWriteToken, and none of them is reachable from these
+        // routes. Every action, and every refusal, in one world: a merge, a comment on a waiting
+        // item and on a stopped one, a stale merge and a merge the host refuses.
         var second = Acting.Waiting with
         {
             Pull = Acting.Waiting.Pull with { Number = 45, HeadCommit = new string('e', 40), Url = new Uri("https://github.com/Adamniels/Personal-platform/pull/45") },
@@ -141,11 +143,12 @@ public sealed class CommentTests
         Assert.Equal(StatusCodes.Status204NoContent, (await acting.SendBack((await acting.Item(45)).Id, "Rename it.")).Response.StatusCode);
         Assert.Equal(StatusCodes.Status204NoContent, (await acting.Merge((await acting.Item(42)).Id, World.Head)).Response.StatusCode);
 
-        // Every write the code host was asked for carried the user's own token, and every one the
-        // fake took is the owner's, never the app's.
+        // Every write the code host was asked for carried the user's own token, no key was asked
+        // of the app, and every write the fake took is the owner's, with no purpose, never the app's.
         Assert.Equal(3, acting.Host.WriteTokens.Count);
         Assert.All(acting.Host.WriteTokens, written => Assert.Equal(token, written.Value));
+        Assert.DoesNotContain(acting.Host.Calls, call => call.Operation is "ForWrite" or "OpenPullRequest" or "CommentOnIssue" or "AddLabel" or "RemoveLabel" or "OpenIssue" or "MergeAsApp");
         Assert.Equal(["comment", "comment", "merge"], acting.Fake.Writes(Acting.User).Select(write => write.Kind));
-        Assert.All(acting.Fake.Writes(Acting.User), write => Assert.Equal(World.Owner, write.By));
+        Assert.All(acting.Fake.Writes(Acting.User), write => Assert.Equal((World.Owner, null), (write.By, write.Purpose)));
     }
 }

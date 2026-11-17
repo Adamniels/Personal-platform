@@ -53,15 +53,18 @@ public sealed partial class GitHubCodeHost
     public async Task<CodeHostResult<IReadOnlyList<Issue>>> LabelledIssues(Guid userId, Repository repository, string label, CancellationToken cancellationToken) =>
         Map(
             await List<IReadOnlyList<IssueAnswer>, IssueAnswer>($"{Repo(repository)}/issues?state=open&labels={Escape(label)}&per_page=100", page => page, AsApp(repository, cancellationToken)),
-            issues => (IReadOnlyList<Issue>)[.. issues.Select(issue => new Issue(
-                issue.Number,
-                issue.Title,
-                Login(issue.User),
-                [.. issue.Labels.Select(found => found.Name)],
-                issue.Body ?? "",
-                issue.HtmlUrl,
-                issue.CreatedAt,
-                issue.PullRequest is not null))]);
+            issues => (IReadOnlyList<Issue>)[.. issues.Select(ToIssue)]);
+
+    /// <summary>An issue as GitHub answers it, listed or just opened.</summary>
+    private static Issue ToIssue(IssueAnswer issue) => new(
+        issue.Number,
+        issue.Title,
+        Login(issue.User),
+        [.. issue.Labels.Select(found => found.Name)],
+        issue.Body ?? "",
+        issue.HtmlUrl,
+        issue.CreatedAt,
+        issue.PullRequest is not null);
 
     /// <summary><c>GET /repos/{owner}/{repo}/issues/{number}/dependencies/blocked_by</c>.</summary>
     public async Task<CodeHostResult<IReadOnlyList<Dependency>>> BlockedBy(Guid userId, Repository repository, int number, CancellationToken cancellationToken) =>
@@ -212,8 +215,8 @@ public sealed partial class GitHubCodeHost
             : new CodeHostResult<TData>.Unavailable(RetryAt: null);
     }
 
-    /// <summary>An issue in a list of issues; <c>pull_request</c> is there only for a pull
-    /// request.</summary>
+    /// <summary>An issue, in a list of issues or as opening one answers it; <c>pull_request</c> is
+    /// there only for a pull request.</summary>
     private sealed record IssueAnswer(
         int Number,
         string Title,
