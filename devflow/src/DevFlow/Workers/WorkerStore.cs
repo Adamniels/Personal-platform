@@ -29,7 +29,10 @@ public sealed record Worker(Guid Id, string Name, string RecipeVersion, string B
 /// <param name="StartCommand">The command that builds and starts the project's worker, which never
 /// holds the key.</param>
 /// <param name="Workers">Every worker that has said hello, by when it first did.</param>
-public sealed record WorkerList(DateTimeOffset? KeyMadeAt, string? RecipeVersion, string StartCommand, IReadOnlyList<Worker> Workers);
+/// <param name="Held">Why the project hands out no work whichever worker asks:
+/// <c>no_claude_login</c> or <c>claude_login_expired</c>, from <see cref="Jobs.Dispatcher.HeldFor"/>,
+/// or null.</param>
+public sealed record WorkerList(DateTimeOffset? KeyMadeAt, string? RecipeVersion, string StartCommand, IReadOnlyList<Worker> Workers, string? Held = null);
 
 /// <summary>Where a worker stands when it asks for work.</summary>
 public enum WorkerState

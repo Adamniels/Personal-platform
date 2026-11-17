@@ -54,7 +54,8 @@ public sealed class WorkerApiTests
                       "last_seen_at": "{{first:yyyy-MM-ddTHH:mm:ss}}+00:00",
                       "rebuild": "base_image"
                     }
-                  ]
+                  ],
+                  "held": "no_claude_login"
                 }
                 """),
             WithoutCommand(await Workers.List(routes, project))));
@@ -85,7 +86,7 @@ public sealed class WorkerApiTests
         var project = await routes.Project(Workers.User);
 
         Assert.True(JsonNode.DeepEquals(
-            JsonNode.Parse("""{"key_made_at": null, "recipe_version": null, "workers": []}"""),
+            JsonNode.Parse("""{"key_made_at": null, "recipe_version": null, "workers": [], "held": "no_claude_login"}"""),
             WithoutCommand(await Workers.List(routes, project))));
     }
 

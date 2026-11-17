@@ -271,7 +271,7 @@ export interface paths {
         };
         /**
          * The project's workers
-         * @description Every worker that has said hello with the project's key, by when it first did, with what it reported, when it was last seen, and rebuild: recipe when it runs another version of the recipe than Dev flow last read, base_image when it runs on another base image than the one released, or null; key_made_at, when the project's key was made, null before one has been; recipe_version, the recipe's version as last read, null before then or when the default branch has none; and start_command, the command that builds and starts the project's worker. The key itself is never in it. 404 for a project the caller does not have. Without a valid token, 401 with an empty body; a change from another origin, 403.
+         * @description Every worker that has said hello with the project's key, by when it first did, with what it reported, when it was last seen, and rebuild: recipe when it runs another version of the recipe than Dev flow last read, base_image when it runs on another base image than the one released, or null; key_made_at, when the project's key was made, null before one has been; recipe_version, the recipe's version as last read, null before then or when the default branch has none; and start_command, the command that builds and starts the project's worker; and held, why the project hands out no work whichever worker asks: no_claude_login when its user has given no Claude login, claude_login_expired when it is past its renewal, or null. The key itself is never in it. 404 for a project the caller does not have. Without a valid token, 401 with an empty body; a change from another origin, 403.
          */
         get: operations["listWorkers"];
         put?: never;
@@ -433,9 +433,29 @@ export interface paths {
         put?: never;
         /**
          * A worker asks for work
-         * @description Marks the worker seen and answers its next job; in this part there is none, so it is always 204. A worker that needs a rebuild, running another version of the recipe than Dev flow last read or another base image than the one released, is never given one. 409 for a worker that has not said hello in the key's project, which says hello and asks again; 422 without worker_id. Takes the project's worker key as Authorization: Bearer dfw_…, and nothing else: without a key the project has now, 401 with an empty body. No Origin is needed, and no cookie is read or set.
+         * @description Marks the worker seen and answers its next job, 200 with Cache-Control: no-store: the first of its project's queued cards that waits for nothing, by priority, high, none, low, then oldest first, moved to building, with a run recorded for this worker. The job holds the card, the repository, the branch, the brief, the report's schema, the check, the run's user's Claude token, a push key narrowed to the repository and its expiry, the committer and the limits. 204 when there is no work for it: no card to take, a user without a Claude login or with one past its renewal, a worker that needs a rebuild, running another version of the recipe than Dev flow last read or another base image than the one released, or the code host not answering what a job needs, such as the project's .devflow/project.json. 409 for a worker that has not said hello in the key's project, which says hello and asks again; 422 without worker_id. Takes the project's worker key as Authorization: Bearer dfw_…, and nothing else: without a key the project has now, 401 with an empty body. No Origin is needed, and no cookie is read or set.
          */
         post: operations["workerNextJob"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/devflow/api/worker/jobs/{id}/push-key": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * A fresh push key for a running job
+         * @description A new push key for the job's repository, narrowed to fetching and pushing code, with when it expires, 200 with Cache-Control: no-store, since a key lasts an hour and a run up to 90 minutes. Only for the worker holding the job, named by worker_id, while the job runs; 404 for any other worker, a job that is not one of the project's, or one that has finished. 503 when the code host made no key now, which the worker asks for again; 422 without worker_id. Takes the project's worker key as Authorization: Bearer dfw_…, and nothing else: without a key the project has now, 401 with an empty body. No Origin is needed, and no cookie is read or set.
+         */
+        post: operations["workerPushKey"];
         delete?: never;
         options?: never;
         head?: never;
@@ -565,6 +585,50 @@ export interface components {
             title?: null | string;
             type?: null | string;
         };
+        Job: {
+            base: string;
+            branch: string;
+            brief: string;
+            card: components["schemas"]["JobCard"];
+            check: string;
+            claude_token: string;
+            committer: components["schemas"]["JobCommitter"];
+            /** Format: uuid */
+            job_id: string;
+            kind: string;
+            limits: components["schemas"]["JobLimits"];
+            push_key: string;
+            /** Format: date-time */
+            push_key_expires_at: string;
+            report_schema: components["schemas"]["JsonElement"];
+            repository: components["schemas"]["JobRepository"];
+        };
+        JobCard: {
+            body: string;
+            /** Format: int32 */
+            number: number;
+            title: string;
+        };
+        JobCommitter: {
+            email: string;
+            name: string;
+        };
+        JobLimits: {
+            /** Format: double */
+            budget_usd: number;
+            /** Format: int32 */
+            minutes: number;
+            /** Format: int32 */
+            turns: number;
+        };
+        JobRepository: {
+            /** Format: uri */
+            clone_address: string;
+            default_branch: string;
+            name: string;
+            owner: string;
+        };
+        JsonElement: unknown;
         LinkStarted: {
             /** Format: uri */
             authorize_url: string;
@@ -619,6 +683,15 @@ export interface components {
             hold_label: string;
             pickup_label: string;
             waits_for_owner: string;
+        };
+        PushKeyAnswer: {
+            /** Format: date-time */
+            expires_at: string;
+            push_key: string;
+        };
+        PushKeyRequest: {
+            /** Format: uuid */
+            worker_id: null | string;
         };
         ScreenshotGroup: {
             images: string[];
@@ -692,6 +765,7 @@ export interface components {
             save_command: string;
         };
         WorkerList: {
+            held?: null | string;
             /** Format: date-time */
             key_made_at: null | string;
             recipe_version: null | string;
@@ -1683,6 +1757,15 @@ export interface operations {
             };
         };
         responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Job"];
+                };
+            };
             /** @description No Content */
             204: {
                 headers: {
@@ -1713,6 +1796,66 @@ export interface operations {
                 };
                 content: {
                     "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    workerPushKey: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PushKeyRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PushKeyAnswer"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
                 };
             };
         };

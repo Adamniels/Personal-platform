@@ -16,7 +16,7 @@ namespace DevFlow.CodeHost;
 public sealed partial class FakeCodeHost : ICodeHost, ICodeHostSignIn
 {
     /// <summary>Every repository's default branch in the fake.</summary>
-    public const string DefaultBranch = "main";
+    public const string DefaultBranchName = "main";
 
     private readonly TimeProvider _time;
 
@@ -93,13 +93,13 @@ public sealed partial class FakeCodeHost : ICodeHost, ICodeHostSignIn
         Answer(userId, repository, found => found.Files.FirstOrDefault(file => file.Path == path && file.Branch == branch)?.Content.ToArray());
 
     /// <summary>
-    /// The file on <see cref="DefaultBranch"/>. The fake keeps no history, so the commit it answers
+    /// The file on the repository's default branch. The fake keeps no history, so the commit it answers
     /// is the SHA-256 of the file's content, in hex, the shape of a commit id in a SHA-256
     /// repository: like the newest commit that changed the file, it changes when the content does
     /// and only then.
     /// </summary>
     public Task<CodeHostResult<FileAtCommit>> DefaultBranchFile(Guid userId, Repository repository, string path, CancellationToken cancellationToken) =>
-        Answer(userId, repository, found => found.Files.FirstOrDefault(file => file.Path == path && file.Branch == DefaultBranch) is { } file
+        Answer(userId, repository, found => found.Files.FirstOrDefault(file => file.Path == path && file.Branch == DefaultBranchName) is { } file
             ? new FileAtCommit(file.Content.ToArray(), Convert.ToHexStringLower(SHA256.HashData(file.Content)))
             : null);
 
@@ -133,6 +133,16 @@ public sealed partial class FakeCodeHost : ICodeHost, ICodeHostSignIn
             found.Issues.FirstOrDefault(issue => issue.Number == number) is { } edited
                 ? [.. edited.Edits.Where(edit => edit.Kind == EditKind.Body), .. edited.Edits.Where(edit => edit.Kind == EditKind.Title)]
                 : null);
+
+    /// <summary>The repository's default branch, <see cref="DefaultBranchName"/>, for a repository
+    /// the world holds.</summary>
+    public Task<CodeHostResult<string>> DefaultBranch(Guid userId, Repository repository, CancellationToken cancellationToken) =>
+        Answer(userId, repository, _ => DefaultBranchName);
+
+    /// <summary>The app's bot, <see cref="AppLogin"/> with <see cref="AppEmail"/>, for a repository
+    /// the world holds.</summary>
+    public Task<CodeHostResult<Committer>> AppCommitter(Guid userId, Repository repository, CancellationToken cancellationToken) =>
+        Answer(userId, repository, _ => new Committer(AppLogin, AppEmail));
 
     /// <summary>The world's installations, with the account's access token only, see
     /// <see cref="AsPerson{T}"/>.</summary>

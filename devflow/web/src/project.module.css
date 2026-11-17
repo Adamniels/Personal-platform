@@ -164,9 +164,11 @@
 	overflow-wrap: anywhere;
 }
 
-/* A worker that needs building again: the needs-you status, amber, which hard
- * rule 4 keeps for what needs the user, and why, in --text at weight 600. */
-.rebuild {
+/* A worker that needs building again, or a project that hands out no work: the
+ * needs-you status, amber, which hard rule 4 keeps for what needs the user, and
+ * why, in --text at weight 600. */
+.rebuild,
+.held {
 	display: flex;
 	flex-wrap: wrap;
 	align-items: center;

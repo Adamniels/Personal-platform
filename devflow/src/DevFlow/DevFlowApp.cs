@@ -7,6 +7,7 @@ using DevFlow.ClaudeLogin;
 using DevFlow.CodeHost;
 using DevFlow.CodeHost.GitHub;
 using DevFlow.Health;
+using DevFlow.Jobs;
 using DevFlow.Link;
 using DevFlow.Pages;
 using DevFlow.Projects;
@@ -107,6 +108,16 @@ public static class DevFlowApp
         // "Claude login" in devflow/README.md.
         builder.Services.AddSingleton(provider => new ClaudeLogins(
             database, provider.GetRequiredService<Vault>(), provider.GetRequiredService<TimeProvider>()));
+        // Handing a worker its project's next card, with the brief and what the job needs. See
+        // "Jobs" in devflow/README.md.
+        builder.Services.AddSingleton(provider => new Dispatcher(
+            database,
+            provider.GetRequiredService<WorkerStore>(),
+            provider.GetRequiredService<ClaudeLogins>(),
+            provider.GetRequiredService<ICodeHost>(),
+            provider.GetRequiredService<WorkerStart>(),
+            provider.GetRequiredService<TimeProvider>(),
+            provider.GetRequiredService<ILogger<Dispatcher>>()));
         if (settings.PollInterval is { } interval)
         {
             builder.Services.AddHostedService(provider => new Poller(
