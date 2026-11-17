@@ -42,6 +42,9 @@ will show arrives with later slices.
 - `POST /devflow/api/waiting/{id}/merge` and `POST /devflow/api/waiting/{id}/send-back`, which
   merge a waiting pull request and send one back with a comment, as the caller on GitHub, see
   "Acting from the page". Without a valid token, `401` with an empty body.
+- `POST /devflow/api/projects/{id}/resume`, which resumes a project stopped because something
+  landed on its default branch that Dev flow did not put there, see "Watching the default branch".
+  Without a valid token, `401` with an empty body.
 - `GET /devflow/api/projects/{id}/settings` and `PUT /devflow/api/projects/{id}/settings`, a
   project's settings, and `GET /devflow/api/projects/{id}/cards`, its cards, see "Cards". Without a
   valid token, `401` with an empty body.
@@ -57,7 +60,8 @@ will show arrives with later slices.
   "Workers". Without a key the project has now, `401` with an empty body.
 - `GET /devflow/api/display`, what the platform's front page shows of Dev flow,
   `{"waiting": 2, "stopped": 1, "projects": 1, "stale": false, "needs_relink": false, "claude_login": "ok"}`:
-  the items of kind `waiting` and of kind `stopped` that are not sent back, how many projects the
+  the items of kind `waiting` and of kind `stopped` that are not sent back, `stopped` with the
+  caller's stopped projects added, see "Watching the default branch", how many projects the
   caller has connected, whether any of them is stale or failing, whether their GitHub link has
   expired, and where their Claude login stands, `none`, `ok`, `due_soon` or `expired`, as
   `GET /devflow/api/claude-login` says it, which the core says apart as it does the link.
@@ -68,7 +72,8 @@ will show arrives with later slices.
   token, `401` with an empty body.
 - `GET /devflow/api/attention`, `{"attention": true}` or `{"attention": false}`, Dev flow's answer
   to the nav bar, which draws the dot on Dev flow's link while it is true: true when the caller has
-  an item, waiting or stopped, that is not sent back, or a GitHub link that has expired, which is
+  an item, waiting or stopped, that is not sent back, a stopped project, or a GitHub link that has
+  expired, which is
   what the waiting list's `count` counts, or a Claude login `due_soon` or `expired`, which it does
   not, since the login is not on that tab. It reads the same stored picture and the login, never
   GitHub. Both
@@ -564,8 +569,17 @@ does. Its read side:
   the newest commit of that branch that changed it, and that commit's id, which changes when the
   file does and not when the rest of the repository does; not found when no commit has it. On
   GitHub it is `GET /repos/{owner}/{repo}/commits?path=…&per_page=1`, which with no `sha` lists the
-  default branch, then the file raw at exactly that commit; in the fake, the file on `main`, its
-  commit the SHA-256 of its content in hex, since the fake keeps no history;
+  default branch, then the file raw at exactly that commit; in the fake, the file on the
+  repository's default branch, its commit the SHA-256 of its content in hex, since the fake keeps
+  no history;
+- `DefaultBranch(user, repository)`: the repository's default branch, as the host says it now;
+- `Activity(user, repository, branch, since)`: what changed the branch, newest first, each a
+  `BranchActivity` with the host's id, the commit before and after, when, its `ActivityKind`,
+  `Push`, `ForcePush`, `BranchCreation`, `BranchDeletion`, `PullRequestMerge` or
+  `MergeQueueMerge`, and the actor's login, null when the host names none. With `since` null, the
+  newest page alone; otherwise every change newer than the one with that id, read page by page
+  until it is reached, and all of them when it never is, as for `0`. "Watching the default branch"
+  reads both;
 - `Installations(user, userToken)`: the installations of the app the person whose token it is can
   reach, each with its id and the login of the account it is on;
 - `Repositories(user, userToken, installation)`: the repositories of one of them the person can
@@ -579,7 +593,8 @@ the person may connect; the token comes from `UserTokens.For`, see "Linking GitH
 The owner's write side, both as the person and never as the app:
 
 - `Merge(user, token, repository, number, commit)`: merges the pull request with a merge commit
-  while its head is `commit`, answering a `MergeResult`: `Merged`, `HeadMoved` when the head is
+  while its head is `commit`, answering a `MergeResult`: `Merged` with the merge commit's id, null
+  when the host's answer gives none that reads as one, `HeadMoved` when the head is
   another commit, `NotMergeable` with the host's words, `Refused` with the host's status and words,
   or `Unavailable` when it did not answer;
 - `Comment(user, token, repository, number, body)`: writes `body`, exactly, in the pull request's
@@ -669,7 +684,9 @@ can only read and what it does with GitHub's failures are "GitHub" in
 | `Installations` | `GET /user/installations?per_page=100`, with the user's token, each installation's `id` and its account's `login`, or an enterprise's `slug` |
 | `Repositories` | `GET /user/installations/{id}/repositories?per_page=100`, with the user's token |
 | `InstallAddress` | `https://github.com/apps/<DEVFLOW_GITHUB_APP_SLUG>/installations/new`, on GitHub's site |
-| `Merge` | `PUT /repos/{owner}/{repo}/pulls/{number}/merge` with `{"sha": "<commit>", "merge_method": "merge"}`, with the user's token: `200` merged, `409` head moved, `405` not mergeable, any other status refused with it |
+| `DefaultBranch` | `GET /repos/{owner}/{repo}`, its `default_branch` |
+| `Activity` | `GET /repos/{owner}/{repo}/activity?ref={branch}&per_page=100`, newest first, following the `Link` header's cursor until the change `since` is reached; a change on another ref, a type the adapter does not know, or a commit id that is not 40 or 64 lowercase hex digits makes the whole answer unavailable |
+| `Merge` | `PUT /repos/{owner}/{repo}/pulls/{number}/merge` with `{"sha": "<commit>", "merge_method": "merge"}`, with the user's token: `200` merged, with the answer's `sha` as the merge commit, `409` head moved, `405` not mergeable, any other status refused with it |
 | `Comment` | `POST /repos/{owner}/{repo}/issues/{number}/comments` with `{"body": "<text>"}`, with the user's token: `201` posted, any other status refused with it |
 | `ForWrite` | `POST /app/installations/{id}/access_tokens` with `repository_ids` and the purpose's `permissions`, as the app |
 | `CloneAddress` | `https://github.com/{owner}/{repo}.git`, with no request |
@@ -723,7 +740,8 @@ network and a `FakeTimeProvider`: no test reaches GitHub. They build it as Dev f
 
 `FakeCodeHost` keeps a world per platform account, in memory, lost at a restart: installations,
 their repositories, and each repository's pull requests, conversations, commits with their statuses
-and check runs, files, and issues, each with what it is blocked by and its edits. Per account, since every acceptance test registers its own account and
+and check runs, files, and issues, each with what it is blocked by and its edits, and what changed
+its branches. Per account, since every acceptance test registers its own account and
 they all run against one Dev flow. A world is one JSON document whose shape is the interface's
 records, so staging something is writing what the interface would answer:
 
@@ -763,12 +781,21 @@ A world may also name who the account is at the fake, `"user": {"login": "octo-o
 world may leave out, `octo-owner` with that id when it does, and it is left out when it is read
 back.
 
+A repository may also name its default branch, `"default_branch": "trunk"`, `main` when it is left
+out, and list what changed its branches, oldest first, as `ICodeHost.Activity` answers it newest
+first: `"activity": [{"id": 1, "branch": "main", "before": "<40 hex>", "after": "<40 hex>", "at":
+"...", "kind": "push", "actor": "devflow-fake[bot]"}]`, `kind` one of `push`, `force_push`,
+`branch_creation`, `branch_deletion`, `pull_request_merge` and `merge_queue_merge`, and `actor`
+null for an account GitHub no longer names; none when it is left out. Both are left out when they
+are read back unset. A test stages a push to the default branch by adding one, as `add_activity` in
+`e2e/devflow_worlds.py` does.
+
 It is read strictly, by `FakeJson` in `src/DevFlow/CodeHost/FakeWorld.cs`: every field present but
-`user`, null only where the record allows it, no field the records do not have, numbers as numbers, and states
+`user`, a repository's `default_branch` and its `activity`, null only where the record allows it, no field the records do not have, numbers as numbers, and states
 as their snake case words, `open`, `in_progress`, `timed_out`. What identifies a thing is listed
 once: an installation's id, a repository's id within it, a pull request's or a conversation's
-number, a commit's id, a file's path and branch, and an issue's number, which no pull request may
-share. An installation's `account` is the login of
+number, a commit's id, a file's path and branch, a change's id, and an issue's number, which no
+pull request may share. An installation's `account` is the login of
 the account it is on, which the list to choose from groups by. A pull request's number reaches its
 conversation, empty unless one is listed; a commit that is not listed is not found. An issue's
 `blocked_by` names issues listed in the same repository, by number. Listing issues by label answers
@@ -798,7 +825,10 @@ installations in its world.
 Its writes, in `FakeCodeHost.Writes.cs`, take only the account's current access token too, and
 answer another as GitHub answers `401`, refused with "Bad credentials". A merge is refused with
 `404` for a pull request the world does not hold, is not mergeable unless the pull request is open,
-answers head moved unless its head is the commit named, and otherwise marks it merged in the world.
+answers head moved unless its head is the commit named, and otherwise marks it merged in the world
+and lands it on the repository's default branch as a `pull_request_merge` by whoever merged, from the
+commit the branch's last change left it at, forty zeros before any, to a new random merge commit,
+which the merge answers.
 A comment is refused with `404` for a number with neither a pull request nor a conversation, and is
 otherwise added to the end of the conversation, by the login the token acts as, at the fake's now.
 Each write taken is recorded, with whose token made it, and the record survives staging a world
@@ -815,7 +845,8 @@ next after every pull request's, issue's and conversation's. A comment goes on a
 issue or a conversation, and a label on a pull request or an issue; removing a label it does not
 carry is refused with `404`, "Label does not exist". An issue the app opens is kept in the repository's
 `issues`, as a staged one is, by `devflow-fake[bot]`, open, blocked by nothing and never edited, so
-listing issues by label answers it. A merge is the owner's merge, by the app.
+listing issues by label answers it. A merge is the owner's merge, by the app, landing on the default
+branch as `devflow-fake[bot]`'s.
 
 Each repository has a bare git repository of its own, in a temporary folder deleted with the fake,
 made empty, `main` its default branch, the first time `CloneAddress` is asked for it, which answers
@@ -997,16 +1028,18 @@ and runs in the fake mode as well. With `DEVFLOW_POLL_SECONDS=0` it does not run
 **The routes**, under the `Api` policy and the origin check:
 
 - `GET /devflow/api/waiting` answers
-  `{"count", "needs_relink", "items": [...], "projects": [{"id", "owner", "name", "last_success_at", "stale", "failing"}]}`.
+  `{"count", "needs_relink", "items": [...], "projects": [{"id", "owner", "name", "last_success_at", "stale", "failing"}], "own_items": [...]}`.
   Each item is a stored row with its project's id and repository name: `id`, `project_id`,
   `project_name`, `number`, `kind`, `waiting` or `stopped`, `sent_back`, `title`, `web_url`,
   `slice_number`, null when the body closes none, `head_commit`, `can_merge`, `summary`, `reason`,
   `decisions`, each `{"chosen", "alternative", "why"}`, `other_decisions`, `reviewer_view`,
-  `screenshots` and `read_at`, by project and number. `screenshots` are the stored names paired for
+  `screenshots` and `read_at`, by project and number. `own_items` are Dev flow's own, read from its
+  own tables beside the runner's, by project; in this part each is a stopped project, see
+  "Watching the default branch". `screenshots` are the stored names paired for
   the page by `Screenshots.Group`, each `{"name", "images"}`: the part of the names before
   `-desktop` and `-phone`, and the names, the desktop one first; what each means is `RunnerItem` in
   `src/DevFlow/Runner/RunnerItem.cs`, and every text is plain text to show as text. `count` is the
-  items not sent back, plus one when `needs_relink`, the caller's link needing renewal. A project is
+  items not sent back and the own items, plus one when `needs_relink`, the caller's link needing renewal. A project is
   `stale` when its last success was more than five minutes ago or it was never read, and `failing`
   when its last read failed.
 - `POST /devflow/api/projects/{id}/refresh` requests the caller's project and answers `204` once it
@@ -1153,6 +1186,86 @@ an expired link among them. It is `askNavAgain` in `web/src/nav-attention.ts`. N
 writes a label, a status or anything else the runner owns: after a comment, the runner sees the
 owner's input on its next turn and moves the label itself.
 
+## Watching the default branch
+
+Every read of a project watches its default branch first, so anything that lands there that Dev
+flow did not merge, and the owner did not put there himself, stops the project until he has looked.
+Why, and what it guards, is "Watching the default branch" in `docs/devflow-architecture.md`. It is
+`BranchWatch`, `WatchStore` and `WatchEndpoints`, in `src/DevFlow/Watching/`, and `AppMerges`, in
+`src/DevFlow/Merging/`.
+
+**Reading.** `ProjectReader.Read` calls `BranchWatch.Watch` before anything else, through the same
+seam as every read, `ProjectRefresher`, so the loop watches every project about once a minute. It
+asks `ICodeHost.DefaultBranch` for the branch, never assuming `main`, and `ICodeHost.Activity` for
+what changed it, both as the app with the read only token and both conditional requests. The first
+read of a project, or the first after its default branch changed, records the newest change and
+judges nothing; every read after judges what is newer than the last change judged. A read that
+fails records `last_attempt_at` and a fixed phrase, "GitHub did not answer", "GitHub does not show
+this repository" or "Reading failed", and changes nothing else; it never fails the rest of the
+project's read.
+
+**Judging.** A change is fine when it is not a force push and its actor is the owner's linked
+login, from `github_accounts`, compared whatever its case, as GitHub compares logins; or when it is
+a merged pull request whose merge commit is in `merges_made`. Anything else stops the project: a
+push or a merge by the app that Dev flow did not record, a force push by anyone, the owner
+included, a change by any other login, and one whose actor GitHub no longer names. The project's
+`project_stops` row records when it stopped and the newest change that stopped it, its type, actor,
+commit and when it landed. While it is stopped the watch goes on reading, and a later change that
+would stop it replaces what the row shows, keeping when it stopped, so the owner always looks at
+the newest.
+
+**Dev flow's own merges.** `AppMerges.Merge(user, project, number, commit)` merges a pull request
+as the app, with a `Merge` key, while its head is `commit`, and writes the merge commit
+`MergeAsApp` answered to `merges_made` in the same transaction. It holds the project's row with
+`FOR NO KEY UPDATE` from before the merge until the row is written, and the watch takes the same
+lock before it judges, so the watch never judges Dev flow's merge before it is recorded. It refuses
+a stopped project before GitHub is asked. Nothing calls it yet but its tests; later slices merge a
+card's pull request through it.
+
+**Holding work.** `WatchStore.Hold(user, project)` says why a project hands out no new work:
+`Stopped`, while it has a stop, then `Unwatched`, when its watch has not read the branch for five
+minutes, or never has; otherwise `None`. `jobs/next` answers `204` to every worker of a held
+project, the workers' route answers it as `held`, `stopped` or `unwatched`, and the project's page
+says why under Workers. An unwatched project is not marked stopped, and hands out work again as
+soon as a read succeeds. A card already with a worker is left as it is, so its run finishes and
+its result is recorded; nothing it produced is merged while the project is stopped, since
+`AppMerges` refuses.
+
+**On "Waiting for you".** A stopped project is one of Dev flow's own items, `own_items` in
+`GET /devflow/api/waiting`, of kind `project_stopped`, with its project's id, `project_name` and
+`owner`, the `branch`, `activity_type`, `actor`, `commit`, `commit_url`, the commit's page on
+GitHub built from the project's owner and name, `landed_at` and `stopped_at`. It is counted in the
+list's `count`, lights the nav's dot, and is counted in the display data's `stopped`. The page shows
+it under "Stopped", before the runner's, as "Something landed on <branch> that Dev flow did not put
+there", with the commit's first seven characters, who did it, when, and "Open the commit on GitHub"
+when the address is `https`; "I have looked, resume" asks first, in a dialog that says resuming
+accepts what landed.
+
+**The route**, under the `Api` policy and the origin check, so only the project's own user, from
+the platform's page, resumes it:
+
+- `POST /devflow/api/projects/{id}/resume` with `{"commit": "<the commit the page showed>"}`. In
+  order: `404` for a project the caller does not have, another user's among them; `422` when
+  `commit` is missing or is not a full commit id; `409` "This project is not stopped"; `409`
+  "Something else has landed since this was shown" when it is stopped by another commit, so what
+  landed after the page was shown is never accepted unseen. `204` once resumed: the stop is copied
+  to `project_resumes` with who resumed it, when and the commit accepted, and removed, in one
+  transaction under the watch's lock.
+
+The four tables, from `migrations/0012_main_watch.sql`, each guarded like every scoped table and
+following its project:
+
+- `branch_watches`: `project_id`, its primary key, `user_id`, `branch`, `last_activity_id`, the
+  code host's id of the newest change judged, null when the branch had none when the watch began,
+  `began_at`, `last_read_at`, `last_attempt_at` and `last_error`.
+- `merges_made`: `project_id`, `user_id`, `commit`, `number` and `merged_at`, its primary key
+  `(project_id, commit)`.
+- `project_stops`: `project_id`, its primary key, `user_id`, `stopped_at`, `branch`, `activity_id`,
+  `activity_type`, `actor`, `commit` and `landed_at`; a row while the project is stopped.
+- `project_resumes`: `id`, `project_id`, `user_id`, `resumed_by`, `resumed_at`,
+  `accepted_commit`, and the stop as it was: `branch`, `activity_type`, `actor`, `stopped_at` and
+  `landed_at`. Kept, so a later reader sees who accepted what.
+
 ## Workers
 
 A worker is a program in a container on one of the owner's machines that builds a project's cards.
@@ -1189,11 +1302,12 @@ The routes, in `WorkerEndpoints`:
   key at once. `404` for a project the caller does not have, another user's among
   them, and nothing is stored.
 - `GET /devflow/api/projects/{id}/workers`, the user's, answers
-  `{"key_made_at": "<time>" or null, "recipe_version": "<commit>" or null, "start_command": "…", "workers": [{"id", "name", "recipe_version", "base_image", "first_seen_at", "last_seen_at", "rebuild"}]}`,
+  `{"key_made_at": "<time>" or null, "recipe_version": "<commit>" or null, "start_command": "…", "held": "stopped", "unwatched" or null, "workers": [{"id", "name", "recipe_version", "base_image", "first_seen_at", "last_seen_at", "rebuild"}]}`,
   by when each worker first said hello: `recipe_version`, the project's recipe as Dev flow last
   read it, null before it has been or when the default branch has none; `start_command`, the
-  command that builds and starts a worker; and each worker's `rebuild`, `recipe`, `base_image` or
-  null, see "Starting a worker". Never the key. `404` as above.
+  command that builds and starts a worker; `held`, why the project hands out no work, which the
+  project's page says, see "Watching the default branch"; and each worker's `rebuild`, `recipe`,
+  `base_image` or null, see "Starting a worker". Never the key. `404` as above.
 - `POST /devflow/api/worker/hello`, the worker's, with
   `{"worker_id": "<uuid>", "name": "<the container's hostname>", "recipe_version", "base_image"}`,
   records the worker in its key's project, or brings it up to date, keeping when it was first
@@ -1201,7 +1315,8 @@ The routes, in `WorkerEndpoints`:
   each text has 1 to 255 characters, not only spaces; otherwise `422` naming the field.
 - `POST /devflow/api/worker/jobs/next`, the worker's, with `{"worker_id"}`, marks the worker seen
   and answers its next job; in this part there is none, so `204`. A worker that needs a rebuild is
-  never given one. A worker that has not said hello
+  never given one, nor is a worker of a project that is stopped or unwatched, see "Watching the
+  default branch". A worker that has not said hello
   in the key's project is `409` "Say hello first", and says hello and asks again; no `worker_id`
   is `422`.
 

@@ -61,6 +61,11 @@ card's pull request waits for the owner, and lists its cards: each read of the p
 open issues he wrote that carry the pick-up label, and each card shows as queued, held, waiting for
 what blocks it, or ignored with why, see "Cards" below. Nothing hands a card to a worker yet.
 
+Every read of a project also watches its default branch: anything that lands there that neither
+Dev flow merged nor the owner put there himself stops the project, which then hands out no work and
+merges nothing, and shows on "Waiting for you" until he has looked and resumes it, see "Watching
+the default branch" below.
+
 ## The code host seam
 
 Everything Dev flow asks of a code host goes through `ICodeHost`, in `src/DevFlow/CodeHost/`:
@@ -146,8 +151,8 @@ The push key needs a correction to the spec, which said the worker's key "cannot
 files merging a pull request under Contents, and there is no narrower permission, so a push key can
 push to any branch of its repository, `main` included, and could merge through the API. It is
 accepted as the spec accepted a push to `main`, on the condition that `main` is watched, and
-anything landing there that Dev flow did not merge stops the project; that is the slice "Watching
-main", which comes before anything hands out a push key. A push key leaves Dev flow only inside a
+anything landing there that Dev flow did not merge stops the project; that is "Watching the default
+branch" below, built before anything hands out a push key. A push key leaves Dev flow only inside a
 job's answer, or a fresh key's, to the worker holding that job, and is kept in memory only, never
 stored. Nothing uses these writes yet; the later slices of the feature do.
 
@@ -534,6 +539,67 @@ waits rather than counting it. It checks only that what is pasted looks like a s
 it works is the worker's check before every run. The routes, the table and the section are "Claude
 login" and "The pages" in `devflow/README.md`.
 
+## Watching the default branch
+
+A worker's push key can reach `main` and merge through the API, see "The program's own writes"
+above, and the spec decided not to lean on branch protection, since rulesets on a private
+repository need a paid plan. What makes the key acceptable is that `main` is watched: anything
+landing there that neither Dev flow nor the owner put there pauses the project and reaches him, as
+the spec's round 4 put it. The watch detects; it does not prevent. The routes and tables are
+"Watching the default branch" in `devflow/README.md`.
+
+**What is watched** is the repository's default branch, read from GitHub on every read of the
+project rather than assumed to be `main`. The watch is part of each project's minute, through the
+same seam as every read, `ProjectRefresher`, and runs first, on its own, so it judges what landed
+whether or not the rest of the project could be read, and one project's watch never stops
+another's. GitHub lists a repository's activity, `GET /repos/{owner}/{repo}/activity`, as each push
+or merge to a ref with its actor, its type and the commits before and after; it is read with the
+read only token, as a conditional request, so a quiet minute costs nothing against the rate limit.
+
+**Where it begins.** The first read of a project records the branch's newest change and judges
+nothing before it, so connecting a repository does not stop it for its own history. A branch with
+no change at all begins at nothing, and judges every change after.
+
+**What is fine.** A change by the owner's linked GitHub login, compared whatever its case as GitHub
+compares logins; and a merge whose merge commit Dev flow recorded when it merged as the app. Dev
+flow's own merges go through `AppMerges`, which merges with `MergeAsApp` and writes the merge
+commit GitHub answered to `merges_made` in the same transaction, holding a lock on the project's row
+that the watch takes before it judges, so the watch can never see Dev flow's merge before its
+record. Should the record fail after GitHub merged, or GitHub's answer not name the commit, the
+watch finds a merge by the app it has no record of and stops the project: a failure on that path
+errs towards asking the owner, never towards letting something through.
+
+**What stops the project** is anything else: a push or a merge by the app that Dev flow did not
+record, which is what a misused push key looks like; a force push by anyone, the owner included,
+since it rewrites what was there; a change by any other login; and one whose actor GitHub no longer
+names. The project records when it stopped and the newest change that stopped it, which is what
+the owner looks at; while it is stopped the watch goes on, and a later change that would stop it
+replaces what is shown, so he always looks at the newest.
+
+**A stopped project** hands out no new job, `jobs/next` answers its workers `204`, and merges
+nothing: `AppMerges` refuses before GitHub is asked. A card already with a worker finishes its run,
+and its result is recorded, so stopping loses no work, but nothing it produced is merged until the
+owner resumes the project. Stopping is not undone by anything the watch reads later; only the
+owner's resume ends it.
+
+**A watch that cannot read** holds new work rather than guessing: when the branch's changes have
+not been read for five minutes, or never have, the project hands out no new work and its page says
+why, but it is not marked stopped, since GitHub being away is not something that landed on `main`,
+and it starts again once a read succeeds. A word in GitHub's answer the adapter does not know, such
+as a new type of change, makes the read fail the same way, so a change the watch cannot judge
+holds work rather than being let through.
+
+**Resuming** is the owner's alone, from "Waiting for you", where a stopped project is one of Dev
+flow's own items beside the runner's, counted in the same number. The page sends the commit it
+showed, and a project stopped since by something newer is refused, so what landed after he looked
+is never accepted unseen. Each resume is kept, with who resumed, when and which commit was
+accepted, so a later reader sees it.
+
+**When the default branch changes**, the watch begins again on the new one, recording where it
+stands, as on a project's first read: only an admin of the repository can change it, and no key Dev
+flow makes holds administration. The cost is accepted under "Security decisions and accepted risks"
+below.
+
 ## Security decisions and accepted risks
 
 Kept for an audit the owner plans once the first part is in place. Each entry is a decision with
@@ -674,11 +740,28 @@ its reason, or a risk accepted on purpose; each slice adds the ones it builds.
   and the program's reads stay read only, which `InstallationTokenTests` keeps, and cannot reach a
   write key, which `ReadPathTests` keeps. Accepted: a push key can push to any branch of its
   repository, `main` included, and merge through the API, since GitHub files merging under
-  Contents; `main` is to be watched, and anything landing there that Dev flow did not merge stops
-  the project, see "The program's own writes". Someone who holds the app's private key could still
+  Contents; the default branch is watched, and anything landing there that Dev flow did not merge
+  stops the project, see the next entry. Someone who holds the app's private key could still
   make any key the app's permissions allow; the key is a file on the machine, outside the
   repository, mounted read only into Dev flow's container alone, and on the shared Mac mini it is
   exposed to the runner's agents like the vault's key, the risk the first entry accepts.
+- **The default branch is watched, and that is what makes a push key acceptable.** A push key can
+  reach `main` and merge through the API; nothing on GitHub stops it, so the watch is what catches
+  it, within the minute of the next read, see "Watching the default branch". What is fine is
+  narrow: a change by the owner's linked login that is not a force push, or a merge whose commit
+  Dev flow recorded in the same transaction as it merged, under the lock the watch judges under.
+  Everything else stops the project, the app's own unrecorded push or merge first among it. A
+  stopped project starts nothing and merges nothing until the owner resumes it, naming the commit
+  he looked at. A watch that cannot read holds new work rather than guessing, and an answer it
+  cannot read is a read that failed. `MainWatchTests` holds each of these. Accepted: the watch
+  detects and does not prevent, so a change can sit on `main` for up to a minute, and a run already
+  under way finishes, before anything stops; nothing is reverted, which is the owner's to decide.
+  A change of the default branch, which only an admin can make, begins the watch again on the new
+  branch, so a push to it between the change and the next read would not be judged. The project's
+  own runner, where it has one, merges as its own login, which is not the owner's and not Dev
+  flow's, so each of its merges stops the project; this repository's runner merges as
+  `mac-mini-agent`, so while it runs, a connected `Personal-platform` stops at each merge the gate
+  makes, and is resumed from the page.
 - **The owner's actions from the page are made only with his token, and the code makes the other
   impossible.** What the owner does from the waiting list is recorded on GitHub as his, so the
   runner reads his comment as his input; what the program does is the app's, so it is traced back

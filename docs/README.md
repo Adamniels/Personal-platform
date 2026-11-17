@@ -116,7 +116,8 @@ features" in `High-level/docs/platform-architecture.md`.
   seals a user's secrets and its key, the code host's interface, its fake and how a test stages a
   world in it, linking a user's GitHub account and the one way to a token that acts as them,
   connecting a repository with its routes and tables, a project's settings and its cards with
-  their routes and tables, what waits for the owner, the loop that
+  their routes and tables, watching each project's default branch with the resume route and its
+  tables, what waits for the owner, the loop that
   reads it and refreshing a project, merging and sending back from the page and what each refusal
   means, a project's worker key, the worker scheme and the worker API with their routes and
   tables, starting a worker, with the base image, the format of `.devflow/`, the recipe route, the
@@ -130,12 +131,13 @@ features" in `High-level/docs/platform-architecture.md`.
   they are, reading this repository's runner and the conventions it knows, reading every project
   into a stored picture the pages read instead of GitHub, cards and how one is picked, with why only
   the owner's own count and why the settings table holds only what is read, acting from the page as the owner and
-  never as the app, the program's own writes as the app with a key narrowed to one purpose, workers
+  never as the app, the program's own writes as the app with a key narrowed to one purpose,
+  watching the default branch, what is fine there, what stops a project and how it is resumed, workers
   and how a worker's key leads to its project's user, the worker
   program, the agent interface and the rule a run succeeds by, the Claude login Dev flow holds for
   a user's runs, and its security decisions and accepted risks, kept for an audit, the vault's,
-  the fake's, the worker key's, the agent run's environment and token, and the Claude token's
-  among them
+  the fake's, the worker key's, the agent run's environment and token, the Claude token's and the
+  watch's among them
 - `docs/superpowers/specs/2026-11-14-development-flow-design.md` — the design of the whole
   development flow, frozen on 2026 11 15 when the slices of its first part were cut; the
   architecture document above is the living description from then on
