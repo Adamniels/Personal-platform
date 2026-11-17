@@ -191,6 +191,20 @@ would write to this repository:
 
 The answer to commenting as the app is the first entry of `issue-comments.json`, the same shape.
 
+What watching a project's default branch reads was recorded on 2026 11 17, as the bot, read by
+`devflow/tests/DevFlow.Tests/GitHub/GitHubActivityTests.cs`; see "Watching the default branch" in
+`devflow/README.md`:
+
+- `repository.json`: `gh api repos/Adamniels/Personal-platform`, piped through
+  `jq 'del(.temp_clone_token)'`, since GitHub documents that field as a short lived credential; the
+  repository is public and the answer held none. The adapter reads `default_branch`.
+- `activity.json`: `gh api 'repos/Adamniels/Personal-platform/activity?ref=main&per_page=3'`, the
+  three newest changes to `main`, each a merged pull request, one by the bot and two by the owner,
+  newest first; the adapter asks for `per_page=100`, in the same shape.
+
+GitHub answered the activity with a weak `ETag` and a `Link` header whose `next` carries an
+`after` cursor, which `GitHubActivityTests` stubs, since the recorded file is the body alone.
+
 What picking cards reads was recorded on 2026 11 17 the same way, read by
 `devflow/tests/DevFlow.Tests/GitHub/GitHubIssueTests.cs`; see "Cards" in `devflow/README.md`. The
 two REST answers have each `body` cut to its first line with

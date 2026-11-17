@@ -320,6 +320,18 @@ internal sealed class CountingCodeHost(ICodeHost inner) : ICodeHost
         return inner.Edits(userId, repository, number, cancellationToken);
     }
 
+    public Task<CodeHostResult<string>> DefaultBranch(Guid userId, CodeHost.Repository repository, CancellationToken cancellationToken)
+    {
+        Record("DefaultBranch", userId, repository, "");
+        return inner.DefaultBranch(userId, repository, cancellationToken);
+    }
+
+    public Task<CodeHostResult<IReadOnlyList<BranchActivity>>> Activity(Guid userId, CodeHost.Repository repository, string branch, long? since, CancellationToken cancellationToken)
+    {
+        Record("Activity", userId, repository, $"{branch} {since}");
+        return inner.Activity(userId, repository, branch, since, cancellationToken);
+    }
+
     public Task<CodeHostResult<IReadOnlyList<Installation>>> Installations(Guid userId, string userToken, CancellationToken cancellationToken) =>
         inner.Installations(userId, userToken, cancellationToken);
 

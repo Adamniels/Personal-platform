@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using System.Text.Json.Serialization;
 
 namespace DevFlow.CodeHost;
@@ -98,14 +99,13 @@ public sealed partial class FakeCodeHost
             }
             else
             {
-                var merged = pull with { State = PullRequestState.Merged, UpdatedAt = _time.GetUtcNow() };
-                var changed = found with { PullRequests = [.. found.PullRequests.Select(each => each.Number == number ? merged : each)] };
+                var (changed, mergeCommit) = WithMerge(found, number, person.Login);
                 _accounts[userId] = account with
                 {
                     World = WithRepository(account.World, repository, changed),
                     Writes = [.. account.Writes, new FakeWrite("merge", repository.Id, number, commit, "merge", null, person.Login)],
                 };
-                result = new MergeResult.Merged();
+                result = new MergeResult.Merged(mergeCommit);
             }
 
             return Task.FromResult(result);
@@ -165,6 +165,26 @@ public sealed partial class FakeCodeHost
                 : conversation)
             : [.. found.Conversations, new FakeConversation(number, [comment])];
         return (found with { Conversations = [.. conversations] }, comment);
+    }
+
+    /// <summary>
+    /// The repository with the pull request merged, now, and the merge landed on its default
+    /// branch as a change by <paramref name="actor"/>, as GitHub lists one: after the branch's last
+    /// change, from the commit that left it at, or forty zeros before any, to a new merge commit,
+    /// random; and that commit. Its git repository is not changed.
+    /// </summary>
+    private (FakeRepository Changed, string Commit) WithMerge(FakeRepository found, int number, string actor)
+    {
+        var now = _time.GetUtcNow();
+        var activity = found.Activity ?? [];
+        var before = activity.LastOrDefault(each => each.Branch == found.Default)?.After ?? new string('0', 40);
+        var commit = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(20));
+        var id = activity.Select(each => each.Id).DefaultIfEmpty(0).Max() + 1;
+        return (found with
+        {
+            PullRequests = [.. found.PullRequests.Select(each => each.Number == number ? each with { State = PullRequestState.Merged, UpdatedAt = now } : each)],
+            Activity = [.. activity, new FakeActivity(id, found.Default, before, commit, now, ActivityKind.PullRequestMerge, actor)],
+        }, commit);
     }
 
     /// <summary>The world with <paramref name="repository"/>'s entry, found by installation and

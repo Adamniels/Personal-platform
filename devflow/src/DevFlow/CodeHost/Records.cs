@@ -162,3 +162,35 @@ public enum EditKind
 /// <param name="At">When it was made.</param>
 /// <param name="Kind">Whether it changed the body or the title.</param>
 public sealed record IssueEdit(string Id, string Editor, DateTimeOffset At, EditKind Kind);
+/// <summary>What changed a branch, as the code host lists a repository's activity.</summary>
+public enum ActivityKind
+{
+    /// <summary>Commits pushed on top of the branch.</summary>
+    Push,
+
+    /// <summary>The branch moved to a commit that is not after the one it was at.</summary>
+    ForcePush,
+
+    /// <summary>The branch was made.</summary>
+    BranchCreation,
+
+    /// <summary>The branch was deleted.</summary>
+    BranchDeletion,
+
+    /// <summary>A pull request was merged into the branch.</summary>
+    PullRequestMerge,
+
+    /// <summary>A merge queue merged into the branch.</summary>
+    MergeQueueMerge,
+}
+
+/// <summary>One change to a branch, as the code host recorded it.</summary>
+/// <param name="Id">The host's id of it, which stays the same.</param>
+/// <param name="Before">The full id of the commit the branch was at before.</param>
+/// <param name="After">The full id of the commit the branch is at after, the merge commit for a
+/// merge.</param>
+/// <param name="At">When it happened.</param>
+/// <param name="Kind">What it was.</param>
+/// <param name="Actor">The login of the account that did it, or null when the host names none,
+/// such as for an account since deleted.</param>
+public sealed record BranchActivity(long Id, string Before, string After, DateTimeOffset At, ActivityKind Kind, string? Actor);

@@ -49,7 +49,7 @@ public sealed partial class GitHubCodeHost
 
         return answer.Status switch
         {
-            HttpStatusCode.OK => new MergeResult.Merged(),
+            HttpStatusCode.OK => new MergeResult.Merged(Parse<MergedAnswer>(answer.Body)?.Sha is { } sha && CommitId().IsMatch(sha) ? sha : null),
             HttpStatusCode.Conflict => new MergeResult.HeadMoved(),
             HttpStatusCode.MethodNotAllowed => new MergeResult.NotMergeable(Message(answer.Body)),
             _ => new MergeResult.Refused((int)answer.Status, Message(answer.Body)),
@@ -102,6 +102,10 @@ public sealed partial class GitHubCodeHost
         Parse<MessageAnswer>(body)?.Message is { Length: > 0 } message
             ? message.Length > MostMessage ? message[..MostMessage] : message
             : null;
+
+    /// <summary>The merge commit a merge answers with; optional, so an answer without it is still
+    /// merged.</summary>
+    private sealed record MergedAnswer(string? Sha = null);
 
     /// <summary>What a merge sends.</summary>
     private sealed record MergeBody(string Sha, string MergeMethod);

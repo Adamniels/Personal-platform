@@ -58,6 +58,20 @@ public interface ICodeHost
     /// it; empty when it was never edited. Not found when there is no such issue.</summary>
     Task<CodeHostResult<IReadOnlyList<IssueEdit>>> Edits(Guid userId, Repository repository, int number, CancellationToken cancellationToken);
 
+    /// <summary>The repository's default branch, as the host says it now, never assumed to be
+    /// <c>main</c>.</summary>
+    Task<CodeHostResult<string>> DefaultBranch(Guid userId, Repository repository, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// What changed <paramref name="branch"/>, newest first. With <paramref name="since"/> null,
+    /// the newest page alone, which is all a watch that has seen nothing needs, since it begins at
+    /// the newest. Otherwise every change newer than the one whose id is <paramref name="since"/>,
+    /// read page by page until it is reached and not including it, and every change listed when it
+    /// is never reached, such as for <c>0</c>, which no change has. Not found when there is no
+    /// such repository.
+    /// </summary>
+    Task<CodeHostResult<IReadOnlyList<BranchActivity>>> Activity(Guid userId, Repository repository, string branch, long? since, CancellationToken cancellationToken);
+
     /// <summary>The installations of Dev flow's app that the person whose token
     /// <paramref name="userToken"/> is can reach, each with the account it is on, in no particular
     /// order. Read as the person, never as the app, so what is listed is what they may

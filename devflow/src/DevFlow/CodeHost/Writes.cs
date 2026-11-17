@@ -34,8 +34,10 @@ public abstract record MergeResult
     {
     }
 
-    /// <summary>The pull request is merged, with a merge commit, as the person.</summary>
-    public sealed record Merged : MergeResult;
+    /// <summary>The pull request is merged, with a merge commit, as the person or the app.
+    /// <paramref name="Commit"/> is the merge commit's full id, or null when the host's answer did
+    /// not give one that reads as a commit id.</summary>
+    public sealed record Merged(string? Commit) : MergeResult;
 
     /// <summary>Its head is no longer the commit named, so nothing was merged.</summary>
     public sealed record HeadMoved : MergeResult;

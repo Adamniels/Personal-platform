@@ -203,9 +203,10 @@ public sealed partial class GitHubCodeHost : ICodeHost, ICodeHostSignIn, IDispos
     /// <c>Link</c> header's <c>next</c> until there is none. A next page anywhere but GitHub's API
     /// is never asked for, since the request would carry the token there, and the list is
     /// unavailable instead; so is one past <see cref="MostPages"/>, or a page asked for twice. A
-    /// page that fails fails the list: half a list is never answered as the whole.
+    /// page that fails fails the list: half a list is never answered as the whole. With
+    /// <paramref name="enough"/>, no page is asked for once the items read so far are enough.
     /// </summary>
-    private static async Task<CodeHostResult<IReadOnlyList<TItem>>> List<TPage, TItem>(string address, Func<TPage, IEnumerable<TItem>> items, Func<Uri, Task<CodeHostResult<Page>>> get)
+    private static async Task<CodeHostResult<IReadOnlyList<TItem>>> List<TPage, TItem>(string address, Func<TPage, IEnumerable<TItem>> items, Func<Uri, Task<CodeHostResult<Page>>> get, Func<IReadOnlyList<TItem>, bool>? enough = null)
         where TPage : class
     {
         var all = new List<TItem>();
@@ -229,7 +230,7 @@ public sealed partial class GitHubCodeHost : ICodeHost, ICodeHostSignIn, IDispos
             }
 
             all.AddRange(items(parsed));
-            next = found.Value.Next;
+            next = enough is not null && enough(all) ? null : found.Value.Next;
         }
 
         return new CodeHostResult<IReadOnlyList<TItem>>.Found(all);
