@@ -22,6 +22,34 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/devflow/api/claude-login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The caller's Claude login
+         * @description Whether one is set, when it was given and renew_by, a year after; state is none, ok, due_soon from 31 days before renew_by, or expired from renew_by on. Never the token or any part of it. Without a valid token, 401 with an empty body; a change from another origin, 403.
+         */
+        get: operations["getClaudeLogin"];
+        /**
+         * Give Dev flow the caller's Claude login
+         * @description The token from claude setup-token, sealed in the vault and replacing any before it, given now, so its year starts again. The space around it is dropped. Answers the status it leaves, never the token. 422 for anything that does not look like a setup token, sk-ant-oat followed by more visible characters, and nothing is stored; Dev flow does not ask Anthropic whether it works. Without a valid token, 401 with an empty body; a change from another origin, 403.
+         */
+        put: operations["setClaudeLogin"];
+        post?: never;
+        /**
+         * Remove the caller's Claude login
+         * @description Forgets the login and its sealed token. 204, whether or not there was one. Without a valid token, 401 with an empty body; a change from another origin, 403.
+         */
+        delete: operations["removeClaudeLogin"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/devflow/api/display": {
         parameters: {
             query?: never;
@@ -377,6 +405,19 @@ export interface components {
         Attention: {
             attention: boolean;
         };
+        ClaudeLoginRequest: {
+            token: null | string;
+        };
+        /** @enum {unknown} */
+        ClaudeLoginState: "none" | "ok" | "due_soon" | "expired";
+        ClaudeLoginStatus: {
+            /** Format: date-time */
+            given_at: null | string;
+            /** Format: date-time */
+            renew_by: null | string;
+            set: boolean;
+            state: components["schemas"]["ClaudeLoginState"];
+        };
         /** @enum {unknown} */
         CodeHostMode: "fake" | "github";
         ConnectRequest: {
@@ -587,6 +628,98 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["Attention"];
                 };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    getClaudeLogin: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClaudeLoginStatus"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    setClaudeLogin: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ClaudeLoginRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClaudeLoginStatus"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    removeClaudeLogin: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Unauthorized */
             401: {

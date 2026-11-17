@@ -12,6 +12,59 @@
         ],
         "type": "object"
       },
+      "ClaudeLoginRequest": {
+        "properties": {
+          "token": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "required": [
+          "token"
+        ],
+        "type": "object"
+      },
+      "ClaudeLoginState": {
+        "enum": [
+          "none",
+          "ok",
+          "due_soon",
+          "expired"
+        ]
+      },
+      "ClaudeLoginStatus": {
+        "properties": {
+          "given_at": {
+            "format": "date-time",
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "renew_by": {
+            "format": "date-time",
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "set": {
+            "type": "boolean"
+          },
+          "state": {
+            "$ref": "#/components/schemas/ClaudeLoginState"
+          }
+        },
+        "required": [
+          "set",
+          "given_at",
+          "renew_by",
+          "state"
+        ],
+        "type": "object"
+      },
       "CodeHostMode": {
         "enum": [
           "fake",
@@ -733,6 +786,90 @@
           }
         },
         "summary": "Whether something needs the caller, for the nav bar",
+        "tags": [
+          "DevFlow"
+        ]
+      }
+    },
+    "/devflow/api/claude-login": {
+      "delete": {
+        "description": "Forgets the login and its sealed token. 204, whether or not there was one. Without a valid token, 401 with an empty body; a change from another origin, 403.",
+        "operationId": "removeClaudeLogin",
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "summary": "Remove the caller's Claude login",
+        "tags": [
+          "DevFlow"
+        ]
+      },
+      "get": {
+        "description": "Whether one is set, when it was given and renew_by, a year after; state is none, ok, due_soon from 31 days before renew_by, or expired from renew_by on. Never the token or any part of it. Without a valid token, 401 with an empty body; a change from another origin, 403.",
+        "operationId": "getClaudeLogin",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClaudeLoginStatus"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "summary": "The caller's Claude login",
+        "tags": [
+          "DevFlow"
+        ]
+      },
+      "put": {
+        "description": "The token from claude setup-token, sealed in the vault and replacing any before it, given now, so its year starts again. The space around it is dropped. Answers the status it leaves, never the token. 422 for anything that does not look like a setup token, sk-ant-oat followed by more visible characters, and nothing is stored; Dev flow does not ask Anthropic whether it works. Without a valid token, 401 with an empty body; a change from another origin, 403.",
+        "operationId": "setClaudeLogin",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClaudeLoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClaudeLoginStatus"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        },
+        "summary": "Give Dev flow the caller's Claude login",
         "tags": [
           "DevFlow"
         ]
