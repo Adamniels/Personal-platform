@@ -442,6 +442,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/devflow/api/worker/jobs/{id}/progress": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * A running job moves on
+         * @description With state checking, the agent has finished and the check runs: the card moves from building to checking. 204. Only for the worker holding the job, named by worker_id, while it runs; 404 for any other worker, a job that is not one of the project's, or one that has finished. 422 without worker_id, or with a state that is not checking. Takes the project's worker key as Authorization: Bearer dfw_…, and nothing else: without a key the project has now, 401 with an empty body. No Origin is needed, and no cookie is read or set.
+         */
+        post: operations["workerJobProgress"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/devflow/api/worker/jobs/{id}/push-key": {
         parameters: {
             query?: never;
@@ -456,6 +476,26 @@ export interface paths {
          * @description A new push key for the job's repository, narrowed to fetching and pushing code, with when it expires, 200 with Cache-Control: no-store, since a key lasts an hour and a run up to 90 minutes. Only for the worker holding the job, named by worker_id, while the job runs; 404 for any other worker, a job that is not one of the project's, or one that has finished. 503 when the code host made no key now, which the worker asks for again; 422 without worker_id. Takes the project's worker key as Authorization: Bearer dfw_…, and nothing else: without a key the project has now, 401 with an empty body. No Origin is needed, and no cookie is read or set.
          */
         post: operations["workerPushKey"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/devflow/api/worker/jobs/{id}/result": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * A job has ended
+         * @description What the worker sends when its job ends, whatever happened: outcome, succeeded with the agent's report or failed with the failure's reason and whether it lies in the card; the check's exit code and the last 200 lines of its output, null when it did not run; the branch, which must be the job's, and its head commit; the auth method; Claude's usage as it came, an object; the duration in milliseconds; and the last 200 lines of stderr. Each is stored on the run as it came. The report is read against contracts/devflow/report.schema.json, and one that does not match is a failure in the card. A failure outside the card puts the card back in queued, counting nothing against it; a failure in the card, a report that does not match, a report that stopped, a check that did not run or failed stop it with why; otherwise the card waits, checked, for its pull request. 204. Only for the worker holding the job while it runs, and once; 404 otherwise. 422 naming a field that is missing or breaks a rule. Takes the project's worker key as Authorization: Bearer dfw_…, and nothing else: without a key the project has now, 401 with an empty body. No Origin is needed, and no cookie is read or set.
+         */
+        post: operations["workerJobResult"];
         delete?: never;
         options?: never;
         head?: never;
@@ -503,6 +543,11 @@ export interface components {
             title: string;
             waits_for: string[];
             web_url: string;
+        };
+        CheckResult: {
+            /** Format: int32 */
+            exit_code: null | number;
+            output: null | string;
         };
         ClaudeLoginRequest: {
             token: null | string;
@@ -653,6 +698,11 @@ export interface components {
             title?: null | string;
             type?: null | string;
         };
+        ProgressRequest: {
+            state: null | string;
+            /** Format: uuid */
+            worker_id: null | string;
+        };
         Project: {
             /** Format: date-time */
             created_at: string;
@@ -692,6 +742,25 @@ export interface components {
         PushKeyRequest: {
             /** Format: uuid */
             worker_id: null | string;
+        };
+        ResultRequest: {
+            auth_method: null | string;
+            branch: null | string;
+            check: null | components["schemas"]["CheckResult"];
+            /** Format: int64 */
+            duration_ms: null | number;
+            failure: null | components["schemas"]["RunFailure"];
+            head_commit: null | string;
+            outcome: null | string;
+            report: null | components["schemas"]["JsonElement"];
+            stderr: null | string;
+            usage: null | components["schemas"]["JsonElement"];
+            /** Format: uuid */
+            worker_id: null | string;
+        };
+        RunFailure: {
+            in_card: null | boolean;
+            reason: null | string;
         };
         ScreenshotGroup: {
             images: string[];
@@ -1800,6 +1869,55 @@ export interface operations {
             };
         };
     };
+    workerJobProgress: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProgressRequest"];
+            };
+        };
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
     workerPushKey: {
         parameters: {
             query?: never;
@@ -1856,6 +1974,55 @@ export interface operations {
                 };
                 content: {
                     "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    workerJobResult: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResultRequest"];
+            };
+        };
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
                 };
             };
         };

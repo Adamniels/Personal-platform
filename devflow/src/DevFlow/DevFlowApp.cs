@@ -152,6 +152,7 @@ public static class DevFlowApp
         app.MapDisplay();
         app.MapAttention();
         app.MapWorkers();
+        app.MapJobs();
         app.MapCards();
         app.MapRecipe();
         app.MapClaudeLogin();

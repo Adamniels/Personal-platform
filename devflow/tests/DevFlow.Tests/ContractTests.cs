@@ -148,6 +148,30 @@ public sealed class ContractTests
         }
     }
 
+    [Fact]
+    public async Task TheJobRoutesArePinned()
+    {
+        // Asking for work answers a job, and the job's three routes take the worker's key, so a
+        // worker program written against the file finds them there.
+        var paths = JsonNode.Parse(await File.ReadAllTextAsync(Schema, TestContext.Current.CancellationToken))!["paths"]!.AsObject();
+
+        foreach (var (path, operation) in new[]
+        {
+            ("/devflow/api/worker/jobs/{id}/push-key", "workerPushKey"),
+            ("/devflow/api/worker/jobs/{id}/progress", "workerJobProgress"),
+            ("/devflow/api/worker/jobs/{id}/result", "workerJobResult"),
+        })
+        {
+            Assert.Equal(operation, (string?)paths[path]?["post"]?["operationId"]);
+            Assert.Contains("Authorization: Bearer dfw_", (string)paths[path]!["post"]!["description"]!, StringComparison.Ordinal);
+        }
+
+        var next = paths["/devflow/api/worker/jobs/next"]!["post"]!["responses"]!.AsObject();
+        Assert.True(next.ContainsKey("200"), "jobs/next answers a job with 200");
+        Assert.True(next.ContainsKey("204"), "jobs/next answers no work with 204");
+        Assert.Null(paths["/devflow/api/fake/worker/run"]);
+    }
+
     /// <summary>The report's JSON Schema as the type writes it: two space indent, a trailing
     /// newline, its fields in the type's order, which is the order the agent reads them in.</summary>
     private static string ReportSchemaText()
