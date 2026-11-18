@@ -40,10 +40,18 @@ export const rebuildNotice = (
 		? `${project}'s recipe has changed: run the command again`
 		: "A new base image was released: run the command again";
 /** Why no worker of the project is handed work, by the list's held. */
-export const heldNotice = (held: string) =>
-	held === "claude_login_expired"
-		? "No work is handed out: your Claude login is past its renewal. Give a new one on the Projects tab"
-		: "No work is handed out until you give your Claude login on the Projects tab";
+export const heldNotice = (held: string): string => {
+	switch (held) {
+		case "stopped":
+			return "No work is handed out: something landed on its default branch that Dev flow did not put there. Look at it under Waiting for you, and resume it there";
+		case "unwatched":
+			return "No work is handed out: Dev flow has not read its default branch in the last five minutes, and starts again once it has";
+		case "claude_login_expired":
+			return "No work is handed out: your Claude login is past its renewal. Give a new one on the Projects tab";
+		default:
+			return "No work is handed out until you give your Claude login on the Projects tab";
+	}
+};
 /** After this long without a word from a worker, it shows as not seen
  * since then, as the slice settles. */
 export const QUIET_MS = 10 * 60 * 1000;

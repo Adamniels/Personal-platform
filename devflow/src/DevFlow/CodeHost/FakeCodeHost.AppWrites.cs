@@ -260,8 +260,8 @@ public sealed partial class FakeCodeHost : IDisposable
 
     /// <summary>As the owner's <see cref="Merge"/>: refused with <c>404</c> for a pull request the
     /// world does not hold, not mergeable unless it is open, head moved unless its head is
-    /// <paramref name="commit"/>, and otherwise merged, by the app. Its git repository is not
-    /// changed.</summary>
+    /// <paramref name="commit"/>, and otherwise merged, by the app, landing on the default branch
+    /// as <see cref="WithMerge"/> says. Its git repository is not changed.</summary>
     public Task<MergeResult> MergeAsApp(Guid userId, AppWriteToken token, Repository repository, int number, string commit, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(token);
@@ -284,8 +284,8 @@ public sealed partial class FakeCodeHost : IDisposable
                 return (new MergeResult.HeadMoved(), null, null);
             }
 
-            var merged = pull with { State = PullRequestState.Merged, UpdatedAt = _time.GetUtcNow() };
-            return (new MergeResult.Merged(), found with { PullRequests = [.. found.PullRequests.Select(each => each.Number == number ? merged : each)] },
+            var (changed, mergeCommit) = WithMerge(found, number, AppLogin);
+            return (new MergeResult.Merged(mergeCommit), changed,
                 new FakeWrite("merge", repository.Id, number, commit, "merge", null, AppLogin, "merge"));
         }));
     }

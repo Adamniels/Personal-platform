@@ -15,7 +15,7 @@ namespace DevFlow.CodeHost;
 /// </summary>
 public sealed partial class FakeCodeHost : ICodeHost, ICodeHostSignIn
 {
-    /// <summary>Every repository's default branch in the fake.</summary>
+    /// <summary>A repository's default branch in the fake when its world does not name one.</summary>
     public const string DefaultBranchName = "main";
 
     private readonly TimeProvider _time;
@@ -99,7 +99,7 @@ public sealed partial class FakeCodeHost : ICodeHost, ICodeHostSignIn
     /// and only then.
     /// </summary>
     public Task<CodeHostResult<FileAtCommit>> DefaultBranchFile(Guid userId, Repository repository, string path, CancellationToken cancellationToken) =>
-        Answer(userId, repository, found => found.Files.FirstOrDefault(file => file.Path == path && file.Branch == DefaultBranchName) is { } file
+        Answer(userId, repository, found => found.Files.FirstOrDefault(file => file.Path == path && file.Branch == found.Default) is { } file
             ? new FileAtCommit(file.Content.ToArray(), Convert.ToHexStringLower(SHA256.HashData(file.Content)))
             : null);
 
@@ -134,10 +134,23 @@ public sealed partial class FakeCodeHost : ICodeHost, ICodeHostSignIn
                 ? [.. edited.Edits.Where(edit => edit.Kind == EditKind.Body), .. edited.Edits.Where(edit => edit.Kind == EditKind.Title)]
                 : null);
 
-    /// <summary>The repository's default branch, <see cref="DefaultBranchName"/>, for a repository
-    /// the world holds.</summary>
+    /// <summary>The repository's default branch, as its world says, <see cref="DefaultBranchName"/>
+    /// when it does not.</summary>
     public Task<CodeHostResult<string>> DefaultBranch(Guid userId, Repository repository, CancellationToken cancellationToken) =>
-        Answer(userId, repository, _ => DefaultBranchName);
+        Answer(userId, repository, found => found.Default);
+
+    /// <summary>The branch's changes as the world lists them, newest first: with
+    /// <paramref name="since"/> null at most the newest hundred, GitHub's one page; otherwise those
+    /// after it, or all when it is not listed.</summary>
+    public Task<CodeHostResult<IReadOnlyList<BranchActivity>>> Activity(Guid userId, Repository repository, string branch, long? since, CancellationToken cancellationToken) =>
+        Answer<IReadOnlyList<BranchActivity>>(userId, repository, found =>
+        {
+            var newest = (found.Activity ?? [])
+                .Where(activity => activity.Branch == branch)
+                .Reverse()
+                .Select(activity => new BranchActivity(activity.Id, activity.Before, activity.After, activity.At, activity.Kind, activity.Actor));
+            return since is { } id ? [.. newest.TakeWhile(activity => activity.Id != id)] : [.. newest.Take(100)];
+        });
 
     /// <summary>The app's bot, <see cref="AppLogin"/> with <see cref="AppEmail"/>, for a repository
     /// the world holds.</summary>

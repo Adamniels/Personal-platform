@@ -66,6 +66,7 @@ function list(overrides: Partial<WaitingList> = {}): WaitingList {
 		needs_relink: false,
 		items,
 		projects: [project()],
+		own_items: [],
 		...overrides,
 	};
 }

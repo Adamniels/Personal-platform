@@ -62,6 +62,16 @@ public interface ICodeHost
     /// <c>main</c>.</summary>
     Task<CodeHostResult<string>> DefaultBranch(Guid userId, Repository repository, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// What changed <paramref name="branch"/>, newest first. With <paramref name="since"/> null,
+    /// the newest page alone, which is all a watch that has seen nothing needs, since it begins at
+    /// the newest. Otherwise every change newer than the one whose id is <paramref name="since"/>,
+    /// read page by page until it is reached and not including it, and every change listed when it
+    /// is never reached, such as for <c>0</c>, which no change has. Not found when there is no
+    /// such repository.
+    /// </summary>
+    Task<CodeHostResult<IReadOnlyList<BranchActivity>>> Activity(Guid userId, Repository repository, string branch, long? since, CancellationToken cancellationToken);
+
     /// <summary>Who a worker's commits on <paramref name="repository"/> are made as.</summary>
     Task<CodeHostResult<Committer>> AppCommitter(Guid userId, Repository repository, CancellationToken cancellationToken);
 

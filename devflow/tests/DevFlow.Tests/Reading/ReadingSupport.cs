@@ -213,13 +213,14 @@ internal sealed record Staged(PullRequest Pull, IReadOnlyList<Comment> Comments,
 
 /// <summary>
 /// Stands between Dev flow and the fake: records every call, as the operation, the user it was
-/// asked for and what it named, and can throw for a repository, or hold the list of open pull
-/// requests until a test lets it go.
+/// asked for and what it named, and can throw for a repository, hold the list of open pull
+/// requests until a test lets it go, or run a test's step as the app's committer is read.
 /// </summary>
 internal sealed class CountingCodeHost(ICodeHost inner) : ICodeHost
 {
     private readonly ConcurrentQueue<Call> _calls = new();
     private readonly ConcurrentQueue<UserAccessToken> _writeTokens = new();
+    private Func<Task>? _beforeCommitter;
     private int _listing;
     private int _mostAtOnce;
 
@@ -234,6 +235,15 @@ internal sealed class CountingCodeHost(ICodeHost inner) : ICodeHost
 
     /// <summary>Completed each time a list of open pull requests starts; replaced by the test.</summary>
     public TaskCompletionSource ListStarted { get; set; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    /// <summary>When set, run once as the app's committer is next read, before it is answered: the
+    /// last thing handing out a job asks the code host, so a test can change the world between
+    /// the hold read first and the card being taken.</summary>
+    public Func<Task>? BeforeCommitter
+    {
+        get => Volatile.Read(ref _beforeCommitter);
+        set => Volatile.Write(ref _beforeCommitter, value);
+    }
 
     /// <summary>The most lists of open pull requests that were ever under way at once.</summary>
     public int MostListsAtOnce => Volatile.Read(ref _mostAtOnce);
@@ -326,10 +336,21 @@ internal sealed class CountingCodeHost(ICodeHost inner) : ICodeHost
         return inner.DefaultBranch(userId, repository, cancellationToken);
     }
 
-    public Task<CodeHostResult<Committer>> AppCommitter(Guid userId, CodeHost.Repository repository, CancellationToken cancellationToken)
+    public Task<CodeHostResult<IReadOnlyList<BranchActivity>>> Activity(Guid userId, CodeHost.Repository repository, string branch, long? since, CancellationToken cancellationToken)
+    {
+        Record("Activity", userId, repository, $"{branch} {since}");
+        return inner.Activity(userId, repository, branch, since, cancellationToken);
+    }
+
+    public async Task<CodeHostResult<Committer>> AppCommitter(Guid userId, CodeHost.Repository repository, CancellationToken cancellationToken)
     {
         Record("AppCommitter", userId, repository, "");
-        return inner.AppCommitter(userId, repository, cancellationToken);
+        if (Interlocked.Exchange(ref _beforeCommitter, null) is { } step)
+        {
+            await step();
+        }
+
+        return await inner.AppCommitter(userId, repository, cancellationToken);
     }
 
     public Task<CodeHostResult<IReadOnlyList<Installation>>> Installations(Guid userId, string userToken, CancellationToken cancellationToken) =>

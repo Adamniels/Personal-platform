@@ -320,6 +320,30 @@ describe("starting a worker", () => {
 	});
 });
 
+describe("a project that hands out no work", () => {
+	test("says it was stopped by what landed, and where to resume it", async () => {
+		renderPage({ list: { held: "stopped" } });
+
+		const workers = await panel();
+		await within(workers).findByText(heldNotice("stopped"));
+		expect(heldNotice("stopped")).toContain("Waiting for you");
+	});
+
+	test("says when its default branch could not be read", async () => {
+		renderPage({ list: { held: "unwatched" } });
+
+		await within(await panel()).findByText(heldNotice("unwatched"));
+	});
+
+	test("says nothing while it hands out work", async () => {
+		renderPage();
+
+		const workers = await panel();
+		await within(workers).findByText("It has no key yet.");
+		expect(within(workers).queryByText(/hands out no work/)).toBeNull();
+	});
+});
+
 describe("the workers", () => {
 	test("a project that hands out no work for the Claude login says why", async () => {
 		renderPage({ list: { held: "no_claude_login" } });

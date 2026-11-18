@@ -44,6 +44,12 @@ public sealed record FakeInstallation(long Id, string Account, IReadOnlyList<Fak
 /// <param name="Commits">The statuses and check runs posted on a commit, by its id. A commit not
 /// listed is not found.</param>
 /// <param name="Issues">Its issues, by number, which pull requests' numbers are not.</param>
+/// <param name="DefaultBranch">Its default branch, <see cref="FakeCodeHost.DefaultBranchName"/> when it
+/// is left out; one of the two fields a repository may leave out, and left out when it is written
+/// back.</param>
+/// <param name="Activity">What changed its branches, oldest first, as
+/// <see cref="ICodeHost.Activity"/> answers it newest first; none when it is left out, the other
+/// field a repository may leave out. A merge the fake takes adds one.</param>
 public sealed record FakeRepository(
     long Id,
     string Owner,
@@ -52,7 +58,18 @@ public sealed record FakeRepository(
     IReadOnlyList<FakeConversation> Conversations,
     IReadOnlyList<FakeCommit> Commits,
     IReadOnlyList<FakeFile> Files,
-    IReadOnlyList<FakeIssue> Issues);
+    IReadOnlyList<FakeIssue> Issues,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? DefaultBranch = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<FakeActivity>? Activity = null)
+{
+    /// <summary>Its default branch, as the world says or the fake's own.</summary>
+    [JsonIgnore]
+    public string Default => DefaultBranch ?? FakeCodeHost.DefaultBranchName;
+}
+
+/// <summary>One change to a branch of a repository in the fake, a
+/// <see cref="BranchActivity"/> and the branch it changed.</summary>
+public sealed record FakeActivity(long Id, string Branch, string Before, string After, DateTimeOffset At, ActivityKind Kind, string? Actor);
 
 /// <summary>An issue, as picking cards reads it.</summary>
 /// <param name="Open">Whether it is open; a closed one is never listed by label, and no longer
@@ -159,6 +176,8 @@ public static partial class FakeJson
         ?? Duplicate(repository.Commits, commit => commit.Id, i => $"{at}.commits[{i}].id")
         ?? Duplicate(repository.Files, file => (file.Path, file.Branch), i => $"{at}.files[{i}]")
         ?? Duplicate(repository.Issues, issue => issue.Number, i => $"{at}.issues[{i}].number")
+        ?? Duplicate(repository.Activity ?? [], activity => activity.Id, i => $"{at}.activity[{i}].id")
+        ?? (repository.DefaultBranch is "" ? new Malformed($"{at}.default_branch", "is empty; leave it out for main") : null)
         ?? repository.Issues.Select((issue, i) => repository.PullRequests.Any(pull => pull.Number == issue.Number)
                 ? new Malformed($"{at}.issues[{i}].number", "is a pull request's number; an issue and a pull request never share one")
                 : issue.BlockedBy.Select((number, j) => repository.Issues.Any(other => other.Number == number)

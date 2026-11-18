@@ -7,6 +7,7 @@ using DevFlow.CodeHost;
 using DevFlow.Jobs;
 using DevFlow.Projects;
 using DevFlow.Runner;
+using DevFlow.Watching;
 using DevFlow.Workers;
 
 using Npgsql;
@@ -39,11 +40,16 @@ public enum ReadResult
 /// merged into its cards, in one transaction through the door as the user, so the two always
 /// describe the same read. A read that fails leaves the items as
 /// they were and records why, as a fixed phrase. The reads are as the app, through
-/// <see cref="ICodeHost"/>, so they work whether or not the user's own link does. See "Reading and
+/// <see cref="ICodeHost"/>, so they work whether or not the user's own link does. Before all of it,
+/// the project's default branch is watched, see <see cref="BranchWatch"/>. See "Reading and
 /// the snapshot" in devflow/docs/devflow-architecture.md.
 /// </summary>
 public sealed partial class ProjectReader(UserDb database, ICodeHost host, TimeProvider time, ILogger<ProjectReader> log)
 {
+    /// <summary>The project's default branch, watched first in every read, whatever the rest of the
+    /// read does.</summary>
+    private readonly BranchWatch _watch = new(database, host, time, log);
+
     /// <summary>Why a read failed, as stored and shown: the code host did not answer.</summary>
     public const string HostUnavailable = "GitHub did not answer";
 
@@ -73,6 +79,10 @@ public sealed partial class ProjectReader(UserDb database, ICodeHost host, TimeP
         {
             return ReadResult.NoSuchProject;
         }
+
+        // First, and on its own: what landed on the default branch is judged whether or not the
+        // rest of the project can be read, and a watch that fails never fails the read.
+        await _watch.Watch(projectId, userId, new Repository(target.Installation, target.RepositoryId, target.Owner, target.Name), target.OwnerLogin, cancellationToken);
 
         // Runs that never returned are found on the project's minute too, whether or not the code
         // host answers, since finding them asks it nothing.

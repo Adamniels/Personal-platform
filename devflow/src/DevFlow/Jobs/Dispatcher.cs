@@ -6,6 +6,7 @@ using DevFlow.ClaudeLogin;
 using DevFlow.CodeHost;
 using DevFlow.Protocol;
 using DevFlow.Recipes;
+using DevFlow.Watching;
 using DevFlow.Workers;
 
 using PlatformData;
@@ -48,16 +49,19 @@ public abstract record FreshKey
 
 /// <summary>
 /// Hands out work. A worker asking for it is answered nothing when it needs a rebuild, when its
-/// project's user has no Claude login or one past its renewal, or when its project has no card to
-/// take; otherwise everything a job needs from the code host is read first, as the app, and only
-/// then is the card taken, in one short transaction as the project's user, so no lock is held
-/// while GitHub is asked. Anything the code host does not answer is no work now, and the worker asks
-/// again. See "Jobs" in devflow/README.md and "Handing out work" in
+/// project is stopped or its default branch not watched lately, when its project's user has no
+/// Claude login or one past its renewal, or when its project has no card to take; otherwise
+/// everything a job needs from the code host is read first, as the app, and only then is the card
+/// taken, in one short transaction as the project's user, so no lock is held while GitHub is asked.
+/// That transaction reads the watch's hold again under the project's lock, so a stop recorded
+/// while GitHub was asked still holds the card back. Anything the code host does not answer is no
+/// work now, and the worker asks again. See "Jobs" in devflow/README.md and "Handing out work" in
 /// devflow/docs/devflow-architecture.md.
 /// </summary>
 public sealed partial class Dispatcher(
     UserDb database,
     WorkerStore workers,
+    WatchStore watch,
     ClaudeLogins logins,
     ICodeHost host,
     WorkerStart start,
@@ -101,7 +105,11 @@ public sealed partial class Dispatcher(
         }
 
         var (userId, projectId) = (caller.UserId, caller.ProjectId);
-        if (HeldFor(await logins.Status(userId, cancellationToken)) is not null
+        // Stopped, or its default branch not watched for five minutes: no new work, whatever waits,
+        // until its user resumes it or the branch is read again. See "Watching the default branch"
+        // in devflow/README.md.
+        if (await watch.Hold(userId, projectId, cancellationToken) != ProjectHold.None
+            || HeldFor(await logins.Status(userId, cancellationToken)) is not null
             || !await JobStore.HasWork(database, userId, projectId, cancellationToken)
             || await workers.RepositoryOf(caller, cancellationToken) is not { } repository)
         {
@@ -116,12 +124,15 @@ public sealed partial class Dispatcher(
         }
 
         var now = Now();
-        var claimed = await database.InUserTransaction(userId, transaction =>
-            JobStore.Claim(transaction, projectId, userId, workerId, facts.DefaultBranch, now, cancellationToken), cancellationToken);
+        var claimed = await database.InUserTransaction(userId, async transaction =>
+            await watch.HoldUnderLock(transaction, projectId, cancellationToken) == ProjectHold.None
+                ? await JobStore.Claim(transaction, projectId, userId, workerId, facts.DefaultBranch, now, cancellationToken)
+                : null, cancellationToken);
         if (claimed is null)
         {
-            // Another worker took the last card since it was looked for; the key made for it is
-            // dropped unused, and runs out within the hour.
+            // Another worker took the last card since it was looked for, or the project was
+            // stopped or went unwatched while GitHub was asked; the key made for it is dropped
+            // unused, and runs out within the hour.
             return new NextJob.None();
         }
 

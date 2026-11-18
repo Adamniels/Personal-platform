@@ -29,10 +29,13 @@ public sealed record Worker(Guid Id, string Name, string RecipeVersion, string B
 /// <param name="StartCommand">The command that builds and starts the project's worker, which never
 /// holds the key.</param>
 /// <param name="Workers">Every worker that has said hello, by when it first did.</param>
-/// <param name="Held">Why the project hands out no work whichever worker asks:
-/// <c>no_claude_login</c> or <c>claude_login_expired</c>, from <see cref="Jobs.Dispatcher.HeldFor"/>,
-/// or null.</param>
-public sealed record WorkerList(DateTimeOffset? KeyMadeAt, string? RecipeVersion, string StartCommand, IReadOnlyList<Worker> Workers, string? Held = null);
+/// <param name="Held">Why the project hands out no work whichever worker asks, the first that
+/// applies: <c>stopped</c> when something landed on its default branch that Dev flow did not put
+/// there, <c>unwatched</c> when its default branch's changes have not been read for five minutes,
+/// both from <see cref="Watching.WatchStore.HoldSql"/>; then <c>no_claude_login</c> or
+/// <c>claude_login_expired</c>, from <see cref="Jobs.Dispatcher.HeldFor"/>, which the list route
+/// adds; or null.</param>
+public sealed record WorkerList(DateTimeOffset? KeyMadeAt, string? RecipeVersion, string StartCommand, IReadOnlyList<Worker> Workers, string? Held);
 
 /// <summary>Where a worker stands when it asks for work.</summary>
 public enum WorkerState
@@ -174,8 +177,8 @@ public sealed class WorkerStore(UserDb database, TimeProvider time)
         {
             ArgumentNullException.ThrowIfNull(start);
             var project = await transaction.Connection!.QuerySingleOrDefaultAsync<ProjectRow>(new CommandDefinition(
-                "SELECT name AS Name, recipe_version AS RecipeVersion FROM projects WHERE id = @projectId",
-                new { projectId },
+                $"SELECT p.name AS Name, p.recipe_version AS RecipeVersion, {Watching.WatchStore.HoldSql} AS Held FROM projects p WHERE p.id = @projectId",
+                new { projectId, watchedSince = time.GetUtcNow() - Watching.BranchWatch.UnwatchedAfter },
                 transaction,
                 cancellationToken: cancellationToken));
             if (project is null)
@@ -203,7 +206,8 @@ public sealed class WorkerStore(UserDb database, TimeProvider time)
                 made is { } at ? GitHubLink.Utc(at) : null,
                 project.RecipeVersion,
                 start.StartCommand(project.Name),
-                [.. rows.Select(row => new Worker(row.Id, row.Name, row.RecipeVersion, row.BaseImage, GitHubLink.Utc(row.FirstSeenAt), GitHubLink.Utc(row.LastSeenAt), row.Rebuild))]);
+                [.. rows.Select(row => new Worker(row.Id, row.Name, row.RecipeVersion, row.BaseImage, GitHubLink.Utc(row.FirstSeenAt), GitHubLink.Utc(row.LastSeenAt), row.Rebuild))],
+                project.Held);
         }, cancellationToken);
 
     /// <summary>Now, as Postgres keeps it, to the microsecond.</summary>
@@ -215,5 +219,5 @@ public sealed class WorkerStore(UserDb database, TimeProvider time)
 
     private sealed record Row(Guid Id, string Name, string RecipeVersion, string BaseImage, DateTime FirstSeenAt, DateTime LastSeenAt, string? Rebuild);
 
-    private sealed record ProjectRow(string Name, string? RecipeVersion);
+    private sealed record ProjectRow(string Name, string? RecipeVersion, string? Held);
 }

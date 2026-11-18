@@ -176,3 +176,16 @@
 	color: var(--text);
 	font-weight: 600;
 }
+
+/* Why the project hands out no work: the attention box, as the waiting list
+ * says what needs the owner, since it is his to look at. */
+.held {
+	margin: 0;
+	padding: var(--space-3) var(--space-4);
+	border: 1px solid var(--accent-border);
+	border-radius: var(--radius-md);
+	background: var(--accent-soft);
+	color: var(--accent-text);
+	font-weight: 600;
+	overflow-wrap: anywhere;
+}

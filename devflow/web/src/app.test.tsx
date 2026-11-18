@@ -32,6 +32,7 @@ function openAt(path: string) {
 						recipe_version: null,
 						start_command: "docker run",
 						workers: [],
+						held: null,
 					}),
 				makeKey: () => new Promise(() => {}),
 				loadSettings: () => new Promise(() => {}),
@@ -51,6 +52,7 @@ function openAt(path: string) {
 						needs_relink: false,
 						items: [],
 						projects: [],
+						own_items: [],
 					}),
 				refresh: () => Promise.resolve(),
 			}}

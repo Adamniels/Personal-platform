@@ -252,3 +252,36 @@ def add_screenshot(world: dict, number: int, name: str, content: bytes) -> str:
         f"![{name}](https://github.com/{repo['owner']}/{repo['name']}/blob/"
         f"{SCREENSHOTS_BRANCH}/{number}/{name}.png?raw=true)"
     )
+
+
+# Who GitHub shows as the author of what Dev flow's app does in the fake.
+APP_LOGIN = "devflow-fake[bot]"
+
+
+def add_activity(
+    world: dict,
+    activity_id: int,
+    *,
+    after: str,
+    kind: str = "push",
+    actor: str | None = APP_LOGIN,
+    before: str | None = None,
+    branch: str = "main",
+    at: str = WHEN,
+) -> dict:
+    """A change to a branch of the world's repository, after those already
+    there, as the code host lists a repository's activity: a push unless
+    `kind` says otherwise, by the app unless `actor` says who."""
+    repo = repository(world)
+    changes = repo.setdefault("activity", [])
+    change = {
+        "id": activity_id,
+        "branch": branch,
+        "before": before or (changes[-1]["after"] if changes else "0" * 40),
+        "after": after,
+        "at": at,
+        "kind": kind,
+        "actor": actor,
+    }
+    changes.append(change)
+    return change
