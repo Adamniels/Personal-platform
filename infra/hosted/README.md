@@ -89,8 +89,8 @@ The real code host never runs git there.
 
 The worker's base image, `devflow/worker.Dockerfile`, is built and never started. Its build stage
 publishes the worker program from the committed `packages.lock.json` files, and its final stage
-installs Claude Code with `npm ci` from `devflow/worker/package-lock.json`, so it is held to the
-same rules, which `agree.test.sh` checks. It is the one image whose final stage runs as root: the
+installs Claude Code and Playwright with `npm ci` from `devflow/worker/package-lock.json`, with
+Playwright's Chromium, so it is held to the same rules, which `agree.test.sh` checks. It is the one image whose final stage runs as root: the
 worker program keeps a job's secrets from the agent, which runs as `agent`, uid 1000, see "The
 base image" in `devflow/README.md`. Since no container of it runs here, `no_container_runs_as_root`
 leaves it out, and `devflow/tests/image/base-image.test.sh` checks it instead.

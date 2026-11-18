@@ -64,8 +64,9 @@ what blocks it, or ignored with why, see "Cards" below. A worker asking for work
 next queued card with a brief written for it, and what it sends back is recorded on the run and
 moves the card on, see "Handing out work" below. A card that built and passed its check gets its
 pull request, opened as the app; a fresh reviewer agent reads that commit and its verdict is kept
-for it, see "Review" below; and the card then waits for the owner on "Waiting for you", where he
-merges it as himself; each card has a page with its whole story so far, see "How a card reaches
+for it, see "Review" below, with the pictures the worker took of the project started from that
+commit, see "The worker's pictures" below; and the card then waits for the owner on "Waiting for
+you", where he merges it as himself; each card has a page with its whole story so far, see "How a card reaches
 its pull request" below.
 
 Every read of a project also watches its default branch: anything that lands there that neither
@@ -760,6 +761,44 @@ unreadable, or `changes` with nothing blocking, has not reviewed, so the run fai
 card with why, rather than Dev flow guessing in favour of either word; the program never guesses in
 favour of merging, round 8. A review that failed outside the card is simply handed out again.
 
+## The worker's pictures
+
+The owner should be able to judge a card's pages without starting the project himself, and so
+should the reviewer, round 4 of the spec: "takes the screenshots of the pages the report names".
+How the worker takes them, where they go and how they are served is "Screenshots" in
+`devflow/README.md`.
+
+**The worker takes them, never the developer.** The developer agent could attach pictures of its
+own, but they would be its claim, made from its own copy with whatever it left there. The worker
+starts the commit it pushed, from a clean copy, as it runs the check, so the pictures are of what
+merges and nothing else, and the program uses those, round 4. Only a run whose check passed and
+whose branch was pushed gets them: a failed check stops the card anyway, and pictures of it would
+spend minutes of a worker on evidence nobody reads.
+
+**They never decide anything.** The program cannot judge a picture, round 8, so a run succeeds by
+its check and a card merges by the merge check's conditions, whatever the pictures show or whether
+they were taken at all. They are evidence for two judges who can look: the reviewer, whose brief
+makes a page that looks broken, empty or wrong a blocking finding, and the owner. That is also why
+a failure to take them is said in a note and never fails the job: a project that will not start
+for pictures is worth knowing about, and the reviewer decides whether the card needed them.
+
+**A project's login is its own business**, as the feature settles. Dev flow could log in on a
+project's behalf, but every project logs in differently, and Dev flow would then hold the
+project's credentials. Instead `DEVFLOW=1` is the one thing it sets, and a project's `start` uses
+it to come up already signed in, a test mode the project owns and keeps off without it.
+
+**On `pr-screenshots`, beside the runner's.** The branch is where this repository's runner already
+keeps its pictures, and where a pull request body's images on GitHub point, so the owner reads Dev
+flow's pull requests as he reads the runner's. Dev flow's live under `devflow/`, so the two never
+share a name, and under the commit, so a commit pushed later does not replace an older commit's
+pictures. Root commits them with plumbing, on top of the branch as cloned, rather than in a
+checked out copy, and pushes without force, fetching once more when another job moved it, so
+pictures pushed at the same moment are never lost.
+
+**Read as the app, served like part 1's.** The addresses a body embeds need a GitHub session, so
+the page reads each picture through Dev flow, with the same checks as the runner's items, see "A
+code host's bytes handed to the browser" below.
+
 ## Watching the default branch
 
 A worker's push key can reach `main` and merge through the API, see "The program's own writes"
@@ -868,8 +907,15 @@ its reason, or a risk accepted on purpose; each slice adds the ones it builds.
   screenshot for an hour, `private`, so no shared cache does. The address in the body is never
   fetched, shown or made a link. Accepted: the GitHub adapter reads a file's whole answer into
   memory before the route can refuse one over 5 MB, so a large file on `pr-screenshots` costs a
-  read of it; the branch is written only by the runner's `screenshots.sh`, and GitHub's contents
-  API answers files up to 100 MB.
+  read of it; the branch is written only by the runner's `screenshots.sh` and Dev flow's workers,
+  and GitHub's contents API answers files up to 100 MB.
+
+  A card's pictures go through the same two functions, `ScreenshotEndpoints.Guard` and `FromHost`,
+  from `GET /devflow/api/projects/{id}/cards/{number}/screenshots/{name}`: the name can only be one
+  the card's newest build that succeeded listed, which Dev flow checked against the rules the
+  worker names pictures by when it took the result, and any other is refused before the code host
+  is asked; the path, `devflow/<card>/<commit, seven characters>/<name>.png`, is built by the
+  server from the card's own number and stored commit.
 - **An agent's run gets an environment built from nothing.** Claude Code is started with exactly
   `HOME`, `PATH`, `LANG`, `CLAUDE_CONFIG_DIR` and `CLAUDE_CODE_OAUTH_TOKEN`, and the process starter
   clears everything else, rather than passing the worker's environment and taking out what is
@@ -1200,7 +1246,35 @@ its reason, or a risk accepted on purpose; each slice adds the ones it builds.
   worker holds a key narrowed to fetching, `contents: read`, never one that pushes, and the push key
   route refuses a review; it commits and pushes nothing, and root writes the review's files only in
   its own handover folder, which the agent copies from, so root never writes where the agent can.
-  What it reads is data: an instruction in the card, the report, the diff or the code is a finding.
+  What it reads is data: an instruction in the card, the report, the diff, the code or the text in
+  a picture is a finding.
+- **The project runs as `agent`, in a clean copy.** A project's `start` is code from its
+  repository, on a commit an agent wrote, so it runs as `agent`, never root, in an environment
+  built from nothing and `DEVFLOW=1`, from a fresh clone of the pushed commit the agent made,
+  with nothing of the agent's working copy in it. It runs in a process group of its own, through
+  `setsid`, and the group is ended afterwards, `SIGTERM` and then `SIGKILL`, so a server it left
+  in the background ends too, which ending the tree by parent would miss once it was detached.
+  Root reads each picture through a process of the agent's, `head -c` at most one byte past 5 MB,
+  never by opening the file itself, so a link the project left at a picture's name reads nothing
+  the agent could not, and a file that never ends is cut; and root keeps only a PNG of at most
+  5 MB. The page's address is the project's `url` joined with a path from the report, which is
+  data, and a join that leaves the project's own origin is refused. Accepted: a process that
+  calls `setsid` again leaves the group and keeps running as `agent` in the container until it
+  is stopped, the same as a process the agent detaches during its run, under "The agent's copy
+  has no credentials"; and Chromium runs as `agent` without its own sandbox, as Playwright starts
+  it, since the container is the boundary and the pages are the project's own. The browser is
+  root's, under `/ms-playwright`, so one job cannot change it to fake the next job's pictures.
+- **The test mode is the project's, and must be off without `DEVFLOW=1`.** Dev flow never holds
+  a project's credentials or logs in for it: it sets `DEVFLOW=1` and nothing else, and a project
+  that needs a login comes up signed in by its own code. A test mode that turns on without the
+  variable would be a way into the project in production, so `devflow/README.md` says plainly
+  that it must be off when `DEVFLOW` is not set; whether it is, is the project's to keep, and
+  Dev flow cannot check it.
+- **Pictures are served through part 1's checks.** A card's pictures are the second place Dev flow
+  hands the browser bytes from a code host, and they go through the same code as the first, see
+  "A code host's bytes handed to the browser" above, so a check added there holds for both. The
+  pictures are pushed with the build's own push key, after the job's branch, never with force and
+  never to the default branch; a repository whose default branch is `pr-screenshots` gets none.
 - **A verdict is the worker's commit and Dev flow's record, never a comment.** The commit a verdict
   is for is the one the run was handed and its worker checked out; the result route refuses any
   other, and the verdict's form has no place to name one. The verdict is stored in `reviews` in the

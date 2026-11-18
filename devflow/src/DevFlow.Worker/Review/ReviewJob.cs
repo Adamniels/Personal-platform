@@ -15,8 +15,10 @@ namespace DevFlow.Worker.Review;
 /// bare repository of its own and points the card's branch there at the commit to review; the agent
 /// clones that, through a bundle in root's handover folder, into its working copy, which is checked
 /// to be at the commit. Root writes the evidence, <c>diff.patch</c> from the base to the commit,
-/// <c>card.md</c>, <c>report.json</c> and <c>check.txt</c>, in its handover folder, and the agent
-/// copies them into a folder beside its copy, so root never writes where the agent can. The agent
+/// <c>card.md</c>, <c>report.json</c>, <c>check.txt</c> and <c>screenshots.txt</c>, and an archive
+/// of the build's pictures of the commit from <c>pr-screenshots</c>, in its handover folder, and the
+/// agent copies them into a folder beside its copy and unpacks the pictures into
+/// <c>review/pictures</c>, so root never writes where the agent can. The agent
 /// then runs there read only, with the reviewer's brief and the verdict's form. Nothing is
 /// committed or pushed, no push key is asked for, and the result names the commit the worker
 /// checked out, never the agent's word. See "Review" in devflow/README.md, and "Review" in
