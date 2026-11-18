@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using System.Text.RegularExpressions;
 
 using DevFlow.Protocol;
 
@@ -22,7 +23,7 @@ public sealed record PullRequestSource(int Card, Guid RunId, Report Report, stri
 /// agent made, Verification, Follow ups, and a last line that leads back to the card and the run.
 /// See "The pull request Dev flow opens" in devflow/README.md.
 /// </summary>
-public static class PullRequestText
+public static partial class PullRequestText
 {
     /// <summary>The body, its sections in their order, each a level two heading with a blank line
     /// around it, and a newline at its end.</summary>
@@ -104,8 +105,51 @@ public static class PullRequestText
         body.Append(any ? "\n" : "None.\n\n");
     }
 
-    /// <summary>Text from the report placed in the body as one line.</summary>
-    private static string Text(string text) => OneLine(text);
+    /// <summary>
+    /// Text from the report, the agent's and so data, made safe to place inside one of the body's
+    /// sections: one line, so it cannot begin a block of its own, a heading, a fence, a quote or a
+    /// table; <c>&amp;</c>, <c>&lt;</c> and <c>&gt;</c> written as entities, so no HTML, a comment
+    /// that would hide the sections after it among them, is inserted; its backticks escaped, so the
+    /// only code spans are the ones made here; a <c>#</c> it begins with escaped, so a list item
+    /// cannot hold a heading; a closing keyword followed by an issue, <c>Closes #12</c>,
+    /// <c>fixes owner/name#3</c> or an issue's address, with the keyword in a code span, so it closes
+    /// nothing; and an <c>@</c> mention in a code span, so the app notifies nobody. What it says is
+    /// kept, to be read.
+    /// </summary>
+    internal static string Text(string text)
+    {
+        var line = new StringBuilder(text.Length);
+        foreach (var c in OneLine(text))
+        {
+            line.Append(c switch
+            {
+                '&' => "&amp;",
+                '<' => "&lt;",
+                '>' => "&gt;",
+                '`' => "\\`",
+                _ => c.ToString(),
+            });
+        }
+
+        var safe = line.ToString();
+        if (safe.StartsWith('#'))
+        {
+            safe = "\\" + safe;
+        }
+
+        safe = ClosingKeyword().Replace(safe, match => $"`{match.Value}`");
+        return Mention().Replace(safe, match => $"`{match.Value}`");
+    }
+
+    /// <summary>A keyword GitHub closes an issue with, when what follows it, after an optional
+    /// colon, is an issue: <c>#12</c>, <c>GH-12</c>, <c>owner/name#12</c> or an address.</summary>
+    [GeneratedRegex(@"\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\b(?=:?\s+(?:#\d|GH-\d|[\w.-]+/[\w.-]+#\d|https?://))", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex ClosingKeyword();
+
+    /// <summary>An <c>@</c> mention of a login or a team, as GitHub notifies one: not inside a word,
+    /// such as an address.</summary>
+    [GeneratedRegex(@"(?<!\w)@[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})(?:/[A-Za-z0-9_.-]+)?", RegexOptions.CultureInvariant)]
+    private static partial Regex Mention();
 
     /// <summary>Every kind of line break made a space, and the ends trimmed.</summary>
     private static string OneLine(string text)
