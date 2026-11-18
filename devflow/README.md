@@ -1563,7 +1563,8 @@ then answers `204`, no work, when:
 
 Otherwise it takes the first such card in the order "Cards" gives, high, none, low, each oldest
 first, with `SELECT … FOR UPDATE SKIP LOCKED`, so two workers asking at once never get the same card
-and neither waits; moves it to `building`; records a run for the worker; and answers `200` with
+and neither waits, passing over a card that still has a run under way, which a read can leave
+queued; moves it to `building`; records a run for the worker; and answers `200` with
 `Cache-Control: no-store`, the job, a `DevFlow.Protocol` `Job`:
 
 | Field | What it is |

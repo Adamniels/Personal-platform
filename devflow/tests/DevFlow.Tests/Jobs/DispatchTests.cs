@@ -89,6 +89,28 @@ public sealed class DispatchTests
     }
 
     [Fact]
+    public async Task ACardWithARunUnderWayIsNotHandedOutAgain()
+    {
+        await using var jobs = await Jobs.Start([Jobs.Card(1), Jobs.Card(2, minutes: 1)]);
+        await jobs.SayHello(Jobs.SecondWorker);
+        Assert.Equal(1, (int)(await jobs.Job())["card"]!["number"]!);
+
+        // The card is queued again while its run is under way, as a read that ignores it and a
+        // later one that picks it again would leave it.
+        await using (var admin = await jobs.Routes.Database.OpenAdmin(Ct))
+        {
+            await admin.ExecuteAsync(new CommandDefinition(
+                "UPDATE cards SET state = 'queued' WHERE project_id = @project AND number = 1", new { project = jobs.Project }, cancellationToken: Ct));
+        }
+
+        // It is passed over, rather than taken a second time against the one run it may have:
+        // the next card goes to the next worker, and then there is nothing.
+        Assert.Equal(2, (int)(await jobs.Job(Jobs.SecondWorker))["card"]!["number"]!);
+        Assert.Equal(StatusCodes.Status204NoContent, (await jobs.Next(Jobs.SecondWorker)).Response.StatusCode);
+        Assert.Equal(2, (await jobs.Runs()).Count);
+    }
+
+    [Fact]
     public async Task AWorkerNeverGetsAnotherProjectsCard()
     {
         // The project has no card; another project of the same user has one.
