@@ -40,7 +40,8 @@ public static class CardStore
         ArgumentNullException.ThrowIfNull(found);
         var stored = (await transaction.Connection!.QueryAsync<StoredCard>(new CommandDefinition(
             """
-            SELECT number AS Number, state AS State, reason AS Reason, waits_for AS WaitsFor, unlabelled AS Unlabelled
+            SELECT number AS Number, state AS State, reason AS Reason, waits_for AS WaitsFor, unlabelled AS Unlabelled,
+                   pull_request_number AS PullRequestNumber
             FROM cards WHERE project_id = @projectId
             """,
             new { projectId },
@@ -50,8 +51,12 @@ public static class CardStore
         var numbers = found.Select(card => card.Number).ToHashSet();
         foreach (var gone in stored.Values.Where(card => !numbers.Contains(card.Number)))
         {
+            // A card Dev flow carried to a merged pull request is kept: the pull request's Closes
+            // line closed its issue as it merged, which takes it off the list, and the card is the
+            // story of what was built.
             var command = Running.Contains(gone.State, StringComparer.Ordinal)
                 ? (gone.Unlabelled ? null : "UPDATE cards SET unlabelled = true, changed_at = @now WHERE project_id = @projectId AND number = @number")
+                : gone.State == "done" && gone.PullRequestNumber is not null ? null
                 : "DELETE FROM cards WHERE project_id = @projectId AND number = @number";
             if (command is not null)
             {
@@ -173,6 +178,60 @@ public static class CardStore
         _ => throw new ArgumentOutOfRangeException(nameof(verdict), verdict, "not a verdict"),
     };
 
+    /// <summary>Why a card whose pull request was closed without merging is stopped.</summary>
+    public const string PullRequestClosed = "The pull request was closed";
+
+    /// <summary>The project's cards that wait for the owner with a pull request, each with its
+    /// number, read as the project's user.</summary>
+    public static async Task<IReadOnlyList<(int Card, int PullRequest)>> WaitingPulls(UserDb database, Guid userId, Guid projectId, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(database);
+        var rows = await database.InUserTransaction(userId, transaction => transaction.Connection!.QueryAsync<(int, int)>(new CommandDefinition(
+            """
+            SELECT number, pull_request_number FROM cards
+            WHERE project_id = @projectId AND state = 'waiting_for_owner' AND pull_request_number IS NOT NULL
+            ORDER BY number
+            """,
+            new { projectId },
+            transaction,
+            cancellationToken: cancellationToken)), cancellationToken);
+        return [.. rows];
+    }
+
+    /// <summary>
+    /// Moves a card that waits for the owner on as its pull request went, inside the read's
+    /// transaction: merged, by anyone, is <c>done</c>; closed without merging is <c>stopped</c>,
+    /// <see cref="PullRequestClosed"/>, or removed when its label was taken off while it ran, as a
+    /// run that ends removes such a card. Only while it still waits with that pull request.
+    /// </summary>
+    public static async Task Follow(NpgsqlTransaction transaction, Guid projectId, FollowedPull pull, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(transaction);
+        ArgumentNullException.ThrowIfNull(pull);
+        const string Where = "project_id = @projectId AND number = @card AND state = 'waiting_for_owner' AND pull_request_number = @pullRequest";
+        var parameters = new { projectId, card = pull.Card, pullRequest = pull.PullRequest, reason = PullRequestClosed, now };
+        if (pull.Merged)
+        {
+            await transaction.Connection!.ExecuteAsync(new CommandDefinition(
+                $"UPDATE cards SET state = 'done', reason = NULL, changed_at = @now WHERE {Where}",
+                parameters,
+                transaction,
+                cancellationToken: cancellationToken));
+            return;
+        }
+
+        if (await transaction.Connection!.ExecuteAsync(new CommandDefinition($"DELETE FROM cards WHERE {Where} AND unlabelled", parameters, transaction, cancellationToken: cancellationToken)) > 0)
+        {
+            return;
+        }
+
+        await transaction.Connection!.ExecuteAsync(new CommandDefinition(
+            $"UPDATE cards SET state = 'stopped', reason = @reason, changed_at = @now WHERE {Where}",
+            parameters,
+            transaction,
+            cancellationToken: cancellationToken));
+    }
+
     /// <summary>A card as listed, set by property, as <see cref="StoredCard"/> is.</summary>
     private sealed class ListedCard
     {
@@ -206,5 +265,14 @@ public static class CardStore
         public string[] WaitsFor { get; init; } = [];
 
         public bool Unlabelled { get; init; }
+
+        public int? PullRequestNumber { get; init; }
     }
 }
+
+/// <summary>Where a card's pull request went, as a read of the project found it: merged, or closed
+/// without merging.</summary>
+/// <param name="Card">The card's issue number.</param>
+/// <param name="PullRequest">Its pull request's number.</param>
+/// <param name="Merged">Whether it merged, rather than closed.</param>
+public sealed record FollowedPull(int Card, int PullRequest, bool Merged);

@@ -61,12 +61,15 @@ public sealed class FakeWorkerTests
         Assert.Equal("succeeded", run.Result);
         Assert.Equal(head, run.HeadCommit);
         Assert.Equal("devflow/4-add-the-empty-state", run.Branch);
-        Assert.Equal("checking", (await jobs.Card(4)).State);
+        // And its pull request was opened before the fake worker answered, so the card waits.
+        Assert.Equal("waiting_for_owner", (await jobs.Card(4)).State);
 
-        // The commit is on the branch in the fake's git repository.
+        // The commit is on the branch in the fake's git repository, on top of a first commit of
+        // the base, which the fake's empty git did not have.
         var platform = new DevFlow.CodeHost.Repository(Reading.Reading.Installation, Reading.Reading.RepositoryId, "Adamniels", "Personal-platform");
         var clone = Assert.IsType<CodeHostResult<Uri>.Found>(await jobs.Fake.CloneAddress(Jobs.User, platform, Jobs.Ct)).Value;
         Assert.Equal(head, await Git(clone.LocalPath, "rev-parse", "refs/heads/devflow/4-add-the-empty-state"));
+        Assert.Equal(await Git(clone.LocalPath, "rev-parse", "refs/heads/main"), await Git(clone.LocalPath, "rev-parse", $"{head}^"));
 
         // The fake worker is one of the project's workers, on the image the app expects.
         var workers = (await Workers.Workers.List(jobs.Routes, jobs.Project))["workers"]!.AsArray();

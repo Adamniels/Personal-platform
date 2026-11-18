@@ -3,10 +3,11 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import type { ActionsApi } from "./actions";
 import { navigate, usePathname } from "./address";
-import { createClient } from "./api/client";
+import { ApiError, createClient } from "./api/client";
 import type { components } from "./api/schema";
 import styles from "./app.module.css";
 import { CodeHostBanner } from "./banner";
+import { type CardApi, CardPage } from "./card";
 import {
 	ClaudeLogin,
 	type ClaudeLoginApi,
@@ -15,7 +16,14 @@ import {
 import { type ProjectApi, ProjectPage } from "./project";
 import { type Project, Projects, type ProjectsApi } from "./projects";
 import { GitHubLink } from "./projects-link";
-import { projectAt, SECTIONS, type Section, sectionAt } from "./sections";
+import {
+	cardAt,
+	projectAt,
+	projectPath,
+	SECTIONS,
+	type Section,
+	sectionAt,
+} from "./sections";
 import type { ProjectSettings } from "./settings";
 import { loadStatus as readStatus, type Status, useStatus } from "./status";
 import { useWaiting, Waiting, type WaitingApi } from "./waiting";
@@ -41,6 +49,9 @@ export type AppProps = {
 	/** How an item is merged and sent back, the service's by default; a test
 	 * passes its own. */
 	actions?: ActionsApi;
+	/** How a card's page reads its card, the service's by default; a test
+	 * passes its own. */
+	card?: CardApi;
 	/** The time, in milliseconds since the epoch, the page says how old the
 	 * picture is by; a test passes its own. */
 	now?: () => number;
@@ -90,6 +101,22 @@ const projectApi: ProjectApi = {
 		),
 };
 
+/** A card's story, through Dev flow's API; a card the caller does not have
+ * answers 404, which the page shows as none. */
+const cardApi: CardApi = {
+	loadCard: async (project, number) => {
+		try {
+			return await client.get(
+				`/projects/${encodeURIComponent(project)}/cards/${number}` as "/projects/{id}/cards/{number}",
+			);
+		} catch (error) {
+			if (error instanceof ApiError && error.problem.status === 404)
+				return null;
+			throw error;
+		}
+	},
+};
+
 /** The Claude login, through Dev flow's API. The token is sent, never
  * read back. */
 const claudeLoginApi: ClaudeLoginApi = {
@@ -128,6 +155,13 @@ const actionsApi: ActionsApi = {
 			{ commit },
 		);
 	},
+	mergeCard: async (projectId, number, headCommit) => {
+		await client.send(
+			"POST",
+			`/projects/${encodeURIComponent(projectId)}/cards/${number}/merge`,
+			{ head_commit: headCommit },
+		);
+	},
 };
 
 /** Dev flow's page, with React Query for what it reads and the toasts its
@@ -159,14 +193,18 @@ function Frame({
 	claudeLogin = claudeLoginApi,
 	waiting = waitingApi,
 	actions = actionsApi,
+	card = cardApi,
 	now = Date.now,
 }: AppProps) {
 	const pathname = usePathname();
-	// A project's page is under the Projects tab, which stays selected there.
+	// A project's page, and a card's page under it, are under the Projects
+	// tab, which stays selected there.
 	const projectId = projectAt(pathname);
-	const current = projectId
-		? SECTIONS.find((section) => section.key === "projects")
-		: sectionAt(pathname);
+	const cardOf = cardAt(pathname);
+	const current =
+		projectId || cardOf
+			? SECTIONS.find((section) => section.key === "projects")
+			: sectionAt(pathname);
 	useCrumb(current);
 	const [status, reload] = useStatus(loadStatus);
 	const listed = useWaiting(waiting.loadWaiting);
@@ -216,6 +254,15 @@ function Frame({
 								now={now}
 								link={status?.github.state}
 								actions={actions}
+							/>
+						) : section.key === "projects" && cardOf ? (
+							<CardPage
+								key={`${cardOf.project}/${cardOf.number}`}
+								project={cardOf.project}
+								number={cardOf.number}
+								backPath={projectPath(cardOf.project)}
+								back={() => navigate(projectPath(cardOf.project))}
+								{...card}
 							/>
 						) : section.key === "projects" && projectId ? (
 							<ProjectPage

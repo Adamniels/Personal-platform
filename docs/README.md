@@ -120,7 +120,7 @@ features" in `High-level/docs/platform-architecture.md`.
   tables, what waits for the owner, the loop that
   reads it and refreshing a project, merging and sending back from the page and what each refusal
   means, a project's worker key, the worker scheme and the worker API with their routes and
-  tables, starting a worker, with the base image, the format of `.devflow/`, the recipe route, the
+  tables, the pull request Dev flow opens for a built card, with its body, and a card's page, starting a worker, with the base image, the format of `.devflow/`, the recipe route, the
   two commands, the memory rule and when a worker needs a rebuild, the worker program with its
   settings, its loop, its exit codes, the agent interface, when a run succeeds, a build job step by
   step with the git rules it keeps, publishing it and its tests, the Claude login, its routes and its table, jobs, with handing out a card, the job, a
@@ -140,10 +140,11 @@ features" in `High-level/docs/platform-architecture.md`.
   check runs on a clean copy, why its branch is pushed whatever the check said and why a worker
   running a check stays seen, the Claude login Dev flow holds for
   a user's runs, handing out work, with the lock that takes a card, why nothing is read from GitHub
-  under it, the brief quoting the card as picked, why the report decides nothing, where a failure
+  under it, the brief quoting the card as picked, how a card reaches its pull request and
+  how the waiting list reads Dev flow's own cards beside the runner's, why the report decides nothing, where a failure
   lies and when a run is lost, and its security decisions and accepted risks, kept for an audit,
   the vault's, the fake's, the worker key's, the agent run's environment and token, the Claude
-  token's and a job's, the brief's, push keys before the watch, root never running git in the
+  token's and a job's, the brief's, the report's text in a pull request body, push keys before the watch, root never running git in the
   agent's copy, the copy without credentials and a push never forced among them
 - `docs/superpowers/specs/2026-11-14-development-flow-design.md` — the design of the whole
   development flow, frozen on 2026 11 15 when the slices of its first part were cut; the

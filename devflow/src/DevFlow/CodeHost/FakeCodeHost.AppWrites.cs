@@ -182,6 +182,11 @@ public sealed partial class FakeCodeHost : IDisposable
         }
     }
 
+    /// <summary>Whether the repository's git repository has <paramref name="branch"/>, with a
+    /// commit; false before its git repository is made.</summary>
+    internal async Task<bool> HasBranch(Guid userId, Repository repository, string branch, CancellationToken cancellationToken) =>
+        await BranchCommit(userId, repository, branch, cancellationToken) is not null;
+
     /// <summary>Refused with <c>422</c> unless both branches are in the repository's git
     /// repository and no open pull request is already from the head into the base, as GitHub
     /// refuses; otherwise opened by the app with the next number, its head the branch's commit.</summary>

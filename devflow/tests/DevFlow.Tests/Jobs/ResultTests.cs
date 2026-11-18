@@ -148,7 +148,7 @@ public sealed class ResultTests
         // A run whose check passed waits for its pull request, a later part's.
         var card = await jobs.Card(1);
         Assert.Equal("checking", card.State);
-        Assert.Equal("Built, and its check passed; its pull request opens in a later part", card.Reason);
+        Assert.Equal("Built, and its check passed; its pull request opens next", card.Reason);
 
         // A result is taken once.
         Assert.Equal(StatusCodes.Status404NotFound, (await jobs.Post(WorkerApi.ResultPath(id), sent)).Response.StatusCode);

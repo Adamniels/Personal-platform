@@ -49,7 +49,9 @@ describe("the cards panel", () => {
 			await cards.findByRole("list", { name: "Cards" }),
 		).getAllByRole("listitem");
 		expect(
-			rows.map((row) => within(row).getByRole("link").textContent),
+			rows.map(
+				(row) => within(row).getByRole("link", { name: /^#\d+$/ }).textContent,
+			),
 		).toEqual(["#12", "#13", "#14", "#15"]);
 		const at = (index: number) => {
 			const row = rows[index];
@@ -77,6 +79,11 @@ describe("the cards panel", () => {
 		);
 		expect(link.getAttribute("target")).toBe("_blank");
 		expect(link.getAttribute("rel")).toBe("noreferrer");
+
+		// Its title leads to the card's own page, in Dev flow.
+		const page = queued.getByRole("link", { name: "Card 12" });
+		expect(page.getAttribute("href")).toBe(`/devflow/projects/${ID}/cards/12`);
+		expect(page.getAttribute("target")).toBeNull();
 	});
 
 	test("an address that is not https is no link, and a title is shown as text", async () => {
@@ -94,8 +101,15 @@ describe("the cards panel", () => {
 		const cards = await panel();
 
 		expect(await cards.findByText("<img src=x onerror=alert(1)>")).toBeTruthy();
-		expect(cards.queryByRole("link")).toBeNull();
+		expect(cards.queryByRole("link", { name: "#16" })).toBeNull();
 		expect(cards.getByText("#16")).toBeTruthy();
+		// The card's own page is Dev flow's address, never the code host's.
+		expect(
+			cards
+				.getByRole("link", { name: "<img src=x onerror=alert(1)>" })
+				.getAttribute("href"),
+		).toBe(`/devflow/projects/${ID}/cards/16`);
+		expect(document.querySelector("img")).toBeNull();
 	});
 
 	test("says how a card is made when there is none", async () => {

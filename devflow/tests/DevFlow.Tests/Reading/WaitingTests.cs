@@ -103,8 +103,10 @@ public sealed class WaitingTests
                 ["stale"] = false,
                 ["failing"] = false,
             }),
-            // Nothing landed on the default branch, so nothing of Dev flow's own waits.
+            // Nothing landed on the default branch, so nothing of Dev flow's own waits, and no
+            // card of its own was built.
             ["own_items"] = new JsonArray(),
+            ["cards"] = new JsonArray(),
         };
         Assert.True(JsonNode.DeepEquals(expected, waited), waited.ToJsonString());
         // Bob's two are stored, and none of them is the caller's.

@@ -13,8 +13,9 @@ flow holds a token that acts as them, connecting a repository, which makes it a 
 reading every project about once a minute into a stored list of what waits for the owner, which
 the API answers and the platform's front page counts, and each project's worker key, with the
 worker API a worker calls with it, which hands out a project's cards as jobs with a brief and
-records what comes back, and the worker program that calls it: everything else the tabs will show
-arrives with later slices.
+records what comes back, the pull request it opens as the app for a card that built and passed its
+check, which then waits for the owner on "Waiting for you", each card's own page, and the worker
+program that calls it: everything else the tabs will show arrives with later slices.
 
 ## What it serves
 
@@ -49,6 +50,10 @@ arrives with later slices.
 - `GET /devflow/api/projects/{id}/settings` and `PUT /devflow/api/projects/{id}/settings`, a
   project's settings, and `GET /devflow/api/projects/{id}/cards`, its cards, see "Cards". Without a
   valid token, `401` with an empty body.
+- `GET /devflow/api/projects/{id}/cards/{number}`, a card's whole story so far, see "A card's
+  page", and `POST /devflow/api/projects/{id}/cards/{number}/merge`, which merges a card's pull
+  request that waits, as the caller on GitHub, see "Acting from the page". Without a valid token,
+  `401` with an empty body.
 - `POST /devflow/api/projects/{id}/worker-key`, which makes a project's worker key and answers it
   once, and `GET /devflow/api/projects/{id}/workers`, the workers that have said hello with it,
   see "Workers". Without a valid token, `401` with an empty body.
@@ -88,8 +93,9 @@ arrives with later slices.
 - In the fake mode only, the fake's addresses under `/devflow/api/fake/`, see "Staging a world",
   its sign in page, `/devflow/fake-github/authorize`, and its install page,
   `/devflow/fake-github/install`, see "The fake".
-- `GET /devflow`, `/devflow/projects` and `/devflow/projects/{id}`, a project's page, with any
-  query, the page: `web/dist/index.html`, revalidated on every load; `{id}` must be a UUID. Without a valid token each answers `303` to
+- `GET /devflow`, `/devflow/projects`, `/devflow/projects/{id}`, a project's page, and
+  `/devflow/projects/{id}/cards/{number}`, a card's page, with any query, the page:
+  `web/dist/index.html`, revalidated on every load; `{id}` must be a UUID and `{number}` a number. Without a valid token each answers `303` to
   `/auth/refresh?return_to=<the path and query as received, URL encoded>`.
 - `GET /devflow/assets/*`, the page's built files from `web/dist/assets/`, without a token, as
   review and the brain serve their own: they are the same for everyone and hold no data.
@@ -210,11 +216,30 @@ other failure is the alert "The settings were not saved. Try again.", and what w
 The Cards panel, `src/cards.tsx`, the package's `Card` titled "Cards", read from
 `GET /devflow/api/projects/{id}/cards` as the page loads, is the list "Cards", in the order the
 answer gives, each card an inset row: its number, `#12` in the mono font, a link to the issue on
-GitHub in a new tab when its address is https and plain text otherwise; its title, as text; its
+GitHub in a new tab when its address is https and plain text otherwise; its title, as text, a link
+to the card's page; its
 state as a status, "Queued" and "Held" `idle`, "Ignored" and "Stopped" `failed`, "Building",
 "Checking", "Reviewing" and "Fixing" `running`, "Waiting for you" `needs-you` and "Done" `done`;
 and its reason under them as a caption. With none, "No cards yet. An open issue you wrote with the
 pick-up label becomes one."; a list that could not be read is an alert.
+
+A card's page, `src/card.tsx`, is at `/devflow/projects/<id>/cards/<number>`, under the Projects
+tab, which stays selected there, read from `GET /devflow/api/projects/{id}/cards/{number}` as it
+loads. Its header is a link "Back to the project" over the card's title as a section heading; a
+card the caller does not have is the `EmptyState` "There is no such card", and one that cannot be
+read an alert. Under it three of the package's `Card`s: "The card", its state as the Cards panel
+shows it with its reason beside it, and the links "Issue #<number>" and "Pull request #<number>",
+each in a new tab with `rel="noreferrer"` when its address is https and plain text otherwise;
+"Runs", the list "Runs", newest first, each run an inset row with its kind and its outcome as a
+status, "Succeeded" `done`, "Running" `running`, and "Failed", "Check failed", "The agent
+stopped", "Report did not match" and "Lost" `failed`, then in the mono font its worker, when it
+started and how long it took, for a failure its reason and whether it lay in the card or outside
+it, "Logged in with <auth method>" and "Tokens <in> in, <out> out", and "Check exit <code> on
+<commit>" with a "Show" that opens the output's tail, kept as written and wrapped; or "No run has
+taken this card yet."; and, when a run has handed one back, "The latest report": its summary, then
+its tasks, decisions, tests, pages and follow ups, each a list under its label, each item on an
+inset, a decision for the owner marked "For you", a list with nothing left out. Every text came
+from GitHub, a worker or an agent and is shown as text, through `src/format.tsx`.
 
 Waiting for you, `src/waiting.tsx`, is one list of what waits for the owner across his projects,
 read from `GET /devflow/api/waiting`, see "What waits", through React Query: as the page loads,
@@ -230,8 +255,8 @@ answer's `count` as a badge once it is more than none. Its parts, top to bottom:
   secondary "Refresh" beside it posts to every project's refresh route and then reads the list
   again.
 - Three groups, in this order, each a section heading in the heading font's capitals with its
-  count, and shown only with items: "Pull requests waiting", items of kind `waiting` not sent
-  back; "Stopped", kind `stopped` not sent back; and "Sent back, the runner has it", every item
+  count, and shown only with items: "Pull requests waiting", Dev flow's own waiting cards, then
+  items of kind `waiting` not sent back; "Stopped", kind `stopped` not sent back; and "Sent back, the runner has it", every item
   sent back, muted, and not in the tab's count. Within a group, by `<owner>/<name>` and then
   number.
 - An item is the package's `Card`, titled by the pull request, its status label on the right:
@@ -267,6 +292,18 @@ answer's `count` as a badge once it is more than none. Its parts, top to bottom:
   #<number>", and the item moves to "Sent back, the runner has it". Either way the list is read
   again, and a refusal is shown inside the item, in words, as an alert. The page is wrapped in the
   package's `ToastProvider`.
+- A card of Dev flow's own, `src/waiting-card.tsx`, is the package's `Card` with the attention
+  outline, titled by the card, "Waiting for you" on the right; under the title
+  `<owner>/<name> #<pull request>` in the mono font, the report's summary, "The agent decided" with
+  the decisions the agent marked for the owner, as an item's, and "and <n> more it did not need you
+  for", and "The check", "Dev flow ran <check> on <commit>: exit <code>.". Its actions are "Merge",
+  primary when it is the group's first entry, and "Open on GitHub" to its pull request, offered
+  only when its address is https; no Send back, which waits for the part that can run it. Merge is
+  disabled with a line saying why while the project is stopped, "The project is stopped: resume it
+  before you merge.", or GitHub is not linked or the link has expired; it opens a `Dialog`, "Merge
+  #<pull request> into <base>?", with the title, the commit and how many decisions it confirms,
+  posts to `/devflow/api/projects/{id}/cards/{number}/merge` with the commit shown, and ends in a
+  toast, "Merged #<pull request>", or a refusal in the card, and the list read again.
 - With no project, the `EmptyState` "Nothing waits for you", "Connect a repository under Projects
   to see what waits for you."; with projects and no item, "Nothing waits for you", "Your agents
   have nothing for you to decide."; and a list that cannot be read says so as an alert.
@@ -291,8 +328,8 @@ the session cookie, a `401` is refreshed once, shared by every call that got one
 `/auth/refresh?return_to=<path>`, as review's client does. Its GETs are typed from
 `src/api/schema.d.ts`. The page reads the status once as it loads, in `src/status.ts`, for the
 banner and the link, and again after unlinking; its other calls are starting a link, unlinking,
-the projects' four, reading what waits and refreshing a project, merging and sending back, a
-project's workers and making its key, and reading, giving and removing the Claude login, which
+the projects' four, reading what waits and refreshing a project, merging and sending back,
+merging a card, reading a card's story, a project's workers and making its key, and reading, giving and removing the Claude login, which
 `src/app.tsx` gives the tabs, so a test gives its own,
 with its own clock.
 
@@ -1036,7 +1073,7 @@ and runs in the fake mode as well. With `DEVFLOW_POLL_SECONDS=0` it does not run
 **The routes**, under the `Api` policy and the origin check:
 
 - `GET /devflow/api/waiting` answers
-  `{"count", "needs_relink", "items": [...], "projects": [{"id", "owner", "name", "last_success_at", "stale", "failing"}], "own_items": [...]}`.
+  `{"count", "needs_relink", "items": [...], "projects": [{"id", "owner", "name", "last_success_at", "stale", "failing"}], "own_items": [...], "cards": [...]}`.
   Each item is a stored row with its project's id and repository name: `id`, `project_id`,
   `project_name`, `number`, `kind`, `waiting` or `stopped`, `sent_back`, `title`, `web_url`,
   `slice_number`, null when the body closes none, `head_commit`, `can_merge`, `summary`, `reason`,
@@ -1046,8 +1083,10 @@ and runs in the fake mode as well. With `DEVFLOW_POLL_SECONDS=0` it does not run
   "Watching the default branch". `screenshots` are the stored names paired for
   the page by `Screenshots.Group`, each `{"name", "images"}`: the part of the names before
   `-desktop` and `-phone`, and the names, the desktop one first; what each means is `RunnerItem` in
-  `src/DevFlow/Runner/RunnerItem.cs`, and every text is plain text to show as text. `count` is the
-  items not sent back and the own items, plus one when `needs_relink`, the caller's link needing renewal. A project is
+  `src/DevFlow/Runner/RunnerItem.cs`, and every text is plain text to show as text. `cards` are Dev
+  flow's own cards whose pull requests wait for the owner, by project and number, see "The pull
+  request Dev flow opens". `count` is the items not sent back, the own items and the cards, plus
+  one when `needs_relink`, the caller's link needing renewal. A project is
   `stale` when its last success was more than five minutes ago or it was never read, and `failing`
   when its last read failed.
 - `POST /devflow/api/projects/{id}/refresh` requests the caller's project and answers `204` once it
@@ -1090,7 +1129,7 @@ Four, and only the four something reads:
 | `pickup_label` | `devflow` | An open issue carrying it is a card |
 | `hold_label` | `devflow-hold` | A card carrying it is held |
 | `attention_label` | `devflow-attention` | What a later part marks a card or an issue that needs the owner with |
-| `waits_for_owner` | `never` | `never` or `always`: whether a card's pull request waits for the owner, read by a later part |
+| `waits_for_owner` | `never` | `never` or `always`: whether a card's pull request waits for the owner, read by a later part; until review is built every card's pull request waits for him |
 
 A label is written, at most 50 characters, GitHub's limit, with no space at either end, no comma,
 since GitHub's list of issues by label takes a comma separated list, and no control character; and
@@ -1124,7 +1163,9 @@ a project" under "What waits", and stores both in one transaction:
   otherwise.
 - `CardStore.Store` merges them into the project's cards: a new card is inserted, one that has not
   started is updated, one that has started keeps its state unless it is now ignored, and one no
-  longer listed is deleted, unless its run is under way, when it is marked `unlabelled`.
+  longer listed is deleted, unless its run is under way, when it is marked `unlabelled`, or it is
+  `done` with a pull request, when it is kept, since its pull request's `Closes` line closed its
+  issue as it merged and the card is its story.
 
 The reasons, as stored and shown: "Dev flow does not know your GitHub login: link GitHub on the
 Projects tab", "Written by <login>: only your own cards are picked", "Edited by <login>: only cards
@@ -1147,6 +1188,8 @@ and `picked_edit`, null for a card never picked, `unlabelled`, `changed_at`, whe
 what it waits for last changed, and `read_at`. `migrations/0012_runs.sql` adds `picked_body`, the body
 as it was picked, which a job's brief quotes; null for a card never picked and for one picked
 before the column, until its next read, and such a card is not handed out.
+`migrations/0014_card_pull_requests.sql` adds `pull_request_number` and `pull_request_url`, the
+card's pull request, both or neither, see "The pull request Dev flow opens".
 
 ## Acting from the page
 
@@ -1187,6 +1230,18 @@ or longer than 10,000 characters once trimmed; the same two `409`s and the `503`
 the comment is posted, trimmed and with nothing added. Posted, the item's `sent_back` is set at
 once, the project is read again and the answer is `204`. GitHub refusing is `409` "GitHub refused
 the comment", with its status and words; no answer `503`, after the project is read again.
+
+**`POST /devflow/api/projects/{id}/cards/{number}/merge`**, with
+`{"head_commit": "<the commit the page showed>"}`, merges a card of Dev flow's own whose pull request
+waits, from "Waiting for you", as the caller with his linked token and never as the app, through
+the same refusals as an item's where they apply, in this order: `404` "No such card" for a project
+or card the caller does not have; `422` without `head_commit`; `409` "This card is not waiting for
+you" unless it is `waiting_for_owner` with a pull request; `409` "This project is stopped", since
+nothing a stopped project produced is merged until the owner resumes it, see "Watching the default
+branch"; `409` "The pull request has changed since this was shown" when `head_commit` is not the
+commit its latest built run checked, after the project is read again; the two `409`s and the `503`
+for the link; then GitHub is asked to merge that commit, with a merge commit, and answers as an
+item's merge does. Merged, the project is read again, which makes the card `done`.
 
 Reading again goes through `ProjectRefresher` and waits for the read as the refresh route does, at
 most ten seconds, so the list the page reads next is current. After either, whatever it answered,
@@ -1825,7 +1880,7 @@ first that holds:
 | A report with `stopped` | `stopped` | `stopped`, "The agent stopped: <stopped_reason>" |
 | No check | `check_failed` | `stopped`, "The check did not run" |
 | A check that failed | `check_failed` | `stopped`, "The check failed with exit code <n>" |
-| Anything else | `succeeded` | Stays `checking`, "Built, and its check passed; its pull request opens in a later part" |
+| Anything else | `succeeded` | Stays `checking`, "Built, and its check passed; its pull request opens next", until its pull request is opened, see "The pull request Dev flow opens" |
 
 Reasons from a worker or an agent are cut to 1,000 characters. A cut never splits a character in
 two; it keeps one fewer instead. A card moves only while it is
@@ -1867,8 +1922,10 @@ of `contracts/devflow/openapi.json`: `POST /devflow/api/fake/worker/run` with
 `{"project_id", "result"}`, `result` a result as above without `worker_id`, `branch` and
 `head_commit`. It says hello in the caller's project as `devflow-fake-worker` on the image expected,
 takes its next job through the same `Dispatcher`, makes a commit on the job's branch in the fake's
-git repository, by the job's committer, on top of the base branch when it has a commit, and ends the
-job with the prepared result through the same `RunStore.Record`. It answers
+git repository, by the job's committer, on top of the base branch, giving the base branch a first
+commit of its own when the fake's git has none, as a real repository has, ends the job with the
+prepared result through the same `RunStore.Record`, and then opens the project's pull requests,
+as the opening loop would on its next minute, so a test sees the pull request when it answers. It answers
 `{"job_id", "card", "branch", "head_commit"}`, `204` when there is no job, `404` for a project the
 caller does not have, and `422` for a result that breaks a rule, checked before a job is taken.
 When the fake's git makes no commit, the job ends instead as a failure outside the card, "The
@@ -1880,8 +1937,85 @@ its runs, `worker_id` referencing the project's `workers`, `kind`, `branch`, `ba
 `checking_at`, `finished_at` and `result`, null while it runs, `reason`, `report` and `usage` as
 `jsonb`, `check_exit_code`, `check_output`, `head_commit`, `auth_method`, `input_tokens`,
 `output_tokens`, `cache_creation_input_tokens`, `cache_read_input_tokens`, `cost_usd`, `turns`,
-`duration_ms` and `stderr`. A unique index allows one run under way per card, a second guard beside
-the lock.
+`duration_ms` and `stderr`; and, from `migrations/0014_card_pull_requests.sql`, `check_command`,
+the check the job carried, null for a run handed out before it. A unique index allows one run under
+way per card, a second guard beside the lock.
+
+## The pull request Dev flow opens
+
+A card that built and passed its check gets a pull request, opened as the app, and waits for the
+owner with it; each read follows it to merged or closed. Why it is built so is "How a card reaches
+its pull request" in `docs/devflow-architecture.md`. It is `PullRequestOpener`, `OpeningLoop` and
+`PullRequestText` in `src/DevFlow/PullRequests/`, `CardStore.Follow` in `src/DevFlow/Cards/`, and
+the following in `ProjectReader`.
+
+**When.** A card is waiting for its pull request when it is `checking` with none, and its latest
+run's result is `succeeded`: a report in its form that says `done`, and a check that exited 0. Any
+other result leaves the card as "Jobs" says. `PullRequestOpener.OpenPending(project, user)` opens
+the pull request of each such card of the project, as the app with a `Post` key, from the run's
+branch into its base, the default branch it was built on, titled by the card as it was picked,
+not as a draft. Before opening, it lists the open pull requests as the app, and one the app opened
+itself, by `ICodeHost.AppCommitter`'s login, from that branch into that base, is reused instead;
+one by anyone else is never taken for the card's, and GitHub refuses a second from the same branch,
+so such a card waits, logged, and is tried again. A refusal is looked up the same way, since an
+opening at the same moment may have made it. Opened or found, the card moves to
+`waiting_for_owner`, "Its pull request waits for you", with `pull_request_number` and
+`pull_request_url`, only while it is still `checking` with none and the run is still its latest,
+so two openings record one. GitHub not answering leaves the card as it is.
+
+**On the minute.** `OpeningLoop`, a hosted service, lists `poll_targets` every
+`DEVFLOW_POLL_SECONDS`, through the door's `WithoutUser`, and opens each project's as its user, one
+project's failure never stopping another's; with `0` it does not run. A worker's result is answered
+without waiting for GitHub, so its card's pull request opens on the next minute. The fake worker
+waits for it.
+
+**The body**, `PullRequestText.Body`, in this order: `## Summary`, the report's `summary`, then a
+blank line and `Closes #<card>`; `## Tasks`, the report's tasks as a checklist, `- [x]` or `- [ ]`;
+`## Decisions the agent made`, each "<chosen>. Alternative: <alternative>. Why: <why>.", a part
+left out when the agent wrote nothing for it and one marked `for_owner` beginning `**For you.**`;
+`## Verification`, "Dev flow ran `<check>` on <commit, seven characters>: exit <code>.", then the
+report's tests, each "<what>: <result>"; `## Follow ups`; a list with nothing in it is "None.";
+and a last line, "Built by Dev flow for #<card>, run <run id>.". Every text from the report is the
+agent's, and data: it is made one line; `&`, `<` and `>` are written as entities; its backslashes
+and backticks are escaped, so a backslash of its own cannot undo an escape; a `#` it begins with is
+escaped; a closing keyword, `close`, `fix` or `resolve` in any
+form, followed by `#12`, `GH-12`, `owner/name#12` or an address, with or without emphasis around
+either, has the keyword in a code span; and
+an `@` mention is in a code span. So it cannot add a section, insert HTML, close another issue or
+notify anyone. The check is the project's own, from its default branch, and is shown in a code
+span as it is.
+
+**Following.** Each read of a project, `ProjectReader.Read`, looks at every card that waits for the
+owner with a pull request: one still among the open pull requests it lists anyway costs nothing
+more, and one that has left the list is read with `ICodeHost.PullRequest`. Merged, by anyone, on
+GitHub or from the page, the card is `done`; closed without merging, it is `stopped`, "The pull
+request was closed", or removed when its label was taken off while it ran. One not found is left as
+it is, and GitHub not answering fails the read as any other read does. It is stored in the read's
+transaction, with the cards.
+
+**What waits.** Each card that waits is in `GET /devflow/api/waiting`'s `cards`, from its row and
+its latest succeeded run: `project_id`, `project_name`, `owner`, `number`, `title`, as picked,
+`web_url`, `pull_request_number`, `pull_request_url`, `head_commit`, the commit the run built and
+checked, `base`, `summary`, `decisions`, those the agent marked for the owner, each
+`{"chosen", "alternative", "why"}` with an empty part null, `other_decisions`, `check`,
+`{"command", "exit_code", "commit"}`, `can_merge`, false while the project is stopped, and
+`changed_at`. They count in the list's `count`, in the display data's `waiting` and in
+`GET /devflow/api/attention`. In this part every such card waits for the owner, whatever
+`waits_for_owner` says; the review of part 3 replaces that.
+
+## A card's page
+
+`GET /devflow/api/projects/{id}/cards/{number}`, under the `Api` policy, answers a card's whole
+story so far, read from what Dev flow stored and never from GitHub, through the door as the caller:
+`number`, `title` as last read, `web_url`, `state`, `reason`, `pull_request`,
+`{"number", "url"}` or null; `runs`, newest first, each `id`, `kind`, `worker`, the name it said
+hello with, `started_at`, `finished_at`, `duration_ms`, `result`, `reason`, `in_card`, for a
+failure whether it lay in the card, true for `failed_in_card`, `report_invalid`, `stopped` and
+`check_failed` and false for `failed_outside_card` and `lost`, null otherwise, `auth_method`,
+`input_tokens`, `output_tokens`, `check`, `{"exit_code", "output"}` or null when it did not run,
+and `head_commit`; and `report`, the latest report that reads in its form, or null. A project or
+card the caller does not have is `404` "No such card". It is `CardStory` and `CardEndpoints` in
+`src/DevFlow/Cards/`. The page is "A card's page" under "The pages".
 
 ## Registering the GitHub App
 

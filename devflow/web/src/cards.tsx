@@ -1,11 +1,13 @@
 // A project's Cards panel, under its Settings: every card of the project as its last read found
 // it, newest change first, each with its number, linked to the issue on GitHub, its title, its
-// state and why it is there. Read from what Dev flow stored, never from GitHub. A card's own page
-// comes with a later part. See "Cards" in devflow/README.md.
+// state and why it is there, its title a link to the card's own page. Read from what Dev flow
+// stored, never from GitHub. See "Cards" in devflow/README.md.
 import { Card as Panel, Status, type StatusTone } from "@platform/ui";
 import { useEffect, useState } from "react";
+import { navigate, plainClick } from "./address";
 import type { components } from "./api/schema";
 import styles from "./cards.module.css";
+import { cardPath } from "./sections";
 import { linkable } from "./waiting";
 
 export type Card = components["schemas"]["CardView"];
@@ -71,7 +73,7 @@ export function CardsPanel({ id, loadCards }: CardsApi & { id: string }) {
 			) : (
 				<ul className={styles.cards} aria-label="Cards">
 					{cards.map((card) => (
-						<CardRow key={card.number} card={card} />
+						<CardRow key={card.number} project={id} card={card} />
 					))}
 				</ul>
 			)}
@@ -79,11 +81,13 @@ export function CardsPanel({ id, loadCards }: CardsApi & { id: string }) {
 	);
 }
 
-/** A card as an inset row: its number, linked when the address is https,
- * its title, its state, and its reason under them. */
-function CardRow({ card }: { card: Card }) {
+/** A card as an inset row: its number, linked to the issue when the address
+ * is https, its title, a link to the card's page, its state, and its reason
+ * under them. */
+function CardRow({ project, card }: { project: string; card: Card }) {
 	const { word, tone } = stateWord(card.state);
 	const number = `#${card.number}`;
+	const page = cardPath(project, card.number);
 	return (
 		<li className={styles.row}>
 			<span className={styles.head}>
@@ -99,7 +103,18 @@ function CardRow({ card }: { card: Card }) {
 				) : (
 					<span className={styles.number}>{number}</span>
 				)}
-				<span className={styles.title}>{card.title}</span>
+				<a
+					className={styles.title}
+					href={page}
+					onClick={(event) => {
+						if (plainClick(event)) {
+							event.preventDefault();
+							navigate(page);
+						}
+					}}
+				>
+					{card.title}
+				</a>
 				<Status tone={tone} className={styles.state}>
 					{word}
 				</Status>

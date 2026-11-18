@@ -53,6 +53,7 @@ function openAt(path: string) {
 						items: [],
 						projects: [],
 						own_items: [],
+						cards: [],
 					}),
 				refresh: () => Promise.resolve(),
 			}}

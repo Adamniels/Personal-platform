@@ -12,6 +12,110 @@
         ],
         "type": "object"
       },
+      "CardCheck": {
+        "properties": {
+          "command": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "commit": {
+            "type": "string"
+          },
+          "exit_code": {
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "command",
+          "exit_code",
+          "commit"
+        ],
+        "type": "object"
+      },
+      "CardItem": {
+        "properties": {
+          "base": {
+            "type": "string"
+          },
+          "can_merge": {
+            "type": "boolean"
+          },
+          "changed_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "check": {
+            "$ref": "#/components/schemas/CardCheck"
+          },
+          "decisions": {
+            "items": {
+              "$ref": "#/components/schemas/OwnerDecision"
+            },
+            "type": "array"
+          },
+          "head_commit": {
+            "type": "string"
+          },
+          "number": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "other_decisions": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "owner": {
+            "type": "string"
+          },
+          "project_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "project_name": {
+            "type": "string"
+          },
+          "pull_request_number": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "pull_request_url": {
+            "format": "uri",
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "web_url": {
+            "format": "uri",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "project_name",
+          "owner",
+          "number",
+          "title",
+          "web_url",
+          "pull_request_number",
+          "pull_request_url",
+          "head_commit",
+          "base",
+          "summary",
+          "decisions",
+          "other_decisions",
+          "check",
+          "can_merge",
+          "changed_at"
+        ],
+        "type": "object"
+      },
       "CardList": {
         "properties": {
           "cards": {
@@ -23,6 +127,185 @@
         },
         "required": [
           "cards"
+        ],
+        "type": "object"
+      },
+      "CardPullRequest": {
+        "properties": {
+          "number": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "number",
+          "url"
+        ],
+        "type": "object"
+      },
+      "CardRun": {
+        "properties": {
+          "auth_method": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "check": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RunCheck"
+              }
+            ]
+          },
+          "duration_ms": {
+            "format": "int64",
+            "type": [
+              "null",
+              "integer"
+            ]
+          },
+          "finished_at": {
+            "format": "date-time",
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "head_commit": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "in_card": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "input_tokens": {
+            "format": "int64",
+            "type": [
+              "null",
+              "integer"
+            ]
+          },
+          "kind": {
+            "type": "string"
+          },
+          "output_tokens": {
+            "format": "int64",
+            "type": [
+              "null",
+              "integer"
+            ]
+          },
+          "reason": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "result": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "started_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "worker": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "worker",
+          "started_at",
+          "finished_at",
+          "duration_ms",
+          "result",
+          "reason",
+          "in_card",
+          "auth_method",
+          "input_tokens",
+          "output_tokens",
+          "check",
+          "head_commit"
+        ],
+        "type": "object"
+      },
+      "CardStoryView": {
+        "properties": {
+          "number": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "pull_request": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CardPullRequest"
+              }
+            ]
+          },
+          "reason": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "report": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Report"
+              }
+            ]
+          },
+          "runs": {
+            "items": {
+              "$ref": "#/components/schemas/CardRun"
+            },
+            "type": "array"
+          },
+          "state": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "web_url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "number",
+          "title",
+          "web_url",
+          "state",
+          "reason",
+          "pull_request",
+          "runs",
+          "report"
         ],
         "type": "object"
       },
@@ -882,6 +1165,171 @@
         ],
         "type": "object"
       },
+      "Report": {
+        "properties": {
+          "decisions": {
+            "items": {
+              "$ref": "#/components/schemas/ReportDecision"
+            },
+            "type": "array"
+          },
+          "follow_ups": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "handover": {
+            "type": "string"
+          },
+          "installed": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "outcome": {
+            "$ref": "#/components/schemas/ReportOutcome"
+          },
+          "pages": {
+            "items": {
+              "$ref": "#/components/schemas/ReportPage"
+            },
+            "type": "array"
+          },
+          "replies": {
+            "items": {
+              "$ref": "#/components/schemas/ReportReply"
+            },
+            "type": "array"
+          },
+          "stopped_reason": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "tasks": {
+            "items": {
+              "$ref": "#/components/schemas/ReportTask"
+            },
+            "type": "array"
+          },
+          "tests": {
+            "items": {
+              "$ref": "#/components/schemas/ReportTest"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "outcome",
+          "stopped_reason",
+          "summary",
+          "tasks",
+          "decisions",
+          "tests",
+          "pages",
+          "installed",
+          "follow_ups",
+          "replies",
+          "handover"
+        ],
+        "type": "object"
+      },
+      "ReportDecision": {
+        "properties": {
+          "alternative": {
+            "type": "string"
+          },
+          "chosen": {
+            "type": "string"
+          },
+          "for_owner": {
+            "type": "boolean"
+          },
+          "why": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "chosen",
+          "alternative",
+          "why",
+          "for_owner"
+        ],
+        "type": "object"
+      },
+      "ReportOutcome": {
+        "enum": [
+          "done",
+          "stopped"
+        ]
+      },
+      "ReportPage": {
+        "properties": {
+          "looked": {
+            "type": "boolean"
+          },
+          "path": {
+            "type": "string"
+          },
+          "why": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "why",
+          "looked"
+        ],
+        "type": "object"
+      },
+      "ReportReply": {
+        "properties": {
+          "answer": {
+            "type": "string"
+          },
+          "finding": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "finding",
+          "answer"
+        ],
+        "type": "object"
+      },
+      "ReportTask": {
+        "properties": {
+          "done": {
+            "type": "boolean"
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "text",
+          "done"
+        ],
+        "type": "object"
+      },
+      "ReportTest": {
+        "properties": {
+          "result": {
+            "type": "string"
+          },
+          "what": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "what",
+          "result"
+        ],
+        "type": "object"
+      },
       "ResultRequest": {
         "properties": {
           "auth_method": {
@@ -995,6 +1443,22 @@
         },
         "required": [
           "commit"
+        ],
+        "type": "object"
+      },
+      "RunCheck": {
+        "properties": {
+          "exit_code": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "output": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "exit_code",
+          "output"
         ],
         "type": "object"
       },
@@ -1196,6 +1660,12 @@
       },
       "WaitingList": {
         "properties": {
+          "cards": {
+            "items": {
+              "$ref": "#/components/schemas/CardItem"
+            },
+            "type": "array"
+          },
           "count": {
             "format": "int32",
             "type": "integer"
@@ -1227,7 +1697,8 @@
           "needs_relink",
           "items",
           "projects",
-          "own_items"
+          "own_items",
+          "cards"
         ],
         "type": "object"
       },
@@ -1349,7 +1820,7 @@
   "paths": {
     "/devflow/api/attention": {
       "get": {
-        "description": "Read from what Dev flow stored and never from GitHub. attention is true when the caller has a pull request, waiting or stopped, that is not sent back, a stopped project, a GitHub link that has expired, or a Claude login due for renewal within a month or past it, and false otherwise. The nav bar asks it with the session's cookie. Without a valid token, 401 with an empty body.",
+        "description": "Read from what Dev flow stored and never from GitHub. attention is true when the caller has a pull request, waiting or stopped, that is not sent back, a stopped project, a card of Dev flow's whose pull request waits, a GitHub link that has expired, or a Claude login due for renewal within a month or past it, and false otherwise. The nav bar asks it with the session's cookie. Without a valid token, 401 with an empty body.",
         "operationId": "getAttention",
         "responses": {
           "200": {
@@ -1458,7 +1929,7 @@
     },
     "/devflow/api/display": {
       "get": {
-        "description": "Read from what Dev flow stored and never from GitHub. waiting, the pull requests that wait for the caller and were not sent back; stopped, those the runner stopped on, not sent back, and the caller's projects stopped because something landed on their default branch that Dev flow did not put there; projects, how many the caller has connected; stale, whether any project is stale or failing, as the waiting list says them; needs_relink, whether the caller's GitHub link has expired; and claude_login, where their Claude login stands, none, ok, due_soon or expired, as GET /devflow/api/claude-login says it. The core calls it with the user's token in the Authorization header. Without a valid token, 401 with an empty body.",
+        "description": "Read from what Dev flow stored and never from GitHub. waiting, the pull requests that wait for the caller and were not sent back, the runner's and Dev flow's own cards'; stopped, those the runner stopped on, not sent back, and the caller's projects stopped because something landed on their default branch that Dev flow did not put there; projects, how many the caller has connected; stale, whether any project is stale or failing, as the waiting list says them; needs_relink, whether the caller's GitHub link has expired; and claude_login, where their Claude login stands, none, ok, due_soon or expired, as GET /devflow/api/claude-login says it. The core calls it with the user's token in the Authorization header. Without a valid token, 401 with an empty body.",
         "operationId": "getDisplay",
         "responses": {
           "200": {
@@ -1775,6 +2246,149 @@
         "summary": "The project's cards",
         "tags": [
           "DevFlow"
+        ]
+      }
+    },
+    "/devflow/api/projects/{id}/cards/{number}": {
+      "get": {
+        "description": "The card as last read, its number, title, web_url, state and reason, and its pull_request, number and url, null before one was opened; each of its runs, newest first, with its kind, the worker it was handed to, when it started and finished, how long it took, its result and, for a failure, its reason and whether it lay in the card, the auth method, the tokens in and out, the check's exit code and the last lines of its output, null when it did not run, and the commit it left; and the latest report in its form, null when no run has handed one back. Read from what Dev flow stored, never from GitHub; every text from GitHub or an agent is to be shown as text. 404 for a project or a card the caller does not have. Without a valid token, 401 with an empty body.",
+        "operationId": "getCard",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "number",
+            "required": true,
+            "schema": {
+              "format": "int32",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CardStoryView"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Not Found"
+          }
+        },
+        "summary": "A card's whole story so far",
+        "tags": [
+          "DevFlow"
+        ]
+      }
+    },
+    "/devflow/api/projects/{id}/cards/{number}/merge": {
+      "post": {
+        "description": "Merges a card of Dev flow's own, from Waiting for you, with a merge commit, as the caller's linked GitHub account and never as the app, only while its pull request's head is head_commit, the commit its run built and checked and the page showed. In order: 404 for a project or card the caller does not have; 422 without head_commit; 409 when the card is not waiting for the caller with a pull request; 409 when the project is stopped, since something landed on its default branch that Dev flow did not put there; 409 when head_commit is not the commit the run built, after the project is read again; 409 when GitHub is not linked or the link has expired; then GitHub is asked. 204 once merged and the project read again, which makes the card done. 409 when GitHub says the head moved, after the project is read again, and when GitHub will not merge it or refuses, with its reason; 503 when GitHub did not answer. Without a valid token, 401 with an empty body; a change from another origin, 403.",
+        "operationId": "mergeCard",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "number",
+            "required": true,
+            "schema": {
+              "format": "int32",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MergeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Merge a card's pull request that waits, as the caller",
+        "tags": [
+          "ActionEndpoints"
         ]
       }
     },
@@ -2118,7 +2732,7 @@
     },
     "/devflow/api/waiting": {
       "get": {
-        "description": "Read from what Dev flow stored and never from GitHub. items are the pull requests that are the caller's turn in every project, by project and number; own_items are Dev flow's own, read from its own tables, in this part each a project stopped because something landed on its default branch that Dev flow did not put there, with the commit, who did it, when, and the commit's address on GitHub, by project; count is the items not sent back and the own items, plus one when needs_relink; projects says for each when it was last read, stale when that is more than five minutes ago or never, and failing when its last read failed. Without a valid token, 401 with an empty body.",
+        "description": "Read from what Dev flow stored and never from GitHub. items are the pull requests that are the caller's turn in every project, by project and number; own_items are Dev flow's own, read from its own tables, in this part each a project stopped because something landed on its default branch that Dev flow did not put there, with the commit, who did it, when, and the commit's address on GitHub, by project; cards are Dev flow's own cards whose pull requests wait for the caller, each with its pull request, the head commit its run built and checked, the branch it merges into, the report's summary, the decisions the agent marked for the caller with the count of the others, the check Dev flow ran, and can_merge, false while the project is stopped, by project and number; count is the items not sent back, the own items and the cards, plus one when needs_relink; projects says for each when it was last read, stale when that is more than five minutes ago or never, and failing when its last read failed. Without a valid token, 401 with an empty body.",
         "operationId": "listWaiting",
         "responses": {
           "200": {
