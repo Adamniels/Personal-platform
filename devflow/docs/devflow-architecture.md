@@ -444,11 +444,11 @@ and builds them, as the spec's rounds 3 and 9 have it. Every worker belongs to e
 project, and a worker calls Dev flow and is never called. What exists of it: a project's key, the
 scheme a worker's request authenticates with, the worker API, `hello`, which records the worker,
 `jobs/next`, which hands it a job, and a job's routes, see "Handing out work" below, and the worker
-program that calls them, with the agent interface it will run a job behind, the base image it runs
-in, and the commands the page shows to build and start one. The worker running a job, fetching,
-checking and pushing, is the slice "The worker builds and pushes". The routes, the tables and the panel
-are "Workers" and "The pages" in `devflow/README.md`, the image and the commands "Starting a
-worker", and the program, its settings, loop and exit codes "The worker" there.
+program that calls them, with the agent interface it runs a job behind, the base image it runs
+in, the commands the page shows to build and start one, and the build job it carries through,
+fetching, running the agent, checking and pushing. The routes, the tables and the panel are
+"Workers" and "The pages" in `devflow/README.md`, the image and the commands "Starting a worker",
+and the program, its settings, loop, exit codes and a build job step by step "The worker" there.
 
 **One key per project, shared by its workers**, as the feature's slice settles. A worker is started
 from a command with its project's key in it, so a key per worker would only add a step to starting
@@ -527,6 +527,46 @@ and an object, and no refused action, and anything else is a failure; the table 
 lies where is "The worker" in `devflow/README.md`. The report's schema is checked by Dev flow
 rather than the worker, which needs no JSON Schema library for it.
 
+**A build job is one workbench and two users**, as the feature's decisions have it: root, the
+worker, holds the push key and does everything that talks to the code host, from a bare repository
+of its own in `/run/devflow/<job>/`, which the agent cannot read; the agent works as `agent` in a
+copy of its own under `/work/<job>/`. Code crosses between them in two places only. Going in, root
+writes a git bundle of the branch into the agent's folder and the agent clones it, since the agent
+cannot read root's repository; root never writes a repository there, so it never changes the
+owner of files it checked out, where a link in the repository would hand a file of root's to the
+agent. Coming back, root fetches the agent's branch from the copy, and git's side of that fetch,
+`git-upload-pack`, which reads the copy's config, runs as `agent`. git refuses to run it as root
+in a repository another user owns, for "dubious ownership", and an experiment on Debian trixie's
+git 2.47 on 2026 11 18 found that `-c safe.directory` cannot lift that, since git drops `-c`
+options when it starts a command in another repository. Lifting it in root's global config would
+have root's git read the agent's config; running that side as the agent leaves root only reading
+the pack it is sent. The bare repository, rather than a checked out one, means root never checks
+out the agent's files either.
+
+**The check runs on a clean copy of the commit, and its exit code is what counts**, as the spec's
+"The trusted checks run on a clean copy of the pushed commit" has it. The agent's copy holds
+whatever it left, a build's output, an ignored file, a stale cache, which could make a check pass
+that the commit alone fails; a fresh clone of the head commit holds only what was committed, and
+so only what is pushed. What the agent left uncommitted and not ignored is work, so the worker
+commits it first, "Work the agent left uncommitted", rather than lose it or check without it. The
+check runs in the same container, so what the agent installed there is still there, which the
+spec accepts; a project's CI on GitHub is the independent environment. It runs only when the agent
+succeeded, since Dev flow judges a failure before a check, and a check of a run that failed would
+spend up to 30 minutes of a worker on an answer nobody reads.
+
+**The branch is pushed whatever the check said, and never forced.** Pushing the work of a failed
+check, or of a run past its time limit, means it is never lost: whether it goes further is Dev
+flow's decision, and a run handed out again after a lost one continues the branch rather than
+starting from the base. A push without force, of the fetched head to the job's own branch, means a
+history the agent rewrote is refused at the fetch, and a branch someone else moved meanwhile at
+the push, rather than overwritten.
+
+**A worker running a check stays seen.** A run is lost once it was handed out 100 minutes ago and
+its worker has not been seen for 10, see "Handing out work"; the agent's 90 minutes and the check's
+30 can pass the 100. So while the check runs the worker says `progress` `checking` again every 5
+minutes, which the route takes as often as it comes and which marks the worker seen, so a worker
+that is still working is never taken for gone.
+
 **A run's one credential is the Claude login, and Dev flow holds it**, as the spec's rounds 3 and
 4b have it. The owner runs `claude setup-token` once and pastes the token on the Projects tab, so a
 new worker needs no login step of its own: the program hands the token to each run inside the job,
@@ -599,9 +639,9 @@ the limit on them are part 3's "Stops".
 minutes is the 90 minute limit on a run and a margin for the check and the push. A worker not seen
 for 10 minutes is the second condition, so a slow worker that is still there is not robbed of its
 card. The search runs on each project's read, before the code host is asked anything, so GitHub
-being away holds no card. A worker that is still seen keeps its card, so one that drops a job and
-asks for more, as today's worker program does until "The worker builds and pushes", holds its card
-`building`; no worker is started before the feature has merged.
+being away holds no card. A worker that is still seen keeps its card, and one running a check says
+so every 5 minutes, see "A worker running a check stays seen" under "Workers", since the agent's 90
+minutes and the check's 30 can pass the 100.
 
 **Every run is measured from the first day**, as the spec's round 3 has it: Claude's usage is kept
 as it came, and its token counts, cost and turns in columns of their own, with the job's duration,
@@ -898,12 +938,42 @@ its reason, or a risk accepted on purpose; each slice adds the ones it builds.
 - **The report decides nothing.** A run succeeds by the check's exit code, which the worker runs
   itself, and never by what the agent says; a report that does not match its form stops the card.
 - **Push keys before the watch.** The push key can reach `main`, and the watch on the default branch,
-  the slice "Watching main", is what catches a push that Dev flow did not make. This slice landed
-  while that one was still in review, so for that time `jobs/next` hands out push keys with no
-  watch. Accepted because today's worker program logs a job and leaves it, never using its key, and
-  the feature's own runbook starts no worker until the whole feature has merged; "Watching main"
-  puts its hold in front of handing out, so a project it has stopped, or cannot read, hands out
-  nothing.
+  the slice "Watching main", is what catches a push that Dev flow did not make. "Handing out work"
+  landed while that one was still in review, so for that time `jobs/next` hands out push keys with
+  no watch, and since "The worker builds and pushes" the worker uses them. Accepted because the
+  worker program never pushes to the default branch, see the entries below, the agent cannot read
+  the key, and the feature's own runbook starts no worker until the whole feature has merged;
+  "Watching main" puts its hold in front of handing out, so a project it has stopped, or cannot
+  read, hands out nothing.
+- **Root never runs git in a copy the agent controlled.** A hook, a config such as
+  `core.fsmonitor`, or an attribute in the agent's copy would run as root, beside the push key, if
+  root ran git there. So root runs git only in its own bare repository, with
+  `core.hooksPath=/dev/null` and no system or global config, and fetches the agent's branch from
+  the copy with git's side of the fetch run as `agent`, see "A build job is one workbench and two
+  users" above; the agent clones from a bundle root writes, so root never makes or changes a
+  repository the agent works in. The git commands in the copy run as `agent`, with hooks,
+  `core.fsmonitor` and signing off, so what the agent planted neither runs nor stops the worker's
+  commit of what it left. `GitSafetyTests.RootNeverRunsGitInTheAgentsCopy` checks every root git
+  command against a recording starter, and `AHookTheAgentPlantedNeverRuns` plants hooks and an
+  `fsmonitor` in the copy and sees none run, with real git.
+- **The agent's copy has no credentials.** The push key reaches git only in the environment of
+  root's clone and push, as a header for the clone address through `GIT_CONFIG_COUNT`, never in an
+  argument, which every user sees in `ps`, a file, or a remote's address; the copy's remote is the
+  path of a bundle that is gone. `/proc/<pid>/environ` is its owner's, so the agent cannot read
+  root's environment, which `base-image.test.sh` checks on the built image, and
+  `GitSafetyTests.ThePushKeyNeverReachesTheAgent` checks that no file under the agent's folder,
+  the copy's config, its remote, Claude Code's environment or arguments, or any process run as the
+  agent holds the key. Accepted: the agent's `/work` is its own, so it can rename or replace the
+  job's folder there while it runs; root only removes it after, a link as a link, writes bundles
+  into it and fetches from the copy as above, so the most it gains is a check run on files of its
+  own choosing, which code it writes already runs as.
+- **A push is never forced and never to the default branch.** A job whose branch is the
+  repository's default branch, or its base, or not a plain branch name, is refused before anything
+  runs, whatever Dev flow sent, and stops the card. The push is
+  `git push origin <head>:refs/heads/<branch>`, without force, so the worker can only add to the
+  job's own branch; a branch someone else moved meanwhile is refused rather than overwritten.
+  `GitSafetyTests.ThePushIsNeverForcedAndNeverToTheDefaultBranch` and
+  `BuildPartsTests.ABranchGitCouldReadAsSomethingElseIsRefused` keep both.
 - **The app is registered for one account.** "Only on this account" means only the owner's account
   can install it. Installing it on an organisation needs it opened to any account first, and then
   any stranger could install it on their own repositories too; that gains them nothing, since

@@ -1257,8 +1257,8 @@ users are in it:
 - root runs the worker program, the image's entrypoint, `/usr/local/bin/devflow-worker`, and keeps
   a job's secrets in `/run/devflow/`, mode 700, owned by root;
 - `agent`, uid 1000, home `/home/agent`, runs Claude Code, the project's check and its start, which
-  the worker starts with `setpriv --reuid agent --regid agent --init-groups --reset-env`, and owns
-  the working copies under `/work`, the image's working directory.
+  the worker starts with `setpriv --reuid agent --regid agent --init-groups` and an environment it
+  builds from nothing, and owns the working copies under `/work`, the image's working directory.
 
 Claude Code adds a `Co-Authored-By` trailer to every commit and a line to every pull request unless
 told not to, so `/home/agent/.claude/settings.json` sets
@@ -1270,7 +1270,8 @@ the worker reports in `hello`, with `ONBUILD`: `DEVFLOW_BASE` becomes `DEVFLOW_B
 
 Its test is `tests/image/base-image.test.sh`, which `infra/hosted/check.sh` runs: it builds the
 image under a tag of its own, never the hosted name, and checks that `agent` cannot list or read
-`/run/devflow/`, that the worker runs, that `claude --version` answers 2.1.325, that `git` and
+`/run/devflow/`, nor read root's environment through `/proc`, that the worker runs, that
+`git-upload-pack` is on the agent's `PATH`, that `claude --version` answers 2.1.325, that `git` and
 `node` run, that the attribution is off, and that a recipe built FROM it reports its base and
 version. From the repository root, with Docker running:
 
@@ -1346,9 +1347,8 @@ address and a project's key, it introduces itself, asks for work in a loop, and 
 behind one narrow interface. What it says to Dev flow is `src/DevFlow.Protocol/`, the worker API's
 paths, its requests and their JSON, which Dev flow's worker routes take too, so a change that breaks
 either side fails to compile. Why it is built so is "Workers" in `docs/devflow-architecture.md`.
-Dev flow hands out jobs, see "Jobs", but this worker does not run one yet: fetching the code, the
-check and pushing come with "The worker builds and pushes". The image it runs in and the commands that start it are
-"Starting a worker".
+A job Dev flow hands it, see "Jobs", it builds, see "A build job" below. The image it runs in and
+the commands that start it are "Starting a worker".
 
 **Its settings**, from the environment:
 
@@ -1367,9 +1367,8 @@ worker runs outside a project's image and never matches a version Dev flow expec
 hostname as its name. It says `hello`, then asks `jobs/next`:
 
 - `204`: no work. It waits and asks again, 5 seconds at first, doubling each time to at most 60.
-- A job: it runs it and asks again at once, and the wait starts again from 5 seconds. Until "The
-  worker builds and pushes", one arriving is logged and left, so its card stays `building`: start
-  no worker against a project with queued cards before then.
+- A job: it builds it, see "A build job", and asks again at once, and the wait starts again from 5
+  seconds.
 - `409`: it says `hello` and asks again, at once, or after a wait when it has just said it.
 - Dev flow away, which is no connection, no answer in 30 seconds or a `5xx`: a wait of the same
   length and another try, never an exit, and the next answer from Dev flow begins with `hello`
@@ -1443,10 +1442,64 @@ by `[redacted]` in Claude Code's standard output and standard error before anyth
 neither the report, the stderr kept nor a reason can carry it out.
 
 **Its own user.** The process starter, `SystemProcessStarter`, takes the user to run as, `agent`
-in the image, and starts Claude Code through `setpriv --reuid agent --regid agent --init-groups`,
-which keeps the environment as built; Claude Code refuses `bypassPermissions` as root. The worker
-itself runs as root, so what a job needs kept from the agent stays out of the agent's reach.
-Without a user, as in the tests, it starts the program directly.
+in the image, and starts Claude Code, the check and every git command in the agent's copy through
+`setpriv --reuid agent --regid agent --init-groups`, which keeps the environment as built; Claude
+Code refuses `bypassPermissions` as root. The worker itself runs as root, so what a job needs kept
+from the agent stays out of the agent's reach. Without a user, as in the tests, it starts the
+program directly.
+
+**A build job**, `BuildJob` in `src/DevFlow.Worker/Build/`, from the job to its result. The folders
+are `JobFolders`, `/run/devflow/<job>/`, root's, and `/work/<job>/`, the agent's:
+
+1. **Refused before anything runs** when the job's branch is the repository's default branch or its
+   base, or either is not a plain branch name: letters, digits, `.`, `_`, `-` and `/`, not
+   beginning with `-` or `/`, without `..`, `//` or `@{`, and not ending in `/`, `.` or `.lock`.
+   The result is a failure in the card, so the card stops rather than coming back.
+2. **The worker's own repository.** Root makes `/run/devflow/<job>/`, mode 700, and clones the
+   repository there with the job's push key, `git clone --bare`, into `repo`. The job's branch is
+   the remote's when it has one, from a run that was lost, and otherwise made at the base with
+   `git update-ref`, which refuses one already there; `HEAD` points at it.
+3. **The agent's copy.** The agent makes `/work/<job>/`. Root writes a bundle of the branch and the
+   base there, and the agent clones it into `/work/<job>/copy`, with `user.name` and `user.email`
+   the job's committer, the app's bot, in the copy's config; the bundle is removed, so the copy's
+   remote is a path that no longer exists and holds no credentials.
+4. **The agent** runs there as `agent`, through `IAgent`, with the job's brief, report schema,
+   limits and Claude token. The worker ends it at the job's `minutes`, 90 for now, whatever it is
+   doing, by cancelling it, which ends its process and everything it started; that is a failure in
+   the card, "it ran past the time limit of 90 minutes and was ended".
+5. **What it left uncommitted**, tracked or new and not ignored, is committed in the copy, as
+   `agent`, "Work the agent left uncommitted". Ignored files, such as a build's output, stay out.
+6. **Back to the worker.** Root fetches the branch from the copy into its own repository, without
+   force, so a history the agent rewrote is refused, a failure in the card. The copy's side,
+   `git-upload-pack`, runs as `agent` with its environment reset, through `--upload-pack`.
+7. **The check**, when the agent succeeded: the worker sends `progress` `checking`, and again
+   every 5 minutes while the check runs, so Dev flow keeps seeing it; root bundles
+   the fetched head, the agent clones it into `/work/<job>/check`, and the job's `check` runs
+   there as `agent`, `sh -c` with standard error joined to standard output, in an environment of
+   `HOME`, `PATH`, `LANG` and `CI=true`, for at most 30 minutes. Its exit code and the last 200
+   lines of its output go in the result; past 30 minutes it is ended and its output says so. When
+   the agent failed the check does not run, since Dev flow judges the failure first.
+8. **The push**, whatever the check said: a fresh key from the push key route, and
+   `git push origin <head>:refs/heads/<branch>` from root's repository, never with force. A
+   refused push is a failure outside the card, its reason what git said, and `head_commit` null.
+9. **The result** is sent, see "Jobs": the agent's report on a success, or the failure; the check;
+   the head commit pushed; the auth method, usage and the last 200 lines of the agent's standard
+   error; and the duration. A push key or a result Dev flow is away for is asked again, 5 seconds
+   doubling to 60, for at most 10 minutes.
+10. **Afterwards** both folders are removed, a link the agent put in place of its folder as a link,
+    and the worker asks for its next job. The container, its tools and its caches are kept.
+
+Every root git command runs in `repo`, or in `/run/devflow/<job>/` for the clone that makes it,
+with `-c core.hooksPath=/dev/null`, `HOME` that folder and no system or global config, and never in
+the agent's copy. The push key reaches git only in the environment of the clone and the push, as an
+`Authorization` header for the clone address through `GIT_CONFIG_COUNT`, never in an argument, a
+file or a remote's address, and is replaced by `[redacted]` in anything git says that is kept.
+Every git command in the copy runs as `agent` with hooks, `core.fsmonitor` and commit signing off,
+so nothing the agent planted runs or stops the worker's commit. A worker that is stopped mid job
+removes the folders and sends nothing: the run is found lost and the card handed out again, on its
+branch if it was pushed. A step that fails for another reason, a fetch, a clone or the worker
+itself, is a failure outside the card, so the card is queued again. The project's `start` and
+`url` are not used yet: "The worker's screenshots" uses them.
 
 **Publishing.** One self-contained file carrying its own .NET runtime, so a project's image needs
 no .NET, for each Linux a worker runs on:
@@ -1472,7 +1525,16 @@ DEVFLOW_URL=http://127.0.0.1:8084 DEVFLOW_PROJECT_KEY=<the key> dotnet run --pro
 ```
 
 **Its tests** are `tests/DevFlow.Worker.Tests/`, run by the same `dotnet test` as Dev flow's own,
-with the same two database strings. `WorkerLoopTests` runs the worker against Dev flow in process,
+with the same two database strings. `Build/` runs whole build jobs on a bench, `BuildSupport.cs`:
+Dev flow in process handing out a card, the fake code host's real bare git repository as the
+remote, folders of the test's own, both users' processes recorded, and an agent that writes and
+commits as the test says. `BuildJobTests` checks the copy, the agent, the check, the push and the
+result; `GitSafetyTests` that root runs git only in its own repository, that hooks and an
+`fsmonitor` the agent planted never run, that the push key never reaches anything the agent can
+read, and that a push is never forced or to the default branch; `BuildPartsTests` the branch
+names refused, the result sent again while Dev flow is away, and the output's tail. The test
+machine has one user, so both users are the test's own there; that the agent cannot read root's
+files or environment is checked on the built image, by `base-image.test.sh`. `WorkerLoopTests` runs the worker against Dev flow in process,
 on a database of its own, through `DevFlow.Tests`' harness, which that project references, and
 against a Dev flow played from a script, on a clock the test moves. `ClaudeAgentTests` runs
 `ClaudeCodeAgent` on a fake process starter answering with Claude Code's answers recorded in
