@@ -2,6 +2,7 @@
 repositories, reached through the proxy under /devflow and opened from the
 nav bar. See devflow/README.md."""
 
+import json
 import re
 from pathlib import Path
 
@@ -1532,3 +1533,207 @@ def test_dev_flow_tells_me_when_my_claude_login_is_due(
         card.get_by_role("link", name="Your Claude login is due for renewal")
     ).to_have_attribute("href", "/devflow/projects")
     expect(_devflow_link(page)).to_have_accessible_name("Dev flow, needs you")
+
+
+# A card built by the fake worker, as part 2 of the development flow carries one: its pull request,
+# opened as the app, waits for the owner on "Waiting for you". See "The pull request Dev flow
+# opens" in devflow/README.md.
+
+CARD = 21
+CARD_TITLE = "Add the empty state"
+CHECK = "npm ci && npm test"
+
+
+def _report() -> dict:
+    """A report in its form, as an agent hands one back, with a decision for
+    the owner beside one that is not."""
+    return {
+        "outcome": "done",
+        "stopped_reason": "",
+        "summary": "Added the empty state to the habits list, with `EmptyState`.",
+        "tasks": [
+            {"text": "Add the empty state", "done": True},
+            {"text": "Count the habits", "done": False},
+        ],
+        "decisions": [
+            {
+                "chosen": "A plain sentence",
+                "alternative": "An illustration",
+                "why": "Nothing else on the page is drawn",
+                "for_owner": False,
+            },
+            {
+                "chosen": "Show it on every list",
+                "alternative": "Only on habits",
+                "why": "The lists look the same",
+                "for_owner": True,
+            },
+        ],
+        "tests": [{"what": "list.test.tsx", "result": "passed"}],
+        "pages": [
+            {"path": "/habits", "why": "The empty state shows there", "looked": True}
+        ],
+        "installed": [],
+        "follow_ups": ["Count the habits in the title"],
+        "replies": [],
+        "handover": "The empty state is in list.tsx.",
+    }
+
+
+def _built_card(page: Page, base_url: str, devflow_world) -> tuple[str, dict]:
+    """Connects a repository with one card the owner labelled and the project's
+    .devflow/project.json, gives Dev flow a Claude login, reads the project so
+    the card is picked, and has the fake worker build it with a passing check.
+    The project's id and what the fake worker answered."""
+    world = one_repository()
+    add_issue(world, CARD, CARD_TITLE, labels=["devflow"])
+    add_file(
+        world,
+        ".devflow/project.json",
+        json.dumps({"version": 1, "check": CHECK, "start": "", "url": ""}).encode(),
+    )
+    _open_project(page, base_url, devflow_world, world)
+    project = page.url.rsplit("/", 1)[1]
+    given = page.request.put(
+        "/devflow/api/claude-login",
+        data={"token": CLAUDE_TOKEN},
+        headers={"Origin": base_url},
+    )
+    assert given.status == 200, given.text()
+    refreshed = page.request.post(
+        f"/devflow/api/projects/{project}/refresh", headers={"Origin": base_url}
+    )
+    assert refreshed.status == 204, refreshed.text()
+    ran = page.request.post(
+        "/devflow/api/fake/worker/run",
+        data={
+            "project_id": project,
+            "result": {
+                "outcome": "succeeded",
+                "report": _report(),
+                "failure": None,
+                "check": {"exit_code": 0, "output": "Tests: 12 passed"},
+                "auth_method": "oauth_token",
+                "usage": {
+                    "usage": {"input_tokens": 41, "output_tokens": 6113},
+                    "total_cost_usd": 1.83,
+                    "num_turns": 23,
+                },
+                "duration_ms": 184213,
+                "stderr": "",
+            },
+        },
+        headers={"Origin": base_url},
+    )
+    assert ran.status == 200, ran.text()
+    return project, ran.json()
+
+
+def _opened(page: Page) -> dict:
+    """The one pull request the app opened in the test's fake world."""
+    pulls = [
+        pull
+        for pull in repository(page.request.get("/devflow/api/fake/world").json())[
+            "pull_requests"
+        ]
+        if pull["author"] == APP_LOGIN
+    ]
+    assert len(pulls) == 1, pulls
+    return pulls[0]
+
+
+def _waiting_card(page: Page):
+    return page.get_by_role(
+        "region", name=re.compile("Pull requests waiting")
+    ).get_by_role("article", name=CARD_TITLE)
+
+
+def test_a_built_card_waits_for_me_with_its_pull_request(
+    page: Page, invite_code: str, base_url: str, viewport: str, devflow_world
+):
+    register_and_log_in(page, invite_code, base_url)
+    _, ran = _built_card(page, base_url, devflow_world)
+
+    # Its pull request exists in the fake world, by the app, from the card's
+    # branch into main, with the body's sections and its one Closes line.
+    pull = _opened(page)
+    assert pull["head_branch"] == ran["branch"] == "devflow/21-add-the-empty-state"
+    assert pull["base_branch"] == "main"
+    assert pull["title"] == CARD_TITLE
+    assert pull["draft"] is False
+    headings = [line for line in pull["body"].splitlines() if line.startswith("#")]
+    assert headings == [
+        "## Summary",
+        "## Tasks",
+        "## Decisions the agent made",
+        "## Verification",
+        "## Follow ups",
+    ]
+    assert f"Closes #{CARD}" in pull["body"]
+    assert "- **For you.** Show it on every list." in pull["body"]
+
+    page.goto("/devflow")
+    card = _waiting_card(page)
+    expect(card).to_be_visible()
+    expect(card.get_by_text("Waiting for you", exact=True)).to_be_visible()
+    expect(card).to_contain_text(f"{OWNER}/{NAME}")
+    expect(card).to_contain_text(f"#{pull['number']}")
+    expect(card).to_contain_text("Added the empty state to the habits list")
+    decided = card.get_by_role("list", name="The agent decided")
+    expect(decided).to_contain_text("Show it on every list")
+    expect(decided).to_contain_text("Only on habits")
+    expect(decided).to_contain_text("The lists look the same")
+    expect(card).to_contain_text("and 1 more it did not need you for")
+    expect(card).to_contain_text(
+        f"Dev flow ran {CHECK} on {ran['head_commit'][:7]}: exit 0."
+    )
+    expect(card.get_by_role("button", name="Merge")).to_be_enabled()
+    expect(card.get_by_role("link", name="Open on GitHub")).to_have_attribute(
+        "href", pull["url"]
+    )
+    expect(page.get_by_role("tab", name="Waiting for you 1")).to_be_visible()
+
+    page.evaluate("document.fonts.ready.then(() => null)")
+    for check in (
+        assert_headings_are_capitals,
+        assert_nothing_scrolls_sideways,
+        assert_active_is_inverted,
+        assert_nothing_active_is_amber,
+    ):
+        check(page)
+    assert _axe_violations(page) == []
+    capture(page, "devflow-card-waiting")
+
+
+def test_i_merge_a_card_from_the_list(
+    page: Page, invite_code: str, base_url: str, devflow_world
+):
+    register_and_log_in(page, invite_code, base_url)
+    project, ran = _built_card(page, base_url, devflow_world)
+    pull = _opened(page)
+
+    page.goto("/devflow")
+    _waiting_card(page).get_by_role("button", name="Merge").click()
+    dialog = page.get_by_role("dialog", name=f"Merge #{pull['number']} into main?")
+    expect(dialog).to_contain_text(ran["head_commit"][:7])
+    expect(dialog).to_contain_text("This confirms 1 decision the agent made.")
+    dialog.get_by_role("button", name="Merge").click()
+
+    expect(page.get_by_text(f"Merged #{pull['number']}")).to_be_visible()
+    expect(_waiting_card(page)).to_have_count(0)
+
+    # Merged as the owner, naming the commit shown, and never as the app.
+    merges = [write for write in _writes(page) if write["kind"] == "merge"]
+    assert len(merges) == 1, merges
+    assert merges[0]["by"] == "octo-owner"
+    assert merges[0]["commit"] == ran["head_commit"]
+    assert "purpose" not in merges[0]
+
+    # The card is done.
+    page.goto(f"/devflow/projects/{project}")
+    row = (
+        page.get_by_role("list", name="Cards")
+        .get_by_role("listitem")
+        .filter(has=page.get_by_text(f"#{CARD}", exact=True))
+    )
+    expect(row).to_contain_text("Done")

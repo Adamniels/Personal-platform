@@ -64,7 +64,73 @@ public static class ActionEndpoints
             .ProducesValidationProblem(StatusCodes.Status422UnprocessableEntity)
             .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
+        routes.MapPost("/devflow/api/projects/{id:guid}/cards/{number:int}/merge", MergeCard)
+            .RequireAuthorization(PlatformAuthPolicies.Api)
+            .WithName("mergeCard")
+            .WithSummary("Merge a card's pull request that waits, as the caller")
+            .WithDescription("Merges a card of Dev flow's own, from Waiting for you, with a merge commit, as the caller's linked GitHub account and never as the app, only while its pull request's head is head_commit, the commit its run built and checked and the page showed. In order: 404 for a project or card the caller does not have; 422 without head_commit; 409 when the card is not waiting for the caller with a pull request; 409 when the project is stopped, since something landed on its default branch that Dev flow did not put there; 409 when head_commit is not the commit the run built, after the project is read again; 409 when GitHub is not linked or the link has expired; then GitHub is asked. 204 once merged and the project read again, which makes the card done. 409 when GitHub says the head moved, after the project is read again, and when GitHub will not merge it or refuses, with its reason; 503 when GitHub did not answer. Without a valid token, 401 with an empty body; a change from another origin, 403.")
+            .Produces(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesValidationProblem(StatusCodes.Status422UnprocessableEntity)
+            .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
+
         return routes;
+    }
+
+    /// <summary>
+    /// The owner's merge of a card's pull request, the same refusals and the same merge as an
+    /// item's, with what a card adds: it must wait for him, and its project must not be stopped,
+    /// since nothing a stopped project produced is merged until he resumes it. The commit named is
+    /// the one its run built and Dev flow's check passed on, so a pull request someone pushed to
+    /// since is refused, here or by GitHub, never merged unseen.
+    /// </summary>
+    private static async Task<Results<NoContent, ProblemHttpResult>> MergeCard(
+        Guid id,
+        int number,
+        MergeRequest request,
+        HttpContext context,
+        [FromServices] ActionStore store,
+        [FromServices] UserTokens tokens,
+        [FromServices] ICodeHost host,
+        [FromServices] ProjectRefresher refresher,
+        [FromServices] TimeProvider time)
+    {
+        var userId = context.UserId();
+        var cancellationToken = context.RequestAborted;
+        if (await store.FindCard(userId, id, number, cancellationToken) is not { } card)
+        {
+            return TypedResults.Problem(statusCode: StatusCodes.Status404NotFound, title: "No such card", detail: "You have no card with that number in that project.");
+        }
+
+        if (string.IsNullOrEmpty(request.HeadCommit))
+        {
+            return Invalid("head_commit", "is missing; it is the commit the page showed");
+        }
+
+        if (card.State != "waiting_for_owner" || card.PullRequestNumber is not { } pull || card.HeadCommit is not { } head)
+        {
+            return Conflict("This card is not waiting for you", "Only a card whose pull request waits for you is merged from the list.");
+        }
+
+        if (card.Stopped)
+        {
+            return Conflict("This project is stopped", "Something landed on its default branch that Dev flow did not put there. Look at it and resume the project first.");
+        }
+
+        if (!string.Equals(request.HeadCommit, head, StringComparison.Ordinal))
+        {
+            await ReadAgain(refresher, card.ProjectId, userId, time, cancellationToken);
+            return ChangedSinceShown();
+        }
+
+        var userToken = await tokens.For(userId, cancellationToken);
+        if (userToken is not UserToken.Usable { Token: var access })
+        {
+            return TokenProblem(userToken, context, time);
+        }
+
+        return await Merged(await host.Merge(userId, access, card.Repository, pull, head, cancellationToken), refresher, card.ProjectId, userId, context, time, cancellationToken);
     }
 
     private static async Task<Results<NoContent, ProblemHttpResult>> SendBack(
@@ -110,13 +176,13 @@ public static class ActionEndpoints
         {
             case CommentResult.Posted:
                 await store.MarkSentBack(userId, id, cancellationToken);
-                await ReadAgain(refresher, item, userId, time, cancellationToken);
+                await ReadAgain(refresher, item.ProjectId, userId, time, cancellationToken);
                 return TypedResults.NoContent();
             case CommentResult.Refused { Status: var status, Message: var message }:
                 return Conflict("GitHub refused the comment", HostSaid(status, message));
             case CommentResult.Unavailable { RetryAt: var retryAt }:
                 // It may have been posted before the answer was lost, so the list is read again.
-                await ReadAgain(refresher, item, userId, time, cancellationToken);
+                await ReadAgain(refresher, item.ProjectId, userId, time, cancellationToken);
                 return Unavailable(context, time, retryAt, "It is not known whether the comment was posted; the list was read again.");
             default:
                 throw new InvalidOperationException("a comment result that is not one of the three");
@@ -162,7 +228,7 @@ public static class ActionEndpoints
 
         if (!string.Equals(request.HeadCommit, item.HeadCommit, StringComparison.Ordinal))
         {
-            await ReadAgain(refresher, item, userId, time, cancellationToken);
+            await ReadAgain(refresher, item.ProjectId, userId, time, cancellationToken);
             return ChangedSinceShown();
         }
 
@@ -172,13 +238,20 @@ public static class ActionEndpoints
             return TokenProblem(userToken, context, time);
         }
 
-        switch (await host.Merge(userId, access, item.Repository, item.Number, item.HeadCommit, cancellationToken))
+        return await Merged(await host.Merge(userId, access, item.Repository, item.Number, item.HeadCommit, cancellationToken), refresher, item.ProjectId, userId, context, time, cancellationToken);
+    }
+
+    /// <summary>What the page is answered for the code host's answer to a merge, the project read
+    /// again first whenever the answer may have changed what it shows.</summary>
+    private static async Task<Results<NoContent, ProblemHttpResult>> Merged(MergeResult result, ProjectRefresher refresher, Guid projectId, Guid userId, HttpContext context, TimeProvider time, CancellationToken cancellationToken)
+    {
+        switch (result)
         {
             case MergeResult.Merged:
-                await ReadAgain(refresher, item, userId, time, cancellationToken);
+                await ReadAgain(refresher, projectId, userId, time, cancellationToken);
                 return TypedResults.NoContent();
             case MergeResult.HeadMoved:
-                await ReadAgain(refresher, item, userId, time, cancellationToken);
+                await ReadAgain(refresher, projectId, userId, time, cancellationToken);
                 return ChangedSinceShown();
             case MergeResult.NotMergeable { Message: var message }:
                 return Conflict("GitHub would not merge it", message is null ? "GitHub did not say why." : $"GitHub said: {message}");
@@ -186,7 +259,7 @@ public static class ActionEndpoints
                 return Conflict("GitHub refused the merge", HostSaid(status, message));
             case MergeResult.Unavailable { RetryAt: var retryAt }:
                 // It may have merged before the answer was lost, so the list is read again.
-                await ReadAgain(refresher, item, userId, time, cancellationToken);
+                await ReadAgain(refresher, projectId, userId, time, cancellationToken);
                 return Unavailable(context, time, retryAt, "It is not known whether it merged; the list was read again.");
             default:
                 throw new InvalidOperationException("a merge result that is not one of the five");
@@ -202,14 +275,14 @@ public static class ActionEndpoints
         _ => throw new ArgumentException("a usable token is not a problem", nameof(token)),
     };
 
-    /// <summary>Asks for the item's project to be read, and waits for it as the refresh route
+    /// <summary>Asks for the project to be read, and waits for it as the refresh route
     /// does, so the list the page reads next shows what the code host says now. A read still
     /// under way after <see cref="WaitingEndpoints.RefreshWait"/> goes on without the answer.</summary>
-    private static async Task ReadAgain(ProjectRefresher refresher, ActionTarget item, Guid userId, TimeProvider time, CancellationToken cancellationToken)
+    private static async Task ReadAgain(ProjectRefresher refresher, Guid projectId, Guid userId, TimeProvider time, CancellationToken cancellationToken)
     {
         try
         {
-            await refresher.Request(item.ProjectId, userId).WaitAsync(WaitingEndpoints.RefreshWait, time, cancellationToken);
+            await refresher.Request(projectId, userId).WaitAsync(WaitingEndpoints.RefreshWait, time, cancellationToken);
         }
         catch (TimeoutException)
         {

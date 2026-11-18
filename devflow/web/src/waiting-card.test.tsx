@@ -1,0 +1,298 @@
+import {
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+	within,
+} from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import type { ActionsApi } from "./actions";
+import { ApiError } from "./api/client";
+import { App } from "./app";
+import type { Status } from "./status";
+import type { CardItem, WaitingApi, WaitingItem, WaitingList } from "./waiting";
+
+const NOW = Date.parse("2026-11-18T12:00:00Z");
+const PROJECT = "11111111-1111-1111-1111-111111111111";
+const HEAD = `abc1234${"0".repeat(33)}`;
+const TITLE = "Add the empty state";
+
+function card(overrides: Partial<CardItem> = {}): CardItem {
+	return {
+		project_id: PROJECT,
+		project_name: "Fodr",
+		owner: "Adamniels",
+		number: 4,
+		title: TITLE,
+		web_url: "https://github.com/Adamniels/Fodr/issues/4",
+		pull_request_number: 7,
+		pull_request_url: "https://github.com/Adamniels/Fodr/pull/7",
+		head_commit: HEAD,
+		base: "main",
+		summary: "Added the `empty state` to the habits list.",
+		decisions: [
+			{
+				chosen: "Show it on every list",
+				alternative: "Only on habits",
+				why: "The lists look the same",
+			},
+		],
+		other_decisions: 2,
+		check: { command: "npm ci && npm test", exit_code: 0, commit: HEAD },
+		can_merge: true,
+		changed_at: "2026-11-18T11:55:00+00:00",
+		...overrides,
+	};
+}
+
+function list(cards: CardItem[], items: WaitingItem[] = []): WaitingList {
+	return {
+		count: cards.length + items.length,
+		needs_relink: false,
+		items,
+		projects: [
+			{
+				id: PROJECT,
+				owner: "Adamniels",
+				name: "Fodr",
+				last_success_at: new Date(NOW - 60_000).toISOString(),
+				stale: false,
+				failing: false,
+			},
+		],
+		own_items: [],
+		cards,
+	};
+}
+
+function status(state: Status["github"]["state"] = "linked"): Status {
+	return {
+		code_host: "fake",
+		github: { state, login: state === "none" ? null : "octo-owner" },
+	};
+}
+
+/** The page on the waiting tab with the cards, its list read again after a
+ * merge answering `after`. */
+function open(
+	cards: CardItem[],
+	{
+		mergeCard = () => Promise.resolve(),
+		after = cards,
+		link = "linked",
+		items = [],
+	}: {
+		mergeCard?: ActionsApi["mergeCard"];
+		after?: CardItem[];
+		link?: Status["github"]["state"];
+		items?: WaitingItem[];
+	} = {},
+) {
+	window.history.pushState(null, "", "/devflow");
+	let answer = list(cards, items);
+	const loads = vi.fn(() => Promise.resolve(answer));
+	const waiting: WaitingApi = {
+		loadWaiting: loads,
+		refresh: () => Promise.resolve(),
+	};
+	const merges = vi.fn(
+		async (project: string, number: number, commit: string) => {
+			await mergeCard(project, number, commit);
+			answer = list(after, items);
+		},
+	);
+	render(
+		<App
+			loadStatus={() => Promise.resolve(status(link))}
+			projects={{
+				loadProjects: () => Promise.resolve([]),
+				loadRepositories: () => new Promise(() => {}),
+				connect: () => Promise.resolve(),
+				disconnect: () => Promise.resolve(),
+			}}
+			waiting={waiting}
+			actions={{
+				merge: () => Promise.resolve(),
+				sendBack: () => Promise.resolve(),
+				resume: () => Promise.resolve(),
+				mergeCard: merges,
+			}}
+			now={() => NOW}
+		/>,
+	);
+	return { merges, loads };
+}
+
+async function item() {
+	return within(
+		await within(screen.getByRole("tabpanel")).findByRole("article", {
+			name: TITLE,
+		}),
+	);
+}
+
+// jsdom has HTMLDialogElement but neither showModal nor close, as in
+// actions.test.tsx.
+beforeEach(() => {
+	HTMLDialogElement.prototype.showModal = function showModal() {
+		this.open = true;
+	};
+	HTMLDialogElement.prototype.close = function close() {
+		this.open = false;
+	};
+});
+
+afterEach(cleanup);
+
+describe("a card of Dev flow's that waits", () => {
+	test("is under Pull requests waiting, counted, with what to judge it by", async () => {
+		open([card()]);
+
+		const shown = await item();
+		const region = screen.getByRole("region", {
+			name: /Pull requests waiting/,
+		});
+		expect(within(region).getByRole("article", { name: TITLE })).toBeTruthy();
+		expect(screen.getByRole("tab", { name: "Waiting for you 1" })).toBeTruthy();
+		expect(shown.getByText("Waiting for you", { exact: true })).toBeTruthy();
+		expect(shown.getByText("Adamniels/Fodr")).toBeTruthy();
+		expect(shown.getByText("#7")).toBeTruthy();
+		expect(shown.getByText("empty state").tagName).toBe("CODE");
+		// The decision for the owner, with its alternative and why, and the
+		// others counted.
+		const decided = within(
+			shown.getByRole("list", { name: "The agent decided" }),
+		);
+		expect(decided.getByText("Show it on every list")).toBeTruthy();
+		expect(decided.getByText("Only on habits")).toBeTruthy();
+		expect(decided.getByText("The lists look the same")).toBeTruthy();
+		expect(shown.getByText("and 2 more it did not need you for")).toBeTruthy();
+		// The check Dev flow ran.
+		expect(shown.getByText("npm ci && npm test").tagName).toBe("CODE");
+		expect(shown.getByText("abc1234").tagName).toBe("CODE");
+		expect(shown.getByText(/exit 0\./)).toBeTruthy();
+		// Merge, the view's one primary, and the pull request on GitHub.
+		const merge = shown.getByRole("button", { name: "Merge" });
+		expect(merge.className).toMatch(/primary/);
+		expect(merge).toHaveProperty("disabled", false);
+		const link = shown.getByRole("link", { name: "Open on GitHub" });
+		expect(link.getAttribute("href")).toBe(
+			"https://github.com/Adamniels/Fodr/pull/7",
+		);
+		expect(link.getAttribute("rel")).toBe("noreferrer");
+		// Sending back waits for a part that can run it.
+		expect(shown.queryByRole("button", { name: "Send back" })).toBeNull();
+	});
+
+	test("shows what the agent wrote as text", async () => {
+		open([
+			card({
+				summary: '<img src=x onerror="alert(1)"> **done**',
+				decisions: [
+					{ chosen: "<script>x</script>", alternative: null, why: null },
+				],
+			}),
+		]);
+
+		const shown = await item();
+		expect(shown.getByText(/<img src=x onerror="alert\(1\)">/)).toBeTruthy();
+		expect(shown.getByText("done").tagName).toBe("STRONG");
+		expect(shown.getByText("<script>x</script>")).toBeTruthy();
+		expect(document.querySelector("img, script")).toBeNull();
+	});
+
+	test("a pull request address that is not https is not linked", async () => {
+		open([card({ pull_request_url: "javascript:alert(1)" })]);
+
+		expect((await item()).queryByRole("link")).toBeNull();
+	});
+
+	test("is not merged while its project is stopped, or without a link", async () => {
+		open([card({ can_merge: false })]);
+		const stopped = await item();
+		expect(stopped.getByRole("button", { name: "Merge" })).toHaveProperty(
+			"disabled",
+			true,
+		);
+		expect(
+			stopped.getByText("The project is stopped: resume it before you merge."),
+		).toBeTruthy();
+		cleanup();
+
+		open([card()], { link: "needs_relink" });
+		const expired = await item();
+		await waitFor(() =>
+			expect(expired.getByRole("button", { name: "Merge" })).toHaveProperty(
+				"disabled",
+				true,
+			),
+		);
+		expect(expired.getByText(/Your GitHub link has expired/)).toBeTruthy();
+	});
+
+	test("merging asks first, naming the pull request, its base and the commit", async () => {
+		const { merges } = open([card()]);
+
+		fireEvent.click((await item()).getByRole("button", { name: "Merge" }));
+		const dialog = within(
+			await screen.findByRole("dialog", { name: "Merge #7 into main?" }),
+		);
+		expect(dialog.getByText(TITLE)).toBeTruthy();
+		expect(dialog.getByText("abc1234").tagName).toBe("CODE");
+		expect(
+			dialog.getByText("This confirms 1 decision the agent made."),
+		).toBeTruthy();
+		fireEvent.click(dialog.getByRole("button", { name: "Cancel" }));
+
+		await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+		expect(merges).not.toHaveBeenCalled();
+	});
+
+	test("merging sends the card and the commit shown, and it leaves", async () => {
+		const { merges, loads } = open([card()], { after: [] });
+
+		fireEvent.click((await item()).getByRole("button", { name: "Merge" }));
+		fireEvent.click(
+			within(await screen.findByRole("dialog")).getByRole("button", {
+				name: "Merge",
+			}),
+		);
+
+		await waitFor(() => expect(merges).toHaveBeenCalledWith(PROJECT, 4, HEAD));
+		await waitFor(() =>
+			expect(
+				within(screen.getByRole("tabpanel")).queryByRole("article", {
+					name: TITLE,
+				}),
+			).toBeNull(),
+		);
+		expect(loads.mock.calls.length).toBeGreaterThan(1);
+		expect(await screen.findByText("Merged #7")).toBeTruthy();
+	});
+
+	test("a refused merge is said in the item, and it stays", async () => {
+		open([card()], {
+			mergeCard: () =>
+				Promise.reject(
+					new ApiError({
+						status: 409,
+						title: "The pull request has changed since this was shown",
+						detail: "It was read again. Look at it before you merge.",
+					}),
+				),
+		});
+
+		fireEvent.click((await item()).getByRole("button", { name: "Merge" }));
+		fireEvent.click(
+			within(await screen.findByRole("dialog")).getByRole("button", {
+				name: "Merge",
+			}),
+		);
+
+		expect(await (await item()).findByRole("alert")).toHaveProperty(
+			"textContent",
+			"The pull request has changed since this was shown. It was read again. Look at it before you merge.",
+		);
+	});
+});

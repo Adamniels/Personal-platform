@@ -25,6 +25,28 @@ public sealed record ActionTarget(
     public Repository Repository => new(Installation, RepositoryId, Owner, Name);
 }
 
+/// <summary>A card of Dev flow's own the caller asked to merge, as stored, with what merging
+/// needs.</summary>
+/// <param name="State">The card's state; only <c>waiting_for_owner</c> is merged.</param>
+/// <param name="PullRequestNumber">Its pull request's number, null before one was opened.</param>
+/// <param name="HeadCommit">The commit its latest built run checked, null without one.</param>
+/// <param name="Stopped">Whether the project is stopped, by what landed on its default branch.</param>
+public sealed record CardTarget(
+    Guid ProjectId,
+    long Installation,
+    long RepositoryId,
+    string Owner,
+    string Name,
+    int Number,
+    string State,
+    int? PullRequestNumber,
+    string? HeadCommit,
+    bool Stopped)
+{
+    /// <summary>The repository, as the code host is asked for it.</summary>
+    public Repository Repository => new(Installation, RepositoryId, Owner, Name);
+}
+
 /// <summary>
 /// The items the page acts on, read and changed through the door as the caller, so another user's
 /// item is not found rather than refused. See "Acting from the page" in devflow/README.md.
@@ -42,6 +64,23 @@ public sealed class ActionStore(UserDb database)
             WHERE w.id = @itemId
             """,
             new { itemId },
+            transaction,
+            cancellationToken: cancellationToken)), cancellationToken);
+
+    /// <summary>The caller's card with the number in their project, or null when they have no
+    /// such project or card.</summary>
+    public async Task<CardTarget?> FindCard(Guid userId, Guid projectId, int number, CancellationToken cancellationToken) =>
+        await database.InUserTransaction(userId, transaction => transaction.Connection!.QuerySingleOrDefaultAsync<CardTarget>(new CommandDefinition(
+            """
+            SELECT p.id AS ProjectId, p.installation_id AS Installation, p.repository_id AS RepositoryId, p.owner AS Owner,
+                   p.name AS Name, c.number AS Number, c.state AS State, c.pull_request_number AS PullRequestNumber,
+                   (SELECT r.head_commit FROM runs r WHERE r.project_id = c.project_id AND r.card_number = c.number AND r.result = 'succeeded'
+                    ORDER BY r.started_at DESC, r.id DESC LIMIT 1) AS HeadCommit,
+                   EXISTS (SELECT 1 FROM project_stops s WHERE s.project_id = p.id) AS Stopped
+            FROM cards c JOIN projects p ON p.id = c.project_id
+            WHERE p.id = @projectId AND c.number = @number
+            """,
+            new { projectId, number },
             transaction,
             cancellationToken: cancellationToken)), cancellationToken);
 

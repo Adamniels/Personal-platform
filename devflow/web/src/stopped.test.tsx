@@ -51,6 +51,7 @@ function list(own: OwnItem[]): WaitingList {
 			},
 		],
 		own_items: own,
+		cards: [],
 	};
 }
 
@@ -95,6 +96,7 @@ function open(
 				merge: () => Promise.resolve(),
 				sendBack: () => Promise.resolve(),
 				resume: resumes,
+				mergeCard: () => Promise.resolve(),
 			}}
 			now={() => NOW}
 		/>,

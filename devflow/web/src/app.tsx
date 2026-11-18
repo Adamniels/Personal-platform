@@ -128,6 +128,13 @@ const actionsApi: ActionsApi = {
 			{ commit },
 		);
 	},
+	mergeCard: async (projectId, number, headCommit) => {
+		await client.send(
+			"POST",
+			`/projects/${encodeURIComponent(projectId)}/cards/${number}/merge`,
+			{ head_commit: headCommit },
+		);
+	},
 };
 
 /** Dev flow's page, with React Query for what it reads and the toasts its

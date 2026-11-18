@@ -19,6 +19,12 @@ export type ActionsApi = {
 	sendBack: (id: string, comment: string) => Promise<void>;
 	/** Resumes a stopped project, accepting the commit the page showed. */
 	resume: (projectId: string, commit: string) => Promise<void>;
+	/** Merges a card's pull request, naming the commit the page showed. */
+	mergeCard: (
+		projectId: string,
+		number: number,
+		headCommit: string,
+	) => Promise<void>;
 };
 
 /** The caller's GitHub link, undefined until the status has been read. */

@@ -12,10 +12,13 @@ import { Inline } from "./format";
 import { Screenshots } from "./screenshots";
 import { StoppedProject } from "./stopped";
 import styles from "./waiting.module.css";
+import { WaitingCard } from "./waiting-card";
 
 export type WaitingList = GetAnswer<"/waiting">;
 export type WaitingItem = WaitingList["items"][number];
 export type OwnItem = WaitingList["own_items"][number];
+export type CardItem = WaitingList["cards"][number];
+type Decision = WaitingItem["decisions"][number];
 type Freshness = WaitingList["projects"][number];
 
 /** How the tab reads the list and asks for a project to be read again,
@@ -47,6 +50,9 @@ type Group = {
 	items: WaitingItem[];
 	/** Dev flow's own items in the group, shown before the runner's. */
 	own?: OwnItem[];
+	/** Dev flow's own cards whose pull requests wait, shown before the
+	 * runner's items. */
+	cards?: CardItem[];
 	muted?: boolean;
 	/** Whether the first item's Merge is the view's one primary button,
 	 * design/DESIGN.md's rule; the others are secondary. */
@@ -60,12 +66,13 @@ type Act = {
 	reload: () => Promise<unknown>;
 };
 
-/** The three groups, in their order: waiting and stopped items not sent
- * back, with the stopped projects first among the stopped, and every item
- * sent back. */
+/** The three groups, in their order: Dev flow's waiting cards and the
+ * waiting items not sent back, stopped items not sent back, with the stopped
+ * projects first among the stopped, and every item sent back. */
 function groups(
 	items: WaitingItem[],
 	own: OwnItem[],
+	cards: CardItem[],
 	name: (item: WaitingItem) => string,
 ) {
 	const sorted = [...items].sort(
@@ -77,6 +84,7 @@ function groups(
 			items: sorted.filter(
 				(item) => item.kind === "waiting" && !item.sent_back,
 			),
+			cards,
 			primaryFirst: true,
 		},
 		{
@@ -92,10 +100,12 @@ function groups(
 			muted: true,
 		},
 	];
-	return all.filter(
-		(group) => group.items.length + (group.own?.length ?? 0) > 0,
-	);
+	return all.filter((group) => size(group) > 0);
 }
+
+/** How many entries a group holds, Dev flow's and the runner's. */
+const size = (group: Group) =>
+	group.items.length + (group.own?.length ?? 0) + (group.cards?.length ?? 0);
 
 const compare = new Intl.Collator("en", { sensitivity: "base" }).compare;
 
@@ -172,20 +182,24 @@ export function Waiting({
 							await reload();
 						}}
 					/>
-					{list.items.length === 0 && list.own_items.length === 0 ? (
+					{list.items.length === 0 &&
+					list.own_items.length === 0 &&
+					list.cards.length === 0 ? (
 						<EmptyState
 							title="Nothing waits for you"
 							detail="Your agents have nothing for you to decide."
 						/>
 					) : (
-						groups(list.items, list.own_items, name).map((group) => (
-							<GroupSection
-								key={group.label}
-								group={group}
-								name={name}
-								act={{ link, api: actions, reload }}
-							/>
-						))
+						groups(list.items, list.own_items, list.cards, name).map(
+							(group) => (
+								<GroupSection
+									key={group.label}
+									group={group}
+									name={name}
+									act={{ link, api: actions, reload }}
+								/>
+							),
+						)
 					)}
 				</>
 			)}
@@ -304,9 +318,7 @@ function GroupSection({
 		>
 			<h2 className={styles.heading}>
 				<span id={id}>{group.label}</span>{" "}
-				<span className={styles.count}>
-					{group.items.length + (group.own?.length ?? 0)}
-				</span>
+				<span className={styles.count}>{size(group)}</span>
 			</h2>
 			{(group.own ?? []).map((stop) => (
 				<StoppedProject
@@ -317,12 +329,26 @@ function GroupSection({
 					linkable={linkable}
 				/>
 			))}
+			{(group.cards ?? []).map((card, index) => (
+				<WaitingCard
+					key={`${card.project_id}/${card.number}`}
+					card={card}
+					primary={group.primaryFirst === true && index === 0}
+					link={act.link}
+					api={act.api}
+					reload={act.reload}
+				/>
+			))}
 			{group.items.map((item, index) => (
 				<Item
 					key={item.id}
 					item={item}
 					project={name(item)}
-					primary={group.primaryFirst === true && index === 0}
+					primary={
+						group.primaryFirst === true &&
+						index === 0 &&
+						(group.cards?.length ?? 0) === 0
+					}
 					act={act}
 				/>
 			))}
@@ -383,7 +409,7 @@ function Item({
 					</p>
 				)}
 				{item.kind === "waiting" && item.decisions.length > 0 ? (
-					<Decisions item={item} />
+					<Decisions decisions={item.decisions} others={item.other_decisions} />
 				) : (
 					<Reason item={item} />
 				)}
@@ -430,7 +456,13 @@ function Reason({ item }: { item: WaitingItem }) {
 /** The decisions the agent marked for the owner, each what was chosen, what
  * else was possible and why, and a count of the others, which are on the
  * code host. */
-function Decisions({ item }: { item: WaitingItem }) {
+export function Decisions({
+	decisions,
+	others,
+}: {
+	decisions: Decision[];
+	others: number;
+}) {
 	const id = useId();
 	return (
 		<div className={styles.block}>
@@ -438,7 +470,7 @@ function Decisions({ item }: { item: WaitingItem }) {
 				The agent decided
 			</h3>
 			<ul aria-labelledby={id} className={styles.decisions}>
-				{item.decisions.map((decision, index) => (
+				{decisions.map((decision, index) => (
 					// A decision has no id of its own, and the list is
 					// replaced whole when it is read again.
 					// biome-ignore lint/suspicious/noArrayIndexKey: see above
@@ -461,10 +493,8 @@ function Decisions({ item }: { item: WaitingItem }) {
 					</li>
 				))}
 			</ul>
-			{item.other_decisions > 0 ? (
-				<p className={styles.more}>
-					and {item.other_decisions} more it did not need you for
-				</p>
+			{others > 0 ? (
+				<p className={styles.more}>and {others} more it did not need you for</p>
 			) : null}
 		</div>
 	);

@@ -98,13 +98,59 @@ public sealed record OwnItem(
     DateTimeOffset LandedAt,
     DateTimeOffset StoppedAt);
 
+/// <summary>The check Dev flow ran on a card's commit, as its run recorded it.</summary>
+/// <param name="Command">The check, from the project's <c>.devflow/project.json</c>; null for a
+/// run handed out before runs kept it.</param>
+/// <param name="ExitCode">How it ended, 0 for every card that waits.</param>
+/// <param name="Commit">The commit it ran on, the pull request's head as built.</param>
+public sealed record CardCheck(string? Command, int ExitCode, string Commit);
+
+/// <summary>A card of Dev flow's own whose pull request waits for the owner, read from its own
+/// tables beside the runner's items: the card, its pull request, what its report says, and the
+/// check Dev flow ran. Every text came from the code host or the agent, and is shown as text.</summary>
+/// <param name="ProjectName">The repository's name, as connected.</param>
+/// <param name="Owner">The repository's owner, as connected.</param>
+/// <param name="Number">The card's issue number.</param>
+/// <param name="Title">The card's title, as it was picked.</param>
+/// <param name="WebUrl">Where the card's issue is on the code host.</param>
+/// <param name="PullRequestNumber">Its pull request's number.</param>
+/// <param name="PullRequestUrl">Where its pull request is on the code host.</param>
+/// <param name="HeadCommit">The commit its run built and checked, which merging names.</param>
+/// <param name="Base">The branch its pull request merges into.</param>
+/// <param name="Summary">The report's summary.</param>
+/// <param name="Decisions">The decisions the agent marked for the owner, each with what was
+/// chosen, the alternative and why, null when it wrote none.</param>
+/// <param name="OtherDecisions">How many it made that it did not mark for him.</param>
+/// <param name="Check">The check Dev flow ran.</param>
+/// <param name="CanMerge">Whether Merge is offered: false while the project is stopped.</param>
+/// <param name="ChangedAt">When the card came to wait.</param>
+public sealed record CardItem(
+    Guid ProjectId,
+    string ProjectName,
+    string Owner,
+    int Number,
+    string Title,
+    Uri WebUrl,
+    int PullRequestNumber,
+    Uri PullRequestUrl,
+    string HeadCommit,
+    string Base,
+    string Summary,
+    IReadOnlyList<OwnerDecision> Decisions,
+    int OtherDecisions,
+    CardCheck Check,
+    bool CanMerge,
+    DateTimeOffset ChangedAt);
+
 /// <summary>What <c>GET /devflow/api/waiting</c> answers.</summary>
-/// <param name="Count">The items not sent back, Dev flow's own items, and one more when the link
-/// needs renewing: what waits for the owner to act.</param>
+/// <param name="Count">The items not sent back, Dev flow's own items and cards, and one more when
+/// the link needs renewing: what waits for the owner to act.</param>
 /// <param name="NeedsRelink">Whether GitHub stopped taking the owner's link.</param>
 /// <param name="OwnItems">Dev flow's own items, read from its own tables beside the runner's, by
 /// project.</param>
-public sealed record WaitingList(int Count, bool NeedsRelink, IReadOnlyList<WaitingItem> Items, IReadOnlyList<ProjectFreshness> Projects, IReadOnlyList<OwnItem> OwnItems);
+/// <param name="Cards">Dev flow's own cards whose pull requests wait for the owner, by project and
+/// number.</param>
+public sealed record WaitingList(int Count, bool NeedsRelink, IReadOnlyList<WaitingItem> Items, IReadOnlyList<ProjectFreshness> Projects, IReadOnlyList<OwnItem> OwnItems, IReadOnlyList<CardItem> Cards);
 
 /// <summary>
 /// What waits for a user, read from the snapshot <see cref="ProjectReader"/> stores and never from
@@ -121,7 +167,7 @@ public sealed class WaitingStore(UserDb database, TimeProvider time)
     /// name, and whether their link needs renewing, read in one transaction.</summary>
     public async Task<WaitingList> For(Guid userId, CancellationToken cancellationToken)
     {
-        var (items, projects, relink, stops) = await database.InUserTransaction(userId, async transaction =>
+        var (items, projects, relink, stops, cardRows) = await database.InUserTransaction(userId, async transaction =>
         {
             var items = await transaction.Connection!.QueryAsync<ItemRow>(new CommandDefinition(
                 """
@@ -157,7 +203,24 @@ public sealed class WaitingStore(UserDb database, TimeProvider time)
                 """,
                 transaction: transaction,
                 cancellationToken: cancellationToken));
-            return (items.ToList(), projects.ToList(), relink, stops.ToList());
+            var cards = await transaction.Connection!.QueryAsync<CardRow>(new CommandDefinition(
+                """
+                SELECT c.project_id AS ProjectId, p.name AS ProjectName, p.owner AS Owner, c.number AS Number,
+                       coalesce(c.picked_title, c.title) AS Title, c.web_url AS WebUrl, c.pull_request_number AS PullRequestNumber,
+                       c.pull_request_url AS PullRequestUrl, r.head_commit AS HeadCommit, r.base AS Base, r.report::text AS Report,
+                       r.check_command AS CheckCommand, r.check_exit_code AS CheckExitCode,
+                       NOT EXISTS (SELECT 1 FROM project_stops s WHERE s.project_id = c.project_id) AS CanMerge,
+                       c.changed_at AS ChangedAt
+                FROM cards c
+                JOIN projects p ON p.id = c.project_id
+                JOIN LATERAL (SELECT * FROM runs WHERE runs.project_id = c.project_id AND runs.card_number = c.number
+                              AND runs.result = 'succeeded' ORDER BY started_at DESC, id DESC LIMIT 1) r ON true
+                WHERE c.state = 'waiting_for_owner' AND c.pull_request_number IS NOT NULL AND r.head_commit IS NOT NULL
+                ORDER BY lower(p.owner), lower(p.name), p.id, c.number
+                """,
+                transaction: transaction,
+                cancellationToken: cancellationToken));
+            return (items.ToList(), projects.ToList(), relink, stops.ToList(), cards.ToList());
         }, cancellationToken);
 
         var now = time.GetUtcNow();
@@ -174,8 +237,9 @@ public sealed class WaitingStore(UserDb database, TimeProvider time)
             CommitUrl(stop.Owner, stop.Name, stop.Commit),
             GitHubLink.Utc(stop.LandedAt),
             GitHubLink.Utc(stop.StoppedAt))).ToList();
+        var cards = cardRows.Select(Card).ToList();
         return new WaitingList(
-            waiting.Count(item => !item.SentBack) + own.Count + (relink ? 1 : 0),
+            waiting.Count(item => !item.SentBack) + own.Count + cards.Count + (relink ? 1 : 0),
             relink,
             waiting,
             [.. projects.Select(project =>
@@ -183,8 +247,39 @@ public sealed class WaitingStore(UserDb database, TimeProvider time)
                 DateTimeOffset? success = project.LastSuccessAt is { } at ? GitHubLink.Utc(at) : null;
                 return new ProjectFreshness(project.Id, project.Owner, project.Name, success, success is null || now - success > StaleAfter, project.Failing);
             })],
-            own);
+            own,
+            cards);
     }
+
+    /// <summary>A waiting card as the list answers it, from its row and its run's report, read into
+    /// its form; a report that does not read, which a waiting card's run never has, says
+    /// nothing.</summary>
+    private static CardItem Card(CardRow row)
+    {
+        using var document = JsonDocument.Parse(row.Report ?? "null");
+        var report = Protocol.Report.TryRead(document.RootElement, out var read, out _) ? read : null;
+        var decisions = report?.Decisions ?? [];
+        return new CardItem(
+            row.ProjectId,
+            row.ProjectName,
+            row.Owner,
+            row.Number,
+            row.Title,
+            new Uri(row.WebUrl),
+            row.PullRequestNumber,
+            new Uri(row.PullRequestUrl),
+            row.HeadCommit,
+            row.Base,
+            report?.Summary.Trim() ?? "",
+            [.. decisions.Where(decision => decision.ForOwner).Select(decision => new OwnerDecision(decision.Chosen.Trim(), Said(decision.Alternative), Said(decision.Why)))],
+            decisions.Count(decision => !decision.ForOwner),
+            new CardCheck(row.CheckCommand, row.CheckExitCode ?? 0, row.HeadCommit),
+            row.CanMerge,
+            GitHubLink.Utc(row.ChangedAt));
+    }
+
+    /// <summary>What the agent wrote, trimmed, or null when it wrote nothing.</summary>
+    private static string? Said(string text) => text.Trim() is { Length: > 0 } said ? said : null;
 
     /// <summary>The commit's page on GitHub, the one code host a project can be on, from the
     /// repository's owner and name as connected, each escaped; the commit is a full id, checked
@@ -266,6 +361,23 @@ public sealed class WaitingStore(UserDb database, TimeProvider time)
     private sealed record ScreenshotRow(long Installation, long RepositoryId, string Owner, string Name, int Number, string Screenshots);
 
     private sealed record ProjectRow(Guid Id, string Owner, string Name, DateTime? LastSuccessAt, bool Failing);
+
+    private sealed record CardRow(
+        Guid ProjectId,
+        string ProjectName,
+        string Owner,
+        int Number,
+        string Title,
+        string WebUrl,
+        int PullRequestNumber,
+        string PullRequestUrl,
+        string HeadCommit,
+        string Base,
+        string? Report,
+        string? CheckCommand,
+        int? CheckExitCode,
+        bool CanMerge,
+        DateTime ChangedAt);
 
     private sealed record StopRow(Guid ProjectId, string Name, string Owner, string Branch, string ActivityType, string? Actor, string Commit, DateTime LandedAt, DateTime StoppedAt);
 }

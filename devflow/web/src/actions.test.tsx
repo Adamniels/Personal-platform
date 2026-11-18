@@ -66,6 +66,7 @@ function list(items: WaitingItem[]): WaitingList {
 			},
 		],
 		own_items: [],
+		cards: [],
 	};
 }
 
@@ -111,7 +112,12 @@ function open(
 				disconnect: () => Promise.resolve(),
 			}}
 			waiting={waiting}
-			actions={{ merge, sendBack, resume: () => Promise.resolve() }}
+			actions={{
+				merge,
+				sendBack,
+				resume: () => Promise.resolve(),
+				mergeCard: () => Promise.resolve(),
+			}}
 			now={() => NOW}
 		/>,
 	);
