@@ -15,7 +15,8 @@ the API answers and the platform's front page counts, and each project's worker 
 worker API a worker calls with it, which hands out a project's cards as jobs with a brief and
 records what comes back, the pull request it opens as the app for a card that built and passed its
 check, the review a fresh reviewer agent makes of it, kept for its commit and posted on the pull
-request, after which it waits for the owner on "Waiting for you", each card's own page, and the worker
+request, the fix rounds a `changes` verdict or the owner's comment sends it to, after which it
+waits for the owner on "Waiting for you", each card's own page, and the worker
 program that calls it: everything else the tabs will show arrives with later slices.
 
 ## What it serves
@@ -228,10 +229,17 @@ A card's page, `src/card.tsx`, is at `/devflow/projects/<id>/cards/<number>`, un
 tab, which stays selected there, read from `GET /devflow/api/projects/{id}/cards/{number}` as it
 loads. Its header is a link "Back to the project" over the card's title as a section heading; a
 card the caller does not have is the `EmptyState` "There is no such card", and one that cannot be
-read an alert. Under it three of the package's `Card`s: "The card", its state as the Cards panel
+read an alert. Under it the package's `Card`s: "The card", its state as the Cards panel
 shows it with its reason beside it, and the links "Issue #<number>" and "Pull request #<number>",
 each in a new tab with `rel="noreferrer"` when its address is https and plain text otherwise;
-"Runs", the list "Runs", newest first, each run an inset row with its kind and its outcome as a
+"Rounds", once the card has been sent back, the list "Rounds", newest first, each fix an inset row
+named "Round <n> of 3", or "Your comment" for one the owner's comment started, with its outcome as
+a status, "The review of <commit> asked for changes." or "You sent it back with a comment.", his
+words under "What you wrote" with their line breaks, the developer's answer to each finding under
+"Replies", and "It left <commit>", with what the review of it said, "not reviewed yet", or nothing
+more when the fix failed; "Reviews", once the card has one, the list "Reviews", newest first, each
+the commit, its verdict, whether it counts for the pull request's head, its summary, its findings,
+blocking first, and its view on each decision for the owner; "Runs", the list "Runs", newest first, each run an inset row with its kind and its outcome as a
 status, "Succeeded" `done`, "Running" `running`, and "Failed", "Check failed", "The agent
 stopped", "Report did not match" and "Lost" `failed`, then in the mono font its worker, when it
 started and how long it took, for a failure its reason and whether it lay in the card or outside
@@ -299,7 +307,11 @@ answer's `count` as a badge once it is more than none. Its parts, top to bottom:
   the decisions the agent marked for the owner, as an item's, and "and <n> more it did not need you
   for", and "The check", "Dev flow ran <check> on <commit>: exit <code>.". Its actions are "Merge",
   primary when it is the group's first entry, and "Open on GitHub" to its pull request, offered
-  only when its address is https; no Send back, which waits for the part that can run it. Merge is
+  only when its address is https, with a secondary "Send back" between them, which opens a
+  `TextArea`, "What should the developer change?", with "Send" and "Cancel", posts to
+  `/devflow/api/projects/{id}/cards/{number}/send-back`, and ends in a toast, "Sent back #<pull
+  request>", or a refusal in the card, and the list read again; it is disabled without a usable
+  link. Merge is
   disabled with a line saying why while the project is stopped, "The project is stopped: resume it
   before you merge.", or GitHub is not linked or the link has expired; it opens a `Dialog`, "Merge
   #<pull request> into <base>?", with the title, the commit and how many decisions it confirms,
@@ -1819,7 +1831,7 @@ queued; moves it to `building`; records a run for the worker; and answers `200` 
 | Field | What it is |
 |---|---|
 | `job_id` | The run's id, which the job's routes take |
-| `kind` | `build`, or `review`, see "Review" |
+| `kind` | `build`, `review`, see "Review", or `fix`, see "Fixing" |
 | `card` | `number`, `title` and `body`, as the card was picked |
 | `repository` | `owner`, `name`, `clone_address`, where git fetches and pushes it, and `default_branch` |
 | `branch` | `devflow/<number>-<slug>`: the title lowercased, each run of anything but ASCII letters and digits one hyphen, trimmed, cut to 40 characters; `devflow/<number>` when nothing is left |
@@ -1934,7 +1946,9 @@ as the opening loop would on its next minute, so a test sees the pull request wh
 `{"job_id", "card", "branch", "head_commit"}`, `204` when there is no job, `404` for a project the
 caller does not have, and `422` for a result that breaks a rule, checked before a job is taken.
 When the fake's git makes no commit, the job ends instead as a failure outside the card, "The
-fake's git made no commit on the job's branch", so the card is `queued` again, and it answers `503`.
+fake's git made no commit on the job's branch", so the card is `queued` again, and it answers `503`. A fix it carries the same way, its commit on top of the card's branch, which
+also moves an open pull request from the branch to it, as a push would; with `"leave_no_commit":
+true` it makes none and names the commit it was handed, as an agent that changed nothing.
 
 **The table**, from `migrations/0012_runs.sql`, guarded like every scoped table: `runs`, `id`,
 `project_id` and `user_id` referencing `projects`, `card_number`, by number so a removed card leaves
@@ -2006,9 +2020,9 @@ checked, `base`, `summary`, `decisions`, those the agent marked for the owner, e
 `{"command", "exit_code", "commit"}`, `review`, the reviewer's verdict on that commit,
 `{"verdict", "summary", "blocking", "commit"}`, `blocking` how many findings block it, or null when
 the commit has none, `can_merge`, false while the project is stopped, and `changed_at`. Its run is
-the latest build that succeeded, never a review, whose report is a verdict. They count in the list's `count`, in the display data's `waiting` and in
-`GET /devflow/api/attention`. Until "Fixing" and "The merge check" land, every
-card waits for the owner after its review, whatever `waits_for_owner` says.
+the latest build or fix that succeeded, never a review, whose report is a verdict. They count in the list's `count`, in the display data's `waiting` and in
+`GET /devflow/api/attention`. Until "The merge check" lands, every card whose review approved its
+head waits for the owner, whatever `waits_for_owner` says.
 
 ## A card's page
 
@@ -2020,10 +2034,14 @@ hello with, `started_at`, `finished_at`, `duration_ms`, `result`, `reason`, `in_
 failure whether it lay in the card, true for `failed_in_card`, `report_invalid`, `stopped` and
 `check_failed` and false for `failed_outside_card` and `lost`, null otherwise, `auth_method`,
 `input_tokens`, `output_tokens`, `check`, `{"exit_code", "output"}` or null when it did not run,
-and `head_commit`, for a review the commit it reviewed; `report`, the latest build's report that
-reads in its form, or null; and `reviews`, newest first, each `run_id`, `commit`, `verdict`,
-`summary`, `findings`, `for_owner`, `reviewed_at`, `posted`, and `current`, whether it is for the
-card's head commit, so it counts. A project or
+and `head_commit`, for a review the commit it reviewed; `report`, the latest build's or fix's
+report that reads in its form, or null; `reviews`, newest first, each `run_id`, `commit`,
+`verdict`, `summary`, `findings`, `for_owner`, `reviewed_at`, `posted`, and `current`, whether it
+is for the card's head commit, so it counts; and `rounds`, newest first, each fix as "Fixing" says:
+`run_id`, `round`, 1 to 3 or null for the owner's comment, `review_run_id`, the review it
+answered, `comments`, his words, `result`, `replies`, from its report, `fixed_commit`, and
+`review_after_run_id`, the newest review of that commit. A fix that failed outside the card is
+tried again in the same round, so a round may show more than once. A project or
 card the caller does not have is `404` "No such card". It is `CardStory` and `CardEndpoints` in
 `src/DevFlow/Cards/`. The page is "A card's page" under "The pages".
 
@@ -2040,8 +2058,8 @@ It is `ClaimReview` in `JobStore`, `JudgeReview` in `RunStore`, `Brief.Reviewer`
 **When.** A card is to be reviewed when it is `reviewing`, with its pull request, picked with its
 body kept, with no run under way, and its head commit, the one its newest build that succeeded
 left, has no review in `reviews`. Opening its pull request moves it there. `jobs/next` hands out a
-project's reviews before its builds, each by the cards' order, so work in progress finishes before
-new work starts; fixes, when "Fixing" lands, go between. The kind is read first, the key is made
+project's reviews before its fixes, see "Fixing", and those before its builds, each by the cards'
+order, so work in progress finishes before new work starts. The kind is read first, the key is made
 for it, and only a card of that kind is then taken, with the same `FOR UPDATE SKIP LOCKED` lock.
 The card stays `reviewing`, "The reviewer is reading it", and the run, `kind` `review`, is recorded
 on the build's branch and base with the commit as its `head_commit` from the start.
@@ -2090,9 +2108,9 @@ for a commit.
 **Judged**, `RunStore.JudgeReview`: a failure outside the card puts the card back in `reviewing`
 to be reviewed again; a failure in the card, such as the time limit, or a verdict that does not
 match its form, `report_invalid`, "The verdict did not match its form: <what>", is a failure in the
-run, never a verdict, and stops the card with why; one in its form succeeds, and the card waits for
-the owner, "Its pull request waits for you", as part 2's do, until "Fixing" and "The merge check"
-land. A lost review run puts its card back in `reviewing`. A result whose `head_commit` is not the
+run, never a verdict, and stops the card with why; one in its form succeeds. An `approve` has the
+card wait for the owner, "Its pull request waits for you", until "The merge check" lands; a
+`changes` starts its next fix round, or stops it when its rounds are used up, see "Fixing". A lost review run puts its card back in `reviewing`. A result whose `head_commit` is not the
 commit the review was handed, or null on a failure, is `422`.
 
 **Kept**, `reviews`, in the same transaction as the run's result: `run_id`, the review run, which
@@ -2128,6 +2146,94 @@ pull request are looked at for one naming the same run, so an answer that was lo
 twice; that is the only comment Dev flow reads, and only to know whether to post. It is a copy:
 Dev flow never reads a comment to learn a verdict, so no comment by anyone can approve a card. The
 fake worker posts it before it answers, as it opens a pull request.
+
+## Fixing
+
+A `changes` verdict sends the card back to a fresh developer agent on the same branch, with the
+findings, for at most three rounds, each followed by a new review; and a comment by the owner on
+the card's open pull request, written on GitHub or sent back from "Waiting for you", starts a fix
+too, without counting as a round. Why it is built so is "Fixing" in `docs/devflow-architecture.md`.
+It is `ClaimFix` and `Earlier` in `JobStore`, `JudgeFix` and the rounds in `RunStore.JudgeReview`,
+`Brief.Fixer`, `FixRounds` and `OwnerComments` in `src/DevFlow/Fixing/`, the reading of comments in
+`ProjectReader`, `SendBackCard` in `ActionEndpoints`, and the fix in the worker's `BuildJob`.
+
+**A round** starts on a `changes` verdict on the card's head: the card moves to `fixing`,
+"Round <n> of 3: the reviewer asked for changes; a fix runs next", and records the round, `n`, and
+the review it answers. A `changes` verdict after round 3 moves the card to `stopped`, "Fix rounds
+used up", for "Stops" to mark; an `approve` has it wait for the owner, as "Review" says.
+
+**Handed out** by `jobs/next`, after the project's reviews and before its builds, each by the cards'
+order: a card that is `fixing`, with its pull request, picked with its body kept, no run under way,
+and a commit on its branch. The job is a build's, `kind` `fix`, with a push key, on the branch and
+base of the card's build, the check from `.devflow/project.json` on the default branch now, the fix
+brief as `brief`, the report's form, and `to_fix`, null on any other kind: `commit`, the newest
+commit a build or a fix of the card left on its branch, whatever its result, since a worker pushes
+what its agent made even when the check failed, and `round`, null for the owner's comment. The run
+records the commit as `from_commit`, its round, the review it answers and his comments, and the
+card says "Round <n> of 3: the developer is fixing it" or "The developer is answering your comment"
+while it runs.
+
+**On the worker** a fix is carried as a build, "The worker" says how, with one difference: the
+card's branch on the remote must be at `to_fix.commit`, or the run fails in the card before
+anything runs, "The branch <branch> is at <commit>, not at <commit>, the commit the fix was handed,
+so it was not started", since it would build on a commit Dev flow did not hand out. The check runs
+on the new commit, which is pushed to the same branch, never forced.
+
+**The brief**, `Brief.Fixer`, is the developer's, "The brief" under "Jobs", with a section after
+the card, `## What to fix`: that the card's branch is continued, its round of 3 or that the owner
+sent it back; `### The earlier report`, the newest build's or fix's report that succeeded, as it
+came; `### The blocking findings`, to be fixed, test first where behaviour changes, or argued in
+`replies`; `### The other findings`, the nits, fixed when cheap; and a `### The owner's comment`
+for each of his comments, his exact text. The report and the findings are quoted as indented JSON
+and each comment as text, each in a fence longer than any run of backticks inside it. Every finding
+and every comment gets a reply in `replies`.
+
+**Judged**, `RunStore.JudgeFix`: a failure outside the card puts the card back in `fixing` in the
+same round; a failure in the card, "The fix failed: <reason>", a report that does not match its
+form or that stopped, a branch left at `from_commit`, "The fix left no new commit on the branch",
+failed in the card, and a check that did not run or failed each stop it with why; anything else
+succeeded, the fix's commit is the card's head and its pull request's, and the card goes back to
+`reviewing`, "Its pull request is open; the reviewer reads it next". A lost fix puts its card back
+in `fixing`.
+
+**The re-review** is the review of the new head, "Review" says how, with the fix's report as
+`to_review.report` and each earlier round in `to_review.earlier`, oldest first, empty on a first
+review: `round`, `reviewed_commit`, `verdict`, `summary` and `findings` of the review it answered,
+null or empty without one, `comments`, his words, `replies`, the fix's, and `fixed_commit`. The
+worker writes them to `review/earlier.json`, and the reviewer's brief says whether this is the
+card's first review, and that a later one judges the whole change again from the base: a finding
+that still holds is still blocking. Only blocking findings make it `changes`.
+
+**The owner's comment.** Each read of a project, `ProjectReader.Read`, reads the comments of the
+pull request of every card that has one still open, is `reviewing`, `fixing`, `waiting_for_owner`
+or `stopped`, and has no run under way, and takes those by the owner's linked login, as GitHub
+compares logins, whatever the case, that are new: past `comments_read_through`, the id of the
+newest of his already taken, or, before any was, written after the card's last run was handed out.
+They are taken in the read's transaction, `OwnerComments.Take`: the card moves to `fixing`, "You
+commented on its pull request; a fix runs next", with no round, answering his comments and the
+card's latest review, if it has one; a card already waiting for a round's fix keeps the round and
+adds them. It is the only comment read as an input: anyone else's, the app's review copies
+among them, is neither a trigger nor in the brief. A comment written while a run is under way is
+taken when the run ends. Without a linked login nothing is read, and GitHub not answering fails
+the read as any other read does.
+
+**Sending back** a Dev flow card from "Waiting for you":
+`POST /devflow/api/projects/{id}/cards/{number}/send-back`, with `{"comment"}`, under the `Api`
+policy and the origin check, posts the comment, trimmed and with nothing added, on the card's pull
+request as the owner with his linked token, never as the app, and reads the project again, which
+takes it as above. In this order: `404` "No such card"; `422` for a comment missing, empty once
+trimmed or longer than 10,000 characters; `409` "This card cannot be sent back now" for a card that
+neither waits for him nor has stopped, or has no open pull request; `409` without a usable link;
+then GitHub is asked: `204` once posted, `409` "GitHub refused the comment" with its reason, and
+`503` when GitHub did not answer, after the project is read again. A stopped card is offered it
+from the list once "Stops" lists stopped cards; the route takes one already.
+
+**The tables**, from `migrations/0018_fix_rounds.sql` and `migrations/0019_owner_comments.sql`:
+`runs` gains `kind` `fix`, `from_commit`, required on a fix, `fix_round`, `fix_review_id` and
+`owner_comments`; `cards` gains `fix_rounds`, the rounds reviews started, 0 to 3, and what its next
+fix answers, `fix_round`, `fix_review_id` and `fix_comments`, set as it moves to `fixing`, and
+`comments_read_through`. A card's head, everywhere it is read, is the commit its newest build or
+fix that succeeded left.
 
 ## Registering the GitHub App
 
