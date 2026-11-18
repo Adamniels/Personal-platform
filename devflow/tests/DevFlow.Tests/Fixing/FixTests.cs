@@ -309,10 +309,14 @@ public sealed class FixTests
         Assert.Equal(FixRounds.Commented, card.Reason);
         Assert.Equal(1, await Fixed.RoundsUsed(jobs, 4));
 
+        // It answers his comment, not the review the round's fix already answered, which is for a
+        // commit the branch has moved past.
         Fixed.Later(jobs);
         var job = await jobs.Job();
         Assert.Equal(Job.Fix, (string)job["kind"]!);
-        Assert.Contains("Keep the old name as an alias.", (string)job["brief"]!, StringComparison.Ordinal);
+        var brief = (string)job["brief"]!;
+        Assert.Contains("Keep the old name as an alias.", brief, StringComparison.Ordinal);
+        Assert.DoesNotContain("Rename the helper", brief, StringComparison.Ordinal);
     }
 
     [Fact]

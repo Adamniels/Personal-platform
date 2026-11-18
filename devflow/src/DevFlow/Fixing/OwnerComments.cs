@@ -3,6 +3,7 @@ using System.Text.Json;
 using Dapper;
 
 using DevFlow.CodeHost;
+using DevFlow.Jobs;
 
 using Npgsql;
 
@@ -74,24 +75,25 @@ public static class OwnerComments
 
     /// <summary>
     /// Takes <paramref name="comments"/> into their card, inside the read's transaction: the card
-    /// moves to <c>fixing</c> with them, answering its latest review too, if it has one, as a fix
-    /// that is not a round; a card already waiting to be fixed in a round keeps it, and adds them.
-    /// Only while it is still in a state that is read, with that pull request and no run under way,
-    /// and the comments are newer than those it took; so a read that raced a run, or another read,
-    /// takes nothing.
+    /// moves to <c>fixing</c> with them, as a fix that is not a round, answering too its latest
+    /// review if that is for the card's head, so never one a fix since has answered; a card already
+    /// waiting to be fixed in a round keeps it, and adds them. Only while it is still in a state
+    /// that is read, with that pull request and no run under way, and the comments are newer than
+    /// those it took; so a read that raced a run, or another read, takes nothing.
     /// </summary>
     public static async Task Take(NpgsqlTransaction transaction, Guid projectId, TakenComments comments, DateTimeOffset now, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(transaction);
         ArgumentNullException.ThrowIfNull(comments);
         await transaction.Connection!.ExecuteAsync(new CommandDefinition(
-            """
+            $"""
             UPDATE cards SET
                 state = 'fixing',
                 reason = CASE WHEN state = 'fixing' THEN reason ELSE @commented END,
                 fix_round = CASE WHEN state = 'fixing' THEN fix_round END,
                 fix_review_id = CASE WHEN state = 'fixing' THEN fix_review_id
                                      ELSE (SELECT v.run_id FROM reviews v WHERE v.project_id = cards.project_id AND v.card_number = cards.number
+                                             AND v.reviewed_commit = {JobStore.HeadOf}
                                            ORDER BY v.reviewed_at DESC, v.run_id DESC LIMIT 1) END,
                 fix_comments = CASE WHEN state = 'fixing' THEN coalesce(fix_comments, '[]'::jsonb) || @bodies::jsonb ELSE @bodies::jsonb END,
                 comments_read_through = @through,
