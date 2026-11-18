@@ -184,8 +184,8 @@ public sealed partial class Dispatcher(
     }
 
     /// <summary>The review job for a card taken to review, or null when none was: the build's
-    /// branch, base and check, the commit it left, its report and the check's result, the
-    /// reviewer's brief and the verdict's form.</summary>
+    /// branch, base and check, the commit it left, its report, the check's result and its pictures,
+    /// the reviewer's brief and the verdict's form.</summary>
     private static Job? ReviewJob(ClaimedReview? claimed, Repository repository, RepositoryFacts facts, ClaudeToken token, AppWriteToken key)
     {
         if (claimed is null)
@@ -211,7 +211,7 @@ public sealed partial class Dispatcher(
             key.ExpiresAt,
             new JobCommitter(facts.Committer.Name, facts.Committer.Email),
             JobLimits.Default,
-            new JobReview(claimed.Commit, report.RootElement.Clone(), new CheckResult(claimed.CheckExitCode, claimed.CheckOutput)));
+            new JobReview(claimed.Commit, report.RootElement.Clone(), new CheckResult(claimed.CheckExitCode, claimed.CheckOutput), claimed.Screenshots));
     }
 
     /// <summary>A fresh push key for the job, only for the worker holding it while it runs, and

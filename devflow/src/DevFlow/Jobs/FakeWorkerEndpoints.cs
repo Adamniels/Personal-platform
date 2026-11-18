@@ -19,8 +19,9 @@ namespace DevFlow.Jobs;
 
 /// <summary>What the fake worker is asked to do: take the project's next job and end it with the
 /// prepared result, whose worker id, branch and head commit it fills itself; for a review job the
-/// prepared report is the verdict.</summary>
-public sealed record FakeWorkerRun(Guid? ProjectId, ResultRequest? Result);
+/// prepared report is the verdict. For a build whose result lists pictures, <paramref name="Pictures"/>
+/// holds their bytes by name, base64 in the JSON, which it puts where a worker pushes them.</summary>
+public sealed record FakeWorkerRun(Guid? ProjectId, ResultRequest? Result, IReadOnlyDictionary<string, byte[]>? Pictures = null);
 
 /// <summary>What the fake worker did: the job it took, its kind, its card, and the commit it left
 /// on the branch, or for a review the commit it reviewed.</summary>
@@ -124,6 +125,19 @@ public static class FakeWorkerEndpoints
         var sent = commit is null
             ? prepared with { WorkerId = WorkerId, Outcome = ResultRequest.Failed, Report = null, Failure = new RunFailure(NoCommit, false), Check = null, Branch = job.Branch, HeadCommit = null }
             : prepared with { WorkerId = WorkerId, Branch = job.Branch, HeadCommit = commit };
+        if (commit is not null)
+        {
+            // Each picture the result lists, on pr-screenshots under the commit's folder, as a
+            // worker pushes them; one the request gave no bytes for stays missing.
+            foreach (var name in sent.Screenshots?.Names ?? [])
+            {
+                if (request.Pictures?.GetValueOrDefault(name) is { } bytes)
+                {
+                    fake.PutFile(userId, repository, $"{PageShots.Folder(job.Card.Number, commit)}/{name}.png", PageShots.Branch, bytes);
+                }
+            }
+        }
+
         await JobEndpoints.Complete(database, caller, job.JobId, WorkerId, JobEndpoints.Read(sent)!, now, cancellationToken);
         // A real worker's result is answered without waiting for GitHub, and its pull request opens
         // on the next minute; the fake worker waits for it, so a test sees it as soon as it answers.

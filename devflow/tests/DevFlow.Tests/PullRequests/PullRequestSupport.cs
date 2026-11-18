@@ -32,6 +32,15 @@ internal static class Built
         return result;
     }
 
+    /// <summary>A prepared result that took the pictures <paramref name="names"/>, with
+    /// <paramref name="note"/>.</summary>
+    public static JsonObject WithPictures(string? note, params string[] names)
+    {
+        var result = Prepared();
+        result["screenshots"] = new JsonObject { ["names"] = new JsonArray([.. names.Select(name => (JsonNode)name)]), ["note"] = note };
+        return result;
+    }
+
     /// <summary>A prepared failure, in the card or outside it.</summary>
     public static JsonObject PreparedFailure(bool inCard, string reason)
     {
@@ -43,14 +52,22 @@ internal static class Built
     }
 
     /// <summary>The fake worker takes the project's next job and ends it with
-    /// <paramref name="result"/>; its answer, which names the job, the branch and the head.</summary>
-    public static async Task<JsonObject> Run(Jobs.Jobs jobs, JsonObject result)
+    /// <paramref name="result"/>, putting <paramref name="pictures"/> on pr-screenshots under the
+    /// commit's folder as a worker pushes them; its answer, which names the job, the branch and the
+    /// head.</summary>
+    public static async Task<JsonObject> Run(Jobs.Jobs jobs, JsonObject result, IReadOnlyDictionary<string, byte[]>? pictures = null)
     {
-        var response = await jobs.Routes.App.SendJson("POST", FakeWorkerPath, Contract.Token, new JsonObject
+        var request = new JsonObject
         {
             ["project_id"] = jobs.Project,
             ["result"] = result,
-        }.ToJsonString());
+        };
+        if (pictures is not null)
+        {
+            request["pictures"] = new JsonObject([.. pictures.Select(picture => KeyValuePair.Create(picture.Key, (JsonNode?)Convert.ToBase64String(picture.Value)))]);
+        }
+
+        var response = await jobs.Routes.App.SendJson("POST", FakeWorkerPath, Contract.Token, request.ToJsonString());
         Assert.Equal(StatusCodes.Status200OK, response.Response.StatusCode);
         return (await Workers.Workers.Json(response)).AsObject();
     }

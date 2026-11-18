@@ -26,7 +26,10 @@ internal sealed partial class ReviewJob(DevFlowClient devFlow, Guid workerId, Jo
     : WorkerJob(devFlow, workerId, tools, time, log)
 {
     /// <summary>The files a review is given beside the copy, in the order the brief names them.</summary>
-    public static readonly IReadOnlyList<string> Evidence = ["card.md", "diff.patch", "report.json", "check.txt"];
+    public static readonly IReadOnlyList<string> Evidence = ["card.md", "diff.patch", "report.json", "check.txt", "screenshots.txt"];
+
+    /// <summary>The folder in the review folder the build's pictures are put in.</summary>
+    public const string PicturesFolder = "pictures";
 
     /// <summary>Runs the job <paramref name="answer"/> holds to its end and sends its result. Only
     /// stopping ends it early, with the folders removed and no result, so Dev flow finds the run
@@ -174,6 +177,7 @@ internal sealed partial class ReviewJob(DevFlowClient devFlow, Guid workerId, Jo
             throw new StepFailed(FailureSide.OutsideCard, $"The diff could not be made: {Said(diff.Stderr)}");
         }
 
+        var (pictures, unread) = await ArchivePictures(job, toReview, paths, stopping);
         var check = toReview.Check;
         var files = new Dictionary<string, string>(StringComparer.Ordinal)
         {
@@ -181,6 +185,7 @@ internal sealed partial class ReviewJob(DevFlowClient devFlow, Guid workerId, Jo
             ["diff.patch"] = diff.Stdout,
             ["report.json"] = Line(toReview.Report.GetRawText()),
             ["check.txt"] = Line(string.Create(CultureInfo.InvariantCulture, $"$ {job.Check}\nexit {check.ExitCode}\n\n{check.Output}")),
+            ["screenshots.txt"] = PicturesText(toReview, pictures, unread),
         };
         foreach (var name in Evidence)
         {
@@ -195,7 +200,79 @@ internal sealed partial class ReviewJob(DevFlowClient devFlow, Guid workerId, Jo
 
         await Agent("mkdir", [paths.Review], paths.Work, FailureSide.OutsideCard, "The review folder could not be made", stopping);
         await Agent("cp", ["--", .. Evidence.Select(name => Path.Combine(paths.Handover, name)), paths.Review], paths.Work, FailureSide.OutsideCard, "The review's files could not be copied", stopping);
-        Log.Write($"Wrote the review's files, the diff {diff.Stdout.Length} characters long.");
+        if (pictures.Count > 0)
+        {
+            var folder = Path.Combine(paths.Review, PicturesFolder);
+            await Agent("mkdir", [folder], paths.Work, FailureSide.OutsideCard, "The pictures' folder could not be made", stopping);
+            await Agent("tar", ["-x", "-f", Path.Combine(paths.Handover, "pictures.tar"), "-C", folder], paths.Work, FailureSide.OutsideCard, "The pictures could not be unpacked", stopping);
+        }
+
+        Log.Write($"Wrote the review's files, the diff {diff.Stdout.Length} characters long, and {pictures.Count} pictures.");
+    }
+
+    /// <summary>
+    /// The build's pictures of the commit, archived by root from its own clone of
+    /// <see cref="PageShots.Branch"/>, which the clone fetched with everything else, into the handover
+    /// folder, for the agent to unpack: the names it archived, each one the build named and the rules
+    /// allow, and why none could be, when that is so. A picture missing is said, never a failure: the
+    /// review goes on without it.
+    /// </summary>
+    private async Task<(IReadOnlyList<string> Pictures, string? Unread)> ArchivePictures(Job job, JobReview toReview, JobPaths paths, CancellationToken stopping)
+    {
+        var names = (toReview.Screenshots?.Names ?? []).Where(PageShots.IsName).Distinct(StringComparer.Ordinal).ToList();
+        if (names.Count == 0)
+        {
+            return ([], null);
+        }
+
+        var archive = Path.Combine(paths.Handover, "pictures.tar");
+        var made = await Git.AsRoot(
+            paths,
+            ["archive", "--format=tar", $"--output={archive}", $"refs/heads/{PageShots.Branch}:{PageShots.Folder(job.Card.Number, toReview.Commit)}", "--", .. names.Select(name => $"{name}.png")],
+            stopping);
+        if (made.ExitCode != 0)
+        {
+            File.Delete(archive);
+            Log.Write($"The pictures could not be read: {Said(made.Stderr)}");
+            return ([], $"The pictures could not be read from {PageShots.Branch}: {Said(made.Stderr)}");
+        }
+
+        if (!OperatingSystem.IsWindows())
+        {
+            // Readable by the agent whatever root's umask is.
+            File.SetUnixFileMode(archive, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.GroupRead | UnixFileMode.OtherRead);
+        }
+
+        return (names, null);
+    }
+
+    /// <summary>What <c>screenshots.txt</c> says: each picture in the review's folder, then the
+    /// build's note and why the pictures could not be read, each when there is one; or that the
+    /// build took none.</summary>
+    private static string PicturesText(JobReview toReview, IReadOnlyList<string> pictures, string? unread)
+    {
+        var said = new[] { toReview.Screenshots?.Note, unread }.OfType<string>().ToList();
+        if (pictures.Count == 0 && said.Count == 0)
+        {
+            return "The build took no pictures of this commit.\n";
+        }
+
+        var text = new StringBuilder();
+        if (pictures.Count > 0)
+        {
+            text.Append(CultureInfo.InvariantCulture, $"The worker's pictures of {toReview.Commit[..7]}, taken after its check passed, each page full length:\n\n");
+            foreach (var name in pictures)
+            {
+                text.Append(CultureInfo.InvariantCulture, $"- {PicturesFolder}/{name}.png\n");
+            }
+        }
+
+        foreach (var line in said)
+        {
+            text.Append(text.Length > 0 ? "\n" : "").Append(line).Append('\n');
+        }
+
+        return text.ToString();
     }
 
     /// <summary><paramref name="text"/> ending in one newline.</summary>

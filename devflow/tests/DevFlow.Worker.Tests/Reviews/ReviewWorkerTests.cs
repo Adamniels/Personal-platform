@@ -19,7 +19,7 @@ using Jobs = DevFlow.Tests.Jobs.Jobs;
 public sealed class ReviewWorkerTests
 {
     /// <summary>The files a review is given beside the copy.</summary>
-    private static readonly string[] Evidence = ["diff.patch", "card.md", "report.json", "check.txt"];
+    private static readonly string[] Evidence = ["diff.patch", "card.md", "report.json", "check.txt", "screenshots.txt"];
 
     /// <summary>A verdict in its form, changes with one blocking finding.</summary>
     private static JsonObject Verdict() => new()
@@ -79,6 +79,8 @@ public sealed class ReviewWorkerTests
         Assert.Contains("$ echo all 3 checks passed", files["check.txt"], StringComparison.Ordinal);
         Assert.Contains("exit 0", files["check.txt"], StringComparison.Ordinal);
         Assert.Contains("\nall 3 checks passed", files["check.txt"], StringComparison.Ordinal);
+        // A project with no start: the build said so, and so does the review's file.
+        Assert.Equal("This project has no pages to show\n", files["screenshots.txt"]);
 
         // The reviewer's brief and the verdict's form, read only.
         var given = agent.Given!;
@@ -98,6 +100,78 @@ public sealed class ReviewWorkerTests
         Assert.Empty(Bench.Files(bench.Folders.Work));
         Assert.Empty(Bench.Files(bench.Folders.Handover));
         Assert.Empty(Bench.Files(bench.Folders.Secrets));
+    }
+
+    [Fact]
+    public async Task TheReviewerGetsThePictures()
+    {
+        // The build took /habits at both sizes and pushed them to pr-screenshots.
+        await using var bench = await Bench.Start(start: "npm run dev", url: "http://localhost:5173");
+        var head = await bench.BuiltAndOpened();
+        var picturesAt = await bench.RemoteHead(PageShots.Branch);
+        Assert.NotNull(picturesAt);
+        var job = await bench.NextJob();
+        Assert.Equal(Job.Review, job.GetProperty("kind").GetString());
+
+        var pictures = new Dictionary<string, byte[]>(StringComparer.Ordinal);
+        string? text = null;
+        var agent = new ScriptedAgent(
+            async (run, _) =>
+            {
+                var folder = Path.Combine(run.WorkingDirectory, "review", "pictures");
+                foreach (var file in Directory.EnumerateFiles(folder))
+                {
+                    pictures[Path.GetFileName(file)] = await File.ReadAllBytesAsync(file, Ct);
+                }
+
+                text = await File.ReadAllTextAsync(Path.Combine(run.WorkingDirectory, "review", "screenshots.txt"), Ct);
+            },
+            () => AgentResult.Success(Verdict(), [], "", "oauth_token"));
+
+        await bench.Review(agent).Run(job, Ct);
+
+        // The commit's pictures, as the build's worker took them, in the review folder.
+        Assert.Equal(["habits-desktop.png", "habits-phone.png"], pictures.Keys.Order(StringComparer.Ordinal));
+        Assert.All(pictures.Values, bytes => Assert.Equal(Camera.Png, bytes));
+        Assert.Equal(
+            $"The worker's pictures of {head[..7]}, taken after its check passed, each page full length:\n\n- pictures/habits-desktop.png\n- pictures/habits-phone.png\n",
+            text);
+
+        // The brief says where they are, to judge them against the card, and that a page that
+        // looks broken, empty or wrong fails it.
+        var brief = agent.Given!.Brief;
+        Assert.Contains("`review/pictures/`", brief, StringComparison.Ordinal);
+        Assert.Contains("**The pictures**, judged against the card. A page that looks broken, empty or wrong is a\n   blocking finding", brief, StringComparison.Ordinal);
+        Assert.Contains("a picture of a page that looks broken, empty or wrong", brief, StringComparison.Ordinal);
+
+        // The review changed nothing on pr-screenshots.
+        Assert.Equal(picturesAt, await bench.RemoteHead(PageShots.Branch));
+        Assert.Equal("succeeded", (string)bench.SentResult(job.GetProperty("job_id").GetGuid())["outcome"]!);
+    }
+
+    [Fact]
+    public async Task APictureThatCouldNotBeTakenIsSaidToTheReviewer()
+    {
+        await using var bench = await Bench.Start(start: "npm run dev", url: "http://localhost:5173");
+        bench.Starter.ExitCode = 1;
+        bench.Starter.Output = "npm error Missing script: \"dev\"\n";
+        await bench.BuiltAndOpened();
+        var job = await bench.NextJob();
+
+        string? text = null;
+        var entries = Array.Empty<string>();
+        var agent = new ScriptedAgent(
+            async (run, _) =>
+            {
+                entries = [.. Directory.EnumerateFileSystemEntries(Path.Combine(run.WorkingDirectory, "review")).Select(Path.GetFileName).Order(StringComparer.Ordinal)!];
+                text = await File.ReadAllTextAsync(Path.Combine(run.WorkingDirectory, "review", "screenshots.txt"), Ct);
+            },
+            () => AgentResult.Success(Verdict(), [], "", "oauth_token"));
+
+        await bench.Review(agent).Run(job, Ct);
+
+        Assert.DoesNotContain("pictures", entries);
+        Assert.Equal("Screenshots could not be taken: the project's start exited with 1: npm error Missing script: \"dev\"\n", text);
     }
 
     [Fact]

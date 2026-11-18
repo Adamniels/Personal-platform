@@ -73,7 +73,10 @@ public sealed record Job(
 /// <param name="Commit">The full id of the commit to review.</param>
 /// <param name="Report">The build's report as it came, in its form.</param>
 /// <param name="Check">The check's result on the commit, as the build's worker sent it.</param>
-public sealed record JobReview(string Commit, JsonElement Report, CheckResult Check);
+/// <param name="Screenshots">The pictures the build's worker took of the commit, on
+/// <see cref="PageShots.Branch"/> under <see cref="PageShots.Folder"/>, and its note; null when it
+/// tried none.</param>
+public sealed record JobReview(string Commit, JsonElement Report, CheckResult Check, ResultScreenshots? Screenshots = null);
 
 /// <summary>The card a job builds or reviews, as it was picked; its title and body are the
 /// owner's words.</summary>

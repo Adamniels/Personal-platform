@@ -182,6 +182,30 @@ public sealed partial class FakeCodeHost : IDisposable
         }
     }
 
+    /// <summary>
+    /// Puts <paramref name="content"/> at <paramref name="path"/> on <paramref name="branch"/> in
+    /// the repository's world, replacing a file there, so <see cref="File"/> answers it: what a
+    /// worker's push of its pictures to <c>pr-screenshots</c> leaves for the page to read, for the
+    /// fake worker. False when the world does not hold the repository.
+    /// </summary>
+    public bool PutFile(Guid userId, Repository repository, string path, string branch, byte[] content)
+    {
+        ArgumentNullException.ThrowIfNull(repository);
+        ArgumentNullException.ThrowIfNull(content);
+        lock (_changing)
+        {
+            var account = Of(userId);
+            if (Find(account.World, repository) is not { } found)
+            {
+                return false;
+            }
+
+            var files = found.Files.Where(file => file.Path != path || file.Branch != branch).Append(new FakeFile(path, branch, [.. content])).ToList();
+            _accounts[userId] = account with { World = WithRepository(account.World, repository, found with { Files = files }) };
+            return true;
+        }
+    }
+
     /// <summary>Whether the repository's git repository has <paramref name="branch"/>, with a
     /// commit; false before its git repository is made.</summary>
     internal async Task<bool> HasBranch(Guid userId, Repository repository, string branch, CancellationToken cancellationToken) =>

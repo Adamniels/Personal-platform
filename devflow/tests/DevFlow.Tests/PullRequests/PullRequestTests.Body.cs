@@ -29,6 +29,44 @@ public sealed partial class PullRequestTests
         Assert.Equal(placed, PullRequestText.Text(text));
 
     [Fact]
+    public async Task TheBodyShowsThem()
+    {
+        await using var jobs = await Jobs.Jobs.Start([Jobs.Jobs.Card(4)]);
+        var ran = await Built.Run(jobs, Built.WithPictures("Screenshots could not be taken: /habits at phone size: <it> took **longer**, fixes #9", "home-desktop", "home-phone", "habits-desktop"));
+        var head = (string)ran["head_commit"]!;
+
+        var body = Assert.Single(Built.Opened(jobs)).Body!;
+
+        // Under Verification, each picture's address on pr-screenshots, as this repository's agents
+        // embed theirs, and the worker's note as text after them.
+        var verification = body[body.IndexOf("## Verification", StringComparison.Ordinal)..body.IndexOf("## Follow ups", StringComparison.Ordinal)];
+        var folder = $"https://github.com/Adamniels/Personal-platform/blob/pr-screenshots/devflow/4/{head[..7]}";
+        Assert.Contains(
+            $"""
+            Screenshots the worker took of the commit, desktop and 390px phone width:
+
+            ![home-desktop]({folder}/home-desktop.png?raw=true)
+            ![home-phone]({folder}/home-phone.png?raw=true)
+            ![habits-desktop]({folder}/habits-desktop.png?raw=true)
+
+            Screenshots could not be taken: /habits at phone size: &lt;it&gt; took **longer**, `fixes` #9
+
+            """,
+            verification,
+            StringComparison.Ordinal);
+        Assert.Equal(["## Summary", "## Tasks", "## Decisions the agent made", "## Verification", "## Follow ups"], Headings(body));
+    }
+
+    [Fact]
+    public async Task ABodyWithoutPicturesSaysNothingOfThem()
+    {
+        await using var jobs = await Jobs.Jobs.Start([Jobs.Jobs.Card(4)]);
+        await Built.Run(jobs, Built.Prepared());
+
+        Assert.DoesNotContain("pr-screenshots", Assert.Single(Built.Opened(jobs)).Body!, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task TextFromTheReportCannotBreakTheBody()
     {
         await using var jobs = await Jobs.Jobs.Start([Jobs.Jobs.Card(4)]);

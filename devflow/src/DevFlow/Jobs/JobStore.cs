@@ -1,9 +1,11 @@
 using System.Globalization;
 using System.Text;
+using System.Text.Json;
 
 using Dapper;
 
 using DevFlow.Cards;
+using DevFlow.Protocol;
 
 using Npgsql;
 
@@ -32,7 +34,9 @@ public sealed record ClaimedCard(Guid RunId, int Number, string Title, string Bo
 /// <param name="Check">The check the build ran, null for a build handed out before runs kept it.</param>
 /// <param name="CheckExitCode">How it ended.</param>
 /// <param name="CheckOutput">The last lines it printed.</param>
-public sealed record ClaimedReview(Guid RunId, int Number, string Title, string Body, string Branch, string Base, string Commit, string Report, string? Check, int CheckExitCode, string CheckOutput);
+/// <param name="Screenshots">The pictures the build took of the commit, and its note; null when it
+/// tried none.</param>
+public sealed record ClaimedReview(Guid RunId, int Number, string Title, string Body, string Branch, string Base, string Commit, string Report, string? Check, int CheckExitCode, string CheckOutput, ResultScreenshots? Screenshots = null);
 
 /// <summary>
 /// Jobs in the database, through the door as the project's user: which kind of job a project has
@@ -139,7 +143,7 @@ public static class JobStore
             $"""
             SELECT cards.number AS Number, cards.picked_title AS Title, cards.picked_body AS Body, b.branch AS Branch, b.base AS Base,
                    b.head_commit AS Commit, b.report::text AS Report, b.check_command AS "Check", b.check_exit_code AS CheckExitCode,
-                   b.check_output AS CheckOutput
+                   b.check_output AS CheckOutput, b.screenshots::text AS Screenshots, b.screenshots_note AS ScreenshotsNote
             FROM cards
             JOIN LATERAL (SELECT * FROM runs
                           WHERE runs.project_id = cards.project_id AND runs.card_number = cards.number
@@ -163,7 +167,9 @@ public static class JobStore
             new { projectId, number = card.Number, reason = BeingReviewed, now },
             transaction,
             cancellationToken: cancellationToken));
-        var claimed = new ClaimedReview(Guid.CreateVersion7(now), card.Number, card.Title, card.Body, card.Branch, card.Base, card.Commit, card.Report, card.Check, card.CheckExitCode, card.CheckOutput ?? "");
+        var claimed = new ClaimedReview(
+            Guid.CreateVersion7(now), card.Number, card.Title, card.Body, card.Branch, card.Base, card.Commit, card.Report, card.Check, card.CheckExitCode, card.CheckOutput ?? "",
+            Pictures(card.Screenshots, card.ScreenshotsNote));
         await transaction.Connection!.ExecuteAsync(new CommandDefinition(
             """
             INSERT INTO runs (id, project_id, user_id, card_number, worker_id, kind, branch, base, check_command, head_commit, started_at)
@@ -242,5 +248,11 @@ public static class JobStore
 
     private sealed record Picked(int Number, string Title, string Body);
 
-    private sealed record ToReview(int Number, string Title, string Body, string Branch, string Base, string Commit, string Report, string? Check, int CheckExitCode, string? CheckOutput);
+    private sealed record ToReview(int Number, string Title, string Body, string Branch, string Base, string Commit, string Report, string? Check, int CheckExitCode, string? CheckOutput, string? Screenshots, string? ScreenshotsNote);
+
+    /// <summary>A build's pictures as its run keeps them, or null when it tried none.</summary>
+    internal static ResultScreenshots? Pictures(string? names, string? note) =>
+        names is null && note is null
+            ? null
+            : new ResultScreenshots(names is null ? [] : JsonSerializer.Deserialize<List<string>>(names) ?? [], note);
 }

@@ -71,6 +71,22 @@ public sealed class WaitingCardTests
     }
 
     [Fact]
+    public async Task AWaitingCardShowsItsPictures()
+    {
+        await using var jobs = await Jobs.Jobs.Start([Jobs.Jobs.Card(4, "Add the empty state")]);
+        var ran = await Built.Run(jobs, Built.WithPictures(null, "habits-desktop", "habits-phone"));
+        await Built.Review(jobs);
+
+        var (_, list) = await Built.Get(jobs, "/devflow/api/waiting");
+
+        // Its pictures of the head commit, paired by page, which the card's route serves.
+        var screenshots = Assert.Single(list!["cards"]!.AsArray())!["screenshots"]!;
+        Assert.Equal((string)ran["head_commit"]!, (string)screenshots["commit"]!);
+        Assert.Null(screenshots["note"]);
+        Assert.True(JsonNode.DeepEquals(JsonNode.Parse("""[{"name": "habits", "images": ["habits-desktop", "habits-phone"]}]"""), screenshots["groups"]));
+    }
+
+    [Fact]
     public async Task AStoppedProjectsCardIsNotOfferedForMerging()
     {
         await using var jobs = await Jobs.Jobs.Start([Jobs.Jobs.Card(4)], signIn: true);

@@ -14,7 +14,14 @@ namespace DevFlow.PullRequests;
 /// null for a run handed out before runs kept it.</param>
 /// <param name="Commit">The commit the check ran on, the branch's head.</param>
 /// <param name="ExitCode">How the check ended.</param>
-public sealed record PullRequestSource(int Card, Guid RunId, Report Report, string? Check, string Commit, int ExitCode);
+/// <param name="Pictures">The pictures the worker took of the commit, null when it tried none.</param>
+public sealed record PullRequestSource(int Card, Guid RunId, Report Report, string? Check, string Commit, int ExitCode, PullRequestPictures? Pictures = null);
+
+/// <summary>The pictures a pull request's body embeds: the repository they are in, on
+/// <see cref="PageShots.Branch"/>, their names as the worker's result listed them, and its note.</summary>
+/// <param name="Owner">The repository's owner, as connected.</param>
+/// <param name="Name">The repository's name, as connected.</param>
+public sealed record PullRequestPictures(string Owner, string Name, IReadOnlyList<string> Names, string? Note);
 
 /// <summary>
 /// A built card's pull request body, in the layout this repository's agents write theirs, as
@@ -54,11 +61,44 @@ public static partial class PullRequestText
             body.Append('\n');
         }
 
+        if (source.Pictures is { } pictures)
+        {
+            Pictures(body, source, pictures);
+        }
+
         Section(body, "Follow ups");
         List(body, report.FollowUps.Select(Text));
 
         body.Append(CultureInfo.InvariantCulture, $"Built by Dev flow for #{source.Card}, run {source.RunId}.\n");
         return body.ToString();
+    }
+
+    /// <summary>
+    /// The pictures, under Verification, as this repository's agents embed theirs: each an image
+    /// whose address is the file on <see cref="PageShots.Branch"/>, under the commit's folder, with
+    /// the owner and name escaped and the picture's name one the result's rules allowed; then the
+    /// worker's note, as text. The addresses need a GitHub session, as every image in a private
+    /// repository's body does, and the page never reads them.
+    /// </summary>
+    private static void Pictures(StringBuilder body, PullRequestSource source, PullRequestPictures pictures)
+    {
+        var names = pictures.Names.Where(PageShots.IsName).ToList();
+        if (names.Count > 0)
+        {
+            body.Append("Screenshots the worker took of the commit, desktop and 390px phone width:\n\n");
+            var folder = PageShots.Folder(source.Card, source.Commit);
+            foreach (var name in names)
+            {
+                body.Append(CultureInfo.InvariantCulture, $"![{name}](https://github.com/{Uri.EscapeDataString(pictures.Owner)}/{Uri.EscapeDataString(pictures.Name)}/blob/{PageShots.Branch}/{folder}/{name}.png?raw=true)\n");
+            }
+
+            body.Append('\n');
+        }
+
+        if (pictures.Note is { } note && Text(note) is { Length: > 0 } said)
+        {
+            body.Append(said).Append("\n\n");
+        }
     }
 
     /// <summary>A decision as one line: what was chosen, the alternative and why, each a sentence

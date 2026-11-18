@@ -2,8 +2,11 @@ using System.Text.Json;
 
 using Dapper;
 
+using DevFlow.CodeHost;
+using DevFlow.Jobs;
 using DevFlow.Protocol;
 using DevFlow.Reviews;
+using DevFlow.Runner;
 
 using PlatformData;
 
@@ -75,6 +78,29 @@ public sealed record CardReview(
     bool Posted,
     bool Current);
 
+/// <summary>The pictures the worker took of a card's head commit, as its page and its item on
+/// "Waiting for you" show them, read through
+/// <c>GET /devflow/api/projects/{id}/cards/{number}/screenshots/{name}</c>.</summary>
+/// <param name="Commit">The head commit they are of, the newest build's that succeeded.</param>
+/// <param name="Groups">Paired desktop and phone, by page, in the report's order; empty when none
+/// were taken.</param>
+/// <param name="Note">What the worker said instead or as well, shown as text; null when every page
+/// was taken.</param>
+public sealed record CardScreenshots(string Commit, IReadOnlyList<ScreenshotGroup> Groups, string? Note)
+{
+    /// <summary>The pictures of a build's run as it keeps them, or null when it tried none or left
+    /// no commit.</summary>
+    internal static CardScreenshots? Of(string? commit, string? names, string? note) =>
+        commit is null || JobStore.Pictures(names, note) is not { } pictures
+            ? null
+            : new CardScreenshots(commit, Screenshots.Group(pictures.Names ?? []), pictures.Note);
+}
+
+/// <summary>Where a card's pictures are read from: its project's repository, the folder of its head
+/// commit on <c>pr-screenshots</c>, and the names its newest build listed, the only ones that may be
+/// read.</summary>
+public sealed record CardScreenshotSource(Repository Repository, string Folder, IReadOnlyList<string> Names);
+
 /// <summary>What <c>GET /devflow/api/projects/{id}/cards/{number}</c> answers: a card's whole story
 /// so far.</summary>
 /// <param name="Title">The issue's title as last read.</param>
@@ -86,6 +112,8 @@ public sealed record CardReview(
 /// <param name="Report">The latest report in its form, null when no run has handed one
 /// back.</param>
 /// <param name="Reviews">Every review, newest first.</param>
+/// <param name="Screenshots">The pictures of its head commit, null when its newest build that
+/// succeeded tried none.</param>
 public sealed record CardStoryView(
     int Number,
     string Title,
@@ -95,7 +123,8 @@ public sealed record CardStoryView(
     CardPullRequest? PullRequest,
     IReadOnlyList<CardRun> Runs,
     Report? Report,
-    IReadOnlyList<CardReview> Reviews);
+    IReadOnlyList<CardReview> Reviews,
+    CardScreenshots? Screenshots);
 
 /// <summary>
 /// A card's story, read from what Dev flow stored and never from the code host, through the door
@@ -137,7 +166,8 @@ public static class CardStory
                 SELECT r.id AS Id, r.kind AS Kind, w.name AS Worker, r.started_at AS StartedAt, r.finished_at AS FinishedAt,
                        r.duration_ms AS DurationMs, r.result AS Result, r.reason AS Reason, r.auth_method AS AuthMethod,
                        r.input_tokens AS InputTokens, r.output_tokens AS OutputTokens, r.check_exit_code AS CheckExitCode,
-                       r.check_output AS CheckOutput, r.head_commit AS HeadCommit, r.report::text AS Report
+                       r.check_output AS CheckOutput, r.head_commit AS HeadCommit, r.report::text AS Report,
+                       r.screenshots::text AS Screenshots, r.screenshots_note AS ScreenshotsNote
                 FROM runs r JOIN workers w ON w.project_id = r.project_id AND w.id = r.worker_id
                 WHERE r.project_id = @projectId AND r.card_number = @number
                 ORDER BY r.started_at DESC, r.id DESC
@@ -148,7 +178,8 @@ public static class CardStory
 
             // The head is the commit the newest build that succeeded left, as a card's current review
             // reads it; the runs are newest first.
-            var head = runs.FirstOrDefault(run => run is { Kind: Job.Build, Result: "succeeded" })?.HeadCommit;
+            var built = runs.FirstOrDefault(run => run is { Kind: Job.Build, Result: "succeeded" });
+            var head = built?.HeadCommit;
             var reviews = await ReviewStore.OfCard(transaction, projectId, number, cancellationToken);
             return new CardStoryView(
                 card.Number,
@@ -168,8 +199,37 @@ public static class CardStory
                     review.Verdict.ForOwner,
                     review.ReviewedAt,
                     review.PostedAt is not null,
-                    string.Equals(review.Commit, head, StringComparison.Ordinal)))]);
+                    string.Equals(review.Commit, head, StringComparison.Ordinal)))],
+                CardScreenshots.Of(head, built?.Screenshots, built?.ScreenshotsNote));
         }, cancellationToken);
+    }
+
+    /// <summary>What serving one of the user's card's pictures needs: its project's repository, by
+    /// the installation and id it was connected with, the folder of the head commit its newest
+    /// build that succeeded left, and the names that build listed; null when the user has no such
+    /// project or card, or the card has no such build.</summary>
+    public static async Task<CardScreenshotSource?> ScreenshotsOf(UserDb database, Guid userId, Guid projectId, int number, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(database);
+        var row = await database.InUserTransaction(userId, transaction => transaction.Connection!.QuerySingleOrDefaultAsync<SourceRow>(new CommandDefinition(
+            """
+            SELECT p.installation_id AS Installation, p.repository_id AS RepositoryId, p.owner AS Owner, p.name AS Name,
+                   r.head_commit AS HeadCommit, r.screenshots::text AS Screenshots
+            FROM cards c
+            JOIN projects p ON p.id = c.project_id
+            JOIN LATERAL (SELECT * FROM runs WHERE runs.project_id = c.project_id AND runs.card_number = c.number
+                          AND runs.kind = 'build' AND runs.result = 'succeeded' ORDER BY started_at DESC, id DESC LIMIT 1) r ON true
+            WHERE c.project_id = @projectId AND c.number = @number AND r.head_commit IS NOT NULL
+            """,
+            new { projectId, number },
+            transaction,
+            cancellationToken: cancellationToken)), cancellationToken);
+        return row is null
+            ? null
+            : new CardScreenshotSource(
+                new Repository(row.Installation, row.RepositoryId, row.Owner, row.Name),
+                PageShots.Folder(number, row.HeadCommit),
+                row.Screenshots is null ? [] : JsonSerializer.Deserialize<List<string>>(row.Screenshots) ?? []);
     }
 
     private static CardRun Run(RunRow row) => new(
@@ -222,5 +282,9 @@ public static class CardStory
         int? CheckExitCode,
         string? CheckOutput,
         string? HeadCommit,
-        string? Report);
+        string? Report,
+        string? Screenshots,
+        string? ScreenshotsNote);
+
+    private sealed record SourceRow(long Installation, long RepositoryId, string Owner, string Name, string HeadCommit, string? Screenshots);
 }

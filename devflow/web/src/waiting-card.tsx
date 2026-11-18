@@ -18,6 +18,7 @@ import {
 import { verdictWord } from "./card";
 import { Inline } from "./format";
 import { askNavAgain } from "./nav-attention";
+import { cardScreenshot, Screenshots } from "./screenshots";
 import { type CardItem, Decisions, linkable } from "./waiting";
 import styles from "./waiting.module.css";
 
@@ -194,6 +195,15 @@ export function WaitingCard({
 					<CheckLine check={card.check} />
 				</div>
 				{card.review === null ? null : <ReviewLine review={card.review} />}
+				{card.screenshots === null ? null : (
+					<Screenshots
+						address={(name) =>
+							cardScreenshot(card.project_id, card.number, name)
+						}
+						groups={card.screenshots.groups}
+						note={card.screenshots.note}
+					/>
+				)}
 			</div>
 		</Card>
 	);
