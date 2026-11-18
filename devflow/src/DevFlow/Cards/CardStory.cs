@@ -75,6 +75,32 @@ public sealed record CardReview(
     bool Posted,
     bool Current);
 
+/// <summary>One fix of the card, as its page shows it: what sent the card back, the fix run with
+/// its replies and the commit it left, and the review after it. A fix that failed outside the card
+/// is tried again in the same round, so a round may show more than once. Every text is shown as
+/// text.</summary>
+/// <param name="RunId">The fix run, among the runs.</param>
+/// <param name="Round">The fix round, 1 to 3, or null when the owner's comment started it.</param>
+/// <param name="ReviewRunId">The review it answered, among the reviews: the one whose changes
+/// started its round, or the card's latest when the owner's comment did; null when there was
+/// none.</param>
+/// <param name="Comments">The owner's comments it answered, each exactly as he wrote it.</param>
+/// <param name="Result">How the fix ended, null while it runs.</param>
+/// <param name="Replies">Its answer to each finding, from its report; empty without one in its
+/// form.</param>
+/// <param name="FixedCommit">The commit it left on the branch, null when it left none.</param>
+/// <param name="ReviewAfterRunId">The newest review of that commit, among the reviews, null before
+/// one.</param>
+public sealed record CardRound(
+    Guid RunId,
+    int? Round,
+    Guid? ReviewRunId,
+    IReadOnlyList<string> Comments,
+    string? Result,
+    IReadOnlyList<ReportReply> Replies,
+    string? FixedCommit,
+    Guid? ReviewAfterRunId);
+
 /// <summary>What <c>GET /devflow/api/projects/{id}/cards/{number}</c> answers: a card's whole story
 /// so far.</summary>
 /// <param name="Title">The issue's title as last read.</param>
@@ -86,6 +112,7 @@ public sealed record CardReview(
 /// <param name="Report">The latest report in its form, a build's or a fix's, null when no run
 /// has handed one back.</param>
 /// <param name="Reviews">Every review, newest first.</param>
+/// <param name="Rounds">Every fix, newest first.</param>
 public sealed record CardStoryView(
     int Number,
     string Title,
@@ -95,10 +122,12 @@ public sealed record CardStoryView(
     CardPullRequest? PullRequest,
     IReadOnlyList<CardRun> Runs,
     Report? Report,
-    IReadOnlyList<CardReview> Reviews);
+    IReadOnlyList<CardReview> Reviews,
+    IReadOnlyList<CardRound> Rounds);
 
 /// <summary>
-/// A card's story, read from what Dev flow stored and never from the code host, through the door
+/// A card's story, read from what Dev flow stored and never from the code host, its rounds among
+/// it, through the door
 /// as the user, so another user's card is not found. See "A card's page" in devflow/README.md.
 /// </summary>
 public static class CardStory
@@ -137,7 +166,8 @@ public static class CardStory
                 SELECT r.id AS Id, r.kind AS Kind, w.name AS Worker, r.started_at AS StartedAt, r.finished_at AS FinishedAt,
                        r.duration_ms AS DurationMs, r.result AS Result, r.reason AS Reason, r.auth_method AS AuthMethod,
                        r.input_tokens AS InputTokens, r.output_tokens AS OutputTokens, r.check_exit_code AS CheckExitCode,
-                       r.check_output AS CheckOutput, r.head_commit AS HeadCommit, r.report::text AS Report
+                       r.check_output AS CheckOutput, r.head_commit AS HeadCommit, r.report::text AS Report,
+                       r.fix_round AS FixRound, r.fix_review_id AS FixReviewId, r.owner_comments::text AS OwnerComments
                 FROM runs r JOIN workers w ON w.project_id = r.project_id AND w.id = r.worker_id
                 WHERE r.project_id = @projectId AND r.card_number = @number
                 ORDER BY r.started_at DESC, r.id DESC
@@ -168,9 +198,24 @@ public static class CardStory
                     review.Verdict.ForOwner,
                     review.ReviewedAt,
                     review.PostedAt is not null,
-                    string.Equals(review.Commit, head, StringComparison.Ordinal)))]);
+                    string.Equals(review.Commit, head, StringComparison.Ordinal)))],
+                [.. runs.Where(run => run.Kind == Job.Fix).Select(run => Round(run, reviews))]);
         }, cancellationToken);
     }
+
+    /// <summary>A fix run as a round: what it answered, its replies, and the newest review of the
+    /// commit it left, recorded after it started.</summary>
+    private static CardRound Round(RunRow run, IReadOnlyList<KeptReview> reviews) => new(
+        run.Id,
+        run.FixRound,
+        run.FixReviewId,
+        run.OwnerComments is { } comments ? JsonSerializer.Deserialize<List<string>>(comments) ?? [] : [],
+        run.Result,
+        Read(run.Report)?.Replies ?? [],
+        run.HeadCommit,
+        run.HeadCommit is { } fixedCommit
+            ? reviews.FirstOrDefault(review => review.Commit == fixedCommit && review.ReviewedAt >= Utc(run.StartedAt))?.RunId
+            : null);
 
     private static CardRun Run(RunRow row) => new(
         row.Id,
@@ -222,5 +267,8 @@ public static class CardStory
         int? CheckExitCode,
         string? CheckOutput,
         string? HeadCommit,
-        string? Report);
+        string? Report,
+        int? FixRound,
+        Guid? FixReviewId,
+        string? OwnerComments);
 }

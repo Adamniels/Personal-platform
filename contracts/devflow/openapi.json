@@ -232,6 +232,70 @@
         ],
         "type": "object"
       },
+      "CardRound": {
+        "properties": {
+          "comments": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "fixed_commit": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "replies": {
+            "items": {
+              "$ref": "#/components/schemas/ReportReply"
+            },
+            "type": "array"
+          },
+          "result": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "review_after_run_id": {
+            "format": "uuid",
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "review_run_id": {
+            "format": "uuid",
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "round": {
+            "format": "int32",
+            "type": [
+              "null",
+              "integer"
+            ]
+          },
+          "run_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id",
+          "round",
+          "review_run_id",
+          "comments",
+          "result",
+          "replies",
+          "fixed_commit",
+          "review_after_run_id"
+        ],
+        "type": "object"
+      },
       "CardRun": {
         "properties": {
           "auth_method": {
@@ -373,6 +437,12 @@
             },
             "type": "array"
           },
+          "rounds": {
+            "items": {
+              "$ref": "#/components/schemas/CardRound"
+            },
+            "type": "array"
+          },
           "runs": {
             "items": {
               "$ref": "#/components/schemas/CardRun"
@@ -398,7 +468,8 @@
           "pull_request",
           "runs",
           "report",
-          "reviews"
+          "reviews",
+          "rounds"
         ],
         "type": "object"
       },

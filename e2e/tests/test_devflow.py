@@ -2062,6 +2062,94 @@ def test_i_send_a_card_back_with_a_comment(
     expect(page.get_by_text("Reviewing", exact=True).first).to_be_visible()
 
 
+def test_a_card_with_changes_is_fixed_and_reviewed_again(
+    page: Page, invite_code: str, base_url: str, viewport: str, devflow_world
+):
+    register_and_log_in(page, invite_code, base_url)
+    read_once = {
+        "blocking": True,
+        "file": "web/src/list.tsx",
+        "line": 42,
+        "what": "The empty state is read once",
+        "why": "A list emptied later shows nothing",
+    }
+    project, ran = _built_card(
+        page, base_url, devflow_world, verdict=_verdict("changes", [read_once])
+    )
+
+    # Round 1's fix, and a review of its commit that asks for changes again.
+    first = _fake_fix(page, base_url, project, _fix_report())
+    assert first["branch"] == ran["branch"]
+    no_test = {
+        "blocking": True,
+        "file": "",
+        "line": 0,
+        "what": "No test empties the list after it was shown",
+        "why": "The bug comes back unseen",
+    }
+    again = _fake_review(page, base_url, project, _verdict("changes", [no_test]))
+    assert again["head_commit"] == first["head_commit"]
+
+    # In round 2, the card's page shows round 1: the review that sent it back,
+    # the developer's reply, and the review of the commit it left.
+    page.goto(f"/devflow/projects/{project}/cards/{CARD}")
+    expect(page.get_by_text("Fixing", exact=True).first).to_be_visible()
+    expect(
+        page.get_by_text(
+            "Round 2 of 3: the reviewer asked for changes; a fix runs next"
+        )
+    ).to_be_visible()
+    rounds = page.get_by_role("list", name="Rounds")
+    one = rounds.get_by_role("listitem", name="Round 1 of 3")
+    expect(one).to_contain_text(
+        f"The review of {ran['head_commit'][:7]} asked for changes."
+    )
+    expect(one.get_by_role("list", name="Replies")).to_contain_text(
+        "The empty state is read once"
+    )
+    expect(one.get_by_role("list", name="Replies")).to_contain_text(
+        "Fixed: it is read on every change"
+    )
+    expect(one).to_contain_text(
+        f"It left {first['head_commit'][:7]}, and the review of it asked for changes."
+    )
+    reviews = page.get_by_role("article", name="Reviews")
+    expect(reviews).to_contain_text(f"Review of {first['head_commit'][:7]}")
+    expect(reviews).to_contain_text(f"Review of {ran['head_commit'][:7]}")
+    expect(reviews).to_contain_text("For an older commit, so it does not count")
+    runs = page.get_by_role("list", name="Runs").get_by_role("listitem")
+    expect(runs).to_have_count(4)
+    expect(runs.nth(1)).to_contain_text("Fix")
+
+    page.evaluate("document.fonts.ready.then(() => null)")
+    for check in (
+        assert_headings_are_capitals,
+        assert_nothing_scrolls_sideways,
+        assert_active_is_inverted,
+        assert_nothing_active_is_amber,
+    ):
+        check(page)
+    assert _axe_violations(page) == []
+    capture(page, "devflow-card-fixing")
+
+    # Round 2's fix, and a review that approves it: the card waits for the
+    # owner, and its page shows both rounds.
+    second = _fake_fix(page, base_url, project, _fix_report())
+    _fake_review(page, base_url, project, _verdict("approve"))
+    page.reload()
+    expect(page.get_by_text("Waiting for you", exact=True).first).to_be_visible()
+    expect(rounds.get_by_role("listitem", name=re.compile("^Round"))).to_have_count(2)
+    expect(rounds.get_by_role("listitem", name="Round 2 of 3")).to_contain_text(
+        f"It left {second['head_commit'][:7]}, and the review of it approved it."
+    )
+
+    # On Waiting for you, the approve on the commit the second fix left.
+    page.goto("/devflow")
+    card = _waiting_card(page)
+    expect(card).to_contain_text("Approved")
+    expect(card).to_contain_text(f"on {second['head_commit'][:7]}")
+
+
 def test_a_card_page_of_no_project_is_not_found(
     page: Page, invite_code: str, base_url: str
 ):

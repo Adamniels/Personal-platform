@@ -669,6 +669,20 @@ export interface components {
             summary: string;
             verdict: string;
         };
+        CardRound: {
+            comments: string[];
+            fixed_commit: null | string;
+            replies: components["schemas"]["ReportReply"][];
+            result: null | string;
+            /** Format: uuid */
+            review_after_run_id: null | string;
+            /** Format: uuid */
+            review_run_id: null | string;
+            /** Format: int32 */
+            round: null | number;
+            /** Format: uuid */
+            run_id: string;
+        };
         CardRun: {
             auth_method: null | string;
             check: null | components["schemas"]["RunCheck"];
@@ -698,6 +712,7 @@ export interface components {
             reason: null | string;
             report: null | components["schemas"]["Report"];
             reviews: components["schemas"]["CardReview"][];
+            rounds: components["schemas"]["CardRound"][];
             runs: components["schemas"]["CardRun"][];
             state: string;
             title: string;

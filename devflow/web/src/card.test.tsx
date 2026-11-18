@@ -86,7 +86,86 @@ function story(overrides: Partial<CardStory> = {}): CardStory {
 			handover: "",
 		},
 		reviews: [],
+		rounds: [],
 		...overrides,
+	};
+}
+
+const FIRST = `def5678${"0".repeat(33)}`;
+const SECOND = `fed8765${"0".repeat(33)}`;
+
+/** A card in its second round: built at HEAD, reviewed with changes, fixed
+ * to FIRST, reviewed with changes again, and its second fix under way; and
+ * before all of it, the owner's comment on an older round. */
+function inRoundTwo(): Partial<CardStory> {
+	const review = (
+		run: string,
+		commit: string,
+		at: string,
+		current: boolean,
+	) => ({
+		run_id: run,
+		commit,
+		verdict: "changes",
+		summary: "The empty state shows only after a reload.",
+		findings: [
+			{
+				blocking: true,
+				file: "web/src/list.tsx",
+				line: 42,
+				what: "The empty state is read once",
+				why: "A list emptied later shows nothing",
+			},
+		],
+		for_owner: [],
+		reviewed_at: at,
+		posted: true,
+		current,
+	});
+	return {
+		state: "fixing",
+		reason: "Round 2 of 3: the developer is fixing it",
+		reviews: [
+			review("r2", FIRST, "2026-11-18T11:00:00+00:00", true),
+			review("r1", HEAD, "2026-11-18T10:10:00+00:00", false),
+		],
+		rounds: [
+			{
+				run_id: "f2",
+				round: 2,
+				review_run_id: "r2",
+				comments: [],
+				result: null,
+				replies: [],
+				fixed_commit: null,
+				review_after_run_id: null,
+			},
+			{
+				run_id: "f1",
+				round: 1,
+				review_run_id: "r1",
+				comments: [],
+				result: "succeeded",
+				replies: [
+					{
+						finding: "The empty state is read once",
+						answer: "Fixed: it is read on every `change`.",
+					},
+				],
+				fixed_commit: FIRST,
+				review_after_run_id: "r2",
+			},
+			{
+				run_id: "f0",
+				round: null,
+				review_run_id: null,
+				comments: ["Name it `EmptyList`.\nAs the others are."],
+				result: "failed_in_card",
+				replies: [],
+				fixed_commit: SECOND,
+				review_after_run_id: null,
+			},
+		],
 	};
 }
 
@@ -328,6 +407,61 @@ describe("a card's page", () => {
 		).toBeTruthy();
 		expect(older?.getByText("Not on the pull request yet")).toBeTruthy();
 		expect(older?.queryByRole("list", { name: "Findings" })).toBeNull();
+	});
+
+	test("shows each round: what sent it back, the fix, its replies and the review after it", async () => {
+		open(() => Promise.resolve(story(inRoundTwo())));
+
+		const rounds = within(
+			await screen.findByRole("list", { name: "Rounds" }),
+		).getAllByRole("listitem", { name: /round|comment/i });
+		expect(rounds).toHaveLength(3);
+		const at = (index: number) => {
+			const round = rounds[index];
+			if (round === undefined) throw new Error(`no round ${index}`);
+			return within(round);
+		};
+		const [second, first, comment] = [at(0), at(1), at(2)];
+
+		// Newest first: round 2, still running, asked for by the second review.
+		expect(second.getByText("Round 2 of 3")).toBeTruthy();
+		expect(second.getByText("Running")).toBeTruthy();
+		expect(second.getByText(/The review of/).textContent).toBe(
+			"The review of def5678 asked for changes.",
+		);
+		expect(second.queryByRole("list", { name: "Replies" })).toBeNull();
+
+		// Round 1: its review, its replies as text, the commit it left and the
+		// review after it.
+		expect(first.getByText("Round 1 of 3")).toBeTruthy();
+		expect(first.getByText("Succeeded")).toBeTruthy();
+		expect(first.getByText(/The review of/).textContent).toBe(
+			"The review of abc1234 asked for changes.",
+		);
+		const replies = within(first.getByRole("list", { name: "Replies" }));
+		expect(replies.getByText("The empty state is read once")).toBeTruthy();
+		expect(replies.getByText("change").tagName).toBe("CODE");
+		expect(first.getByText(/^It left/).textContent).toBe(
+			"It left def5678, and the review of it asked for changes.",
+		);
+
+		// The owner's comment, not a round, his words as he wrote them.
+		expect(comment.getByText("Your comment")).toBeTruthy();
+		expect(comment.getByText("You sent it back with a comment.")).toBeTruthy();
+		expect(
+			comment.getByRole("list", { name: "What you wrote" }).textContent,
+		).toBe("Name it `EmptyList`.\nAs the others are.");
+		expect(comment.getByText("Failed")).toBeTruthy();
+		expect(comment.getByText(/^It left/).textContent).toBe("It left fed8765.");
+	});
+
+	test("a card that was never sent back shows no rounds", async () => {
+		open(() => Promise.resolve(story()));
+
+		expect(
+			await screen.findByRole("heading", { name: "Add the empty state" }),
+		).toBeTruthy();
+		expect(screen.queryByRole("list", { name: "Rounds" })).toBeNull();
 	});
 
 	test("a card no run has taken says so, with no report", async () => {

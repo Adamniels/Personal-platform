@@ -1,8 +1,9 @@
 // A card's page, /devflow/projects/{project}/cards/{number}, under the Projects tab, opened from the
 // project's Cards panel: the card's whole story so far, read from GET
 // /devflow/api/projects/{id}/cards/{number}, what Dev flow stored and never the code host. Its state
-// and why, links to its issue and its pull request, each review with its verdict, newest first,
-// each run, newest first, and the latest report.
+// and why, links to its issue and its pull request, each round it was sent back for, newest
+// first, each review with its verdict, newest first, each run, newest first, and the latest
+// report.
 // Every text came from the code host, a worker or an agent and is shown as text. See "The pages"
 // and "A card's page" in devflow/README.md.
 import {
@@ -23,6 +24,7 @@ export type CardStory = components["schemas"]["CardStoryView"];
 type Run = CardStory["runs"][number];
 type Report = NonNullable<CardStory["report"]>;
 type Review = CardStory["reviews"][number];
+type Round = CardStory["rounds"][number];
 
 export const NOT_READ = "The card could not be read. Try again.";
 
@@ -53,7 +55,20 @@ const RESULTS: Record<string, { word: string; tone: StatusTone }> = {
 	lost: { word: "Lost", tone: "failed" },
 };
 
-const KINDS: Record<string, string> = { build: "Build", review: "Review" };
+const KINDS: Record<string, string> = {
+	build: "Build",
+	review: "Review",
+	fix: "Fix",
+};
+
+/** What the review of a fix's commit said of it, after "the review of it". */
+const AFTER: Record<string, string> = {
+	approve: "approved it",
+	changes: "asked for changes",
+};
+
+/** The most rounds reviews start for a card. */
+const MOST_ROUNDS = 3;
 
 /** A verdict as a word and a tone; one the page does not know yet is shown
  * as it is named. */
@@ -173,6 +188,19 @@ export function CardPage({
 					</p>
 				</div>
 			</Panel>
+			{story.rounds.length === 0 ? null : (
+				<Panel title="Rounds" className={styles.panel}>
+					<ul className={styles.runs} aria-label="Rounds">
+						{story.rounds.map((round) => (
+							<RoundRow
+								key={round.run_id}
+								round={round}
+								reviews={story.reviews}
+							/>
+						))}
+					</ul>
+				</Panel>
+			)}
 			{story.reviews.length === 0 ? null : (
 				<Panel title="Reviews" className={styles.panel}>
 					<ul className={styles.runs} aria-label="Reviews">
@@ -290,6 +318,68 @@ function RunRow({ run }: { run: Run }) {
 							{run.check.output}
 						</pre>
 					) : null}
+				</span>
+			)}
+		</li>
+	);
+}
+
+/** One round on an inset: a fix round or the owner's comment, how its fix
+ * went, what sent the card back, his words as he wrote them, the developer's
+ * reply to each finding, and the commit the fix left with the review of it. */
+function RoundRow({ round, reviews }: { round: Round; reviews: Review[] }) {
+	const name =
+		round.round === null
+			? "Your comment"
+			: `Round ${round.round} of ${MOST_ROUNDS}`;
+	const result =
+		round.result === null
+			? { word: "Running", tone: "running" as StatusTone }
+			: (RESULTS[round.result] ?? {
+					word: round.result,
+					tone: "idle" as StatusTone,
+				});
+	const asked = reviews.find((review) => review.run_id === round.review_run_id);
+	const after = reviews.find(
+		(review) => review.run_id === round.review_after_run_id,
+	);
+	return (
+		<li className={styles.run} aria-label={name}>
+			<span className={styles.head}>
+				<span className={styles.kind}>{name}</span>
+				<Status tone={result.tone}>{result.word}</Status>
+			</span>
+			{round.round === null ? (
+				<span className={styles.text}>You sent it back with a comment.</span>
+			) : asked === undefined ? null : (
+				<span className={styles.text}>
+					The review of{" "}
+					<code className={styles.code}>{asked.commit.slice(0, 7)}</code> asked
+					for changes.
+				</span>
+			)}
+			<Section label="What you wrote" items={round.comments}>
+				{(comment) => <span className={styles.said}>{comment}</span>}
+			</Section>
+			<Section label="Replies" items={round.replies}>
+				{(reply) => (
+					<>
+						<Inline text={reply.finding} />
+						<span className={styles.sub}>
+							<Inline text={reply.answer} />
+						</span>
+					</>
+				)}
+			</Section>
+			{round.fixed_commit === null ? null : (
+				<span className={styles.text}>
+					It left{" "}
+					<code className={styles.code}>{round.fixed_commit.slice(0, 7)}</code>
+					{round.result !== "succeeded"
+						? "."
+						: after === undefined
+							? ", not reviewed yet."
+							: `, and the review of it ${AFTER[after.verdict] ?? `said ${after.verdict}`}.`}
 				</span>
 			)}
 		</li>

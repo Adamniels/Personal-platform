@@ -203,3 +203,9 @@
 	font-size: var(--text-mono-size);
 	line-height: var(--text-mono-line);
 }
+
+/* The owner's own words, as he wrote them, his line breaks kept. */
+.said {
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
