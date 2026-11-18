@@ -3,6 +3,8 @@ using System.Globalization;
 using System.Text;
 using System.Text.Json;
 
+using DevFlow.Protocol;
+
 namespace DevFlow.Jobs;
 
 /// <summary>
@@ -18,7 +20,8 @@ public static class Storable
     public const char Replacement = (char)0xFFFD;
 
     /// <summary><paramref name="result"/> with every text and JSON it carries made storable. Its
-    /// branch and head commit are compared or checked against a rule, so they stay as they came.</summary>
+    /// branch, head commit and pictures' names are compared or checked against a rule, so they stay
+    /// as they came.</summary>
     public static RunResult Result(RunResult result)
     {
         ArgumentNullException.ThrowIfNull(result);
@@ -31,6 +34,9 @@ public static class Storable
             Usage = Json(result.Usage),
             PermissionDenials = result.PermissionDenials is { } denials ? Json(denials) : null,
             Stderr = Text(result.Stderr),
+            Screenshots = result.Screenshots is { } screenshots
+                ? screenshots with { Note = screenshots.Note is { } note ? Text(note) : null }
+                : null,
         };
     }
 

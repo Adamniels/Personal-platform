@@ -23,6 +23,8 @@ namespace DevFlow.Jobs;
 /// <param name="CheckOutput">The last lines of its output, null when it did not run.</param>
 /// <param name="PermissionDenials">The actions the agent was refused, an array as Claude Code
 /// listed them, null when the worker sent none.</param>
+/// <param name="Screenshots">A build's pictures, their names and the worker's note, null when none
+/// were tried.</param>
 public sealed record RunResult(
     bool Succeeded,
     JsonElement? Report,
@@ -36,7 +38,8 @@ public sealed record RunResult(
     JsonElement Usage,
     long DurationMs,
     string Stderr,
-    JsonElement? PermissionDenials = null);
+    JsonElement? PermissionDenials = null,
+    ResultScreenshots? Screenshots = null);
 
 /// <summary>How a run ended and what it does to its card: the run's <c>result</c>, the reason,
 /// and the state the card moves to.</summary>
@@ -250,7 +253,8 @@ public static class RunStore
                     usage = @usage::jsonb, input_tokens = @inputTokens, output_tokens = @outputTokens,
                     cache_creation_input_tokens = @cacheCreation, cache_read_input_tokens = @cacheRead,
                     cost_usd = @cost, turns = @turns, duration_ms = @durationMs, stderr = @stderr,
-                    permission_denials = @permissionDenials::jsonb
+                    permission_denials = @permissionDenials::jsonb,
+                    screenshots = @screenshots::jsonb, screenshots_note = @screenshotsNote
                 WHERE id = @runId
                 """,
                 new
@@ -274,6 +278,9 @@ public static class RunStore
                     durationMs = result.DurationMs,
                     stderr = Tail(result.Stderr),
                     permissionDenials = result.PermissionDenials?.GetRawText(),
+                    // A review takes none; only a build's are kept.
+                    screenshots = !review && result.Screenshots is { Names: { } names } ? JsonSerializer.Serialize(names) : null,
+                    screenshotsNote = review ? null : result.Screenshots?.Note,
                 },
                 transaction,
                 cancellationToken: cancellationToken));

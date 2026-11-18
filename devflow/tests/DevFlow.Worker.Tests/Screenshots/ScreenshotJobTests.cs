@@ -96,6 +96,58 @@ public sealed class ScreenshotJobTests
     }
 
     [Fact]
+    public async Task TheyGoToPrScreenshots()
+    {
+        // pr-screenshots holds another card's pictures; while this job's are taken, someone pushes
+        // more there, so the first push is refused and the worker fetches it and tries once more.
+        await using var bench = await Bench.Start(start: Start, url: Url, before: bench => Pictures(bench, "devflow/7/1234567/home-desktop.png"));
+        bench.Starter.OnStart = _ => Pictures(bench, "devflow/8/89abcde/home-phone.png");
+        var mainBefore = await bench.RemoteHead("main");
+
+        var job = await bench.RunJob(Agent(Report("/habits")));
+
+        var head = (await bench.RemoteHead())!;
+        var folder = $"devflow/1/{head[..7]}";
+        var tip = (await bench.RemoteHead(PageShots.Branch))!;
+        var files = (await Bench.Git(bench.Remote, "ls-tree", "-r", "--name-only", tip)).Split('\n');
+        Assert.Equal([$"{folder}/habits-desktop.png", $"{folder}/habits-phone.png", "devflow/7/1234567/home-desktop.png", "devflow/8/89abcde/home-phone.png"], files.Order(StringComparer.Ordinal));
+
+        // Each picture as Playwright wrote it.
+        Assert.Equal(Camera.Png, Blob(bench, $"{tip}:{folder}/habits-desktop.png"));
+        Assert.Equal(Camera.Png, Blob(bench, $"{tip}:{folder}/habits-phone.png"));
+
+        // On top of what was there, never forced: the commit someone else pushed is its parent, and
+        // its parent the first.
+        var parents = (await Bench.Git(bench.Remote, "rev-list", "--parents", "-n", "1", tip)).Split(' ');
+        Assert.Equal(2, parents.Length);
+        Assert.Contains("devflow/8/89abcde/home-phone.png", await Bench.Git(bench.Remote, "ls-tree", "-r", "--name-only", parents[1]), StringComparison.Ordinal);
+        // By the app's bot, as the job's other commits.
+        var committer = job.GetProperty("committer");
+        Assert.Equal(
+            $"{committer.GetProperty("name").GetString()} <{committer.GetProperty("email").GetString()}> Screenshots of #1 at {head[..7]}",
+            await Bench.Git(bench.Remote, "log", "-1", "--format=%cn <%ce> %s", tip));
+
+        // Never to the default branch.
+        Assert.Equal(mainBefore, await bench.RemoteHead("main"));
+        Assert.Equal(["habits-desktop", "habits-phone"], Names(Sent(bench)));
+        Assert.Contains($"The push to {PageShots.Branch} was refused, fetching it again", bench.Log.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task TheBranchIsMadeWhenTheRepositoryHasNone()
+    {
+        await using var bench = await Bench.Start(start: Start, url: Url);
+
+        await bench.RunJob(Agent(Report("/")));
+
+        var tip = (await bench.RemoteHead(PageShots.Branch))!;
+        // An orphan: one commit, with no parent, holding the pictures alone.
+        Assert.Equal(tip, await Bench.Git(bench.Remote, "rev-list", tip));
+        var head = (await bench.RemoteHead())!;
+        Assert.Equal($"devflow/1/{head[..7]}/home-desktop.png\ndevflow/1/{head[..7]}/home-phone.png", await Bench.Git(bench.Remote, "ls-tree", "-r", "--name-only", tip));
+    }
+
+    [Fact]
     public async Task NoStartMeansNoPictures()
     {
         await using var bench = await Bench.Start(start: "", url: "");
@@ -164,6 +216,7 @@ public sealed class ScreenshotJobTests
                 $"Screenshots could not be taken: /broken at desktop size: {Camera.Broken}; /broken at phone size: {Camera.Broken}; /big at desktop size: the picture is not a PNG of at most 5 MB; /big at phone size: the picture is not a PNG of at most 5 MB",
                 sent!["note"]!.GetValue<string>());
             Assert.Equal(2, bench.Probe.Asks);
+            Assert.NotNull(await bench.RemoteHead(PageShots.Branch));
             Assert.Equal("succeeded", (await bench.Run()).Result);
         }
     }
@@ -276,6 +329,45 @@ public sealed class ScreenshotJobTests
         Assert.Null(BuildJob.Address(Url, "/a\nb"));
         Assert.Null(BuildJob.Address("http://example.com", "/"));
         Assert.Null(BuildJob.Address("file:///etc/passwd", "/"));
+    }
+
+    /// <summary>Pushes a commit to pr-screenshots on the remote adding a file at
+    /// <paramref name="path"/>, as another job's pictures would.</summary>
+    private static async Task Pictures(Bench bench, string path)
+    {
+        var copy = Path.Combine(bench.Root, $"pictures-{Guid.NewGuid():N}");
+        var exists = await bench.RemoteHead(PageShots.Branch) is not null;
+        if (exists)
+        {
+            await Bench.Git(bench.Root, "clone", "--quiet", "--branch", PageShots.Branch, bench.Remote, copy);
+        }
+        else
+        {
+            await Bench.Git(bench.Root, "init", "--quiet", $"--initial-branch={PageShots.Branch}", copy);
+        }
+
+        Directory.CreateDirectory(Path.GetDirectoryName(Path.Combine(copy, path))!);
+        await File.WriteAllBytesAsync(Path.Combine(copy, path), Camera.Png, Ct);
+        await Bench.Git(copy, "add", "--", path);
+        await Bench.Git(copy, [.. Bench.Someone, "commit", "--quiet", "-m", $"Pictures {path}"]);
+        await Bench.Git(copy, "push", "--quiet", bench.Remote, PageShots.Branch);
+    }
+
+    /// <summary>The bytes of the blob <paramref name="name"/> names in the remote.</summary>
+    private static byte[] Blob(Bench bench, string name)
+    {
+        var start = new System.Diagnostics.ProcessStartInfo("git") { WorkingDirectory = bench.Remote, RedirectStandardOutput = true };
+        foreach (var argument in new[] { "cat-file", "blob", name })
+        {
+            start.ArgumentList.Add(argument);
+        }
+
+        using var git = System.Diagnostics.Process.Start(start)!;
+        using var memory = new MemoryStream();
+        git.StandardOutput.BaseStream.CopyTo(memory);
+        git.WaitForExit();
+        Assert.Equal(0, git.ExitCode);
+        return memory.ToArray();
     }
 
     private static bool Alive(int pid)

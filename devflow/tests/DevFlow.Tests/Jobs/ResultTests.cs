@@ -361,6 +361,11 @@ public sealed class ResultTests
     [InlineData("stderr", "null")]
     [InlineData("head_commit", "\"main\"")]
     [InlineData("failure", "{\"reason\": \"x\", \"in_card\": true}")]
+    [InlineData("screenshots", "{\"names\": [\"../habits-desktop\"], \"note\": null}")]
+    [InlineData("screenshots", "{\"names\": [\"habits\"], \"note\": null}")]
+    [InlineData("screenshots", "{\"names\": [\"habits-desktop\", \"habits-desktop\"], \"note\": null}")]
+    [InlineData("screenshots", "{\"names\": null, \"note\": \"x\"}")]
+    [InlineData("screenshots", "{\"names\": [], \"note\": \" \"}")]
     public async Task AResultThatBreaksARuleIsRefused(string field, string value)
     {
         var (jobs, id, branch) = await Handed();
@@ -391,6 +396,29 @@ public sealed class ResultTests
         // Its run ends, and the card goes; the run stays, for its usage.
         Assert.Equal(StatusCodes.Status204NoContent, (await jobs.Post(WorkerApi.ResultPath(id), Jobs.Result(Jobs.FirstWorker, branch))).Response.StatusCode);
         Assert.Empty(await jobs.Cards());
+        Assert.Equal("succeeded", Assert.Single(await jobs.Runs()).Result);
+    }
+
+    [Fact]
+    public async Task ABuildsPicturesAreKeptWithItsRun()
+    {
+        var (jobs, id, branch) = await Handed();
+        await using var _ = jobs;
+        var sent = Jobs.Result(Jobs.FirstWorker, branch);
+        sent["screenshots"] = new JsonObject
+        {
+            ["names"] = new JsonArray("habits-desktop", "habits-phone"),
+            ["note"] = "Screenshots could not be taken: /broken at desktop size: it took longer than 60 seconds",
+        };
+
+        var response = await jobs.Post(WorkerApi.ResultPath(id), sent);
+
+        Assert.Equal(StatusCodes.Status204NoContent, response.Response.StatusCode);
+        await using var admin = await jobs.Routes.Database.OpenAdmin(Jobs.Ct);
+        var (names, note) = await Dapper.SqlMapper.QuerySingleAsync<(string, string)>(admin, "SELECT screenshots::text, screenshots_note FROM runs");
+        Assert.Equal(["habits-desktop", "habits-phone"], JsonSerializer.Deserialize<string[]>(names)!);
+        Assert.Equal("Screenshots could not be taken: /broken at desktop size: it took longer than 60 seconds", note);
+        // The pictures decide nothing: the run succeeded by its check.
         Assert.Equal("succeeded", Assert.Single(await jobs.Runs()).Result);
     }
 }

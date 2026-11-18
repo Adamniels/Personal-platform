@@ -65,6 +65,10 @@ internal sealed partial class BuildJob
         try
         {
             var (pictures, failures) = await Take(job, paths, head, pages, stopping);
+            if (pictures.Count > 0)
+            {
+                await PushPictures(job, paths, head, pictures, stopping);
+            }
 
             return new ResultScreenshots(
                 [.. pictures.Select(picture => picture.Name)],
@@ -270,6 +274,110 @@ internal sealed partial class BuildJob
 
         var bytes = Encoding.Latin1.GetBytes(read.Stdout);
         return bytes.Length <= MostBytes && bytes.AsSpan().StartsWith(PngSignature) ? bytes : null;
+    }
+
+    /// <summary>
+    /// Root commits the pictures to <see cref="PageShots.Branch"/> in its own repository, under
+    /// <see cref="PageShots.Folder"/>, on top of the branch as the clone found it, or as a first
+    /// commit when it has none; and pushes that commit with a fresh push key, never with force.
+    /// When the push is refused, the branch is fetched again and the commit made once more on top.
+    /// </summary>
+    private async Task PushPictures(Job job, JobPaths paths, string head, List<(string Name, byte[] Bytes)> pictures, CancellationToken stopping)
+    {
+        var folder = PageShots.Folder(job.Card.Number, head);
+        var blobs = new List<(string Path, string Blob)>();
+        var file = Path.Combine(paths.Secret, "picture.png");
+        foreach (var (name, bytes) in pictures)
+        {
+            await File.WriteAllBytesAsync(file, bytes, stopping);
+            var written = await Git.AsRoot(paths, ["hash-object", "-w", "--", file], stopping);
+            if (written.ExitCode != 0)
+            {
+                throw new StepFailed(FailureSide.OutsideCard, $"a picture could not be stored: {Said(written.Stderr)}");
+            }
+
+            blobs.Add(($"{folder}/{name}.png", written.Stdout.Trim()));
+        }
+
+        var (credential, why) = await FreshKey(job, stopping);
+        if (credential is null)
+        {
+            throw new StepFailed(FailureSide.OutsideCard, $"Dev flow gave no fresh push key ({why}), so they were not pushed");
+        }
+
+        var parent = await Commit(paths, PageShots.Branch, stopping);
+        for (var attempt = 1; ; attempt++)
+        {
+            var commit = await PicturesCommit(job, paths, head, parent, blobs, stopping);
+            var push = await Git.AsRoot(paths, ["push", "--quiet", "--porcelain", "origin", $"{commit}:refs/heads/{PageShots.Branch}"], stopping, credential);
+            if (push.ExitCode == 0)
+            {
+                Log.Write($"Pushed {pictures.Count} pictures to {PageShots.Branch} at {folder}.");
+                return;
+            }
+
+            var refused = credential.Scrub(Said($"{push.Stdout}\n{push.Stderr}"));
+            if (attempt == 2)
+            {
+                throw new StepFailed(FailureSide.OutsideCard, $"the push to {PageShots.Branch} was refused: {refused}");
+            }
+
+            // The branch moved since the clone, most likely another job's pictures: fetched again,
+            // and the commit made once more on top of where it is now.
+            Log.Write($"The push to {PageShots.Branch} was refused, fetching it again: {refused}");
+            parent = await RemotePictures(paths, credential, stopping);
+        }
+    }
+
+    /// <summary>A commit of the pictures on top of <paramref name="parent"/>, or with no parent,
+    /// made with an index file of root's own in the job's folder of secrets, so nothing is checked
+    /// out; the app's bot is its author and committer.</summary>
+    private async Task<string> PicturesCommit(Job job, JobPaths paths, string head, string? parent, List<(string Path, string Blob)> blobs, CancellationToken stopping)
+    {
+        var index = Path.Combine(paths.Secret, "pictures.index");
+        File.Delete(index);
+        await Root(paths, ["read-tree", parent ?? "--empty"], FailureSide.OutsideCard, "the pictures' branch could not be read", stopping, index: index);
+        foreach (var (path, blob) in blobs)
+        {
+            await Root(paths, ["update-index", "--add", "--cacheinfo", $"100644,{blob},{path}"], FailureSide.OutsideCard, "a picture could not be added", stopping, index: index);
+        }
+
+        var tree = await Git.AsRoot(paths, ["write-tree"], stopping, index: index);
+        if (tree.ExitCode != 0)
+        {
+            throw new StepFailed(FailureSide.OutsideCard, $"the pictures could not be written: {Said(tree.Stderr)}");
+        }
+
+        var message = string.Create(CultureInfo.InvariantCulture, $"Screenshots of #{job.Card.Number} at {head[..7]}");
+        string[] who = ["-c", $"user.name={job.Committer.Name}", "-c", $"user.email={job.Committer.Email}"];
+        var made = await Git.AsRoot(paths, [.. who, "commit-tree", tree.Stdout.Trim(), .. parent is null ? Array.Empty<string>() : ["-p", parent], "-m", message], stopping);
+        if (made.ExitCode != 0)
+        {
+            throw new StepFailed(FailureSide.OutsideCard, $"the pictures could not be committed: {Said(made.Stderr)}");
+        }
+
+        return made.Stdout.Trim();
+    }
+
+    /// <summary>Where <see cref="PageShots.Branch"/> is on the code host now, fetched into root's
+    /// repository; null when the code host has no such branch.</summary>
+    private async Task<string?> RemotePictures(JobPaths paths, PushCredential credential, CancellationToken stopping)
+    {
+        var listed = await Git.AsRoot(paths, ["ls-remote", "--heads", "origin", $"refs/heads/{PageShots.Branch}"], stopping, credential);
+        if (listed.ExitCode != 0)
+        {
+            throw new StepFailed(FailureSide.OutsideCard, $"{PageShots.Branch} could not be read again: {credential.Scrub(Said(listed.Stderr))}");
+        }
+
+        if (listed.Stdout.Trim().Length == 0)
+        {
+            return null;
+        }
+
+        await Root(paths, ["fetch", "--quiet", "--no-tags", "origin", $"refs/heads/{PageShots.Branch}"], FailureSide.OutsideCard, $"{PageShots.Branch} could not be fetched again", stopping, credential);
+        return await Git.AsRoot(paths, ["rev-parse", "--verify", "--quiet", "FETCH_HEAD^{commit}"], stopping) is { ExitCode: 0 } fetched
+            ? fetched.Stdout.Trim()
+            : throw new StepFailed(FailureSide.OutsideCard, $"{PageShots.Branch} has no commit after the fetch");
     }
 
     /// <summary>The note for pictures that could not be taken, cut to what a result keeps.</summary>
