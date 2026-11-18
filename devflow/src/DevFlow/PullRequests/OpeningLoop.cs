@@ -1,20 +1,23 @@
 using Dapper;
 
+using DevFlow.Reviews;
+
 using PlatformData;
 
 namespace DevFlow.PullRequests;
 
 /// <summary>
-/// The loop that opens built cards' pull requests: as it starts and then once every
-/// <c>DEVFLOW_POLL_SECONDS</c>, the same minute the reading loop keeps, it lists
+/// The loop that opens built cards' pull requests and posts their reviews: as it starts and then
+/// once every <c>DEVFLOW_POLL_SECONDS</c>, the same minute the reading loop keeps, it lists
 /// <c>poll_targets</c>, the one thing it reads outside a user, and asks
-/// <see cref="PullRequestOpener"/> to open each project's as that project's user. A worker's result
-/// is answered without waiting for GitHub, so its card's pull request opens here, within a minute,
-/// and one GitHub did not answer for is tried again. Its own loop rather than the reading loop's,
+/// <see cref="PullRequestOpener"/> to open each project's as that project's user, then
+/// <see cref="ReviewPoster"/> to post each recorded verdict's copy. A worker's result is answered
+/// without waiting for GitHub, so its card's pull request opens here, and its review's comment is
+/// posted here, within a minute, and one GitHub did not answer for is tried again. Its own loop rather than the reading loop's,
 /// since the reading code can never reach a write key. Not run with <c>DEVFLOW_POLL_SECONDS=0</c>.
 /// See "The pull request Dev flow opens" in devflow/README.md.
 /// </summary>
-public sealed partial class OpeningLoop(UserDb database, PullRequestOpener opener, TimeProvider time, TimeSpan interval, ILogger<OpeningLoop> log) : BackgroundService
+public sealed partial class OpeningLoop(UserDb database, PullRequestOpener opener, ReviewPoster poster, TimeProvider time, TimeSpan interval, ILogger<OpeningLoop> log) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -32,8 +35,8 @@ public sealed partial class OpeningLoop(UserDb database, PullRequestOpener opene
         }
     }
 
-    /// <summary>Every target's pull requests opened, one project after another, each in its own
-    /// <c>try</c>, so one project's failure never stops another's.</summary>
+    /// <summary>Every target's pull requests opened and reviews posted, one project after
+    /// another, each in its own <c>try</c>, so one project's failure never stops another's.</summary>
     private async Task Tick(CancellationToken stoppingToken)
     {
         IEnumerable<Target> targets;
@@ -55,6 +58,7 @@ public sealed partial class OpeningLoop(UserDb database, PullRequestOpener opene
             try
             {
                 await opener.OpenPending(target.ProjectId, target.UserId, stoppingToken);
+                await poster.PostPending(target.ProjectId, target.UserId, stoppingToken);
             }
             catch (Exception failed) when (failed is not OperationCanceledException || !stoppingToken.IsCancellationRequested)
             {

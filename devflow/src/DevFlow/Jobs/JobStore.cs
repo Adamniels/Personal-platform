@@ -66,17 +66,16 @@ public static class JobStore
         """;
 
     /// <summary>What makes a card one to review, as SQL over <c>cards</c>: reviewing, with its pull
-    /// request open, picked with its body kept, no run under way, and a head commit no review that
-    /// succeeded was for.</summary>
+    /// request open, picked with its body kept, no run under way, and a head commit no kept review
+    /// is for.</summary>
     private const string Reviewable = $"""
         cards.project_id = @projectId AND cards.state = 'reviewing' AND cards.pull_request_number IS NOT NULL
         AND cards.picked_body IS NOT NULL
         AND NOT EXISTS (SELECT 1 FROM runs
                         WHERE runs.project_id = cards.project_id AND runs.card_number = cards.number AND runs.finished_at IS NULL)
         AND {HeadOf} IS NOT NULL
-        AND NOT EXISTS (SELECT 1 FROM runs v
-                        WHERE v.project_id = cards.project_id AND v.card_number = cards.number AND v.kind = 'review'
-                          AND v.result = 'succeeded' AND v.head_commit = {HeadOf})
+        AND NOT EXISTS (SELECT 1 FROM reviews v
+                        WHERE v.project_id = cards.project_id AND v.card_number = cards.number AND v.reviewed_commit = {HeadOf})
         """;
 
     /// <summary>

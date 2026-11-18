@@ -5,6 +5,7 @@ using Dapper;
 
 using DevFlow.Protocol;
 using DevFlow.PullRequests;
+using DevFlow.Reviews;
 
 using Npgsql;
 
@@ -276,6 +277,13 @@ public static class RunStore
                 },
                 transaction,
                 cancellationToken: cancellationToken));
+            // A verdict in its form is kept for the commit the worker reviewed, the run's, in the
+            // same transaction as its result, and is the only way Dev flow learns one.
+            if (review && ending.Result == "succeeded" && ReviewVerdict.TryRead(result.Report!.Value, out var verdict, out _))
+            {
+                await ReviewStore.Record(transaction, projectId, userId, run.CardNumber, runId, run.HeadCommit!, verdict, now, cancellationToken);
+            }
+
             // A card put back in the queue says nothing, as one never started does; the next read
             // gives it its reason, if it waits for something.
             var cardReason = ending.CardState switch

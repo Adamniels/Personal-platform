@@ -5,6 +5,7 @@ using DevFlow.CodeHost;
 using DevFlow.Protocol;
 using DevFlow.PullRequests;
 using DevFlow.Recipes;
+using DevFlow.Reviews;
 using DevFlow.Workers;
 
 using Microsoft.AspNetCore.Http.HttpResults;
@@ -64,6 +65,7 @@ public static class FakeWorkerEndpoints
         [FromServices] WorkerStart start,
         [FromServices] UserDb database,
         [FromServices] PullRequestOpener opener,
+        [FromServices] ReviewPoster poster,
         [FromServices] TimeProvider time)
     {
         var cancellationToken = context.RequestAborted;
@@ -101,6 +103,8 @@ public static class FakeWorkerEndpoints
             // A review reads the commit it was handed and changes nothing.
             var reviewed = prepared with { WorkerId = WorkerId, Branch = job.Branch, HeadCommit = prepared.Outcome == ResultRequest.Succeeded ? toReview.Commit : null };
             await JobEndpoints.Complete(database, caller, job.JobId, WorkerId, JobEndpoints.Read(reviewed)!, now, cancellationToken);
+            // Its copy is posted on the next minute for a real worker; the fake worker waits for it.
+            await poster.PostPending(projectId, userId, cancellationToken);
             return TypedResults.Ok(new FakeWorkerRan(job.JobId, job.Kind, job.Card.Number, job.Branch, toReview.Commit));
         }
 

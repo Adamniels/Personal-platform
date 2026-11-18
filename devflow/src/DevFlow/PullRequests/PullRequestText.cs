@@ -169,7 +169,7 @@ public static partial class PullRequestText
     /// <summary>A code span of <paramref name="text"/> made one line, fenced with one backtick more
     /// than its longest run of them, and padded when it begins or ends with one, as CommonMark
     /// reads a code span.</summary>
-    private static string Code(string text)
+    internal static string Code(string text)
     {
         var line = OneLine(text);
         var longest = 0;
