@@ -178,7 +178,6 @@ public static class CardStore
         _ => throw new ArgumentOutOfRangeException(nameof(verdict), verdict, "not a verdict"),
     };
 
-    /// <summary>A card as listed, set by property, as <see cref="StoredCard"/> is.</summary>
     /// <summary>Why a card whose pull request was closed without merging is stopped.</summary>
     public const string PullRequestClosed = "The pull request was closed";
 
@@ -233,6 +232,7 @@ public static class CardStore
             cancellationToken: cancellationToken));
     }
 
+    /// <summary>A card as listed, set by property, as <see cref="StoredCard"/> is.</summary>
     private sealed class ListedCard
     {
         public int Number { get; init; }
