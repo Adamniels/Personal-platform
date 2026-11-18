@@ -105,6 +105,13 @@ public sealed record OwnItem(
 /// <param name="Commit">The commit it ran on, the pull request's head as built.</param>
 public sealed record CardCheck(string? Command, int ExitCode, string Commit);
 
+/// <summary>The reviewer's verdict on a card's head commit, as Dev flow kept it.</summary>
+/// <param name="Verdict"><c>approve</c> or <c>changes</c>.</param>
+/// <param name="Summary">What the reviewer found, as text.</param>
+/// <param name="Blocking">How many of its findings block the card.</param>
+/// <param name="Commit">The commit it is for, the card's head.</param>
+public sealed record CardItemReview(string Verdict, string Summary, int Blocking, string Commit);
+
 /// <summary>A card of Dev flow's own whose pull request waits for the owner, read from its own
 /// tables beside the runner's items: the card, its pull request, what its report says, and the
 /// check Dev flow ran. Every text came from the code host or the agent, and is shown as text.</summary>
@@ -124,6 +131,7 @@ public sealed record CardCheck(string? Command, int ExitCode, string Commit);
 /// <param name="Check">The check Dev flow ran.</param>
 /// <param name="CanMerge">Whether Merge is offered: false while the project is stopped.</param>
 /// <param name="ChangedAt">When the card came to wait.</param>
+/// <param name="Review">The reviewer's verdict on its head commit, null when it has none.</param>
 public sealed record CardItem(
     Guid ProjectId,
     string ProjectName,
@@ -140,7 +148,8 @@ public sealed record CardItem(
     int OtherDecisions,
     CardCheck Check,
     bool CanMerge,
-    DateTimeOffset ChangedAt);
+    DateTimeOffset ChangedAt,
+    CardItemReview? Review);
 
 /// <summary>What <c>GET /devflow/api/waiting</c> answers.</summary>
 /// <param name="Count">The items not sent back, Dev flow's own items and cards, and one more when
@@ -210,11 +219,15 @@ public sealed class WaitingStore(UserDb database, TimeProvider time)
                        c.pull_request_url AS PullRequestUrl, r.head_commit AS HeadCommit, r.base AS Base, r.report::text AS Report,
                        r.check_command AS CheckCommand, r.check_exit_code AS CheckExitCode,
                        NOT EXISTS (SELECT 1 FROM project_stops s WHERE s.project_id = c.project_id) AS CanMerge,
-                       c.changed_at AS ChangedAt
+                       c.changed_at AS ChangedAt, v.verdict AS Verdict, v.summary AS VerdictSummary,
+                       (SELECT count(*) FROM jsonb_array_elements(v.findings) f WHERE f->>'blocking' = 'true')::int AS Blocking
                 FROM cards c
                 JOIN projects p ON p.id = c.project_id
                 JOIN LATERAL (SELECT * FROM runs WHERE runs.project_id = c.project_id AND runs.card_number = c.number
                               AND runs.kind = 'build' AND runs.result = 'succeeded' ORDER BY started_at DESC, id DESC LIMIT 1) r ON true
+                LEFT JOIN LATERAL (SELECT * FROM reviews WHERE reviews.project_id = c.project_id AND reviews.card_number = c.number
+                                   AND reviews.reviewed_commit = r.head_commit
+                                   ORDER BY reviewed_at DESC, run_id DESC LIMIT 1) v ON true
                 WHERE c.state = 'waiting_for_owner' AND c.pull_request_number IS NOT NULL AND r.head_commit IS NOT NULL
                 ORDER BY lower(p.owner), lower(p.name), p.id, c.number
                 """,
@@ -275,7 +288,8 @@ public sealed class WaitingStore(UserDb database, TimeProvider time)
             decisions.Count(decision => !decision.ForOwner),
             new CardCheck(row.CheckCommand, row.CheckExitCode ?? 0, row.HeadCommit),
             row.CanMerge,
-            GitHubLink.Utc(row.ChangedAt));
+            GitHubLink.Utc(row.ChangedAt),
+            row.Verdict is { } verdict ? new CardItemReview(verdict, row.VerdictSummary?.Trim() ?? "", row.Blocking, row.HeadCommit) : null);
     }
 
     /// <summary>What the agent wrote, trimmed, or null when it wrote nothing.</summary>
@@ -377,7 +391,10 @@ public sealed class WaitingStore(UserDb database, TimeProvider time)
         string? CheckCommand,
         int? CheckExitCode,
         bool CanMerge,
-        DateTime ChangedAt);
+        DateTime ChangedAt,
+        string? Verdict,
+        string? VerdictSummary,
+        int Blocking);
 
     private sealed record StopRow(Guid ProjectId, string Name, string Owner, string Branch, string ActivityType, string? Actor, string Commit, DateTime LandedAt, DateTime StoppedAt);
 }

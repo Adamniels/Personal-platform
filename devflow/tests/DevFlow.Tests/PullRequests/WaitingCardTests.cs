@@ -55,6 +55,13 @@ public sealed class WaitingCardTests
         Assert.Equal(0, (int)check["exit_code"]!);
         Assert.Equal((string)ran["head_commit"]!, (string)check["commit"]!);
 
+        // The reviewer's verdict for its head: what it is, what it found and how much blocks.
+        var review = card["review"]!.AsObject();
+        Assert.Equal("approve", (string)review["verdict"]!);
+        Assert.Equal("The empty state is there and tested.", (string)review["summary"]!);
+        Assert.Equal(0, (int)review["blocking"]!);
+        Assert.Equal((string)ran["head_commit"]!, (string)review["commit"]!);
+
         // Merge is offered, as the owner's own action.
         Assert.True((bool)card["can_merge"]!);
 

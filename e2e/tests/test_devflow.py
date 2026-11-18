@@ -1581,13 +1581,18 @@ def _report() -> dict:
 
 
 def _built_card(
-    page: Page, base_url: str, devflow_world, verdict: dict | None = None
+    page: Page,
+    base_url: str,
+    devflow_world,
+    verdict: dict | None = None,
+    review: bool = True,
 ) -> tuple[str, dict]:
     """Connects a repository with one card the owner labelled and the project's
     .devflow/project.json, gives Dev flow a Claude login, reads the project so
     the card is picked, has the fake worker build it with a passing check, and
-    then review its pull request with `verdict`, an approve unless given. The
-    project's id and what the fake worker answered for the build."""
+    then review its pull request with `verdict`, an approve unless given, unless
+    `review` is false. The project's id and what the fake worker answered for
+    the build."""
     world = one_repository()
     add_issue(world, CARD, CARD_TITLE, labels=["devflow"])
     add_file(
@@ -1629,8 +1634,9 @@ def _built_card(
         headers={"Origin": base_url},
     )
     assert ran.status == 200, ran.text()
-    reviewed = _fake_review(page, base_url, project, verdict or _verdict("approve"))
-    assert reviewed["head_commit"] == ran.json()["head_commit"]
+    if review:
+        reviewed = _fake_review(page, base_url, project, verdict or _verdict("approve"))
+        assert reviewed["head_commit"] == ran.json()["head_commit"]
     return project, ran.json()
 
 
@@ -1855,6 +1861,113 @@ def test_a_cards_page_tells_its_story(
         check(page)
     assert _axe_violations(page) == []
     capture(page, "devflow-card-page")
+
+
+def test_a_built_card_is_reviewed(
+    page: Page, invite_code: str, base_url: str, viewport: str, devflow_world
+):
+    register_and_log_in(page, invite_code, base_url)
+    project, ran = _built_card(page, base_url, devflow_world, review=False)
+    commit = ran["head_commit"]
+    pull = _opened(page)
+
+    # Its pull request opened, so the card goes through Reviewing, the reviewer
+    # reading it next.
+    page.goto(f"/devflow/projects/{project}/cards/{CARD}")
+    expect(page.get_by_text("Reviewing", exact=True).first).to_be_visible()
+    expect(
+        page.get_by_text("Its pull request is open; the reviewer reads it next")
+    ).to_be_visible()
+
+    # The fake worker reviews it: changes, with two findings.
+    reviewed = _fake_review(
+        page,
+        base_url,
+        project,
+        _verdict(
+            "changes",
+            [
+                {
+                    "blocking": True,
+                    "file": "web/src/list.tsx",
+                    "line": 42,
+                    "what": "The empty state is read once",
+                    "why": "A list emptied later shows nothing",
+                },
+                {
+                    "blocking": False,
+                    "file": "web/src/list.css",
+                    "line": 3,
+                    "what": "A colour by hand",
+                    "why": "The tokens hold it",
+                },
+            ],
+        ),
+    )
+    assert reviewed["head_commit"] == commit
+
+    # The card's page shows the verdict for its commit, the findings and the
+    # reviewer's view of the owner's decision; the card waits for the owner.
+    page.reload()
+    expect(page.get_by_text("Waiting for you", exact=True).first).to_be_visible()
+    reviews = page.get_by_role("article", name="Reviews")
+    expect(reviews).to_contain_text(f"Review of {commit[:7]}")
+    expect(reviews.get_by_text("Changes asked for")).to_be_visible()
+    expect(reviews).to_contain_text("For the pull request's head")
+    expect(reviews).to_contain_text(
+        "The empty state shows on an empty list only after a reload."
+    )
+    findings = reviews.get_by_role("list", name="Findings").get_by_role("listitem")
+    expect(findings).to_have_count(2)
+    expect(findings.first).to_contain_text(
+        "Blocking web/src/list.tsx:42 The empty state is read once"
+    )
+    expect(findings.first).to_contain_text("A list emptied later shows nothing")
+    expect(findings.nth(1)).to_contain_text("Not blocking web/src/list.css:3")
+    expect(reviews.get_by_role("list", name="For the owner")).to_contain_text(
+        "Agreed: the lists share one component."
+    )
+    runs = page.get_by_role("list", name="Runs").get_by_role("listitem")
+    expect(runs.first).to_contain_text("Review")
+    expect(runs.first).to_contain_text("Succeeded")
+
+    # The pull request in the fake world has the review's comment, by the app.
+    conversation = [
+        each
+        for each in repository(page.request.get("/devflow/api/fake/world").json())[
+            "conversations"
+        ]
+        if each["number"] == pull["number"]
+    ]
+    assert len(conversation) == 1, conversation
+    comments = conversation[0]["comments"]
+    assert len(comments) == 1, comments
+    assert comments[0]["author"] == APP_LOGIN
+    assert comments[0]["body"].startswith(f"Review of {commit[:7]}: changes\n")
+    assert (
+        "- **Blocking.** `web/src/list.tsx:42` The empty state is read once."
+        in comments[0]["body"]
+    )
+
+    # And on Waiting for you, the verdict on the commit.
+    page.goto("/devflow")
+    card = _waiting_card(page)
+    expect(card.get_by_role("heading", name="The review")).to_be_visible()
+    expect(card).to_contain_text("Changes asked for")
+    expect(card).to_contain_text("1 finding blocks it")
+
+    page.goto(f"/devflow/projects/{project}/cards/{CARD}")
+    expect(page.get_by_role("article", name="Reviews")).to_be_visible()
+    page.evaluate("document.fonts.ready.then(() => null)")
+    for check in (
+        assert_headings_are_capitals,
+        assert_nothing_scrolls_sideways,
+        assert_active_is_inverted,
+        assert_nothing_active_is_amber,
+    ):
+        check(page)
+    assert _axe_violations(page) == []
+    capture(page, "devflow-card-review")
 
 
 def test_a_card_page_of_no_project_is_not_found(

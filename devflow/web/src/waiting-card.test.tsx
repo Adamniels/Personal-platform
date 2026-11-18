@@ -39,6 +39,7 @@ function card(overrides: Partial<CardItem> = {}): CardItem {
 			},
 		],
 		other_decisions: 2,
+		review: null,
 		check: { command: "npm ci && npm test", exit_code: 0, commit: HEAD },
 		can_merge: true,
 		changed_at: "2026-11-18T11:55:00+00:00",
@@ -183,6 +184,44 @@ describe("a card of Dev flow's that waits", () => {
 		expect(link.getAttribute("rel")).toBe("noreferrer");
 		// Sending back waits for a part that can run it.
 		expect(shown.queryByRole("button", { name: "Send back" })).toBeNull();
+	});
+
+	test("shows the reviewer's verdict on its commit", async () => {
+		open([
+			card({
+				review: {
+					verdict: "changes",
+					summary: "The empty state shows only after a `reload`.",
+					blocking: 2,
+					commit: HEAD,
+				},
+			}),
+		]);
+
+		const shown = await item();
+		expect(shown.getByRole("heading", { name: "The review" })).toBeTruthy();
+		expect(shown.getByText("Changes asked for")).toBeTruthy();
+		expect(shown.getByText(/, 2 findings block it\./)).toBeTruthy();
+		expect(shown.getByText("reload").tagName).toBe("CODE");
+	});
+
+	test("an approve with nothing blocking says so, and no review says nothing", async () => {
+		open([
+			card({
+				review: { verdict: "approve", summary: "", blocking: 0, commit: HEAD },
+			}),
+			card({ number: 5, title: "Count the habits", pull_request_number: 8 }),
+		]);
+
+		const approved = await item();
+		expect(approved.getByText("Approved")).toBeTruthy();
+		expect(approved.queryByText(/block/)).toBeNull();
+		const unreviewed = within(
+			screen.getByRole("article", { name: "Count the habits" }),
+		);
+		expect(
+			unreviewed.queryByRole("heading", { name: "The review" }),
+		).toBeNull();
 	});
 
 	test("shows what the agent wrote as text", async () => {
