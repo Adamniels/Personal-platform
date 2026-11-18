@@ -1681,6 +1681,8 @@ git repository, by the job's committer, on top of the base branch when it has a 
 job with the prepared result through the same `RunStore.Record`. It answers
 `{"job_id", "card", "branch", "head_commit"}`, `204` when there is no job, `404` for a project the
 caller does not have, and `422` for a result that breaks a rule, checked before a job is taken.
+When the fake's git makes no commit, the job ends instead as a failure outside the card, "The
+fake's git made no commit on the job's branch", so the card is `queued` again, and it answers `503`.
 
 **The table**, from `migrations/0012_runs.sql`, guarded like every scoped table: `runs`, `id`,
 `project_id` and `user_id` referencing `projects`, `card_number`, by number so a removed card leaves

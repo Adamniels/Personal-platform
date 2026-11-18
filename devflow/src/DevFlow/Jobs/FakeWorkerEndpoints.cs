@@ -40,6 +40,9 @@ public static class FakeWorkerEndpoints
     /// <summary>Its name, as its project's workers list it.</summary>
     public const string Name = "devflow-fake-worker";
 
+    /// <summary>Why a job ends when the fake's git made no commit on its branch.</summary>
+    public const string NoCommit = "The fake's git made no commit on the job's branch";
+
     public static IEndpointRouteBuilder MapFakeWorker(this IEndpointRouteBuilder routes)
     {
         ArgumentNullException.ThrowIfNull(routes);
@@ -89,11 +92,16 @@ public static class FakeWorkerEndpoints
 
         var message = string.Create(CultureInfo.InvariantCulture, $"Build #{job.Card.Number}, by the fake worker");
         var commit = await fake.CommitOnBranch(userId, repository, job.Branch, job.Base, message, new Committer(job.Committer.Name, job.Committer.Email), cancellationToken);
-        var sent = prepared with { WorkerId = WorkerId, Branch = job.Branch, HeadCommit = commit };
+        // With no commit the chain did not get as far as the prepared result says, so the job ends
+        // as a failure outside the card instead: the card goes back to queued, as it would for a
+        // real worker whose push failed, rather than moving on with nothing on its branch.
+        var sent = commit is null
+            ? prepared with { WorkerId = WorkerId, Outcome = ResultRequest.Failed, Report = null, Failure = new RunFailure(NoCommit, false), Check = null, Branch = job.Branch, HeadCommit = null }
+            : prepared with { WorkerId = WorkerId, Branch = job.Branch, HeadCommit = commit };
         var now = time.GetUtcNow();
         await JobEndpoints.Complete(database, caller, job.JobId, WorkerId, JobEndpoints.Read(sent)!, now.AddTicks(-(now.Ticks % 10)), cancellationToken);
         return commit is null
-            ? TypedResults.Problem(statusCode: StatusCodes.Status503ServiceUnavailable, title: "The fake's git failed", detail: "the job ran, but no commit was made on its branch")
+            ? TypedResults.Problem(statusCode: StatusCodes.Status503ServiceUnavailable, title: "The fake's git failed", detail: "no commit was made on the job's branch, so the job ended as a failure outside the card and the card is queued again")
             : TypedResults.Ok(new FakeWorkerRan(job.JobId, job.Card.Number, job.Branch, commit));
     }
 
