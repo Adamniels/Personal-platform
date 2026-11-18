@@ -62,7 +62,10 @@ card's pull request waits for the owner, and lists its cards: each read of the p
 open issues he wrote that carry the pick-up label, and each card shows as queued, held, waiting for
 what blocks it, or ignored with why, see "Cards" below. A worker asking for work is handed the
 next queued card with a brief written for it, and what it sends back is recorded on the run and
-moves the card on, see "Handing out work" below; nothing yet opens a pull request from it.
+moves the card on, see "Handing out work" below. A card that built and passed its check gets its
+pull request, opened as the app, and waits for the owner on "Waiting for you", where he merges it as
+himself; each card has a page with its whole story so far, see "How a card reaches its pull
+request" below.
 
 Every read of a project also watches its default branch: anything that lands there that neither
 Dev flow merged nor the owner put there himself stops the project, which then hands out no work and
@@ -388,7 +391,10 @@ so a run already under way is still checked against what was picked.
 
 **Taking the label off** removes a card that has not started. One whose run is under way is marked
 unlabelled and finishes its run, and the part that ends a run removes it then; one that has
-finished, done or stopped, is removed.
+finished, done or stopped, is removed, but a done card with its pull request. That one is kept
+whenever it is no longer listed, since its pull request's `Closes` line closed its issue as it
+merged, which takes it off the list exactly as taking the label off would, and the two cannot be
+told apart from the list; the card is the story of what was built, and its page needs it.
 
 **The order** in which queued cards free to start are handed out is `CardStore.Queue`:
 `priority: high`, then no priority label, then `priority: low`, each oldest first by when the issue
@@ -663,6 +669,56 @@ drives handing out, the result and what later parts build on it without a contai
 **A stopped project**, or one whose default branch has not been read for five minutes, hands out
 nothing, ahead of everything above, and the transaction that takes the card reads that again under
 the project's lock, see "Watching the default branch" below.
+
+## How a card reaches its pull request
+
+A card whose run built it, with a report in its form and a check that exited 0, gets a pull request
+of its own, from its branch into the default branch it was built on, as the spec's round 2 has
+every card, and the owner reads it as he reads the runner's. The routes, the body and the page are
+"The pull request Dev flow opens" and "A card's page" in `devflow/README.md`.
+
+**Opened as the app, outside the reads.** Opening is one of the program's own writes, so it is made
+with a `Post` key, see "The program's own writes" above, and traced back to the card and the run by
+the body's last line, as the spec's round 4 asks of its trail on GitHub. It lives in
+`PullRequests/`, a loop of its own on the reads' minute, rather than in the reading code, which can
+never reach a write key. And it is not made in the worker's result route: the worker gives up on a
+call after 30 seconds and GitHub may take 20 for each of the three requests opening needs, so the
+result is recorded and answered, and the pull request opens within the minute.
+
+**Opening twice opens one.** Nothing is held while GitHub answers, as for handing out work: the
+opener reads what waits, asks GitHub, and records the pull request only while the card still waits
+for one. Before it opens, it looks for the app's own open pull request from that branch into that
+base and reuses it, so an opening whose answer was lost, or one at the same moment, never leaves a
+second; GitHub refuses a second from the same branch anyway. One by anyone else is never taken for
+the card's: a pull request from a fork can carry the same branch name.
+
+**The body is the templates' layout**, `.claude/skills/pick-up-slice/templates.md`'s Summary with
+its `Closes` line, Tasks, Decisions the agent made, Verification and Follow ups, as the feature
+keeps of this repository's runner, with Verification saying what Dev flow ran itself rather than
+what the agent says, since the report decides nothing. Everything in it but the check and Dev
+flow's own words is the agent's, and data, see the security entry below.
+
+**The card follows its pull request** on each read of its project, in the read's transaction: a
+pull request still in the list of open ones costs nothing, and only one that left it is read on
+its own. Merged by anyone, on GitHub or from the page, is done; closed without merging is stopped.
+In this part every such card waits for the owner, whatever the project's `waits_for_owner` says,
+since there is no review yet to wait for instead; part 3's review, fixing and merge check replace
+that.
+
+**The waiting list reads Dev flow's own cards beside the runner's.** The runner's items are read
+from its pull requests on GitHub, by its labels and verdicts, see "Reading this repository's
+runner"; Dev flow's cards are its own rows, so the list reads them from its tables, as it reads a
+stopped project, and never asks GitHub. Both show under "Pull requests waiting" and count the same,
+in the tab, the nav's dot and the front page. The owner merges a card as himself, with his linked
+token, as he merges an item, naming the commit its run built and Dev flow's check passed on, so a
+pull request someone pushed to since is refused; GitHub records it as his, and the watch on the
+default branch finds a change by his login fine. A card of a stopped project is not merged, since
+nothing a stopped project produced is merged until he resumes it. Sending back waits for part 3,
+which has a fix run to send it to.
+
+**A card's page is its whole story**, round 7 of the spec: its runs, newest first, with what each
+cost and why each ended, and the latest report, read from what Dev flow stored, so it answers while
+GitHub is away.
 
 ## Watching the default branch
 
@@ -1027,6 +1083,21 @@ its reason, or a risk accepted on purpose; each slice adds the ones it builds.
   as the project's `CLAUDE.md` is. No comment, pull request or other issue is put in a brief.
 - **The report decides nothing.** A run succeeds by the check's exit code, which the worker runs
   itself, and never by what the agent says; a report that does not match its form stops the card.
+- **The report's text cannot add a section or close an issue.** A card's pull request body is
+  written from the agent's report, which is data, and GitHub acts on a body: a `Closes` line closes
+  an issue when the pull request merges, an `@` mention notifies a person, and HTML, a comment
+  among it, can hide what follows. So every text from the report is made one line, so it begins no
+  heading, fence, quote or table; `&`, `<` and `>` become entities; its backticks are escaped, so
+  the only code spans are Dev flow's; a leading `#` is escaped; a closing keyword followed by an
+  issue has the keyword put in a code span, so it closes nothing; and a mention is put in a code
+  span, so the app notifies nobody. The body's five sections and its one `Closes` line are Dev
+  flow's. `PullRequestTests.TextFromTheReportCannotBreakTheBody` and `EachTextIsMadeData` hold it.
+  Accepted: the check, shown in a code span as it is, is the project's own, from its default branch,
+  as the brief's check is; and a link in the agent's text stays a link on GitHub, as one in a
+  comment would.
+- **The app reuses only its own pull request.** A pull request from the card's branch by anyone
+  else, a fork's with the same branch name among them, is never taken for the card's, so nobody can
+  have the owner merge their commits as the card's.
 - **Push keys before the watch.** The push key can reach `main`, and the watch on the default branch,
   the slice "Watching main", is what catches a push that Dev flow did not make. "Handing out work"
   landed while that one was still in review, so for that time `jobs/next` hands out push keys with
