@@ -19,7 +19,7 @@ public sealed record RunCheck(int ExitCode, string Output);
 
 /// <summary>One run of a card, as its page shows it. Every text from a worker or an agent is shown
 /// as text.</summary>
-/// <param name="Kind"><c>build</c> or <c>review</c>.</param>
+/// <param name="Kind"><c>build</c>, <c>review</c> or <c>fix</c>.</param>
 /// <param name="Worker">The name the worker said hello with, its container's hostname.</param>
 /// <param name="StartedAt">When it was handed out.</param>
 /// <param name="FinishedAt">When its result came back or it was found lost, null while it
@@ -83,8 +83,8 @@ public sealed record CardReview(
 /// <param name="Reason">Why it is there, null when there is nothing to say.</param>
 /// <param name="PullRequest">Its pull request, null before one was opened.</param>
 /// <param name="Runs">Every run, newest first.</param>
-/// <param name="Report">The latest report in its form, null when no run has handed one
-/// back.</param>
+/// <param name="Report">The latest report in its form, a build's or a fix's, null when no run
+/// has handed one back.</param>
 /// <param name="Reviews">Every review, newest first.</param>
 public sealed record CardStoryView(
     int Number,
@@ -146,9 +146,9 @@ public static class CardStory
                 transaction,
                 cancellationToken: cancellationToken))).ToList();
 
-            // The head is the commit the newest build that succeeded left, as a card's current review
-            // reads it; the runs are newest first.
-            var head = runs.FirstOrDefault(run => run is { Kind: Job.Build, Result: "succeeded" })?.HeadCommit;
+            // The head is the commit the newest build or fix that succeeded left, as a card's current
+            // review reads it; the runs are newest first.
+            var head = runs.FirstOrDefault(run => run is { Kind: Job.Build or Job.Fix, Result: "succeeded" })?.HeadCommit;
             var reviews = await ReviewStore.OfCard(transaction, projectId, number, cancellationToken);
             return new CardStoryView(
                 card.Number,
@@ -158,7 +158,7 @@ public static class CardStory
                 card.Reason,
                 card.PullRequestNumber is { } pull && card.PullRequestUrl is { } url ? new CardPullRequest(pull, url) : null,
                 [.. runs.Select(Run)],
-                runs.Where(run => run.Kind == Job.Build).Select(run => Read(run.Report)).FirstOrDefault(report => report is not null),
+                runs.Where(run => run.Kind is Job.Build or Job.Fix).Select(run => Read(run.Report)).FirstOrDefault(report => report is not null),
                 [.. reviews.Select(review => new CardReview(
                     review.RunId,
                     review.Commit,

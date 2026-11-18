@@ -109,6 +109,19 @@ public static class ReviewStore
         return [.. rows.Select(Kept)];
     }
 
+    /// <summary>The review its run <paramref name="runId"/> read, read inside
+    /// <paramref name="transaction"/>, which runs as the card's user; null when there is none.</summary>
+    public static async Task<KeptReview?> Of(NpgsqlTransaction transaction, Guid runId, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(transaction);
+        var row = await transaction.Connection!.QuerySingleOrDefaultAsync<ReviewRow>(new CommandDefinition(
+            $"SELECT {Columns} FROM reviews WHERE run_id = @runId",
+            new { runId },
+            transaction,
+            cancellationToken: cancellationToken));
+        return row is null ? null : Kept(row);
+    }
+
     /// <summary>The project's reviews whose copy waits to be posted, oldest first.</summary>
     public static async Task<IReadOnlyList<UnpostedReview>> Unposted(UserDb database, Guid userId, Guid projectId, CancellationToken cancellationToken)
     {

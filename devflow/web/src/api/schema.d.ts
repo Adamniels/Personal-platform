@@ -798,6 +798,7 @@ export interface components {
             push_key_expires_at: string;
             report_schema: components["schemas"]["JsonElement"];
             repository: components["schemas"]["JobRepository"];
+            to_fix?: null | components["schemas"]["JobFix"];
             to_review?: null | components["schemas"]["JobReview"];
         };
         JobCard: {
@@ -809,6 +810,11 @@ export interface components {
         JobCommitter: {
             email: string;
             name: string;
+        };
+        JobFix: {
+            commit: string;
+            /** Format: int32 */
+            round: null | number;
         };
         JobLimits: {
             /** Format: double */

@@ -3,6 +3,7 @@ using System.Text.Json;
 
 using Dapper;
 
+using DevFlow.Fixing;
 using DevFlow.Protocol;
 using DevFlow.PullRequests;
 using DevFlow.Reviews;
@@ -39,8 +40,9 @@ public sealed record RunResult(
     JsonElement? PermissionDenials = null);
 
 /// <summary>How a run ended and what it does to its card: the run's <c>result</c>, the reason,
-/// and the state the card moves to.</summary>
-public sealed record RunEnding(string Result, string? Reason, string CardState);
+/// the state the card moves to, and what the card says there when that is not the run's reason or
+/// the state's own line.</summary>
+public sealed record RunEnding(string Result, string? Reason, string CardState, string? CardReason = null);
 
 /// <summary>What recording a result comes to.</summary>
 public enum Recorded
@@ -95,10 +97,12 @@ public static class RunStore
     /// How a review's result ends its run, in this order: a failure outside the card puts the card
     /// back in <c>reviewing</c>, to be reviewed again; a failure in the card, or a verdict that does
     /// not match its form, which is a failure in the run and never a verdict, stops it with why;
-    /// anything else succeeded, and the card waits for the owner with its verdict, until fixing and
-    /// the merge check act on it.
+    /// anything else succeeded. Then <c>changes</c> moves the card to <c>fixing</c> for its next
+    /// round, or, with <paramref name="roundsUsed"/> already <see cref="FixRounds.Most"/>, stops it
+    /// with <see cref="FixRounds.UsedUp"/>; and <c>approve</c> has it wait for the owner with its
+    /// verdict, until the merge check acts on it.
     /// </summary>
-    public static RunEnding JudgeReview(RunResult result)
+    public static RunEnding JudgeReview(RunResult result, int roundsUsed = 0)
     {
         ArgumentNullException.ThrowIfNull(result);
         if (!result.Succeeded)
@@ -109,9 +113,47 @@ public static class RunStore
                 : new RunEnding("failed_outside_card", why, "reviewing");
         }
 
-        return ReviewVerdict.TryRead(result.Report ?? default, out _, out var error)
-            ? new RunEnding("succeeded", null, "waiting_for_owner")
-            : new RunEnding("report_invalid", Cut($"The verdict did not match its form: {error}"), "stopped");
+        if (!ReviewVerdict.TryRead(result.Report ?? default, out var verdict, out var error))
+        {
+            return new RunEnding("report_invalid", Cut($"The verdict did not match its form: {error}"), "stopped");
+        }
+
+        return verdict.Verdict != ReviewVerdictKind.Changes ? new RunEnding("succeeded", null, "waiting_for_owner")
+            : roundsUsed >= FixRounds.Most ? new RunEnding("succeeded", null, "stopped", FixRounds.UsedUp)
+            : new RunEnding("succeeded", null, "fixing", FixRounds.Asked(roundsUsed + 1));
+    }
+
+    /// <summary>
+    /// How a fix's result ends its run, in this order: a failure outside the card puts the card back
+    /// in <c>fixing</c>, to be fixed again in the same round; a failure in the card, a report that
+    /// does not match its form or that stopped, a branch left at <paramref name="fromCommit"/>, the
+    /// commit the fix was handed, which is <see cref="FixRounds.NoNewCommit"/>, and a check that did
+    /// not run or failed each stop it with why; anything else succeeded, and the card goes back to
+    /// <c>reviewing</c>, for a fresh review of its new head.
+    /// </summary>
+    public static RunEnding JudgeFix(RunResult result, string fromCommit)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        if (!result.Succeeded)
+        {
+            var why = Cut(result.FailureReason ?? "");
+            return result.FailureInCard
+                ? new RunEnding("failed_in_card", Cut($"The fix failed: {why}"), "stopped")
+                : new RunEnding("failed_outside_card", why, "fixing");
+        }
+
+        var built = Judge(result);
+        if (built.Result is "report_invalid" or "stopped")
+        {
+            return built;
+        }
+
+        if (result.HeadCommit is null || string.Equals(result.HeadCommit, fromCommit, StringComparison.Ordinal))
+        {
+            return new RunEnding("failed_in_card", FixRounds.NoNewCommit, "stopped");
+        }
+
+        return built.Result == "succeeded" ? new RunEnding("succeeded", null, "reviewing") : built;
     }
 
     /// <summary>
@@ -198,8 +240,9 @@ public static class RunStore
 
     /// <summary>
     /// Stores <paramref name="result"/> on the run, as it came but made <see cref="Storable"/>,
-    /// with the figures the usage page reads, judges it by <see cref="Judge"/> for a build or
-    /// <see cref="JudgeReview"/> for a review and moves the card, in one transaction; only when the
+    /// with the figures the usage page reads, judges it by <see cref="Judge"/> for a build,
+    /// <see cref="JudgeReview"/> for a review or <see cref="JudgeFix"/> for a fix and moves the card,
+    /// with the round a review's changes starts, in one transaction; only when the
     /// worker holds the run under way, the result names the job's branch, and for a review the
     /// commit it was handed, or none on a failure.
     /// </summary>
@@ -213,9 +256,12 @@ public static class RunStore
         {
             var run = await transaction.Connection!.QuerySingleOrDefaultAsync<HeldRun>(new CommandDefinition(
                 """
-                SELECT card_number AS CardNumber, branch AS Branch, kind AS Kind, head_commit AS HeadCommit FROM runs
+                SELECT card_number AS CardNumber, branch AS Branch, kind AS Kind, head_commit AS HeadCommit, from_commit AS FromCommit,
+                       fix_round AS FixRound,
+                       coalesce((SELECT c.fix_rounds FROM cards c WHERE c.project_id = runs.project_id AND c.number = runs.card_number), 0) AS RoundsUsed
+                FROM runs
                 WHERE id = @runId AND project_id = @projectId AND worker_id = @workerId AND finished_at IS NULL
-                FOR UPDATE
+                FOR UPDATE OF runs
                 """,
                 new { runId, projectId, workerId },
                 transaction,
@@ -239,7 +285,12 @@ public static class RunStore
                 return Recorded.WrongCommit;
             }
 
-            var ending = review ? JudgeReview(result) : Judge(result);
+            var ending = run.Kind switch
+            {
+                Job.Review => JudgeReview(result, run.RoundsUsed),
+                Job.Fix => JudgeFix(result, run.FromCommit!),
+                _ => Judge(result),
+            };
             var usage = result.Usage;
             await transaction.Connection!.ExecuteAsync(new CommandDefinition(
                 """
@@ -286,15 +337,35 @@ public static class RunStore
 
             // A card put back in the queue says nothing, as one never started does; the next read
             // gives it its reason, if it waits for something.
-            var cardReason = ending.CardState switch
+            var cardReason = ending.CardReason ?? ending.CardState switch
             {
                 "queued" => null,
                 "checking" => Built,
                 "reviewing" => PullRequestOpener.ToReview,
                 "waiting_for_owner" => PullRequestOpener.Waiting,
+                "fixing" => FixRounds.Waiting(run.FixRound),
                 _ => ending.Reason,
             };
-            await EndCard(transaction, projectId, run.CardNumber, review ? UnderReview : Building, ending.CardState, cardReason, now, cancellationToken);
+            var running = run.Kind switch
+            {
+                Job.Review => UnderReview,
+                Job.Fix => Fixing,
+                _ => Building,
+            };
+            var moved = await EndCard(transaction, projectId, run.CardNumber, running, ending.CardState, cardReason, now, cancellationToken);
+            if (moved && review && ending.CardState == "fixing")
+            {
+                // The round the changes start, and the review its fix answers.
+                await transaction.Connection!.ExecuteAsync(new CommandDefinition(
+                    """
+                    UPDATE cards SET fix_rounds = @round, fix_round = @round, fix_review_id = @runId
+                    WHERE project_id = @projectId AND number = @number
+                    """,
+                    new { projectId, number = run.CardNumber, round = run.RoundsUsed + 1, runId },
+                    transaction,
+                    cancellationToken: cancellationToken));
+            }
+
             return Recorded.Stored;
         }, cancellationToken);
     }
@@ -303,34 +374,33 @@ public static class RunStore
     /// Ends the project's runs that never returned: handed out at least <see cref="LostAfter"/>
     /// ago, with no result, and a worker not seen for <see cref="QuietFor"/>. Each is recorded lost
     /// and its card put back, counting nothing against it: a build's in <c>queued</c>, a review's in
-    /// <c>reviewing</c>. Called on each read of the project, as its user. How many were lost.
+    /// <c>reviewing</c>, a fix's in <c>fixing</c>, in the same round. Called on each read of the project, as its user. How many were lost.
     /// </summary>
     public static async Task<int> SweepLost(UserDb database, Guid userId, Guid projectId, DateTimeOffset now, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(database);
         return await database.InUserTransaction(userId, async transaction =>
         {
-            var lost = (await transaction.Connection!.QueryAsync<(int, string)>(new CommandDefinition(
+            var lost = (await transaction.Connection!.QueryAsync<(int, string, int?)>(new CommandDefinition(
                 """
                 UPDATE runs r SET finished_at = @now, result = 'lost', reason = @reason
                 FROM workers w
                 WHERE r.project_id = @projectId AND r.finished_at IS NULL AND r.started_at <= @handedBefore
                   AND w.project_id = r.project_id AND w.id = r.worker_id AND w.last_seen_at <= @seenBefore
-                RETURNING r.card_number, r.kind
+                RETURNING r.card_number, r.kind, r.fix_round
                 """,
                 new { projectId, now, reason = LostReason, handedBefore = now - LostAfter, seenBefore = now - QuietFor },
                 transaction,
                 cancellationToken: cancellationToken))).ToList();
-            foreach (var (number, kind) in lost)
+            foreach (var (number, kind, round) in lost)
             {
-                if (kind == Job.Review)
+                var (running, state, reason) = kind switch
                 {
-                    await EndCard(transaction, projectId, number, UnderReview, "reviewing", PullRequestOpener.ToReview, now, cancellationToken);
-                }
-                else
-                {
-                    await EndCard(transaction, projectId, number, Building, "queued", null, now, cancellationToken);
-                }
+                    Job.Review => (UnderReview, "reviewing", PullRequestOpener.ToReview),
+                    Job.Fix => (Fixing, "fixing", FixRounds.Waiting(round)),
+                    _ => (Building, "queued", (string?)null),
+                };
+                await EndCard(transaction, projectId, number, running, state, reason, now, cancellationToken);
             }
 
             return lost.Count;
@@ -343,15 +413,18 @@ public static class RunStore
     /// <summary>Where a review leaves its card while it runs.</summary>
     private static readonly string[] UnderReview = ["reviewing"];
 
+    /// <summary>Where a fix leaves its card while it runs.</summary>
+    private static readonly string[] Fixing = ["fixing"];
+
     /// <summary>
     /// Moves a card whose run has just ended to <paramref name="state"/> with
     /// <paramref name="reason"/>, only while it is still where its run put it, one of
     /// <paramref name="running"/>: one the owner's read has since ignored stays ignored, and one
     /// whose pull request a read found merged stays done. One whose label was taken off while it
     /// ran is removed instead, as "Cards" in devflow/docs/devflow-architecture.md says; its runs
-    /// stay.
+    /// stay. Whether it was moved.
     /// </summary>
-    private static async Task EndCard(NpgsqlTransaction transaction, Guid projectId, int number, string[] running, string state, string? reason, DateTimeOffset now, CancellationToken cancellationToken)
+    private static async Task<bool> EndCard(NpgsqlTransaction transaction, Guid projectId, int number, string[] running, string state, string? reason, DateTimeOffset now, CancellationToken cancellationToken)
     {
         var removed = await transaction.Connection!.ExecuteAsync(new CommandDefinition(
             "DELETE FROM cards WHERE project_id = @projectId AND number = @number AND unlabelled AND state = ANY(@running)",
@@ -360,17 +433,17 @@ public static class RunStore
             cancellationToken: cancellationToken));
         if (removed > 0)
         {
-            return;
+            return false;
         }
 
-        await transaction.Connection!.ExecuteAsync(new CommandDefinition(
+        return await transaction.Connection!.ExecuteAsync(new CommandDefinition(
             """
             UPDATE cards SET state = @state, reason = @reason, changed_at = @now
             WHERE project_id = @projectId AND number = @number AND state = ANY(@running)
             """,
             new { projectId, number, running, state, reason, now },
             transaction,
-            cancellationToken: cancellationToken));
+            cancellationToken: cancellationToken)) > 0;
     }
 
     /// <summary>One of the token counts in Claude's <c>usage</c>, or null when it gave none.</summary>
@@ -387,5 +460,5 @@ public static class RunStore
         : char.IsHighSurrogate(reason[MostReason - 1]) && char.IsLowSurrogate(reason[MostReason]) ? reason[..(MostReason - 1)]
         : reason[..MostReason];
 
-    private sealed record HeldRun(int CardNumber, string Branch, string Kind, string? HeadCommit);
+    private sealed record HeldRun(int CardNumber, string Branch, string Kind, string? HeadCommit, string? FromCommit, int? FixRound, int RoundsUsed);
 }

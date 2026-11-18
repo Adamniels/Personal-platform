@@ -29,7 +29,8 @@ public sealed record ActionTarget(
 /// needs.</summary>
 /// <param name="State">The card's state; only <c>waiting_for_owner</c> is merged.</param>
 /// <param name="PullRequestNumber">Its pull request's number, null before one was opened.</param>
-/// <param name="HeadCommit">The commit its latest built run checked, null without one.</param>
+/// <param name="HeadCommit">The commit its newest build or fix that succeeded checked, null
+/// without one.</param>
 /// <param name="Stopped">Whether the project is stopped, by what landed on its default branch.</param>
 public sealed record CardTarget(
     Guid ProjectId,
@@ -75,7 +76,7 @@ public sealed class ActionStore(UserDb database)
             SELECT p.id AS ProjectId, p.installation_id AS Installation, p.repository_id AS RepositoryId, p.owner AS Owner,
                    p.name AS Name, c.number AS Number, c.state AS State, c.pull_request_number AS PullRequestNumber,
                    (SELECT r.head_commit FROM runs r WHERE r.project_id = c.project_id AND r.card_number = c.number
-                      AND r.kind = 'build' AND r.result = 'succeeded'
+                      AND r.kind IN ('build', 'fix') AND r.result = 'succeeded'
                     ORDER BY r.started_at DESC, r.id DESC LIMIT 1) AS HeadCommit,
                    EXISTS (SELECT 1 FROM project_stops s WHERE s.project_id = p.id) AS Stopped
             FROM cards c JOIN projects p ON p.id = c.project_id

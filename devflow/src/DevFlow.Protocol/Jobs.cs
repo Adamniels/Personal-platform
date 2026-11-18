@@ -4,13 +4,13 @@ using System.Text.Json;
 namespace DevFlow.Protocol;
 
 /// <summary>
-/// A job, what <c>jobs/next</c> answers a worker with <c>200</c>: one card of its project to build
-/// or to review, with everything the worker needs for it and nothing more. The Claude token and the
-/// key leave Dev flow only here, to the worker holding the job. See "Jobs" and "Review" in
-/// devflow/README.md.
+/// A job, what <c>jobs/next</c> answers a worker with <c>200</c>: one card of its project to build,
+/// to review or to fix, with everything the worker needs for it and nothing more. The Claude token and the
+/// key leave Dev flow only here, to the worker holding the job. See "Jobs", "Review" and
+/// "Fixing" in devflow/README.md.
 /// </summary>
 /// <param name="JobId">The run's id, which the job's other routes take.</param>
-/// <param name="Kind"><see cref="Build"/> or <see cref="Review"/>.</param>
+/// <param name="Kind"><see cref="Build"/>, <see cref="Review"/> or <see cref="Fix"/>.</param>
 /// <param name="Card">The card, as it was picked.</param>
 /// <param name="Repository">Where the code is.</param>
 /// <param name="Branch">The branch the work goes on, <c>devflow/&lt;number&gt;-&lt;slug&gt;</c>.</param>
@@ -29,7 +29,8 @@ namespace DevFlow.Protocol;
 /// for at <see cref="WorkerApi.PushKeyPath"/>, and a review asks for none.</param>
 /// <param name="Committer">Who the worker's commits are made as; a review makes none.</param>
 /// <param name="Limits">When the run is stopped.</param>
-/// <param name="ToReview">What a review reads besides the code, null on a build.</param>
+/// <param name="ToReview">What a review reads besides the code, null on a build or a fix.</param>
+/// <param name="ToFix">Where a fix starts and which round it is, null on a build or a review.</param>
 public sealed record Job(
     Guid JobId,
     string Kind,
@@ -45,13 +46,18 @@ public sealed record Job(
     DateTimeOffset PushKeyExpiresAt,
     JobCommitter Committer,
     JobLimits Limits,
-    JobReview? ToReview = null)
+    JobReview? ToReview = null,
+    JobFix? ToFix = null)
 {
     /// <summary>Building a card.</summary>
     public const string Build = "build";
 
     /// <summary>Reviewing the commit a build left on a card's pull request.</summary>
     public const string Review = "review";
+
+    /// <summary>Fixing a card on its branch, from its head, after a review asked for changes or the
+    /// owner commented on its pull request.</summary>
+    public const string Fix = "fix";
 
     /// <summary>Its kind and card, never the token or the key.</summary>
     public override string ToString() =>
@@ -67,6 +73,15 @@ public sealed record Job(
 /// <param name="Report">The build's report as it came, in its form.</param>
 /// <param name="Check">The check's result on the commit, as the build's worker sent it.</param>
 public sealed record JobReview(string Commit, JsonElement Report, CheckResult Check);
+
+/// <summary>
+/// Where a fix job starts: the commit the card's branch must be at, the newest one a build or a fix
+/// of the card left there, which the worker checks before anything runs, and the round.
+/// </summary>
+/// <param name="Commit">The full id of the commit the branch is at, which the fix builds on.</param>
+/// <param name="Round">The fix round, 1 to 3, or null when the owner's comment started it, which
+/// is not a round.</param>
+public sealed record JobFix(string Commit, int? Round);
 
 /// <summary>The card a job builds or reviews, as it was picked; its title and body are the
 /// owner's words.</summary>

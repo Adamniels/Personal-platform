@@ -4,6 +4,8 @@ using System.Text;
 using Dapper;
 
 using DevFlow.Cards;
+using DevFlow.Fixing;
+using DevFlow.Reviews;
 
 using Npgsql;
 
@@ -34,9 +36,23 @@ public sealed record ClaimedCard(Guid RunId, int Number, string Title, string Bo
 /// <param name="CheckOutput">The last lines it printed.</param>
 public sealed record ClaimedReview(Guid RunId, int Number, string Title, string Body, string Branch, string Base, string Commit, string Report, string? Check, int CheckExitCode, string CheckOutput);
 
+/// <summary>A card taken for a fix, with the run made for it and what the fix answers.</summary>
+/// <param name="RunId">The fix run's id, the job's.</param>
+/// <param name="Number">The card's issue number.</param>
+/// <param name="Title">Its title as it was picked.</param>
+/// <param name="Body">Its body as it was picked.</param>
+/// <param name="Branch">The card's branch, its build's.</param>
+/// <param name="Base">The branch it was made from, its build's.</param>
+/// <param name="FromCommit">The commit the branch is at, which the fix starts from.</param>
+/// <param name="Round">The round, 1 to 3, or null when the owner's comment started it.</param>
+/// <param name="Report">The report of the newest build or fix that succeeded, as it was stored,
+/// null without one.</param>
+/// <param name="Review">The review the fix answers, null when there is none.</param>
+public sealed record ClaimedFix(Guid RunId, int Number, string Title, string Body, string Branch, string Base, string FromCommit, int? Round, string? Report, KeptReview? Review);
+
 /// <summary>
 /// Jobs in the database, through the door as the project's user: which kind of job a project has
-/// to hand out, reviews before builds, taking a card for one with its lock, and which run a worker
+/// to hand out, reviews before fixes before builds, taking a card for one with its lock, and which run a worker
 /// holds. See "Jobs" and "Review" in devflow/README.md.
 /// </summary>
 public static class JobStore
@@ -56,13 +72,36 @@ public static class JobStore
         """;
 
     /// <summary>
-    /// A card's head commit, as SQL over <c>cards</c>: the commit its newest build that succeeded
-    /// left on its branch, the one its pull request was opened at; null before one did.
+    /// A card's head commit, as SQL over <c>cards</c>: the commit its newest build or fix that
+    /// succeeded left on its branch, the one its pull request was opened at or a fix pushed since;
+    /// null before one did.
     /// </summary>
     public const string HeadOf = """
         (SELECT b.head_commit FROM runs b
-         WHERE b.project_id = cards.project_id AND b.card_number = cards.number AND b.kind = 'build' AND b.result = 'succeeded'
+         WHERE b.project_id = cards.project_id AND b.card_number = cards.number AND b.kind IN ('build', 'fix') AND b.result = 'succeeded'
          ORDER BY b.started_at DESC, b.id DESC LIMIT 1)
+        """;
+
+    /// <summary>
+    /// The commit a card's branch is at, as SQL over <c>cards</c>: the newest one any build or fix
+    /// of the card left there, whatever its result, since a worker pushes what its agent made even
+    /// when the check failed. A fix starts from it; null before anything was pushed.
+    /// </summary>
+    private const string BranchHeadOf = """
+        (SELECT b.head_commit FROM runs b
+         WHERE b.project_id = cards.project_id AND b.card_number = cards.number AND b.kind IN ('build', 'fix') AND b.head_commit IS NOT NULL
+         ORDER BY b.started_at DESC, b.id DESC LIMIT 1)
+        """;
+
+    /// <summary>What makes a card one to fix, as SQL over <c>cards</c>: fixing, with its pull
+    /// request, picked with its body kept, no run under way, and a commit on its branch to start
+    /// from.</summary>
+    private const string Fixable = $"""
+        cards.project_id = @projectId AND cards.state = 'fixing' AND cards.pull_request_number IS NOT NULL
+        AND cards.picked_body IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM runs
+                        WHERE runs.project_id = cards.project_id AND runs.card_number = cards.number AND runs.finished_at IS NULL)
+        AND {BranchHeadOf} IS NOT NULL
         """;
 
     /// <summary>What makes a card one to review, as SQL over <c>cards</c>: reviewing, with its pull
@@ -107,9 +146,9 @@ public static class JobStore
             : string.Create(CultureInfo.InvariantCulture, $"devflow/{number}-{cut}");
     }
 
-    /// <summary>The kind of job the project has to hand out now, <see cref="DevFlow.Protocol.Job.Review"/>
-    /// before <see cref="DevFlow.Protocol.Job.Build"/>, so work in progress finishes before new
-    /// work starts; null when it has none. Read without a lock, so a worker with nothing to do costs
+    /// <summary>The kind of job the project has to hand out now, <see cref="DevFlow.Protocol.Job.Review"/>,
+    /// then <see cref="DevFlow.Protocol.Job.Fix"/>, then <see cref="DevFlow.Protocol.Job.Build"/>, so
+    /// work in progress finishes before new work starts; null when it has none. Read without a lock, so a worker with nothing to do costs
     /// Dev flow one query and GitHub nothing.</summary>
     public static async Task<string?> NextKind(UserDb database, Guid userId, Guid projectId, CancellationToken cancellationToken)
     {
@@ -117,6 +156,7 @@ public static class JobStore
         return await database.InUserTransaction(userId, transaction => transaction.Connection!.ExecuteScalarAsync<string?>(new CommandDefinition(
             $"""
             SELECT CASE WHEN EXISTS (SELECT 1 FROM cards WHERE {Reviewable}) THEN 'review'
+                        WHEN EXISTS (SELECT 1 FROM cards WHERE {Fixable}) THEN 'fix'
                         WHEN EXISTS (SELECT 1 FROM cards WHERE {Takeable}) THEN 'build' END
             """,
             new { projectId },
@@ -143,7 +183,7 @@ public static class JobStore
             FROM cards
             JOIN LATERAL (SELECT * FROM runs
                           WHERE runs.project_id = cards.project_id AND runs.card_number = cards.number
-                            AND runs.kind = 'build' AND runs.result = 'succeeded'
+                            AND runs.kind IN ('build', 'fix') AND runs.result = 'succeeded'
                           ORDER BY runs.started_at DESC, runs.id DESC LIMIT 1) b ON true
             WHERE {Reviewable} AND b.report IS NOT NULL AND b.check_exit_code IS NOT NULL
             ORDER BY {CardStore.QueueOrder}
@@ -170,6 +210,75 @@ public static class JobStore
             VALUES (@id, @projectId, @userId, @number, @workerId, 'review', @branch, @baseBranch, @check, @commit, @now)
             """,
             new { id = claimed.RunId, projectId, userId, number = claimed.Number, workerId, branch = claimed.Branch, baseBranch = claimed.Base, check = claimed.Check, commit = claimed.Commit, now },
+            transaction,
+            cancellationToken: cancellationToken));
+        return claimed;
+    }
+
+    /// <summary>
+    /// Takes the project's first card to fix, by <see cref="CardStore.QueueOrder"/>, inside
+    /// <paramref name="transaction"/>, which runs as the project's user, as <see cref="Claim"/> takes
+    /// one to build: locks its row with <c>FOR UPDATE SKIP LOCKED</c>, and records a fix run for the
+    /// worker, on the card's branch and base, from the commit the branch is at, with the round and the
+    /// review the card's move to fixing set, and the <paramref name="check"/> its job carries. The
+    /// card stays <c>fixing</c>, the run under way holding it. Null when there is none.
+    /// </summary>
+    public static async Task<ClaimedFix?> ClaimFix(NpgsqlTransaction transaction, Guid projectId, Guid userId, Guid workerId, string check, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(transaction);
+        ArgumentNullException.ThrowIfNull(check);
+        var card = await transaction.Connection!.QuerySingleOrDefaultAsync<ToFix>(new CommandDefinition(
+            $"""
+            SELECT cards.number AS Number, cards.picked_title AS Title, cards.picked_body AS Body, b.branch AS Branch, b.base AS Base,
+                   {BranchHeadOf} AS FromCommit, cards.fix_round AS Round, cards.fix_review_id AS ReviewId,
+                   (SELECT r.report::text FROM runs r
+                    WHERE r.project_id = cards.project_id AND r.card_number = cards.number AND r.kind IN ('build', 'fix') AND r.result = 'succeeded'
+                    ORDER BY r.started_at DESC, r.id DESC LIMIT 1) AS Report
+            FROM cards
+            JOIN LATERAL (SELECT branch, base FROM runs
+                          WHERE runs.project_id = cards.project_id AND runs.card_number = cards.number AND runs.kind = 'build'
+                          ORDER BY runs.started_at DESC, runs.id DESC LIMIT 1) b ON true
+            WHERE {Fixable}
+            ORDER BY {CardStore.QueueOrder}
+            LIMIT 1
+            FOR UPDATE OF cards SKIP LOCKED
+            """,
+            new { projectId },
+            transaction,
+            cancellationToken: cancellationToken));
+        if (card is null)
+        {
+            return null;
+        }
+
+        await transaction.Connection!.ExecuteAsync(new CommandDefinition(
+            "UPDATE cards SET reason = @reason, changed_at = @now WHERE project_id = @projectId AND number = @number",
+            new { projectId, number = card.Number, reason = FixRounds.Fixing(card.Round), now },
+            transaction,
+            cancellationToken: cancellationToken));
+        var review = card.ReviewId is { } reviewId ? await ReviewStore.Of(transaction, reviewId, cancellationToken) : null;
+        var claimed = new ClaimedFix(Guid.CreateVersion7(now), card.Number, card.Title, card.Body, card.Branch, card.Base, card.FromCommit, card.Round, card.Report, review);
+        await transaction.Connection!.ExecuteAsync(new CommandDefinition(
+            """
+            INSERT INTO runs (id, project_id, user_id, card_number, worker_id, kind, branch, base, check_command, from_commit, fix_round,
+                              fix_review_id, started_at)
+            VALUES (@id, @projectId, @userId, @number, @workerId, 'fix', @branch, @baseBranch, @check, @fromCommit, @round, @reviewId, @now)
+            """,
+            new
+            {
+                id = claimed.RunId,
+                projectId,
+                userId,
+                number = claimed.Number,
+                workerId,
+                branch = claimed.Branch,
+                baseBranch = claimed.Base,
+                check,
+                fromCommit = claimed.FromCommit,
+                round = claimed.Round,
+                reviewId = card.ReviewId,
+                now,
+            },
             transaction,
             cancellationToken: cancellationToken));
         return claimed;
@@ -220,8 +329,8 @@ public static class JobStore
         return claimed;
     }
 
-    /// <summary>Whether <paramref name="runId"/> is a build run of the project, under way, held by
-    /// <paramref name="workerId"/>, the one kind of run a push key is made for; read as the
+    /// <summary>Whether <paramref name="runId"/> is a build or a fix run of the project, under way,
+    /// held by <paramref name="workerId"/>, the kinds of run a push key is made for; read as the
     /// project's user, so another user's run is never found.</summary>
     public static async Task<bool> HoldsBuild(UserDb database, Guid userId, Guid projectId, Guid runId, Guid workerId, CancellationToken cancellationToken)
     {
@@ -229,7 +338,7 @@ public static class JobStore
         return await database.InUserTransaction(userId, transaction => transaction.Connection!.ExecuteScalarAsync<bool>(new CommandDefinition(
             """
             SELECT EXISTS (SELECT 1 FROM runs
-                           WHERE id = @runId AND project_id = @projectId AND worker_id = @workerId AND kind = 'build'
+                           WHERE id = @runId AND project_id = @projectId AND worker_id = @workerId AND kind IN ('build', 'fix')
                              AND finished_at IS NULL)
             """,
             new { runId, projectId, workerId },
@@ -241,6 +350,8 @@ public static class JobStore
     public const string BeingReviewed = "The reviewer is reading it";
 
     private sealed record Picked(int Number, string Title, string Body);
+
+    private sealed record ToFix(int Number, string Title, string Body, string Branch, string Base, string FromCommit, int? Round, Guid? ReviewId, string? Report);
 
     private sealed record ToReview(int Number, string Title, string Body, string Branch, string Base, string Commit, string Report, string? Check, int CheckExitCode, string? CheckOutput);
 }

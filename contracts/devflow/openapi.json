@@ -831,6 +831,16 @@
           "repository": {
             "$ref": "#/components/schemas/JobRepository"
           },
+          "to_fix": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JobFix"
+              }
+            ]
+          },
           "to_review": {
             "oneOf": [
               {
@@ -892,6 +902,25 @@
         "required": [
           "name",
           "email"
+        ],
+        "type": "object"
+      },
+      "JobFix": {
+        "properties": {
+          "commit": {
+            "type": "string"
+          },
+          "round": {
+            "format": "int32",
+            "type": [
+              "null",
+              "integer"
+            ]
+          }
+        },
+        "required": [
+          "commit",
+          "round"
         ],
         "type": "object"
       },

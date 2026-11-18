@@ -139,8 +139,8 @@ public sealed partial class FakeCodeHost : IDisposable
     /// Makes a commit on <paramref name="branch"/> in the repository's git repository, as a worker's
     /// push would leave it, by <paramref name="committer"/>, on top of <paramref name="baseBranch"/>
     /// when it has a commit and as the first commit otherwise, with its tree unchanged; and points
-    /// the branch at it. The fake worker's, so a test's chain has a branch to open a pull request
-    /// from. Its id, or null when the repository is not the world's or git fails.
+    /// the branch at it, and any open pull request from the branch at it too, as a push would. The
+    /// fake worker's, so a test's chain has a branch to open a pull request from. Its id, or null when the repository is not the world's or git fails.
     /// </summary>
     internal async Task<string?> CommitOnBranch(Guid userId, Repository repository, string branch, string baseBranch, string message, Committer committer, CancellationToken cancellationToken)
     {
@@ -174,7 +174,22 @@ public sealed partial class FakeCodeHost : IDisposable
             }
 
             var id = commit.Output.Trim();
-            return (await Git(cancellationToken, [.. who, "update-ref", $"refs/heads/{branch}", id])).Exit == 0 ? id : null;
+            if ((await Git(cancellationToken, [.. who, "update-ref", $"refs/heads/{branch}", id])).Exit != 0)
+            {
+                return null;
+            }
+
+            // As GitHub does, an open pull request from the branch now has the commit as its head.
+            Change(userId, account => Find(account.World, repository) is { } found
+                ? account with
+                {
+                    World = WithRepository(account.World, repository, found with
+                    {
+                        PullRequests = [.. found.PullRequests.Select(pull => pull.HeadBranch == branch && pull.State == PullRequestState.Open ? pull with { HeadCommit = id } : pull)],
+                    }),
+                }
+                : account);
+            return id;
         }
         finally
         {
