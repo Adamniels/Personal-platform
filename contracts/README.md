@@ -132,9 +132,14 @@ flow is C#, so this is the same pin as `review/`.
   agent, written by `DevFlow.Protocol`'s `Report.Schema()` from the type that reads a report, with a
   two space indent and a trailing newline, its fields in the type's order. Since the type writes it,
   the two hold the same fields. See "Jobs" in `devflow/README.md`.
+- `verdict.schema.json`: the JSON Schema of a reviewer agent's verdict, which every review job hands
+  the agent, written by `DevFlow.Protocol`'s `ReviewVerdict.Schema()` the same way. It has no field
+  for a commit, since a verdict is for the commit the worker reviewed. See "Review" in
+  `devflow/README.md`.
 
 Dev flow's `ContractTests` check that the app still generates exactly these bytes, as review's do,
-and that `Report.Schema()` still writes exactly `report.schema.json`.
+and that `Report.Schema()` and `ReviewVerdict.Schema()` still write exactly `report.schema.json` and
+`verdict.schema.json`.
 From `devflow/`:
 
 ```zsh

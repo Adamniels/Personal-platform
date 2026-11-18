@@ -125,7 +125,8 @@ features" in `High-level/docs/platform-architecture.md`.
   settings, its loop, its exit codes, the agent interface, when a run succeeds, a build job step by
   step with the git rules it keeps, publishing it and its tests, the Claude login, its routes and its table, jobs, with handing out a card, the job, a
   fresh push key, a job's progress and result and how each moves its card, a lost run, the brief,
-  the report, the fake worker and the runs table, registering the GitHub App, how it
+  the report, the fake worker and the runs table, the review, with its job, the read only worker, the
+  verdict's form, the reviews table and the comment the app posts, registering the GitHub App, how it
   authenticates a request with `PlatformAuth` and with a worker's key, and the libraries it is built
   on
 - `devflow/docs/devflow-architecture.md` — what Dev flow is, what of it exists, the code host seam
@@ -142,10 +143,12 @@ features" in `High-level/docs/platform-architecture.md`.
   a user's runs, handing out work, with the lock that takes a card, why nothing is read from GitHub
   under it, the brief quoting the card as picked, how a card reaches its pull request and
   how the waiting list reads Dev flow's own cards beside the runner's, why the report decides nothing, where a failure
-  lies and when a run is lost, and its security decisions and accepted risks, kept for an audit,
+  lies and when a run is lost, the review and why its verdict lives in the database tied to its
+  commit, and its security decisions and accepted risks, kept for an audit,
   the vault's, the fake's, the worker key's, the agent run's environment and token, the Claude
   token's and a job's, the brief's, the report's text in a pull request body, push keys before the watch, root never running git in the
-  agent's copy, the copy without credentials and a push never forced among them
+  agent's copy, the copy without credentials, a push never forced, the reviewer that cannot write
+  and a verdict that is never a comment among them
 - `docs/superpowers/specs/2026-11-14-development-flow-design.md` — the design of the whole
   development flow, frozen on 2026 11 15 when the slices of its first part were cut; the
   architecture document above is the living description from then on

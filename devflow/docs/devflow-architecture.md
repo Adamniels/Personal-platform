@@ -63,9 +63,10 @@ open issues he wrote that carry the pick-up label, and each card shows as queued
 what blocks it, or ignored with why, see "Cards" below. A worker asking for work is handed the
 next queued card with a brief written for it, and what it sends back is recorded on the run and
 moves the card on, see "Handing out work" below. A card that built and passed its check gets its
-pull request, opened as the app, and waits for the owner on "Waiting for you", where he merges it as
-himself; each card has a page with its whole story so far, see "How a card reaches its pull
-request" below.
+pull request, opened as the app; a fresh reviewer agent reads that commit and its verdict is kept
+for it, see "Review" below; and the card then waits for the owner on "Waiting for you", where he
+merges it as himself; each card has a page with its whole story so far, see "How a card reaches
+its pull request" below.
 
 Every read of a project also watches its default branch: anything that lands there that neither
 Dev flow merged nor the owner put there himself stops the project, which then hands out no work and
@@ -701,9 +702,10 @@ flow's own words is the agent's, and data, see the security entry below.
 **The card follows its pull request** on each read of its project, in the read's transaction: a
 pull request still in the list of open ones costs nothing, and only one that left it is read on
 its own. Merged by anyone, on GitHub or from the page, is done; closed without merging is stopped.
-In this part every such card waits for the owner, whatever the project's `waits_for_owner` says,
-since there is no review yet to wait for instead; part 3's review, fixing and merge check replace
-that.
+A card whose pull request opened is reviewed first, see "Review", and is followed while it is under
+review too, so a pull request merged or closed meanwhile is not reviewed for nothing. After its
+review every card waits for the owner, whatever the project's `waits_for_owner` says, until part 3's
+fixing and merge check act on the verdict.
 
 **The waiting list reads Dev flow's own cards beside the runner's.** The runner's items are read
 from its pull requests on GitHub, by its labels and verdicts, see "Reading this repository's
@@ -717,8 +719,46 @@ nothing a stopped project produced is merged until he resumes it. Sending back w
 which has a fix run to send it to.
 
 **A card's page is its whole story**, round 7 of the spec: its runs, newest first, with what each
-cost and why each ended, and the latest report, read from what Dev flow stored, so it answers while
-GitHub is away.
+cost and why each ended, the latest report, and its reviews, read from what Dev flow stored, so it
+answers while GitHub is away.
+
+## Review
+
+A reviewer with fresh context reads every card's pull request, round 2 of the spec, and is given
+the report together with the real diff, round 4, so nothing merges because the developer said so.
+How it is handed out, run, judged, kept and posted is "Review" in `devflow/README.md`.
+
+**A review is a job like a build, handed out first.** It needs the same worker, the same Claude
+login and the same care with keys and folders, so it is a second kind of job rather than a second
+program, and `WorkerJob` holds what the two share. Reviews go before builds, and fixes will go
+between, so work already in progress reaches the owner before new work starts and a project with
+one worker does not pile up unreviewed pull requests. The kind is read before the key is made, and
+only a card of that kind is then taken, so the key matches the job and no lock is held while
+GitHub answers, as for a build.
+
+**The reviewer is a fresh session, and the last job to weaken**, round 4b: its worth is that it has
+not seen the developer's reasoning, so it starts empty, on the strongest model, and is told only
+the card, the report, the diff and the check's output, all as files it reads. Whether the card had
+tests written for it is its to judge, by whether the card's acceptance is covered, round 8, since
+counting tests rewards the wrong thing. It judges and does not teach, after this repository's
+reviewer, so a verdict is a list of findings and never a fix.
+
+**The verdict lives in the database, tied to the commit.** The merge check of round 8 asks that the
+reviewer approved exactly the commit being merged, so a verdict is only worth anything with the
+commit it is for, and the commit has to be one Dev flow can trust: the one the worker checked out,
+recorded on the run when it was handed out, never one the agent names, which is why the form has
+no field for it. Keeping it in `reviews`, in the transaction that records its run's result, makes
+it Dev flow's own record, read without GitHub, and a card's current verdict is the one for its head
+commit alone, so a commit pushed after a review needs a new one. The comment on the pull request is
+a copy for people and is never read back, so the record cannot be written by anyone who can
+comment; this repository's runner reads its verdict from a comment and needs guards against an
+agent approving its own work that Dev flow does not, since developer and reviewer share the app's
+identity and only the program writes the record, round 4.
+
+**A verdict out of its form is a failure, not a verdict.** A reviewer that hands back something
+unreadable, or `changes` with nothing blocking, has not reviewed, so the run fails and stops the
+card with why, rather than Dev flow guessing in favour of either word; the program never guesses in
+favour of merging, round 8. A review that failed outside the card is simply handed out again.
 
 ## Watching the default branch
 
@@ -1153,6 +1193,20 @@ its reason, or a risk accepted on purpose; each slice adds the ones it builds.
   job's own branch; a branch someone else moved meanwhile is refused rather than overwritten.
   `GitSafetyTests.ThePushIsNeverForcedAndNeverToTheDefaultBranch` and
   `BuildPartsTests.ABranchGitCouldReadAsSomethingElseIsRefused` keep both.
+- **The reviewer cannot write.** A review's agent runs with Claude Code's default permission mode,
+  no prompts and only `Read`, `Grep` and `Glob` allowed, never `bypassPermissions`, so every other
+  tool is refused and reported in `permission_denials` rather than waiting, as the experiment of
+  2026-11-16 found; those are recorded and fail nothing, since it cannot write by construction. Its
+  worker holds a key narrowed to fetching, `contents: read`, never one that pushes, and the push key
+  route refuses a review; it commits and pushes nothing, and root writes the review's files only in
+  its own handover folder, which the agent copies from, so root never writes where the agent can.
+  What it reads is data: an instruction in the card, the report, the diff or the code is a finding.
+- **A verdict is the worker's commit and Dev flow's record, never a comment.** The commit a verdict
+  is for is the one the run was handed and its worker checked out; the result route refuses any
+  other, and the verdict's form has no place to name one. The verdict is stored in `reviews` in the
+  same transaction as its run's result, by the program alone. The comment the app posts is a copy,
+  and the only comments Dev flow reads on its account are the app's own, to avoid posting one twice;
+  no comment, by the owner, the app or anyone, is ever read as a verdict, so none can approve a card.
 - **The app is registered for one account.** "Only on this account" means only the owner's account
   can install it. Installing it on an organisation needs it opened to any account first, and then
   any stranger could install it on their own repositories too; that gains them nothing, since
