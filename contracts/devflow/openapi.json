@@ -85,6 +85,16 @@
             "format": "uri",
             "type": "string"
           },
+          "review": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CardItemReview"
+              }
+            ]
+          },
           "summary": {
             "type": "string"
           },
@@ -112,7 +122,32 @@
           "other_decisions",
           "check",
           "can_merge",
-          "changed_at"
+          "changed_at",
+          "review"
+        ],
+        "type": "object"
+      },
+      "CardItemReview": {
+        "properties": {
+          "blocking": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "commit": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "verdict": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "verdict",
+          "summary",
+          "blocking",
+          "commit"
         ],
         "type": "object"
       },
@@ -143,6 +178,57 @@
         "required": [
           "number",
           "url"
+        ],
+        "type": "object"
+      },
+      "CardReview": {
+        "properties": {
+          "commit": {
+            "type": "string"
+          },
+          "current": {
+            "type": "boolean"
+          },
+          "findings": {
+            "items": {
+              "$ref": "#/components/schemas/ReviewFinding"
+            },
+            "type": "array"
+          },
+          "for_owner": {
+            "items": {
+              "$ref": "#/components/schemas/ReviewOwnerView"
+            },
+            "type": "array"
+          },
+          "posted": {
+            "type": "boolean"
+          },
+          "reviewed_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "run_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "verdict": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id",
+          "commit",
+          "verdict",
+          "summary",
+          "findings",
+          "for_owner",
+          "reviewed_at",
+          "posted",
+          "current"
         ],
         "type": "object"
       },
@@ -281,6 +367,12 @@
               }
             ]
           },
+          "reviews": {
+            "items": {
+              "$ref": "#/components/schemas/CardReview"
+            },
+            "type": "array"
+          },
           "runs": {
             "items": {
               "$ref": "#/components/schemas/CardRun"
@@ -305,7 +397,8 @@
           "reason",
           "pull_request",
           "runs",
-          "report"
+          "report",
+          "reviews"
         ],
         "type": "object"
       },
@@ -737,6 +830,16 @@
           },
           "repository": {
             "$ref": "#/components/schemas/JobRepository"
+          },
+          "to_review": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JobReview"
+              }
+            ]
           }
         },
         "required": [
@@ -835,6 +938,25 @@
           "name",
           "clone_address",
           "default_branch"
+        ],
+        "type": "object"
+      },
+      "JobReview": {
+        "properties": {
+          "check": {
+            "$ref": "#/components/schemas/CheckResult"
+          },
+          "commit": {
+            "type": "string"
+          },
+          "report": {
+            "$ref": "#/components/schemas/JsonElement"
+          }
+        },
+        "required": [
+          "commit",
+          "report",
+          "check"
         ],
         "type": "object"
       },
@@ -1383,6 +1505,7 @@
               "string"
             ]
           },
+          "permission_denials": {},
           "report": {
             "oneOf": [
               {
@@ -1443,6 +1566,49 @@
         },
         "required": [
           "commit"
+        ],
+        "type": "object"
+      },
+      "ReviewFinding": {
+        "properties": {
+          "blocking": {
+            "type": "boolean"
+          },
+          "file": {
+            "type": "string"
+          },
+          "line": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "what": {
+            "type": "string"
+          },
+          "why": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "blocking",
+          "file",
+          "line",
+          "what",
+          "why"
+        ],
+        "type": "object"
+      },
+      "ReviewOwnerView": {
+        "properties": {
+          "decision": {
+            "type": "string"
+          },
+          "view": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "decision",
+          "view"
         ],
         "type": "object"
       },
@@ -2251,7 +2417,7 @@
     },
     "/devflow/api/projects/{id}/cards/{number}": {
       "get": {
-        "description": "The card as last read, its number, title, web_url, state and reason, and its pull_request, number and url, null before one was opened; each of its runs, newest first, with its kind, the worker it was handed to, when it started and finished, how long it took, its result and, for a failure, its reason and whether it lay in the card, the auth method, the tokens in and out, the check's exit code and the last lines of its output, null when it did not run, and the commit it left; and the latest report in its form, null when no run has handed one back. Read from what Dev flow stored, never from GitHub; every text from GitHub or an agent is to be shown as text. 404 for a project or a card the caller does not have. Without a valid token, 401 with an empty body.",
+        "description": "The card as last read, its number, title, web_url, state and reason, and its pull_request, number and url, null before one was opened; each of its runs, newest first, with its kind, the worker it was handed to, when it started and finished, how long it took, its result and, for a failure, its reason and whether it lay in the card, the auth method, the tokens in and out, the check's exit code and the last lines of its output, null when it did not run, and the commit it left; the latest report in its form, the latest build's, null when no build has handed one back; and each review, newest first, with the commit the worker reviewed, its verdict, summary, findings, each blocking or not with its file, line, what and why, the reviewer's view on each decision for the owner, when it was recorded, whether its copy is posted, and whether it is current, for the card's head commit. Read from what Dev flow stored, never from GitHub; every text from GitHub or an agent is to be shown as text. 404 for a project or a card the caller does not have. Without a valid token, 401 with an empty body.",
         "operationId": "getCard",
         "parameters": [
           {
@@ -2732,7 +2898,7 @@
     },
     "/devflow/api/waiting": {
       "get": {
-        "description": "Read from what Dev flow stored and never from GitHub. items are the pull requests that are the caller's turn in every project, by project and number; own_items are Dev flow's own, read from its own tables, in this part each a project stopped because something landed on its default branch that Dev flow did not put there, with the commit, who did it, when, and the commit's address on GitHub, by project; cards are Dev flow's own cards whose pull requests wait for the caller, each with its pull request, the head commit its run built and checked, the branch it merges into, the report's summary, the decisions the agent marked for the caller with the count of the others, the check Dev flow ran, and can_merge, false while the project is stopped, by project and number; count is the items not sent back, the own items and the cards, plus one when needs_relink; projects says for each when it was last read, stale when that is more than five minutes ago or never, and failing when its last read failed. Without a valid token, 401 with an empty body.",
+        "description": "Read from what Dev flow stored and never from GitHub. items are the pull requests that are the caller's turn in every project, by project and number; own_items are Dev flow's own, read from its own tables, in this part each a project stopped because something landed on its default branch that Dev flow did not put there, with the commit, who did it, when, and the commit's address on GitHub, by project; cards are Dev flow's own cards whose pull requests wait for the caller, each with its pull request, the head commit its run built and checked, the branch it merges into, the report's summary, the decisions the agent marked for the caller with the count of the others, the check Dev flow ran, review, the reviewer's verdict on its head commit with its summary and how many findings block, null when it has none, and can_merge, false while the project is stopped, by project and number; count is the items not sent back, the own items and the cards, plus one when needs_relink; projects says for each when it was last read, stale when that is more than five minutes ago or never, and failing when its last read failed. Without a valid token, 401 with an empty body.",
         "operationId": "listWaiting",
         "responses": {
           "200": {
@@ -3245,7 +3411,7 @@
     },
     "/devflow/api/worker/jobs/{id}/result": {
       "post": {
-        "description": "What the worker sends when its job ends, whatever happened: outcome, succeeded with the agent's report or failed with the failure's reason and whether it lies in the card; the check's exit code and the last 200 lines of its output, null when it did not run; the branch, which must be the job's, and its head commit; the auth method; Claude's usage as it came, an object; the duration in milliseconds; and the last 200 lines of stderr. Each is stored on the run as it came. The report is read against contracts/devflow/report.schema.json, and one that does not match is a failure in the card. A failure outside the card puts the card back in queued, counting nothing against it; a failure in the card, a report that does not match, a report that stopped, a check that did not run or failed stop it with why; otherwise the card waits, checked, for its pull request. 204. Only for the worker holding the job while it runs, and once; 404 otherwise. 422 naming a field that is missing or breaks a rule. Takes the project's worker key as Authorization: Bearer dfw_…, and nothing else: without a key the project has now, 401 with an empty body. No Origin is needed, and no cookie is read or set.",
+        "description": "What the worker sends when its job ends, whatever happened: outcome, succeeded with the agent's report or failed with the failure's reason and whether it lies in the card; the check's exit code and the last 200 lines of its output, null when it did not run; the branch, which must be the job's, and its head commit; the auth method; Claude's usage as it came, an object; the duration in milliseconds; the last 200 lines of stderr; and permission_denials, the actions the agent was refused, an array or null. Each is stored on the run as it came. A build's report is read against contracts/devflow/report.schema.json, and one that does not match is a failure in the card; a review's report is its verdict, read against contracts/devflow/verdict.schema.json, and one that does not match is a failure in the run, never a verdict. A review's head_commit is the commit it was handed, or null on a failure; any other is 422. A failure outside the card puts the card back in queued, counting nothing against it; a failure in the card, a report that does not match, a report that stopped, a check that did not run or failed stop it with why; otherwise the card waits, checked, for its pull request. 204. Only for the worker holding the job while it runs, and once; 404 otherwise. 422 naming a field that is missing or breaks a rule. Takes the project's worker key as Authorization: Bearer dfw_…, and nothing else: without a key the project has now, 401 with an empty body. No Origin is needed, and no cookie is read or set.",
         "operationId": "workerJobResult",
         "parameters": [
           {

@@ -40,8 +40,9 @@ public sealed partial class PullRequestTests
         Assert.False(pull.Draft);
         Assert.Equal((string)ran["head_commit"]!, pull.HeadCommit);
 
+        // Its head commit has no review yet, so the reviewer reads it next.
         var card = await Built.Card(jobs, 4);
-        Assert.Equal("waiting_for_owner", card.State);
+        Assert.Equal("reviewing", card.State);
         Assert.Equal(opened.Number, card.PullRequestNumber);
         Assert.Equal(pull.Url.ToString(), card.PullRequestUrl);
     }
@@ -113,7 +114,7 @@ public sealed partial class PullRequestTests
 
         Assert.Empty(Built.Opened(jobs));
         var card = await Built.Card(jobs, 4);
-        Assert.Equal("waiting_for_owner", card.State);
+        Assert.Equal("reviewing", card.State);
         Assert.Equal(77, card.PullRequestNumber);
         Assert.Equal(url.ToString(), card.PullRequestUrl);
     }
@@ -156,7 +157,7 @@ public sealed partial class PullRequestTests
         var opened = Assert.Single(Built.Opened(jobs));
         Assert.Equal((string)ran["branch"]!, opened.Head);
         var card = await Built.Card(jobs, 4);
-        Assert.Equal("waiting_for_owner", card.State);
+        Assert.Equal("reviewing", card.State);
         Assert.Equal(opened.Number, card.PullRequestNumber);
     }
 
@@ -164,13 +165,19 @@ public sealed partial class PullRequestTests
     public async Task AMergedPullRequestMakesTheCardDone()
     {
         await using var jobs = await Jobs.Jobs.Start([Jobs.Jobs.Card(4), Jobs.Jobs.Card(5)]);
+        // Card 4 built and reviewed, so it waits for the owner; card 5 built after it, so its
+        // review is still to come.
         await Built.Run(jobs, Built.Prepared());
+        await Built.Review(jobs);
+        jobs.Routes.Time.Advance(TimeSpan.FromMinutes(1));
         await Built.Run(jobs, Built.Prepared());
+        Assert.Equal("waiting_for_owner", (await Built.Card(jobs, 4)).State);
+        Assert.Equal("reviewing", (await Built.Card(jobs, 5)).State);
         var four = (await Built.Card(jobs, 4)).PullRequestNumber!.Value;
         var five = (await Built.Card(jobs, 5)).PullRequestNumber!.Value;
 
         // Merged by the owner on GitHub, which closes the card's issue with its Closes line; and
-        // closed without merging.
+        // closed without merging while it waited for its review.
         Built.OnGitHub(jobs, four, PullRequestState.Merged, closeIssue: 4);
         Built.OnGitHub(jobs, five, PullRequestState.Closed);
         Assert.Equal(ReadResult.Read, await jobs.Routes.Read(jobs.Project, Jobs.Jobs.User));

@@ -4,6 +4,8 @@ using System.Text.Json;
 using Dapper;
 
 using DevFlow.Protocol;
+using DevFlow.PullRequests;
+using DevFlow.Reviews;
 
 using Npgsql;
 
@@ -19,6 +21,8 @@ namespace DevFlow.Jobs;
 /// <param name="FailureInCard">Whether that lies in the card, on a failure.</param>
 /// <param name="CheckExitCode">The check's exit code, null when it did not run.</param>
 /// <param name="CheckOutput">The last lines of its output, null when it did not run.</param>
+/// <param name="PermissionDenials">The actions the agent was refused, an array as Claude Code
+/// listed them, null when the worker sent none.</param>
 public sealed record RunResult(
     bool Succeeded,
     JsonElement? Report,
@@ -31,7 +35,8 @@ public sealed record RunResult(
     string? AuthMethod,
     JsonElement Usage,
     long DurationMs,
-    string Stderr);
+    string Stderr,
+    JsonElement? PermissionDenials = null);
 
 /// <summary>How a run ended and what it does to its card: the run's <c>result</c>, the reason,
 /// and the state the card moves to.</summary>
@@ -48,6 +53,9 @@ public enum Recorded
 
     /// <summary>The result names another branch than its job's.</summary>
     WrongBranch,
+
+    /// <summary>A review's result names another commit than the one it was handed.</summary>
+    WrongCommit,
 }
 
 /// <summary>
@@ -84,7 +92,30 @@ public static class RunStore
     public static readonly TimeSpan QuietFor = TimeSpan.FromMinutes(10);
 
     /// <summary>
-    /// How a result ends its run, in this order: a failure outside the card puts the card back in
+    /// How a review's result ends its run, in this order: a failure outside the card puts the card
+    /// back in <c>reviewing</c>, to be reviewed again; a failure in the card, or a verdict that does
+    /// not match its form, which is a failure in the run and never a verdict, stops it with why;
+    /// anything else succeeded, and the card waits for the owner with its verdict, until fixing and
+    /// the merge check act on it.
+    /// </summary>
+    public static RunEnding JudgeReview(RunResult result)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        if (!result.Succeeded)
+        {
+            var why = Cut(result.FailureReason ?? "");
+            return result.FailureInCard
+                ? new RunEnding("failed_in_card", Cut($"The review failed: {why}"), "stopped")
+                : new RunEnding("failed_outside_card", why, "reviewing");
+        }
+
+        return ReviewVerdict.TryRead(result.Report ?? default, out _, out var error)
+            ? new RunEnding("succeeded", null, "waiting_for_owner")
+            : new RunEnding("report_invalid", Cut($"The verdict did not match its form: {error}"), "stopped");
+    }
+
+    /// <summary>
+    /// How a build's result ends its run, in this order: a failure outside the card puts the card back in
     /// <c>queued</c>, counting nothing against it; a failure in the card, a report that does not
     /// match its form, a report that stopped, a check that did not run or failed, each stop it with
     /// why; anything else succeeded, and the card waits, checked, for its pull request.
@@ -167,9 +198,10 @@ public static class RunStore
 
     /// <summary>
     /// Stores <paramref name="result"/> on the run, as it came but made <see cref="Storable"/>,
-    /// with the figures the usage page reads, judges it by <see cref="Judge"/> and moves the card,
-    /// in one transaction; only when the worker holds the run under way, and the result names the
-    /// job's branch.
+    /// with the figures the usage page reads, judges it by <see cref="Judge"/> for a build or
+    /// <see cref="JudgeReview"/> for a review and moves the card, in one transaction; only when the
+    /// worker holds the run under way, the result names the job's branch, and for a review the
+    /// commit it was handed, or none on a failure.
     /// </summary>
     public static async Task<Recorded> Record(UserDb database, Guid userId, Guid projectId, Guid runId, Guid workerId, RunResult result, DateTimeOffset now, CancellationToken cancellationToken)
     {
@@ -177,12 +209,11 @@ public static class RunStore
         ArgumentNullException.ThrowIfNull(result);
         // Judged on what is stored, so a report is read with the same text the owner reads.
         result = Storable.Result(result);
-        var ending = Judge(result);
         return await database.InUserTransaction(userId, async transaction =>
         {
             var run = await transaction.Connection!.QuerySingleOrDefaultAsync<HeldRun>(new CommandDefinition(
                 """
-                SELECT card_number AS CardNumber, branch AS Branch FROM runs
+                SELECT card_number AS CardNumber, branch AS Branch, kind AS Kind, head_commit AS HeadCommit FROM runs
                 WHERE id = @runId AND project_id = @projectId AND worker_id = @workerId AND finished_at IS NULL
                 FOR UPDATE
                 """,
@@ -199,16 +230,27 @@ public static class RunStore
                 return Recorded.WrongBranch;
             }
 
+            var review = run.Kind == Job.Review;
+            // A review is for the commit it was handed, which the worker checked out: a success
+            // names that commit, and a failure that one or none.
+            if (review && (result.Succeeded || result.HeadCommit is not null)
+                && !string.Equals(run.HeadCommit, result.HeadCommit, StringComparison.Ordinal))
+            {
+                return Recorded.WrongCommit;
+            }
+
+            var ending = review ? JudgeReview(result) : Judge(result);
             var usage = result.Usage;
             await transaction.Connection!.ExecuteAsync(new CommandDefinition(
                 """
                 UPDATE runs SET
                     finished_at = @now, result = @result, reason = @reason,
                     report = @report::jsonb, check_exit_code = @checkExitCode, check_output = @checkOutput,
-                    head_commit = @headCommit, auth_method = @authMethod,
+                    head_commit = coalesce(@headCommit, head_commit), auth_method = @authMethod,
                     usage = @usage::jsonb, input_tokens = @inputTokens, output_tokens = @outputTokens,
                     cache_creation_input_tokens = @cacheCreation, cache_read_input_tokens = @cacheRead,
-                    cost_usd = @cost, turns = @turns, duration_ms = @durationMs, stderr = @stderr
+                    cost_usd = @cost, turns = @turns, duration_ms = @durationMs, stderr = @stderr,
+                    permission_denials = @permissionDenials::jsonb
                 WHERE id = @runId
                 """,
                 new
@@ -231,18 +273,28 @@ public static class RunStore
                     turns = usage.TryGetProperty("num_turns", out var turns) && turns.ValueKind == JsonValueKind.Number && turns.TryGetInt32(out var n) ? n : (int?)null,
                     durationMs = result.DurationMs,
                     stderr = Tail(result.Stderr),
+                    permissionDenials = result.PermissionDenials?.GetRawText(),
                 },
                 transaction,
                 cancellationToken: cancellationToken));
-            // A card put back says nothing, as one never started does; the next read gives it its
-            // reason, if it waits for something.
+            // A verdict in its form is kept for the commit the worker reviewed, the run's, in the
+            // same transaction as its result, and is the only way Dev flow learns one.
+            if (review && ending.Result == "succeeded" && ReviewVerdict.TryRead(result.Report!.Value, out var verdict, out _))
+            {
+                await ReviewStore.Record(transaction, projectId, userId, run.CardNumber, runId, run.HeadCommit!, verdict, now, cancellationToken);
+            }
+
+            // A card put back in the queue says nothing, as one never started does; the next read
+            // gives it its reason, if it waits for something.
             var cardReason = ending.CardState switch
             {
                 "queued" => null,
                 "checking" => Built,
+                "reviewing" => PullRequestOpener.ToReview,
+                "waiting_for_owner" => PullRequestOpener.Waiting,
                 _ => ending.Reason,
             };
-            await EndCard(transaction, projectId, run.CardNumber, ending.CardState, cardReason, now, cancellationToken);
+            await EndCard(transaction, projectId, run.CardNumber, review ? UnderReview : Building, ending.CardState, cardReason, now, cancellationToken);
             return Recorded.Stored;
         }, cancellationToken);
     }
@@ -250,45 +302,60 @@ public static class RunStore
     /// <summary>
     /// Ends the project's runs that never returned: handed out at least <see cref="LostAfter"/>
     /// ago, with no result, and a worker not seen for <see cref="QuietFor"/>. Each is recorded lost
-    /// and its card put back in <c>queued</c>, counting nothing against it. Called on each read of
-    /// the project, as its user. How many were lost.
+    /// and its card put back, counting nothing against it: a build's in <c>queued</c>, a review's in
+    /// <c>reviewing</c>. Called on each read of the project, as its user. How many were lost.
     /// </summary>
     public static async Task<int> SweepLost(UserDb database, Guid userId, Guid projectId, DateTimeOffset now, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(database);
         return await database.InUserTransaction(userId, async transaction =>
         {
-            var lost = (await transaction.Connection!.QueryAsync<int>(new CommandDefinition(
+            var lost = (await transaction.Connection!.QueryAsync<(int, string)>(new CommandDefinition(
                 """
                 UPDATE runs r SET finished_at = @now, result = 'lost', reason = @reason
                 FROM workers w
                 WHERE r.project_id = @projectId AND r.finished_at IS NULL AND r.started_at <= @handedBefore
                   AND w.project_id = r.project_id AND w.id = r.worker_id AND w.last_seen_at <= @seenBefore
-                RETURNING r.card_number
+                RETURNING r.card_number, r.kind
                 """,
                 new { projectId, now, reason = LostReason, handedBefore = now - LostAfter, seenBefore = now - QuietFor },
                 transaction,
                 cancellationToken: cancellationToken))).ToList();
-            foreach (var number in lost)
+            foreach (var (number, kind) in lost)
             {
-                await EndCard(transaction, projectId, number, "queued", null, now, cancellationToken);
+                if (kind == Job.Review)
+                {
+                    await EndCard(transaction, projectId, number, UnderReview, "reviewing", PullRequestOpener.ToReview, now, cancellationToken);
+                }
+                else
+                {
+                    await EndCard(transaction, projectId, number, Building, "queued", null, now, cancellationToken);
+                }
             }
 
             return lost.Count;
         }, cancellationToken);
     }
 
+    /// <summary>Where a build puts its card while it runs.</summary>
+    private static readonly string[] Building = ["building", "checking"];
+
+    /// <summary>Where a review leaves its card while it runs.</summary>
+    private static readonly string[] UnderReview = ["reviewing"];
+
     /// <summary>
     /// Moves a card whose run has just ended to <paramref name="state"/> with
-    /// <paramref name="reason"/>, only while it is still where a run puts it, building or checking:
-    /// one the owner's read has since ignored stays ignored. One whose label was taken off while it
-    /// ran is removed instead, as "Cards" in devflow/docs/devflow-architecture.md says; its runs stay.
+    /// <paramref name="reason"/>, only while it is still where its run put it, one of
+    /// <paramref name="running"/>: one the owner's read has since ignored stays ignored, and one
+    /// whose pull request a read found merged stays done. One whose label was taken off while it
+    /// ran is removed instead, as "Cards" in devflow/docs/devflow-architecture.md says; its runs
+    /// stay.
     /// </summary>
-    private static async Task EndCard(NpgsqlTransaction transaction, Guid projectId, int number, string state, string? reason, DateTimeOffset now, CancellationToken cancellationToken)
+    private static async Task EndCard(NpgsqlTransaction transaction, Guid projectId, int number, string[] running, string state, string? reason, DateTimeOffset now, CancellationToken cancellationToken)
     {
         var removed = await transaction.Connection!.ExecuteAsync(new CommandDefinition(
-            "DELETE FROM cards WHERE project_id = @projectId AND number = @number AND unlabelled AND state IN ('building', 'checking')",
-            new { projectId, number },
+            "DELETE FROM cards WHERE project_id = @projectId AND number = @number AND unlabelled AND state = ANY(@running)",
+            new { projectId, number, running },
             transaction,
             cancellationToken: cancellationToken));
         if (removed > 0)
@@ -299,9 +366,9 @@ public static class RunStore
         await transaction.Connection!.ExecuteAsync(new CommandDefinition(
             """
             UPDATE cards SET state = @state, reason = @reason, changed_at = @now
-            WHERE project_id = @projectId AND number = @number AND state IN ('building', 'checking')
+            WHERE project_id = @projectId AND number = @number AND state = ANY(@running)
             """,
-            new { projectId, number, state, reason, now },
+            new { projectId, number, running, state, reason, now },
             transaction,
             cancellationToken: cancellationToken));
     }
@@ -320,5 +387,5 @@ public static class RunStore
         : char.IsHighSurrogate(reason[MostReason - 1]) && char.IsLowSurrogate(reason[MostReason]) ? reason[..(MostReason - 1)]
         : reason[..MostReason];
 
-    private sealed record HeldRun(int CardNumber, string Branch);
+    private sealed record HeldRun(int CardNumber, string Branch, string Kind, string? HeadCommit);
 }

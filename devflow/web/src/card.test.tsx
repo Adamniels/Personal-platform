@@ -85,6 +85,7 @@ function story(overrides: Partial<CardStory> = {}): CardStory {
 			replies: [],
 			handover: "",
 		},
+		reviews: [],
 		...overrides,
 	};
 }
@@ -228,6 +229,107 @@ describe("a card's page", () => {
 		expect(document.querySelector("img")).toBeNull();
 	});
 
+	test("shows each review with its commit, verdict, findings and view", async () => {
+		open(() =>
+			Promise.resolve(
+				story({
+					reviews: [
+						{
+							run_id: "01a3185c-5000-7000-8000-000000000003",
+							commit: HEAD,
+							verdict: "changes",
+							summary: "The empty state shows only after a reload.",
+							findings: [
+								{
+									blocking: false,
+									file: "web/src/list.css",
+									line: 3,
+									what: "A colour by hand",
+									why: "The tokens hold it",
+								},
+								{
+									blocking: true,
+									file: "web/src/list.tsx",
+									line: 42,
+									what: "The empty state is read `once`",
+									why: "A list emptied later shows nothing",
+								},
+								{
+									blocking: true,
+									file: "",
+									line: 0,
+									what: "No test covers an emptied list",
+									why: "",
+								},
+							],
+							for_owner: [
+								{
+									decision: "Show it on every list",
+									view: "Agreed: the lists share one component.",
+								},
+							],
+							reviewed_at: "2026-11-18T10:05:00+00:00",
+							posted: true,
+							current: true,
+						},
+						{
+							run_id: "01a3185c-5000-7000-8000-000000000004",
+							commit: `def5678${"0".repeat(33)}`,
+							verdict: "approve",
+							summary: "",
+							findings: [],
+							for_owner: [],
+							reviewed_at: "2026-11-18T09:05:00+00:00",
+							posted: false,
+							current: false,
+						},
+					],
+				}),
+			),
+		);
+
+		const panel = within(
+			await screen.findByRole("article", { name: "Reviews" }),
+		);
+		const [newest, older] = panel
+			.getAllByRole("listitem")
+			.filter(
+				(each) => each.parentElement?.getAttribute("aria-label") === "Reviews",
+			)
+			.map((each) => within(each));
+		expect(newest?.getByText("abc1234").tagName).toBe("CODE");
+		expect(newest?.getByText("Changes asked for")).toBeTruthy();
+		expect(newest?.getByText("For the pull request's head")).toBeTruthy();
+		expect(newest?.queryByText("Not on the pull request yet")).toBeNull();
+		expect(
+			newest?.getByText("The empty state shows only after a reload."),
+		).toBeTruthy();
+
+		// Blocking findings first, each with where it is, what and why.
+		const findings = within(
+			newest?.getByRole("list", { name: "Findings" }) as HTMLElement,
+		)
+			.getAllByRole("listitem")
+			.map((finding) => finding.textContent);
+		expect(findings).toEqual([
+			"Blocking web/src/list.tsx:42 The empty state is read onceBecause A list emptied later shows nothing",
+			"Blocking No test covers an emptied list",
+			"Not blocking web/src/list.css:3 A colour by handBecause The tokens hold it",
+		]);
+		expect(newest?.getByText("once").tagName).toBe("CODE");
+		expect(
+			newest?.getByRole("list", { name: "For the owner" }).textContent,
+		).toBe("Show it on every listAgreed: the lists share one component.");
+
+		// A review of an older commit says it does not count.
+		expect(older?.getByText("Approved")).toBeTruthy();
+		expect(
+			older?.getByText("For an older commit, so it does not count"),
+		).toBeTruthy();
+		expect(older?.getByText("Not on the pull request yet")).toBeTruthy();
+		expect(older?.queryByRole("list", { name: "Findings" })).toBeNull();
+	});
+
 	test("a card no run has taken says so, with no report", async () => {
 		open(() =>
 			Promise.resolve(
@@ -248,6 +350,7 @@ describe("a card's page", () => {
 		expect(
 			screen.queryByRole("article", { name: "The latest report" }),
 		).toBeNull();
+		expect(screen.queryByRole("article", { name: "Reviews" })).toBeNull();
 		expect(screen.queryByText(/Pull request #/)).toBeNull();
 	});
 

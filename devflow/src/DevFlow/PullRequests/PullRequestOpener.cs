@@ -12,7 +12,8 @@ namespace DevFlow.PullRequests;
 /// <summary>
 /// Opens the pull request of each card of a project whose run built it and passed its check, as the
 /// app with a <see cref="WritePurpose.Post"/> key, from the card's branch into the branch it was
-/// built on, and moves the card to <c>waiting_for_owner</c> with its number. A pull request the app
+/// built on, and moves the card to <c>reviewing</c> with its number, since its head commit has no
+/// review yet: its review is the project's next job. A pull request the app
 /// already has open for the branch is reused, so opening it again, after an answer that was lost or
 /// on the next minute, never opens a second. Nothing is held while the code host answers: the card
 /// is recorded only after, and only while it is still built and has none, so two openings at once
@@ -25,6 +26,9 @@ public sealed partial class PullRequestOpener(UserDb database, ICodeHost host, T
 {
     /// <summary>The reason of a card whose pull request waits for the owner.</summary>
     public const string Waiting = "Its pull request waits for you";
+
+    /// <summary>The reason of a card whose pull request is open and waits for its review.</summary>
+    public const string ToReview = "Its pull request is open; the reviewer reads it next";
 
     /// <summary>
     /// Opens the pull request of every card of the project that is waiting for one, as the
@@ -163,20 +167,20 @@ public sealed partial class PullRequestOpener(UserDb database, ICodeHost host, T
             return (new Repository(project.Installation, project.RepositoryId, project.Owner, project.Name), pending);
         }, cancellationToken);
 
-    /// <summary>The card's pull request recorded and the card waiting for the owner, only while it
-    /// is still built and has none, and its latest run is the one that built it.</summary>
+    /// <summary>The card's pull request recorded and the card moved to <c>reviewing</c>, only while
+    /// it is still built and has none, and its latest run is the one that built it.</summary>
     private async Task Record(Guid projectId, Guid userId, PendingCard card, PullRequest pull, CancellationToken cancellationToken)
     {
         var now = time.GetUtcNow();
         now = now.AddTicks(-(now.Ticks % 10));
         await database.InUserTransaction(userId, transaction => transaction.Connection!.ExecuteAsync(new CommandDefinition(
             """
-            UPDATE cards SET state = 'waiting_for_owner', reason = @reason, pull_request_number = @pull, pull_request_url = @url, changed_at = @now
+            UPDATE cards SET state = 'reviewing', reason = @reason, pull_request_number = @pull, pull_request_url = @url, changed_at = @now
             WHERE project_id = @projectId AND number = @number AND state = 'checking' AND pull_request_number IS NULL
               AND (SELECT id FROM runs WHERE runs.project_id = cards.project_id AND runs.card_number = cards.number
                    ORDER BY started_at DESC, id DESC LIMIT 1) = @runId
             """,
-            new { projectId, number = card.Number, runId = card.RunId, pull = pull.Number, url = pull.Url.ToString(), reason = Waiting, now },
+            new { projectId, number = card.Number, runId = card.RunId, pull = pull.Number, url = pull.Url.ToString(), reason = ToReview, now },
             transaction,
             cancellationToken: cancellationToken)), cancellationToken);
     }

@@ -61,6 +61,34 @@ public sealed class ClaudeAgentTests
     }
 
     [Fact]
+    public async Task AReadOnlyRunIsNotFailedForWhatItWasRefused()
+    {
+        // A reviewer that tried to write was refused, which is how it is built: the run succeeds,
+        // and what it was refused is kept.
+        var (reviewed, reviewer, log) = await Run(Answer("refused-write.json", 0), access: AgentAccess.ReadOnly);
+
+        Assert.True(reviewed.Succeeded, reviewed.Failure?.Reason);
+        Assert.Equal("Could not write the file.", (string)reviewed.Report!["summary"]!);
+        Assert.Equal("Write", (string)Assert.Single(reviewed.Denials!)!["tool_name"]!);
+        var arguments = reviewer.Started[1].Spec.Arguments.ToList();
+        Assert.Equal("default", arguments[arguments.IndexOf("--permission-mode") + 1]);
+        Assert.Equal("none", arguments[arguments.IndexOf("--permission-prompts") + 1]);
+        Assert.Equal("Read,Grep,Glob", arguments[arguments.IndexOf("--allowedTools") + 1]);
+        Assert.DoesNotContain("bypassPermissions", arguments);
+        NoToken(reviewed, log);
+
+        // A developer refused the same is a failure in the card, and keeps them too.
+        var (built, developer, _) = await Run(Answer("refused-write.json", 0));
+
+        Assert.False(built.Succeeded);
+        Assert.Single(built.Denials!);
+        var developing = developer.Started[1].Spec.Arguments.ToList();
+        Assert.Equal("bypassPermissions", developing[developing.IndexOf("--permission-mode") + 1]);
+        Assert.DoesNotContain("--allowedTools", developing);
+        Assert.DoesNotContain("--permission-prompts", developing);
+    }
+
+    [Fact]
     public async Task ASuccessAnswersTheReportAndTheUsageAsTheyAre()
     {
         var (result, _, log) = await Run(Answer("success.json", 0));
@@ -205,29 +233,14 @@ public sealed class ClaudeAgentTests
     /// <summary>Runs the agent on a brief in <c>/work/fodr</c>, with <paramref name="login"/>
     /// answering the login check, logged in with the token unless a test says otherwise, and
     /// <paramref name="run"/> the run.</summary>
-    private static async Task<(AgentResult Result, FakeStarter Starter, StringBuilder Log)> Run(ProcessOutcome? run = null, ProcessOutcome? login = null)
+    private static async Task<(AgentResult Result, FakeStarter Starter, StringBuilder Log)> Run(ProcessOutcome? run = null, ProcessOutcome? login = null, AgentAccess access = AgentAccess.Write)
     {
         var starter = new FakeStarter(login ?? Answer("auth-oauth-token.json", 0), run ?? Answer("success.json", 0));
         var output = Writer(out var log);
         var agent = new ClaudeCodeAgent(starter, ClaudeCodeOptions.Default, new WorkerLog(output, new WatchedClock()));
         var result = await agent.Run(
-            new AgentRun("/work/fodr", "Add an empty state to the habits list.", Schema, AgentLimits.Default, new AgentCredential(Token)),
+            new AgentRun("/work/fodr", "Add an empty state to the habits list.", Schema, AgentLimits.Default, new AgentCredential(Token), access),
             Ct);
         return (result, starter, log);
-    }
-
-    /// <summary>Answers each start with the next outcome, and records what it was asked to
-    /// start.</summary>
-    private sealed class FakeStarter(params ProcessOutcome[] outcomes) : IProcessStarter
-    {
-        private readonly Queue<ProcessOutcome> _outcomes = new(outcomes);
-
-        public List<(ProcessSpec Spec, TimeSpan TimeLimit)> Started { get; } = [];
-
-        public Task<ProcessOutcome> Run(ProcessSpec spec, TimeSpan timeLimit, CancellationToken cancellationToken)
-        {
-            Started.Add((spec, timeLimit));
-            return Task.FromResult(_outcomes.Dequeue());
-        }
     }
 }

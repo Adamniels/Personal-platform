@@ -154,6 +154,7 @@ internal sealed class InstallationTokens(IHttpClientFactory factory, GitHubSetti
             WritePurpose.Push => new(Contents: "write", PullRequests: null, Issues: null, Metadata: "read"),
             WritePurpose.Post => new(Contents: null, PullRequests: "write", Issues: "write", Metadata: "read"),
             WritePurpose.Merge => new(Contents: "write", PullRequests: "read", Issues: null, Metadata: "read"),
+            WritePurpose.Fetch => new(Contents: "read", PullRequests: null, Issues: null, Metadata: "read"),
             _ => throw new ArgumentOutOfRangeException(nameof(purpose), purpose, "not a write purpose"),
         };
     }

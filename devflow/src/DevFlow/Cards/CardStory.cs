@@ -3,6 +3,7 @@ using System.Text.Json;
 using Dapper;
 
 using DevFlow.Protocol;
+using DevFlow.Reviews;
 
 using PlatformData;
 
@@ -18,7 +19,7 @@ public sealed record RunCheck(int ExitCode, string Output);
 
 /// <summary>One run of a card, as its page shows it. Every text from a worker or an agent is shown
 /// as text.</summary>
-/// <param name="Kind"><c>build</c>, the one kind in this part.</param>
+/// <param name="Kind"><c>build</c> or <c>review</c>.</param>
 /// <param name="Worker">The name the worker said hello with, its container's hostname.</param>
 /// <param name="StartedAt">When it was handed out.</param>
 /// <param name="FinishedAt">When its result came back or it was found lost, null while it
@@ -51,6 +52,29 @@ public sealed record CardRun(
     RunCheck? Check,
     string? HeadCommit);
 
+/// <summary>A review of the card, as its page shows it: the verdict Dev flow kept, for the commit the
+/// worker reviewed. Every text of the reviewer's is shown as text.</summary>
+/// <param name="RunId">The review run that read it, among the runs.</param>
+/// <param name="Commit">The commit the worker reviewed.</param>
+/// <param name="Verdict"><c>approve</c> or <c>changes</c>.</param>
+/// <param name="Summary">What the reviewer found.</param>
+/// <param name="Findings">Each finding, blocking or not, with its file, line, what and why.</param>
+/// <param name="ForOwner">The reviewer's view on each decision marked for the owner.</param>
+/// <param name="ReviewedAt">When it was recorded.</param>
+/// <param name="Posted">Whether its copy is on the pull request yet.</param>
+/// <param name="Current">Whether it is for the card's head commit, so it counts; a review of an
+/// older commit does not.</param>
+public sealed record CardReview(
+    Guid RunId,
+    string Commit,
+    string Verdict,
+    string Summary,
+    IReadOnlyList<ReviewFinding> Findings,
+    IReadOnlyList<ReviewOwnerView> ForOwner,
+    DateTimeOffset ReviewedAt,
+    bool Posted,
+    bool Current);
+
 /// <summary>What <c>GET /devflow/api/projects/{id}/cards/{number}</c> answers: a card's whole story
 /// so far.</summary>
 /// <param name="Title">The issue's title as last read.</param>
@@ -61,6 +85,7 @@ public sealed record CardRun(
 /// <param name="Runs">Every run, newest first.</param>
 /// <param name="Report">The latest report in its form, null when no run has handed one
 /// back.</param>
+/// <param name="Reviews">Every review, newest first.</param>
 public sealed record CardStoryView(
     int Number,
     string Title,
@@ -69,7 +94,8 @@ public sealed record CardStoryView(
     string? Reason,
     CardPullRequest? PullRequest,
     IReadOnlyList<CardRun> Runs,
-    Report? Report);
+    Report? Report,
+    IReadOnlyList<CardReview> Reviews);
 
 /// <summary>
 /// A card's story, read from what Dev flow stored and never from the code host, through the door
@@ -120,6 +146,10 @@ public static class CardStory
                 transaction,
                 cancellationToken: cancellationToken))).ToList();
 
+            // The head is the commit the newest build that succeeded left, as a card's current review
+            // reads it; the runs are newest first.
+            var head = runs.FirstOrDefault(run => run is { Kind: Job.Build, Result: "succeeded" })?.HeadCommit;
+            var reviews = await ReviewStore.OfCard(transaction, projectId, number, cancellationToken);
             return new CardStoryView(
                 card.Number,
                 card.Title,
@@ -128,7 +158,17 @@ public static class CardStory
                 card.Reason,
                 card.PullRequestNumber is { } pull && card.PullRequestUrl is { } url ? new CardPullRequest(pull, url) : null,
                 [.. runs.Select(Run)],
-                runs.Select(run => Read(run.Report)).FirstOrDefault(report => report is not null));
+                runs.Where(run => run.Kind == Job.Build).Select(run => Read(run.Report)).FirstOrDefault(report => report is not null),
+                [.. reviews.Select(review => new CardReview(
+                    review.RunId,
+                    review.Commit,
+                    review.Verdict.Word,
+                    review.Verdict.Summary,
+                    review.Verdict.Findings,
+                    review.Verdict.ForOwner,
+                    review.ReviewedAt,
+                    review.PostedAt is not null,
+                    string.Equals(review.Commit, head, StringComparison.Ordinal)))]);
         }, cancellationToken);
     }
 

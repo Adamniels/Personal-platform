@@ -1,7 +1,8 @@
 // A card's page, /devflow/projects/{project}/cards/{number}, under the Projects tab, opened from the
 // project's Cards panel: the card's whole story so far, read from GET
 // /devflow/api/projects/{id}/cards/{number}, what Dev flow stored and never the code host. Its state
-// and why, links to its issue and its pull request, each run, newest first, and the latest report.
+// and why, links to its issue and its pull request, each review with its verdict, newest first,
+// each run, newest first, and the latest report.
 // Every text came from the code host, a worker or an agent and is shown as text. See "The pages"
 // and "A card's page" in devflow/README.md.
 import {
@@ -21,6 +22,7 @@ import { linkable } from "./waiting";
 export type CardStory = components["schemas"]["CardStoryView"];
 type Run = CardStory["runs"][number];
 type Report = NonNullable<CardStory["report"]>;
+type Review = CardStory["reviews"][number];
 
 export const NOT_READ = "The card could not be read. Try again.";
 
@@ -51,7 +53,22 @@ const RESULTS: Record<string, { word: string; tone: StatusTone }> = {
 	lost: { word: "Lost", tone: "failed" },
 };
 
-const KINDS: Record<string, string> = { build: "Build" };
+const KINDS: Record<string, string> = { build: "Build", review: "Review" };
+
+/** A verdict as a word and a tone; one the page does not know yet is shown
+ * as it is named. */
+const VERDICTS: Record<string, { word: string; tone: StatusTone }> = {
+	approve: { word: "Approved", tone: "done" },
+	changes: { word: "Changes asked for", tone: "failed" },
+};
+
+/** The reviewer's verdict as the pages say it. */
+export function verdictWord(verdict: string): {
+	word: string;
+	tone: StatusTone;
+} {
+	return VERDICTS[verdict] ?? { word: verdict, tone: "idle" };
+}
 
 const DATE_TIME = new Intl.DateTimeFormat("en-GB", {
 	dateStyle: "medium",
@@ -156,6 +173,15 @@ export function CardPage({
 					</p>
 				</div>
 			</Panel>
+			{story.reviews.length === 0 ? null : (
+				<Panel title="Reviews" className={styles.panel}>
+					<ul className={styles.runs} aria-label="Reviews">
+						{story.reviews.map((review) => (
+							<ReviewRow key={review.run_id} review={review} />
+						))}
+					</ul>
+				</Panel>
+			)}
 			<Panel title="Runs" className={styles.panel}>
 				{story.runs.length === 0 ? (
 					<p className={styles.muted}>No run has taken this card yet.</p>
@@ -266,6 +292,79 @@ function RunRow({ run }: { run: Run }) {
 					) : null}
 				</span>
 			)}
+		</li>
+	);
+}
+
+/** One review on an inset: the commit it is for and its verdict, whether it
+ * counts for the card's head, the reviewer's summary, its findings, blocking
+ * ones first, and its view on each decision marked for the owner. */
+function ReviewRow({ review }: { review: Review }) {
+	const verdict = verdictWord(review.verdict);
+	const findings = [...review.findings].sort(
+		(one, other) => Number(other.blocking) - Number(one.blocking),
+	);
+	return (
+		<li className={`${styles.run} ${styles.review}`}>
+			<span className={styles.head}>
+				<span className={styles.kind}>
+					Review of{" "}
+					<code className={styles.code}>{review.commit.slice(0, 7)}</code>
+				</span>
+				<Status tone={verdict.tone}>{verdict.word}</Status>
+			</span>
+			<span className={styles.meta}>
+				<span>
+					<time dateTime={review.reviewed_at}>
+						{DATE_TIME.format(new Date(review.reviewed_at))}
+					</time>
+				</span>
+				<span>
+					{review.current
+						? "For the pull request's head"
+						: "For an older commit, so it does not count"}
+				</span>
+				{review.posted ? null : <span>Not on the pull request yet</span>}
+			</span>
+			{review.summary.trim() === "" ? null : (
+				<span className={styles.text}>
+					<Inline text={review.summary} />
+				</span>
+			)}
+			<Section label="Findings" items={findings}>
+				{(finding) => (
+					<>
+						<span className={styles.mark}>
+							{finding.blocking ? "Blocking" : "Not blocking"}
+						</span>{" "}
+						{finding.file.trim() === "" ? null : (
+							<>
+								<code className={styles.code}>
+									{finding.line > 0
+										? `${finding.file}:${finding.line}`
+										: finding.file}
+								</code>{" "}
+							</>
+						)}
+						<Inline text={finding.what} />
+						{finding.why.trim() === "" ? null : (
+							<span className={styles.sub}>
+								Because <Inline text={finding.why} />
+							</span>
+						)}
+					</>
+				)}
+			</Section>
+			<Section label="For the owner" items={review.for_owner}>
+				{(view) => (
+					<>
+						<Inline text={view.decision} />
+						<span className={styles.sub}>
+							<Inline text={view.view} />
+						</span>
+					</>
+				)}
+			</Section>
 		</li>
 	);
 }

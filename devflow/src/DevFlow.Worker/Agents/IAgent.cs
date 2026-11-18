@@ -19,7 +19,19 @@ internal interface IAgent
 /// <param name="ReportSchema">The JSON Schema its report must follow, as JSON text.</param>
 /// <param name="Limits">When it is stopped.</param>
 /// <param name="Credential">What it logs in with.</param>
-internal sealed record AgentRun(string WorkingDirectory, string Brief, string ReportSchema, AgentLimits Limits, AgentCredential Credential);
+/// <param name="Access">Whether it may change files and run commands, as a build's developer
+/// does, or only read, as a review's reviewer does.</param>
+internal sealed record AgentRun(string WorkingDirectory, string Brief, string ReportSchema, AgentLimits Limits, AgentCredential Credential, AgentAccess Access = AgentAccess.Write);
+
+/// <summary>What an agent may do in its run.</summary>
+internal enum AgentAccess
+{
+    /// <summary>Change files and run commands in its working copy: a build's developer.</summary>
+    Write,
+
+    /// <summary>Read, search and list files, and nothing else: a review's reviewer.</summary>
+    ReadOnly,
+}
 
 /// <summary>When a run is stopped.</summary>
 /// <param name="MaxTurns">The most turns, which Claude Code enforces.</param>
@@ -67,13 +79,15 @@ internal sealed record AgentFailure(FailureSide Side, string Reason);
 /// <param name="Stderr">Its standard error.</param>
 /// <param name="AuthMethod">How Claude Code said it was logged in; null for an agent without a
 /// login or when it said nothing.</param>
-internal sealed record AgentResult(JsonObject? Report, AgentFailure? Failure, JsonObject Usage, string Stderr, string? AuthMethod)
+/// <param name="Denials">The actions it was refused, as Claude Code listed them; empty when none
+/// were, or the agent says nothing of them.</param>
+internal sealed record AgentResult(JsonObject? Report, AgentFailure? Failure, JsonObject Usage, string Stderr, string? AuthMethod, JsonArray? Denials = null)
 {
     public bool Succeeded => Failure is null;
 
-    public static AgentResult Success(JsonObject report, JsonObject usage, string stderr, string? authMethod) =>
-        new(report, null, usage, stderr, authMethod);
+    public static AgentResult Success(JsonObject report, JsonObject usage, string stderr, string? authMethod, JsonArray? denials = null) =>
+        new(report, null, usage, stderr, authMethod, denials);
 
-    public static AgentResult Failed(FailureSide side, string reason, JsonObject usage, string stderr, string? authMethod) =>
-        new(null, new AgentFailure(side, reason), usage, stderr, authMethod);
+    public static AgentResult Failed(FailureSide side, string reason, JsonObject usage, string stderr, string? authMethod, JsonArray? denials = null) =>
+        new(null, new AgentFailure(side, reason), usage, stderr, authMethod, denials);
 }

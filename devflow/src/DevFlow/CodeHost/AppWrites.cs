@@ -23,6 +23,12 @@ public enum WritePurpose
     /// <summary>Merging a pull request only: <c>contents: write</c>, <c>pull_requests: read</c>
     /// and <c>metadata: read</c>.</summary>
     Merge,
+
+    /// <summary>Fetching code only, handed to a worker for a review: <c>contents: read</c> and
+    /// <c>metadata: read</c>. It writes nothing, so a reviewer's worker holds no key that could push;
+    /// a key of the app's own rather than its read token, so it reaches one repository, is the
+    /// worker's alone and runs out within the hour.</summary>
+    Fetch,
 }
 
 /// <summary>

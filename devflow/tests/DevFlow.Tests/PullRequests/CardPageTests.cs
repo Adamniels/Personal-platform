@@ -3,8 +3,8 @@ using Microsoft.AspNetCore.Http;
 namespace DevFlow.Tests.PullRequests;
 
 /// <summary>
-/// A card's route answers its whole story so far: every run, newest first, with what the page shows
-/// of it, and the latest report. Only to the card's own user. See "A card's page" in
+/// A card's route answers its whole story so far: every run, newest first, its review among them,
+/// with what the page shows of it, the latest report, and each review with its verdict. Only to the card's own user. See "A card's page" in
 /// devflow/README.md.
 /// </summary>
 public sealed class CardPageTests
@@ -18,6 +18,7 @@ public sealed class CardPageTests
         // The next try comes a minute later, as it would on the worker's next turn.
         jobs.Routes.Time.Advance(TimeSpan.FromMinutes(1));
         var ran = await Built.Run(jobs, Built.Prepared(Built.Report()));
+        await Built.Review(jobs);
         var runs = await jobs.Runs();
         var pull = (await Built.Card(jobs, 4)).PullRequestNumber!.Value;
 
@@ -32,11 +33,13 @@ public sealed class CardPageTests
         Assert.Equal(pull, (int)card["pull_request"]!["number"]!);
         Assert.Equal($"https://github.com/Adamniels/Personal-platform/pull/{pull}", (string)card["pull_request"]!["url"]!);
 
-        // Newest first.
+        // Newest first: the review, the build, and the failure before it.
         var story = card["runs"]!.AsArray();
-        Assert.Equal([runs[1].Id, runs[0].Id], [.. story.Select(run => (Guid)run!["id"]!)]);
+        Assert.Equal([runs[2].Id, runs[1].Id, runs[0].Id], [.. story.Select(run => (Guid)run!["id"]!)]);
+        Assert.Equal("review", (string)story[0]!["kind"]!);
+        Assert.Equal((string)ran["head_commit"]!, (string)story[0]!["head_commit"]!);
 
-        var built = story[0]!.AsObject();
+        var built = story[1]!.AsObject();
         Assert.Equal("build", (string)built["kind"]!);
         Assert.Equal("devflow-fake-worker", (string)built["worker"]!);
         Assert.Equal(runs[1].StartedAt, ((DateTimeOffset)built["started_at"]!).UtcDateTime);
@@ -51,14 +54,14 @@ public sealed class CardPageTests
         Assert.Equal("Tests: 12 passed", (string)built["check"]!["output"]!);
         Assert.Equal((string)ran["head_commit"]!, (string)built["head_commit"]!);
 
-        var failed = story[1]!.AsObject();
+        var failed = story[2]!.AsObject();
         Assert.Equal("failed_outside_card", (string)failed["result"]!);
         Assert.Equal("Claude's API did not answer", (string)failed["reason"]!);
         Assert.False((bool)failed["in_card"]!);
         Assert.Null(failed["check"]);
         Assert.Null(failed["auth_method"]);
 
-        // The latest report, in its form.
+        // The latest report, in its form: the build's, since a review hands back a verdict.
         var report = card["report"]!.AsObject();
         Assert.Equal("Added the empty state to the habits list.", (string)report["summary"]!);
         Assert.Equal(2, report["tasks"]!.AsArray().Count);
@@ -98,4 +101,69 @@ public sealed class CardPageTests
         Assert.Equal(StatusCodes.Status404NotFound, (await Built.Get(jobs, $"/devflow/api/projects/{jobs.Project}/cards/9")).Status);
         Assert.Equal(StatusCodes.Status404NotFound, (await Built.Get(jobs, $"/devflow/api/projects/{Guid.CreateVersion7()}/cards/4")).Status);
     }
+
+    [Fact]
+    public async Task TheReviewIsOnTheCardsPage()
+    {
+        await using var jobs = await Jobs.Jobs.Start([Jobs.Jobs.Card(4, "Add the empty state")]);
+        var built = await Built.Run(jobs, Built.Prepared(Built.Report()));
+        var commit = (string)built["head_commit"]!;
+        var verdict = Built.Verdict("changes", Built.Finding(), Built.Finding(blocking: false, file: "web/src/list.css", line: 3, what: "A colour by hand", why: "The tokens hold it"));
+        var reviewed = await Built.Review(jobs, verdict);
+
+        var (status, card) = await Built.Get(jobs, $"/devflow/api/projects/{jobs.Project}/cards/4");
+
+        Assert.Equal(StatusCodes.Status200OK, status);
+        // Each review with its commit, verdict, findings and the reviewer's view of the owner's
+        // decisions, newest first; this one is for the head, and posted.
+        var review = Assert.Single(card!["reviews"]!.AsArray())!.AsObject();
+        Assert.Equal((Guid)reviewed["job_id"]!, (Guid)review["run_id"]!);
+        Assert.Equal(commit, (string)review["commit"]!);
+        Assert.Equal("changes", (string)review["verdict"]!);
+        Assert.Equal((string)verdict["summary"]!, (string)review["summary"]!);
+        Assert.True((bool)review["current"]!);
+        Assert.True((bool)review["posted"]!);
+        Assert.Equal(jobs.Routes.Time.GetUtcNow(), (DateTimeOffset)review["reviewed_at"]!);
+        var findings = review["findings"]!.AsArray();
+        Assert.Equal([true, false], findings.Select(finding => (bool)finding!["blocking"]!));
+        Assert.Equal("web/src/list.tsx", (string)findings[0]!["file"]!);
+        Assert.Equal(42, (int)findings[0]!["line"]!);
+        Assert.Equal("The empty state is read once", (string)findings[0]!["what"]!);
+        Assert.Equal("A list emptied later shows nothing", (string)findings[0]!["why"]!);
+        var view = Assert.Single(review["for_owner"]!.AsArray())!;
+        Assert.Equal("Show it on every list", (string)view["decision"]!);
+        Assert.Equal("Agreed: the lists share one component.", (string)view["view"]!);
+
+        // The review's run is among the runs, and the latest report is still the build's.
+        Assert.Equal("review", (string)card["runs"]![0]!["kind"]!);
+        Assert.Equal("Added the empty state to the habits list.", (string)card["report"]!["summary"]!);
+    }
+
+    [Fact]
+    public async Task AReviewOfAnOlderCommitIsNotCurrent()
+    {
+        await using var jobs = await Jobs.Jobs.Start([Jobs.Jobs.Card(4)]);
+        await Built.Run(jobs, Built.Prepared());
+        await Built.Review(jobs, Built.Verdict("approve"));
+
+        // A later build leaves a new commit, as a fix round will.
+        jobs.Routes.Time.Advance(TimeSpan.FromMinutes(1));
+        await using (var admin = await jobs.Routes.Database.OpenAdmin(Ct))
+        {
+            await Dapper.SqlMapper.ExecuteAsync(admin, new Dapper.CommandDefinition(
+                """
+                INSERT INTO runs (id, project_id, user_id, card_number, worker_id, kind, branch, base, started_at, finished_at, result, head_commit)
+                SELECT gen_random_uuid(), project_id, user_id, card_number, worker_id, 'build', branch, base, @now, @now, 'succeeded', @head
+                FROM runs WHERE project_id = @project AND kind = 'build'
+                """,
+                new { project = jobs.Project, now = jobs.Routes.Time.GetUtcNow(), head = new string('b', 40) },
+                cancellationToken: Ct));
+        }
+
+        var (_, card) = await Built.Get(jobs, $"/devflow/api/projects/{jobs.Project}/cards/4");
+
+        Assert.False((bool)Assert.Single(card!["reviews"]!.AsArray())!["current"]!);
+    }
+
+    private static CancellationToken Ct => TestContext.Current.CancellationToken;
 }

@@ -1,6 +1,7 @@
 // A card of Dev flow's own whose pull request waits for the owner, as "Waiting for you" shows it
 // under "Pull requests waiting" beside the runner's: its title and project, the report's summary,
-// each decision the agent marked for him, the check Dev flow ran, and Merge, the owner's own
+// each decision the agent marked for him, the check Dev flow ran, the reviewer's verdict on the
+// commit, and Merge, the owner's own
 // merge, behind the same confirmation as an item's, and Open on GitHub. The commit shown, the one
 // the run built and the check passed on, travels with the merge, so a pull request that moved on is
 // refused, never merged. Every text came from the code host or the agent and is shown as text. See
@@ -14,6 +15,7 @@ import {
 	type LinkState,
 	UNLINKED,
 } from "./actions";
+import { verdictWord } from "./card";
 import { Inline } from "./format";
 import { askNavAgain } from "./nav-attention";
 import { type CardItem, Decisions, linkable } from "./waiting";
@@ -46,6 +48,33 @@ export function CheckLine({ check }: { check: CardItem["check"] }) {
 			on <code className={styles.commit}>{check.commit.slice(0, 7)}</code>: exit{" "}
 			{check.exit_code}.
 		</p>
+	);
+}
+
+/** The reviewer's verdict on the commit: its word, what it found, and how
+ * many of its findings block. */
+export function ReviewLine({
+	review,
+}: {
+	review: NonNullable<CardItem["review"]>;
+}) {
+	const { word, tone } = verdictWord(review.verdict);
+	return (
+		<div className={styles.block}>
+			<h3 className={styles.label}>The review</h3>
+			<p className={styles.text}>
+				<Status tone={tone}>{word}</Status> on{" "}
+				<code className={styles.commit}>{review.commit.slice(0, 7)}</code>
+				{review.blocking === 0
+					? "."
+					: `, ${review.blocking} ${review.blocking === 1 ? "finding blocks" : "findings block"} it.`}
+			</p>
+			{review.summary === "" ? null : (
+				<p className={styles.text}>
+					<Inline text={review.summary} />
+				</p>
+			)}
+		</div>
 	);
 }
 
@@ -164,6 +193,7 @@ export function WaitingCard({
 					<h3 className={styles.label}>The check</h3>
 					<CheckLine check={card.check} />
 				</div>
+				{card.review === null ? null : <ReviewLine review={card.review} />}
 			</div>
 		</Card>
 	);

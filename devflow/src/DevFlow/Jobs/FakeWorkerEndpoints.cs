@@ -5,6 +5,7 @@ using DevFlow.CodeHost;
 using DevFlow.Protocol;
 using DevFlow.PullRequests;
 using DevFlow.Recipes;
+using DevFlow.Reviews;
 using DevFlow.Workers;
 
 using Microsoft.AspNetCore.Http.HttpResults;
@@ -17,20 +18,22 @@ using PlatformData;
 namespace DevFlow.Jobs;
 
 /// <summary>What the fake worker is asked to do: take the project's next job and end it with the
-/// prepared result, whose worker id, branch and head commit it fills itself.</summary>
+/// prepared result, whose worker id, branch and head commit it fills itself; for a review job the
+/// prepared report is the verdict.</summary>
 public sealed record FakeWorkerRun(Guid? ProjectId, ResultRequest? Result);
 
-/// <summary>What the fake worker did: the job it took, its card, and the commit it left on the
-/// branch.</summary>
-public sealed record FakeWorkerRan(Guid JobId, int Card, string Branch, string HeadCommit);
+/// <summary>What the fake worker did: the job it took, its kind, its card, and the commit it left
+/// on the branch, or for a review the commit it reviewed.</summary>
+public sealed record FakeWorkerRan(Guid JobId, string Kind, int Card, string Branch, string HeadCommit);
 
 /// <summary>
 /// The fake worker, in the fake mode only, under the <c>Api</c> policy and the origin check, acting
 /// on the caller's own project: one call says hello in the project as a worker on the image
 /// expected, takes its next job through the same <see cref="Dispatcher"/> a real worker asks, makes
-/// a commit on the job's branch in the fake code host, and completes the job with the prepared
-/// result through the same code a real worker's result goes through. So an acceptance test drives
-/// the whole chain without a container. Left out of the schema, as every fake address is. See "Jobs"
+/// a commit on the job's branch in the fake code host for a build, or none for a review, which names
+/// the commit it was handed, and completes the job with the prepared result through the same code a
+/// real worker's result goes through. So an acceptance test drives the whole chain without a
+/// container. Left out of the schema, as every fake address is. See "Jobs"
 /// in devflow/README.md.
 /// </summary>
 public static class FakeWorkerEndpoints
@@ -62,6 +65,7 @@ public static class FakeWorkerEndpoints
         [FromServices] WorkerStart start,
         [FromServices] UserDb database,
         [FromServices] PullRequestOpener opener,
+        [FromServices] ReviewPoster poster,
         [FromServices] TimeProvider time)
     {
         var cancellationToken = context.RequestAborted;
@@ -92,6 +96,18 @@ public static class FakeWorkerEndpoints
             return TypedResults.NoContent();
         }
 
+        var now = time.GetUtcNow();
+        now = now.AddTicks(-(now.Ticks % 10));
+        if (job.ToReview is { } toReview)
+        {
+            // A review reads the commit it was handed and changes nothing.
+            var reviewed = prepared with { WorkerId = WorkerId, Branch = job.Branch, HeadCommit = prepared.Outcome == ResultRequest.Succeeded ? toReview.Commit : null };
+            await JobEndpoints.Complete(database, caller, job.JobId, WorkerId, JobEndpoints.Read(reviewed)!, now, cancellationToken);
+            // Its copy is posted on the next minute for a real worker; the fake worker waits for it.
+            await poster.PostPending(projectId, userId, cancellationToken);
+            return TypedResults.Ok(new FakeWorkerRan(job.JobId, job.Kind, job.Card.Number, job.Branch, toReview.Commit));
+        }
+
         var message = string.Create(CultureInfo.InvariantCulture, $"Build #{job.Card.Number}, by the fake worker");
         var committer = new Committer(job.Committer.Name, job.Committer.Email);
         // A repository has a commit on its default branch before anything is built on it, so a
@@ -108,14 +124,13 @@ public static class FakeWorkerEndpoints
         var sent = commit is null
             ? prepared with { WorkerId = WorkerId, Outcome = ResultRequest.Failed, Report = null, Failure = new RunFailure(NoCommit, false), Check = null, Branch = job.Branch, HeadCommit = null }
             : prepared with { WorkerId = WorkerId, Branch = job.Branch, HeadCommit = commit };
-        var now = time.GetUtcNow();
-        await JobEndpoints.Complete(database, caller, job.JobId, WorkerId, JobEndpoints.Read(sent)!, now.AddTicks(-(now.Ticks % 10)), cancellationToken);
+        await JobEndpoints.Complete(database, caller, job.JobId, WorkerId, JobEndpoints.Read(sent)!, now, cancellationToken);
         // A real worker's result is answered without waiting for GitHub, and its pull request opens
         // on the next minute; the fake worker waits for it, so a test sees it as soon as it answers.
         await opener.OpenPending(projectId, userId, cancellationToken);
         return commit is null
             ? TypedResults.Problem(statusCode: StatusCodes.Status503ServiceUnavailable, title: "The fake's git failed", detail: "no commit was made on the job's branch, so the job ended as a failure outside the card and the card is queued again")
-            : TypedResults.Ok(new FakeWorkerRan(job.JobId, job.Card.Number, job.Branch, commit));
+            : TypedResults.Ok(new FakeWorkerRan(job.JobId, job.Kind, job.Card.Number, job.Branch, commit));
     }
 
     private static ProblemHttpResult Invalid(string detail) =>

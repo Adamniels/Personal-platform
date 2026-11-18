@@ -1,7 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using System.Text.Json.Schema;
 using System.Text.Json.Serialization;
 
 namespace DevFlow.Protocol;
@@ -51,28 +50,11 @@ public sealed record Report(
 {
     /// <summary>How a report is written and read: snake case, every constructor parameter
     /// required, no field the type does not have, no null where the type has none.</summary>
-    public static JsonSerializerOptions Json { get; } = CreateJson();
+    public static JsonSerializerOptions Json => Form.Json;
 
     /// <summary>The report's JSON Schema, written from this type with <see cref="Json"/>: every
     /// object closed, every field required, and nothing nullable.</summary>
-    public static JsonObject Schema()
-    {
-        var schema = JsonSchemaExporter.GetJsonSchemaAsNode(Json, typeof(Report), new JsonSchemaExporterOptions
-        {
-            TreatNullObliviousAsNonNullable = true,
-        }).AsObject();
-        var document = new JsonObject
-        {
-            ["$schema"] = "https://json-schema.org/draft/2020-12/schema",
-            ["title"] = "Dev flow's developer report",
-        };
-        foreach (var (name, value) in schema)
-        {
-            document[name] = value?.DeepClone();
-        }
-
-        return document;
-    }
+    public static JsonObject Schema() => Form.Schema<Report>("Dev flow's developer report");
 
     /// <summary>
     /// Reads <paramref name="report"/> as a report. False, with <paramref name="error"/> saying
@@ -83,27 +65,8 @@ public sealed record Report(
     public static bool TryRead(JsonElement report, [NotNullWhen(true)] out Report? read, [NotNullWhen(false)] out string? error)
     {
         read = null;
-        if (report.ValueKind != JsonValueKind.Object)
+        if (!Form.TryRead<Report>(report, "report", out var parsed, out error))
         {
-            error = "the report is not a JSON object";
-            return false;
-        }
-
-        Report? parsed;
-        try
-        {
-            parsed = report.Deserialize<Report>(Json);
-        }
-        catch (JsonException e)
-        {
-            // System.Text.Json names the field by its path, and says what it found.
-            error = e.Path is { Length: > 1 } path ? $"{path[2..]}: {Plain(e.Message)}" : Plain(e.Message);
-            return false;
-        }
-
-        if (parsed is null)
-        {
-            error = "the report is null";
             return false;
         }
 
@@ -128,22 +91,6 @@ public sealed record Report(
         return true;
     }
 
-    private static JsonSerializerOptions CreateJson()
-    {
-        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web)
-        {
-            PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
-            NumberHandling = JsonNumberHandling.Strict,
-            UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
-            RespectRequiredConstructorParameters = true,
-            RespectNullableAnnotations = true,
-            AllowTrailingCommas = false,
-            PropertyNameCaseInsensitive = false,
-        };
-        options.MakeReadOnly(populateMissingResolver: true);
-        return options;
-    }
-
     /// <summary>The first list that holds a null, which nullable annotations do not cover inside a
     /// list; null when none does.</summary>
     private static string? NullIn(Report report) =>
@@ -155,13 +102,6 @@ public sealed record Report(
         : report.FollowUps.Contains(null) ? "follow_ups"
         : report.Replies.Contains(null) ? "replies"
         : null;
-
-    /// <summary>The message without .NET's own advice and the type names it adds.</summary>
-    private static string Plain(string message)
-    {
-        var cut = message.IndexOf(" Path:", StringComparison.Ordinal);
-        return (cut < 0 ? message : message[..cut]).Replace("DevFlow.Protocol.", "", StringComparison.Ordinal);
-    }
 }
 
 /// <summary>One task of the card.</summary>

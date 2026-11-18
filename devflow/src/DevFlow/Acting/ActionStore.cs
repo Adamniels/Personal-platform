@@ -74,7 +74,8 @@ public sealed class ActionStore(UserDb database)
             """
             SELECT p.id AS ProjectId, p.installation_id AS Installation, p.repository_id AS RepositoryId, p.owner AS Owner,
                    p.name AS Name, c.number AS Number, c.state AS State, c.pull_request_number AS PullRequestNumber,
-                   (SELECT r.head_commit FROM runs r WHERE r.project_id = c.project_id AND r.card_number = c.number AND r.result = 'succeeded'
+                   (SELECT r.head_commit FROM runs r WHERE r.project_id = c.project_id AND r.card_number = c.number
+                      AND r.kind = 'build' AND r.result = 'succeeded'
                     ORDER BY r.started_at DESC, r.id DESC LIMIT 1) AS HeadCommit,
                    EXISTS (SELECT 1 FROM project_stops s WHERE s.project_id = p.id) AS Stopped
             FROM cards c JOIN projects p ON p.id = c.project_id

@@ -35,6 +35,11 @@ RUN --mount=type=cache,target=/root/.nuget/packages,sharing=locked \
 
 # --- Run: the app and its page, as the image's own user that is not root, app. ---
 FROM mcr.microsoft.com/dotnet/aspnet:10.0
+# git, for the fake code host only: in the fake mode it keeps a bare git repository per repository
+# and runs git on it. The real code host never runs git in this image.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git \
+    && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --chmod=a+rX --from=build /out /app
 # Dev flow serves web/dist from its working directory.

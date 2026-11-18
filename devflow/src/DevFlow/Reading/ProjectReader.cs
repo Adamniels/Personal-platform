@@ -191,14 +191,14 @@ public sealed partial class ProjectReader(UserDb database, ICodeHost host, TimeP
     }
 
     /// <summary>
-    /// Where the pull request of each card that waits for the owner is now: one still among the
-    /// open pull requests just listed costs nothing more, and only one that has left the list is
+    /// Where the pull request of each card that waits for the owner or is under review is now: one
+    /// still among the open pull requests just listed costs nothing more, and only one that has left the list is
     /// read on its own, to tell merged from closed. One not found is left as it is. See "The pull
     /// request Dev flow opens" in devflow/README.md.
     /// </summary>
     private async Task<(IReadOnlyList<FollowedPull> Followed, string? Failure)> Follow(Guid projectId, Guid userId, Repository repository, IReadOnlyList<PullRequest> open, CancellationToken cancellationToken)
     {
-        var waiting = await CardStore.WaitingPulls(database, userId, projectId, cancellationToken);
+        var waiting = await CardStore.FollowedPulls(database, userId, projectId, cancellationToken);
         var stillOpen = open.Select(pull => pull.Number).ToHashSet();
         var followed = new List<FollowedPull>();
         foreach (var (card, number) in waiting.Where(pair => !stillOpen.Contains(pair.PullRequest)))

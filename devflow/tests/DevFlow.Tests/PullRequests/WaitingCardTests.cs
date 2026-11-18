@@ -23,6 +23,7 @@ public sealed class WaitingCardTests
     {
         await using var jobs = await Jobs.Jobs.Start([Jobs.Jobs.Card(4, "Add the empty state")]);
         var ran = await Built.Run(jobs, Built.Prepared(Built.Report()));
+        await Built.Review(jobs);
         var pull = (await Built.Card(jobs, 4)).PullRequestNumber!.Value;
 
         var (status, list) = await Built.Get(jobs, "/devflow/api/waiting");
@@ -54,6 +55,13 @@ public sealed class WaitingCardTests
         Assert.Equal(0, (int)check["exit_code"]!);
         Assert.Equal((string)ran["head_commit"]!, (string)check["commit"]!);
 
+        // The reviewer's verdict for its head: what it is, what it found and how much blocks.
+        var review = card["review"]!.AsObject();
+        Assert.Equal("approve", (string)review["verdict"]!);
+        Assert.Equal("The empty state is there and tested.", (string)review["summary"]!);
+        Assert.Equal(0, (int)review["blocking"]!);
+        Assert.Equal((string)ran["head_commit"]!, (string)review["commit"]!);
+
         // Merge is offered, as the owner's own action.
         Assert.True((bool)card["can_merge"]!);
 
@@ -67,6 +75,7 @@ public sealed class WaitingCardTests
     {
         await using var jobs = await Jobs.Jobs.Start([Jobs.Jobs.Card(4)], signIn: true);
         var ran = await Built.Run(jobs, Built.Prepared());
+        await Built.Review(jobs);
         await Stop(jobs);
 
         var card = Assert.Single((await Built.Get(jobs, "/devflow/api/waiting")).Body!["cards"]!.AsArray())!;
@@ -82,6 +91,7 @@ public sealed class WaitingCardTests
     {
         await using var jobs = await Jobs.Jobs.Start([Jobs.Jobs.Card(4)], signIn: true);
         var ran = await Built.Run(jobs, Built.Prepared());
+        await Built.Review(jobs);
         var head = (string)ran["head_commit"]!;
         var pull = (await Built.Card(jobs, 4)).PullRequestNumber!.Value;
 
@@ -112,6 +122,7 @@ public sealed class WaitingCardTests
     {
         await using var jobs = await Jobs.Jobs.Start([Jobs.Jobs.Card(4), Jobs.Jobs.Card(5)], signIn: true);
         var ran = await Built.Run(jobs, Built.Prepared());
+        await Built.Review(jobs);
 
         // No head_commit; a card that is not waiting; one that does not exist.
         Assert.Equal(StatusCodes.Status422UnprocessableEntity, (await Built.Merge(jobs, 4, null)).Response.StatusCode);

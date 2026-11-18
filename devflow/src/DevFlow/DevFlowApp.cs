@@ -15,6 +15,7 @@ using DevFlow.Projects;
 using DevFlow.PullRequests;
 using DevFlow.Reading;
 using DevFlow.Recipes;
+using DevFlow.Reviews;
 using DevFlow.Settings;
 using DevFlow.Status;
 using DevFlow.Watching;
@@ -131,12 +132,16 @@ public static class DevFlowApp
         // "The pull request Dev flow opens" in devflow/README.md.
         builder.Services.AddSingleton(provider => new PullRequestOpener(
             database, provider.GetRequiredService<ICodeHost>(), provider.GetRequiredService<TimeProvider>(), provider.GetRequiredService<ILogger<PullRequestOpener>>()));
+        // Posting each recorded verdict's copy on its pull request as the app, on the same minute.
+        // See "Review" in devflow/README.md.
+        builder.Services.AddSingleton(provider => new ReviewPoster(
+            database, provider.GetRequiredService<ICodeHost>(), provider.GetRequiredService<TimeProvider>(), provider.GetRequiredService<ILogger<ReviewPoster>>()));
         if (settings.PollInterval is { } interval)
         {
             builder.Services.AddHostedService(provider => new Poller(
                 database, provider.GetRequiredService<ProjectRefresher>(), provider.GetRequiredService<TimeProvider>(), interval, provider.GetRequiredService<ILogger<Poller>>()));
             builder.Services.AddHostedService(provider => new OpeningLoop(
-                database, provider.GetRequiredService<PullRequestOpener>(), provider.GetRequiredService<TimeProvider>(), interval, provider.GetRequiredService<ILogger<OpeningLoop>>()));
+                database, provider.GetRequiredService<PullRequestOpener>(), provider.GetRequiredService<ReviewPoster>(), provider.GetRequiredService<TimeProvider>(), interval, provider.GetRequiredService<ILogger<OpeningLoop>>()));
         }
 
         if (settings.ExposeOpenApi)

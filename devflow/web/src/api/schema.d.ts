@@ -207,7 +207,7 @@ export interface paths {
         };
         /**
          * A card's whole story so far
-         * @description The card as last read, its number, title, web_url, state and reason, and its pull_request, number and url, null before one was opened; each of its runs, newest first, with its kind, the worker it was handed to, when it started and finished, how long it took, its result and, for a failure, its reason and whether it lay in the card, the auth method, the tokens in and out, the check's exit code and the last lines of its output, null when it did not run, and the commit it left; and the latest report in its form, null when no run has handed one back. Read from what Dev flow stored, never from GitHub; every text from GitHub or an agent is to be shown as text. 404 for a project or a card the caller does not have. Without a valid token, 401 with an empty body.
+         * @description The card as last read, its number, title, web_url, state and reason, and its pull_request, number and url, null before one was opened; each of its runs, newest first, with its kind, the worker it was handed to, when it started and finished, how long it took, its result and, for a failure, its reason and whether it lay in the card, the auth method, the tokens in and out, the check's exit code and the last lines of its output, null when it did not run, and the commit it left; the latest report in its form, the latest build's, null when no build has handed one back; and each review, newest first, with the commit the worker reviewed, its verdict, summary, findings, each blocking or not with its file, line, what and why, the reviewer's view on each decision for the owner, when it was recorded, whether its copy is posted, and whether it is current, for the card's head commit. Read from what Dev flow stored, never from GitHub; every text from GitHub or an agent is to be shown as text. 404 for a project or a card the caller does not have. Without a valid token, 401 with an empty body.
          */
         get: operations["getCard"];
         put?: never;
@@ -371,7 +371,7 @@ export interface paths {
         };
         /**
          * What waits for the caller, as last read
-         * @description Read from what Dev flow stored and never from GitHub. items are the pull requests that are the caller's turn in every project, by project and number; own_items are Dev flow's own, read from its own tables, in this part each a project stopped because something landed on its default branch that Dev flow did not put there, with the commit, who did it, when, and the commit's address on GitHub, by project; cards are Dev flow's own cards whose pull requests wait for the caller, each with its pull request, the head commit its run built and checked, the branch it merges into, the report's summary, the decisions the agent marked for the caller with the count of the others, the check Dev flow ran, and can_merge, false while the project is stopped, by project and number; count is the items not sent back, the own items and the cards, plus one when needs_relink; projects says for each when it was last read, stale when that is more than five minutes ago or never, and failing when its last read failed. Without a valid token, 401 with an empty body.
+         * @description Read from what Dev flow stored and never from GitHub. items are the pull requests that are the caller's turn in every project, by project and number; own_items are Dev flow's own, read from its own tables, in this part each a project stopped because something landed on its default branch that Dev flow did not put there, with the commit, who did it, when, and the commit's address on GitHub, by project; cards are Dev flow's own cards whose pull requests wait for the caller, each with its pull request, the head commit its run built and checked, the branch it merges into, the report's summary, the decisions the agent marked for the caller with the count of the others, the check Dev flow ran, review, the reviewer's verdict on its head commit with its summary and how many findings block, null when it has none, and can_merge, false while the project is stopped, by project and number; count is the items not sent back, the own items and the cards, plus one when needs_relink; projects says for each when it was last read, stale when that is more than five minutes ago or never, and failing when its last read failed. Without a valid token, 401 with an empty body.
          */
         get: operations["listWaiting"];
         put?: never;
@@ -553,7 +553,7 @@ export interface paths {
         put?: never;
         /**
          * A job has ended
-         * @description What the worker sends when its job ends, whatever happened: outcome, succeeded with the agent's report or failed with the failure's reason and whether it lies in the card; the check's exit code and the last 200 lines of its output, null when it did not run; the branch, which must be the job's, and its head commit; the auth method; Claude's usage as it came, an object; the duration in milliseconds; and the last 200 lines of stderr. Each is stored on the run as it came. The report is read against contracts/devflow/report.schema.json, and one that does not match is a failure in the card. A failure outside the card puts the card back in queued, counting nothing against it; a failure in the card, a report that does not match, a report that stopped, a check that did not run or failed stop it with why; otherwise the card waits, checked, for its pull request. 204. Only for the worker holding the job while it runs, and once; 404 otherwise. 422 naming a field that is missing or breaks a rule. Takes the project's worker key as Authorization: Bearer dfw_…, and nothing else: without a key the project has now, 401 with an empty body. No Origin is needed, and no cookie is read or set.
+         * @description What the worker sends when its job ends, whatever happened: outcome, succeeded with the agent's report or failed with the failure's reason and whether it lies in the card; the check's exit code and the last 200 lines of its output, null when it did not run; the branch, which must be the job's, and its head commit; the auth method; Claude's usage as it came, an object; the duration in milliseconds; the last 200 lines of stderr; and permission_denials, the actions the agent was refused, an array or null. Each is stored on the run as it came. A build's report is read against contracts/devflow/report.schema.json, and one that does not match is a failure in the card; a review's report is its verdict, read against contracts/devflow/verdict.schema.json, and one that does not match is a failure in the run, never a verdict. A review's head_commit is the commit it was handed, or null on a failure; any other is 422. A failure outside the card puts the card back in queued, counting nothing against it; a failure in the card, a report that does not match, a report that stopped, a check that did not run or failed stop it with why; otherwise the card waits, checked, for its pull request. 204. Only for the worker holding the job while it runs, and once; 404 otherwise. 422 naming a field that is missing or breaks a rule. Takes the project's worker key as Authorization: Bearer dfw_…, and nothing else: without a key the project has now, 401 with an empty body. No Origin is needed, and no cookie is read or set.
          */
         post: operations["workerJobResult"];
         delete?: never;
@@ -615,10 +615,18 @@ export interface components {
             pull_request_number: number;
             /** Format: uri */
             pull_request_url: string;
+            review: null | components["schemas"]["CardItemReview"];
             summary: string;
             title: string;
             /** Format: uri */
             web_url: string;
+        };
+        CardItemReview: {
+            /** Format: int32 */
+            blocking: number;
+            commit: string;
+            summary: string;
+            verdict: string;
         };
         CardList: {
             cards: components["schemas"]["CardView"][];
@@ -627,6 +635,19 @@ export interface components {
             /** Format: int32 */
             number: number;
             url: string;
+        };
+        CardReview: {
+            commit: string;
+            current: boolean;
+            findings: components["schemas"]["ReviewFinding"][];
+            for_owner: components["schemas"]["ReviewOwnerView"][];
+            posted: boolean;
+            /** Format: date-time */
+            reviewed_at: string;
+            /** Format: uuid */
+            run_id: string;
+            summary: string;
+            verdict: string;
         };
         CardRun: {
             auth_method: null | string;
@@ -656,6 +677,7 @@ export interface components {
             pull_request: null | components["schemas"]["CardPullRequest"];
             reason: null | string;
             report: null | components["schemas"]["Report"];
+            reviews: components["schemas"]["CardReview"][];
             runs: components["schemas"]["CardRun"][];
             state: string;
             title: string;
@@ -776,6 +798,7 @@ export interface components {
             push_key_expires_at: string;
             report_schema: components["schemas"]["JsonElement"];
             repository: components["schemas"]["JobRepository"];
+            to_review?: null | components["schemas"]["JobReview"];
         };
         JobCard: {
             body: string;
@@ -801,6 +824,11 @@ export interface components {
             default_branch: string;
             name: string;
             owner: string;
+        };
+        JobReview: {
+            check: components["schemas"]["CheckResult"];
+            commit: string;
+            report: components["schemas"]["JsonElement"];
         };
         JsonElement: unknown;
         LinkStarted: {
@@ -938,6 +966,7 @@ export interface components {
             failure: null | components["schemas"]["RunFailure"];
             head_commit: null | string;
             outcome: null | string;
+            permission_denials?: unknown;
             report: null | components["schemas"]["JsonElement"];
             stderr: null | string;
             usage: null | components["schemas"]["JsonElement"];
@@ -946,6 +975,18 @@ export interface components {
         };
         ResumeRequest: {
             commit: null | string;
+        };
+        ReviewFinding: {
+            blocking: boolean;
+            file: string;
+            /** Format: int32 */
+            line: number;
+            what: string;
+            why: string;
+        };
+        ReviewOwnerView: {
+            decision: string;
+            view: string;
         };
         RunCheck: {
             /** Format: int32 */

@@ -5,9 +5,12 @@ using System.Text.Json.Nodes;
 
 using DevFlow.CodeHost;
 using DevFlow.Protocol;
+using DevFlow.PullRequests;
 using DevFlow.Worker.Agents;
 using DevFlow.Worker.Build;
+using DevFlow.Worker.Review;
 
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Time.Testing;
 
 using static DevFlow.Worker.Tests.Support;
@@ -124,7 +127,26 @@ internal sealed class Bench : IAsyncDisposable
 
     /// <summary>A build job for the bench's worker, with <paramref name="agent"/>.</summary>
     public BuildJob Build(IAgent agent) =>
-        new(Client, Jobs.FirstWorker, new BuildTools(agent, AsRoot, AsAgent, Folders, User), Clock, new WorkerLog(TextWriter.Synchronized(new StringWriter(Log)), Clock));
+        new(Client, Jobs.FirstWorker, new JobTools(agent, AsRoot, AsAgent, Folders, User), Clock, new WorkerLog(TextWriter.Synchronized(new StringWriter(Log)), Clock));
+
+    /// <summary>A review job for the bench's worker, with <paramref name="agent"/>.</summary>
+    public ReviewJob Review(IAgent agent) =>
+        new(Client, Jobs.FirstWorker, new JobTools(agent, AsRoot, AsAgent, Folders, User), Clock, new WorkerLog(TextWriter.Synchronized(new StringWriter(Log)), Clock));
+
+    /// <summary>
+    /// Card 1 built, by an agent that commits <c>greeting.txt</c>, its check run and its branch
+    /// pushed, and its pull request opened as Dev flow's loop opens it, so its review is the next
+    /// job; a minute later, so the review's run starts after the build's. The commit the build
+    /// left.
+    /// </summary>
+    public async Task<string> BuiltAndOpened()
+    {
+        await RunJob(new ScriptedAgent(async (run, _) => await ScriptedAgent.Commit(run, "greeting.txt", "Hello\n", "Add the greeting")));
+        var head = await RemoteHead() ?? throw new InvalidOperationException("the build pushed nothing");
+        await Jobs.Routes.App.Services.GetRequiredService<PullRequestOpener>().OpenPending(Jobs.Project, Jobs.User, Ct);
+        Jobs.Routes.Time.Advance(TimeSpan.FromMinutes(1));
+        return head;
+    }
 
     /// <summary>Hands out the next job and runs it to its end with <paramref name="agent"/>.</summary>
     public async Task<JsonElement> RunJob(IAgent agent)
@@ -144,9 +166,11 @@ internal sealed class Bench : IAsyncDisposable
     /// <summary>The run Dev flow recorded, the one there is.</summary>
     public async Task<Jobs.RunRow> Run() => Assert.Single(await Jobs.Runs());
 
-    /// <summary>The body of the result the worker sent, the one there is.</summary>
-    public JsonObject SentResult() =>
-        JsonNode.Parse(Assert.Single(Handler.Calls, call => call.Path.EndsWith("/result", StringComparison.Ordinal)).Body)!.AsObject();
+    /// <summary>The body of the result the worker sent, the one there is, or the one for the job
+    /// <paramref name="jobId"/>.</summary>
+    public JsonObject SentResult(Guid? jobId = null) =>
+        JsonNode.Parse(Assert.Single(Handler.Calls, call => call.Path.EndsWith("/result", StringComparison.Ordinal)
+            && (jobId is null || call.Path == WorkerApi.ResultPath(jobId.Value))).Body)!.AsObject();
 
     /// <summary>The identity the test commits as, where it commits as someone other than the
     /// worker or the agent.</summary>

@@ -1,5 +1,5 @@
-/* A card's page under the Projects tab: its header, and its three panels, the
- * card, its runs and its latest report. Tokens only, design/DESIGN.md. */
+/* A card's page under the Projects tab: its header, and its panels, the card,
+ * its reviews, its runs and its latest report. Tokens only, design/DESIGN.md. */
 
 /* The way back over the card's title, which reads as the section's heading,
  * as a project's page has it. */
@@ -99,6 +99,17 @@
 
 .item {
 	display: block;
+}
+
+/* A review's parts, the verdict, the summary and its two lists, further apart
+ * than a run's lines; its findings sit on the surface inside its inset, as the
+ * check's output does, so each still reads as an inset. */
+.review {
+	gap: var(--space-2);
+}
+
+.review .item {
+	background: var(--surface);
 }
 
 /* The kind and the outcome on one line, wrapping at phone width. */

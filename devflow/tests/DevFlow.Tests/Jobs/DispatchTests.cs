@@ -206,10 +206,12 @@ public sealed class DispatchTests
         var job = await jobs.Job();
 
         Assert.Equal(
-            ["base", "branch", "brief", "card", "check", "claude_token", "committer", "job_id", "kind", "limits", "push_key", "push_key_expires_at", "report_schema", "repository"],
+            ["base", "branch", "brief", "card", "check", "claude_token", "committer", "job_id", "kind", "limits", "push_key", "push_key_expires_at", "report_schema", "repository", "to_review"],
             job.Select(pair => pair.Key).Order(StringComparer.Ordinal));
         Assert.Equal((Guid)job["job_id"]!, Assert.Single(await jobs.Runs()).Id);
         Assert.Equal("build", (string)job["kind"]!);
+        // A build reads nothing besides the code and the card.
+        Assert.Null(job["to_review"]);
 
         var card = job["card"]!.AsObject();
         Assert.Equal(["body", "number", "title"], card.Select(pair => pair.Key).Order(StringComparer.Ordinal));
