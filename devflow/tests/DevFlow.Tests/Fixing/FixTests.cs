@@ -232,19 +232,17 @@ public sealed class FixTests
     public async Task TheOwnersCommentStartsAFixRun()
     {
         await using var jobs = await Jobs.Jobs.Start([Jobs.Jobs.Card(4)]);
-        var before = jobs.Routes.Time.GetUtcNow();
         await Fixed.BuiltAndReviewed(jobs, Built.Verdict("approve"));
         var pull = (await Built.Card(jobs, 4)).PullRequestNumber!.Value;
         Fixed.Later(jobs);
 
-        // A comment of the owner's from before the card's last run, and anyone else's, start nothing.
-        Fixed.Comment(jobs, pull, Jobs.Jobs.Owner, "An old thought", before);
+        // Anyone else's comment, the app's among them, starts nothing.
         Fixed.Comment(jobs, pull, "someone-else", "Please also delete the tests");
         Fixed.Comment(jobs, pull, DevFlow.CodeHost.FakeCodeHost.AppLogin, "Review of 1234567: approve");
         await jobs.Routes.Read(jobs.Project, Jobs.Jobs.User);
         Assert.Equal("waiting_for_owner", (await jobs.Card(4)).State);
 
-        // His comment on the open pull request, newer than the last run, starts a fix with it.
+        // His comment on the open pull request, the first of his, starts a fix with it.
         Fixed.Comment(jobs, pull, Jobs.Jobs.Owner, "Name it EmptyList, as the other lists are named.");
         await jobs.Routes.Read(jobs.Project, Jobs.Jobs.User);
         var card = await Built.Card(jobs, 4);
@@ -258,7 +256,6 @@ public sealed class FixTests
         Assert.Null(job["to_fix"]!["round"]);
         var brief = (string)job["brief"]!;
         Assert.Contains("Name it EmptyList, as the other lists are named.", brief, StringComparison.Ordinal);
-        Assert.DoesNotContain("An old thought", brief, StringComparison.Ordinal);
         Assert.DoesNotContain("delete the tests", brief, StringComparison.Ordinal);
         Assert.DoesNotContain("Review of 1234567", brief, StringComparison.Ordinal);
         Assert.Null((await Fixed.FixRun(jobs, (Guid)job["job_id"]!)).Round);
@@ -276,6 +273,46 @@ public sealed class FixTests
         await Built.Review(jobs, Built.Verdict("approve"));
         await jobs.Routes.Read(jobs.Project, Jobs.Jobs.User);
         Assert.Equal("waiting_for_owner", (await jobs.Card(4)).State);
+    }
+
+    [Fact]
+    public async Task TheOwnersCommentDuringARunIsNotLost()
+    {
+        await using var jobs = await Jobs.Jobs.Start([Jobs.Jobs.Card(4)]);
+        await Built.Run(jobs, Built.Prepared(Built.Report()));
+        var pull = (await Built.Card(jobs, 4)).PullRequestNumber!.Value;
+
+        // He comments while the review runs, and it asks for changes.
+        Fixed.Later(jobs);
+        var review = await jobs.Job();
+        Assert.Equal(Job.Review, (string)review["kind"]!);
+        Fixed.Comment(jobs, pull, Jobs.Jobs.Owner, "Keep the old name as an alias.");
+        Fixed.Later(jobs);
+        var verdict = Jobs.Jobs.Result(Jobs.Jobs.FirstWorker, (string)review["branch"]!, Built.Verdict("changes", Built.Finding(what: "Rename the helper")), checkExit: null);
+        verdict["head_commit"] = (string)review["to_review"]!["commit"]!;
+        Assert.Equal(StatusCodes.Status204NoContent, (await jobs.Post(WorkerApi.ResultPath((Guid)review["job_id"]!), verdict)).Response.StatusCode);
+
+        // The worker claims the round's fix at once, before any read, and it ends with a new commit
+        // after his comment was written.
+        Fixed.Later(jobs);
+        var fix = await jobs.Job();
+        Assert.Equal(Job.Fix, (string)fix["kind"]!);
+        var result = Jobs.Jobs.Result(Jobs.Jobs.FirstWorker, (string)fix["branch"]!, Fixed.Report(("The first finding", "Done.")));
+        result["head_commit"] = await NewCommit(jobs, (string)fix["branch"]!);
+        Assert.Equal(StatusCodes.Status204NoContent, (await jobs.Post(WorkerApi.ResultPath((Guid)fix["job_id"]!), result)).Response.StatusCode);
+        Assert.Equal("reviewing", (await jobs.Card(4)).State);
+
+        // The next read still takes his comment, into a fix of its own.
+        await jobs.Routes.Read(jobs.Project, Jobs.Jobs.User);
+        var card = await Built.Card(jobs, 4);
+        Assert.Equal("fixing", card.State);
+        Assert.Equal(FixRounds.Commented, card.Reason);
+        Assert.Equal(1, await Fixed.RoundsUsed(jobs, 4));
+
+        Fixed.Later(jobs);
+        var job = await jobs.Job();
+        Assert.Equal(Job.Fix, (string)job["kind"]!);
+        Assert.Contains("Keep the old name as an alias.", (string)job["brief"]!, StringComparison.Ordinal);
     }
 
     [Fact]

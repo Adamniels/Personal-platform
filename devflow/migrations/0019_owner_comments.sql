@@ -8,7 +8,7 @@ ALTER TABLE cards ADD COLUMN fix_comments jsonb CHECK (fix_comments IS NULL OR j
 
 -- The newest of his comments on the card's pull request already taken, by GitHub's id, which only
 -- grows, so none is taken twice and none written while a run was under way is lost. Null before
--- any was taken, when a comment counts if it is newer than the card's last run.
+-- any was taken, when every one of his counts.
 ALTER TABLE cards ADD COLUMN comments_read_through bigint;
 
 -- The owner's comments a fix answered, as the card held them when it was handed out; null for a

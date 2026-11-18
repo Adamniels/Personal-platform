@@ -793,7 +793,9 @@ own records, round 4 of the spec; a comment on the pull request is where the own
 the work, so it is read, but only his, by his linked login, and only as input to a fix, never as a
 verdict or an approval. It is taken by GitHub's comment id, which only grows, so a comment is acted
 on once, and only between runs, so one written while a run is under way waits for it to end rather
-than being lost or racing it. Sending a card back from "Waiting for you" posts his comment as him
+than being lost or racing it. No time is compared, not even before his first comment: runs follow
+each other seconds apart, so a comment older than the card's last run is usually one written while
+an earlier run was under way, not one already answered. Sending a card back from "Waiting for you" posts his comment as him
 and lets the next read take it, so the comment on GitHub is the one record and there is one way in.
 
 ## Watching the default branch

@@ -11,10 +11,9 @@ using PlatformData;
 namespace DevFlow.Fixing;
 
 /// <summary>A card whose pull request is read for the owner's comments: its number, its pull
-/// request, the newest of his comments already taken, and when its last run started.</summary>
+/// request, and the newest of his comments already taken.</summary>
 /// <param name="ReadThrough">The id of the newest of his comments taken, null before any was.</param>
-/// <param name="LastRunAt">When the card's newest run was handed out, null without one.</param>
-public sealed record CommentableCard(int Number, int PullRequest, long? ReadThrough, DateTimeOffset? LastRunAt);
+public sealed record CommentableCard(int Number, int PullRequest, long? ReadThrough);
 
 /// <summary>The owner's new comments on a card's pull request, oldest first, as a read found them,
 /// to be taken in its transaction.</summary>
@@ -26,9 +25,11 @@ public sealed record TakenComments(int Card, int PullRequest, IReadOnlyList<stri
 /// The owner's comment on a card's open pull request, the one input Dev flow reads from GitHub: one
 /// by his linked login that is new starts a fix with it, read on the project's minute; it is not a
 /// review round, and anyone else's comment is neither a trigger nor in the brief. A comment is new
-/// when its id is past the newest of his already taken, or, before any was, when it was written
-/// after the card's last run was handed out. It is read only while no run of the card is under
-/// way, so one written during a run is taken when the run ends. See "Fixing" in devflow/README.md.
+/// when its id is past the newest of his already taken, every one of his before any was: GitHub's
+/// ids only grow, so none is taken twice, and no time is compared, so none is lost to a run that
+/// started after it was written. It is read only while no run of the card is under way, so one
+/// written during a run is taken by the first read after the run ends. See "Fixing" in
+/// devflow/README.md.
 /// </summary>
 public static class OwnerComments
 {
@@ -41,10 +42,9 @@ public static class OwnerComments
     public static async Task<IReadOnlyList<CommentableCard>> Cards(UserDb database, Guid userId, Guid projectId, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(database);
-        var rows = await database.InUserTransaction(userId, transaction => transaction.Connection!.QueryAsync<Row>(new CommandDefinition(
+        var rows = await database.InUserTransaction(userId, transaction => transaction.Connection!.QueryAsync<CommentableCard>(new CommandDefinition(
             """
-            SELECT c.number AS Number, c.pull_request_number AS PullRequest, c.comments_read_through AS ReadThrough,
-                   (SELECT max(r.started_at) FROM runs r WHERE r.project_id = c.project_id AND r.card_number = c.number) AS LastRunAt
+            SELECT c.number AS Number, c.pull_request_number AS PullRequest, c.comments_read_through AS ReadThrough
             FROM cards c
             WHERE c.project_id = @projectId AND c.state = ANY(@readable) AND c.pull_request_number IS NOT NULL
               AND NOT EXISTS (SELECT 1 FROM runs r WHERE r.project_id = c.project_id AND r.card_number = c.number AND r.finished_at IS NULL)
@@ -53,7 +53,7 @@ public static class OwnerComments
             new { projectId, readable = Readable },
             transaction,
             cancellationToken: cancellationToken)), cancellationToken);
-        return [.. rows.Select(row => new CommentableCard(row.Number, row.PullRequest, row.ReadThrough, row.LastRunAt is { } at ? new DateTimeOffset(DateTime.SpecifyKind(at, DateTimeKind.Utc)) : null))];
+        return [.. rows];
     }
 
     /// <summary>The owner's new comments among <paramref name="comments"/>, oldest first, or null
@@ -66,7 +66,7 @@ public static class OwnerComments
         ArgumentException.ThrowIfNullOrEmpty(owner);
         var taken = comments
             .Where(comment => string.Equals(comment.Author, owner, StringComparison.OrdinalIgnoreCase))
-            .Where(comment => card.ReadThrough is { } through ? comment.Id > through : card.LastRunAt is not { } last || comment.CreatedAt > last)
+            .Where(comment => card.ReadThrough is not { } through || comment.Id > through)
             .OrderBy(comment => comment.Id)
             .ToList();
         return taken.Count == 0 ? null : new TakenComments(card.Number, card.PullRequest, [.. taken.Select(comment => comment.Body)], taken[^1].Id);
@@ -115,5 +115,4 @@ public static class OwnerComments
             cancellationToken: cancellationToken));
     }
 
-    private sealed record Row(int Number, int PullRequest, long? ReadThrough, DateTime? LastRunAt);
 }

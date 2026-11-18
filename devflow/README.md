@@ -2208,13 +2208,13 @@ that still holds is still blocking. Only blocking findings make it `changes`.
 pull request of every card that has one still open, is `reviewing`, `fixing`, `waiting_for_owner`
 or `stopped`, and has no run under way, and takes those by the owner's linked login, as GitHub
 compares logins, whatever the case, that are new: past `comments_read_through`, the id of the
-newest of his already taken, or, before any was, written after the card's last run was handed out.
-They are taken in the read's transaction, `OwnerComments.Take`: the card moves to `fixing`, "You
-commented on its pull request; a fix runs next", with no round, answering his comments and the
-card's latest review, if it has one; a card already waiting for a round's fix keeps the round and
-adds them. It is the only comment read as an input: anyone else's, the app's review copies
+newest of his already taken, and every one of his before any was. No time is compared, so a comment
+written during a review is not lost to the fix a worker claims seconds after it. They are taken in
+the read's transaction, `OwnerComments.Take`: the card moves to `fixing`, "You commented on its
+pull request; a fix runs next", with no round, answering his comments and the card's latest review,
+if it has one; a card already waiting for a round's fix keeps the round and adds them. It is the only comment read as an input: anyone else's, the app's review copies
 among them, is neither a trigger nor in the brief. A comment written while a run is under way is
-taken when the run ends. Without a linked login nothing is read, and GitHub not answering fails
+taken by the first read after the run ends. Without a linked login nothing is read, and GitHub not answering fails
 the read as any other read does.
 
 **Sending back** a Dev flow card from "Waiting for you":
