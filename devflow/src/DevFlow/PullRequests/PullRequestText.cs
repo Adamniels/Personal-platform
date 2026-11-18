@@ -109,12 +109,12 @@ public static partial class PullRequestText
     /// Text from the report, the agent's and so data, made safe to place inside one of the body's
     /// sections: one line, so it cannot begin a block of its own, a heading, a fence, a quote or a
     /// table; <c>&amp;</c>, <c>&lt;</c> and <c>&gt;</c> written as entities, so no HTML, a comment
-    /// that would hide the sections after it among them, is inserted; its backticks escaped, so the
-    /// only code spans are the ones made here; a <c>#</c> it begins with escaped, so a list item
-    /// cannot hold a heading; a closing keyword followed by an issue, <c>Closes #12</c>,
-    /// <c>fixes owner/name#3</c> or an issue's address, with the keyword in a code span, so it closes
-    /// nothing; and an <c>@</c> mention in a code span, so the app notifies nobody. What it says is
-    /// kept, to be read.
+    /// that would hide the sections after it among them, is inserted; its backslashes and backticks
+    /// escaped, so no backslash of the agent's can undo an escape and the only code spans are the
+    /// ones made here; a <c>#</c> it begins with escaped, so a list item cannot hold a heading; a
+    /// closing keyword followed by an issue, <c>Closes #12</c>, <c>fixes owner/name#3</c> or an
+    /// issue's address, with the keyword in a code span, so it closes nothing; and an <c>@</c>
+    /// mention in a code span, so the app notifies nobody. What it says is kept, to be read.
     /// </summary>
     internal static string Text(string text)
     {
@@ -126,6 +126,7 @@ public static partial class PullRequestText
                 '&' => "&amp;",
                 '<' => "&lt;",
                 '>' => "&gt;",
+                '\\' => "\\\\",
                 '`' => "\\`",
                 _ => c.ToString(),
             });

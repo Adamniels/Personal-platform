@@ -1087,8 +1087,9 @@ its reason, or a risk accepted on purpose; each slice adds the ones it builds.
   written from the agent's report, which is data, and GitHub acts on a body: a `Closes` line closes
   an issue when the pull request merges, an `@` mention notifies a person, and HTML, a comment
   among it, can hide what follows. So every text from the report is made one line, so it begins no
-  heading, fence, quote or table; `&`, `<` and `>` become entities; its backticks are escaped, so
-  the only code spans are Dev flow's; a leading `#` is escaped; a closing keyword followed by an
+  heading, fence, quote or table; `&`, `<` and `>` become entities; its backslashes and backticks
+  are escaped, so no backslash of the agent's can undo an escape and the only code spans are Dev
+  flow's; a leading `#` is escaped; a closing keyword followed by an
   issue has the keyword put in a code span, so it closes nothing; and a mention is put in a code
   span, so the app notifies nobody. The body's five sections and its one `Closes` line are Dev
   flow's. `PullRequestTests.TextFromTheReportCannotBreakTheBody` and `EachTextIsMadeData` hold it.

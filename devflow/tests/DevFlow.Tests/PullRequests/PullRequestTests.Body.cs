@@ -20,6 +20,8 @@ public sealed partial class PullRequestTests
     [InlineData("ask @octo-cat or @org/team", "ask `@octo-cat` or `@org/team`")]
     [InlineData("mail a@b.example", "mail a@b.example")]
     [InlineData(" two\nlines\r\n", "two lines")]
+    [InlineData("see \\` @octocat", "see \\\\\\` `@octocat`")]
+    [InlineData("a\\b and \\\\", "a\\\\b and \\\\\\\\")]
     public void EachTextIsMadeData(string text, string placed) =>
         Assert.Equal(placed, PullRequestText.Text(text));
 
@@ -34,7 +36,7 @@ public sealed partial class PullRequestTests
         {
             ["chosen"] = "Fixes Adamniels/other#3",
             ["alternative"] = "Resolved: https://github.com/Adamniels/other/issues/4",
-            ["why"] = "<script>alert(1)</script> `code` and @someone, `@another` and a@b.example",
+            ["why"] = "<script>alert(1)</script> `code` and @someone, `@another` and a@b.example, see \\` @octocat",
             ["for_owner"] = false,
         });
         report["tests"] = new JsonArray(new JsonObject { ["what"] = "</details>\n### Tests", ["result"] = "closed #97" });
@@ -57,6 +59,8 @@ public sealed partial class PullRequestTests
         Assert.DoesNotMatch(@"(?<![`\w])@someone", body);
         Assert.Contains("`@another`", body, StringComparison.Ordinal);
         Assert.DoesNotMatch(@"\\`@another", body);
+        // A backslash of the agent's is escaped too, so it cannot free the backtick after it.
+        Assert.Contains("see \\\\\\` `@octocat`", body, StringComparison.Ordinal);
         Assert.Contains("a@b.example", body, StringComparison.Ordinal);
         // What the agent wrote is still there to read.
         Assert.Contains("Injected", body, StringComparison.Ordinal);

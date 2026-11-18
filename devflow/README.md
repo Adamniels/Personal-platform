@@ -1976,8 +1976,9 @@ left out when the agent wrote nothing for it and one marked `for_owner` beginnin
 `## Verification`, "Dev flow ran `<check>` on <commit, seven characters>: exit <code>.", then the
 report's tests, each "<what>: <result>"; `## Follow ups`; a list with nothing in it is "None.";
 and a last line, "Built by Dev flow for #<card>, run <run id>.". Every text from the report is the
-agent's, and data: it is made one line; `&`, `<` and `>` are written as entities; its backticks are
-escaped; a `#` it begins with is escaped; a closing keyword, `close`, `fix` or `resolve` in any
+agent's, and data: it is made one line; `&`, `<` and `>` are written as entities; its backslashes
+and backticks are escaped, so a backslash of its own cannot undo an escape; a `#` it begins with is
+escaped; a closing keyword, `close`, `fix` or `resolve` in any
 form, followed by `#12`, `GH-12`, `owner/name#12` or an address, has the keyword in a code span; and
 an `@` mention is in a code span. So it cannot add a section, insert HTML, close another issue or
 notify anyone. The check is the project's own, from its default branch, and is shown in a code
