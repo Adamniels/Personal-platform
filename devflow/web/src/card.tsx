@@ -51,7 +51,7 @@ const RESULTS: Record<string, { word: string; tone: StatusTone }> = {
 	lost: { word: "Lost", tone: "failed" },
 };
 
-const KINDS: Record<string, string> = { build: "Build" };
+const KINDS: Record<string, string> = { build: "Build", review: "Review" };
 
 const DATE_TIME = new Intl.DateTimeFormat("en-GB", {
 	dateStyle: "medium",

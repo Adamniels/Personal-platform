@@ -23,6 +23,7 @@ public sealed class WaitingCardTests
     {
         await using var jobs = await Jobs.Jobs.Start([Jobs.Jobs.Card(4, "Add the empty state")]);
         var ran = await Built.Run(jobs, Built.Prepared(Built.Report()));
+        await Built.Review(jobs);
         var pull = (await Built.Card(jobs, 4)).PullRequestNumber!.Value;
 
         var (status, list) = await Built.Get(jobs, "/devflow/api/waiting");
@@ -67,6 +68,7 @@ public sealed class WaitingCardTests
     {
         await using var jobs = await Jobs.Jobs.Start([Jobs.Jobs.Card(4)], signIn: true);
         var ran = await Built.Run(jobs, Built.Prepared());
+        await Built.Review(jobs);
         await Stop(jobs);
 
         var card = Assert.Single((await Built.Get(jobs, "/devflow/api/waiting")).Body!["cards"]!.AsArray())!;
@@ -82,6 +84,7 @@ public sealed class WaitingCardTests
     {
         await using var jobs = await Jobs.Jobs.Start([Jobs.Jobs.Card(4)], signIn: true);
         var ran = await Built.Run(jobs, Built.Prepared());
+        await Built.Review(jobs);
         var head = (string)ran["head_commit"]!;
         var pull = (await Built.Card(jobs, 4)).PullRequestNumber!.Value;
 
@@ -112,6 +115,7 @@ public sealed class WaitingCardTests
     {
         await using var jobs = await Jobs.Jobs.Start([Jobs.Jobs.Card(4), Jobs.Jobs.Card(5)], signIn: true);
         var ran = await Built.Run(jobs, Built.Prepared());
+        await Built.Review(jobs);
 
         // No head_commit; a card that is not waiting; one that does not exist.
         Assert.Equal(StatusCodes.Status422UnprocessableEntity, (await Built.Merge(jobs, 4, null)).Response.StatusCode);

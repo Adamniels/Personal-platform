@@ -55,6 +55,41 @@ internal static class Built
         return (await Workers.Workers.Json(response)).AsObject();
     }
 
+    /// <summary>A verdict in its form: <paramref name="verdict"/>, with <paramref name="findings"/>,
+    /// and one blocking finding when it is changes and none are given.</summary>
+    public static JsonObject Verdict(string verdict = "approve", params JsonObject[] findings) => new()
+    {
+        ["verdict"] = verdict,
+        ["summary"] = verdict == "approve" ? "The empty state is there and tested." : "The empty state shows on an empty list only after a reload.",
+        ["findings"] = new JsonArray([.. (findings.Length > 0 || verdict == "approve" ? findings : [Finding()]).Select(finding => (JsonNode)finding)]),
+        ["for_owner"] = new JsonArray(new JsonObject { ["decision"] = "Show it on every list", ["view"] = "Agreed: the lists share one component." }),
+    };
+
+    /// <summary>A finding, blocking unless said.</summary>
+    public static JsonObject Finding(bool blocking = true, string file = "web/src/list.tsx", int line = 42, string what = "The empty state is read once", string why = "A list emptied later shows nothing") => new()
+    {
+        ["blocking"] = blocking,
+        ["file"] = file,
+        ["line"] = line,
+        ["what"] = what,
+        ["why"] = why,
+    };
+
+    /// <summary>A prepared review result: succeeded with <paramref name="verdict"/> as its report
+    /// and no check, since a review runs none.</summary>
+    public static JsonObject PreparedVerdict(JsonNode? verdict = null) => Prepared(verdict ?? Verdict(), checkExit: null);
+
+    /// <summary>The fake worker takes the project's next job, a review, and ends it with
+    /// <paramref name="verdict"/>; its answer.</summary>
+    public static async Task<JsonObject> Review(Jobs.Jobs jobs, JsonNode? verdict = null)
+    {
+        // A minute after the build, so the runs' order is theirs and not a frozen clock's.
+        jobs.Routes.Time.Advance(TimeSpan.FromMinutes(1));
+        var ran = await Run(jobs, PreparedVerdict(verdict));
+        Assert.Equal("review", (string)ran["kind"]!);
+        return ran;
+    }
+
     /// <summary>The pull requests the app opened in the user's world, oldest first.</summary>
     public static List<FakeWrite> Opened(Jobs.Jobs jobs) =>
         [.. jobs.Fake.Writes(Jobs.Jobs.User).Where(write => write.Kind == "pull_request")];

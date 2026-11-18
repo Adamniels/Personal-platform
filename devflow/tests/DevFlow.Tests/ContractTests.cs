@@ -174,7 +174,10 @@ public sealed class ContractTests
 
     /// <summary>The report's JSON Schema as the type writes it: two space indent, a trailing
     /// newline, its fields in the type's order, which is the order the agent reads them in.</summary>
-    private static string ReportSchemaText()
+    private static string ReportSchemaText() => SchemaText(DevFlow.Protocol.Report.Schema());
+
+    /// <summary>A form's JSON Schema as its type writes it, as <see cref="ReportSchemaText"/>.</summary>
+    private static string SchemaText(JsonObject schema)
     {
         var buffer = new MemoryStream();
         using (var writer = new Utf8JsonWriter(buffer, new JsonWriterOptions
@@ -185,7 +188,7 @@ public sealed class ContractTests
             Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
         }))
         {
-            DevFlow.Protocol.Report.Schema().WriteTo(writer);
+            schema.WriteTo(writer);
         }
 
         return Encoding.UTF8.GetString(buffer.ToArray()) + "\n";
@@ -209,6 +212,49 @@ public sealed class ContractTests
         Assert.True(
             await File.ReadAllTextAsync(file, TestContext.Current.CancellationToken) == generated,
             "the report's type changed, regenerate contracts/devflow/report.schema.json with UPDATE_CONTRACTS=1 and review the diff");
+    }
+
+    [Fact]
+    public async Task TheVerdictSchemaIsTheVerdictType()
+    {
+        // contracts/devflow/verdict.schema.json is what ReviewVerdict.Schema() writes, the schema
+        // every review job hands the reviewer, so the type that reads a verdict and the schema that
+        // shapes it hold the same fields.
+        var file = Repository.Path("contracts", "devflow", "verdict.schema.json");
+        var generated = SchemaText(DevFlow.Protocol.ReviewVerdict.Schema());
+        if (Environment.GetEnvironmentVariable("UPDATE_CONTRACTS") == "1")
+        {
+            await File.WriteAllTextAsync(file, generated, TestContext.Current.CancellationToken);
+            return;
+        }
+
+        Assert.True(File.Exists(file), $"{file} is missing, write it with UPDATE_CONTRACTS=1");
+        Assert.True(
+            await File.ReadAllTextAsync(file, TestContext.Current.CancellationToken) == generated,
+            "the verdict's type changed, regenerate contracts/devflow/verdict.schema.json with UPDATE_CONTRACTS=1 and review the diff");
+    }
+
+    [Fact]
+    public void TheVerdictSchemaHoldsTheTypesFieldsEveryOneRequired()
+    {
+        // Every object closed and every field required, the top level's fields the slice's, in its
+        // order, and no field for a commit: the commit a verdict is for is the worker's.
+        var schema = DevFlow.Protocol.ReviewVerdict.Schema();
+        Assert.Equal(["verdict", "summary", "findings", "for_owner"], schema["properties"]!.AsObject().Select(pair => pair.Key));
+        foreach (var obj in Objects(schema))
+        {
+            Assert.False((bool)obj["additionalProperties"]!);
+            Assert.Equal(
+                obj["properties"]!.AsObject().Select(pair => pair.Key).Order(StringComparer.Ordinal),
+                obj["required"]!.AsArray().Select(name => (string)name!).Order(StringComparer.Ordinal));
+        }
+
+        Assert.Equal(["approve", "changes"], schema["properties"]!["verdict"]!["enum"]!.AsArray().Select(word => (string)word!));
+        Assert.Equal(
+            ["blocking", "file", "line", "what", "why"],
+            schema["properties"]!["findings"]!["items"]!["properties"]!.AsObject().Select(pair => pair.Key));
+        Assert.Equal(["decision", "view"], schema["properties"]!["for_owner"]!["items"]!["properties"]!.AsObject().Select(pair => pair.Key));
+        Assert.DoesNotContain("commit", schema.ToJsonString(), StringComparison.Ordinal);
     }
 
     [Fact]

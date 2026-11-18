@@ -11,38 +11,70 @@ public sealed record BriefCard(int Number, string Title, string Body);
 /// branch the work goes on and the branch that is made from.</summary>
 public sealed record BriefFacts(string Check, string Branch, string Base);
 
+/// <summary>The commit a review brief is for, and where it was made: the card's branch and the
+/// branch that is made from.</summary>
+public sealed record ReviewFacts(string Commit, string Branch, string Base);
+
 /// <summary>
-/// The brief a developer agent gets, <c>developer.md</c> beside this file, embedded in the assembly:
-/// the same text for every project, filled with one card and its project's facts. The card's title
-/// and body are the only text from GitHub in it, each quoted inside a fenced block longer than any
-/// run of backticks in them, so nothing in a card can end the quote and write into the brief. The
-/// check is fenced the same way. See "Handing out work" in devflow/docs/devflow-architecture.md.
+/// The briefs an agent gets, <c>developer.md</c> and <c>reviewer.md</c> beside this file, embedded
+/// in the assembly: the same text for every project, filled with one card and its project's facts.
+/// The card's title and body are the only text from GitHub in either, each quoted inside a fenced
+/// block longer than any run of backticks in them, so nothing in a card can end the quote and write
+/// into the brief. The check is fenced the same way. See "Handing out work" and "Review" in
+/// devflow/docs/devflow-architecture.md.
 /// </summary>
 public static class Brief
 {
-    private static readonly Lazy<string> Template = new(() =>
-    {
-        using var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("briefs/developer.md")
-            ?? throw new InvalidOperationException("the developer brief is not embedded");
-        using var reader = new StreamReader(stream, Encoding.UTF8);
-        return reader.ReadToEnd();
-    });
+    private static readonly Lazy<string> DeveloperTemplate = new(() => Embedded("developer"));
+
+    private static readonly Lazy<string> ReviewerTemplate = new(() => Embedded("reviewer"));
 
     /// <summary>The developer brief for <paramref name="card"/>, with <paramref name="facts"/>.</summary>
     public static string Developer(BriefCard card, BriefFacts facts)
     {
         ArgumentNullException.ThrowIfNull(card);
         ArgumentNullException.ThrowIfNull(facts);
-        var quoted = string.Create(CultureInfo.InvariantCulture, $"#{card.Number} {card.Title}\n\n{card.Body}");
         // The placeholders are filled once each and in one pass, so a card holding the text of one
         // is never filled in turn.
-        return Fill(Template.Value, new Dictionary<string, string>(StringComparer.Ordinal)
+        return Fill(DeveloperTemplate.Value, new Dictionary<string, string>(StringComparer.Ordinal)
         {
-            ["card"] = Fenced("text", quoted),
+            ["card"] = Fenced("text", Quoted(card)),
             ["check"] = Fenced("sh", facts.Check),
             ["branch"] = facts.Branch,
             ["base"] = facts.Base,
         });
+    }
+
+    /// <summary>The reviewer brief for <paramref name="card"/>'s commit, with
+    /// <paramref name="facts"/>. The branch names and the commit are Dev flow's, from the build
+    /// that made it, never text from GitHub.</summary>
+    public static string Reviewer(BriefCard card, ReviewFacts facts)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentNullException.ThrowIfNull(facts);
+        return Fill(ReviewerTemplate.Value, new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["card"] = Fenced("text", Quoted(card)),
+            ["commit"] = facts.Commit,
+            ["branch"] = facts.Branch,
+            ["base"] = facts.Base,
+        });
+    }
+
+    /// <summary>The card as a brief quotes it, and as a review's <c>card.md</c> holds it: its
+    /// number and title, then its body.</summary>
+    public static string Quoted(BriefCard card)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        return string.Create(CultureInfo.InvariantCulture, $"#{card.Number} {card.Title}\n\n{card.Body}");
+    }
+
+    private static string Embedded(string name)
+    {
+        using var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream($"briefs/{name}.md")
+            ?? throw new InvalidOperationException($"the {name} brief is not embedded");
+        using var reader = new StreamReader(stream, Encoding.UTF8);
+        return reader.ReadToEnd();
     }
 
     /// <summary><paramref name="text"/> in a fenced block of <paramref name="language"/>, its fence

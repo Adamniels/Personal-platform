@@ -776,6 +776,7 @@ export interface components {
             push_key_expires_at: string;
             report_schema: components["schemas"]["JsonElement"];
             repository: components["schemas"]["JobRepository"];
+            to_review?: null | components["schemas"]["JobReview"];
         };
         JobCard: {
             body: string;
@@ -801,6 +802,11 @@ export interface components {
             default_branch: string;
             name: string;
             owner: string;
+        };
+        JobReview: {
+            check: components["schemas"]["CheckResult"];
+            commit: string;
+            report: components["schemas"]["JsonElement"];
         };
         JsonElement: unknown;
         LinkStarted: {

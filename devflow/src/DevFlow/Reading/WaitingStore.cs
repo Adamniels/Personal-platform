@@ -214,7 +214,7 @@ public sealed class WaitingStore(UserDb database, TimeProvider time)
                 FROM cards c
                 JOIN projects p ON p.id = c.project_id
                 JOIN LATERAL (SELECT * FROM runs WHERE runs.project_id = c.project_id AND runs.card_number = c.number
-                              AND runs.result = 'succeeded' ORDER BY started_at DESC, id DESC LIMIT 1) r ON true
+                              AND runs.kind = 'build' AND runs.result = 'succeeded' ORDER BY started_at DESC, id DESC LIMIT 1) r ON true
                 WHERE c.state = 'waiting_for_owner' AND c.pull_request_number IS NOT NULL AND r.head_commit IS NOT NULL
                 ORDER BY lower(p.owner), lower(p.name), p.id, c.number
                 """,

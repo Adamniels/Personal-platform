@@ -737,6 +737,16 @@
           },
           "repository": {
             "$ref": "#/components/schemas/JobRepository"
+          },
+          "to_review": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JobReview"
+              }
+            ]
           }
         },
         "required": [
@@ -835,6 +845,25 @@
           "name",
           "clone_address",
           "default_branch"
+        ],
+        "type": "object"
+      },
+      "JobReview": {
+        "properties": {
+          "check": {
+            "$ref": "#/components/schemas/CheckResult"
+          },
+          "commit": {
+            "type": "string"
+          },
+          "report": {
+            "$ref": "#/components/schemas/JsonElement"
+          }
+        },
+        "required": [
+          "commit",
+          "report",
+          "check"
         ],
         "type": "object"
       },

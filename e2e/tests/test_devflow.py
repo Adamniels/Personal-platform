@@ -1580,11 +1580,14 @@ def _report() -> dict:
     }
 
 
-def _built_card(page: Page, base_url: str, devflow_world) -> tuple[str, dict]:
+def _built_card(
+    page: Page, base_url: str, devflow_world, verdict: dict | None = None
+) -> tuple[str, dict]:
     """Connects a repository with one card the owner labelled and the project's
     .devflow/project.json, gives Dev flow a Claude login, reads the project so
-    the card is picked, and has the fake worker build it with a passing check.
-    The project's id and what the fake worker answered."""
+    the card is picked, has the fake worker build it with a passing check, and
+    then review its pull request with `verdict`, an approve unless given. The
+    project's id and what the fake worker answered for the build."""
     world = one_repository()
     add_issue(world, CARD, CARD_TITLE, labels=["devflow"])
     add_file(
@@ -1626,7 +1629,56 @@ def _built_card(page: Page, base_url: str, devflow_world) -> tuple[str, dict]:
         headers={"Origin": base_url},
     )
     assert ran.status == 200, ran.text()
+    reviewed = _fake_review(page, base_url, project, verdict or _verdict("approve"))
+    assert reviewed["head_commit"] == ran.json()["head_commit"]
     return project, ran.json()
+
+
+def _verdict(verdict: str, findings: list[dict] | None = None) -> dict:
+    """A reviewer's verdict in its form, with `findings`, none unless given."""
+    return {
+        "verdict": verdict,
+        "summary": (
+            "The empty state is there and tested."
+            if verdict == "approve"
+            else "The empty state shows on an empty list only after a reload."
+        ),
+        "findings": findings or [],
+        "for_owner": [
+            {
+                "decision": "Show it on every list",
+                "view": "Agreed: the lists share one component.",
+            }
+        ],
+    }
+
+
+def _fake_review(page: Page, base_url: str, project: str, verdict: dict) -> dict:
+    """The fake worker takes the project's next job, the review of the card's
+    pull request, and ends it with `verdict`. What it answered."""
+    reviewed = page.request.post(
+        "/devflow/api/fake/worker/run",
+        data={
+            "project_id": project,
+            "result": {
+                "outcome": "succeeded",
+                "report": verdict,
+                "failure": None,
+                "check": None,
+                "auth_method": "oauth_token",
+                "usage": {
+                    "usage": {"input_tokens": 12, "output_tokens": 840},
+                    "num_turns": 9,
+                },
+                "duration_ms": 61000,
+                "stderr": "",
+            },
+        },
+        headers={"Origin": base_url},
+    )
+    assert reviewed.status == 200, reviewed.text()
+    assert reviewed.json()["kind"] == "review", reviewed.json()
+    return reviewed.json()
 
 
 def _opened(page: Page) -> dict:
@@ -1763,11 +1815,13 @@ def test_a_cards_page_tells_its_story(
         page.get_by_role("link", name=f"Pull request #{pull['number']}")
     ).to_have_attribute("href", pull["url"])
 
-    # Its run: kind, worker, outcome, auth method, tokens and the check, with
-    # the output's tail behind Show.
+    # Its runs, newest first: the review, then the build with its kind,
+    # worker, outcome, auth method, tokens and the check, with the output's
+    # tail behind Show.
     runs = page.get_by_role("list", name="Runs")
-    expect(runs.get_by_role("listitem")).to_have_count(1)
-    run = runs.get_by_role("listitem").first
+    expect(runs.get_by_role("listitem")).to_have_count(2)
+    expect(runs.get_by_role("listitem").first).to_contain_text("Review")
+    run = runs.get_by_role("listitem").nth(1)
     expect(run).to_contain_text("Build")
     expect(run).to_contain_text("devflow-fake-worker")
     expect(run).to_contain_text("Succeeded")

@@ -24,6 +24,7 @@ public sealed class AppWriteTokenTests
         [WritePurpose.Push] = new() { ["contents"] = "write", ["metadata"] = "read" },
         [WritePurpose.Post] = new() { ["issues"] = "write", ["pull_requests"] = "write", ["metadata"] = "read" },
         [WritePurpose.Merge] = new() { ["contents"] = "write", ["pull_requests"] = "read", ["metadata"] = "read" },
+        [WritePurpose.Fetch] = new() { ["contents"] = "read", ["metadata"] = "read" },
     };
 
     [Fact]

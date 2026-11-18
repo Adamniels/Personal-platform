@@ -50,9 +50,10 @@ public abstract record FreshKey
 /// <summary>
 /// Hands out work. A worker asking for it is answered nothing when it needs a rebuild, when its
 /// project is stopped or its default branch not watched lately, when its project's user has no
-/// Claude login or one past its renewal, or when its project has no card to take; otherwise
-/// everything a job needs from the code host is read first, as the app, and only then is the card
-/// taken, in one short transaction as the project's user, so no lock is held while GitHub is asked.
+/// Claude login or one past its renewal, or when its project has no card to take; otherwise the
+/// kind of job is chosen, a review before a build, everything that job needs from the code host is
+/// read first, as the app, with a key for that kind, and only then is a card of that kind taken, in
+/// one short transaction as the project's user, so no lock is held while GitHub is asked.
 /// That transaction reads the watch's hold again under the project's lock, so a stop recorded
 /// while GitHub was asked still holds the card back. Anything the code host does not answer is no
 /// work now, and the worker asks again. See "Jobs" in devflow/README.md and "Handing out work" in
@@ -73,6 +74,9 @@ public sealed partial class Dispatcher(
 
     /// <summary>The report's schema as every job carries it, written once from its type.</summary>
     private static readonly JsonElement ReportSchema = JsonSerializer.SerializeToElement(Report.Schema());
+
+    /// <summary>The verdict's schema as every review job carries it, written once from its type.</summary>
+    private static readonly JsonElement VerdictSchema = JsonSerializer.SerializeToElement(ReviewVerdict.Schema());
 
     /// <summary>
     /// Why a user's project hands out no work for their Claude login, as the project's page says
@@ -110,37 +114,57 @@ public sealed partial class Dispatcher(
         // in devflow/README.md.
         if (await watch.Hold(userId, projectId, cancellationToken) != ProjectHold.None
             || HeldFor(await logins.Status(userId, cancellationToken)) is not null
-            || !await JobStore.HasWork(database, userId, projectId, cancellationToken)
+            || await JobStore.NextKind(database, userId, projectId, cancellationToken) is not { } kind
             || await workers.RepositoryOf(caller, cancellationToken) is not { } repository)
         {
             return new NextJob.None();
         }
 
+        // The key is made for the kind found, before anything is taken: a review's only fetches.
+        var purpose = kind == Job.Review ? WritePurpose.Fetch : WritePurpose.Push;
         if (await Facts(projectId, userId, repository, cancellationToken) is not { } facts
             || await logins.ForRun(userId, cancellationToken) is not { } token
-            || await Key(projectId, userId, repository, cancellationToken) is not { } key)
+            || await Key(projectId, userId, repository, purpose, cancellationToken) is not { } key)
         {
             return new NextJob.None();
         }
 
         var now = Now();
-        var claimed = await database.InUserTransaction(userId, async transaction =>
-            await watch.HoldUnderLock(transaction, projectId, cancellationToken) == ProjectHold.None
-                ? await JobStore.Claim(transaction, projectId, userId, workerId, facts.DefaultBranch, facts.Check, now, cancellationToken)
-                : null, cancellationToken);
-        if (claimed is null)
+        var job = await database.InUserTransaction<Job?>(userId, async transaction =>
         {
-            // Another worker took the last card since it was looked for, or the project was
-            // stopped or went unwatched while GitHub was asked; the key made for it is dropped
-            // unused, and runs out within the hour.
+            if (await watch.HoldUnderLock(transaction, projectId, cancellationToken) != ProjectHold.None)
+            {
+                return null;
+            }
+
+            return kind == Job.Review
+                ? ReviewJob(await JobStore.ClaimReview(transaction, projectId, userId, workerId, now, cancellationToken), repository, facts, token, key)
+                : BuildJob(await JobStore.Claim(transaction, projectId, userId, workerId, facts.DefaultBranch, facts.Check, now, cancellationToken), repository, facts, token, key);
+        }, cancellationToken);
+        if (job is null)
+        {
+            // Another worker took the last card of the kind since it was looked for, or the project
+            // was stopped or went unwatched while GitHub was asked; the key made for it is dropped
+            // unused, and runs out within the hour. The worker asks again.
             return new NextJob.None();
         }
 
-        LogHandedOut(log, projectId, claimed.Number, claimed.RunId);
+        LogHandedOut(log, job.Kind, projectId, job.Card.Number, job.JobId);
+        return new NextJob.Handed(job);
+    }
+
+    /// <summary>The build job for a card taken to build, or null when none was.</summary>
+    private static Job? BuildJob(ClaimedCard? claimed, Repository repository, RepositoryFacts facts, ClaudeToken token, AppWriteToken key)
+    {
+        if (claimed is null)
+        {
+            return null;
+        }
+
         var brief = Brief.Developer(
             new BriefCard(claimed.Number, claimed.Title, claimed.Body),
             new BriefFacts(facts.Check, claimed.Branch, facts.DefaultBranch));
-        return new NextJob.Handed(new Job(
+        return new Job(
             claimed.RunId,
             Job.Build,
             new JobCard(claimed.Number, claimed.Title, claimed.Body),
@@ -154,22 +178,53 @@ public sealed partial class Dispatcher(
             key.Value,
             key.ExpiresAt,
             new JobCommitter(facts.Committer.Name, facts.Committer.Email),
-            JobLimits.Default));
+            JobLimits.Default);
     }
 
-    /// <summary>A fresh push key for the job, only for the worker holding it while it runs; marks
-    /// the worker seen.</summary>
+    /// <summary>The review job for a card taken to review, or null when none was: the build's
+    /// branch, base and check, the commit it left, its report and the check's result, the
+    /// reviewer's brief and the verdict's form.</summary>
+    private static Job? ReviewJob(ClaimedReview? claimed, Repository repository, RepositoryFacts facts, ClaudeToken token, AppWriteToken key)
+    {
+        if (claimed is null)
+        {
+            return null;
+        }
+
+        var card = new BriefCard(claimed.Number, claimed.Title, claimed.Body);
+        var brief = Brief.Reviewer(card, new ReviewFacts(claimed.Commit, claimed.Branch, claimed.Base));
+        using var report = JsonDocument.Parse(claimed.Report);
+        return new Job(
+            claimed.RunId,
+            Job.Review,
+            new JobCard(claimed.Number, claimed.Title, claimed.Body),
+            new JobRepository(repository.Owner, repository.Name, facts.CloneAddress, facts.DefaultBranch),
+            claimed.Branch,
+            claimed.Base,
+            brief,
+            VerdictSchema,
+            claimed.Check ?? facts.Check,
+            token.Value,
+            key.Value,
+            key.ExpiresAt,
+            new JobCommitter(facts.Committer.Name, facts.Committer.Email),
+            JobLimits.Default,
+            new JobReview(claimed.Commit, report.RootElement.Clone(), new CheckResult(claimed.CheckExitCode, claimed.CheckOutput)));
+    }
+
+    /// <summary>A fresh push key for the job, only for the worker holding it while it runs, and
+    /// only for a build: a review is given no key that pushes. Marks the worker seen.</summary>
     public async Task<FreshKey> PushKey(WorkerCaller caller, Guid runId, Guid workerId, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(caller);
         if (await workers.Seen(caller, workerId, start.Image, cancellationToken) == WorkerState.Unknown
-            || !await JobStore.Holds(database, caller.UserId, caller.ProjectId, runId, workerId, cancellationToken)
+            || !await JobStore.HoldsBuild(database, caller.UserId, caller.ProjectId, runId, workerId, cancellationToken)
             || await workers.RepositoryOf(caller, cancellationToken) is not { } repository)
         {
             return new FreshKey.NotHeld();
         }
 
-        return await Key(caller.ProjectId, caller.UserId, repository, cancellationToken) is { } key
+        return await Key(caller.ProjectId, caller.UserId, repository, WritePurpose.Push, cancellationToken) is { } key
             ? new FreshKey.Made(new PushKeyAnswer(key.Value, key.ExpiresAt))
             : new FreshKey.Unavailable();
     }
@@ -211,16 +266,17 @@ public sealed partial class Dispatcher(
         return new RepositoryFacts(branch, project.Check, clone, committer);
     }
 
-    /// <summary>A push key for the repository, narrowed to <see cref="WritePurpose.Push"/>, or null
-    /// when the code host made none.</summary>
-    private async Task<AppWriteToken?> Key(Guid projectId, Guid userId, Repository repository, CancellationToken cancellationToken)
+    /// <summary>A key for the repository, narrowed to <paramref name="purpose"/>,
+    /// <see cref="WritePurpose.Push"/> for a build or <see cref="WritePurpose.Fetch"/> for a
+    /// review, or null when the code host made none.</summary>
+    private async Task<AppWriteToken?> Key(Guid projectId, Guid userId, Repository repository, WritePurpose purpose, CancellationToken cancellationToken)
     {
-        if (await host.ForWrite(userId, repository, WritePurpose.Push, cancellationToken) is CodeHostResult<AppWriteToken>.Found { Value: var key })
+        if (await host.ForWrite(userId, repository, purpose, cancellationToken) is CodeHostResult<AppWriteToken>.Found { Value: var key })
         {
             return key;
         }
 
-        LogNotRead(log, projectId, "a push key");
+        LogNotRead(log, projectId, purpose == WritePurpose.Push ? "a push key" : "a fetch key");
         return null;
     }
 
@@ -233,8 +289,8 @@ public sealed partial class Dispatcher(
 
     private sealed record RepositoryFacts(string DefaultBranch, string Check, Uri CloneAddress, Committer Committer);
 
-    [LoggerMessage(Level = LogLevel.Information, Message = "Handed out card {Card} of project {ProjectId} as run {RunId}")]
-    private static partial void LogHandedOut(ILogger logger, Guid projectId, int card, Guid runId);
+    [LoggerMessage(Level = LogLevel.Information, Message = "Handed out the {Kind} of card {Card} of project {ProjectId} as run {RunId}")]
+    private static partial void LogHandedOut(ILogger logger, string kind, Guid projectId, int card, Guid runId);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "No job for project {ProjectId}: the code host did not answer {What}")]
     private static partial void LogNotRead(ILogger logger, Guid projectId, string what);

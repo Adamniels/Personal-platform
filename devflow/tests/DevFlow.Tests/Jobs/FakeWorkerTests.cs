@@ -61,8 +61,9 @@ public sealed class FakeWorkerTests
         Assert.Equal("succeeded", run.Result);
         Assert.Equal(head, run.HeadCommit);
         Assert.Equal("devflow/4-add-the-empty-state", run.Branch);
-        // And its pull request was opened before the fake worker answered, so the card waits.
-        Assert.Equal("waiting_for_owner", (await jobs.Card(4)).State);
+        // And its pull request was opened before the fake worker answered, so the card is
+        // reviewed next.
+        Assert.Equal("reviewing", (await jobs.Card(4)).State);
 
         // The commit is on the branch in the fake's git repository, on top of a first commit of
         // the base, which the fake's empty git did not have.
@@ -74,6 +75,17 @@ public sealed class FakeWorkerTests
         // The fake worker is one of the project's workers, on the image the app expects.
         var workers = (await Workers.Workers.List(jobs.Routes, jobs.Project))["workers"]!.AsArray();
         Assert.Contains(workers, worker => (string)worker!["name"]! == "devflow-fake-worker" && worker["rebuild"] is null);
+
+        // Its review comes next: the fake worker reads the commit it is handed, names it, and
+        // makes no commit of its own.
+        jobs.Routes.Time.Advance(TimeSpan.FromMinutes(1));
+        var reviewed = await Run(jobs, PullRequests.Built.PreparedVerdict());
+        Assert.Equal(StatusCodes.Status200OK, reviewed.Response.StatusCode);
+        var review = await Workers.Workers.Json(reviewed);
+        Assert.Equal("review", (string)review["kind"]!);
+        Assert.Equal(head, (string)review["head_commit"]!);
+        Assert.Equal(head, await Git(clone.LocalPath, "rev-parse", "refs/heads/devflow/4-add-the-empty-state"));
+        Assert.Equal("waiting_for_owner", (await jobs.Card(4)).State);
 
         // Nothing left to take.
         Assert.Equal(StatusCodes.Status204NoContent, (await Run(jobs, Prepared())).Response.StatusCode);

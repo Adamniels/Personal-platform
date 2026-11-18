@@ -4,29 +4,32 @@ using System.Text.Json;
 namespace DevFlow.Protocol;
 
 /// <summary>
-/// A job, what <c>jobs/next</c> answers a worker with <c>200</c>: one card of its project to build,
-/// with everything the worker needs for it and nothing more. The Claude token and the push key
-/// leave Dev flow only here, to the worker holding the job. See "Jobs" in devflow/README.md.
+/// A job, what <c>jobs/next</c> answers a worker with <c>200</c>: one card of its project to build
+/// or to review, with everything the worker needs for it and nothing more. The Claude token and the
+/// key leave Dev flow only here, to the worker holding the job. See "Jobs" and "Review" in
+/// devflow/README.md.
 /// </summary>
 /// <param name="JobId">The run's id, which the job's other routes take.</param>
-/// <param name="Kind"><see cref="Build"/>, the only kind in this part.</param>
+/// <param name="Kind"><see cref="Build"/> or <see cref="Review"/>.</param>
 /// <param name="Card">The card, as it was picked.</param>
 /// <param name="Repository">Where the code is.</param>
 /// <param name="Branch">The branch the work goes on, <c>devflow/&lt;number&gt;-&lt;slug&gt;</c>.</param>
 /// <param name="Base">The branch it is made from, the repository's default branch.</param>
 /// <param name="Brief">What the agent is asked to do, as text.</param>
-/// <param name="ReportSchema">The JSON Schema the agent's report follows,
-/// contracts/devflow/report.schema.json.</param>
+/// <param name="ReportSchema">The JSON Schema the agent's answer follows: for a build the report's,
+/// contracts/devflow/report.schema.json, and for a review the verdict's,
+/// contracts/devflow/verdict.schema.json.</param>
 /// <param name="Check">The command that checks the working copy, from the project's
-/// <c>.devflow/project.json</c> on its default branch.</param>
+/// <c>.devflow/project.json</c> on its default branch; for a review, the one the build ran.</param>
 /// <param name="ClaudeToken">The run's user's Claude token, for the agent's
 /// <c>CLAUDE_CODE_OAUTH_TOKEN</c> and nowhere else.</param>
-/// <param name="PushKey">A key that fetches and pushes the repository's code and does nothing
-/// else.</param>
-/// <param name="PushKeyExpiresAt">When the push key stops working; a fresh one is asked for at
-/// <see cref="WorkerApi.PushKeyPath"/>.</param>
-/// <param name="Committer">Who the worker's commits are made as.</param>
+/// <param name="PushKey">The key git is given for the repository: for a build one that fetches and
+/// pushes its code and does nothing else; for a review one that only fetches it.</param>
+/// <param name="PushKeyExpiresAt">When the key stops working; for a build a fresh one is asked
+/// for at <see cref="WorkerApi.PushKeyPath"/>, and a review asks for none.</param>
+/// <param name="Committer">Who the worker's commits are made as; a review makes none.</param>
 /// <param name="Limits">When the run is stopped.</param>
+/// <param name="ToReview">What a review reads besides the code, null on a build.</param>
 public sealed record Job(
     Guid JobId,
     string Kind,
@@ -41,18 +44,32 @@ public sealed record Job(
     string PushKey,
     DateTimeOffset PushKeyExpiresAt,
     JobCommitter Committer,
-    JobLimits Limits)
+    JobLimits Limits,
+    JobReview? ToReview = null)
 {
-    /// <summary>Building a card, the only kind of job in this part.</summary>
+    /// <summary>Building a card.</summary>
     public const string Build = "build";
+
+    /// <summary>Reviewing the commit a build left on a card's pull request.</summary>
+    public const string Review = "review";
 
     /// <summary>Its kind and card, never the token or the key.</summary>
     public override string ToString() =>
         string.Create(CultureInfo.InvariantCulture, $"Job {{ JobId = {JobId}, Kind = {Kind}, Card = {Card.Number}, Branch = {Branch} }}");
 }
 
-/// <summary>The card a job builds, as it was picked; its title and body are the owner's
-/// words.</summary>
+/// <summary>
+/// What a review job reads besides the code: the commit it reviews, which a build left on the
+/// card's pull request and which is the one the verdict is for, the report of the run that made
+/// it, and the check's result on it.
+/// </summary>
+/// <param name="Commit">The full id of the commit to review.</param>
+/// <param name="Report">The build's report as it came, in its form.</param>
+/// <param name="Check">The check's result on the commit, as the build's worker sent it.</param>
+public sealed record JobReview(string Commit, JsonElement Report, CheckResult Check);
+
+/// <summary>The card a job builds or reviews, as it was picked; its title and body are the
+/// owner's words.</summary>
 public sealed record JobCard(int Number, string Title, string Body);
 
 /// <summary>The repository a job's code is in.</summary>

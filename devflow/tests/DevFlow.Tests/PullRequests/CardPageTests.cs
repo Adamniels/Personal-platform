@@ -3,8 +3,8 @@ using Microsoft.AspNetCore.Http;
 namespace DevFlow.Tests.PullRequests;
 
 /// <summary>
-/// A card's route answers its whole story so far: every run, newest first, with what the page shows
-/// of it, and the latest report. Only to the card's own user. See "A card's page" in
+/// A card's route answers its whole story so far: every run, newest first, its review among them,
+/// with what the page shows of it, and the latest report. Only to the card's own user. See "A card's page" in
 /// devflow/README.md.
 /// </summary>
 public sealed class CardPageTests
@@ -18,6 +18,7 @@ public sealed class CardPageTests
         // The next try comes a minute later, as it would on the worker's next turn.
         jobs.Routes.Time.Advance(TimeSpan.FromMinutes(1));
         var ran = await Built.Run(jobs, Built.Prepared(Built.Report()));
+        await Built.Review(jobs);
         var runs = await jobs.Runs();
         var pull = (await Built.Card(jobs, 4)).PullRequestNumber!.Value;
 
@@ -32,11 +33,13 @@ public sealed class CardPageTests
         Assert.Equal(pull, (int)card["pull_request"]!["number"]!);
         Assert.Equal($"https://github.com/Adamniels/Personal-platform/pull/{pull}", (string)card["pull_request"]!["url"]!);
 
-        // Newest first.
+        // Newest first: the review, the build, and the failure before it.
         var story = card["runs"]!.AsArray();
-        Assert.Equal([runs[1].Id, runs[0].Id], [.. story.Select(run => (Guid)run!["id"]!)]);
+        Assert.Equal([runs[2].Id, runs[1].Id, runs[0].Id], [.. story.Select(run => (Guid)run!["id"]!)]);
+        Assert.Equal("review", (string)story[0]!["kind"]!);
+        Assert.Equal((string)ran["head_commit"]!, (string)story[0]!["head_commit"]!);
 
-        var built = story[0]!.AsObject();
+        var built = story[1]!.AsObject();
         Assert.Equal("build", (string)built["kind"]!);
         Assert.Equal("devflow-fake-worker", (string)built["worker"]!);
         Assert.Equal(runs[1].StartedAt, ((DateTimeOffset)built["started_at"]!).UtcDateTime);
@@ -51,14 +54,14 @@ public sealed class CardPageTests
         Assert.Equal("Tests: 12 passed", (string)built["check"]!["output"]!);
         Assert.Equal((string)ran["head_commit"]!, (string)built["head_commit"]!);
 
-        var failed = story[1]!.AsObject();
+        var failed = story[2]!.AsObject();
         Assert.Equal("failed_outside_card", (string)failed["result"]!);
         Assert.Equal("Claude's API did not answer", (string)failed["reason"]!);
         Assert.False((bool)failed["in_card"]!);
         Assert.Null(failed["check"]);
         Assert.Null(failed["auth_method"]);
 
-        // The latest report, in its form.
+        // The latest report, in its form: the build's, since a review hands back a verdict.
         var report = card["report"]!.AsObject();
         Assert.Equal("Added the empty state to the habits list.", (string)report["summary"]!);
         Assert.Equal(2, report["tasks"]!.AsArray().Count);
