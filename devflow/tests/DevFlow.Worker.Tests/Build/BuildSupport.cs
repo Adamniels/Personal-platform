@@ -124,7 +124,7 @@ internal sealed class Bench : IAsyncDisposable
 
     /// <summary>A build job for the bench's worker, with <paramref name="agent"/>.</summary>
     public BuildJob Build(IAgent agent) =>
-        new(new BuildTools(agent, AsRoot, AsAgent, Folders, User), new WorkerLog(TextWriter.Synchronized(new StringWriter(Log)), Clock));
+        new(new BuildTools(agent, AsRoot, AsAgent, Folders, User), Clock, new WorkerLog(TextWriter.Synchronized(new StringWriter(Log)), Clock));
 
     /// <summary>Hands out the next job and runs it to its end with <paramref name="agent"/>.</summary>
     public async Task<JsonElement> RunJob(IAgent agent)

@@ -12,11 +12,15 @@ internal sealed record BuildTools(IAgent Agent, IProcessStarter Root, IProcessSt
 /// <summary>
 /// One build job, as Settled in the slice "The worker builds and pushes". Root clones the
 /// repository with the push key into a bare repository of its own; the agent clones that, through
-/// a bundle, into its working copy, and works there. See "The worker" in devflow/README.md, and "Workers" in
+/// a bundle, into its working copy, and works there as <c>agent</c> within the time limit; and what
+/// it left uncommitted is committed in its copy, as it. See "The worker" in devflow/README.md, and "Workers" in
 /// devflow/docs/devflow-architecture.md for why.
 /// </summary>
-internal sealed class BuildJob(BuildTools tools, WorkerLog log)
+internal sealed class BuildJob(BuildTools tools, TimeProvider time, WorkerLog log)
 {
+    /// <summary>The message of the commit the worker makes of what the agent left uncommitted.</summary>
+    public const string LeftUncommitted = "Work the agent left uncommitted";
+
     private readonly WorkerGit _git = new(tools.Root, tools.AsAgent, tools.User);
 
     /// <summary>Runs the job <paramref name="answer"/> holds.</summary>
@@ -48,8 +52,8 @@ internal sealed class BuildJob(BuildTools tools, WorkerLog log)
         try
         {
             await Fetch(job, paths, stopping);
-            var limits = new AgentLimits(job.Limits.Turns, job.Limits.BudgetUsd, TimeSpan.FromMinutes(job.Limits.Minutes));
-            await tools.Agent.Run(new AgentRun(paths.Copy, job.Brief, job.ReportSchema.GetRawText(), limits, new AgentCredential(job.ClaudeToken)), stopping);
+            await RunAgent(job, paths, stopping);
+            await KeepUncommitted(paths, stopping);
         }
         catch (StepFailed failed)
         {
@@ -102,6 +106,49 @@ internal sealed class BuildJob(BuildTools tools, WorkerLog log)
         await CloneForAgent(job, paths, [$"refs/heads/{job.Branch}", $"refs/heads/{job.Base}"], paths.Copy,
             ["-c", $"user.name={job.Committer.Name}", "-c", $"user.email={job.Committer.Email}"], "The working copy could not be made", stopping);
         return start;
+    }
+
+    /// <summary>The agent, as <c>agent</c>, with the job's brief, schema, limits and Claude token,
+    /// ended at the job's time limit whatever it is doing; and a failure in the card if it was.</summary>
+    private async Task<AgentResult> RunAgent(Job job, JobPaths paths, CancellationToken stopping)
+    {
+        var limits = new AgentLimits(job.Limits.Turns, job.Limits.BudgetUsd, TimeSpan.FromMinutes(job.Limits.Minutes));
+        var run = new AgentRun(paths.Copy, job.Brief, job.ReportSchema.GetRawText(), limits, new AgentCredential(job.ClaudeToken));
+        using var limit = new CancellationTokenSource(limits.Time, time);
+        using var either = CancellationTokenSource.CreateLinkedTokenSource(stopping, limit.Token);
+        log.Write($"Starting the agent, for at most {limits.Time.TotalMinutes:0} minutes.");
+        AgentResult result;
+        try
+        {
+            result = await tools.Agent.Run(run, either.Token);
+        }
+        catch (OperationCanceledException) when (limit.IsCancellationRequested && !stopping.IsCancellationRequested)
+        {
+            result = AgentResult.Failed(FailureSide.Card, $"it ran past the time limit of {limits.Time.TotalMinutes:0} minutes and was ended", [], "", null);
+        }
+
+        log.Write(result.Failure is { } failure ? $"The agent failed: {failure.Reason}." : "The agent finished with a report.");
+        return result;
+    }
+
+    /// <summary>What the agent left uncommitted, tracked or new and not ignored, committed in its
+    /// copy, as it, before anything is fetched from there.</summary>
+    private async Task KeepUncommitted(JobPaths paths, CancellationToken stopping)
+    {
+        var status = await _git.AsAgent(paths.Copy, ["status", "--porcelain", "--untracked-files=all"], stopping);
+        if (status.ExitCode != 0)
+        {
+            throw new StepFailed(FailureSide.Card, $"The agent's copy is not a repository git can read: {Said(status.Stderr)}");
+        }
+
+        if (status.Stdout.Trim().Length == 0)
+        {
+            return;
+        }
+
+        log.Write("The agent left work uncommitted; committing it.");
+        await AgentGit(paths.Copy, ["add", "--all"], "The work the agent left could not be added", stopping);
+        await AgentGit(paths.Copy, ["commit", "--quiet", "--no-verify", "-m", LeftUncommitted], "The work the agent left could not be committed", stopping);
     }
 
     /// <summary>A clone the agent makes of <paramref name="refs"/> of root's repository, in
