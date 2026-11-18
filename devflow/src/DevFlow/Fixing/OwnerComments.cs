@@ -29,7 +29,7 @@ public sealed record TakenComments(int Card, int PullRequest, IReadOnlyList<stri
 /// when its id is past the newest of his already taken, every one of his before any was: GitHub's
 /// ids only grow, so none is taken twice, and no time is compared, so none is lost to a run that
 /// started after it was written. It is read only while no run of the card is under way, so one
-/// written during a run is taken by the first read after the run ends. See "Fixing" in
+/// written during a run waits for the first read that falls between runs. See "Fixing" in
 /// devflow/README.md.
 /// </summary>
 public static class OwnerComments
