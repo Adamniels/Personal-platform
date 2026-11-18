@@ -185,8 +185,8 @@ public sealed partial class Dispatcher(
     }
 
     /// <summary>The fix job for a card taken to fix, or null when none was: a build's job on the
-    /// card's branch and base, with the developer's brief and the report's form, and where the fix
-    /// starts.</summary>
+    /// card's branch and base, with the fix brief, the developer's with what to fix, the report's
+    /// form, and where the fix starts.</summary>
     private static Job? FixJob(ClaimedFix? claimed, Repository repository, RepositoryFacts facts, ClaudeToken token, AppWriteToken key)
     {
         if (claimed is null)
@@ -194,9 +194,10 @@ public sealed partial class Dispatcher(
             return null;
         }
 
-        var brief = Brief.Developer(
+        var brief = Brief.Fixer(
             new BriefCard(claimed.Number, claimed.Title, claimed.Body),
-            new BriefFacts(facts.Check, claimed.Branch, claimed.Base));
+            new BriefFacts(facts.Check, claimed.Branch, claimed.Base),
+            new FixInput(claimed.Round, claimed.Report, claimed.Review?.Verdict, []));
         return new Job(
             claimed.RunId,
             Job.Fix,
@@ -226,7 +227,7 @@ public sealed partial class Dispatcher(
         }
 
         var card = new BriefCard(claimed.Number, claimed.Title, claimed.Body);
-        var brief = Brief.Reviewer(card, new ReviewFacts(claimed.Commit, claimed.Branch, claimed.Base));
+        var brief = Brief.Reviewer(card, new ReviewFacts(claimed.Commit, claimed.Branch, claimed.Base, claimed.Earlier.Count));
         using var report = JsonDocument.Parse(claimed.Report);
         return new Job(
             claimed.RunId,
@@ -243,7 +244,25 @@ public sealed partial class Dispatcher(
             key.ExpiresAt,
             new JobCommitter(facts.Committer.Name, facts.Committer.Email),
             JobLimits.Default,
-            new JobReview(claimed.Commit, report.RootElement.Clone(), new CheckResult(claimed.CheckExitCode, claimed.CheckOutput)));
+            new JobReview(claimed.Commit, report.RootElement.Clone(), new CheckResult(claimed.CheckExitCode, claimed.CheckOutput), [.. claimed.Earlier.Select(Round)]));
+    }
+
+    /// <summary>An earlier round as a review job carries it, its stored JSON read back as it was
+    /// stored.</summary>
+    private static JobRound Round(EarlierRound round)
+    {
+        using var findings = JsonDocument.Parse(round.Findings ?? "[]");
+        using var comments = JsonDocument.Parse(round.Comments);
+        using var replies = JsonDocument.Parse(round.Replies);
+        return new JobRound(
+            round.Round,
+            round.ReviewedCommit,
+            round.Verdict,
+            round.Summary,
+            findings.RootElement.Clone(),
+            [.. comments.RootElement.EnumerateArray().Select(comment => comment.GetString() ?? "")],
+            replies.RootElement.Clone(),
+            round.FixedCommit);
     }
 
     /// <summary>A fresh push key for the job, only for the worker holding it while it runs, and

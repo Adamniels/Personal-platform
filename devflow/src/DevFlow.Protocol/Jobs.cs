@@ -72,7 +72,33 @@ public sealed record Job(
 /// <param name="Commit">The full id of the commit to review.</param>
 /// <param name="Report">The build's report as it came, in its form.</param>
 /// <param name="Check">The check's result on the commit, as the build's worker sent it.</param>
-public sealed record JobReview(string Commit, JsonElement Report, CheckResult Check);
+/// <param name="Earlier">Each earlier round of the card, oldest first, empty on its first review.</param>
+public sealed record JobReview(string Commit, JsonElement Report, CheckResult Check, IReadOnlyList<JobRound> Earlier);
+
+/// <summary>
+/// An earlier round of a card, as a re-review reads it: what sent the card back, the review that
+/// asked for changes or the owner's comment, the developer's reply to each finding, and the commit
+/// its fix left. Every text is the reviewer's, the owner's or the developer's, and data.
+/// </summary>
+/// <param name="Round">The fix round, 1 to 3, or null when the owner's comment started it.</param>
+/// <param name="ReviewedCommit">The commit the review it answered was for, null when it answered
+/// none.</param>
+/// <param name="Verdict">That review's verdict, null when it answered none.</param>
+/// <param name="Summary">That review's summary, null when it answered none.</param>
+/// <param name="Findings">That review's findings, as the verdict's form holds them; empty when it
+/// answered none.</param>
+/// <param name="Comments">The owner's comments it answered, each exactly as he wrote it.</param>
+/// <param name="Replies">The fix's replies, as its report holds them.</param>
+/// <param name="FixedCommit">The commit the fix left on the branch.</param>
+public sealed record JobRound(
+    int? Round,
+    string? ReviewedCommit,
+    string? Verdict,
+    string? Summary,
+    JsonElement Findings,
+    IReadOnlyList<string> Comments,
+    JsonElement Replies,
+    string FixedCommit);
 
 /// <summary>
 /// Where a fix job starts: the commit the card's branch must be at, the newest one a build or a fix

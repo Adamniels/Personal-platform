@@ -978,6 +978,12 @@
           "commit": {
             "type": "string"
           },
+          "earlier": {
+            "items": {
+              "$ref": "#/components/schemas/JobRound"
+            },
+            "type": "array"
+          },
           "report": {
             "$ref": "#/components/schemas/JsonElement"
           }
@@ -985,7 +991,63 @@
         "required": [
           "commit",
           "report",
-          "check"
+          "check",
+          "earlier"
+        ],
+        "type": "object"
+      },
+      "JobRound": {
+        "properties": {
+          "comments": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "findings": {
+            "$ref": "#/components/schemas/JsonElement"
+          },
+          "fixed_commit": {
+            "type": "string"
+          },
+          "replies": {
+            "$ref": "#/components/schemas/JsonElement"
+          },
+          "reviewed_commit": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "round": {
+            "format": "int32",
+            "type": [
+              "null",
+              "integer"
+            ]
+          },
+          "summary": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "verdict": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "required": [
+          "round",
+          "reviewed_commit",
+          "verdict",
+          "summary",
+          "findings",
+          "comments",
+          "replies",
+          "fixed_commit"
         ],
         "type": "object"
       },

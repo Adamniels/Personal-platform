@@ -34,7 +34,20 @@ public sealed record ClaimedCard(Guid RunId, int Number, string Title, string Bo
 /// <param name="Check">The check the build ran, null for a build handed out before runs kept it.</param>
 /// <param name="CheckExitCode">How it ended.</param>
 /// <param name="CheckOutput">The last lines it printed.</param>
-public sealed record ClaimedReview(Guid RunId, int Number, string Title, string Body, string Branch, string Base, string Commit, string Report, string? Check, int CheckExitCode, string CheckOutput);
+/// <param name="Earlier">The card's earlier rounds, oldest first, empty on its first review.</param>
+public sealed record ClaimedReview(Guid RunId, int Number, string Title, string Body, string Branch, string Base, string Commit, string Report, string? Check, int CheckExitCode, string CheckOutput, IReadOnlyList<EarlierRound> Earlier);
+
+/// <summary>An earlier round of a card as stored: a fix that succeeded, the review it answered, and
+/// its replies. Its texts are as they were stored.</summary>
+/// <param name="Round">The fix round, or null when the owner's comment started it.</param>
+/// <param name="ReviewedCommit">The commit the review it answered was for, null without one.</param>
+/// <param name="Verdict">That review's verdict, null without one.</param>
+/// <param name="Summary">That review's summary, null without one.</param>
+/// <param name="Findings">That review's findings as JSON, null without one.</param>
+/// <param name="Comments">The owner's comments it answered, as a JSON array.</param>
+/// <param name="Replies">The fix report's replies as JSON.</param>
+/// <param name="FixedCommit">The commit the fix left.</param>
+public sealed record EarlierRound(int? Round, string? ReviewedCommit, string? Verdict, string? Summary, string? Findings, string Comments, string Replies, string FixedCommit);
 
 /// <summary>A card taken for a fix, with the run made for it and what the fix answers.</summary>
 /// <param name="RunId">The fix run's id, the job's.</param>
@@ -203,7 +216,8 @@ public static class JobStore
             new { projectId, number = card.Number, reason = BeingReviewed, now },
             transaction,
             cancellationToken: cancellationToken));
-        var claimed = new ClaimedReview(Guid.CreateVersion7(now), card.Number, card.Title, card.Body, card.Branch, card.Base, card.Commit, card.Report, card.Check, card.CheckExitCode, card.CheckOutput ?? "");
+        var earlier = await Earlier(transaction, projectId, card.Number, cancellationToken);
+        var claimed = new ClaimedReview(Guid.CreateVersion7(now), card.Number, card.Title, card.Body, card.Branch, card.Base, card.Commit, card.Report, card.Check, card.CheckExitCode, card.CheckOutput ?? "", earlier);
         await transaction.Connection!.ExecuteAsync(new CommandDefinition(
             """
             INSERT INTO runs (id, project_id, user_id, card_number, worker_id, kind, branch, base, check_command, head_commit, started_at)
@@ -213,6 +227,29 @@ public static class JobStore
             transaction,
             cancellationToken: cancellationToken));
         return claimed;
+    }
+
+    /// <summary>
+    /// A card's earlier rounds, oldest first, read inside <paramref name="transaction"/>, which runs
+    /// as the card's user: each fix of it that succeeded, with the review it answered, if any, and
+    /// its report's replies.
+    /// </summary>
+    public static async Task<IReadOnlyList<EarlierRound>> Earlier(NpgsqlTransaction transaction, Guid projectId, int number, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(transaction);
+        return [.. await transaction.Connection!.QueryAsync<EarlierRound>(new CommandDefinition(
+            """
+            SELECT f.fix_round AS Round, v.reviewed_commit AS ReviewedCommit, v.verdict AS Verdict, v.summary AS Summary,
+                   v.findings::text AS Findings, '[]' AS Comments,
+                   coalesce(f.report->'replies', '[]'::jsonb)::text AS Replies, f.head_commit AS FixedCommit
+            FROM runs f
+            LEFT JOIN reviews v ON v.project_id = f.project_id AND v.run_id = f.fix_review_id
+            WHERE f.project_id = @projectId AND f.card_number = @number AND f.kind = 'fix' AND f.result = 'succeeded'
+            ORDER BY f.started_at, f.id
+            """,
+            new { projectId, number },
+            transaction,
+            cancellationToken: cancellationToken))];
     }
 
     /// <summary>

@@ -834,7 +834,19 @@ export interface components {
         JobReview: {
             check: components["schemas"]["CheckResult"];
             commit: string;
+            earlier: components["schemas"]["JobRound"][];
             report: components["schemas"]["JsonElement"];
+        };
+        JobRound: {
+            comments: string[];
+            findings: components["schemas"]["JsonElement"];
+            fixed_commit: string;
+            replies: components["schemas"]["JsonElement"];
+            reviewed_commit: null | string;
+            /** Format: int32 */
+            round: null | number;
+            summary: null | string;
+            verdict: null | string;
         };
         JsonElement: unknown;
         LinkStarted: {
