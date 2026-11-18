@@ -1,3 +1,5 @@
+using System.Text.Json.Nodes;
+
 using Dapper;
 
 using DevFlow.ClaudeLogin;
@@ -268,48 +270,72 @@ public sealed class MainWatchTests
     [Fact]
     public async Task AStoppedProjectHandsOutNothing()
     {
-        var (routes, project) = await Start();
-        await using var _ = routes;
-        var key = await Workers.Workers.NewKey(routes, project);
-        var worker = Guid.Parse("0190a8f0-0000-7000-8000-0000000000f2");
-        Assert.Equal(StatusCodes.Status204NoContent, (await Workers.Workers.SayHello(routes, key, worker)).Response.StatusCode);
-        await Building(routes, project, 31);
+        // A project that hands out work, so a 204 below is the stop's and nothing else's.
+        await using var jobs = await Jobs.Jobs.Start([Jobs.Jobs.Card(31), Jobs.Jobs.Card(32)]);
+        var (routes, project) = (jobs.Routes, jobs.Project);
+        var job = await jobs.Job();
+        Assert.Equal(31, (int)job["card"]!["number"]!);
 
         Land(routes, User, ActivityKind.Push, "octo-stranger", Commit(14));
         await routes.Read(project, User);
 
-        // jobs/next answers nothing, and the page says why.
+        // jobs/next answers nothing though card 32 waits, and the page says why.
         Assert.Equal(ProjectHold.Stopped, await Hold(routes, project));
-        Assert.Equal(StatusCodes.Status204NoContent, (await Workers.Workers.AskForWork(routes, key, worker)).Response.StatusCode);
+        Assert.Equal(StatusCodes.Status204NoContent, (await jobs.Next()).Response.StatusCode);
+        Assert.Equal("queued", (await jobs.Card(32)).State);
+        Assert.Single(await jobs.Runs());
         Assert.Equal("stopped", (string?)(await Workers.Workers.List(routes, project))["held"]);
 
-        // A card being worked on finishes: it is left where it is.
-        await using (var admin = await routes.Database.OpenAdmin(Ct))
-        {
-            Assert.Equal("building", await admin.QuerySingleAsync<string>(new CommandDefinition(
-                "SELECT state FROM cards WHERE project_id = @project AND number = 31", new { project }, cancellationToken: Ct)));
-        }
+        // The card being worked on finishes: its push key is still given, and its result recorded.
+        var id = (Guid)job["job_id"]!;
+        Assert.Equal(StatusCodes.Status200OK,
+            (await jobs.Post(DevFlow.Protocol.WorkerApi.PushKeyPath(id), new JsonObject { ["worker_id"] = Jobs.Jobs.FirstWorker })).Response.StatusCode);
+        Assert.Equal(StatusCodes.Status204NoContent,
+            (await jobs.Post(DevFlow.Protocol.WorkerApi.ResultPath(id), Jobs.Jobs.Result(Jobs.Jobs.FirstWorker, (string)job["branch"]!))).Response.StatusCode);
+        Assert.Equal("succeeded", Assert.Single(await jobs.Runs()).Result);
 
         // And nothing is merged while it is stopped: GitHub is not asked.
         var head = Commit(43);
-        var activity = routes.Fake.World(User).Installations[0].Repositories[0].Activity!.ToArray();
-        Stage(routes, User, [Pull(43, head)], Reading.Reading.RepositoryId, activity);
+        var world = routes.Fake.World(User);
+        var repository = world.Installations[0].Repositories[0];
+        routes.Fake.Replace(User, new FakeWorld([world.Installations[0] with { Repositories = [repository with { PullRequests = [Pull(43, head)] }] }]));
+        var writes = routes.Host.Calls.Count(call => call.Operation is "MergeAsApp" or "ForWrite");
         Assert.IsType<AppMergeOutcome.ProjectStopped>(await routes.App.Services.GetRequiredService<AppMerges>().Merge(User, project, 43, head, Ct));
-        Assert.DoesNotContain(routes.Host.Calls, call => call.Operation is "MergeAsApp" or "ForWrite");
+        Assert.Equal(writes, routes.Host.Calls.Count(call => call.Operation is "MergeAsApp" or "ForWrite"));
     }
 
-    /// <summary>A card of the project with a worker on it, as a later part's run leaves one.</summary>
-    private static async Task Building(Routes routes, Guid project, int number) =>
-        await routes.Door.InUserTransaction(User, transaction => transaction.Connection!.ExecuteAsync(new CommandDefinition(
-            """
-            INSERT INTO cards (id, project_id, user_id, number, title, web_url, state, priority, issue_created_at,
-                               picked_body_sha256, picked_title, changed_at, read_at)
-            VALUES (@id, @project, @user, @number, 'Card', 'https://github.com/Adamniels/Personal-platform/issues/31', 'building', 'none', now(),
-                    decode(repeat('ab', 32), 'hex'), 'Card', now(), now())
-            """,
-            new { id = Guid.CreateVersion7(), project, user = User, number },
-            transaction,
-            cancellationToken: Ct)), Ct);
+    /// <summary>What can change while handing out asks GitHub for a job: a stop, or the watch's last
+    /// read going past five minutes.</summary>
+    public static TheoryData<string> HeldMeanwhile => ["stopped", "unwatched"];
+
+    [Theory]
+    [MemberData(nameof(HeldMeanwhile))]
+    public async Task AProjectHeldWhileAJobIsPreparedHandsOutNothing(string how)
+    {
+        await using var jobs = await Jobs.Jobs.Start([Jobs.Jobs.Card(33)]);
+        var (routes, project) = (jobs.Routes, jobs.Project);
+
+        // Once the hold has been read and GitHub is being asked, the project is held.
+        routes.Host.BeforeCommitter = async () =>
+        {
+            await using var admin = await routes.Database.OpenAdmin(Ct);
+            await admin.ExecuteAsync(new CommandDefinition(
+                how == "stopped"
+                    ? """
+                      INSERT INTO project_stops (project_id, user_id, stopped_at, branch, activity_id, activity_type, actor, commit, landed_at)
+                      VALUES (@project, @user, @now, 'main', 900, 'push', 'octo-stranger', @commit, @now)
+                      """
+                    : "UPDATE branch_watches SET last_read_at = @now - interval '6 minutes' WHERE project_id = @project",
+                new { project, user = User, now = routes.Time.GetUtcNow(), commit = Commit(16) },
+                cancellationToken: Ct));
+        };
+
+        // The card is not taken: no run, and it still waits.
+        Assert.Equal(StatusCodes.Status204NoContent, (await jobs.Next()).Response.StatusCode);
+        Assert.Null(routes.Host.BeforeCommitter);
+        Assert.Empty(await jobs.Runs());
+        Assert.Equal("queued", (await jobs.Card(33)).State);
+    }
 
     [Fact]
     public async Task ResumingIsTheOwnersAndIsRecorded()
