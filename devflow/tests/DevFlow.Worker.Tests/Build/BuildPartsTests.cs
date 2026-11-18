@@ -5,6 +5,7 @@ using System.Text.Json.Nodes;
 using DevFlow.Protocol;
 using DevFlow.Worker.Agents;
 using DevFlow.Worker.Build;
+using DevFlow.Worker.Pages;
 
 using static DevFlow.Worker.Tests.Support;
 
@@ -128,7 +129,7 @@ public sealed class BuildPartsTests
         var none = new ScriptedAgent((_, _) => throw new InvalidOperationException("the agent must not run"));
         var starter = new RecordingStarter("nobody");
         var folders = new JobFolders("/nonexistent/run", "/nonexistent/handover", "/nonexistent/work");
-        var build = new BuildJob(new DevFlowClient(http), Guid.NewGuid(), new JobTools(none, starter, starter, folders, AgentUser.Default), clock, new WorkerLog(TextWriter.Null, clock));
+        var build = new BuildJob(new DevFlowClient(http), Guid.NewGuid(), new JobTools(none, starter, starter, folders, AgentUser.Default, new PageTools(new FakePageStarter(), new FakeProbe(), "/ms-playwright")), clock, new WorkerLog(TextWriter.Null, clock));
         return Run();
 
         async Task Run()

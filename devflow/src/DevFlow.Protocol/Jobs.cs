@@ -30,6 +30,11 @@ namespace DevFlow.Protocol;
 /// <param name="Committer">Who the worker's commits are made as; a review makes none.</param>
 /// <param name="Limits">When the run is stopped.</param>
 /// <param name="ToReview">What a review reads besides the code, null on a build.</param>
+/// <param name="Start">For a build, the command that starts the project for its pictures, from the
+/// same <c>.devflow/project.json</c> as <paramref name="Check"/>; empty when it has none, and on a
+/// review.</param>
+/// <param name="Url">For a build, where the started project answers, from the same file; empty when
+/// it has none, and on a review.</param>
 public sealed record Job(
     Guid JobId,
     string Kind,
@@ -45,7 +50,9 @@ public sealed record Job(
     DateTimeOffset PushKeyExpiresAt,
     JobCommitter Committer,
     JobLimits Limits,
-    JobReview? ToReview = null)
+    JobReview? ToReview = null,
+    string Start = "",
+    string Url = "")
 {
     /// <summary>Building a card.</summary>
     public const string Build = "build";
@@ -131,6 +138,8 @@ public sealed record ProgressRequest(Guid? WorkerId, string? State)
 /// <param name="PermissionDenials">The actions the agent was refused, as Claude Code listed them,
 /// an array; empty when there were none, and null from a worker that sends none. A build's fail
 /// its run; a review's are recorded, since a reviewer cannot write by construction.</param>
+/// <param name="Screenshots">A build's pictures, taken after its check passed and its branch was
+/// pushed, or why there are none; null when none were tried.</param>
 public sealed record ResultRequest(
     Guid? WorkerId,
     string? Outcome,
@@ -143,7 +152,8 @@ public sealed record ResultRequest(
     JsonElement? Usage,
     long? DurationMs,
     string? Stderr,
-    JsonElement? PermissionDenials = null)
+    JsonElement? PermissionDenials = null,
+    ResultScreenshots? Screenshots = null)
 {
     public const string Succeeded = "succeeded";
     public const string Failed = "failed";

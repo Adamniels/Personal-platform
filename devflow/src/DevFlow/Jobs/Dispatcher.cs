@@ -178,7 +178,9 @@ public sealed partial class Dispatcher(
             key.Value,
             key.ExpiresAt,
             new JobCommitter(facts.Committer.Name, facts.Committer.Email),
-            JobLimits.Default);
+            JobLimits.Default,
+            Start: facts.Start,
+            Url: facts.Url);
     }
 
     /// <summary>The review job for a card taken to review, or null when none was: the build's
@@ -263,7 +265,7 @@ public sealed partial class Dispatcher(
             return null;
         }
 
-        return new RepositoryFacts(branch, project.Check, clone, committer);
+        return new RepositoryFacts(branch, project.Check, project.Start, project.Url, clone, committer);
     }
 
     /// <summary>A key for the repository, narrowed to <paramref name="purpose"/>,
@@ -287,7 +289,7 @@ public sealed partial class Dispatcher(
         return now.AddTicks(-(now.Ticks % 10));
     }
 
-    private sealed record RepositoryFacts(string DefaultBranch, string Check, Uri CloneAddress, Committer Committer);
+    private sealed record RepositoryFacts(string DefaultBranch, string Check, string Start, string Url, Uri CloneAddress, Committer Committer);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Handed out the {Kind} of card {Card} of project {ProjectId} as run {RunId}")]
     private static partial void LogHandedOut(ILogger logger, string kind, Guid projectId, int card, Guid runId);

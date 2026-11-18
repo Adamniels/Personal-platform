@@ -8,6 +8,7 @@ using DevFlow.Protocol;
 using DevFlow.PullRequests;
 using DevFlow.Worker.Agents;
 using DevFlow.Worker.Build;
+using DevFlow.Worker.Pages;
 using DevFlow.Worker.Review;
 
 using Microsoft.Extensions.DependencyInjection;
@@ -44,7 +45,10 @@ internal sealed class Bench : IAsyncDisposable
         Remote = remote;
         Handler = handler;
         Folders = new JobFolders(RootsFolder(root, "run"), RootsFolder(root, "handover"), Directory.CreateDirectory(Path.Combine(root, "work")).FullName);
-        User = new AgentUser(null, Directory.CreateDirectory(Path.Combine(root, "home")).FullName, System.Environment.GetEnvironmentVariable("PATH")!, "C.UTF-8");
+        var bin = Directory.CreateDirectory(Path.Combine(root, "bin")).FullName;
+        Camera.Install(bin, root);
+        User = new AgentUser(null, Directory.CreateDirectory(Path.Combine(root, "home")).FullName, $"{bin}:{System.Environment.GetEnvironmentVariable("PATH")}", "C.UTF-8");
+        Pages = new PageTools(Starter, Probe, Path.Combine(root, "browsers"), Path.Combine(bin, "playwright"));
         var settings = WorkerSettings.Load(Environment(("DEVFLOW_URL", jobs.Routes.App.Server.BaseAddress.ToString()), ("DEVFLOW_PROJECT_KEY", jobs.Key)), out _)!;
         _http = DevFlowClient.CreateHttpClient(settings, handler);
         Client = new DevFlowClient(_http);
@@ -74,6 +78,18 @@ internal sealed class Bench : IAsyncDisposable
 
     public FakeTimeProvider Clock { get; } = new(new DateTimeOffset(2026, 11, 18, 9, 0, 0, TimeSpan.Zero));
 
+    /// <summary>Stands in for the project's start: records each, and ends nothing real.</summary>
+    public FakePageStarter Starter { get; } = new();
+
+    /// <summary>Stands in for the project answering at its url: 200 unless a test says otherwise.</summary>
+    public FakeProbe Probe { get; } = new();
+
+    /// <summary>What a job starts the project and takes its pictures with on the bench.</summary>
+    public PageTools Pages { get; }
+
+    /// <summary>What the stand in for Playwright on the agent's PATH was asked, one line each.</summary>
+    public IReadOnlyList<string> Pictures => File.Exists(Camera.LogOf(Root)) ? File.ReadAllLines(Camera.LogOf(Root)) : [];
+
     public StringBuilder Log { get; } = new();
 
     /// <summary>The file <see cref="Out"/> names.</summary>
@@ -85,11 +101,11 @@ internal sealed class Bench : IAsyncDisposable
     /// <c>build/</c>; <paramref name="before"/> may push more to the remote before the job is
     /// handed out.
     /// </summary>
-    public static async Task<Bench> Start(string check = "true", Func<Bench, Task>? before = null)
+    public static async Task<Bench> Start(string check = "true", Func<Bench, Task>? before = null, string start = "", string url = "")
     {
         var root = Directory.CreateTempSubdirectory("devflow-build-").FullName;
         var outFile = Path.Combine(root, "out");
-        var jobs = await Jobs.Start([Jobs.Card(1, Title)], projectFile: Jobs.ProjectFile(check.Replace(Out, outFile, StringComparison.Ordinal)));
+        var jobs = await Jobs.Start([Jobs.Card(1, Title)], projectFile: Jobs.ProjectFile(check.Replace(Out, outFile, StringComparison.Ordinal), start, url));
         try
         {
             var repository = new Repository(Reading.Installation, Reading.RepositoryId, "Adamniels", "Personal-platform");
@@ -127,11 +143,11 @@ internal sealed class Bench : IAsyncDisposable
 
     /// <summary>A build job for the bench's worker, with <paramref name="agent"/>.</summary>
     public BuildJob Build(IAgent agent) =>
-        new(Client, Jobs.FirstWorker, new JobTools(agent, AsRoot, AsAgent, Folders, User), Clock, new WorkerLog(TextWriter.Synchronized(new StringWriter(Log)), Clock));
+        new(Client, Jobs.FirstWorker, new JobTools(agent, AsRoot, AsAgent, Folders, User, Pages), Clock, new WorkerLog(TextWriter.Synchronized(new StringWriter(Log)), Clock));
 
     /// <summary>A review job for the bench's worker, with <paramref name="agent"/>.</summary>
     public ReviewJob Review(IAgent agent) =>
-        new(Client, Jobs.FirstWorker, new JobTools(agent, AsRoot, AsAgent, Folders, User), Clock, new WorkerLog(TextWriter.Synchronized(new StringWriter(Log)), Clock));
+        new(Client, Jobs.FirstWorker, new JobTools(agent, AsRoot, AsAgent, Folders, User, Pages), Clock, new WorkerLog(TextWriter.Synchronized(new StringWriter(Log)), Clock));
 
     /// <summary>
     /// Card 1 built, by an agent that commits <c>greeting.txt</c>, its check run and its branch

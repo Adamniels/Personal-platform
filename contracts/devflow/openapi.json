@@ -831,6 +831,10 @@
           "repository": {
             "$ref": "#/components/schemas/JobRepository"
           },
+          "start": {
+            "default": "",
+            "type": "string"
+          },
           "to_review": {
             "oneOf": [
               {
@@ -840,6 +844,10 @@
                 "$ref": "#/components/schemas/JobReview"
               }
             ]
+          },
+          "url": {
+            "default": "",
+            "type": "string"
           }
         },
         "required": [
@@ -1516,6 +1524,16 @@
               }
             ]
           },
+          "screenshots": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ResultScreenshots"
+              }
+            ]
+          },
           "stderr": {
             "type": [
               "null",
@@ -1552,6 +1570,30 @@
           "usage",
           "duration_ms",
           "stderr"
+        ],
+        "type": "object"
+      },
+      "ResultScreenshots": {
+        "properties": {
+          "names": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "null",
+              "array"
+            ]
+          },
+          "note": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "required": [
+          "names",
+          "note"
         ],
         "type": "object"
       },

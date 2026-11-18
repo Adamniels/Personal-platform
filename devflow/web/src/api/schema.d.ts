@@ -798,7 +798,11 @@ export interface components {
             push_key_expires_at: string;
             report_schema: components["schemas"]["JsonElement"];
             repository: components["schemas"]["JobRepository"];
+            /** @default  */
+            start: string;
             to_review?: null | components["schemas"]["JobReview"];
+            /** @default  */
+            url: string;
         };
         JobCard: {
             body: string;
@@ -968,10 +972,15 @@ export interface components {
             outcome: null | string;
             permission_denials?: unknown;
             report: null | components["schemas"]["JsonElement"];
+            screenshots?: null | components["schemas"]["ResultScreenshots"];
             stderr: null | string;
             usage: null | components["schemas"]["JsonElement"];
             /** Format: uuid */
             worker_id: null | string;
+        };
+        ResultScreenshots: {
+            names: null | string[];
+            note: null | string;
         };
         ResumeRequest: {
             commit: null | string;

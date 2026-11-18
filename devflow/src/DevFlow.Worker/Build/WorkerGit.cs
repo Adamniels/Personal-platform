@@ -57,8 +57,9 @@ internal sealed class WorkerGit(IProcessStarter root, IProcessStarter asAgent, A
 
     /// <summary>A root git command in the worker's own repository, or, with
     /// <paramref name="inSecret"/>, in the job's folder of secrets, for the clone that makes it;
-    /// with the push key in its environment when <paramref name="credential"/> is given.</summary>
-    public Task<ProcessOutcome> AsRoot(JobPaths paths, IReadOnlyList<string> arguments, CancellationToken cancellationToken, PushCredential? credential = null, bool inSecret = false)
+    /// with the push key in its environment when <paramref name="credential"/> is given, and
+    /// <paramref name="index"/> as its index file, in the job's folder of secrets, when one is.</summary>
+    public Task<ProcessOutcome> AsRoot(JobPaths paths, IReadOnlyList<string> arguments, CancellationToken cancellationToken, PushCredential? credential = null, bool inSecret = false, string? index = null)
     {
         var environment = new Dictionary<string, string>(StringComparer.Ordinal)
         {
@@ -72,6 +73,11 @@ internal sealed class WorkerGit(IProcessStarter root, IProcessStarter asAgent, A
         foreach (var (name, value) in credential?.Environment() ?? [])
         {
             environment[name] = value;
+        }
+
+        if (index is not null)
+        {
+            environment["GIT_INDEX_FILE"] = index;
         }
 
         return root.Run(new ProcessSpec("git", [.. RootOptions, .. arguments], inSecret ? paths.Secret : paths.Repository, environment), Limit, cancellationToken);
