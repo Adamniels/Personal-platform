@@ -1434,7 +1434,9 @@ API or the machine. The usage is taken as Claude Code gives it: `usage`, `modelU
 
 **The limits for now**, fixed in code as `AgentLimits.Default` until Dev flow's settings hold them:
 200 turns and 25 USD, which Claude Code enforces, overshooting by about a turn, and 90 minutes,
-which the worker enforces by ending the process and everything it started.
+which the worker enforces by ending the process and every process still in its tree. One the agent
+detached from that tree, by forking twice, keeps running as `agent`; the accepted risk under "The
+agent's copy has no credentials" in `docs/devflow-architecture.md` covers it.
 
 **The token** is handed to the run in its environment only. The worker never writes it to a file,
 logs it or sends it back: `AgentCredential` prints as redacted, and the token's value is replaced
@@ -1449,7 +1451,9 @@ from the agent stays out of the agent's reach. Without a user, as in the tests, 
 program directly.
 
 **A build job**, `BuildJob` in `src/DevFlow.Worker/Build/`, from the job to its result. The folders
-are `JobFolders`, `/run/devflow/<job>/`, root's, and `/work/<job>/`, the agent's:
+are `JobFolders`: `/run/devflow/<job>/`, root's alone; `/run/devflow-handover/<job>/`, root's, mode
+755, where root writes the bundles the agent clones from, which the agent reads and cannot write;
+and `/work/<job>/`, the agent's, where root writes nothing:
 
 1. **Refused before anything runs** when the job's branch is the repository's default branch or its
    base, or either is not a plain branch name: letters, digits, `.`, `_`, `-` and `/`, not
@@ -1459,23 +1463,25 @@ are `JobFolders`, `/run/devflow/<job>/`, root's, and `/work/<job>/`, the agent's
    repository there with the job's push key, `git clone --bare`, into `repo`. The job's branch is
    the remote's when it has one, from a run that was lost, and otherwise made at the base with
    `git update-ref`, which refuses one already there; `HEAD` points at it.
-3. **The agent's copy.** The agent makes `/work/<job>/`. Root writes a bundle of the branch and the
-   base there, and the agent clones it into `/work/<job>/copy`, with `user.name` and `user.email`
-   the job's committer, the app's bot, in the copy's config; the bundle is removed, so the copy's
-   remote is a path that no longer exists and holds no credentials.
+3. **The agent's copy.** Root makes `/run/devflow-handover/<job>/` and writes a bundle of the
+   branch and the base there, `copy.bundle`, mode 644. The agent makes `/work/<job>/` and clones the
+   bundle into `/work/<job>/copy`, with `user.name` and `user.email` the job's committer, the app's
+   bot, in the copy's config; the bundle is removed, so the copy's remote is a path that no longer
+   exists and holds no credentials.
 4. **The agent** runs there as `agent`, through `IAgent`, with the job's brief, report schema,
    limits and Claude token. The worker ends it at the job's `minutes`, 90 for now, whatever it is
-   doing, by cancelling it, which ends its process and everything it started; that is a failure in
-   the card, "it ran past the time limit of 90 minutes and was ended".
+   doing, by cancelling it, which ends its process and every process still in its tree; that is a
+   failure in the card, "it ran past the time limit of 90 minutes and was ended".
 5. **What it left uncommitted**, tracked or new and not ignored, is committed in the copy, as
    `agent`, "Work the agent left uncommitted". Ignored files, such as a build's output, stay out.
 6. **Back to the worker.** Root fetches the branch from the copy into its own repository, without
    force, so a history the agent rewrote is refused, a failure in the card. The copy's side,
    `git-upload-pack`, runs as `agent` with its environment reset, through `--upload-pack`.
 7. **The check**, when the agent succeeded: the worker sends `progress` `checking`, and again
-   every 5 minutes while the check runs, so Dev flow keeps seeing it; root bundles
-   the fetched head, the agent clones it into `/work/<job>/check`, and the job's `check` runs
-   there as `agent`, `sh -c` with standard error joined to standard output, in an environment of
+   every 5 minutes while the check runs, so Dev flow keeps seeing it; root bundles the fetched
+   head into the handover folder, `check.bundle`, the agent clones it into `/work/<job>/check`, and
+   the job's `check` runs there as `agent`, `sh -c` with standard error joined to standard output,
+   in an environment of
    `HOME`, `PATH`, `LANG` and `CI=true`, for at most 30 minutes. Its exit code and the last 200
    lines of its output go in the result; past 30 minutes it is ended and its output says so. When
    the agent failed the check does not run, since Dev flow judges the failure first.
@@ -1486,8 +1492,10 @@ are `JobFolders`, `/run/devflow/<job>/`, root's, and `/work/<job>/`, the agent's
    the head commit pushed; the auth method, usage and the last 200 lines of the agent's standard
    error; and the duration. A push key or a result Dev flow is away for is asked again, 5 seconds
    doubling to 60, for at most 10 minutes.
-10. **Afterwards** both folders are removed, a link the agent put in place of its folder as a link,
-    and the worker asks for its next job. The container, its tools and its caches are kept.
+10. **Afterwards** the folders are removed: root's two by root, and `/work/<job>/` by the agent,
+    `rm -rf` as `agent`, so a link it left there, or the folder replaced with one, is removed as
+    the link and nothing is removed that the agent could not remove itself. The worker asks for its
+    next job. The container, its tools and its caches are kept.
 
 Every root git command runs in `repo`, or in `/run/devflow/<job>/` for the clone that makes it,
 with `-c core.hooksPath=/dev/null`, `HOME` that folder and no system or global config, and never in

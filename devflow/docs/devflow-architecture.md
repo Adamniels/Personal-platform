@@ -531,10 +531,14 @@ rather than the worker, which needs no JSON Schema library for it.
 worker, holds the push key and does everything that talks to the code host, from a bare repository
 of its own in `/run/devflow/<job>/`, which the agent cannot read; the agent works as `agent` in a
 copy of its own under `/work/<job>/`. Code crosses between them in two places only. Going in, root
-writes a git bundle of the branch into the agent's folder and the agent clones it, since the agent
-cannot read root's repository; root never writes a repository there, so it never changes the
-owner of files it checked out, where a link in the repository would hand a file of root's to the
-agent. Coming back, root fetches the agent's branch from the copy, and git's side of that fetch,
+writes a git bundle of the branch into a third folder, `/run/devflow-handover/<job>/`, root's and
+mode 755, and the agent clones it, since the agent cannot read root's repository. Root never
+writes in the agent's folder at all: a write there resolves a name the agent controls, so a link
+it left at the bundle's name, or its job's folder replaced with one, would turn root's write into
+one over any file the agent chose; git's lockfile follows such a link. In the handover folder the
+agent can create nothing, so the name root writes at is root's. Root never writes a repository
+for the agent either, so it never changes the owner of files it checked out, where a link in the
+repository would hand a file of root's to the agent. Coming back, root fetches the agent's branch from the copy, and git's side of that fetch,
 `git-upload-pack`, which reads the copy's config, runs as `agent`. git refuses to run it as root
 in a repository another user owns, for "dubious ownership", and an experiment on Debian trixie's
 git 2.47 on 2026 11 18 found that `-c safe.directory` cannot lift that, since git drops `-c`
@@ -956,6 +960,19 @@ its reason, or a risk accepted on purpose; each slice adds the ones it builds.
   commit of what it left. `GitSafetyTests.RootNeverRunsGitInTheAgentsCopy` checks every root git
   command against a recording starter, and `AHookTheAgentPlantedNeverRuns` plants hooks and an
   `fsmonitor` in the copy and sees none run, with real git.
+- **Root never writes, or removes, at a path the agent can redirect.** A file root writes in a
+  folder the agent can change is written wherever a link the agent left there points, as root, so
+  the agent could overwrite the worker's binary, `/etc/passwd` or root's repository beside the push
+  key. Root writes the bundles in `/run/devflow-handover/<job>/`, which it makes new for each job in
+  a parent only root can write, and the agent only reads; the agent's own folder, `/work/<job>/`,
+  is removed by the agent, with `rm -rf`, since a recursive removal by root could follow a folder a
+  process of the agent's swapped for a link while it ran. Its only other contact with that folder is
+  the fetch from the copy above, whose side there runs as `agent`.
+  `GitSafetyTests.ALinkTheAgentLeftWhereRootMightWriteIsNeverWrittenThrough` and
+  `AJobFolderTheAgentReplacedWithALinkIsNeverWrittenThrough` plant both links and see the file
+  behind them untouched and no root command naming the agent's folder but the fetch, and
+  `base-image.test.sh` checks that, on the built image, `agent` can read a bundle there and create
+  nothing, not even a link.
 - **The agent's copy has no credentials.** The push key reaches git only in the environment of
   root's clone and push, as a header for the clone address through `GIT_CONFIG_COUNT`, never in an
   argument, which every user sees in `ps`, a file, or a remote's address; the copy's remote is the
@@ -964,9 +981,12 @@ its reason, or a risk accepted on purpose; each slice adds the ones it builds.
   `GitSafetyTests.ThePushKeyNeverReachesTheAgent` checks that no file under the agent's folder,
   the copy's config, its remote, Claude Code's environment or arguments, or any process run as the
   agent holds the key. Accepted: the agent's `/work` is its own, so it can rename or replace the
-  job's folder there while it runs; root only removes it after, a link as a link, writes bundles
-  into it and fetches from the copy as above, so the most it gains is a check run on files of its
-  own choosing, which code it writes already runs as.
+  job's folder there, and a process it detached from the agent's process tree, which ending the run
+  does not reach, keeps running as `agent` through the check, the push and the next job in the same
+  container. Root writes nothing there and fetches from the copy as `agent`, see the entry above, so
+  the most either gains is a check run on files of the agent's choosing, or a later job's copy
+  changed, both as `agent`, which code the agent writes already runs as; the check's exit code is
+  trusted only that far, and a project's CI on GitHub is the independent check.
 - **A push is never forced and never to the default branch.** A job whose branch is the
   repository's default branch, or its base, or not a plain branch name, is refused before anything
   runs, whatever Dev flow sent, and stops the card. The push is
