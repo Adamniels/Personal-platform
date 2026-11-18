@@ -77,3 +77,10 @@ a.number {
 	line-height: var(--text-caption-line);
 	overflow-wrap: anywhere;
 }
+
+/* The title leads to the card's page, a link as the way back on a project's
+ * page is. */
+a.title {
+	border-radius: var(--radius-sm);
+	color: var(--info);
+}

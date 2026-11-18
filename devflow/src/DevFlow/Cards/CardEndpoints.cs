@@ -46,6 +46,17 @@ public static class CardEndpoints
             .Produces(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
+        routes.MapGet("/devflow/api/projects/{id:guid}/cards/{number:int}", async Task<Results<Ok<CardStoryView>, ProblemHttpResult>> (Guid id, int number, HttpContext context, [FromServices] UserDb database) =>
+                await CardStory.Of(database, context.UserId(), id, number, context.RequestAborted) is { } story
+                    ? TypedResults.Ok(story)
+                    : TypedResults.Problem(statusCode: StatusCodes.Status404NotFound, title: "No such card", detail: "You have no card with that number in that project."))
+            .RequireAuthorization(PlatformAuthPolicies.Api)
+            .WithName("getCard")
+            .WithSummary("A card's whole story so far")
+            .WithDescription("The card as last read, its number, title, web_url, state and reason, and its pull_request, number and url, null before one was opened; each of its runs, newest first, with its kind, the worker it was handed to, when it started and finished, how long it took, its result and, for a failure, its reason and whether it lay in the card, the auth method, the tokens in and out, the check's exit code and the last lines of its output, null when it did not run, and the commit it left; and the latest report in its form, null when no run has handed one back. Read from what Dev flow stored, never from GitHub; every text from GitHub or an agent is to be shown as text. 404 for a project or a card the caller does not have. Without a valid token, 401 with an empty body.")
+            .Produces(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
         return routes;
     }
 }

@@ -198,6 +198,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/devflow/api/projects/{id}/cards/{number}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A card's whole story so far
+         * @description The card as last read, its number, title, web_url, state and reason, and its pull_request, number and url, null before one was opened; each of its runs, newest first, with its kind, the worker it was handed to, when it started and finished, how long it took, its result and, for a failure, its reason and whether it lay in the card, the auth method, the tokens in and out, the check's exit code and the last lines of its output, null when it did not run, and the commit it left; and the latest report in its form, null when no run has handed one back. Read from what Dev flow stored, never from GitHub; every text from GitHub or an agent is to be shown as text. 404 for a project or a card the caller does not have. Without a valid token, 401 with an empty body.
+         */
+        get: operations["getCard"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/devflow/api/projects/{id}/cards/{number}/merge": {
         parameters: {
             query?: never;
@@ -603,6 +623,44 @@ export interface components {
         CardList: {
             cards: components["schemas"]["CardView"][];
         };
+        CardPullRequest: {
+            /** Format: int32 */
+            number: number;
+            url: string;
+        };
+        CardRun: {
+            auth_method: null | string;
+            check: null | components["schemas"]["RunCheck"];
+            /** Format: int64 */
+            duration_ms: null | number;
+            /** Format: date-time */
+            finished_at: null | string;
+            head_commit: null | string;
+            /** Format: uuid */
+            id: string;
+            in_card: null | boolean;
+            /** Format: int64 */
+            input_tokens: null | number;
+            kind: string;
+            /** Format: int64 */
+            output_tokens: null | number;
+            reason: null | string;
+            result: null | string;
+            /** Format: date-time */
+            started_at: string;
+            worker: string;
+        };
+        CardStoryView: {
+            /** Format: int32 */
+            number: number;
+            pull_request: null | components["schemas"]["CardPullRequest"];
+            reason: null | string;
+            report: null | components["schemas"]["Report"];
+            runs: components["schemas"]["CardRun"][];
+            state: string;
+            title: string;
+            web_url: string;
+        };
         CardView: {
             /** Format: date-time */
             changed_at: string;
@@ -833,6 +891,44 @@ export interface components {
             /** Format: uuid */
             worker_id: null | string;
         };
+        Report: {
+            decisions: components["schemas"]["ReportDecision"][];
+            follow_ups: string[];
+            handover: string;
+            installed: string[];
+            outcome: components["schemas"]["ReportOutcome"];
+            pages: components["schemas"]["ReportPage"][];
+            replies: components["schemas"]["ReportReply"][];
+            stopped_reason: string;
+            summary: string;
+            tasks: components["schemas"]["ReportTask"][];
+            tests: components["schemas"]["ReportTest"][];
+        };
+        ReportDecision: {
+            alternative: string;
+            chosen: string;
+            for_owner: boolean;
+            why: string;
+        };
+        /** @enum {unknown} */
+        ReportOutcome: "done" | "stopped";
+        ReportPage: {
+            looked: boolean;
+            path: string;
+            why: string;
+        };
+        ReportReply: {
+            answer: string;
+            finding: string;
+        };
+        ReportTask: {
+            done: boolean;
+            text: string;
+        };
+        ReportTest: {
+            result: string;
+            what: string;
+        };
         ResultRequest: {
             auth_method: null | string;
             branch: null | string;
@@ -850,6 +946,11 @@ export interface components {
         };
         ResumeRequest: {
             commit: null | string;
+        };
+        RunCheck: {
+            /** Format: int32 */
+            exit_code: number;
+            output: string;
         };
         RunFailure: {
             in_card: null | boolean;
@@ -1370,6 +1471,45 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CardList"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    getCard: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                number: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CardStoryView"];
                 };
             };
             /** @description Unauthorized */

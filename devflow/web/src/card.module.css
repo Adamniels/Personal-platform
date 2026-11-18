@@ -1,0 +1,194 @@
+/* A card's page under the Projects tab: its header, and its three panels, the
+ * card, its runs and its latest report. Tokens only, design/DESIGN.md. */
+
+/* The way back over the card's title, which reads as the section's heading,
+ * as a project's page has it. */
+.header {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: var(--space-2);
+	margin-bottom: var(--space-4);
+}
+
+.back {
+	border-radius: var(--radius-sm);
+	color: var(--info);
+	font-weight: 600;
+}
+
+/* A title may hold a long word, so it breaks rather than scrolls sideways at
+ * phone width (hard rule 13). Two classes, to outrank page.css's `.page h2`. */
+.header .name {
+	margin: 0;
+	overflow-wrap: anywhere;
+}
+
+/* Each panel a section gap below the one before. */
+.panel {
+	margin: 0 0 var(--space-4);
+}
+
+/* A panel's parts, a card's parts apart. */
+.body {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-4);
+	min-width: 0;
+}
+
+.state,
+.links {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-2) var(--space-4);
+	margin: 0;
+}
+
+.reason {
+	color: var(--text-2);
+	overflow-wrap: anywhere;
+}
+
+.link {
+	border-radius: var(--radius-sm);
+	color: var(--info);
+	font-weight: 600;
+}
+
+.muted {
+	margin: 0;
+	color: var(--text-2);
+}
+
+/* What did not happen: the attention text, read as an alert. */
+.error {
+	margin: 0;
+	color: var(--accent-text);
+	font-weight: 600;
+}
+
+.text {
+	margin: 0;
+	overflow-wrap: anywhere;
+}
+
+/* The runs, each on an inset, hard rule 3, as the cards are. */
+.runs,
+.items {
+	display: flex;
+	flex-direction: column;
+	gap: var(--inset-gap);
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.run,
+.item {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-1);
+	min-width: 0;
+	padding: 8px 12px;
+	border-radius: var(--radius-md);
+	background: var(--surface-2);
+	overflow-wrap: anywhere;
+}
+
+.item {
+	display: block;
+}
+
+/* The kind and the outcome on one line, wrapping at phone width. */
+.head {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-1) var(--space-2);
+}
+
+.kind {
+	font-weight: 600;
+}
+
+/* Who, when, how long, how it logged in and what it used: ids, versions,
+ * times and counts, hard rule 8, wrapping rather than scrolling sideways. */
+.meta {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-1) var(--space-4);
+	color: var(--text-2);
+	font-family: var(--font-mono);
+	font-size: var(--text-mono-size);
+	line-height: var(--text-mono-line);
+	font-variant-numeric: tabular-nums;
+}
+
+.check {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-2);
+	min-width: 0;
+}
+
+/* Show reads as a link-styled control, so the inset keeps one weight. */
+.show {
+	padding: 0;
+	border: none;
+	border-radius: var(--radius-sm);
+	background: none;
+	color: var(--info);
+	font: inherit;
+	font-weight: 600;
+	cursor: pointer;
+}
+
+/* The check's output, as it came: kept as written, and wrapped rather than
+ * scrolled sideways. */
+.output {
+	margin: 0;
+	padding: 8px 12px;
+	border-radius: var(--radius-md);
+	background: var(--surface);
+	color: var(--text);
+	font-family: var(--font-mono);
+	font-size: var(--text-mono-size);
+	line-height: var(--text-mono-line);
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+
+.section {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-2);
+	min-width: 0;
+}
+
+/* A list's label, the small label of a card's part, as "The agent decided"
+ * is on Waiting for you. */
+.label {
+	margin: 0;
+	color: var(--text-2);
+	font-size: var(--text-caption-size);
+	line-height: var(--text-caption-line);
+	font-weight: 600;
+}
+
+.mark {
+	font-weight: 600;
+}
+
+.sub {
+	display: block;
+	color: var(--text-2);
+}
+
+.code {
+	font-family: var(--font-mono);
+	font-size: var(--text-mono-size);
+	line-height: var(--text-mono-line);
+}
