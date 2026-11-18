@@ -24,11 +24,11 @@ public sealed class GitSafetyTests
     /// <summary>The fake's push keys begin so, the job's and each fresh one alike.</summary>
     private const string KeyPrefix = "fake_app_";
 
-    /// <summary>The base64 that begins an <c>Authorization</c> header carrying a key,
-    /// <c>x-access-token:</c>.</summary>
     /// <summary>The hooks the agent plants: every one a command the worker runs could call.</summary>
     private static readonly string[] Hooks = ["pre-push", "post-checkout", "pre-commit", "commit-msg", "post-commit", "reference-transaction", "pre-auto-gc"];
 
+    /// <summary>The base64 that begins an <c>Authorization</c> header carrying a key,
+    /// <c>x-access-token:</c>.</summary>
     private static readonly string HeaderPrefix = Convert.ToBase64String(Encoding.UTF8.GetBytes("x-access-token:"))[..20];
 
     [Fact]
