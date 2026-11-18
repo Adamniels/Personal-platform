@@ -83,6 +83,10 @@ environment, by the names it reads natively, see each service's "Settings".
 The proxy's image holds the served files of `design/` and the built component gallery, so the
 look is part of what is released rather than mounted from a checkout.
 
+Dev flow's final stage also holds git, from Debian's packages, for its fake code host alone: in the
+fake mode it keeps a bare git repository per repository, so `check.sh`'s suite can build a card.
+The real code host never runs git there.
+
 The worker's base image, `devflow/worker.Dockerfile`, is built and never started. Its build stage
 publishes the worker program from the committed `packages.lock.json` files, and its final stage
 installs Claude Code with `npm ci` from `devflow/worker/package-lock.json`, so it is held to the
