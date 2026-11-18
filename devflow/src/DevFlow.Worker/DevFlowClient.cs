@@ -73,6 +73,12 @@ internal sealed class DevFlowClient(HttpClient http)
     public Task<Answer> PushKey(Guid jobId, PushKeyRequest request, CancellationToken stopping) =>
         Post(WorkerApi.PushKeyPath(jobId), request, stopping);
 
+    public Task<Answer> Progress(Guid jobId, ProgressRequest request, CancellationToken stopping) =>
+        Post(WorkerApi.ProgressPath(jobId), request, stopping);
+
+    public Task<Answer> Result(Guid jobId, ResultRequest request, CancellationToken stopping) =>
+        Post(WorkerApi.ResultPath(jobId), request, stopping);
+
     private async Task<Answer> Post<T>(string path, T body, CancellationToken stopping)
     {
         try

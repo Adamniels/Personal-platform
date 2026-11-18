@@ -1,7 +1,9 @@
 using System.Diagnostics;
+using System.Text.Json.Nodes;
 
 using DevFlow.CodeHost;
 using DevFlow.Worker.Agents;
+using DevFlow.Worker.Build;
 
 using static DevFlow.Worker.Tests.Support;
 
@@ -43,7 +45,20 @@ public sealed class BuildJobTests
         // The check ran on that commit.
         Assert.Equal(head, (await File.ReadAllTextAsync(bench.OutFile, Ct)).Trim());
 
-        Assert.Contains("The check exited with 0.", bench.Log.ToString(), StringComparison.Ordinal);
+        // Dev flow recorded the result with the head commit and the check's exit code.
+        var recorded = await bench.Run();
+        Assert.Equal("succeeded", recorded.Result);
+        Assert.Equal(head, recorded.HeadCommit);
+        Assert.Equal(0, recorded.CheckExitCode);
+        Assert.Equal(Bench.Branch, recorded.Branch);
+        Assert.Equal("oauth_token", recorded.AuthMethod);
+        Assert.Equal("a warning\n", recorded.Stderr);
+        Assert.NotNull(recorded.CheckingAt);
+        Assert.Equal("checking", (await bench.Jobs.Card(1)).State);
+
+        // Nothing of the job is left.
+        Assert.Empty(Directory.EnumerateFileSystemEntries(bench.Folders.Secrets));
+        Assert.Empty(Directory.EnumerateFileSystemEntries(bench.Folders.Work));
     }
 
     [Fact]
@@ -66,7 +81,8 @@ public sealed class BuildJobTests
         Assert.EndsWith(paths.Check, lines[0], StringComparison.Ordinal);
         Assert.Contains("greeting.txt", lines);
         Assert.DoesNotContain("build", lines);
-        Assert.Contains("The check exited with 0.", bench.Log.ToString(), StringComparison.Ordinal);
+        Assert.Equal(0, (await bench.Run()).CheckExitCode);
+        Assert.Equal("succeeded", (await bench.Run()).Result);
     }
 
     [Fact]
@@ -79,8 +95,21 @@ public sealed class BuildJobTests
 
         await bench.RunJob(agent);
 
-        Assert.Contains("The check exited with 3.", bench.Log.ToString(), StringComparison.Ordinal);
+        var check = bench.SentResult()["check"]!;
+        Assert.Equal(3, (int)check["exit_code"]!);
+        var output = ((string)check["output"]!).TrimEnd('\n').Split('\n');
+        Assert.Equal(200, output.Length);
+        Assert.Equal("line 102", output[0]);
+        Assert.Equal("boom", output[^1]);
+
+        var recorded = await bench.Run();
+        Assert.Equal("check_failed", recorded.Result);
+        Assert.Equal(3, recorded.CheckExitCode);
+        Assert.Equal(committed, recorded.HeadCommit);
         Assert.Equal(committed, await bench.RemoteHead());
+        var card = await bench.Jobs.Card(1);
+        Assert.Equal("stopped", card.State);
+        Assert.Equal("The check failed with exit code 3", card.Reason);
     }
 
     [Fact]
@@ -107,7 +136,9 @@ public sealed class BuildJobTests
         var commit = Assert.Single(bench.AsAgent.Started, started => started.Spec.Arguments.Contains("commit"));
         Assert.EndsWith("/copy", commit.Spec.WorkingDirectory, StringComparison.Ordinal);
         Assert.Contains("Work the agent left uncommitted", commit.Spec.Arguments);
-        Assert.Contains("The check exited with 0.", bench.Log.ToString(), StringComparison.Ordinal);
+        var recorded = await bench.Run();
+        Assert.Equal(0, recorded.CheckExitCode);
+        Assert.Equal(head, recorded.HeadCommit);
     }
 
     [Fact]
@@ -128,6 +159,7 @@ public sealed class BuildJobTests
         var head = await bench.RemoteHead();
         Assert.Equal(earlier, await Bench.Git(bench.Remote, "rev-parse", $"{head}^"));
         Assert.Equal("Finish the work", await Bench.Git(bench.Remote, "log", "-1", "--format=%s", head!));
+        Assert.Equal("succeeded", (await bench.Run()).Result);
     }
 
     [Fact]
@@ -153,13 +185,59 @@ public sealed class BuildJobTests
         bench.Clock.Advance(TimeSpan.FromMinutes(90));
         await running.WaitAsync(TimeSpan.FromMinutes(1), Ct);
 
-        // The process is ended, the run is a failure in the card, no check runs, and the commit is
-        // pushed.
+        // The process is ended, the run is a failure in the card, and the commit is pushed.
         Assert.False(Alive(pid));
-        var said = bench.Log.ToString();
-        Assert.Contains("The agent failed: it ran past the time limit of 90 minutes and was ended.", said, StringComparison.Ordinal);
-        Assert.DoesNotContain("Running the check.", said, StringComparison.Ordinal);
+        var recorded = await bench.Run();
+        Assert.Equal("failed_in_card", recorded.Result);
+        Assert.Contains("time limit of 90 minutes", recorded.Reason, StringComparison.Ordinal);
+        Assert.Null(recorded.CheckExitCode);
+        Assert.Equal(committed, recorded.HeadCommit);
         Assert.Equal(committed, await bench.RemoteHead());
+        Assert.Equal("stopped", (await bench.Jobs.Card(1)).State);
+    }
+
+    [Fact]
+    public async Task TheWorkerIsSeenWhileItsCheckRuns()
+    {
+        // A check that runs until the test lets it end, telling it when it has started.
+        await using var bench = await Bench.Start(check: $"touch '{Bench.Out}.started'; while [ ! -e '{Bench.Out}.end' ]; do sleep 0.05; done");
+        var agent = new ScriptedAgent(async (run, _) => await ScriptedAgent.Commit(run, "greeting.txt", "Hello\n", "Add the greeting"));
+        var job = await bench.NextJob();
+        int Progress() => bench.Handler.Calls.Count(call => call.Path.EndsWith("/progress", StringComparison.Ordinal));
+
+        var running = bench.Build(agent).Run(job, Ct);
+        try
+        {
+            await Until(() => File.Exists($"{bench.OutFile}.started"));
+            Assert.Equal(1, Progress());
+
+            // Every 5 minutes it says again that the check runs, which marks it seen, so a check
+            // longer than Dev flow's quiet window never makes its run look lost.
+            bench.Clock.Advance(TimeSpan.FromMinutes(5));
+            await Until(() => Progress() == 2);
+            bench.Clock.Advance(TimeSpan.FromMinutes(5));
+            await Until(() => Progress() == 3);
+        }
+        finally
+        {
+            // The check ends whatever happened, so no process outlives the test.
+            await File.WriteAllTextAsync($"{bench.OutFile}.end", "", Ct);
+            await running.WaitAsync(TimeSpan.FromMinutes(1), Ct);
+        }
+
+        Assert.All(bench.Handler.Calls.Where(call => call.Path.EndsWith("/progress", StringComparison.Ordinal)), call => Assert.Equal("204", call.Answer));
+        Assert.Equal("succeeded", (await bench.Run()).Result);
+        Assert.Equal("checking", (await bench.Jobs.Card(1)).State);
+    }
+
+    private static async Task Until(Func<bool> condition)
+    {
+        for (var i = 0; i < 400 && !condition(); i++)
+        {
+            await Task.Delay(25, Ct);
+        }
+
+        Assert.True(condition(), "it never happened");
     }
 
     private static async Task<int> WaitForPid(string pidFile)

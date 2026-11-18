@@ -1,3 +1,4 @@
+using System.Net;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -68,7 +69,7 @@ public sealed class GitSafetyTests
         Assert.All(
             asRoot.Where(started => started.Spec.Arguments.Any(a => a.StartsWith(paths.Work, StringComparison.Ordinal)) && !started.Spec.Arguments.Contains("fetch")),
             started => Assert.Equal(["bundle", "create"], started.Spec.Arguments.Skip(2).Take(2)));
-        Assert.Contains("Pushed ", bench.Log.ToString(), StringComparison.Ordinal);
+        Assert.Equal("succeeded", (await bench.Run()).Result);
     }
 
     [Fact]
@@ -105,6 +106,7 @@ public sealed class GitSafetyTests
 
         Assert.Empty(Directory.EnumerateFileSystemEntries(ran));
         Assert.Equal("Work the agent left uncommitted", await Bench.Git(bench.Remote, "log", "-1", "--format=%s", Bench.Branch));
+        Assert.Equal("succeeded", (await bench.Run()).Result);
     }
 
     [Fact]
@@ -160,8 +162,9 @@ public sealed class GitSafetyTests
         await using (var bench = await Bench.Start())
         {
             var job = JsonNode.Parse((await bench.NextJob()).GetRawText())!.AsObject();
+            var jobId = (Guid)job["job_id"]!;
             job["branch"] = "main";
-            var devFlow = new ScriptedDevFlow();
+            var devFlow = new ScriptedDevFlow().Then(WorkerApi.ResultPath(jobId), HttpStatusCode.NoContent);
             using var http = DevFlowClient.CreateHttpClient(WorkerSettings.Load(Environment(("DEVFLOW_URL", "http://devflow.test"), ("DEVFLOW_PROJECT_KEY", Key)), out _)!, devFlow);
             var agent = new ScriptedAgent((_, _) => throw new InvalidOperationException("the agent must not run"));
             var build = new BuildJob(new DevFlowClient(http), Jobs.FirstWorker, new BuildTools(agent, bench.AsRoot, bench.AsAgent, bench.Folders, bench.User), bench.Clock, new WorkerLog(TextWriter.Null, bench.Clock));
@@ -171,7 +174,11 @@ public sealed class GitSafetyTests
             Assert.Empty(bench.AsRoot.Started);
             Assert.Empty(bench.AsAgent.Started);
             Assert.Null(agent.Given);
-            Assert.Empty(devFlow.Calls);
+            var result = JsonNode.Parse(Assert.Single(devFlow.Calls).Body)!;
+            Assert.Equal("failed", (string)result["outcome"]!);
+            Assert.True((bool)result["failure"]!["in_card"]!);
+            Assert.Contains("default branch", (string)result["failure"]!["reason"]!, StringComparison.Ordinal);
+            Assert.Null(result["head_commit"]);
             Assert.Equal(["main"], (await Bench.Git(bench.Remote, "branch", "--format=%(refname:short)")).Split('\n'));
             Assert.Empty(Directory.EnumerateFileSystemEntries(bench.Folders.Secrets));
         }
@@ -192,7 +199,10 @@ public sealed class GitSafetyTests
             var push = Assert.Single(bench.AsRoot.Started, started => started.Spec.Arguments.Contains("push")).Spec.Arguments;
             Assert.DoesNotContain(push, a => a.StartsWith("--force", StringComparison.Ordinal) || a is "-f" or "--mirror" or "--delete" or "--all" or "--tags");
             Assert.Matches($"^[0-9a-f]{{40}}:refs/heads/{Bench.Branch}$", push[^1]);
-            Assert.Contains("The push was refused", bench.Log.ToString(), StringComparison.Ordinal);
+            var recorded = await bench.Run();
+            Assert.Equal("failed_outside_card", recorded.Result);
+            Assert.Contains("refused the push", recorded.Reason, StringComparison.Ordinal);
+            Assert.Null(recorded.HeadCommit);
         }
     }
 

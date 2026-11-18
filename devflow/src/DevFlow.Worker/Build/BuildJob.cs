@@ -1,4 +1,6 @@
+using System.Globalization;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 
 using DevFlow.Protocol;
@@ -16,7 +18,8 @@ internal sealed record BuildTools(IAgent Agent, IProcessStarter Root, IProcessSt
 /// repository of its own; the agent clones that, through a bundle, into its working copy, and works
 /// there as <c>agent</c> within the time limit; what it left uncommitted is committed in its copy,
 /// as it; root fetches its branch back; the check runs as <c>agent</c> on a clean clone of that
-/// commit; and root pushes it, never forced. See "The worker" in devflow/README.md, and "Workers" in
+/// commit; root pushes it, never forced; the result goes to Dev flow; and the job's folders are
+/// removed. See "The worker" in devflow/README.md, and "Workers" in
 /// devflow/docs/devflow-architecture.md for why.
 /// </summary>
 internal sealed partial class BuildJob(DevFlowClient devFlow, Guid workerId, BuildTools tools, TimeProvider time, WorkerLog log)
@@ -30,9 +33,19 @@ internal sealed partial class BuildJob(DevFlowClient devFlow, Guid workerId, Bui
     /// <summary>The longest the check may take.</summary>
     public static readonly TimeSpan CheckLimit = TimeSpan.FromMinutes(30);
 
+    /// <summary>How often the worker says again that the check runs, which marks it seen: under
+    /// Dev flow's 10 minutes, after which a run handed out 100 minutes ago is lost.</summary>
+    public static readonly TimeSpan SeenEvery = TimeSpan.FromMinutes(5);
+
+    /// <summary>The longest the worker keeps trying to reach Dev flow for a push key or the
+    /// result, while it is away.</summary>
+    public static readonly TimeSpan Patience = TimeSpan.FromMinutes(10);
+
     private readonly WorkerGit _git = new(tools.Root, tools.AsAgent, tools.User);
 
-    /// <summary>Runs the job <paramref name="answer"/> holds to its end.</summary>
+    /// <summary>Runs the job <paramref name="answer"/> holds to its end and sends its result. Only
+    /// stopping ends it early, with the folders removed and no result, so Dev flow finds the run
+    /// lost and hands the card out again.</summary>
     public async Task Run(JsonElement answer, CancellationToken stopping)
     {
         Job? job;
@@ -52,14 +65,36 @@ internal sealed partial class BuildJob(DevFlowClient devFlow, Guid workerId, Bui
         }
 
         log.Write($"Building card #{job.Card.Number} on {job.Branch}, job {job.JobId}.");
+        var started = time.GetTimestamp();
+        Outcome outcome;
         if (Refusal(job) is { } refused)
         {
             log.Write($"Refused: {refused}.");
-            return;
+            outcome = Outcome.Failed(new AgentFailure(FailureSide.Card, refused), null);
+        }
+        else
+        {
+            var paths = tools.Folders.For(job.JobId);
+            try
+            {
+                outcome = await Work(job, paths, stopping);
+            }
+            catch (OperationCanceledException) when (stopping.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception e) when (e is not OperationCanceledException)
+            {
+                // Whatever went wrong, Dev flow hears of it, so the card is not left building.
+                outcome = Outcome.Failed(new AgentFailure(FailureSide.OutsideCard, $"The worker failed: {e.GetType().Name}: {e.Message}"), null);
+            }
+            finally
+            {
+                Remove(paths);
+            }
         }
 
-        var outcome = await Work(job, tools.Folders.For(job.JobId), stopping);
-        log.Write(outcome.Failure is { } failure ? $"The job failed: {failure.Reason}." : $"The job pushed {outcome.Head}.");
+        await Report(job, outcome, time.GetElapsedTime(started), stopping);
     }
 
     /// <summary>Why the job is refused before anything runs, or null. A job onto the default
@@ -88,6 +123,7 @@ internal sealed partial class BuildJob(DevFlowClient devFlow, Guid workerId, Bui
             CheckResult? check = null;
             if (result.Succeeded)
             {
+                await Progress(job, stopping);
                 check = await Check(job, paths, stopping);
             }
 
@@ -218,10 +254,23 @@ internal sealed partial class BuildJob(DevFlowClient devFlow, Guid workerId, Bui
     {
         await CloneForAgent(job, paths, [$"refs/heads/{job.Branch}"], paths.Check, [], "The clean copy for the check could not be made", stopping);
         log.Write("Running the check.");
-        var check = await tools.AsAgent.Run(
-            new ProcessSpec("sh", ["-c", $"exec 2>&1\n{job.Check}"], paths.Check, tools.User.Environment(("CI", "true"))),
-            CheckLimit,
-            stopping);
+        ProcessOutcome check;
+        using (var running = CancellationTokenSource.CreateLinkedTokenSource(stopping))
+        {
+            var seen = StaySeen(job, running.Token);
+            try
+            {
+                check = await tools.AsAgent.Run(
+                    new ProcessSpec("sh", ["-c", $"exec 2>&1\n{job.Check}"], paths.Check, tools.User.Environment(("CI", "true"))),
+                    CheckLimit,
+                    stopping);
+            }
+            finally
+            {
+                await running.CancelAsync();
+                await seen;
+            }
+        }
 
         var output = Last(check.Stdout, TailLines);
         if (check.TimedOut)
@@ -238,7 +287,7 @@ internal sealed partial class BuildJob(DevFlowClient devFlow, Guid workerId, Bui
     /// when it was not.</summary>
     private async Task<AgentFailure?> Push(Job job, JobPaths paths, string head, CancellationToken stopping)
     {
-        var answer = await devFlow.PushKey(job.JobId, new PushKeyRequest(workerId), stopping);
+        var answer = await Patiently(() => devFlow.PushKey(job.JobId, new PushKeyRequest(workerId), stopping), "a fresh push key", stopping);
         PushKeyAnswer? key = null;
         if (answer.Kind == AnswerKind.Answered)
         {
@@ -267,6 +316,77 @@ internal sealed partial class BuildJob(DevFlowClient devFlow, Guid workerId, Bui
 
         log.Write($"Pushed {head} to {job.Branch}.");
         return null;
+    }
+
+    /// <summary>Says the check runs; Dev flow away or refusing it changes nothing here.</summary>
+    private async Task Progress(Job job, CancellationToken stopping)
+    {
+        var answer = await devFlow.Progress(job.JobId, new ProgressRequest(workerId, ProgressRequest.Checking), stopping);
+        if (answer.Kind != AnswerKind.Done)
+        {
+            log.Write($"Dev flow did not take the progress: {answer.Detail}.");
+        }
+    }
+
+    /// <summary>Says again that the check runs every <see cref="SeenEvery"/>, until
+    /// <paramref name="running"/> is cancelled; the route is idempotent, and each call marks the
+    /// worker seen.</summary>
+    private async Task StaySeen(Job job, CancellationToken running)
+    {
+        try
+        {
+            while (true)
+            {
+                await Task.Delay(SeenEvery, time, running);
+                await Progress(job, running);
+            }
+        }
+        catch (OperationCanceledException) when (running.IsCancellationRequested)
+        {
+        }
+    }
+
+    /// <summary>Sends the result, trying again while Dev flow is away, for at most
+    /// <see cref="Patience"/>.</summary>
+    private async Task Report(Job job, Outcome outcome, TimeSpan duration, CancellationToken stopping)
+    {
+        var agent = outcome.Agent;
+        var request = new ResultRequest(
+            workerId,
+            outcome.Failure is null ? ResultRequest.Succeeded : ResultRequest.Failed,
+            outcome.Failure is null && agent?.Report is { } report ? JsonSerializer.SerializeToElement(report, WorkerApi.Json) : null,
+            outcome.Failure is { } failure ? new RunFailure(failure.Reason, failure.Side == FailureSide.Card) : null,
+            outcome.Check,
+            job.Branch,
+            outcome.Head,
+            agent?.AuthMethod,
+            JsonSerializer.SerializeToElement(agent?.Usage ?? new JsonObject(), WorkerApi.Json),
+            (long)duration.TotalMilliseconds,
+            Last(agent?.Stderr ?? "", TailLines));
+        var answer = await Patiently(() => devFlow.Result(job.JobId, request, stopping), "the result", stopping);
+        log.Write(answer.Kind == AnswerKind.Done
+            ? $"Sent the result: {request.Outcome}{(request.Failure is { } sent ? $", {sent.Reason}" : "")}."
+            : $"Dev flow did not take the result: {answer.Detail}.");
+    }
+
+    /// <summary>A call to Dev flow, made again while Dev flow is away, waiting as the loop waits,
+    /// until <see cref="Patience"/> has passed.</summary>
+    private async Task<Answer> Patiently(Func<Task<Answer>> call, string what, CancellationToken stopping)
+    {
+        var until = time.GetUtcNow() + Patience;
+        var wait = WorkerLoop.FirstWait;
+        while (true)
+        {
+            var answer = await call();
+            if (answer.Kind != AnswerKind.Away || time.GetUtcNow() + wait > until)
+            {
+                return answer;
+            }
+
+            log.Write($"{answer.Detail} for {what}; trying again in {wait.TotalSeconds:0} seconds.");
+            await Task.Delay(wait, time, stopping);
+            wait = TimeSpan.FromTicks(Math.Min(wait.Ticks * 2, WorkerLoop.LongestWait.Ticks));
+        }
     }
 
     /// <summary>A clone the agent makes of <paramref name="refs"/> of root's repository, in
@@ -321,6 +441,33 @@ internal sealed partial class BuildJob(DevFlowClient devFlow, Guid workerId, Bui
         if (outcome.ExitCode != 0)
         {
             throw new StepFailed(side, $"{what}: {Said(outcome.Stderr)}");
+        }
+    }
+
+    /// <summary>
+    /// Removes the job's folders. One the agent replaced with a link is removed as a link, never
+    /// followed, since the agent's folder under <c>/work</c> is its own to change.
+    /// </summary>
+    private void Remove(JobPaths paths)
+    {
+        foreach (var folder in new[] { paths.Work, paths.Secret })
+        {
+            try
+            {
+                var info = new DirectoryInfo(folder);
+                if (info.LinkTarget is not null)
+                {
+                    File.Delete(folder);
+                }
+                else if (info.Exists)
+                {
+                    info.Delete(recursive: true);
+                }
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                log.Write($"Could not remove {folder}: {e.Message}");
+            }
         }
     }
 
