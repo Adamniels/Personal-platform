@@ -4,6 +4,7 @@ using Dapper;
 
 using DevFlow.Cards;
 using DevFlow.CodeHost;
+using DevFlow.Fixing;
 using DevFlow.Jobs;
 using DevFlow.Projects;
 using DevFlow.Runner;
@@ -99,9 +100,10 @@ public sealed partial class ProjectReader(UserDb database, ICodeHost host, TimeP
         IReadOnlyList<RunnerItem> items = [];
         IReadOnlyList<PickedCard> cards = [];
         IReadOnlyList<FollowedPull> followed = [];
+        IReadOnlyList<TakenComments> commented = [];
         try
         {
-            (items, cards, followed, failure) = await Fetch(projectId, target, userId, cancellationToken);
+            (items, cards, followed, commented, failure) = await Fetch(projectId, target, userId, cancellationToken);
         }
         catch (Exception error) when (error is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
@@ -114,7 +116,7 @@ public sealed partial class ProjectReader(UserDb database, ICodeHost host, TimeP
         {
             try
             {
-                if (!await Store(projectId, userId, items, cards, followed, now, cancellationToken))
+                if (!await Store(projectId, userId, items, cards, followed, commented, now, cancellationToken))
                 {
                     return ReadResult.NoSuchProject;
                 }
@@ -160,14 +162,15 @@ public sealed partial class ProjectReader(UserDb database, ICodeHost host, TimeP
             transaction,
             cancellationToken: cancellationToken)), cancellationToken);
 
-    /// <summary>The project's items, its cards, and where its waiting cards' pull requests are, as
-    /// the code host answers now, or why it could not be read.</summary>
-    private async Task<(IReadOnlyList<RunnerItem> Items, IReadOnlyList<PickedCard> Cards, IReadOnlyList<FollowedPull> Followed, string? Failure)> Fetch(Guid projectId, ProjectTarget target, Guid userId, CancellationToken cancellationToken)
+    /// <summary>The project's items, its cards, where its waiting cards' pull requests are, and the
+    /// owner's new comments on its cards' open pull requests, as the code host answers now, or why it
+    /// could not be read.</summary>
+    private async Task<(IReadOnlyList<RunnerItem> Items, IReadOnlyList<PickedCard> Cards, IReadOnlyList<FollowedPull> Followed, IReadOnlyList<TakenComments> Commented, string? Failure)> Fetch(Guid projectId, ProjectTarget target, Guid userId, CancellationToken cancellationToken)
     {
         var (items, open, failure) = await FetchItems(target, userId, cancellationToken);
         if (failure is not null)
         {
-            return ([], [], [], failure);
+            return ([], [], [], [], failure);
         }
 
         var settings = new ProjectSettings(target.PickupLabel, target.HoldLabel, target.AttentionLabel, target.WaitsForOwner);
@@ -179,15 +182,50 @@ public sealed partial class ProjectReader(UserDb database, ICodeHost host, TimeP
                 cards = found;
                 break;
             case CodeHostResult<IReadOnlyList<PickedCard>>.NotFound:
-                return ([], [], [], RepositoryNotFound);
+                return ([], [], [], [], RepositoryNotFound);
             case CodeHostResult<IReadOnlyList<PickedCard>>.Unavailable:
-                return ([], [], [], HostUnavailable);
+                return ([], [], [], [], HostUnavailable);
             default:
                 throw new InvalidOperationException("a code host result that is not one of the three");
         }
 
         var (followed, followFailure) = await Follow(projectId, userId, repository, open, cancellationToken);
-        return followFailure is null ? (items, cards, followed, null) : ([], [], [], followFailure);
+        if (followFailure is not null)
+        {
+            return ([], [], [], [], followFailure);
+        }
+
+        var (commented, commentFailure) = await ReadComments(projectId, userId, repository, open, target.OwnerLogin, cancellationToken);
+        return commentFailure is null ? (items, cards, followed, commented, null) : ([], [], [], [], commentFailure);
+    }
+
+    /// <summary>
+    /// The owner's new comments on each card's pull request that is still open, for the cards whose
+    /// pull request is read for them, by <see cref="OwnerComments"/>'s rule; nothing without his
+    /// linked login. Every other comment is passed over unread. See "Fixing" in devflow/README.md.
+    /// </summary>
+    private async Task<(IReadOnlyList<TakenComments> Commented, string? Failure)> ReadComments(Guid projectId, Guid userId, Repository repository, IReadOnlyList<PullRequest> open, string? owner, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrEmpty(owner))
+        {
+            return ([], null);
+        }
+
+        var stillOpen = open.Select(pull => pull.Number).ToHashSet();
+        var commented = new List<TakenComments>();
+        foreach (var card in (await OwnerComments.Cards(database, userId, projectId, cancellationToken)).Where(card => stillOpen.Contains(card.PullRequest)))
+        {
+            switch (Listed(await host.Comments(userId, repository, card.PullRequest, cancellationToken)))
+            {
+                case null:
+                    return ([], HostUnavailable);
+                case var comments when OwnerComments.New(card, comments, owner) is { } taken:
+                    commented.Add(taken);
+                    break;
+            }
+        }
+
+        return (commented, null);
     }
 
     /// <summary>
@@ -282,13 +320,14 @@ public sealed partial class ProjectReader(UserDb database, ICodeHost host, TimeP
     /// <summary>
     /// The project's items replaced by <paramref name="items"/>, its cards merged with
     /// <paramref name="cards"/> by <see cref="CardStore.Store"/>, each waiting card whose pull
-    /// request merged or closed moved on by <see cref="CardStore.Follow"/>, and the read recorded as a
+    /// request merged or closed moved on by <see cref="CardStore.Follow"/>, the owner's new comments
+    /// taken into their cards by <see cref="OwnerComments.Take"/>, and the read recorded as a
     /// success, in one transaction through the door: an item still there is updated in place and
     /// keeps its id, one gone is deleted. The project's row is locked for share first, so a disconnect waits
     /// for the transaction, and a project disconnected before it stores nothing.
     /// </summary>
     /// <returns>Whether the project was still there.</returns>
-    private async Task<bool> Store(Guid projectId, Guid userId, IReadOnlyList<RunnerItem> items, IReadOnlyList<PickedCard> cards, IReadOnlyList<FollowedPull> followed, DateTimeOffset now, CancellationToken cancellationToken) =>
+    private async Task<bool> Store(Guid projectId, Guid userId, IReadOnlyList<RunnerItem> items, IReadOnlyList<PickedCard> cards, IReadOnlyList<FollowedPull> followed, IReadOnlyList<TakenComments> commented, DateTimeOffset now, CancellationToken cancellationToken) =>
         await database.InUserTransaction(userId, async transaction =>
         {
             if (await transaction.Connection!.ExecuteScalarAsync<int?>(new CommandDefinition(
@@ -311,6 +350,11 @@ public sealed partial class ProjectReader(UserDb database, ICodeHost host, TimeP
             foreach (var pull in followed)
             {
                 await CardStore.Follow(transaction, projectId, pull, now, cancellationToken);
+            }
+
+            foreach (var comments in commented)
+            {
+                await OwnerComments.Take(transaction, projectId, comments, now, cancellationToken);
             }
 
             await transaction.Connection!.ExecuteAsync(new CommandDefinition(

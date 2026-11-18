@@ -214,10 +214,8 @@ public sealed class BuildJobTests
 
             // Every 5 minutes it says again that the check runs, which marks it seen, so a check
             // longer than Dev flow's quiet window never makes its run look lost.
-            bench.Clock.Advance(TimeSpan.FromMinutes(5));
-            await Until(() => Progress() == 2);
-            bench.Clock.Advance(TimeSpan.FromMinutes(5));
-            await Until(() => Progress() == 3);
+            await FiveMinutesLater(bench, Progress, 2);
+            await FiveMinutesLater(bench, Progress, 3);
         }
         finally
         {
@@ -229,6 +227,26 @@ public sealed class BuildJobTests
         Assert.All(bench.Handler.Calls.Where(call => call.Path.EndsWith("/progress", StringComparison.Ordinal)), call => Assert.Equal("204", call.Answer));
         Assert.Equal("succeeded", (await bench.Run()).Result);
         Assert.Equal("checking", (await bench.Jobs.Card(1)).State);
+    }
+
+    /// <summary>
+    /// Moves the bench's clock five minutes on until the worker has said at least
+    /// <paramref name="calls"/> times that the check runs. The clock may move before the worker has
+    /// begun its next five minute wait, which then never ends, so it is moved again while no new
+    /// call came, a bounded number of times.
+    /// </summary>
+    private static async Task FiveMinutesLater(Bench bench, Func<int> progress, int calls)
+    {
+        for (var i = 0; i < 40 && progress() < calls; i++)
+        {
+            bench.Clock.Advance(BuildJob.SeenEvery);
+            for (var waited = 0; waited < 10 && progress() < calls; waited++)
+            {
+                await Task.Delay(25, Ct);
+            }
+        }
+
+        Assert.True(progress() >= calls, "it never said again that the check runs");
     }
 
     private static async Task Until(Func<bool> condition)

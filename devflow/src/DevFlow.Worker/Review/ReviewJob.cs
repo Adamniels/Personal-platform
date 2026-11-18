@@ -15,7 +15,8 @@ namespace DevFlow.Worker.Review;
 /// bare repository of its own and points the card's branch there at the commit to review; the agent
 /// clones that, through a bundle in root's handover folder, into its working copy, which is checked
 /// to be at the commit. Root writes the evidence, <c>diff.patch</c> from the base to the commit,
-/// <c>card.md</c>, <c>report.json</c> and <c>check.txt</c>, in its handover folder, and the agent
+/// <c>card.md</c>, <c>report.json</c>, <c>check.txt</c> and <c>earlier.json</c>, the card's earlier
+/// rounds, in its handover folder, and the agent
 /// copies them into a folder beside its copy, so root never writes where the agent can. The agent
 /// then runs there read only, with the reviewer's brief and the verdict's form. Nothing is
 /// committed or pushed, no push key is asked for, and the result names the commit the worker
@@ -26,7 +27,7 @@ internal sealed partial class ReviewJob(DevFlowClient devFlow, Guid workerId, Jo
     : WorkerJob(devFlow, workerId, tools, time, log)
 {
     /// <summary>The files a review is given beside the copy, in the order the brief names them.</summary>
-    public static readonly IReadOnlyList<string> Evidence = ["card.md", "diff.patch", "report.json", "check.txt"];
+    public static readonly IReadOnlyList<string> Evidence = ["card.md", "diff.patch", "report.json", "check.txt", "earlier.json"];
 
     /// <summary>Runs the job <paramref name="answer"/> holds to its end and sends its result. Only
     /// stopping ends it early, with the folders removed and no result, so Dev flow finds the run
@@ -181,6 +182,8 @@ internal sealed partial class ReviewJob(DevFlowClient devFlow, Guid workerId, Jo
             ["diff.patch"] = diff.Stdout,
             ["report.json"] = Line(toReview.Report.GetRawText()),
             ["check.txt"] = Line(string.Create(CultureInfo.InvariantCulture, $"$ {job.Check}\nexit {check.ExitCode}\n\n{check.Output}")),
+            // The card's earlier rounds, as Dev flow sent them; an empty list on a first review.
+            ["earlier.json"] = Line(JsonSerializer.Serialize(toReview.Earlier ?? [], WorkerApi.Json)),
         };
         foreach (var name in Evidence)
         {

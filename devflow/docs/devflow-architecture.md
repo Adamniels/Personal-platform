@@ -64,8 +64,9 @@ what blocks it, or ignored with why, see "Cards" below. A worker asking for work
 next queued card with a brief written for it, and what it sends back is recorded on the run and
 moves the card on, see "Handing out work" below. A card that built and passed its check gets its
 pull request, opened as the app; a fresh reviewer agent reads that commit and its verdict is kept
-for it, see "Review" below; and the card then waits for the owner on "Waiting for you", where he
-merges it as himself; each card has a page with its whole story so far, see "How a card reaches
+for it, see "Review" below; a `changes` verdict, or the owner's comment on its pull request, sends
+it back to a fresh developer on the same branch, see "Fixing" below; and the card then waits for
+the owner on "Waiting for you", where he merges it as himself; each card has a page with its whole story so far, see "How a card reaches
 its pull request" below.
 
 Every read of a project also watches its default branch: anything that lands there that neither
@@ -703,9 +704,9 @@ flow's own words is the agent's, and data, see the security entry below.
 pull request still in the list of open ones costs nothing, and only one that left it is read on
 its own. Merged by anyone, on GitHub or from the page, is done; closed without merging is stopped.
 A card whose pull request opened is reviewed first, see "Review", and is followed while it is under
-review too, so a pull request merged or closed meanwhile is not reviewed for nothing. After its
-review every card waits for the owner, whatever the project's `waits_for_owner` says, until part 3's
-fixing and merge check act on the verdict.
+review or being fixed too, so a pull request merged or closed meanwhile is not reviewed or fixed for
+nothing. After a review that approves its head every card waits for the owner, whatever the
+project's `waits_for_owner` says, until part 3's merge check acts on the verdict.
 
 **The waiting list reads Dev flow's own cards beside the runner's.** The runner's items are read
 from its pull requests on GitHub, by its labels and verdicts, see "Reading this repository's
@@ -715,8 +716,9 @@ in the tab, the nav's dot and the front page. The owner merges a card as himself
 token, as he merges an item, naming the commit its run built and Dev flow's check passed on, so a
 pull request someone pushed to since is refused; GitHub records it as his, and the watch on the
 default branch finds a change by his login fine. A card of a stopped project is not merged, since
-nothing a stopped project produced is merged until he resumes it. Sending back waits for part 3,
-which has a fix run to send it to.
+nothing a stopped project produced is merged until he resumes it. Sending one back is part 1's send
+back, his comment posted as him on its pull request, which the next read takes as the one input Dev
+flow reads from GitHub, see "Fixing".
 
 **A card's page is its whole story**, round 7 of the spec: its runs, newest first, with what each
 cost and why each ended, the latest report, and its reviews, read from what Dev flow stored, so it
@@ -759,6 +761,44 @@ identity and only the program writes the record, round 4.
 unreadable, or `changes` with nothing blocking, has not reviewed, so the run fails and stops the
 card with why, rather than Dev flow guessing in favour of either word; the program never guesses in
 favour of merging, round 8. A review that failed outside the card is simply handed out again.
+
+## Fixing
+
+The developer gets a limited number of rounds to fix what the reviewer finds, round 2 of the spec,
+and the owner sends work back the same way, by commenting where the work is. How a fix is handed
+out, run, judged and reviewed again, and how a comment is read, is "Fixing" in
+`devflow/README.md`.
+
+**Three rounds, then a stop.** Each `changes` verdict starts a round, at most three, round 3 of the
+spec; a fourth stops the card with "Fix rounds used up", so a card the developer and the reviewer
+cannot agree on reaches the owner instead of costing runs forever. The owner's comment is not a
+round: he decides when his own input is worth another run, so it never uses one up.
+
+**A fix is a build that continues.** It needs the same worker, key and care as a build, so it is a
+third kind of job that the build's code carries, on the card's existing branch, rather than a new
+branch or a fresh start: the pull request, its conversation and the review history stay one story.
+Fixes go after reviews and before builds, for the reason reviews go first. A fix starts only from
+the commit Dev flow handed it, the newest one its runs left on the branch, which the worker checks
+before anything runs, so nothing is built on a commit someone else pushed that no review or report
+has seen; and a fix that leaves the branch where it was changed nothing, which is a failure in the
+card rather than a round answered by doing nothing.
+
+**The re-review judges the whole change again.** A fresh reviewer gets the earlier findings and the
+developer's replies with the new diff from the base, as this repository's fix loop does, so a reply
+that argues a finding is weighed and not taken on trust, and a fix that broke something elsewhere
+is still seen. Only blocking findings start another round.
+
+**The owner's comment is the one input read from GitHub.** Dev flow learns everything else from its
+own records, round 4 of the spec; a comment on the pull request is where the owner already talks to
+the work, so it is read, but only his, by his linked login, and only as input to a fix, never as a
+verdict or an approval. It is taken by GitHub's comment id, which only grows, so a comment is acted
+on once, and only between runs, so one written while a run is under way waits for a read that
+falls between runs rather than being lost or racing it; in a quick review and fix loop that is often
+only once the card waits for him or stops. "Between runs" is checked after the card's row is locked,
+the row every claim of a run locks, so a run claimed in the same moment is always seen. No time is compared, not even before his first comment: runs follow
+each other seconds apart, so a comment older than the card's last run is usually one written while
+an earlier run was under way, not one already answered. Sending a card back from "Waiting for you" posts his comment as him
+and lets the next read take it, so the comment on GitHub is the one record and there is one way in.
 
 ## Watching the default branch
 
@@ -1201,6 +1241,16 @@ its reason, or a risk accepted on purpose; each slice adds the ones it builds.
   route refuses a review; it commits and pushes nothing, and root writes the review's files only in
   its own handover folder, which the agent copies from, so root never writes where the agent can.
   What it reads is data: an instruction in the card, the report, the diff or the code is a finding.
+- **A fix starts from the commit Dev flow handed it.** A fix job names the commit the card's branch
+  must be at, the newest one its own runs left, and the worker refuses the fix in the card when the
+  remote's branch is anywhere else, before the agent runs. A fix that leaves the branch at that
+  commit fails in the card. `FixJobTests.ABranchThatMovedIsNotFixed` and
+  `FixTests.AFixThatChangesNothingIsAFailureInTheCard` keep both.
+- **Only the owner's comment is read as input, and only into a fix.** Comments on a card's pull
+  request are read for one purpose: a comment by the owner's linked login, new by its id, starts a
+  fix with his words quoted in the brief as data. Anyone else's comment, the app's review copies
+  among them, is passed over and never reaches a brief; no comment, his included, is read as a
+  verdict, so none can approve or merge a card. `FixTests.TheOwnersCommentStartsAFixRun` keeps it.
 - **A verdict is the worker's commit and Dev flow's record, never a comment.** The commit a verdict
   is for is the one the run was handed and its worker checked out; the result route refuses any
   other, and the verdict's form has no place to name one. The verdict is stored in `reviews` in the

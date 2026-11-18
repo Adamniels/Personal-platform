@@ -51,7 +51,7 @@ public abstract record FreshKey
 /// Hands out work. A worker asking for it is answered nothing when it needs a rebuild, when its
 /// project is stopped or its default branch not watched lately, when its project's user has no
 /// Claude login or one past its renewal, or when its project has no card to take; otherwise the
-/// kind of job is chosen, a review before a build, everything that job needs from the code host is
+/// kind of job is chosen, a review before a fix before a build, everything that job needs from the code host is
 /// read first, as the app, with a key for that kind, and only then is a card of that kind taken, in
 /// one short transaction as the project's user, so no lock is held while GitHub is asked.
 /// That transaction reads the watch's hold again under the project's lock, so a stop recorded
@@ -137,9 +137,12 @@ public sealed partial class Dispatcher(
                 return null;
             }
 
-            return kind == Job.Review
-                ? ReviewJob(await JobStore.ClaimReview(transaction, projectId, userId, workerId, now, cancellationToken), repository, facts, token, key)
-                : BuildJob(await JobStore.Claim(transaction, projectId, userId, workerId, facts.DefaultBranch, facts.Check, now, cancellationToken), repository, facts, token, key);
+            return kind switch
+            {
+                Job.Review => ReviewJob(await JobStore.ClaimReview(transaction, projectId, userId, workerId, now, cancellationToken), repository, facts, token, key),
+                Job.Fix => FixJob(await JobStore.ClaimFix(transaction, projectId, userId, workerId, facts.Check, now, cancellationToken), repository, facts, token, key),
+                _ => BuildJob(await JobStore.Claim(transaction, projectId, userId, workerId, facts.DefaultBranch, facts.Check, now, cancellationToken), repository, facts, token, key),
+            };
         }, cancellationToken);
         if (job is null)
         {
@@ -181,6 +184,38 @@ public sealed partial class Dispatcher(
             JobLimits.Default);
     }
 
+    /// <summary>The fix job for a card taken to fix, or null when none was: a build's job on the
+    /// card's branch and base, with the fix brief, the developer's with what to fix, the report's
+    /// form, and where the fix starts.</summary>
+    private static Job? FixJob(ClaimedFix? claimed, Repository repository, RepositoryFacts facts, ClaudeToken token, AppWriteToken key)
+    {
+        if (claimed is null)
+        {
+            return null;
+        }
+
+        var brief = Brief.Fixer(
+            new BriefCard(claimed.Number, claimed.Title, claimed.Body),
+            new BriefFacts(facts.Check, claimed.Branch, claimed.Base),
+            new FixInput(claimed.Round, claimed.Report, claimed.Review?.Verdict, claimed.Comments));
+        return new Job(
+            claimed.RunId,
+            Job.Fix,
+            new JobCard(claimed.Number, claimed.Title, claimed.Body),
+            new JobRepository(repository.Owner, repository.Name, facts.CloneAddress, facts.DefaultBranch),
+            claimed.Branch,
+            claimed.Base,
+            brief,
+            ReportSchema,
+            facts.Check,
+            token.Value,
+            key.Value,
+            key.ExpiresAt,
+            new JobCommitter(facts.Committer.Name, facts.Committer.Email),
+            JobLimits.Default,
+            ToFix: new JobFix(claimed.FromCommit, claimed.Round));
+    }
+
     /// <summary>The review job for a card taken to review, or null when none was: the build's
     /// branch, base and check, the commit it left, its report and the check's result, the
     /// reviewer's brief and the verdict's form.</summary>
@@ -192,7 +227,7 @@ public sealed partial class Dispatcher(
         }
 
         var card = new BriefCard(claimed.Number, claimed.Title, claimed.Body);
-        var brief = Brief.Reviewer(card, new ReviewFacts(claimed.Commit, claimed.Branch, claimed.Base));
+        var brief = Brief.Reviewer(card, new ReviewFacts(claimed.Commit, claimed.Branch, claimed.Base, claimed.Earlier.Count));
         using var report = JsonDocument.Parse(claimed.Report);
         return new Job(
             claimed.RunId,
@@ -209,11 +244,29 @@ public sealed partial class Dispatcher(
             key.ExpiresAt,
             new JobCommitter(facts.Committer.Name, facts.Committer.Email),
             JobLimits.Default,
-            new JobReview(claimed.Commit, report.RootElement.Clone(), new CheckResult(claimed.CheckExitCode, claimed.CheckOutput)));
+            new JobReview(claimed.Commit, report.RootElement.Clone(), new CheckResult(claimed.CheckExitCode, claimed.CheckOutput), [.. claimed.Earlier.Select(Round)]));
+    }
+
+    /// <summary>An earlier round as a review job carries it, its stored JSON read back as it was
+    /// stored.</summary>
+    private static JobRound Round(EarlierRound round)
+    {
+        using var findings = JsonDocument.Parse(round.Findings ?? "[]");
+        using var comments = JsonDocument.Parse(round.Comments);
+        using var replies = JsonDocument.Parse(round.Replies);
+        return new JobRound(
+            round.Round,
+            round.ReviewedCommit,
+            round.Verdict,
+            round.Summary,
+            findings.RootElement.Clone(),
+            [.. comments.RootElement.EnumerateArray().Select(comment => comment.GetString() ?? "")],
+            replies.RootElement.Clone(),
+            round.FixedCommit);
     }
 
     /// <summary>A fresh push key for the job, only for the worker holding it while it runs, and
-    /// only for a build: a review is given no key that pushes. Marks the worker seen.</summary>
+    /// only for a build or a fix: a review is given no key that pushes. Marks the worker seen.</summary>
     public async Task<FreshKey> PushKey(WorkerCaller caller, Guid runId, Guid workerId, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(caller);

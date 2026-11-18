@@ -169,7 +169,8 @@ public sealed class ReviewJobTests
         await using var jobs = await Jobs.Jobs.Start([Jobs.Jobs.Card(4)]);
         await Built.Run(jobs, Built.Prepared());
 
-        var reviewed = await Built.Review(jobs, Built.Verdict("changes"));
+        // An approve; a changes verdict starts a fix round instead, see FixTests.
+        var reviewed = await Built.Review(jobs, Built.Verdict("approve"));
 
         var card = await Built.Card(jobs, 4);
         Assert.Equal("waiting_for_owner", card.State);

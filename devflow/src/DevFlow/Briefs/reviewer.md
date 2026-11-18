@@ -31,6 +31,11 @@ You are in a folder that holds two others:
   - `review/check.txt`, the project's check as the worker ran it itself on the commit, with its
     exit code and the last lines it printed. The check's result is the worker's, not the
     developer's word.
+  - `review/earlier.json`, the card's earlier rounds, oldest first: what sent it back each time,
+    a review that asked for changes or the owner's comment on the pull request, the developer's
+    reply to each finding, and the commit its fix left. An empty list on a first review.
+
+{{earlier}}
 
 You can read, search and list files, and nothing else: you cannot write, run a command or reach
 the network. Nothing you do changes the code, and you never need to.

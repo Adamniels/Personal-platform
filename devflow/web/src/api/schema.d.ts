@@ -238,6 +238,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/devflow/api/projects/{id}/cards/{number}/send-back": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Send a card of Dev flow's own back, with a comment as the caller
+         * @description Posts comment, trimmed and with nothing added, on the card's open pull request as the caller's linked GitHub account and never as the app; the read of the project that follows takes it, as any comment of his past the newest already taken, and starts a fix run with it, which is not a review round. In order: 404 for a project or card the caller does not have; 422 when comment is missing, empty once trimmed, or longer than 10,000 characters; 409 when the card neither waits for the caller nor has stopped, or has no open pull request; 409 when GitHub is not linked or the link has expired; then GitHub is asked. 204 once posted and the project read again. 409 when GitHub refuses, with its reason; 503 when GitHub did not answer. Without a valid token, 401 with an empty body; a change from another origin, 403.
+         */
+        post: operations["sendBackCard"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/devflow/api/projects/{id}/refresh": {
         parameters: {
             query?: never;
@@ -649,6 +669,20 @@ export interface components {
             summary: string;
             verdict: string;
         };
+        CardRound: {
+            comments: string[];
+            fixed_commit: null | string;
+            replies: components["schemas"]["ReportReply"][];
+            result: null | string;
+            /** Format: uuid */
+            review_after_run_id: null | string;
+            /** Format: uuid */
+            review_run_id: null | string;
+            /** Format: int32 */
+            round: null | number;
+            /** Format: uuid */
+            run_id: string;
+        };
         CardRun: {
             auth_method: null | string;
             check: null | components["schemas"]["RunCheck"];
@@ -678,6 +712,7 @@ export interface components {
             reason: null | string;
             report: null | components["schemas"]["Report"];
             reviews: components["schemas"]["CardReview"][];
+            rounds: components["schemas"]["CardRound"][];
             runs: components["schemas"]["CardRun"][];
             state: string;
             title: string;
@@ -798,6 +833,7 @@ export interface components {
             push_key_expires_at: string;
             report_schema: components["schemas"]["JsonElement"];
             repository: components["schemas"]["JobRepository"];
+            to_fix?: null | components["schemas"]["JobFix"];
             to_review?: null | components["schemas"]["JobReview"];
         };
         JobCard: {
@@ -809,6 +845,11 @@ export interface components {
         JobCommitter: {
             email: string;
             name: string;
+        };
+        JobFix: {
+            commit: string;
+            /** Format: int32 */
+            round: null | number;
         };
         JobLimits: {
             /** Format: double */
@@ -828,7 +869,19 @@ export interface components {
         JobReview: {
             check: components["schemas"]["CheckResult"];
             commit: string;
+            earlier: components["schemas"]["JobRound"][];
             report: components["schemas"]["JsonElement"];
+        };
+        JobRound: {
+            comments: string[];
+            findings: components["schemas"]["JsonElement"];
+            fixed_commit: string;
+            replies: components["schemas"]["JsonElement"];
+            reviewed_commit: null | string;
+            /** Format: int32 */
+            round: null | number;
+            summary: null | string;
+            verdict: null | string;
         };
         JsonElement: unknown;
         LinkStarted: {
@@ -1584,6 +1637,74 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["MergeRequest"];
+            };
+        };
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    sendBackCard: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                number: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SendBackRequest"];
             };
         };
         responses: {
