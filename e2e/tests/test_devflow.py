@@ -1803,7 +1803,7 @@ def test_a_cards_page_tells_its_story(
     capture(page, "devflow-card-page")
 
 
-def test_another_users_card_page_is_not_found(
+def test_a_card_page_of_no_project_is_not_found(
     page: Page, invite_code: str, base_url: str
 ):
     register_and_log_in(page, invite_code, base_url)
