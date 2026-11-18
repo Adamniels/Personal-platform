@@ -7,6 +7,7 @@ using DevFlow.ClaudeLogin;
 using DevFlow.CodeHost;
 using DevFlow.CodeHost.GitHub;
 using DevFlow.Health;
+using DevFlow.Jobs;
 using DevFlow.Link;
 using DevFlow.Merging;
 using DevFlow.Pages;
@@ -114,6 +115,17 @@ public static class DevFlowApp
         // "Claude login" in devflow/README.md.
         builder.Services.AddSingleton(provider => new ClaudeLogins(
             database, provider.GetRequiredService<Vault>(), provider.GetRequiredService<TimeProvider>()));
+        // Handing a worker its project's next card, with the brief and what the job needs. See
+        // "Jobs" in devflow/README.md.
+        builder.Services.AddSingleton(provider => new Dispatcher(
+            database,
+            provider.GetRequiredService<WorkerStore>(),
+            provider.GetRequiredService<WatchStore>(),
+            provider.GetRequiredService<ClaudeLogins>(),
+            provider.GetRequiredService<ICodeHost>(),
+            provider.GetRequiredService<WorkerStart>(),
+            provider.GetRequiredService<TimeProvider>(),
+            provider.GetRequiredService<ILogger<Dispatcher>>()));
         if (settings.PollInterval is { } interval)
         {
             builder.Services.AddHostedService(provider => new Poller(
@@ -149,6 +161,7 @@ public static class DevFlowApp
         app.MapAttention();
         app.MapWorkers();
         app.MapWatch();
+        app.MapJobs();
         app.MapCards();
         app.MapRecipe();
         app.MapClaudeLogin();
@@ -159,6 +172,7 @@ public static class DevFlowApp
             // in devflow/README.md.
             app.MapFakeCodeHost();
             app.MapFakeSignIn(redirect);
+            app.MapFakeWorker();
         }
 
         if (settings.ExposeOpenApi)

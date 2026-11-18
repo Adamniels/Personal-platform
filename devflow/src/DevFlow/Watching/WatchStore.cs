@@ -1,5 +1,7 @@
 using Dapper;
 
+using Npgsql;
+
 using PlatformData;
 
 namespace DevFlow.Watching;
@@ -64,6 +66,33 @@ public sealed class WatchStore(UserDb database, TimeProvider time)
             transaction,
             cancellationToken: cancellationToken)), cancellationToken);
         return Read(word);
+    }
+
+    /// <summary>
+    /// Why the project holds new work, read inside <paramref name="transaction"/>, which runs as
+    /// its user, after taking its row <c>FOR SHARE</c>: that waits for a watch or a resume writing a
+    /// stop under <see cref="BranchWatch.Lock"/>, and the hold is read in a statement of its own
+    /// after it, so it sees what they committed. Handing out a job takes a card only after this
+    /// answers none, in the same transaction, so a stop once recorded is never followed by a job.
+    /// </summary>
+    public async Task<ProjectHold> HoldUnderLock(NpgsqlTransaction transaction, Guid projectId, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(transaction);
+        if (await transaction.Connection!.ExecuteScalarAsync<int?>(new CommandDefinition(
+                "SELECT 1 FROM projects WHERE id = @projectId FOR SHARE",
+                new { projectId },
+                transaction,
+                cancellationToken: cancellationToken)) is null)
+        {
+            // No such project has no work, and nothing to hold.
+            return ProjectHold.None;
+        }
+
+        return Read(await transaction.Connection!.QuerySingleOrDefaultAsync<string?>(new CommandDefinition(
+            $"SELECT {HoldSql} FROM projects p WHERE p.id = @projectId",
+            new { projectId, watchedSince = WatchedSince() },
+            transaction,
+            cancellationToken: cancellationToken)));
     }
 
     /// <summary>

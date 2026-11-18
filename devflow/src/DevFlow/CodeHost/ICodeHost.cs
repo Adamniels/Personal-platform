@@ -72,6 +72,9 @@ public interface ICodeHost
     /// </summary>
     Task<CodeHostResult<IReadOnlyList<BranchActivity>>> Activity(Guid userId, Repository repository, string branch, long? since, CancellationToken cancellationToken);
 
+    /// <summary>Who a worker's commits on <paramref name="repository"/> are made as.</summary>
+    Task<CodeHostResult<Committer>> AppCommitter(Guid userId, Repository repository, CancellationToken cancellationToken);
+
     /// <summary>The installations of Dev flow's app that the person whose token
     /// <paramref name="userToken"/> is can reach, each with the account it is on, in no particular
     /// order. Read as the person, never as the app, so what is listed is what they may

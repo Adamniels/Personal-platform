@@ -13,8 +13,11 @@ internal enum AnswerKind
     /// <summary><c>204</c>: done, or no work.</summary>
     Done,
 
-    /// <summary><c>200</c> to <c>jobs/next</c>: a job, in <see cref="Answer.Job"/>.</summary>
+    /// <summary><c>200</c> to <c>jobs/next</c>: a job, in <see cref="Answer.Body"/>.</summary>
     Job,
+
+    /// <summary><c>200</c> to any other call: its answer, in <see cref="Answer.Body"/>.</summary>
+    Answered,
 
     /// <summary><c>401</c>: the key is not one the project has.</summary>
     WrongKey,
@@ -32,8 +35,9 @@ internal enum AnswerKind
     Unexpected,
 }
 
-/// <summary>An answer, with what the log says of it, and the job when there is one.</summary>
-internal sealed record Answer(AnswerKind Kind, string Detail, JsonElement Job = default);
+/// <summary>An answer, with what the log says of it, and its body when it is a <c>200</c>: the job,
+/// or a fresh push key.</summary>
+internal sealed record Answer(AnswerKind Kind, string Detail, JsonElement Body = default);
 
 /// <summary>
 /// The worker's calls to Dev flow, over one <see cref="HttpClient"/> that carries the project's key
@@ -64,6 +68,17 @@ internal sealed class DevFlowClient(HttpClient http)
     public Task<Answer> NextJob(NextJobRequest request, CancellationToken stopping) =>
         Post(WorkerApi.NextJobPath, request, stopping);
 
+    /// <summary>A fresh push key for the job, in the answer's body as a
+    /// <see cref="PushKeyAnswer"/>.</summary>
+    public Task<Answer> PushKey(Guid jobId, PushKeyRequest request, CancellationToken stopping) =>
+        Post(WorkerApi.PushKeyPath(jobId), request, stopping);
+
+    public Task<Answer> Progress(Guid jobId, ProgressRequest request, CancellationToken stopping) =>
+        Post(WorkerApi.ProgressPath(jobId), request, stopping);
+
+    public Task<Answer> Result(Guid jobId, ResultRequest request, CancellationToken stopping) =>
+        Post(WorkerApi.ResultPath(jobId), request, stopping);
+
     private async Task<Answer> Post<T>(string path, T body, CancellationToken stopping)
     {
         try
@@ -74,10 +89,10 @@ internal sealed class DevFlowClient(HttpClient http)
             {
                 case HttpStatusCode.NoContent:
                     return new Answer(AnswerKind.Done, "204");
-                case HttpStatusCode.OK when path == WorkerApi.NextJobPath:
-                    using (var job = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync(stopping), cancellationToken: stopping))
+                case HttpStatusCode.OK:
+                    using (var answer = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync(stopping), cancellationToken: stopping))
                     {
-                        return new Answer(AnswerKind.Job, "200", job.RootElement.Clone());
+                        return new Answer(path == WorkerApi.NextJobPath ? AnswerKind.Job : AnswerKind.Answered, "200", answer.RootElement.Clone());
                     }
 
                 case HttpStatusCode.Unauthorized:
@@ -102,7 +117,7 @@ internal sealed class DevFlowClient(HttpClient http)
         }
         catch (JsonException)
         {
-            return new Answer(AnswerKind.Unexpected, "Dev flow answered a job that is not JSON");
+            return new Answer(AnswerKind.Unexpected, "Dev flow answered something that is not JSON");
         }
     }
 

@@ -19,6 +19,23 @@ public static class WorkerApi
     /// <summary>A worker asks for work, with a <see cref="NextJobRequest"/>.</summary>
     public const string NextJobPath = Prefix + "/jobs/next";
 
+    /// <summary>A fresh push key for the job, with a <see cref="PushKeyRequest"/>.</summary>
+    public const string PushKeyRoute = Prefix + "/jobs/{id:guid}/push-key";
+
+    /// <summary>The job has moved on, with a <see cref="ProgressRequest"/>.</summary>
+    public const string ProgressRoute = Prefix + "/jobs/{id:guid}/progress";
+
+    /// <summary>The job has ended, with a <see cref="ResultRequest"/>.</summary>
+    public const string ResultRoute = Prefix + "/jobs/{id:guid}/result";
+
+    public static string PushKeyPath(Guid jobId) => JobPath(jobId, "push-key");
+
+    public static string ProgressPath(Guid jobId) => JobPath(jobId, "progress");
+
+    public static string ResultPath(Guid jobId) => JobPath(jobId, "result");
+
+    private static string JobPath(Guid jobId, string what) => $"{Prefix}/jobs/{jobId:D}/{what}";
+
     /// <summary>The JSON the worker writes and reads: snake case, numbers as numbers only, the
     /// options Dev flow serves with.</summary>
     public static JsonSerializerOptions Json { get; } = CreateJson();

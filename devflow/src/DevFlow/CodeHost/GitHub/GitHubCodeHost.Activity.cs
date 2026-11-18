@@ -4,19 +4,13 @@ namespace DevFlow.CodeHost.GitHub;
 
 /// <summary>
 /// What watching a project's default branch reads, as the app, with the read only token every
-/// read has: the repository's default branch, and the activity of that branch, both as
-/// conditional requests, so a minute in which nothing landed costs nothing against the rate
-/// limit. See "Watching the default branch" in devflow/docs/devflow-architecture.md.
+/// read has: the activity of the default branch, as a conditional request, so a minute in which
+/// nothing landed costs nothing against the rate limit. The default branch itself is read by
+/// <see cref="DefaultBranch"/>, which handing out a job reads too. See "Watching the default
+/// branch" in devflow/docs/devflow-architecture.md.
 /// </summary>
 public sealed partial class GitHubCodeHost
 {
-    /// <summary><c>GET /repos/{owner}/{repo}</c>, of which <c>default_branch</c> is read; an empty
-    /// one is an answer that does not parse.</summary>
-    public async Task<CodeHostResult<string>> DefaultBranch(Guid userId, Repository repository, CancellationToken cancellationToken) =>
-        Map(
-            await One<RepositoryInfoAnswer>(repository, Repo(repository), cancellationToken),
-            answer => answer.DefaultBranch is { Length: > 0 } branch ? branch : throw new JsonException("no default branch"));
-
     /// <summary>
     /// <c>GET /repos/{owner}/{repo}/activity?ref=&lt;branch&gt;&amp;per_page=100</c>, which GitHub
     /// lists newest first by default and pages by a cursor in the <c>Link</c> header. Read page by
@@ -67,9 +61,6 @@ public sealed partial class GitHubCodeHost
             },
             activity.Actor?.Login);
     }
-
-    /// <summary>The one field read of a repository.</summary>
-    private sealed record RepositoryInfoAnswer(string DefaultBranch);
 
     /// <summary>A change to a branch; GitHub's schema lets the actor be null.</summary>
     private sealed record ActivityAnswer(long Id, string Before, string After, string Ref, DateTimeOffset Timestamp, string ActivityType, UserAnswer? Actor);

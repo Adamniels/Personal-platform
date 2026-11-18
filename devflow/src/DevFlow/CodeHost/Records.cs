@@ -162,6 +162,7 @@ public enum EditKind
 /// <param name="At">When it was made.</param>
 /// <param name="Kind">Whether it changed the body or the title.</param>
 public sealed record IssueEdit(string Id, string Editor, DateTimeOffset At, EditKind Kind);
+
 /// <summary>What changed a branch, as the code host lists a repository's activity.</summary>
 public enum ActivityKind
 {
@@ -194,3 +195,6 @@ public enum ActivityKind
 /// <param name="Actor">The login of the account that did it, or null when the host names none,
 /// such as for an account since deleted.</param>
 public sealed record BranchActivity(long Id, string Before, string After, DateTimeOffset At, ActivityKind Kind, string? Actor);
+
+/// <summary>Who a commit is made as.</summary>
+public sealed record Committer(string Name, string Email);

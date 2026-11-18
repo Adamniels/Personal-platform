@@ -4,6 +4,7 @@ using Dapper;
 
 using DevFlow.Cards;
 using DevFlow.CodeHost;
+using DevFlow.Jobs;
 using DevFlow.Projects;
 using DevFlow.Runner;
 using DevFlow.Watching;
@@ -82,6 +83,17 @@ public sealed partial class ProjectReader(UserDb database, ICodeHost host, TimeP
         // First, and on its own: what landed on the default branch is judged whether or not the
         // rest of the project can be read, and a watch that fails never fails the read.
         await _watch.Watch(projectId, userId, new Repository(target.Installation, target.RepositoryId, target.Owner, target.Name), target.OwnerLogin, cancellationToken);
+
+        // Runs that never returned are found on the project's minute too, whether or not the code
+        // host answers, since finding them asks it nothing.
+        try
+        {
+            await RunStore.SweepLost(database, userId, projectId, Now(), cancellationToken);
+        }
+        catch (Exception error) when (error is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+        {
+            LogSweepFailed(log, projectId, error);
+        }
 
         string? failure;
         IReadOnlyList<RunnerItem> items = [];
@@ -328,6 +340,9 @@ public sealed partial class ProjectReader(UserDb database, ICodeHost host, TimeP
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Reading the recipe of project {Project} failed; its version stays as it was")]
     private static partial void LogRecipeFailed(ILogger logger, Guid project, Exception failed);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Finding the lost runs of project {Project} failed; they are looked for again on its next read")]
+    private static partial void LogSweepFailed(ILogger logger, Guid project, Exception failed);
 
     /// <summary>
     /// Records the version of the project's recipe as its default branch has it now, so a worker

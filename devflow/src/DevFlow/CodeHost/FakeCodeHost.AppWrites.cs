@@ -22,6 +22,10 @@ public sealed partial class FakeCodeHost : IDisposable
     /// <c>[bot]</c>.</summary>
     public const string AppLogin = "devflow-fake[bot]";
 
+    /// <summary>The no-reply address a worker commits as in the fake, in the form GitHub gives an
+    /// app's bot, its id and its login.</summary>
+    public const string AppEmail = "70000099+devflow-fake[bot]@users.noreply.github.com";
+
     /// <summary>What GitHub says with <c>404</c> for removing a label the issue does not carry.</summary>
     public const string LabelMissing = "Label does not exist";
 
@@ -85,6 +89,12 @@ public sealed partial class FakeCodeHost : IDisposable
         }
     }
 
+    /// <summary>The repository and purpose the fake issued <paramref name="key"/> for to the
+    /// account, or null when it issued no such key; for a test to check what a key handed out
+    /// reaches.</summary>
+    internal (long Installation, long Repository, WritePurpose Purpose)? Issued(Guid userId, string key) =>
+        Of(userId).Keys.TryGetValue(key, out var issued) ? (issued.Installation, issued.Repository, issued.Purpose) : null;
+
     /// <summary>The <c>file://</c> address of the repository's bare git repository, made empty,
     /// with <c>main</c> as its default branch, the first time it is asked for, and the same one
     /// after, kept when a world is staged again. Not found for a repository the world does not
@@ -118,6 +128,53 @@ public sealed partial class FakeCodeHost : IDisposable
             }
 
             return new CodeHostResult<Uri>.Found(new Uri(path));
+        }
+        finally
+        {
+            _git.Release();
+        }
+    }
+
+    /// <summary>
+    /// Makes a commit on <paramref name="branch"/> in the repository's git repository, as a worker's
+    /// push would leave it, by <paramref name="committer"/>, on top of <paramref name="baseBranch"/>
+    /// when it has a commit and as the first commit otherwise, with its tree unchanged; and points
+    /// the branch at it. The fake worker's, so a test's chain has a branch to open a pull request
+    /// from. Its id, or null when the repository is not the world's or git fails.
+    /// </summary>
+    internal async Task<string?> CommitOnBranch(Guid userId, Repository repository, string branch, string baseBranch, string message, Committer committer, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(branch);
+        ArgumentNullException.ThrowIfNull(committer);
+        if (await CloneAddress(userId, repository, cancellationToken) is not CodeHostResult<Uri>.Found)
+        {
+            return null;
+        }
+
+        await _git.WaitAsync(cancellationToken);
+        try
+        {
+            string[] who = ["-c", $"user.name={committer.Name}", "-c", $"user.email={committer.Email}", "--git-dir", GitPath(userId, repository)];
+            var parent = await BranchCommit(userId, repository, baseBranch, cancellationToken);
+            var tree = parent is null
+                ? await Git(cancellationToken, [.. who, "hash-object", "-t", "tree", "-w", "/dev/null"])
+                : await Git(cancellationToken, [.. who, "rev-parse", $"{parent}^{{tree}}"]);
+            if (tree.Exit != 0)
+            {
+                return null;
+            }
+
+            string[] commitTree = parent is null
+                ? [.. who, "commit-tree", tree.Output.Trim(), "-m", message]
+                : [.. who, "commit-tree", tree.Output.Trim(), "-p", parent, "-m", message];
+            var commit = await Git(cancellationToken, commitTree);
+            if (commit.Exit != 0)
+            {
+                return null;
+            }
+
+            var id = commit.Output.Trim();
+            return (await Git(cancellationToken, [.. who, "update-ref", $"refs/heads/{branch}", id])).Exit == 0 ? id : null;
         }
         finally
         {

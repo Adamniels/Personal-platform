@@ -152,6 +152,11 @@ public sealed partial class FakeCodeHost : ICodeHost, ICodeHostSignIn
             return since is { } id ? [.. newest.TakeWhile(activity => activity.Id != id)] : [.. newest.Take(100)];
         });
 
+    /// <summary>The app's bot, <see cref="AppLogin"/> with <see cref="AppEmail"/>, for a repository
+    /// the world holds.</summary>
+    public Task<CodeHostResult<Committer>> AppCommitter(Guid userId, Repository repository, CancellationToken cancellationToken) =>
+        Answer(userId, repository, _ => new Committer(AppLogin, AppEmail));
+
     /// <summary>The world's installations, with the account's access token only, see
     /// <see cref="AsPerson{T}"/>.</summary>
     public Task<CodeHostResult<IReadOnlyList<Installation>>> Installations(Guid userId, string userToken, CancellationToken cancellationToken) =>

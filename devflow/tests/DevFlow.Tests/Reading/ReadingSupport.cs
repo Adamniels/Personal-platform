@@ -332,6 +332,12 @@ internal sealed class CountingCodeHost(ICodeHost inner) : ICodeHost
         return inner.Activity(userId, repository, branch, since, cancellationToken);
     }
 
+    public Task<CodeHostResult<Committer>> AppCommitter(Guid userId, CodeHost.Repository repository, CancellationToken cancellationToken)
+    {
+        Record("AppCommitter", userId, repository, "");
+        return inner.AppCommitter(userId, repository, cancellationToken);
+    }
+
     public Task<CodeHostResult<IReadOnlyList<Installation>>> Installations(Guid userId, string userToken, CancellationToken cancellationToken) =>
         inner.Installations(userId, userToken, cancellationToken);
 

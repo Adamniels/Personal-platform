@@ -29,10 +29,12 @@ public sealed record Worker(Guid Id, string Name, string RecipeVersion, string B
 /// <param name="StartCommand">The command that builds and starts the project's worker, which never
 /// holds the key.</param>
 /// <param name="Workers">Every worker that has said hello, by when it first did.</param>
-/// <param name="Held">Why the project hands out no work: <c>stopped</c> when something landed on
-/// its default branch that Dev flow did not put there, <c>unwatched</c> when its default branch's
-/// changes have not been read for five minutes, or null. See
-/// <see cref="Watching.WatchStore.HoldSql"/>.</param>
+/// <param name="Held">Why the project hands out no work whichever worker asks, the first that
+/// applies: <c>stopped</c> when something landed on its default branch that Dev flow did not put
+/// there, <c>unwatched</c> when its default branch's changes have not been read for five minutes,
+/// both from <see cref="Watching.WatchStore.HoldSql"/>; then <c>no_claude_login</c> or
+/// <c>claude_login_expired</c>, from <see cref="Jobs.Dispatcher.HeldFor"/>, which the list route
+/// adds; or null.</param>
 public sealed record WorkerList(DateTimeOffset? KeyMadeAt, string? RecipeVersion, string StartCommand, IReadOnlyList<Worker> Workers, string? Held);
 
 /// <summary>Where a worker stands when it asks for work.</summary>

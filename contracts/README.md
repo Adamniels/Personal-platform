@@ -128,8 +128,13 @@ flow is C#, so this is the same pin as `review/`.
   `ProjectFile` reads the file by the same rules, and `ProjectFileTests` checks the two hold the
   same fields, the same required ones, and the same pattern for `url`. See "The format of
   .devflow/" in `devflow/README.md`.
+- `report.schema.json`: the JSON Schema of a developer agent's report, which every job hands the
+  agent, written by `DevFlow.Protocol`'s `Report.Schema()` from the type that reads a report, with a
+  two space indent and a trailing newline, its fields in the type's order. Since the type writes it,
+  the two hold the same fields. See "Jobs" in `devflow/README.md`.
 
-Dev flow's `ContractTests` check that the app still generates exactly these bytes, as review's do.
+Dev flow's `ContractTests` check that the app still generates exactly these bytes, as review's do,
+and that `Report.Schema()` still writes exactly `report.schema.json`.
 From `devflow/`:
 
 ```zsh
@@ -172,6 +177,18 @@ Recorded once, on 2026 11 15, from this repository with `gh api` as the bot, fro
 the default branch that changed `devflow/Dockerfile`, a commit by the bot, of which the adapter reads
 `sha` to read a project's recipe at, see "Starting a worker" in `devflow/README.md`.
 
+What handing out a job reads, read by `devflow/tests/DevFlow.Tests/GitHub/GitHubJobReadTests.cs`;
+see "Jobs" in `devflow/README.md`:
+
+- `repository.json`: recorded on 2026 11 17 for the slice "Watching main", and taken byte for byte
+  from its branch, so the two slices add the same file: `gh api repos/Adamniels/Personal-platform`,
+  piped through `jq 'del(.temp_clone_token)'`, since GitHub documents that field as a short lived
+  credential; the repository is public and the answer held none. The adapter reads
+  `default_branch`.
+- `bot-user.json`, recorded on 2026 11 18 as the bot: `gh api 'users/dependabot[bot]'`, an app's bot as GitHub answers
+  `GET /users/<app-slug>[bot]`, since Dev flow's own app's slug is a setting and not in this
+  repository; the test renames its `login` to the test app's. The adapter reads `login` and `id`.
+
 The app's own writes are answered with the same shapes as these reads, so four more are recorded
 for them, read by `devflow/tests/DevFlow.Tests/GitHub/GitHubAppWriteTests.cs`, and checked by
 `ContractTests.TheRecordedWriteAnswersHoldWhatTheAdapterReads` for every field the adapter reads.
@@ -195,9 +212,8 @@ What watching a project's default branch reads was recorded on 2026 11 17, as th
 `devflow/tests/DevFlow.Tests/GitHub/GitHubActivityTests.cs`; see "Watching the default branch" in
 `devflow/README.md`:
 
-- `repository.json`: `gh api repos/Adamniels/Personal-platform`, piped through
-  `jq 'del(.temp_clone_token)'`, since GitHub documents that field as a short lived credential; the
-  repository is public and the answer held none. The adapter reads `default_branch`.
+- `repository.json`, the same file handing out a job reads, described above; the watch reads
+  `default_branch` from it too.
 - `activity.json`: `gh api 'repos/Adamniels/Personal-platform/activity?ref=main&per_page=3'`, the
   three newest changes to `main`, each a merged pull request, one by the bot and two by the owner,
   newest first; the adapter asks for `per_page=100`, in the same shape.

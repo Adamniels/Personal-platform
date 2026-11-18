@@ -1,5 +1,6 @@
 using Dapper;
 
+using DevFlow.ClaudeLogin;
 using DevFlow.CodeHost;
 using DevFlow.Merging;
 using DevFlow.Tests.Link;
@@ -66,12 +67,13 @@ public sealed class MainWatchTests
         number, $"Card {number}", FakeCodeHost.AppLogin, [], head, $"card-{number}", "main", false, "",
         new Uri($"https://github.com/Adamniels/Personal-platform/pull/{number}"), DateTimeOffset.UnixEpoch, PullRequestState.Open);
 
-    /// <summary>A project of the token's user, linked as <see cref="Owner"/>, read once, so its
-    /// watch has begun.</summary>
+    /// <summary>A project of the token's user, linked as <see cref="Owner"/>, with a Claude login,
+    /// so only the watch holds its work, read once, so its watch has begun.</summary>
     private static async Task<(Routes Routes, Guid Project)> Start(params FakeActivity[] before)
     {
         var routes = await Routes.Start();
         await Reading.Reading.Link(routes.Door, User, Owner);
+        await routes.App.Services.GetRequiredService<ClaudeLogins>().Set(User, Jobs.Jobs.ClaudeToken, Ct);
         Stage(routes, User, null, Reading.Reading.RepositoryId, before);
         var project = await routes.Project(User);
         await routes.Read(project, User);

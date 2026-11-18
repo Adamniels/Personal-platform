@@ -345,6 +345,32 @@ describe("a project that hands out no work", () => {
 });
 
 describe("the workers", () => {
+	test("a project that hands out no work for the Claude login says why", async () => {
+		renderPage({ list: { held: "no_claude_login" } });
+		const workers = within(await panel());
+		expect(
+			await workers.findByText(heldNotice("no_claude_login")),
+		).toBeTruthy();
+		expect(workers.getByText("No work")).toBeTruthy();
+		expect(heldNotice("no_claude_login")).toContain("Projects tab");
+	});
+
+	test("a login past its renewal says to give a new one", async () => {
+		renderPage({ list: { held: "claude_login_expired" } });
+		const workers = within(await panel());
+		expect(
+			await workers.findByText(heldNotice("claude_login_expired")),
+		).toBeTruthy();
+		expect(heldNotice("claude_login_expired")).toContain("past its renewal");
+	});
+
+	test("a project that hands out work says nothing of it", async () => {
+		renderPage();
+		const workers = within(await panel());
+		await workers.findByText(PASTE);
+		expect(workers.queryByText("No work")).toBeNull();
+	});
+
 	test("one on an old recipe or base image says to run the command again", async () => {
 		renderPage({
 			list: {

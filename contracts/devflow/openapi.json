@@ -73,6 +73,28 @@
         ],
         "type": "object"
       },
+      "CheckResult": {
+        "properties": {
+          "exit_code": {
+            "format": "int32",
+            "type": [
+              "null",
+              "integer"
+            ]
+          },
+          "output": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "required": [
+          "exit_code",
+          "output"
+        ],
+        "type": "object"
+      },
       "ClaudeLoginRequest": {
         "properties": {
           "token": {
@@ -387,6 +409,153 @@
         },
         "type": "object"
       },
+      "Job": {
+        "properties": {
+          "base": {
+            "type": "string"
+          },
+          "branch": {
+            "type": "string"
+          },
+          "brief": {
+            "type": "string"
+          },
+          "card": {
+            "$ref": "#/components/schemas/JobCard"
+          },
+          "check": {
+            "type": "string"
+          },
+          "claude_token": {
+            "type": "string"
+          },
+          "committer": {
+            "$ref": "#/components/schemas/JobCommitter"
+          },
+          "job_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "limits": {
+            "$ref": "#/components/schemas/JobLimits"
+          },
+          "push_key": {
+            "type": "string"
+          },
+          "push_key_expires_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "report_schema": {
+            "$ref": "#/components/schemas/JsonElement"
+          },
+          "repository": {
+            "$ref": "#/components/schemas/JobRepository"
+          }
+        },
+        "required": [
+          "job_id",
+          "kind",
+          "card",
+          "repository",
+          "branch",
+          "base",
+          "brief",
+          "report_schema",
+          "check",
+          "claude_token",
+          "push_key",
+          "push_key_expires_at",
+          "committer",
+          "limits"
+        ],
+        "type": "object"
+      },
+      "JobCard": {
+        "properties": {
+          "body": {
+            "type": "string"
+          },
+          "number": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "number",
+          "title",
+          "body"
+        ],
+        "type": "object"
+      },
+      "JobCommitter": {
+        "properties": {
+          "email": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "email"
+        ],
+        "type": "object"
+      },
+      "JobLimits": {
+        "properties": {
+          "budget_usd": {
+            "format": "double",
+            "type": "number"
+          },
+          "minutes": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "turns": {
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "turns",
+          "budget_usd",
+          "minutes"
+        ],
+        "type": "object"
+      },
+      "JobRepository": {
+        "properties": {
+          "clone_address": {
+            "format": "uri",
+            "type": "string"
+          },
+          "default_branch": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "owner": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "owner",
+          "name",
+          "clone_address",
+          "default_branch"
+        ],
+        "type": "object"
+      },
+      "JsonElement": {},
       "LinkStarted": {
         "properties": {
           "authorize_url": {
@@ -552,6 +721,28 @@
         },
         "type": "object"
       },
+      "ProgressRequest": {
+        "properties": {
+          "state": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "worker_id": {
+            "format": "uuid",
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "required": [
+          "worker_id",
+          "state"
+        ],
+        "type": "object"
+      },
       "Project": {
         "properties": {
           "created_at": {
@@ -660,6 +851,139 @@
         ],
         "type": "object"
       },
+      "PushKeyAnswer": {
+        "properties": {
+          "expires_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "push_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "push_key",
+          "expires_at"
+        ],
+        "type": "object"
+      },
+      "PushKeyRequest": {
+        "properties": {
+          "worker_id": {
+            "format": "uuid",
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "required": [
+          "worker_id"
+        ],
+        "type": "object"
+      },
+      "ResultRequest": {
+        "properties": {
+          "auth_method": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "branch": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "check": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CheckResult"
+              }
+            ]
+          },
+          "duration_ms": {
+            "format": "int64",
+            "type": [
+              "null",
+              "integer"
+            ]
+          },
+          "failure": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RunFailure"
+              }
+            ]
+          },
+          "head_commit": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "outcome": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "report": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JsonElement"
+              }
+            ]
+          },
+          "stderr": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "usage": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JsonElement"
+              }
+            ]
+          },
+          "worker_id": {
+            "format": "uuid",
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "required": [
+          "worker_id",
+          "outcome",
+          "report",
+          "failure",
+          "check",
+          "branch",
+          "head_commit",
+          "auth_method",
+          "usage",
+          "duration_ms",
+          "stderr"
+        ],
+        "type": "object"
+      },
       "ResumeRequest": {
         "properties": {
           "commit": {
@@ -671,6 +995,27 @@
         },
         "required": [
           "commit"
+        ],
+        "type": "object"
+      },
+      "RunFailure": {
+        "properties": {
+          "in_card": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "reason": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "required": [
+          "reason",
+          "in_card"
         ],
         "type": "object"
       },
@@ -1702,7 +2047,7 @@
     },
     "/devflow/api/projects/{id}/workers": {
       "get": {
-        "description": "Every worker that has said hello with the project's key, by when it first did, with what it reported, when it was last seen, and rebuild: recipe when it runs another version of the recipe than Dev flow last read, base_image when it runs on another base image than the one released, or null; key_made_at, when the project's key was made, null before one has been; recipe_version, the recipe's version as last read, null before then or when the default branch has none; start_command, the command that builds and starts the project's worker; and held, why the project hands out no work: stopped, when something landed on its default branch that Dev flow did not put there, unwatched, when its default branch has not been read for five minutes, or null. The key itself is never in it. 404 for a project the caller does not have. Without a valid token, 401 with an empty body; a change from another origin, 403.",
+        "description": "Every worker that has said hello with the project's key, by when it first did, with what it reported, when it was last seen, and rebuild: recipe when it runs another version of the recipe than Dev flow last read, base_image when it runs on another base image than the one released, or null; key_made_at, when the project's key was made, null before one has been; recipe_version, the recipe's version as last read, null before then or when the default branch has none; start_command, the command that builds and starts the project's worker; and held, why the project hands out no work whichever worker asks, the first that applies: stopped, when something landed on its default branch that Dev flow did not put there, unwatched, when its default branch has not been read for five minutes, no_claude_login when its user has given no Claude login, claude_login_expired when it is past its renewal, or null. The key itself is never in it. 404 for a project the caller does not have. Without a valid token, 401 with an empty body; a change from another origin, 403.",
         "operationId": "listWorkers",
         "parameters": [
           {
@@ -2093,7 +2438,7 @@
     },
     "/devflow/api/worker/jobs/next": {
       "post": {
-        "description": "Marks the worker seen and answers its next job; in this part there is none, so it is always 204. A project that is stopped, or whose default branch has not been watched for five minutes, hands out none. A worker that needs a rebuild, running another version of the recipe than Dev flow last read or another base image than the one released, is never given one. 409 for a worker that has not said hello in the key's project, which says hello and asks again; 422 without worker_id. Takes the project's worker key as Authorization: Bearer dfw_…, and nothing else: without a key the project has now, 401 with an empty body. No Origin is needed, and no cookie is read or set.",
+        "description": "Marks the worker seen and answers its next job, 200 with Cache-Control: no-store: the first of its project's queued cards that waits for nothing, by priority, high, none, low, then oldest first, moved to building, with a run recorded for this worker. The job holds the card, the repository, the branch, the brief, the report's schema, the check, the run's user's Claude token, a push key narrowed to the repository and its expiry, the committer and the limits. 204 when there is no work for it: a project that is stopped, or whose default branch has not been watched for five minutes, no card to take, a user without a Claude login or with one past its renewal, a worker that needs a rebuild, running another version of the recipe than Dev flow last read or another base image than the one released, or the code host not answering what a job needs, such as the project's .devflow/project.json. 409 for a worker that has not said hello in the key's project, which says hello and asks again; 422 without worker_id. Takes the project's worker key as Authorization: Bearer dfw_…, and nothing else: without a key the project has now, 401 with an empty body. No Origin is needed, and no cookie is read or set.",
         "operationId": "workerNextJob",
         "requestBody": {
           "content": {
@@ -2106,6 +2451,16 @@
           "required": true
         },
         "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Job"
+                }
+              }
+            },
+            "description": "OK"
+          },
           "204": {
             "description": "No Content"
           },
@@ -2136,6 +2491,200 @@
         "summary": "A worker asks for work",
         "tags": [
           "WorkerEndpoints"
+        ]
+      }
+    },
+    "/devflow/api/worker/jobs/{id}/progress": {
+      "post": {
+        "description": "With state checking, the agent has finished and the check runs: the card moves from building to checking. 204. Only for the worker holding the job, named by worker_id, while it runs; 404 for any other worker, a job that is not one of the project's, or one that has finished. 422 without worker_id, or with a state that is not checking. Takes the project's worker key as Authorization: Bearer dfw_…, and nothing else: without a key the project has now, 401 with an empty body. No Origin is needed, and no cookie is read or set.",
+        "operationId": "workerJobProgress",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProgressRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        },
+        "summary": "A running job moves on",
+        "tags": [
+          "JobEndpoints"
+        ]
+      }
+    },
+    "/devflow/api/worker/jobs/{id}/push-key": {
+      "post": {
+        "description": "A new push key for the job's repository, narrowed to fetching and pushing code, with when it expires, 200 with Cache-Control: no-store, since a key lasts an hour and a run up to 90 minutes. Only for the worker holding the job, named by worker_id, while the job runs; 404 for any other worker, a job that is not one of the project's, or one that has finished. 503 when the code host made no key now, which the worker asks for again; 422 without worker_id. Takes the project's worker key as Authorization: Bearer dfw_…, and nothing else: without a key the project has now, 401 with an empty body. No Origin is needed, and no cookie is read or set.",
+        "operationId": "workerPushKey",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PushKeyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PushKeyAnswer"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "A fresh push key for a running job",
+        "tags": [
+          "WorkerEndpoints"
+        ]
+      }
+    },
+    "/devflow/api/worker/jobs/{id}/result": {
+      "post": {
+        "description": "What the worker sends when its job ends, whatever happened: outcome, succeeded with the agent's report or failed with the failure's reason and whether it lies in the card; the check's exit code and the last 200 lines of its output, null when it did not run; the branch, which must be the job's, and its head commit; the auth method; Claude's usage as it came, an object; the duration in milliseconds; and the last 200 lines of stderr. Each is stored on the run as it came. The report is read against contracts/devflow/report.schema.json, and one that does not match is a failure in the card. A failure outside the card puts the card back in queued, counting nothing against it; a failure in the card, a report that does not match, a report that stopped, a check that did not run or failed stop it with why; otherwise the card waits, checked, for its pull request. 204. Only for the worker holding the job while it runs, and once; 404 otherwise. 422 naming a field that is missing or breaks a rule. Takes the project's worker key as Authorization: Bearer dfw_…, and nothing else: without a key the project has now, 401 with an empty body. No Origin is needed, and no cookie is read or set.",
+        "operationId": "workerJobResult",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResultRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        },
+        "summary": "A job has ended",
+        "tags": [
+          "JobEndpoints"
         ]
       }
     },
@@ -2213,6 +2762,9 @@
     },
     {
       "name": "WatchEndpoints"
+    },
+    {
+      "name": "JobEndpoints"
     },
     {
       "name": "RecipeEndpoints"

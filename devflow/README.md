@@ -12,8 +12,9 @@ purpose, linking a user's GitHub account, so Dev
 flow holds a token that acts as them, connecting a repository, which makes it a project, and
 reading every project about once a minute into a stored list of what waits for the owner, which
 the API answers and the platform's front page counts, and each project's worker key, with the
-worker API a worker calls with it, and the worker program that calls it: everything else the tabs
-will show arrives with later slices.
+worker API a worker calls with it, which hands out a project's cards as jobs with a brief and
+records what comes back, and the worker program that calls it: everything else the tabs will show
+arrives with later slices.
 
 ## What it serves
 
@@ -57,7 +58,8 @@ will show arrives with later slices.
   a valid token, `401` with an empty body.
 - `POST /devflow/api/worker/hello` and `POST /devflow/api/worker/jobs/next`, the worker API, which
   takes a project's worker key in `Authorization: Bearer dfw_…` and never a user's token, see
-  "Workers". Without a key the project has now, `401` with an empty body.
+  "Workers", and a running job's `POST /devflow/api/worker/jobs/{id}/push-key`, `…/progress` and
+  `…/result`, see "Jobs". Without a key the project has now, `401` with an empty body.
 - `GET /devflow/api/display`, what the platform's front page shows of Dev flow,
   `{"waiting": 2, "stopped": 1, "projects": 1, "stale": false, "needs_relink": false, "claude_login": "ok"}`:
   the items of kind `waiting` and of kind `stopped` that are not sent back, `stopped` with the
@@ -191,6 +193,10 @@ secondary "Copy the save command" or "Copy the start command" that reads "Copied
 and an alert when copying fails, see "Starting a worker". A worker that needs a rebuild shows, under
 its name, the `needs-you` status "Rebuild" and, in `--text` at weight 600, "<repository>'s recipe
 has changed: run the command again" or "A new base image was released: run the command again".
+When the list's `held` says the project hands out no work, the panel shows, under its first line,
+the `needs-you` status "No work" and, the same way, "No work is handed out until you give your
+Claude login on the Projects tab", or for `claude_login_expired` "No work is handed out: your
+Claude login is past its renewal. Give a new one on the Projects tab", see "Jobs".
 
 The Settings panel, `src/settings.tsx`, the package's `Card` titled "Settings", read from
 `GET /devflow/api/projects/{id}/settings` as the page loads, is a form: a line saying Dev flow picks
@@ -878,6 +884,8 @@ of what Dev flow is:
 - `POST /devflow/api/fake/claude-login-age` with `{"days": 340}` moves when the caller's Claude
   login was given to that many days before now, so a test sees it due without waiting a year,
   `204`; `404` without a login, and `400` for a negative or malformed number.
+- `POST /devflow/api/fake/worker/run`, the fake worker, which takes a project's next job and ends
+  it with a prepared result, see "Jobs".
 - `GET /devflow/api/fake/writes` lists the writes the fake took for the caller, oldest first, each
   `{"kind": "merge", "repository": 1001, "number": 304, "commit": "<40 hex>", "method": "merge",
   "body": null, "by": "octo-owner"}`, or with `kind` `comment`, the `body`, and `commit` and
@@ -1136,7 +1144,9 @@ project, `title`, `web_url`, `state`, one of `queued`, `building`, `checking`, `
 `waiting_for_owner`, `done`, `stopped`, `held` and `ignored`, `reason`, `waits_for`, a `text[]`,
 `priority`, `issue_created_at`, the record of what was picked, `picked_body_sha256`, `picked_title`
 and `picked_edit`, null for a card never picked, `unlabelled`, `changed_at`, when its state, reason or
-what it waits for last changed, and `read_at`.
+what it waits for last changed, and `read_at`. `migrations/0012_runs.sql` adds `picked_body`, the body
+as it was picked, which a job's brief quotes; null for a card never picked and for one picked
+before the column, until its next read, and such a card is not handed out.
 
 ## Acting from the page
 
@@ -1225,7 +1235,10 @@ card's pull request through it.
 **Holding work.** `WatchStore.Hold(user, project)` says why a project hands out no new work:
 `Stopped`, while it has a stop, then `Unwatched`, when its watch has not read the branch for five
 minutes, or never has; otherwise `None`. `jobs/next` answers `204` to every worker of a held
-project, the workers' route answers it as `held`, `stopped` or `unwatched`, and the project's page
+project: the `Dispatcher` reads the hold before it asks GitHub anything, and again with
+`WatchStore.HoldUnderLock` in the transaction that takes the card, after taking the project's row
+`FOR SHARE`, so a stop recorded meanwhile still holds the card back. The workers' route answers it
+as `held`, `stopped` or `unwatched`, ahead of the Claude login's reasons, and the project's page
 says why under Workers. An unwatched project is not marked stopped, and hands out work again as
 soon as a read succeeds. A card already with a worker is left as it is, so its run finishes and
 its result is recorded; nothing it produced is merged while the project is stopped, since
@@ -1252,7 +1265,7 @@ the platform's page, resumes it:
   to `project_resumes` with who resumed it, when and the commit accepted, and removed, in one
   transaction under the watch's lock.
 
-The four tables, from `migrations/0012_main_watch.sql`, each guarded like every scoped table and
+The four tables, from `migrations/0013_main_watch.sql`, each guarded like every scoped table and
 following its project:
 
 - `branch_watches`: `project_id`, its primary key, `user_id`, `branch`, `last_activity_id`, the
@@ -1305,18 +1318,20 @@ The routes, in `WorkerEndpoints`:
   `{"key_made_at": "<time>" or null, "recipe_version": "<commit>" or null, "start_command": "…", "held": "stopped", "unwatched" or null, "workers": [{"id", "name", "recipe_version", "base_image", "first_seen_at", "last_seen_at", "rebuild"}]}`,
   by when each worker first said hello: `recipe_version`, the project's recipe as Dev flow last
   read it, null before it has been or when the default branch has none; `start_command`, the
-  command that builds and starts a worker; `held`, why the project hands out no work, which the
-  project's page says, see "Watching the default branch"; and each worker's `rebuild`, `recipe`,
-  `base_image` or null, see "Starting a worker". Never the key. `404` as above.
+  command that builds and starts a worker; each worker's `rebuild`, `recipe`, `base_image` or
+  null, see "Starting a worker"; and `held`, why no worker of the project is handed work, which the
+  project's page says, the first that applies: `stopped` or `unwatched`, see "Watching the default
+  branch", then `no_claude_login` or `claude_login_expired`, see "Jobs", or null. Never the key.
+  `404` as above.
 - `POST /devflow/api/worker/hello`, the worker's, with
   `{"worker_id": "<uuid>", "name": "<the container's hostname>", "recipe_version", "base_image"}`,
   records the worker in its key's project, or brings it up to date, keeping when it was first
   seen, and answers `204`. Each field is required; `worker_id` is a UUID that is not all zeros, and
   each text has 1 to 255 characters, not only spaces; otherwise `422` naming the field.
 - `POST /devflow/api/worker/jobs/next`, the worker's, with `{"worker_id"}`, marks the worker seen
-  and answers its next job; in this part there is none, so `204`. A worker that needs a rebuild is
-  never given one, nor is a worker of a project that is stopped or unwatched, see "Watching the
-  default branch". A worker that has not said hello
+  and answers its next job, `200`, or `204` when there is none for it, see "Jobs". A worker that
+  needs a rebuild is never given one, nor is a worker of a project that is stopped or unwatched, see
+  "Watching the default branch". A worker that has not said hello
   in the key's project is `409` "Say hello first", and says hello and asks again; no `worker_id`
   is `422`.
 
@@ -1361,8 +1376,8 @@ users are in it:
 - root runs the worker program, the image's entrypoint, `/usr/local/bin/devflow-worker`, and keeps
   a job's secrets in `/run/devflow/`, mode 700, owned by root;
 - `agent`, uid 1000, home `/home/agent`, runs Claude Code, the project's check and its start, which
-  the worker starts with `setpriv --reuid agent --regid agent --init-groups --reset-env`, and owns
-  the working copies under `/work`, the image's working directory.
+  the worker starts with `setpriv --reuid agent --regid agent --init-groups` and an environment it
+  builds from nothing, and owns the working copies under `/work`, the image's working directory.
 
 Claude Code adds a `Co-Authored-By` trailer to every commit and a line to every pull request unless
 told not to, so `/home/agent/.claude/settings.json` sets
@@ -1374,7 +1389,8 @@ the worker reports in `hello`, with `ONBUILD`: `DEVFLOW_BASE` becomes `DEVFLOW_B
 
 Its test is `tests/image/base-image.test.sh`, which `infra/hosted/check.sh` runs: it builds the
 image under a tag of its own, never the hosted name, and checks that `agent` cannot list or read
-`/run/devflow/`, that the worker runs, that `claude --version` answers 2.1.325, that `git` and
+`/run/devflow/`, nor read root's environment through `/proc`, that the worker runs, that
+`git-upload-pack` is on the agent's `PATH`, that `claude --version` answers 2.1.325, that `git` and
 `node` run, that the attribution is off, and that a recipe built FROM it reports its base and
 version. From the repository root, with Docker running:
 
@@ -1450,9 +1466,8 @@ address and a project's key, it introduces itself, asks for work in a loop, and 
 behind one narrow interface. What it says to Dev flow is `src/DevFlow.Protocol/`, the worker API's
 paths, its requests and their JSON, which Dev flow's worker routes take too, so a change that breaks
 either side fails to compile. Why it is built so is "Workers" in `docs/devflow-architecture.md`.
-In this part it asks for work and is told there is none; fetching the code, the check and pushing
-come with later slices of the feature. The image it runs in and the commands that start it are
-"Starting a worker".
+A job Dev flow hands it, see "Jobs", it builds, see "A build job" below. The image it runs in and
+the commands that start it are "Starting a worker".
 
 **Its settings**, from the environment:
 
@@ -1471,8 +1486,8 @@ worker runs outside a project's image and never matches a version Dev flow expec
 hostname as its name. It says `hello`, then asks `jobs/next`:
 
 - `204`: no work. It waits and asks again, 5 seconds at first, doubling each time to at most 60.
-- A job: it runs it and asks again at once, and the wait starts again from 5 seconds. Dev flow
-  hands out no job yet, and one arriving is logged and left.
+- A job: it builds it, see "A build job", and asks again at once, and the wait starts again from 5
+  seconds.
 - `409`: it says `hello` and asks again, at once, or after a wait when it has just said it.
 - Dev flow away, which is no connection, no answer in 30 seconds or a `5xx`: a wait of the same
   length and another try, never an exit, and the next answer from Dev flow begins with `hello`
@@ -1538,7 +1553,9 @@ API or the machine. The usage is taken as Claude Code gives it: `usage`, `modelU
 
 **The limits for now**, fixed in code as `AgentLimits.Default` until Dev flow's settings hold them:
 200 turns and 25 USD, which Claude Code enforces, overshooting by about a turn, and 90 minutes,
-which the worker enforces by ending the process and everything it started.
+which the worker enforces by ending the process and every process still in its tree. One the agent
+detached from that tree, by forking twice, keeps running as `agent`; the accepted risk under "The
+agent's copy has no credentials" in `docs/devflow-architecture.md` covers it.
 
 **The token** is handed to the run in its environment only. The worker never writes it to a file,
 logs it or sends it back: `AgentCredential` prints as redacted, and the token's value is replaced
@@ -1546,10 +1563,70 @@ by `[redacted]` in Claude Code's standard output and standard error before anyth
 neither the report, the stderr kept nor a reason can carry it out.
 
 **Its own user.** The process starter, `SystemProcessStarter`, takes the user to run as, `agent`
-in the image, and starts Claude Code through `setpriv --reuid agent --regid agent --init-groups`,
-which keeps the environment as built; Claude Code refuses `bypassPermissions` as root. The worker
-itself runs as root, so what a job needs kept from the agent stays out of the agent's reach.
-Without a user, as in the tests, it starts the program directly.
+in the image, and starts Claude Code, the check and every git command in the agent's copy through
+`setpriv --reuid agent --regid agent --init-groups`, which keeps the environment as built; Claude
+Code refuses `bypassPermissions` as root. The worker itself runs as root, so what a job needs kept
+from the agent stays out of the agent's reach. Without a user, as in the tests, it starts the
+program directly.
+
+**A build job**, `BuildJob` in `src/DevFlow.Worker/Build/`, from the job to its result. The folders
+are `JobFolders`: `/run/devflow/<job>/`, root's alone; `/run/devflow-handover/<job>/`, root's, mode
+755, where root writes the bundles the agent clones from, which the agent reads and cannot write;
+and `/work/<job>/`, the agent's, where root writes nothing:
+
+1. **Refused before anything runs** when the job's branch is the repository's default branch or its
+   base, or either is not a plain branch name: letters, digits, `.`, `_`, `-` and `/`, not
+   beginning with `-` or `/`, without `..`, `//` or `@{`, and not ending in `/`, `.` or `.lock`.
+   The result is a failure in the card, so the card stops rather than coming back.
+2. **The worker's own repository.** Root makes `/run/devflow/<job>/`, mode 700, and clones the
+   repository there with the job's push key, `git clone --bare`, into `repo`. The job's branch is
+   the remote's when it has one, from a run that was lost, and otherwise made at the base with
+   `git update-ref`, which refuses one already there; `HEAD` points at it.
+3. **The agent's copy.** Root makes `/run/devflow-handover/<job>/` and writes a bundle of the
+   branch and the base there, `copy.bundle`, mode 644. The agent makes `/work/<job>/` and clones the
+   bundle into `/work/<job>/copy`, with `user.name` and `user.email` the job's committer, the app's
+   bot, in the copy's config; the bundle is removed, so the copy's remote is a path that no longer
+   exists and holds no credentials.
+4. **The agent** runs there as `agent`, through `IAgent`, with the job's brief, report schema,
+   limits and Claude token. The worker ends it at the job's `minutes`, 90 for now, whatever it is
+   doing, by cancelling it, which ends its process and every process still in its tree; that is a
+   failure in the card, "it ran past the time limit of 90 minutes and was ended".
+5. **What it left uncommitted**, tracked or new and not ignored, is committed in the copy, as
+   `agent`, "Work the agent left uncommitted". Ignored files, such as a build's output, stay out.
+6. **Back to the worker.** Root fetches the branch from the copy into its own repository, without
+   force, so a history the agent rewrote is refused, a failure in the card. The copy's side,
+   `git-upload-pack`, runs as `agent` with its environment reset, through `--upload-pack`.
+7. **The check**, when the agent succeeded: the worker sends `progress` `checking`, and again
+   every 5 minutes while the check runs, so Dev flow keeps seeing it; root bundles the fetched
+   head into the handover folder, `check.bundle`, the agent clones it into `/work/<job>/check`, and
+   the job's `check` runs there as `agent`, `sh -c` with standard error joined to standard output,
+   in an environment of
+   `HOME`, `PATH`, `LANG` and `CI=true`, for at most 30 minutes. Its exit code and the last 200
+   lines of its output go in the result; past 30 minutes it is ended and its output says so. When
+   the agent failed the check does not run, since Dev flow judges the failure first.
+8. **The push**, whatever the check said: a fresh key from the push key route, and
+   `git push origin <head>:refs/heads/<branch>` from root's repository, never with force. A
+   refused push is a failure outside the card, its reason what git said, and `head_commit` null.
+9. **The result** is sent, see "Jobs": the agent's report on a success, or the failure; the check;
+   the head commit pushed; the auth method, usage and the last 200 lines of the agent's standard
+   error; and the duration. A push key or a result Dev flow is away for is asked again, 5 seconds
+   doubling to 60, for at most 10 minutes.
+10. **Afterwards** the folders are removed: root's two by root, and `/work/<job>/` by the agent,
+    `rm -rf` as `agent`, so a link it left there, or the folder replaced with one, is removed as
+    the link and nothing is removed that the agent could not remove itself. The worker asks for its
+    next job. The container, its tools and its caches are kept.
+
+Every root git command runs in `repo`, or in `/run/devflow/<job>/` for the clone that makes it,
+with `-c core.hooksPath=/dev/null`, `HOME` that folder and no system or global config, and never in
+the agent's copy. The push key reaches git only in the environment of the clone and the push, as an
+`Authorization` header for the clone address through `GIT_CONFIG_COUNT`, never in an argument, a
+file or a remote's address, and is replaced by `[redacted]` in anything git says that is kept.
+Every git command in the copy runs as `agent` with hooks, `core.fsmonitor` and commit signing off,
+so nothing the agent planted runs or stops the worker's commit. A worker that is stopped mid job
+removes the folders and sends nothing: the run is found lost and the card handed out again, on its
+branch if it was pushed. A step that fails for another reason, a fetch, a clone or the worker
+itself, is a failure outside the card, so the card is queued again. The project's `start` and
+`url` are not used yet: "The worker's screenshots" uses them.
 
 **Publishing.** One self-contained file carrying its own .NET runtime, so a project's image needs
 no .NET, for each Linux a worker runs on:
@@ -1575,7 +1652,16 @@ DEVFLOW_URL=http://127.0.0.1:8084 DEVFLOW_PROJECT_KEY=<the key> dotnet run --pro
 ```
 
 **Its tests** are `tests/DevFlow.Worker.Tests/`, run by the same `dotnet test` as Dev flow's own,
-with the same two database strings. `WorkerLoopTests` runs the worker against Dev flow in process,
+with the same two database strings. `Build/` runs whole build jobs on a bench, `BuildSupport.cs`:
+Dev flow in process handing out a card, the fake code host's real bare git repository as the
+remote, folders of the test's own, both users' processes recorded, and an agent that writes and
+commits as the test says. `BuildJobTests` checks the copy, the agent, the check, the push and the
+result; `GitSafetyTests` that root runs git only in its own repository, that hooks and an
+`fsmonitor` the agent planted never run, that the push key never reaches anything the agent can
+read, and that a push is never forced or to the default branch; `BuildPartsTests` the branch
+names refused, the result sent again while Dev flow is away, and the output's tail. The test
+machine has one user, so both users are the test's own there; that the agent cannot read root's
+files or environment is checked on the built image, by `base-image.test.sh`. `WorkerLoopTests` runs the worker against Dev flow in process,
 on a database of its own, through `DevFlow.Tests`' harness, which that project references, and
 against a Dev flow played from a script, on a clock the test moves. `ClaudeAgentTests` runs
 `ClaudeCodeAgent` on a fake process starter answering with Claude Code's answers recorded in
@@ -1629,14 +1715,173 @@ it. It opens through the door as the run's user, so no one else's is visible, an
 binding to the user it was sealed for refuses a token moved to another, with `VaultException`. It
 answers a `ClaudeToken`, which prints as `ClaudeToken { sealed }`, so a log line or an exception
 naming it does not reveal it. It is called only when a job is handed out, so the token leaves Dev
-flow only inside a job's answer to its own user's worker; nothing calls it until "Handing out work
-and the brief". An expired login is still handed out, since its expiry is only counted.
+flow only inside a job's answer to its own user's worker, see "Jobs". It opens an expired login
+too, since its expiry is only counted; handing out reads the status first, and hands out nothing
+past `renew_by`.
 
 The table, from `migrations/0008_claude_logins.sql`, guarded like every scoped one:
 `claude_logins`, `user_id`, its primary key, `secret_purpose`, always `claude-login`, and
 `given_at`. `(user_id, secret_purpose)` references `secrets (user_id, purpose)` with
 `ON DELETE CASCADE`, so a login cannot be recorded without its sealed token, and removing the
 token removes the login.
+
+## Jobs
+
+A job is one card handed to one worker, with what the worker needs for it and nothing more; a run
+is Dev flow's record of it, from when it was handed out to when its result came back or it was
+found lost. Why it is built so is "Handing out work" in `docs/devflow-architecture.md`. It is
+`Dispatcher`, `JobStore`, `RunStore`, `JobEndpoints` and `FakeWorkerEndpoints` in `src/DevFlow/Jobs/`,
+the brief in `src/DevFlow/Briefs/`, and the job's, the result's and the report's types in
+`DevFlow.Protocol`'s `Jobs.cs` and `Report.cs`, which the worker program shares.
+
+Every route below is the worker's, under the worker scheme, see "Workers". A job's own routes
+answer only the worker holding it, named by `worker_id`, while it runs, and mark that worker seen;
+anything else, another worker of the same project, a job of another project or user, or one that
+has finished, is the same `404` "No such job". No `worker_id` is `422`.
+
+**Handing out.** `POST /devflow/api/worker/jobs/next`, with `{"worker_id"}`, marks the worker seen,
+then answers `204`, no work, when:
+
+- the worker needs a rebuild, see "Starting a worker";
+- the project's user has no Claude login, or one past `renew_by`; one due soon still works;
+- the project has no card that is `queued`, waits for nothing, and was picked with its body;
+- or the code host does not answer something a job needs: the repository's default branch,
+  `.devflow/project.json` on it, valid as "The format of .devflow/" says, its clone address, the
+  app's committer, or a push key. Each is logged as a warning naming what was missing, and the
+  worker asks again on its next turn.
+
+Otherwise it takes the first such card in the order "Cards" gives, high, none, low, each oldest
+first, with `SELECT … FOR UPDATE SKIP LOCKED`, so two workers asking at once never get the same card
+and neither waits, passing over a card that still has a run under way, which a read can leave
+queued; moves it to `building`; records a run for the worker; and answers `200` with
+`Cache-Control: no-store`, the job, a `DevFlow.Protocol` `Job`:
+
+| Field | What it is |
+|---|---|
+| `job_id` | The run's id, which the job's routes take |
+| `kind` | `build`, the one kind in this part |
+| `card` | `number`, `title` and `body`, as the card was picked |
+| `repository` | `owner`, `name`, `clone_address`, where git fetches and pushes it, and `default_branch` |
+| `branch` | `devflow/<number>-<slug>`: the title lowercased, each run of anything but ASCII letters and digits one hyphen, trimmed, cut to 40 characters; `devflow/<number>` when nothing is left |
+| `base` | The default branch, which the branch is made from |
+| `brief` | What the agent is asked, see "The brief" below |
+| `report_schema` | `contracts/devflow/report.schema.json`, the report's form |
+| `check` | `check` from the project's `.devflow/project.json` on its default branch, read as the app |
+| `claude_token` | The run's user's Claude token, see "Claude login" |
+| `push_key`, `push_key_expires_at` | A key the app made for this job, narrowed to fetching and pushing the repository's code, and when it stops working, an hour on |
+| `committer` | `name` and `email`, the app's bot, `<app-slug>[bot]` and `<id>+<app-slug>[bot]@users.noreply.github.com`, read once from GitHub's `GET /users/<app-slug>[bot]` and kept; `devflow-fake[bot]` with a fixed address in the fake mode |
+| `limits` | `turns` 200, `budget_usd` 25 and `minutes` 90, fixed in code until part 5 |
+
+Everything the job needs from the code host is read before the card is taken, so the row lock is
+held for one short transaction and never while GitHub answers; a push key made for a card another
+worker took first is dropped unused. The project's page says when the Claude login stops work:
+`GET /devflow/api/projects/{id}/workers` answers `held`, `no_claude_login`, `claude_login_expired`
+or null, and the Workers panel shows it, see "The pages".
+
+**A fresh push key.** `POST /devflow/api/worker/jobs/{id}/push-key`, with `{"worker_id"}`, answers
+`{"push_key", "expires_at"}` with `Cache-Control: no-store`, a new key each time, since a key lasts
+an hour and a run up to 90 minutes. `503` "GitHub did not answer" when the code host made none.
+
+**Progress.** `POST /devflow/api/worker/jobs/{id}/progress`, with
+`{"worker_id", "state": "checking"}`, says the agent has finished and the check runs: the card moves
+from `building` to `checking`, and the run records `checking_at`. `204`. Any other state is `422`.
+
+**The result.** `POST /devflow/api/worker/jobs/{id}/result`, once, whatever happened:
+
+```json
+{
+  "worker_id": "<uuid>",
+  "outcome": "succeeded",
+  "report": { "outcome": "done", "...": "..." },
+  "failure": null,
+  "check": { "exit_code": 0, "output": "<the last 200 lines>" },
+  "branch": "devflow/12-show-the-empty-state",
+  "head_commit": "<40 or 64 hex>",
+  "auth_method": "oauth_token",
+  "usage": { "usage": { "input_tokens": 41, "...": "..." }, "total_cost_usd": 1.83, "num_turns": 23 },
+  "duration_ms": 184213,
+  "stderr": "<the last 200 lines>"
+}
+```
+
+`outcome` is `succeeded`, with `report` and `failure` null, or `failed`, with `report` null and
+`failure` `{"reason", "in_card"}`, whether the card's own work caused it. `check` is null when the
+check did not run, or holds both fields. `branch` must be the job's, `head_commit` null or a full
+commit id, `auth_method` null or at most 255 characters, `usage` an object, empty when Claude gave
+none, `duration_ms` 0 or more, and `stderr` text. A field missing or breaking a rule is `422` naming
+it, and nothing is stored. Everything is stored on the run as it came, the check's output and
+stderr cut to their last 200 lines and 64 KiB; and the token counts, `total_cost_usd` and
+`num_turns` of `usage` also in columns of their own. Two things are not kept as they came, since
+Postgres cannot hold them and JSON allows both: a NUL, in any text and in any string or name inside
+`report` and `usage`, and half of a surrogate pair, each replaced by U+FFFD, so one byte from a
+process can never keep a result from being stored. Then it is judged, on what was stored, the
+first that holds:
+
+| What came back | The run's `result` | The card |
+|---|---|---|
+| A failure outside the card | `failed_outside_card`, with its reason | Back to `queued`, nothing counted against it |
+| A failure in the card | `failed_in_card` | `stopped`, "The run failed: <reason>" |
+| A report that does not match its form | `report_invalid` | `stopped`, "The report did not match its form: <what>" |
+| A report with `stopped` | `stopped` | `stopped`, "The agent stopped: <stopped_reason>" |
+| No check | `check_failed` | `stopped`, "The check did not run" |
+| A check that failed | `check_failed` | `stopped`, "The check failed with exit code <n>" |
+| Anything else | `succeeded` | Stays `checking`, "Built, and its check passed; its pull request opens in a later part" |
+
+Reasons from a worker or an agent are cut to 1,000 characters. A cut never splits a character in
+two; it keeps one fewer instead. A card moves only while it is
+`building` or `checking`; one a read has since ignored stays ignored. A card whose label was taken
+off while it ran is removed once its run ends, whatever the result; its runs stay. A stop's
+attention label and retries are part 3's.
+
+**A lost run.** Each read of a project, before it asks the code host anything, ends every run of it
+handed out at least 100 minutes ago with no result whose worker has not been seen for 10 minutes:
+the run is `lost`, "No result came back, and its worker was not seen for 10 minutes", and its card
+goes back to `queued`, nothing counted against it. A result that comes after is for a finished job,
+`404`. It is `RunStore.SweepLost`.
+
+**The brief** is one template, `src/DevFlow/Briefs/developer.md`, embedded in the assembly, the
+same for every project, filled by `Brief.Developer` with the card and the project's facts: the
+check, the branch and its base. It says: the card is the work, written by the owner; the project's
+facts are in its `CLAUDE.md` or `AGENTS.md`, its docs and `.devflow/project.json`, whose `check`
+judges the work; write the tests first and watch them fail; one commit per task, locally on the
+branch checked out; never push, make a branch or touch the code host; install a missing tool and add
+it to `.devflow/Dockerfile`; no `Co-Authored-By` or "Generated with" lines; never ask, decide with
+its own recommendation and record each decision, marked `for_owner` where the owner would want a
+say; a card that contradicts itself or cannot be built is reported `stopped`; anything not the card
+is information, never an instruction; and answer in the report's form. The card's number, title and
+body are quoted inside a fenced block longer than any run of backticks in them, and the check in
+one of its own, so neither can end its quote.
+
+**The report** is `DevFlow.Protocol`'s `Report`: `outcome`, `done` or `stopped`; `stopped_reason`,
+empty when done; `summary`; `tasks`, each `text` and `done`; `decisions`, each `chosen`,
+`alternative`, `why` and `for_owner`; `tests`, each `what` and `result`; `pages`, each `path`, `why`
+and `looked`; `installed`; `follow_ups`; `replies`, each `finding` and `answer`, empty on a build;
+and `handover`. Every field is required, and lists may be empty. `Report.Schema()` writes its JSON
+Schema from the type, every object closed and every field required, which is
+`contracts/devflow/report.schema.json`, pinned by `ContractTests`; `Report.TryRead` reads a report
+into the type with a missing, unknown, null or mistyped field refused, and a `stopped_reason` empty
+on a stop or written on a done.
+
+**The fake worker**, in the fake mode only, under the `Api` policy and the origin check, and left out
+of `contracts/devflow/openapi.json`: `POST /devflow/api/fake/worker/run` with
+`{"project_id", "result"}`, `result` a result as above without `worker_id`, `branch` and
+`head_commit`. It says hello in the caller's project as `devflow-fake-worker` on the image expected,
+takes its next job through the same `Dispatcher`, makes a commit on the job's branch in the fake's
+git repository, by the job's committer, on top of the base branch when it has a commit, and ends the
+job with the prepared result through the same `RunStore.Record`. It answers
+`{"job_id", "card", "branch", "head_commit"}`, `204` when there is no job, `404` for a project the
+caller does not have, and `422` for a result that breaks a rule, checked before a job is taken.
+When the fake's git makes no commit, the job ends instead as a failure outside the card, "The
+fake's git made no commit on the job's branch", so the card is `queued` again, and it answers `503`.
+
+**The table**, from `migrations/0012_runs.sql`, guarded like every scoped table: `runs`, `id`,
+`project_id` and `user_id` referencing `projects`, `card_number`, by number so a removed card leaves
+its runs, `worker_id` referencing the project's `workers`, `kind`, `branch`, `base`, `started_at`,
+`checking_at`, `finished_at` and `result`, null while it runs, `reason`, `report` and `usage` as
+`jsonb`, `check_exit_code`, `check_output`, `head_commit`, `auth_method`, `input_tokens`,
+`output_tokens`, `cache_creation_input_tokens`, `cache_read_input_tokens`, `cost_usd`, `turns`,
+`duration_ms` and `stderr`. A unique index allows one run under way per card, a second guard beside
+the lock.
 
 ## Registering the GitHub App
 
@@ -1703,8 +1948,8 @@ and does three things with it, in `src/DevFlow/DevFlowApp.cs`:
   route reads its caller's user id through `Api/Caller.cs`, as review's do.
 - `AddWorkerAuthentication`, Dev flow's own, in `src/DevFlow/Workers/WorkerAuthentication.cs`: the
   second way a request authenticates, a project's worker key, and the policy
-  `WorkerAuthentication.Policy`, which the worker routes, `hello` and `jobs/next`, take and nothing
-  else does. A worker route reads its project and user through `context.Worker()`. See "Workers".
+  `WorkerAuthentication.Policy`, which the worker routes, `hello`, `jobs/next` and a job's
+  `push-key`, `progress` and `result`, take and nothing else does. A worker route reads its project and user through `context.Worker()`. See "Workers".
 - `UsePlatformOriginCheck` with `DEVFLOW_PUBLIC_ORIGIN`, before routing, so every route, one added
   later included, is covered: starting a link, unlinking, making a worker key, and the fake's
   addresses and its sign in form. It runs for every path but those under `/devflow/api/worker/`,

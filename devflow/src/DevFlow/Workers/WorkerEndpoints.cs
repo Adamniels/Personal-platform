@@ -1,7 +1,8 @@
 using DevFlow.Api;
+using DevFlow.ClaudeLogin;
+using DevFlow.Jobs;
 using DevFlow.Protocol;
 using DevFlow.Recipes;
-using DevFlow.Watching;
 
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
@@ -18,11 +19,12 @@ public sealed record WorkerKey(string Key, string SaveCommand);
 
 /// <summary>
 /// Workers over HTTP. The user's two, under the <c>Api</c> policy and the origin check: making a
-/// project's key, and listing its workers. The worker's two, under
-/// <see cref="WorkerAuthentication.Policy"/> and outside the origin check: <c>hello</c>, and
-/// asking for work, which answers nothing in this part. The worker's two take and answer
-/// <c>DevFlow.Protocol</c>'s types at its paths, which the worker program sends, so a change that
-/// breaks either side fails to compile. See "Workers" in devflow/README.md.
+/// project's key, and listing its workers. The worker's, under
+/// <see cref="WorkerAuthentication.Policy"/> and outside the origin check: <c>hello</c>, asking for
+/// work, and a fresh push key for the job it holds; the job's progress and result are
+/// <see cref="Jobs.JobEndpoints"/>. The worker's take and answer <c>DevFlow.Protocol</c>'s types at
+/// its paths, which the worker program sends, so a change that breaks either side fails to compile.
+/// See "Workers" and "Jobs" in devflow/README.md.
 /// </summary>
 public static class WorkerEndpoints
 {
@@ -47,12 +49,12 @@ public static class WorkerEndpoints
                 "A new key for the project's workers, answered this once with save_command, the command that saves it in ~/.devflow/<project>.env for the start command to read: Dev flow keeps only its SHA-256 and never shows it again. It replaces the project's last key at once, so a worker holding that one is refused from then on. 404 for a project the caller does not have.",
                 StatusCodes.Status404NotFound);
 
-        routes.MapGet("/devflow/api/projects/{id:guid}/workers", async Task<Results<Ok<WorkerList>, ProblemHttpResult>> (Guid id, HttpContext context, [FromServices] WorkerStore store, [FromServices] WorkerStart start) =>
+        routes.MapGet("/devflow/api/projects/{id:guid}/workers", async Task<Results<Ok<WorkerList>, ProblemHttpResult>> (Guid id, HttpContext context, [FromServices] WorkerStore store, [FromServices] WorkerStart start, [FromServices] ClaudeLogins logins) =>
                 await store.List(context.UserId(), id, start, context.RequestAborted) is { } list
-                    ? TypedResults.Ok(list)
+                    ? TypedResults.Ok(list with { Held = list.Held ?? Dispatcher.HeldFor(await logins.Status(context.UserId(), context.RequestAborted)) })
                     : NoSuchProject())
             .UserRoute("listWorkers", "The project's workers",
-                "Every worker that has said hello with the project's key, by when it first did, with what it reported, when it was last seen, and rebuild: recipe when it runs another version of the recipe than Dev flow last read, base_image when it runs on another base image than the one released, or null; key_made_at, when the project's key was made, null before one has been; recipe_version, the recipe's version as last read, null before then or when the default branch has none; start_command, the command that builds and starts the project's worker; and held, why the project hands out no work: stopped, when something landed on its default branch that Dev flow did not put there, unwatched, when its default branch has not been read for five minutes, or null. The key itself is never in it. 404 for a project the caller does not have.",
+                "Every worker that has said hello with the project's key, by when it first did, with what it reported, when it was last seen, and rebuild: recipe when it runs another version of the recipe than Dev flow last read, base_image when it runs on another base image than the one released, or null; key_made_at, when the project's key was made, null before one has been; recipe_version, the recipe's version as last read, null before then or when the default branch has none; start_command, the command that builds and starts the project's worker; and held, why the project hands out no work whichever worker asks, the first that applies: stopped, when something landed on its default branch that Dev flow did not put there, unwatched, when its default branch has not been read for five minutes, no_claude_login when its user has given no Claude login, claude_login_expired when it is past its renewal, or null. The key itself is never in it. 404 for a project the caller does not have.",
                 StatusCodes.Status404NotFound);
 
         routes.MapPost(WorkerApi.HelloPath, Hello)
@@ -62,8 +64,16 @@ public static class WorkerEndpoints
 
         routes.MapPost(WorkerApi.NextJobPath, NextJob)
             .WorkerRoute("workerNextJob", "A worker asks for work",
-                "Marks the worker seen and answers its next job; in this part there is none, so it is always 204. A project that is stopped, or whose default branch has not been watched for five minutes, hands out none. A worker that needs a rebuild, running another version of the recipe than Dev flow last read or another base image than the one released, is never given one. 409 for a worker that has not said hello in the key's project, which says hello and asks again; 422 without worker_id.",
-                StatusCodes.Status409Conflict, StatusCodes.Status422UnprocessableEntity);
+                "Marks the worker seen and answers its next job, 200 with Cache-Control: no-store: the first of its project's queued cards that waits for nothing, by priority, high, none, low, then oldest first, moved to building, with a run recorded for this worker. The job holds the card, the repository, the branch, the brief, the report's schema, the check, the run's user's Claude token, a push key narrowed to the repository and its expiry, the committer and the limits. 204 when there is no work for it: a project that is stopped, or whose default branch has not been watched for five minutes, no card to take, a user without a Claude login or with one past its renewal, a worker that needs a rebuild, running another version of the recipe than Dev flow last read or another base image than the one released, or the code host not answering what a job needs, such as the project's .devflow/project.json. 409 for a worker that has not said hello in the key's project, which says hello and asks again; 422 without worker_id.",
+                StatusCodes.Status409Conflict, StatusCodes.Status422UnprocessableEntity)
+            .Produces<Job>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status204NoContent);
+
+        routes.MapPost(WorkerApi.PushKeyRoute, PushKey)
+            .WorkerRoute("workerPushKey", "A fresh push key for a running job",
+                "A new push key for the job's repository, narrowed to fetching and pushing code, with when it expires, 200 with Cache-Control: no-store, since a key lasts an hour and a run up to 90 minutes. Only for the worker holding the job, named by worker_id, while the job runs; 404 for any other worker, a job that is not one of the project's, or one that has finished. 503 when the code host made no key now, which the worker asks for again; 422 without worker_id.",
+                StatusCodes.Status404NotFound, StatusCodes.Status422UnprocessableEntity, StatusCodes.Status503ServiceUnavailable)
+            .Produces<PushKeyAnswer>(StatusCodes.Status200OK);
 
         return routes;
     }
@@ -90,7 +100,7 @@ public static class WorkerEndpoints
             : TypedResults.Unauthorized();
     }
 
-    private static async Task<Results<NoContent, ProblemHttpResult>> NextJob(NextJobRequest request, HttpContext context, [FromServices] WorkerStore store, [FromServices] WorkerStart start, [FromServices] WatchStore watch)
+    private static async Task<Results<Ok<Job>, NoContent, ProblemHttpResult>> NextJob(NextJobRequest request, HttpContext context, [FromServices] Dispatcher dispatcher)
     {
         var errors = new Dictionary<string, string[]>();
         CheckId(request.WorkerId, errors);
@@ -99,29 +109,48 @@ public static class WorkerEndpoints
             return Invalid(errors);
         }
 
-        var caller = context.Worker();
-        var state = await store.Seen(caller, request.WorkerId!.Value, start.Image, context.RequestAborted);
-        if (state != WorkerState.Unknown && await watch.Hold(caller.UserId, caller.ProjectId, context.RequestAborted) != ProjectHold.None)
+        switch (await dispatcher.Next(context.Worker(), request.WorkerId!.Value, context.RequestAborted))
         {
-            // Stopped, or its default branch not watched for five minutes: no new work, whatever
-            // waits, until its user resumes it or the branch is read again. See "Watching the
-            // default branch" in devflow/README.md.
-            return TypedResults.NoContent();
+            case Jobs.NextJob.Unknown:
+                return TypedResults.Problem(statusCode: StatusCodes.Status409Conflict, title: "Say hello first",
+                    detail: "This worker has not said hello in its key's project. Send hello, then ask again.");
+            case Jobs.NextJob.Handed { Job: var job }:
+                // It holds the Claude token and a push key: kept by no cache on the way.
+                context.Response.Headers.CacheControl = "no-store";
+                return TypedResults.Ok(job);
+            default:
+                return TypedResults.NoContent();
         }
-
-        return state switch
-        {
-            WorkerState.Unknown => TypedResults.Problem(statusCode: StatusCodes.Status409Conflict, title: "Say hello first",
-                detail: "This worker has not said hello in its key's project. Send hello, then ask again."),
-            // Built from an older recipe or on another base image: no work, until the owner runs
-            // the start command again, as the project's page says.
-            WorkerState.NeedsRebuild => TypedResults.NoContent(),
-            // No jobs exist in this part.
-            _ => TypedResults.NoContent(),
-        };
     }
 
-    private static void CheckId(Guid? id, Dictionary<string, string[]> errors)
+    private static async Task<Results<Ok<PushKeyAnswer>, ProblemHttpResult>> PushKey(Guid id, PushKeyRequest request, HttpContext context, [FromServices] Dispatcher dispatcher)
+    {
+        var errors = new Dictionary<string, string[]>();
+        CheckId(request.WorkerId, errors);
+        if (errors.Count > 0)
+        {
+            return Invalid(errors);
+        }
+
+        switch (await dispatcher.PushKey(context.Worker(), id, request.WorkerId!.Value, context.RequestAborted))
+        {
+            case FreshKey.Made { Key: var key }:
+                context.Response.Headers.CacheControl = "no-store";
+                return TypedResults.Ok(key);
+            case FreshKey.Unavailable:
+                return TypedResults.Problem(statusCode: StatusCodes.Status503ServiceUnavailable, title: "GitHub did not answer",
+                    detail: "No push key could be made now. Ask again.");
+            default:
+                return NoSuchJob();
+        }
+    }
+
+    /// <summary>The one answer for a job the worker does not hold, whatever the reason, so a
+    /// worker cannot tell another's job from none.</summary>
+    internal static ProblemHttpResult NoSuchJob() =>
+        TypedResults.Problem(statusCode: StatusCodes.Status404NotFound, title: "No such job", detail: "this worker holds no such job under way");
+
+    internal static void CheckId(Guid? id, Dictionary<string, string[]> errors)
     {
         if (id is not { } value || value == Guid.Empty)
         {
@@ -137,7 +166,7 @@ public static class WorkerEndpoints
         }
     }
 
-    private static ProblemHttpResult Invalid(Dictionary<string, string[]> errors) =>
+    internal static ProblemHttpResult Invalid(Dictionary<string, string[]> errors) =>
         TypedResults.Problem(new HttpValidationProblemDetails(errors)
         {
             Status = StatusCodes.Status422UnprocessableEntity,
@@ -167,7 +196,7 @@ public static class WorkerEndpoints
 
     /// <summary>A worker's route, under <see cref="WorkerAuthentication.Policy"/> alone, named in
     /// the schema with the problems it may answer.</summary>
-    private static RouteHandlerBuilder WorkerRoute(this RouteHandlerBuilder route, string name, string summary, string description, params int[] problems)
+    internal static RouteHandlerBuilder WorkerRoute(this RouteHandlerBuilder route, string name, string summary, string description, params int[] problems)
     {
         route.RequireAuthorization(WorkerAuthentication.Policy)
             .WithName(name)

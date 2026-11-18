@@ -74,15 +74,16 @@ public static class CardStore
             await transaction.Connection!.ExecuteAsync(new CommandDefinition(
                 """
                 INSERT INTO cards (id, project_id, user_id, number, title, web_url, state, reason, waits_for, priority, issue_created_at,
-                                   picked_body_sha256, picked_title, picked_edit, unlabelled, changed_at, read_at)
+                                   picked_body_sha256, picked_title, picked_edit, picked_body, unlabelled, changed_at, read_at)
                 VALUES (@id, @projectId, @userId, @number, @title, @webUrl, @state, @reason, @waitsFor, @priority, @createdAt,
-                        @bodySha, @pickedTitle, @pickedEdit, false, @now, @now)
+                        @bodySha, @pickedTitle, @pickedEdit, @pickedBody, false, @now, @now)
                 ON CONFLICT (project_id, number) DO UPDATE
                 SET title = EXCLUDED.title, web_url = EXCLUDED.web_url, state = EXCLUDED.state, reason = EXCLUDED.reason,
                     waits_for = EXCLUDED.waits_for, priority = EXCLUDED.priority, issue_created_at = EXCLUDED.issue_created_at,
                     picked_body_sha256 = CASE WHEN @picked THEN EXCLUDED.picked_body_sha256 ELSE cards.picked_body_sha256 END,
                     picked_title = CASE WHEN @picked THEN EXCLUDED.picked_title ELSE cards.picked_title END,
                     picked_edit = CASE WHEN @picked THEN EXCLUDED.picked_edit ELSE cards.picked_edit END,
+                    picked_body = CASE WHEN @picked THEN EXCLUDED.picked_body ELSE cards.picked_body END,
                     unlabelled = false,
                     changed_at = CASE WHEN @changed THEN EXCLUDED.changed_at ELSE cards.changed_at END,
                     read_at = EXCLUDED.read_at
@@ -104,6 +105,7 @@ public static class CardStore
                     bodySha = card.Record?.BodySha256,
                     pickedTitle = card.Record?.Title,
                     pickedEdit = card.Record?.NewestEdit,
+                    pickedBody = card.Record?.Body,
                     changed,
                     now,
                 },
@@ -112,17 +114,22 @@ public static class CardStore
         }
     }
 
+    /// <summary>The order queued cards free to start are handed out in, as SQL over <c>cards</c>:
+    /// <c>priority: high</c>, then no priority, then <c>priority: low</c>, each oldest first by when
+    /// the issue was written. Handing out a job takes the first, see
+    /// <see cref="Jobs.JobStore.Claim"/>.</summary>
+    public const string QueueOrder = "CASE priority WHEN 'high' THEN 0 WHEN 'none' THEN 1 ELSE 2 END, issue_created_at, number";
+
     /// <summary>The numbers of the project's cards that are queued and free to start, in the order
-    /// they are handed out: <c>priority: high</c>, then no priority, then <c>priority: low</c>,
-    /// each oldest first by when the issue was written.</summary>
+    /// they are handed out, <see cref="QueueOrder"/>.</summary>
     public static async Task<IReadOnlyList<int>> Queue(UserDb database, Guid userId, Guid projectId, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(database);
         return [.. await database.InUserTransaction(userId, transaction => transaction.Connection!.QueryAsync<int>(new CommandDefinition(
-            """
+            $"""
             SELECT number FROM cards
             WHERE project_id = @projectId AND state = 'queued' AND cardinality(waits_for) = 0
-            ORDER BY CASE priority WHEN 'high' THEN 0 WHEN 'none' THEN 1 ELSE 2 END, issue_created_at, number
+            ORDER BY {QueueOrder}
             """,
             new { projectId },
             transaction,
