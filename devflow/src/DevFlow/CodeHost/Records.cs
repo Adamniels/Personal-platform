@@ -162,5 +162,6 @@ public enum EditKind
 /// <param name="At">When it was made.</param>
 /// <param name="Kind">Whether it changed the body or the title.</param>
 public sealed record IssueEdit(string Id, string Editor, DateTimeOffset At, EditKind Kind);
+
 /// <summary>Who a commit is made as.</summary>
 public sealed record Committer(string Name, string Email);
