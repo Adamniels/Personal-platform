@@ -2214,8 +2214,13 @@ the read's transaction, `OwnerComments.Take`: the card moves to `fixing`, "You c
 pull request; a fix runs next", with no round, answering his comments and the card's latest review
 if that review is for the card's head, so never one a fix has answered since; a card already
 waiting for a round's fix keeps the round and adds them. It is the only comment read as an input: anyone else's, the app's review copies
-among them, is neither a trigger nor in the brief. A comment written while a run is under way is
-taken by the first read after the run ends. Without a linked login nothing is read, and GitHub not answering fails
+among them, is neither a trigger nor in the brief. A comment written while a run is under way waits
+for the first read that falls between runs; in a review, fix and review loop those gaps last seconds
+and reads come once a minute, so it is often taken only once the card waits for him or stops. Nothing
+is lost meanwhile. `Take` locks the card's row in a statement of its own before its update checks
+for a run, since every claim locks that row and records its run before it commits: under read
+committed the update then sees a run a claim committed while it waited, where a check inside the
+update alone would read `runs` as they were when it began. Without a linked login nothing is read, and GitHub not answering fails
 the read as any other read does.
 
 **Sending back** a Dev flow card from "Waiting for you":

@@ -792,8 +792,10 @@ is still seen. Only blocking findings start another round.
 own records, round 4 of the spec; a comment on the pull request is where the owner already talks to
 the work, so it is read, but only his, by his linked login, and only as input to a fix, never as a
 verdict or an approval. It is taken by GitHub's comment id, which only grows, so a comment is acted
-on once, and only between runs, so one written while a run is under way waits for it to end rather
-than being lost or racing it. No time is compared, not even before his first comment: runs follow
+on once, and only between runs, so one written while a run is under way waits for a read that
+falls between runs rather than being lost or racing it; in a quick review and fix loop that is often
+only once the card waits for him or stops. "Between runs" is checked after the card's row is locked,
+the row every claim of a run locks, so a run claimed in the same moment is always seen. No time is compared, not even before his first comment: runs follow
 each other seconds apart, so a comment older than the card's last run is usually one written while
 an earlier run was under way, not one already answered. Sending a card back from "Waiting for you" posts his comment as him
 and lets the next read take it, so the comment on GitHub is the one record and there is one way in.
