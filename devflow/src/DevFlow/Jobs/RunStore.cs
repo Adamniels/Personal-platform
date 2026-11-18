@@ -119,13 +119,20 @@ public static class RunStore
     }
 
     /// <summary>The last <see cref="MostLines"/> lines of <paramref name="text"/>, and of those at
-    /// most the last <see cref="MostCharacters"/> characters.</summary>
+    /// most the last <see cref="MostCharacters"/> characters, one fewer where the cut would split a
+    /// surrogate pair.</summary>
     public static string Tail(string text)
     {
         ArgumentNullException.ThrowIfNull(text);
         var lines = text.Split('\n');
         var kept = lines.Length > MostLines ? string.Join('\n', lines[^MostLines..]) : text;
-        return kept.Length > MostCharacters ? kept[^MostCharacters..] : kept;
+        if (kept.Length <= MostCharacters)
+        {
+            return kept;
+        }
+
+        var start = kept.Length - MostCharacters;
+        return kept[(char.IsLowSurrogate(kept[start]) && char.IsHighSurrogate(kept[start - 1]) ? start + 1 : start)..];
     }
 
     /// <summary>Marks the run's check begun and its card <c>checking</c>, when the worker holds
@@ -159,14 +166,17 @@ public static class RunStore
     }
 
     /// <summary>
-    /// Stores <paramref name="result"/> on the run, as it came, with the figures the usage page
-    /// reads, judges it by <see cref="Judge"/> and moves the card, in one transaction; only when
-    /// the worker holds the run under way, and the result names the job's branch.
+    /// Stores <paramref name="result"/> on the run, as it came but made <see cref="Storable"/>,
+    /// with the figures the usage page reads, judges it by <see cref="Judge"/> and moves the card,
+    /// in one transaction; only when the worker holds the run under way, and the result names the
+    /// job's branch.
     /// </summary>
     public static async Task<Recorded> Record(UserDb database, Guid userId, Guid projectId, Guid runId, Guid workerId, RunResult result, DateTimeOffset now, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(database);
         ArgumentNullException.ThrowIfNull(result);
+        // Judged on what is stored, so a report is read with the same text the owner reads.
+        result = Storable.Result(result);
         var ending = Judge(result);
         return await database.InUserTransaction(userId, async transaction =>
         {
@@ -303,8 +313,12 @@ public static class RunStore
             ? value
             : null;
 
-    /// <summary>A reason from a worker or an agent, cut to <see cref="MostReason"/>.</summary>
-    private static string Cut(string reason) => reason.Length > MostReason ? reason[..MostReason] : reason;
+    /// <summary>A reason from a worker or an agent, cut to <see cref="MostReason"/>, one fewer
+    /// where the cut would split a surrogate pair.</summary>
+    private static string Cut(string reason) =>
+        reason.Length <= MostReason ? reason
+        : char.IsHighSurrogate(reason[MostReason - 1]) && char.IsLowSurrogate(reason[MostReason]) ? reason[..(MostReason - 1)]
+        : reason[..MostReason];
 
     private sealed record HeldRun(int CardNumber, string Branch);
 }

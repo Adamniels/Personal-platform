@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
+using DevFlow.Jobs;
 using DevFlow.Protocol;
 using DevFlow.Reading;
 using DevFlow.Tests.Workers;
@@ -264,6 +265,91 @@ public sealed class ResultTests
         // Without a key, 401.
         var none = await Workers.Workers.AsWorker(jobs.Routes.App, WorkerApi.ResultPath(id), Jobs.Result(Jobs.FirstWorker, branch).ToJsonString());
         Assert.Equal(StatusCodes.Status401Unauthorized, none.Response.StatusCode);
+    }
+
+    /// <summary>A result as the worker would send it, with each <c>"LONE"</c> written as two lone
+    /// halves of surrogate pairs, an escape JSON allows and no text can hold.</summary>
+    private static Task<HttpContext> PostRaw(Jobs jobs, Guid id, JsonObject sent) =>
+        Workers.Workers.AsWorker(
+            jobs.Routes.App,
+            WorkerApi.ResultPath(id),
+            sent.ToJsonString().Replace("\"LONE\"", "\"\\ud800 and \\udc00\"", StringComparison.Ordinal),
+            null,
+            Workers.Workers.Bearer(jobs.Key));
+
+    [Fact]
+    public async Task TextPostgresCannotHoldIsStoredReplaced()
+    {
+        var (jobs, id, branch) = await Handed();
+        await using var _ = jobs;
+        // A NUL, which neither text nor jsonb holds, in every text the worker sends, and lone
+        // halves of surrogate pairs inside the report and the usage, which are JSON as they came.
+        var sent = Jobs.Result(Jobs.FirstWorker, branch);
+        sent["check"]!["output"] = "Tests: 12 passed\0\u0001";
+        sent["stderr"] = "a\0warning";
+        sent["auth_method"] = "oauth\0token";
+        sent["report"]!["summary"] = "Added\0 the empty state.";
+        sent["report"]!["handover"] = "LONE";
+        sent["usage"]!["note\0"] = "x\0y";
+        sent["usage"]!["lone"] = "LONE";
+
+        var response = await PostRaw(jobs, id, sent);
+
+        // Stored, each such character replaced by U+FFFD, and judged on what was stored.
+        Assert.Equal(StatusCodes.Status204NoContent, response.Response.StatusCode);
+        var run = Assert.Single(await jobs.Runs());
+        Assert.Equal("succeeded", run.Result);
+        Assert.Equal("Tests: 12 passed\uFFFD\u0001", run.CheckOutput);
+        Assert.Equal("a\uFFFDwarning", run.Stderr);
+        Assert.Equal("oauth\uFFFDtoken", run.AuthMethod);
+        var report = JsonNode.Parse(run.Report!)!;
+        Assert.Equal("Added\uFFFD the empty state.", (string)report["summary"]!);
+        Assert.Equal("\uFFFD and \uFFFD", (string)report["handover"]!);
+        var usage = JsonNode.Parse(run.Usage!)!;
+        Assert.Equal("x\uFFFDy", (string)usage["note\uFFFD"]!);
+        Assert.Equal("\uFFFD and \uFFFD", (string)usage["lone"]!);
+        Assert.Equal(41, run.InputTokens);
+        Assert.Equal(1.8342m, run.CostUsd);
+        Assert.Equal("checking", (await jobs.Card(1)).State);
+    }
+
+    [Fact]
+    public async Task AReasonPostgresCannotHoldStopsTheCardWithIt()
+    {
+        var (jobs, id, branch) = await Handed();
+        await using var _ = jobs;
+
+        var response = await jobs.Post(WorkerApi.ResultPath(id), Jobs.Failure(Jobs.FirstWorker, branch, inCard: true, "the tool\0 crashed"));
+
+        Assert.Equal(StatusCodes.Status204NoContent, response.Response.StatusCode);
+        var card = await jobs.Card(1);
+        Assert.Equal("stopped", card.State);
+        Assert.Equal("The run failed: the tool\uFFFD crashed", card.Reason);
+        Assert.Equal(card.Reason, Assert.Single(await jobs.Runs()).Reason);
+    }
+
+    [Fact]
+    public async Task CuttingTextNeverSplitsACharacter()
+    {
+        var (jobs, id, branch) = await Handed();
+        await using var _ = jobs;
+        // Where the kept tail of the output and the cut reason end falls inside an emoji, two
+        // UTF-16 code units, whose halves alone are not UTF-8.
+        const string Emoji = "\U0001F600";
+        var output = string.Concat(Enumerable.Repeat(Emoji, RunStore.MostCharacters / 2)) + "x";
+        var prefix = "The agent stopped: ";
+        var why = new string('x', RunStore.MostReason - prefix.Length - 1) + Emoji;
+        var sent = Jobs.Result(Jobs.FirstWorker, branch, Jobs.GoodReport("stopped", why), checkExit: 1);
+        sent["check"]!["output"] = output;
+
+        var response = await jobs.Post(WorkerApi.ResultPath(id), sent);
+
+        // Each is cut before the emoji rather than through it.
+        Assert.Equal(StatusCodes.Status204NoContent, response.Response.StatusCode);
+        var run = Assert.Single(await jobs.Runs());
+        Assert.Equal(output[2..], run.CheckOutput);
+        Assert.Equal(prefix + why[..^Emoji.Length], run.Reason);
+        Assert.Equal(run.Reason, (await jobs.Card(1)).Reason);
     }
 
     [Theory]

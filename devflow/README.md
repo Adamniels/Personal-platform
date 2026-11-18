@@ -1621,7 +1621,11 @@ commit id, `auth_method` null or at most 255 characters, `usage` an object, empt
 none, `duration_ms` 0 or more, and `stderr` text. A field missing or breaking a rule is `422` naming
 it, and nothing is stored. Everything is stored on the run as it came, the check's output and
 stderr cut to their last 200 lines and 64 KiB; and the token counts, `total_cost_usd` and
-`num_turns` of `usage` also in columns of their own. Then it is judged, the first that holds:
+`num_turns` of `usage` also in columns of their own. Two things are not kept as they came, since
+Postgres cannot hold them and JSON allows both: a NUL, in any text and in any string or name inside
+`report` and `usage`, and half of a surrogate pair, each replaced by U+FFFD, so one byte from a
+process can never keep a result from being stored. Then it is judged, on what was stored, the
+first that holds:
 
 | What came back | The run's `result` | The card |
 |---|---|---|
@@ -1633,7 +1637,8 @@ stderr cut to their last 200 lines and 64 KiB; and the token counts, `total_cost
 | A check that failed | `check_failed` | `stopped`, "The check failed with exit code <n>" |
 | Anything else | `succeeded` | Stays `checking`, "Built, and its check passed; its pull request opens in a later part" |
 
-Reasons from a worker or an agent are cut to 1,000 characters. A card moves only while it is
+Reasons from a worker or an agent are cut to 1,000 characters. A cut never splits a character in
+two; it keeps one fewer instead. A card moves only while it is
 `building` or `checking`; one a read has since ignored stays ignored. A card whose label was taken
 off while it ran is removed once its run ends, whatever the result; its runs stay. A stop's
 attention label and retries are part 3's.
