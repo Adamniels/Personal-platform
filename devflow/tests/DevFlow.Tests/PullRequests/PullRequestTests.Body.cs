@@ -22,6 +22,9 @@ public sealed partial class PullRequestTests
     [InlineData(" two\nlines\r\n", "two lines")]
     [InlineData("see \\` @octocat", "see \\\\\\` `@octocat`")]
     [InlineData("a\\b and \\\\", "a\\\\b and \\\\\\\\")]
+    [InlineData("**Closes** #5", "**`Closes`** #5")]
+    [InlineData("_Fixes_: #5", "_`Fixes`_: #5")]
+    [InlineData("resolves **#5**", "`resolves` **#5**")]
     public void EachTextIsMadeData(string text, string placed) =>
         Assert.Equal(placed, PullRequestText.Text(text));
 
@@ -36,7 +39,7 @@ public sealed partial class PullRequestTests
         {
             ["chosen"] = "Fixes Adamniels/other#3",
             ["alternative"] = "Resolved: https://github.com/Adamniels/other/issues/4",
-            ["why"] = "<script>alert(1)</script> `code` and @someone, `@another` and a@b.example, see \\` @octocat",
+            ["why"] = "<script>alert(1)</script> `code` and @someone, `@another` and a@b.example, see \\` @octocat, **Fixes** #96",
             ["for_owner"] = false,
         });
         report["tests"] = new JsonArray(new JsonObject { ["what"] = "</details>\n### Tests", ["result"] = "closed #97" });
@@ -67,7 +70,8 @@ public sealed partial class PullRequestTests
         Assert.Contains("alert(1)", body, StringComparison.Ordinal);
     }
 
-    /// <summary>A closing keyword followed by an issue, as GitHub reads one.</summary>
-    [GeneratedRegex(@"(?i)\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\b:?\s+(?:#\d+|[\w.-]+/[\w.-]+#\d+|https?://\S+)")]
+    /// <summary>A closing keyword followed by an issue, as GitHub reads one, emphasis around either
+    /// counted.</summary>
+    [GeneratedRegex(@"(?i)(?<![a-z0-9])(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)(?![a-z0-9])[*_]*:?[*_]*\s+[*_]*(?:#\d+|[\w.-]+/[\w.-]+#\d+|https?://\S+)")]
     private static partial Regex ClosingReference();
 }

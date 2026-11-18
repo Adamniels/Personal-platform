@@ -1979,7 +1979,8 @@ and a last line, "Built by Dev flow for #<card>, run <run id>.". Every text from
 agent's, and data: it is made one line; `&`, `<` and `>` are written as entities; its backslashes
 and backticks are escaped, so a backslash of its own cannot undo an escape; a `#` it begins with is
 escaped; a closing keyword, `close`, `fix` or `resolve` in any
-form, followed by `#12`, `GH-12`, `owner/name#12` or an address, has the keyword in a code span; and
+form, followed by `#12`, `GH-12`, `owner/name#12` or an address, with or without emphasis around
+either, has the keyword in a code span; and
 an `@` mention is in a code span. So it cannot add a section, insert HTML, close another issue or
 notify anyone. The check is the project's own, from its default branch, and is shown in a code
 span as it is.

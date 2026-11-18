@@ -143,8 +143,10 @@ public static partial class PullRequestText
     }
 
     /// <summary>A keyword GitHub closes an issue with, when what follows it, after an optional
-    /// colon, is an issue: <c>#12</c>, <c>GH-12</c>, <c>owner/name#12</c> or an address.</summary>
-    [GeneratedRegex(@"\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\b(?=:?\s+(?:#\d|GH-\d|[\w.-]+/[\w.-]+#\d|https?://))", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    /// colon, is an issue: <c>#12</c>, <c>GH-12</c>, <c>owner/name#12</c> or an address. Emphasis
+    /// around the keyword or the issue, <c>**Closes** #12</c> or <c>fixes _#12_</c>, does not hide
+    /// one, since whether GitHub reads through it is not something to rely on.</summary>
+    [GeneratedRegex(@"(?<![a-z0-9])(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)(?![a-z0-9])(?=[*_]*:?[*_]*\s+[*_]*(?:#\d|GH-\d|[\w.-]+/[\w.-]+#\d|https?://))", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex ClosingKeyword();
 
     /// <summary>An <c>@</c> mention of a login or a team, as GitHub notifies one: not inside a word,
