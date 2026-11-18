@@ -2224,8 +2224,10 @@ policy and the origin check, posts the comment, trimmed and with nothing added, 
 request as the owner with his linked token, never as the app, and reads the project again, which
 takes it as above. In this order: `404` "No such card"; `422` for a comment missing, empty once
 trimmed or longer than 10,000 characters; `409` "This card cannot be sent back now" for a card that
-neither waits for him nor has stopped, or has no open pull request; `409` without a usable link;
-then GitHub is asked: `204` once posted, `409` "GitHub refused the comment" with its reason, and
+neither waits for him nor has stopped, or has no open pull request; for a stopped card, whose pull
+request no read follows, GitHub is asked whether it is still open, with `409` "Its pull request is
+no longer open" and `503` when GitHub did not answer, nothing posted; `409` without a usable link;
+then GitHub is asked to post: `204` once posted, `409` "GitHub refused the comment" with its reason, and
 `503` when GitHub did not answer, after the project is read again. A stopped card is offered it
 from the list once "Stops" lists stopped cards; the route takes one already.
 

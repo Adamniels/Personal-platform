@@ -437,6 +437,18 @@ public sealed class FixTests
         Fixed.Later(jobs);
         Assert.Equal(StatusCodes.Status204NoContent, (await SendBack(jobs, 4, "Try once more, smaller.")).Response.StatusCode);
         Assert.Equal("fixing", (await jobs.Card(4)).State);
+
+        // A stopped card whose pull request was closed after it stopped, which no read follows, is
+        // refused once GitHub says so, and nothing is posted.
+        Fixed.Later(jobs);
+        var again = await jobs.Job();
+        failure = Jobs.Jobs.Failure(Jobs.Jobs.FirstWorker, (string)again["branch"]!, inCard: true, "It ran past its turns");
+        Assert.Equal(StatusCodes.Status204NoContent, (await jobs.Post(WorkerApi.ResultPath((Guid)again["job_id"]!), failure)).Response.StatusCode);
+        Assert.Equal("stopped", (await jobs.Card(4)).State);
+        Built.OnGitHub(jobs, pull, PullRequestState.Closed);
+        var posted = jobs.Fake.Writes(Jobs.Jobs.User).Count(write => write.Kind == "comment" && write.By == Jobs.Jobs.Owner);
+        Assert.Equal(StatusCodes.Status409Conflict, (await SendBack(jobs, 4, "Once more.")).Response.StatusCode);
+        Assert.Equal(posted, jobs.Fake.Writes(Jobs.Jobs.User).Count(write => write.Kind == "comment" && write.By == Jobs.Jobs.Owner));
     }
 
     [Fact]

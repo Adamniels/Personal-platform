@@ -125,6 +125,23 @@ public static class ActionEndpoints
             return Conflict("This card cannot be sent back now", "A card is sent back while it waits for you or has stopped, with its pull request open.");
         }
 
+        // A stopped card's pull request is not followed by the read, so one closed since it stopped
+        // is known only by asking; a comment on it would be taken by no read.
+        if (card.State == "stopped")
+        {
+            switch (await host.PullRequest(userId, card.Repository, pull, cancellationToken))
+            {
+                case CodeHostResult<PullRequest>.Found { Value.State: PullRequestState.Open }:
+                    break;
+                case CodeHostResult<PullRequest>.Found or CodeHostResult<PullRequest>.NotFound:
+                    return Conflict("This card cannot be sent back now", "Its pull request is no longer open.");
+                case CodeHostResult<PullRequest>.Unavailable { RetryAt: var retryAt }:
+                    return Unavailable(context, time, retryAt, "GitHub could not say whether the card's pull request is open; nothing was posted.");
+                default:
+                    throw new InvalidOperationException("a code host result that is not one of the three");
+            }
+        }
+
         var userToken = await tokens.For(userId, cancellationToken);
         if (userToken is not UserToken.Usable { Token: var access })
         {
