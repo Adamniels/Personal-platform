@@ -58,6 +58,7 @@ public sealed class BuildJobTests
 
         // Nothing of the job is left.
         Assert.Empty(Directory.EnumerateFileSystemEntries(bench.Folders.Secrets));
+        Assert.Empty(Directory.EnumerateFileSystemEntries(bench.Folders.Handover));
         Assert.Empty(Directory.EnumerateFileSystemEntries(bench.Folders.Work));
     }
 

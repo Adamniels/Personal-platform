@@ -40,7 +40,7 @@ internal sealed class Bench : IAsyncDisposable
         Root = root;
         Remote = remote;
         Handler = handler;
-        Folders = new JobFolders(Directory.CreateDirectory(Path.Combine(root, "run")).FullName, Directory.CreateDirectory(Path.Combine(root, "work")).FullName);
+        Folders = new JobFolders(RootsFolder(root, "run"), RootsFolder(root, "handover"), Directory.CreateDirectory(Path.Combine(root, "work")).FullName);
         User = new AgentUser(null, Directory.CreateDirectory(Path.Combine(root, "home")).FullName, System.Environment.GetEnvironmentVariable("PATH")!, "C.UTF-8");
         var settings = WorkerSettings.Load(Environment(("DEVFLOW_URL", jobs.Routes.App.Server.BaseAddress.ToString()), ("DEVFLOW_PROJECT_KEY", jobs.Key)), out _)!;
         _http = DevFlowClient.CreateHttpClient(settings, handler);
@@ -194,6 +194,19 @@ internal sealed class Bench : IAsyncDisposable
         await Git(clone, [.. Someone, "commit", "--quiet", "-m", message]);
         await Git(clone, "push", "--quiet", "origin", $"HEAD:refs/heads/{branch}");
         return await Git(clone, "rev-parse", "HEAD");
+    }
+
+    /// <summary>A folder of the bench's for root's job folders, which only its owner can write, as
+    /// in the image, whatever the test's umask.</summary>
+    private static string RootsFolder(string root, string name)
+    {
+        var folder = Directory.CreateDirectory(Path.Combine(root, name)).FullName;
+        if (!OperatingSystem.IsWindows())
+        {
+            File.SetUnixFileMode(folder, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute | UnixFileMode.GroupRead | UnixFileMode.GroupExecute | UnixFileMode.OtherRead | UnixFileMode.OtherExecute);
+        }
+
+        return folder;
     }
 
     /// <summary>The folder's mode.</summary>

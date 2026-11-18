@@ -15,7 +15,8 @@ internal sealed record BuildTools(IAgent Agent, IProcessStarter Root, IProcessSt
 /// <summary>
 /// One build job, from the job Dev flow handed out to the result it gets back, as Settled in the
 /// slice "The worker builds and pushes". Root clones the repository with the push key into a bare
-/// repository of its own; the agent clones that, through a bundle, into its working copy, and works
+/// repository of its own; the agent clones that, through a bundle root writes in a folder only root
+/// can write, into its working copy, and works
 /// there as <c>agent</c> within the time limit; what it left uncommitted is committed in its copy,
 /// as it; root fetches its branch back; the check runs as <c>agent</c> on a clean clone of that
 /// commit; root pushes it, never forced; the result goes to Dev flow; and the job's folders are
@@ -90,7 +91,7 @@ internal sealed partial class BuildJob(DevFlowClient devFlow, Guid workerId, Bui
             }
             finally
             {
-                Remove(paths);
+                await Remove(paths);
             }
         }
 
@@ -143,24 +144,16 @@ internal sealed partial class BuildJob(DevFlowClient devFlow, Guid workerId, Bui
     /// Root clones the repository with the push key into its own bare repository, mode 700 inside
     /// the job's folder of secrets, and checks the job's branch out there: the remote's when it has
     /// one, from a run that was lost, and otherwise a new one at the base. The agent then clones it,
-    /// through a bundle root writes in the agent's folder, since the agent cannot read root's, into
-    /// its working copy, with the app's bot as its committer. Answers the commit the branch started
-    /// at.
+    /// through a bundle root writes in the job's handover folder, which the agent can read and not
+    /// write, into its working copy, with the app's bot as its committer. Answers the commit the
+    /// branch started at.
     /// </summary>
     private async Task<string> Fetch(Job job, JobPaths paths, CancellationToken stopping)
     {
         Directory.CreateDirectory(tools.Folders.Secrets);
-        if (Directory.Exists(paths.Secret))
-        {
-            Directory.Delete(paths.Secret, recursive: true);
-        }
-
-        if (OperatingSystem.IsWindows())
-        {
-            throw new PlatformNotSupportedException("the worker runs on Linux");
-        }
-
-        Directory.CreateDirectory(paths.Secret, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        Directory.CreateDirectory(tools.Folders.Handover);
+        RootsOwn(paths.Secret, RootOnly);
+        RootsOwn(paths.Handover, RootWritesAgentReads);
         var credential = new PushCredential(job.PushKey, job.Repository.CloneAddress);
         await Root(paths, ["clone", "--bare", "--quiet", "--", job.Repository.CloneAddress.OriginalString, paths.Repository], FailureSide.OutsideCard, "The repository could not be fetched", stopping, credential, inSecret: true);
 
@@ -389,21 +382,56 @@ internal sealed partial class BuildJob(DevFlowClient devFlow, Guid workerId, Bui
         }
     }
 
-    /// <summary>A clone the agent makes of <paramref name="refs"/> of root's repository, in
-    /// <paramref name="target"/>, through a bundle root writes in the job's folder and removes
-    /// after; the clone's remote is that bundle's path, which holds no credentials.</summary>
+    /// <summary>
+    /// A clone the agent makes of <paramref name="refs"/> of root's repository, in
+    /// <paramref name="target"/>, through a bundle root writes in the job's handover folder and
+    /// removes after; the clone's remote is that bundle's path, which holds no credentials. Root
+    /// never writes in the agent's folder: a link the agent left there, or the folder itself
+    /// replaced with one, would turn root's write into one at a path of the agent's choosing.
+    /// </summary>
     private async Task CloneForAgent(Job job, JobPaths paths, IReadOnlyList<string> refs, string target, IReadOnlyList<string> config, string what, CancellationToken stopping)
     {
-        var bundle = $"{target}.bundle";
+        var bundle = Path.Combine(paths.Handover, $"{Path.GetFileName(target)}.bundle");
         try
         {
             await Root(paths, ["bundle", "create", "--quiet", bundle, .. refs], FailureSide.OutsideCard, what, stopping);
+            if (!OperatingSystem.IsWindows())
+            {
+                // Readable by the agent whatever root's umask is.
+                File.SetUnixFileMode(bundle, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.GroupRead | UnixFileMode.OtherRead);
+            }
+
             await AgentGit(paths.Work, ["clone", "--quiet", "--branch", job.Branch, .. config, "--", bundle, target], what, stopping);
         }
         finally
         {
             File.Delete(bundle);
         }
+    }
+
+    /// <summary>Root's folder for the job at <paramref name="folder"/>, made new with
+    /// <paramref name="mode"/>, in a parent no one but its owner can write, so the agent cannot
+    /// have put anything there or swap the folder.</summary>
+    private static void RootsOwn(string folder, UnixFileMode mode)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            throw new PlatformNotSupportedException("the worker runs on Linux");
+        }
+
+        var parent = Path.GetDirectoryName(folder)!;
+        if ((File.GetUnixFileMode(parent) & (UnixFileMode.GroupWrite | UnixFileMode.OtherWrite)) != 0)
+        {
+            throw new StepFailed(FailureSide.OutsideCard, $"{parent} can be written by others than root, so the worker does not use it");
+        }
+
+        if (Directory.Exists(folder))
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+
+        Directory.CreateDirectory(folder, mode);
+        File.SetUnixFileMode(folder, mode);
     }
 
     /// <summary>The commit a branch of root's repository is at, or null when it has none.</summary>
@@ -445,23 +473,33 @@ internal sealed partial class BuildJob(DevFlowClient devFlow, Guid workerId, Bui
     }
 
     /// <summary>
-    /// Removes the job's folders. One the agent replaced with a link is removed as a link, never
-    /// followed, since the agent's folder under <c>/work</c> is its own to change.
+    /// Removes the job's folders: root's two by root, and the agent's by the agent, with
+    /// <c>rm -rf</c>, so whatever links the agent left there, or a process of its own still
+    /// changing it, the most it removes is what the agent could remove itself. Runs whether or not
+    /// the worker is stopping.
     /// </summary>
-    private void Remove(JobPaths paths)
+    private async Task Remove(JobPaths paths)
     {
-        foreach (var folder in new[] { paths.Work, paths.Secret })
+        try
+        {
+            var removed = await tools.AsAgent.Run(new ProcessSpec("rm", ["-rf", "--", paths.Work], tools.Folders.Work, tools.User.Environment()), WorkerGit.Limit, CancellationToken.None);
+            if (removed.ExitCode != 0)
+            {
+                log.Write($"Could not remove {paths.Work}: {Said(removed.Stderr)}");
+            }
+        }
+        catch (Exception e) when (e is IOException or System.ComponentModel.Win32Exception or InvalidOperationException)
+        {
+            log.Write($"Could not remove {paths.Work}: {e.Message}");
+        }
+
+        foreach (var folder in new[] { paths.Handover, paths.Secret })
         {
             try
             {
-                var info = new DirectoryInfo(folder);
-                if (info.LinkTarget is not null)
+                if (Directory.Exists(folder))
                 {
-                    File.Delete(folder);
-                }
-                else if (info.Exists)
-                {
-                    info.Delete(recursive: true);
+                    Directory.Delete(folder, recursive: true);
                 }
             }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException)
@@ -518,6 +556,10 @@ internal sealed partial class BuildJob(DevFlowClient devFlow, Guid workerId, Bui
 
     [GeneratedRegex(@"^[A-Za-z0-9_][A-Za-z0-9._/-]{0,254}\z", RegexOptions.CultureInvariant)]
     private static partial Regex BranchName();
+
+    private const UnixFileMode RootOnly = UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute;
+
+    private const UnixFileMode RootWritesAgentReads = RootOnly | UnixFileMode.GroupRead | UnixFileMode.GroupExecute | UnixFileMode.OtherRead | UnixFileMode.OtherExecute;
 
     /// <summary>How the job ended: its failure, or null; the agent's result, when it ran; the
     /// check's, when it ran; and the commit pushed, when one was.</summary>

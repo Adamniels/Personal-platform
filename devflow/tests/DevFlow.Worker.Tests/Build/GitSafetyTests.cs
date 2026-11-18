@@ -57,18 +57,16 @@ public sealed class GitSafetyTests
             Assert.DoesNotContain(spec.Environment.Keys, name => name is "GIT_DIR" or "GIT_WORK_TREE" or "GIT_INDEX_FILE" or "GIT_OBJECT_DIRECTORY");
         }
 
-        // It fetches from the agent's copy, which is named once, as the source of that fetch.
-        var naming = asRoot.Where(started => started.Spec.Arguments.Any(a => a == paths.Copy || a.StartsWith(paths.Copy + "/", StringComparison.Ordinal))).ToList();
-        var fetch = Assert.Single(naming).Spec.Arguments;
-        Assert.Contains("fetch", fetch);
+        // Root names the agent's folder once, as the source of its fetch from the copy, and writes
+        // nothing there: the bundles go in its handover folder, and the agent removes its own.
+        AssertRootNamesNothingOfTheAgentsButTheFetch(bench, paths);
+        var fetch = Assert.Single(asRoot, started => started.Spec.Arguments.Contains("fetch")).Spec.Arguments;
         Assert.Contains("protocol.file.allow=always", fetch);
-        Assert.Equal(paths.Copy, fetch[fetch.ToList().IndexOf("--") + 1]);
         Assert.Equal($"refs/heads/{Bench.Branch}:refs/heads/{Bench.Branch}", fetch[^1]);
-
-        // Root writes nothing under the agent's folder but the bundles the agent clones from.
         Assert.All(
-            asRoot.Where(started => started.Spec.Arguments.Any(a => a.StartsWith(paths.Work, StringComparison.Ordinal)) && !started.Spec.Arguments.Contains("fetch")),
-            started => Assert.Equal(["bundle", "create"], started.Spec.Arguments.Skip(2).Take(2)));
+            asRoot.Where(started => started.Spec.Arguments.Contains("bundle")),
+            started => Assert.StartsWith(paths.Handover + "/", started.Spec.Arguments[5], StringComparison.Ordinal));
+        Assert.Contains(bench.AsAgent.Started, started => started.Spec.FileName == "rm" && started.Spec.Arguments.SequenceEqual(["-rf", "--", paths.Work]));
         Assert.Equal("succeeded", (await bench.Run()).Result);
     }
 
@@ -110,6 +108,56 @@ public sealed class GitSafetyTests
     }
 
     [Fact]
+    public async Task ALinkTheAgentLeftWhereRootMightWriteIsNeverWrittenThrough()
+    {
+        await using var bench = await Bench.Start();
+        var victim = Path.Combine(bench.Root, "victim.txt");
+        await File.WriteAllTextAsync(victim, "root's file\n", Ct);
+        var agent = new ScriptedAgent(async (run, _) =>
+        {
+            await ScriptedAgent.Commit(run, "greeting.txt", "Hello\n", "Add the greeting");
+            // Links at every name in its job's folder root wrote a bundle at, or might.
+            var folder = Path.GetDirectoryName(run.WorkingDirectory)!;
+            File.CreateSymbolicLink(Path.Combine(folder, "copy.bundle"), victim);
+            File.CreateSymbolicLink(Path.Combine(folder, "check.bundle"), victim);
+        });
+
+        var job = await bench.RunJob(agent);
+
+        Assert.Equal("root's file\n", await File.ReadAllTextAsync(victim, Ct));
+        Assert.Equal("succeeded", (await bench.Run()).Result);
+        AssertRootNamesNothingOfTheAgentsButTheFetch(bench, bench.Folders.For(job.GetProperty("job_id").GetGuid()));
+    }
+
+    [Fact]
+    public async Task AJobFolderTheAgentReplacedWithALinkIsNeverWrittenThrough()
+    {
+        await using var bench = await Bench.Start();
+        var elsewhere = Directory.CreateDirectory(Path.Combine(bench.Root, "elsewhere")).FullName;
+        var victim = Path.Combine(elsewhere, "check.bundle");
+        await File.WriteAllTextAsync(victim, "root's file\n", Ct);
+        var agent = new ScriptedAgent(async (run, _) =>
+        {
+            await ScriptedAgent.Commit(run, "greeting.txt", "Hello\n", "Add the greeting");
+            // Its job's folder moved into a folder of root's choosing, and a link left in its place.
+            var folder = Path.GetDirectoryName(run.WorkingDirectory)!;
+            Directory.Move(Path.Combine(folder, "copy"), Path.Combine(elsewhere, "copy"));
+            Directory.Delete(folder);
+            Directory.CreateSymbolicLink(folder, elsewhere);
+        });
+
+        var job = await bench.RunJob(agent);
+
+        Assert.Equal("root's file\n", await File.ReadAllTextAsync(victim, Ct));
+        // The link is removed, and nothing through it: the folder it named keeps what was there.
+        var paths = bench.Folders.For(job.GetProperty("job_id").GetGuid());
+        Assert.False(Path.Exists(paths.Work));
+        Assert.True(Directory.Exists(Path.Combine(elsewhere, "copy")));
+        Assert.Equal("succeeded", (await bench.Run()).Result);
+        AssertRootNamesNothingOfTheAgentsButTheFetch(bench, paths);
+    }
+
+    [Fact]
     public async Task ThePushKeyNeverReachesTheAgent()
     {
         await using var bench = await Bench.Start();
@@ -123,7 +171,7 @@ public sealed class GitSafetyTests
             new ProcessOutcome(0, File.ReadAllText(Recorded("success.json")), "", TimedOut: false),
             async spec =>
             {
-                readable.AddRange(Bench.Files(bench.Folders.Work).Where(file => Holds(file.Text)).Select(file => file.Path));
+                readable.AddRange(Bench.Files(bench.Folders.Work).Concat(Bench.Files(bench.Folders.Handover)).Where(file => Holds(file.Text)).Select(file => file.Path));
                 remotes = await Bench.Git(spec.WorkingDirectory, "remote", "-v");
                 config = await Bench.Git(spec.WorkingDirectory, "config", "--list", "--show-origin");
             });
@@ -132,8 +180,9 @@ public sealed class GitSafetyTests
         var job = await bench.RunJob(agent);
 
         Assert.StartsWith(KeyPrefix, job.GetProperty("push_key").GetString(), StringComparison.Ordinal);
-        // Nothing the agent can read holds it: no file under its folder, its copy's config, or its
-        // remote, which is the bundle it was cloned from and holds no credentials.
+        // Nothing the agent can read holds it: no file under its folder or the handover folder, its
+        // copy's config, or its remote, which is the bundle it was cloned from and holds no
+        // credentials.
         Assert.Empty(readable);
         Assert.False(Holds(config!), config);
         Assert.False(Holds(remotes!), remotes);
@@ -204,6 +253,19 @@ public sealed class GitSafetyTests
             Assert.Contains("refused the push", recorded.Reason, StringComparison.Ordinal);
             Assert.Null(recorded.HeadCommit);
         }
+    }
+
+    /// <summary>No process root ran names a path under the agent's folder, which the agent can
+    /// redirect, but the copy as the source of root's fetch, which git reads as the agent.</summary>
+    private static void AssertRootNamesNothingOfTheAgentsButTheFetch(Bench bench, JobPaths paths)
+    {
+        var naming = bench.AsRoot.Started
+            .Where(started => started.Spec.WorkingDirectory.StartsWith(bench.Folders.Work, StringComparison.Ordinal)
+                || started.Spec.Arguments.Any(a => a.Contains(bench.Folders.Work, StringComparison.Ordinal)))
+            .ToList();
+        var fetch = Assert.Single(naming).Spec.Arguments;
+        Assert.Contains("fetch", fetch);
+        Assert.Equal(paths.Copy, fetch[fetch.ToList().IndexOf("--") + 1]);
     }
 
     /// <summary>Whether the text holds a push key, or a header carrying one.</summary>

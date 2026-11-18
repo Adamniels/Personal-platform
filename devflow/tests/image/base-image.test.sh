@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Checks the worker's base image, devflow/worker.Dockerfile, as built: the agent cannot read a
-# job's secrets, in /run/devflow/ or in root's environment, and the worker, Claude Code, git and
-# node run; Claude Code's commit attribution is
-# off for the agent; and a project's image built FROM it reports the base image and the recipe's
+# job's secrets, in /run/devflow/ or in root's environment, nor write where root hands it bundles,
+# /run/devflow-handover/; the worker, Claude Code, git and node run; Claude Code's commit
+# attribution is off for the agent; and a project's image built FROM it reports the base image and the recipe's
 # version the command on the project's page passes. See "The base image" in devflow/README.md.
 #
 # It builds the image itself, under a tag of its own that it removes again, never under the hosted
@@ -111,6 +111,24 @@ if [ "$got" = '|["/usr/local/bin/devflow-worker"]|/work' ] && [ "$owner" = agent
   ok TheWorkerRunsAsRootAndTheAgentOwnsTheWork
 else
   bad TheWorkerRunsAsRootAndTheAgentOwnsTheWork "user|entrypoint|workdir: $got, /work owned by $owner"
+fi
+
+# --- TheAgentCannotWriteWhereRootHandsOver -------------------------------------------------------
+# Root writes the bundles the agent clones from in /run/devflow-handover/, root's, mode 755: the
+# agent can read what root put there, and can put nothing there itself, not even a link, so no name
+# root writes at is one the agent could point elsewhere.
+problems=""
+got="$(as root stat -c '%U %a' /run/devflow-handover)"
+[ "$got" = "root 755" ] || problems="$problems /run/devflow-handover-is:[$got]"
+got="$(as agent sh -c 'ln -s /etc/passwd /run/devflow-handover/x.bundle && echo linked; mkdir /run/devflow-handover/job && echo made')"
+case "$got" in *linked* | *made*) problems="$problems agent-writes-the-handover:[$got]" ;; esac
+got="$(docker run --rm --entrypoint sh "$image" -c \
+  'mkdir -m 755 /run/devflow-handover/job && echo bundle > /run/devflow-handover/job/copy.bundle && chmod 644 /run/devflow-handover/job/copy.bundle && setpriv --reuid agent --regid agent --init-groups --reset-env cat /run/devflow-handover/job/copy.bundle' 2>&1)"
+[ "$got" = bundle ] || problems="$problems agent-cannot-read-a-bundle:[$got]"
+if [ -z "$problems" ]; then
+  ok TheAgentCannotWriteWhereRootHandsOver
+else
+  bad TheAgentCannotWriteWhereRootHandsOver "$problems"
 fi
 
 # --- CommitAttributionIsOff ----------------------------------------------------------------------
