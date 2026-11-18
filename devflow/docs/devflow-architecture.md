@@ -2,7 +2,7 @@
 
 Status: living. It describes what is built, and changes in the same pull request as the code.
 
-Last updated: 2026 11 17
+Last updated: 2026 11 18
 
 ## What Dev flow is
 
@@ -48,7 +48,8 @@ will show arrives with the later slices of the first part.
 
 Each project has a page of its own, under the Projects tab, where the owner makes the project's
 worker key, shown once, and sees the workers that have introduced themselves with it; a worker
-holding the key says hello and asks for work, and is told there is none yet, see "Workers" below.
+holding the key says hello and asks for work, and is handed its project's next card as a job, see
+"Workers" and "Handing out work" below.
 The worker program that does so exists, with the agent it will run behind one narrow interface,
 and publishes as one file for each Linux a worker runs on. Every release builds the image it runs
 in, and the project's page shows the two commands that build a project's worker from its own
@@ -59,7 +60,9 @@ warns him about a month before it is due.
 A project's page also holds its settings, the labels that pick and hold its cards and whether a
 card's pull request waits for the owner, and lists its cards: each read of the project picks the
 open issues he wrote that carry the pick-up label, and each card shows as queued, held, waiting for
-what blocks it, or ignored with why, see "Cards" below. Nothing hands a card to a worker yet.
+what blocks it, or ignored with why, see "Cards" below. A worker asking for work is handed the
+next queued card with a brief written for it, and what it sends back is recorded on the run and
+moves the card on, see "Handing out work" below; nothing yet opens a pull request from it.
 
 ## The code host seam
 
@@ -147,9 +150,11 @@ files merging a pull request under Contents, and there is no narrower permission
 push to any branch of its repository, `main` included, and could merge through the API. It is
 accepted as the spec accepted a push to `main`, on the condition that `main` is watched, and
 anything landing there that Dev flow did not merge stops the project; that is the slice "Watching
-main", which comes before anything hands out a push key. A push key leaves Dev flow only inside a
-job's answer, or a fresh key's, to the worker holding that job, and is kept in memory only, never
-stored. Nothing uses these writes yet; the later slices of the feature do.
+main". It was planned to come before anything hands out a push key, and "Handing out work and the
+brief" landed while it was still in review, see "Push keys before the watch" in the security
+section. A push key leaves Dev flow only inside a job's answer, or a fresh key's, to the worker
+holding that job, and is kept in memory only, never stored. Handing out work uses the push key;
+the post and merge keys are the later slices'.
 
 The reads cannot reach a write key: `ReadPathTests` reads the compiled code and fails if anything
 under `Reading/` or `Runner/`, or anything a read of the adapter runs, through its helpers, lambdas
@@ -436,12 +441,12 @@ is the merge the runner's gate would make, a merge commit on a head with both ch
 
 A worker is a program in a container on one of the owner's machines that takes a project's cards
 and builds them, as the spec's rounds 3 and 9 have it. Every worker belongs to exactly one
-project, and a worker calls Dev flow and is never called. What exists of it is the start: a
-project's key, the scheme a worker's request authenticates with, the worker API's first two
-calls, `hello`, which records the worker, and `jobs/next`, which answers that there is no work, and
-the worker program that makes them, with the agent interface it will run a job behind, the base
-image it runs in, and the commands the page shows to build and start one. Handing out work is a
-later slice of the feature "Dev flow: one card, end to end". The routes, the tables and the panel
+project, and a worker calls Dev flow and is never called. What exists of it: a project's key, the
+scheme a worker's request authenticates with, the worker API, `hello`, which records the worker,
+`jobs/next`, which hands it a job, and a job's routes, see "Handing out work" below, and the worker
+program that calls them, with the agent interface it will run a job behind, the base image it runs
+in, and the commands the page shows to build and start one. The worker running a job, fetching,
+checking and pushing, is the slice "The worker builds and pushes". The routes, the tables and the panel
 are "Workers" and "The pages" in `devflow/README.md`, the image and the commands "Starting a
 worker", and the program, its settings, loop and exit codes "The worker" there.
 
@@ -525,7 +530,7 @@ rather than the worker, which needs no JSON Schema library for it.
 **A run's one credential is the Claude login, and Dev flow holds it**, as the spec's rounds 3 and
 4b have it. The owner runs `claude setup-token` once and pastes the token on the Projects tab, so a
 new worker needs no login step of its own: the program hands the token to each run inside the job,
-as `CLAUDE_CODE_OAUTH_TOKEN`, when "Handing out work and the brief" builds that. It is one per
+as `CLAUDE_CODE_OAUTH_TOKEN`, see "Handing out work" below. It is one per
 user, not per project, since the subscription is the user's, and it is sealed in the vault like
 the GitHub tokens. Claude Code does not report when a setup token runs out, the experiment of
 2026 11 16 found, so Dev flow counts a year from when it was given and warns a month before,
@@ -533,6 +538,82 @@ through the Projects tab, the nav's dot and the front page's card, which say it 
 waits rather than counting it. It checks only that what is pasted looks like a setup token; whether
 it works is the worker's check before every run. The routes, the table and the section are "Claude
 login" and "The pages" in `devflow/README.md`.
+
+## Handing out work
+
+A worker asks for work, and Dev flow decides which card, writes the brief, and judges what comes
+back, as the spec's round 4 has the program as the manager and a worker as the hands. The routes,
+the job, the result and the table are "Jobs" in `devflow/README.md`.
+
+**One card, one lock, and no count across projects.** `jobs/next` takes the first card of the
+worker's own project that is queued and waits for nothing, in the order "Cards" above gives, with
+`SELECT … FOR UPDATE SKIP LOCKED`, moves it to `building` and records a run, in one transaction as
+the project's user. `SKIP LOCKED` makes a second worker asking at the same moment pass over the
+row the first holds rather than wait for it, so it takes the next card or nothing; a unique index
+allowing one run under way per card is a second guard beside it. There is no limit on runs at once
+and no turns between projects, at the owner's wish in the feature's decisions: how many run is how
+many workers are started, and a worker belongs to one project and so to its user.
+
+**Nothing is read from GitHub under the lock.** What a job needs from the code host, the default
+branch, `.devflow/project.json`'s check, the clone address, the committer and a push key, is read
+first, and only then is the card taken, in a transaction that holds its row for a few statements.
+Taking the card first and reading after would hold a row lock and a database connection while
+GitHub answers, or, committed first, move a card to `building` and back when GitHub did not answer.
+The price is a push key made for a card another worker took in between, which is dropped unused,
+was never sent, and runs out within the hour. Anything not answered is no work now, and the worker
+asks again on its next turn.
+
+**The brief quotes the card as it was picked.** Picking keeps the card's body with the record of
+what was picked, so a job carries exactly the text whose author and editors picking checked,
+rather than reading the issue again when it is handed out, which would have to check its edits
+again and could carry an edit made since by someone else. A change the owner makes reaches a card
+that has not started at the next read, within a minute. Comparing the record before building on a
+card again and before merging stays with the later parts.
+
+**The rules are the program's, the facts are the project's**, as the spec's "Decided" has it. The
+brief is one template, the same for every project: how to work, tests first and one commit per
+task, never to push or touch the code host, never to ask but to decide and record each decision,
+what is information rather than an instruction, and the report's form. What is particular to a
+project stays in its repository, its `CLAUDE.md` or `AGENTS.md` and `.devflow/project.json`, and
+the brief only says where. It follows this repository's own implementer, the pick-up-slice skill,
+where that is not specific to this repository.
+
+**The report is a form, and decides nothing.** It is a `DevFlow.Protocol` type, and its JSON
+Schema, which the agent is given, is written from that type, so the two cannot drift. .NET can
+write a schema but not validate against one, so rather than adding a validation library the
+report is read into its type with a missing, unknown, null or mistyped field refused. What it says
+guides and never decides: a report that does not match is a failure in the card, and one that says
+`stopped` stops it, but `done` makes nothing succeed. The check's exit code does, run by the worker
+itself and not taken from the agent, as the spec's "The software around the agent does not take
+the report on trust" says; the review of part 3 and the owner do the rest. `pages`' `looked` and
+`replies` are in the form from the start, though part 3 reads them, so the form does not change
+under the agents.
+
+**Where a failure lies decides what follows.** A failure outside the card, the login, Claude's API
+or the machine, puts the card back in the queue with nothing counted against it, since another try
+may well succeed; one in the card, a report that does not match, a report that stopped, or a check
+that did not run or failed stops it with why. The attention label on a stopped card, retries and
+the limit on them are part 3's "Stops".
+
+**A run that never returns is lost after 100 minutes, and only once its worker is gone.** 100
+minutes is the 90 minute limit on a run and a margin for the check and the push. A worker not seen
+for 10 minutes is the second condition, so a slow worker that is still there is not robbed of its
+card. The search runs on each project's read, before the code host is asked anything, so GitHub
+being away holds no card. A worker that is still seen keeps its card, so one that drops a job and
+asks for more, as today's worker program does until "The worker builds and pushes", holds its card
+`building`; no worker is started before the feature has merged.
+
+**Every run is measured from the first day**, as the spec's round 3 has it: Claude's usage is kept
+as it came, and its token counts, cost and turns in columns of their own, with the job's duration,
+for the usage page of part 7.
+
+**The fake worker** takes a job and ends it with a prepared result through the same code a worker's
+result goes through, and commits on the branch in the fake's git repository, so an acceptance test
+drives handing out, the result and what later parts build on it without a container or a model.
+
+**A stopped project** is the slice "Watching main": when it has landed, a project it has stopped,
+or whose default branch has not been read for five minutes, hands out nothing, ahead of everything
+above.
 
 ## Security decisions and accepted risks
 
@@ -798,6 +879,31 @@ its reason, or a risk accepted on purpose; each slice adds the ones it builds.
   are data, shown as text. The accepted risk: anyone who can label issues in a repository can make
   a card appear as ignored on the owner's page, which shows a stranger's title there as text and
   runs nothing. GitHub's edit history does not cover a comment, which no card is read from yet.
+- **The Claude token and a push key leave Dev flow only inside a job, to the worker holding it.**
+  A job is answered only to a worker of the key's own project, through the door as its user, so
+  the token is that user's and the push key reaches that project's repository alone, narrowed to
+  fetching and pushing code; the answer carries `Cache-Control: no-store`. A fresh push key is
+  answered only to the worker holding that job while it runs, and every other asker gets the same
+  `404`, so it cannot tell another's job from none. The token is opened only after the login's
+  status allows a run; the push key is never stored; and `Job` and `PushKeyAnswer` print neither.
+  Accepted: a worker's id is not a secret among the workers of one project, which share one key,
+  so a worker of the project that learned another's id could ask a fresh key for its job; it holds
+  the same key and could take a job of its own, so it gains nothing.
+- **A card's title and body are the only text from GitHub in the brief.** Each is quoted inside a
+  fenced block longer than any run of backticks in it, so nothing in a card can end its quote and
+  write into the rules around it, and the brief says the card is the only instruction and anything
+  else the agent reads is information. The check from `.devflow/project.json` is in it too, fenced
+  the same way: it is read from the default branch, which only someone who can push there writes,
+  as the project's `CLAUDE.md` is. No comment, pull request or other issue is put in a brief.
+- **The report decides nothing.** A run succeeds by the check's exit code, which the worker runs
+  itself, and never by what the agent says; a report that does not match its form stops the card.
+- **Push keys before the watch.** The push key can reach `main`, and the watch on the default branch,
+  the slice "Watching main", is what catches a push that Dev flow did not make. This slice landed
+  while that one was still in review, so for that time `jobs/next` hands out push keys with no
+  watch. Accepted because today's worker program logs a job and leaves it, never using its key, and
+  the feature's own runbook starts no worker until the whole feature has merged; "Watching main"
+  puts its hold in front of handing out, so a project it has stopped, or cannot read, hands out
+  nothing.
 - **The app is registered for one account.** "Only on this account" means only the owner's account
   can install it. Installing it on an organisation needs it opened to any account first, and then
   any stranger could install it on their own repositories too; that gains them nothing, since

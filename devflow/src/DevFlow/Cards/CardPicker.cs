@@ -18,8 +18,8 @@ public enum Verdict
 
 /// <summary>What was picked, which later parts compare against before building and before
 /// merging: the body's SHA-256, the title, and the id of the edit history's newest entry, null when
-/// it was never edited.</summary>
-public sealed record PickedRecord(byte[] BodySha256, string Title, string? NewestEdit);
+/// it was never edited; and the body itself, which a job's brief quotes.</summary>
+public sealed record PickedRecord(byte[] BodySha256, string Title, string? NewestEdit, string Body);
 
 /// <summary>A card as one read of its project found it.</summary>
 /// <param name="Priority"><c>high</c>, <c>none</c> or <c>low</c>, from its priority label.</param>
@@ -123,7 +123,8 @@ public static class CardPicker
             var record = new PickedRecord(
                 SHA256.HashData(Encoding.UTF8.GetBytes(issue.Body)),
                 issue.Title,
-                edits.OrderByDescending(edit => edit.At).Select(edit => edit.Id).FirstOrDefault());
+                edits.OrderByDescending(edit => edit.At).Select(edit => edit.Id).FirstOrDefault(),
+                issue.Body);
             if (issue.Labels.Contains(settings.HoldLabel, StringComparer.OrdinalIgnoreCase))
             {
                 cards.Add(card with { Verdict = Verdict.Held, Reason = $"Held by the label {settings.HoldLabel}", Record = record });

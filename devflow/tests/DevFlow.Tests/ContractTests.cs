@@ -149,6 +149,98 @@ public sealed class ContractTests
     }
 
     [Fact]
+    public async Task TheJobRoutesArePinned()
+    {
+        // Asking for work answers a job, and the job's three routes take the worker's key, so a
+        // worker program written against the file finds them there.
+        var paths = JsonNode.Parse(await File.ReadAllTextAsync(Schema, TestContext.Current.CancellationToken))!["paths"]!.AsObject();
+
+        foreach (var (path, operation) in new[]
+        {
+            ("/devflow/api/worker/jobs/{id}/push-key", "workerPushKey"),
+            ("/devflow/api/worker/jobs/{id}/progress", "workerJobProgress"),
+            ("/devflow/api/worker/jobs/{id}/result", "workerJobResult"),
+        })
+        {
+            Assert.Equal(operation, (string?)paths[path]?["post"]?["operationId"]);
+            Assert.Contains("Authorization: Bearer dfw_", (string)paths[path]!["post"]!["description"]!, StringComparison.Ordinal);
+        }
+
+        var next = paths["/devflow/api/worker/jobs/next"]!["post"]!["responses"]!.AsObject();
+        Assert.True(next.ContainsKey("200"), "jobs/next answers a job with 200");
+        Assert.True(next.ContainsKey("204"), "jobs/next answers no work with 204");
+        Assert.Null(paths["/devflow/api/fake/worker/run"]);
+    }
+
+    /// <summary>The report's JSON Schema as the type writes it: two space indent, a trailing
+    /// newline, its fields in the type's order, which is the order the agent reads them in.</summary>
+    private static string ReportSchemaText()
+    {
+        var buffer = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(buffer, new JsonWriterOptions
+        {
+            Indented = true,
+            IndentSize = 2,
+            NewLine = "\n",
+            Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+        }))
+        {
+            DevFlow.Protocol.Report.Schema().WriteTo(writer);
+        }
+
+        return Encoding.UTF8.GetString(buffer.ToArray()) + "\n";
+    }
+
+    [Fact]
+    public async Task TheReportSchemaIsTheReportType()
+    {
+        // contracts/devflow/report.schema.json is what Report.Schema() writes, the schema every job
+        // hands the agent, so the type that reads a report and the schema that shapes it hold the
+        // same fields.
+        var file = Repository.Path("contracts", "devflow", "report.schema.json");
+        var generated = ReportSchemaText();
+        if (Environment.GetEnvironmentVariable("UPDATE_CONTRACTS") == "1")
+        {
+            await File.WriteAllTextAsync(file, generated, TestContext.Current.CancellationToken);
+            return;
+        }
+
+        Assert.True(File.Exists(file), $"{file} is missing, write it with UPDATE_CONTRACTS=1");
+        Assert.True(
+            await File.ReadAllTextAsync(file, TestContext.Current.CancellationToken) == generated,
+            "the report's type changed, regenerate contracts/devflow/report.schema.json with UPDATE_CONTRACTS=1 and review the diff");
+    }
+
+    [Fact]
+    public void TheReportSchemaHoldsTheTypesFieldsEveryOneRequired()
+    {
+        // Every object of the schema is closed and requires each of its fields, and the top level's
+        // fields are the slice's, in its order.
+        var schema = DevFlow.Protocol.Report.Schema();
+        Assert.Equal(
+            ["outcome", "stopped_reason", "summary", "tasks", "decisions", "tests", "pages", "installed", "follow_ups", "replies", "handover"],
+            schema["properties"]!.AsObject().Select(pair => pair.Key));
+        foreach (var obj in Objects(schema))
+        {
+            Assert.False((bool)obj["additionalProperties"]!);
+            Assert.Equal(
+                obj["properties"]!.AsObject().Select(pair => pair.Key).Order(StringComparer.Ordinal),
+                obj["required"]!.AsArray().Select(name => (string)name!).Order(StringComparer.Ordinal));
+        }
+
+        Assert.Equal(["done", "stopped"], schema["properties"]!["outcome"]!["enum"]!.AsArray().Select(word => (string)word!));
+    }
+
+    /// <summary>Every schema of an object in <paramref name="node"/>, itself included.</summary>
+    private static IEnumerable<JsonObject> Objects(JsonNode? node) => node switch
+    {
+        JsonObject obj when obj["properties"] is JsonObject => [obj, .. obj.SelectMany(pair => Objects(pair.Value))],
+        JsonObject obj => obj.SelectMany(pair => Objects(pair.Value)),
+        JsonArray array => array.SelectMany(Objects),
+        _ => [],
+    };
+
+    [Fact]
     public async Task TheRunningServiceServesNoSchema()
     {
         await using var devflow = await Harness.Start();

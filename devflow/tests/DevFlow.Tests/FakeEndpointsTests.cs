@@ -218,6 +218,7 @@ public sealed class FakeEndpointsTests
         { "POST", UnavailablePath, """{"unavailable": true}""" },
         { "POST", "/devflow/api/fake/expire-token", "{}" },
         { "POST", "/devflow/api/fake/claude-login-age", """{"days": 340}""" },
+        { "POST", "/devflow/api/fake/worker/run", "{}" },
     };
 
     [Theory]

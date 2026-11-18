@@ -1,7 +1,8 @@
 // A project's page, /devflow/projects/<id>, opened from its row on the Projects tab: a header with
 // the repository's name, the Settings panel under it, the Cards panel, and the Workers panel, with the project's worker key, the two commands
 // that start a worker, and the workers that have said hello with it, each saying when it needs
-// building again. The key is shown once, as the answer that made it, with the command that saves
+// building again, and why no work is handed out when the user's Claude login is missing or past
+// its renewal. The key is shown once, as the answer that made it, with the command that saves
 // it, and never read back: after a reload the page knows only when it was made. See "The pages",
 // "Workers" and "Starting a worker" in devflow/README.md.
 import { Button, Card, Dialog, EmptyState, Status } from "@platform/ui";
@@ -38,6 +39,11 @@ export const rebuildNotice = (
 	rebuild === "recipe"
 		? `${project}'s recipe has changed: run the command again`
 		: "A new base image was released: run the command again";
+/** Why no worker of the project is handed work, by the list's held. */
+export const heldNotice = (held: string) =>
+	held === "claude_login_expired"
+		? "No work is handed out: your Claude login is past its renewal. Give a new one on the Projects tab"
+		: "No work is handed out until you give your Claude login on the Projects tab";
 /** After this long without a word from a worker, it shows as not seen
  * since then, as the slice settles. */
 export const QUIET_MS = 10 * 60 * 1000;
@@ -250,6 +256,12 @@ function WorkersPanel({
 						A worker holds this project's key, and asks Dev flow for work with
 						it.
 					</p>
+					{list?.held ? (
+						<p className={styles.held}>
+							<Status tone="needs-you">No work</Status>
+							<span>{heldNotice(list.held)}</span>
+						</p>
+					) : null}
 					{error === null ? null : (
 						<p className={styles.error} role="alert">
 							{error}

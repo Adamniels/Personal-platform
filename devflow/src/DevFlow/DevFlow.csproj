@@ -16,6 +16,8 @@
       each under migrations/<file name>. See "Migrating" in devflow/README.md.
     -->
     <EmbeddedResource Include="../../migrations/*.sql" LogicalName="migrations/%(Filename)%(Extension)" />
+    <!-- The developer brief's template, read by Briefs/Brief.cs, see devflow/README.md. -->
+    <EmbeddedResource Include="Briefs/developer.md" LogicalName="briefs/developer.md" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../../libs/dotnet/PlatformAuth/src/PlatformAuth/PlatformAuth.csproj" />

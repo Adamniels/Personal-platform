@@ -2,7 +2,7 @@
 
 Status: exploratory. The walking skeleton is being built.
 
-Last updated: 2026 11 17
+Last updated: 2026 11 18
 
 These are planning notes, not specifications. Everything here is the current best idea with the
 reasoning attached, and it is expected to change as building teaches things planning could not.
@@ -122,7 +122,9 @@ features" in `High-level/docs/platform-architecture.md`.
   tables, starting a worker, with the base image, the format of `.devflow/`, the recipe route, the
   two commands, the memory rule and when a worker needs a rebuild, the worker program with its
   settings, its loop, its exit codes, the agent interface, when a run succeeds, publishing it and
-  its tests, the Claude login, its routes and its table, registering the GitHub App, how it
+  its tests, the Claude login, its routes and its table, jobs, with handing out a card, the job, a
+  fresh push key, a job's progress and result and how each moves its card, a lost run, the brief,
+  the report, the fake worker and the runs table, registering the GitHub App, how it
   authenticates a request with `PlatformAuth` and with a worker's key, and the libraries it is built
   on
 - `devflow/docs/devflow-architecture.md` — what Dev flow is, what of it exists, the code host seam
@@ -133,9 +135,11 @@ features" in `High-level/docs/platform-architecture.md`.
   never as the app, the program's own writes as the app with a key narrowed to one purpose, workers
   and how a worker's key leads to its project's user, the worker
   program, the agent interface and the rule a run succeeds by, the Claude login Dev flow holds for
-  a user's runs, and its security decisions and accepted risks, kept for an audit, the vault's,
-  the fake's, the worker key's, the agent run's environment and token, and the Claude token's
-  among them
+  a user's runs, handing out work, with the lock that takes a card, why nothing is read from GitHub
+  under it, the brief quoting the card as picked, why the report decides nothing, where a failure
+  lies and when a run is lost, and its security decisions and accepted risks, kept for an audit,
+  the vault's, the fake's, the worker key's, the agent run's environment and token, the Claude
+  token's and a job's, the brief's and push keys before the watch among them
 - `docs/superpowers/specs/2026-11-14-development-flow-design.md` — the design of the whole
   development flow, frozen on 2026 11 15 when the slices of its first part were cut; the
   architecture document above is the living description from then on

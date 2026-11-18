@@ -168,9 +168,9 @@ public sealed partial class ClaudeLogins(UserDb database, Vault vault, TimeProvi
     /// given none. The one method that opens it, called only when a job is handed out, so the
     /// token leaves Dev flow only inside a job's answer to its own user's worker. It opens through
     /// the door as the run's user, so row level security shows no one else's, and the vault's
-    /// binding to the user it was sealed for refuses a token moved to another. An expired login is
-    /// still handed out: when it runs out is only a year counted from when it was given, and the
-    /// worker checks the login before every run.
+    /// binding to the user it was sealed for refuses a token moved to another. It opens an expired
+    /// login too; handing out work checks <see cref="Status"/> first and hands out nothing past the
+    /// renewal, see <c>Jobs.Dispatcher.HeldFor</c>, and the worker checks the login before every run.
     /// </summary>
     /// <exception cref="VaultException">The token does not open as this user's: it was moved
     /// from another user, or changed.</exception>

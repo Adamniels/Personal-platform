@@ -1,0 +1,155 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Dev flow's developer report",
+  "type": "object",
+  "properties": {
+    "outcome": {
+      "enum": [
+        "done",
+        "stopped"
+      ]
+    },
+    "stopped_reason": {
+      "type": "string"
+    },
+    "summary": {
+      "type": "string"
+    },
+    "tasks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string"
+          },
+          "done": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "text",
+          "done"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "decisions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "chosen": {
+            "type": "string"
+          },
+          "alternative": {
+            "type": "string"
+          },
+          "why": {
+            "type": "string"
+          },
+          "for_owner": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "chosen",
+          "alternative",
+          "why",
+          "for_owner"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "tests": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "what": {
+            "type": "string"
+          },
+          "result": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "what",
+          "result"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "pages": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "why": {
+            "type": "string"
+          },
+          "looked": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "path",
+          "why",
+          "looked"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "installed": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "follow_ups": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "replies": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "finding": {
+            "type": "string"
+          },
+          "answer": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "finding",
+          "answer"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "handover": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "outcome",
+    "stopped_reason",
+    "summary",
+    "tasks",
+    "decisions",
+    "tests",
+    "pages",
+    "installed",
+    "follow_ups",
+    "replies",
+    "handover"
+  ],
+  "additionalProperties": false
+}
