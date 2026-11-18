@@ -90,7 +90,7 @@ internal sealed class WorkerLoop(DevFlowClient devFlow, WorkerIdentity identity,
                     break;
                 case AnswerKind.Job:
                     log.Write("Got a job.");
-                    await runJob(next.Job, stopping);
+                    await runJob(next.Body, stopping);
                     _wait = FirstWait;
                     break;
                 case AnswerKind.WrongKey:

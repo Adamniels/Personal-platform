@@ -7,8 +7,10 @@
 # devflow/README.md, and "Workers" in devflow/docs/devflow-architecture.md.
 #
 # Two users: the worker program runs as root, the entrypoint, and keeps a job's secrets in
-# /run/devflow/, which only root can read; agent, uid 1000, runs Claude Code, the project's check
-# and its start, started by the worker through setpriv, and owns the working copies under /work.
+# /run/devflow/, which only root can read, and the bundles it hands the agent in
+# /run/devflow-handover/, which only root can write; agent, uid 1000, runs Claude Code, the
+# project's check and its start, started by the worker through setpriv, and owns the working copies
+# under /work.
 
 # --- Build: the worker program, one self-contained file for the build's architecture. ---
 # The SDK devflow/global.json pins, 10.0.4xx, restoring from the committed packages.lock.json.
@@ -57,8 +59,10 @@ RUN mkdir -p /home/agent/.claude && \
     printf '%s\n' '{"attribution": {"commit": "", "pr": "", "sessionUrl": false}}' > /home/agent/.claude/settings.json && \
     chown -R agent:agent /home/agent/.claude
 
-# The job's secrets, root's alone; the working copies, the agent's.
+# The job's secrets, root's alone; the bundles root hands the agent, root's, which the agent reads
+# and cannot write; the working copies, the agent's.
 RUN install -d -m 700 -o root -g root /run/devflow && \
+    install -d -m 755 -o root -g root /run/devflow-handover && \
     install -d -m 755 -o agent -g agent /work
 
 COPY --chmod=755 --from=build /out/DevFlow.Worker /usr/local/bin/devflow-worker

@@ -1,4 +1,5 @@
-using System.Text.Json;
+using DevFlow.Worker.Agents;
+using DevFlow.Worker.Build;
 
 namespace DevFlow.Worker;
 
@@ -34,17 +35,19 @@ internal static class WorkerProgram
         var identity = new WorkerIdentity(Guid.CreateVersion7(time.GetUtcNow()), name ?? Environment.MachineName, settings.RecipeVersion, settings.BaseImage);
         log.Write($"Dev flow worker {identity.Id} ({identity.Name}), recipe {identity.RecipeVersion} on {identity.BaseImage}, for {settings.DevFlowUrl}.");
         using var http = DevFlowClient.CreateHttpClient(settings, handler);
-        var loop = new WorkerLoop(new DevFlowClient(http), identity, NoJobsYet(log), time, log, error);
+        var devFlow = new DevFlowClient(http);
+        var build = new BuildJob(devFlow, identity.Id, Tools(time, log), time, log);
+        var loop = new WorkerLoop(devFlow, identity, build.Run, time, log, error);
         return await loop.Run(stopping);
     }
 
-    /// <summary>
-    /// What a job does until the slices that build and push define one: Dev flow hands none out
-    /// yet, so one arriving is logged and left, and the worker asks for the next.
-    /// </summary>
-    private static JobHandler NoJobsYet(WorkerLog log) => (JsonElement _, CancellationToken _) =>
+    /// <summary>What a build job runs with in the base image: Claude Code as <c>agent</c>, root's
+    /// processes as the worker's own, and the image's folders.</summary>
+    private static BuildTools Tools(TimeProvider time, WorkerLog log)
     {
-        log.Write("This worker cannot run jobs yet; the job is left.");
-        return Task.CompletedTask;
-    };
+        var user = AgentUser.Default;
+        var asAgent = new SystemProcessStarter(user.Name, time);
+        var claude = ClaudeCodeOptions.Default with { Home = user.Home, Path = user.Path, Lang = user.Lang };
+        return new BuildTools(new ClaudeCodeAgent(asAgent, claude, log), new SystemProcessStarter(null, time), asAgent, JobFolders.Default, user);
+    }
 }
