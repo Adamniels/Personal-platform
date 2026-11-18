@@ -1,6 +1,8 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
+using Dapper;
+
 using DevFlow.CodeHost;
 using DevFlow.Fixing;
 using DevFlow.Protocol;
@@ -9,6 +11,8 @@ using DevFlow.Reviews;
 using DevFlow.Tests.PullRequests;
 
 using Microsoft.AspNetCore.Http;
+
+using PlatformData;
 
 namespace DevFlow.Tests.Fixing;
 
@@ -320,6 +324,80 @@ public sealed class FixTests
     }
 
     [Fact]
+    public async Task TheOwnersCommentReadAsAFixIsClaimedIsNotLost()
+    {
+        await using var jobs = await Jobs.Jobs.Start([Jobs.Jobs.Card(4)]);
+        await Fixed.BuiltAndReviewed(jobs);
+        var pull = (await Built.Card(jobs, 4)).PullRequestNumber!.Value;
+        Assert.Equal("fixing", (await jobs.Card(4)).State);
+
+        // Its issue has left the board, so a read marks it once and then leaves its row alone: the
+        // read's only write to it is taking his comment.
+        var labels = Jobs.Jobs.Card(4).Labels;
+        Fixed.Label(jobs, 4, []);
+        Fixed.Later(jobs);
+        await jobs.Routes.Read(jobs.Project, Jobs.Jobs.User);
+        Assert.Equal("fixing", (await jobs.Card(4)).State);
+
+        // He comments while the card waits for its round's fix.
+        Fixed.Later(jobs);
+        Fixed.Comment(jobs, pull, Jobs.Jobs.Owner, "Keep the old name as an alias.");
+
+        // A worker claims the round's fix, and its transaction is held open, the run recorded but
+        // not yet committed.
+        var door = UserDb.Unopened("devflow", jobs.Routes.Database.App());
+        var claimedIt = new TaskCompletionSource<DevFlow.Jobs.ClaimedFix?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var commit = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var claim = door.InUserTransaction(Jobs.Jobs.User, async transaction =>
+        {
+            var fix = await DevFlow.Jobs.JobStore.ClaimFix(transaction, jobs.Project, Jobs.Jobs.User, Jobs.Jobs.FirstWorker, Jobs.Jobs.Check, jobs.Routes.Time.GetUtcNow(), Ct);
+            claimedIt.SetResult(fix);
+            await commit.Task;
+            return fix;
+        }, Ct);
+        var claimed = await claimedIt.Task;
+        Assert.NotNull(claimed);
+        Assert.Empty(claimed.Comments);
+
+        // The minute's read, which found no run under way, waits on the card's row; then the claim
+        // commits.
+        var read = jobs.Routes.Read(jobs.Project, Jobs.Jobs.User);
+        await WaitForALockWait(jobs);
+        commit.SetResult();
+        await claim;
+        await read;
+
+        // The read sees the run the claim committed, so it takes nothing: his comment is not added
+        // to a fix that has already begun without it.
+        await using (var admin = await jobs.Routes.Database.OpenAdmin(Ct))
+        {
+            var (readThrough, pending) = await admin.QuerySingleAsync<(long?, string?)>(new CommandDefinition(
+                "SELECT comments_read_through, fix_comments::text FROM cards WHERE project_id = @project AND number = 4",
+                new { project = jobs.Project },
+                cancellationToken: Ct));
+            Assert.Null(readThrough);
+            Assert.Null(pending);
+        }
+
+        // The label put back, the fix ends, the review after it approves, and the next read takes his
+        // comment into a fix of its own.
+        Fixed.Label(jobs, 4, labels);
+        await jobs.Routes.Read(jobs.Project, Jobs.Jobs.User);
+        var result = Jobs.Jobs.Result(Jobs.Jobs.FirstWorker, claimed.Branch, Fixed.Report(("The first finding", "Done.")));
+        result["head_commit"] = await NewCommit(jobs, claimed.Branch);
+        Assert.Equal(StatusCodes.Status204NoContent, (await jobs.Post(WorkerApi.ResultPath(claimed.RunId), result)).Response.StatusCode);
+        Assert.Equal("reviewing", (await jobs.Card(4)).State);
+        await Built.Review(jobs, Built.Verdict("approve"));
+        Assert.Equal("waiting_for_owner", (await jobs.Card(4)).State);
+        await jobs.Routes.Read(jobs.Project, Jobs.Jobs.User);
+        Assert.Equal(FixRounds.Commented, (await jobs.Card(4)).Reason);
+        Fixed.Later(jobs);
+        var job = await jobs.Job();
+        Assert.Equal(Job.Fix, (string)job["kind"]!);
+        Assert.Contains("Keep the old name as an alias.", (string)job["brief"]!, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task SendingBackFromTheListIsTheOwnersComment()
     {
         await using var jobs = await Jobs.Jobs.Start([Jobs.Jobs.Card(4), Jobs.Jobs.Card(5)], signIn: true);
@@ -380,6 +458,25 @@ public sealed class FixTests
         Assert.Equal(FixRounds.NoNewCommit, card.Reason);
         var (_, story) = await Built.Get(jobs, $"/devflow/api/projects/{jobs.Project}/cards/4");
         Assert.True((bool)story!["runs"]![0]!["in_card"]!);
+    }
+
+    /// <summary>Waits until a query in the test's database waits on a lock, at most ten seconds.</summary>
+    private static async Task WaitForALockWait(Jobs.Jobs jobs)
+    {
+        await using var admin = await jobs.Routes.Database.OpenAdmin(Ct);
+        for (var tries = 0; tries < 200; tries++)
+        {
+            var waiting = await admin.QuerySingleAsync<long>(new CommandDefinition(
+                "SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'", cancellationToken: Ct));
+            if (waiting > 0)
+            {
+                return;
+            }
+
+            await Task.Delay(50, Ct);
+        }
+
+        Assert.Fail("the read never waited on the card's lock");
     }
 
     /// <summary>The owner sends the card back from the list, as the page does.</summary>

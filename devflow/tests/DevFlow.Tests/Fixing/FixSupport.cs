@@ -88,6 +88,23 @@ internal static class Fixed
         });
     }
 
+    /// <summary>The issue with the number given <paramref name="labels"/> in place of its own, as
+    /// the owner taking it off the board, with none, or putting it back would leave it.</summary>
+    public static void Label(Jobs.Jobs jobs, int number, IReadOnlyList<string> labels)
+    {
+        var world = jobs.Fake.World(Jobs.Jobs.User);
+        jobs.Fake.Replace(Jobs.Jobs.User, world with
+        {
+            Installations = [.. world.Installations.Select(installation => installation with
+            {
+                Repositories = [.. installation.Repositories.Select(repository => repository with
+                {
+                    Issues = [.. repository.Issues.Select(issue => issue.Number == number ? issue with { Labels = labels } : issue)],
+                })],
+            })],
+        });
+    }
+
     /// <summary>How many fix rounds the card has used, started by reviews.</summary>
     public static async Task<int> RoundsUsed(Jobs.Jobs jobs, int number)
     {

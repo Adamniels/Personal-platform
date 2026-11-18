@@ -80,11 +80,24 @@ public static class OwnerComments
     /// waiting to be fixed in a round keeps it, and adds them. Only while it is still in a state
     /// that is read, with that pull request and no run under way, and the comments are newer than
     /// those it took; so a read that raced a run, or another read, takes nothing.
+    ///
+    /// The card's row is locked first, in a statement of its own, and only then is the update run:
+    /// every claim of a run locks the same row and records the run before it commits, and under
+    /// read committed a statement sees what was committed before it began, so the update's check
+    /// for a run sees one a claim committed while the lock was waited for. Checked inside the
+    /// update alone, it would not: an update that waits on a row checks that row again, but reads
+    /// <c>runs</c> as it was when it began, and would take the comments into a fix that has already
+    /// begun without them.
     /// </summary>
     public static async Task Take(NpgsqlTransaction transaction, Guid projectId, TakenComments comments, DateTimeOffset now, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(transaction);
         ArgumentNullException.ThrowIfNull(comments);
+        await transaction.Connection!.ExecuteAsync(new CommandDefinition(
+            "SELECT 1 FROM cards WHERE project_id = @projectId AND number = @card FOR UPDATE",
+            new { projectId, card = comments.Card },
+            transaction,
+            cancellationToken: cancellationToken));
         await transaction.Connection!.ExecuteAsync(new CommandDefinition(
             $"""
             UPDATE cards SET
