@@ -162,6 +162,13 @@ const actionsApi: ActionsApi = {
 			{ head_commit: headCommit },
 		);
 	},
+	sendBackCard: async (projectId, number, comment) => {
+		await client.send(
+			"POST",
+			`/projects/${encodeURIComponent(projectId)}/cards/${number}/send-back`,
+			{ comment },
+		);
+	},
 };
 
 /** Dev flow's page, with React Query for what it reads and the toasts its

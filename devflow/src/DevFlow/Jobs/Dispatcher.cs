@@ -197,7 +197,7 @@ public sealed partial class Dispatcher(
         var brief = Brief.Fixer(
             new BriefCard(claimed.Number, claimed.Title, claimed.Body),
             new BriefFacts(facts.Check, claimed.Branch, claimed.Base),
-            new FixInput(claimed.Round, claimed.Report, claimed.Review?.Verdict, []));
+            new FixInput(claimed.Round, claimed.Report, claimed.Review?.Verdict, claimed.Comments));
         return new Job(
             claimed.RunId,
             Job.Fix,

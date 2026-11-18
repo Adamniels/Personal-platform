@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using System.Text.Json;
 
 using Dapper;
 
@@ -61,7 +62,8 @@ public sealed record EarlierRound(int? Round, string? ReviewedCommit, string? Ve
 /// <param name="Report">The report of the newest build or fix that succeeded, as it was stored,
 /// null without one.</param>
 /// <param name="Review">The review the fix answers, null when there is none.</param>
-public sealed record ClaimedFix(Guid RunId, int Number, string Title, string Body, string Branch, string Base, string FromCommit, int? Round, string? Report, KeptReview? Review);
+/// <param name="Comments">The owner's comments the fix answers, each exactly as he wrote it.</param>
+public sealed record ClaimedFix(Guid RunId, int Number, string Title, string Body, string Branch, string Base, string FromCommit, int? Round, string? Report, KeptReview? Review, IReadOnlyList<string> Comments);
 
 /// <summary>
 /// Jobs in the database, through the door as the project's user: which kind of job a project has
@@ -240,7 +242,7 @@ public static class JobStore
         return [.. await transaction.Connection!.QueryAsync<EarlierRound>(new CommandDefinition(
             """
             SELECT f.fix_round AS Round, v.reviewed_commit AS ReviewedCommit, v.verdict AS Verdict, v.summary AS Summary,
-                   v.findings::text AS Findings, '[]' AS Comments,
+                   v.findings::text AS Findings, coalesce(f.owner_comments, '[]'::jsonb)::text AS Comments,
                    coalesce(f.report->'replies', '[]'::jsonb)::text AS Replies, f.head_commit AS FixedCommit
             FROM runs f
             LEFT JOIN reviews v ON v.project_id = f.project_id AND v.run_id = f.fix_review_id
@@ -256,8 +258,9 @@ public static class JobStore
     /// Takes the project's first card to fix, by <see cref="CardStore.QueueOrder"/>, inside
     /// <paramref name="transaction"/>, which runs as the project's user, as <see cref="Claim"/> takes
     /// one to build: locks its row with <c>FOR UPDATE SKIP LOCKED</c>, and records a fix run for the
-    /// worker, on the card's branch and base, from the commit the branch is at, with the round and the
-    /// review the card's move to fixing set, and the <paramref name="check"/> its job carries. The
+    /// worker, on the card's branch and base, from the commit the branch is at, with the round, the
+    /// review and the owner's comments the card's move to fixing set, and the
+    /// <paramref name="check"/> its job carries. The
     /// card stays <c>fixing</c>, the run under way holding it. Null when there is none.
     /// </summary>
     public static async Task<ClaimedFix?> ClaimFix(NpgsqlTransaction transaction, Guid projectId, Guid userId, Guid workerId, string check, DateTimeOffset now, CancellationToken cancellationToken)
@@ -268,6 +271,7 @@ public static class JobStore
             $"""
             SELECT cards.number AS Number, cards.picked_title AS Title, cards.picked_body AS Body, b.branch AS Branch, b.base AS Base,
                    {BranchHeadOf} AS FromCommit, cards.fix_round AS Round, cards.fix_review_id AS ReviewId,
+                   coalesce(cards.fix_comments, '[]'::jsonb)::text AS Comments,
                    (SELECT r.report::text FROM runs r
                     WHERE r.project_id = cards.project_id AND r.card_number = cards.number AND r.kind IN ('build', 'fix') AND r.result = 'succeeded'
                     ORDER BY r.started_at DESC, r.id DESC LIMIT 1) AS Report
@@ -294,12 +298,14 @@ public static class JobStore
             transaction,
             cancellationToken: cancellationToken));
         var review = card.ReviewId is { } reviewId ? await ReviewStore.Of(transaction, reviewId, cancellationToken) : null;
-        var claimed = new ClaimedFix(Guid.CreateVersion7(now), card.Number, card.Title, card.Body, card.Branch, card.Base, card.FromCommit, card.Round, card.Report, review);
+        var comments = JsonSerializer.Deserialize<List<string>>(card.Comments) ?? [];
+        var claimed = new ClaimedFix(Guid.CreateVersion7(now), card.Number, card.Title, card.Body, card.Branch, card.Base, card.FromCommit, card.Round, card.Report, review, comments);
         await transaction.Connection!.ExecuteAsync(new CommandDefinition(
             """
             INSERT INTO runs (id, project_id, user_id, card_number, worker_id, kind, branch, base, check_command, from_commit, fix_round,
-                              fix_review_id, started_at)
-            VALUES (@id, @projectId, @userId, @number, @workerId, 'fix', @branch, @baseBranch, @check, @fromCommit, @round, @reviewId, @now)
+                              fix_review_id, owner_comments, started_at)
+            VALUES (@id, @projectId, @userId, @number, @workerId, 'fix', @branch, @baseBranch, @check, @fromCommit, @round, @reviewId,
+                    @comments::jsonb, @now)
             """,
             new
             {
@@ -314,6 +320,7 @@ public static class JobStore
                 fromCommit = claimed.FromCommit,
                 round = claimed.Round,
                 reviewId = card.ReviewId,
+                comments = comments.Count == 0 ? null : card.Comments,
                 now,
             },
             transaction,
@@ -388,7 +395,7 @@ public static class JobStore
 
     private sealed record Picked(int Number, string Title, string Body);
 
-    private sealed record ToFix(int Number, string Title, string Body, string Branch, string Base, string FromCommit, int? Round, Guid? ReviewId, string? Report);
+    private sealed record ToFix(int Number, string Title, string Body, string Branch, string Base, string FromCommit, int? Round, Guid? ReviewId, string Comments, string? Report);
 
     private sealed record ToReview(int Number, string Title, string Body, string Branch, string Base, string Commit, string Report, string? Check, int CheckExitCode, string? CheckOutput);
 }

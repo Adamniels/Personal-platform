@@ -355,10 +355,10 @@ public static class RunStore
             var moved = await EndCard(transaction, projectId, run.CardNumber, running, ending.CardState, cardReason, now, cancellationToken);
             if (moved && review && ending.CardState == "fixing")
             {
-                // The round the changes start, and the review its fix answers.
+                // The round the changes start, and the review its fix answers, with no comment yet.
                 await transaction.Connection!.ExecuteAsync(new CommandDefinition(
                     """
-                    UPDATE cards SET fix_rounds = @round, fix_round = @round, fix_review_id = @runId
+                    UPDATE cards SET fix_rounds = @round, fix_round = @round, fix_review_id = @runId, fix_comments = NULL
                     WHERE project_id = @projectId AND number = @number
                     """,
                     new { projectId, number = run.CardNumber, round = run.RoundsUsed + 1, runId },
