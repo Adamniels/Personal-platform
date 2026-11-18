@@ -3,6 +3,7 @@ using System.Globalization;
 using DevFlow.Api;
 using DevFlow.CodeHost;
 using DevFlow.Protocol;
+using DevFlow.PullRequests;
 using DevFlow.Recipes;
 using DevFlow.Workers;
 
@@ -60,6 +61,7 @@ public static class FakeWorkerEndpoints
         [FromServices] WorkerStore workers,
         [FromServices] WorkerStart start,
         [FromServices] UserDb database,
+        [FromServices] PullRequestOpener opener,
         [FromServices] TimeProvider time)
     {
         var cancellationToken = context.RequestAborted;
@@ -91,7 +93,15 @@ public static class FakeWorkerEndpoints
         }
 
         var message = string.Create(CultureInfo.InvariantCulture, $"Build #{job.Card.Number}, by the fake worker");
-        var commit = await fake.CommitOnBranch(userId, repository, job.Branch, job.Base, message, new Committer(job.Committer.Name, job.Committer.Email), cancellationToken);
+        var committer = new Committer(job.Committer.Name, job.Committer.Email);
+        // A repository has a commit on its default branch before anything is built on it, so a
+        // pull request has a base to go into; the fake's own git starts empty.
+        if (!await fake.HasBranch(userId, repository, job.Base, cancellationToken))
+        {
+            await fake.CommitOnBranch(userId, repository, job.Base, job.Base, "The first commit, by the fake worker", committer, cancellationToken);
+        }
+
+        var commit = await fake.CommitOnBranch(userId, repository, job.Branch, job.Base, message, committer, cancellationToken);
         // With no commit the chain did not get as far as the prepared result says, so the job ends
         // as a failure outside the card instead: the card goes back to queued, as it would for a
         // real worker whose push failed, rather than moving on with nothing on its branch.
@@ -100,6 +110,9 @@ public static class FakeWorkerEndpoints
             : prepared with { WorkerId = WorkerId, Branch = job.Branch, HeadCommit = commit };
         var now = time.GetUtcNow();
         await JobEndpoints.Complete(database, caller, job.JobId, WorkerId, JobEndpoints.Read(sent)!, now.AddTicks(-(now.Ticks % 10)), cancellationToken);
+        // A real worker's result is answered without waiting for GitHub, and its pull request opens
+        // on the next minute; the fake worker waits for it, so a test sees it as soon as it answers.
+        await opener.OpenPending(projectId, userId, cancellationToken);
         return commit is null
             ? TypedResults.Problem(statusCode: StatusCodes.Status503ServiceUnavailable, title: "The fake's git failed", detail: "no commit was made on the job's branch, so the job ended as a failure outside the card and the card is queued again")
             : TypedResults.Ok(new FakeWorkerRan(job.JobId, job.Card.Number, job.Branch, commit));

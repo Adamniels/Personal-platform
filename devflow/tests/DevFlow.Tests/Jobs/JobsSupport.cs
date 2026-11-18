@@ -83,15 +83,26 @@ internal sealed class Jobs : IAsyncDisposable
             ]),
         ]);
 
-    /// <summary>The project ready to hand out <paramref name="cards"/>, one card unless given.</summary>
-    public static async Task<Jobs> Start(IReadOnlyList<FakeIssue>? cards = null, bool login = true, string? projectFile = null)
+    /// <summary>The project ready to hand out <paramref name="cards"/>, one card unless given.
+    /// With <paramref name="signIn"/>, the owner's GitHub is linked all the way, through the fake's
+    /// sign in as the Projects tab links it, so Dev flow holds a token that merges as him; otherwise
+    /// only the link's row is written, which is all reading and handing out need.</summary>
+    public static async Task<Jobs> Start(IReadOnlyList<FakeIssue>? cards = null, bool login = true, string? projectFile = null, bool signIn = false)
     {
         var routes = await Routes.Start();
         try
         {
             var project = await routes.Project(User);
-            await Reading.Reading.Link(routes.Door, User, Owner);
             routes.Fake.Replace(User, World(cards ?? [Card(1)], projectFile ?? ProjectFile()));
+            if (signIn)
+            {
+                await SignIn(routes);
+            }
+            else
+            {
+                await Reading.Reading.Link(routes.Door, User, Owner);
+            }
+
             var jobs = new Jobs(routes, project, await Workers.Workers.NewKey(routes, project));
             await jobs.SayHello(FirstWorker);
             if (login)
@@ -107,6 +118,18 @@ internal sealed class Jobs : IAsyncDisposable
             await routes.DisposeAsync();
             throw;
         }
+    }
+
+    /// <summary>Links the user's GitHub account all the way, as the Projects tab and the fake's
+    /// page do, as the fake's default user, <see cref="Owner"/>.</summary>
+    private static async Task SignIn(Routes routes)
+    {
+        var started = await routes.App.Send("POST", Link.Linking.StartPath, Contract.Token, ("Origin", Link.Linking.Origin));
+        Assert.Equal(StatusCodes.Status200OK, started.Response.StatusCode);
+        var query = Link.Linking.Query(new Uri((string)JsonNode.Parse(await Harness.Body(started))!["authorize_url"]!));
+        var code = routes.Fake.Grant(User, query["code_challenge"], Link.Linking.Redirect);
+        var returned = await routes.App.Send("GET", $"{DevFlow.Link.GitHubLink.CallbackPath}?code={code}&state={query["state"]}", Contract.Token);
+        Assert.DoesNotContain("failed", returned.Response.Headers.Location.ToString(), StringComparison.Ordinal);
     }
 
     /// <summary>The worker says hello in the project, on <paramref name="image"/>.</summary>

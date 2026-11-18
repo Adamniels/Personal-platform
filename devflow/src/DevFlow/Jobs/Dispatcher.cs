@@ -126,7 +126,7 @@ public sealed partial class Dispatcher(
         var now = Now();
         var claimed = await database.InUserTransaction(userId, async transaction =>
             await watch.HoldUnderLock(transaction, projectId, cancellationToken) == ProjectHold.None
-                ? await JobStore.Claim(transaction, projectId, userId, workerId, facts.DefaultBranch, now, cancellationToken)
+                ? await JobStore.Claim(transaction, projectId, userId, workerId, facts.DefaultBranch, facts.Check, now, cancellationToken)
                 : null, cancellationToken);
         if (claimed is null)
         {

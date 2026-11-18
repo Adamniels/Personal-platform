@@ -72,8 +72,8 @@ public sealed class DispatchTests
         // fixed.
         var (first, second) = await door.InUserTransaction(Jobs.User, async transaction =>
         {
-            var taken = await JobStore.Claim(transaction, jobs.Project, Jobs.User, Jobs.FirstWorker, "main", now, Ct);
-            var other = await door.InUserTransaction(Jobs.User, inner => JobStore.Claim(inner, jobs.Project, Jobs.User, Jobs.SecondWorker, "main", now, Ct), Ct);
+            var taken = await JobStore.Claim(transaction, jobs.Project, Jobs.User, Jobs.FirstWorker, "main", Jobs.Check, now, Ct);
+            var other = await door.InUserTransaction(Jobs.User, inner => JobStore.Claim(inner, jobs.Project, Jobs.User, Jobs.SecondWorker, "main", Jobs.Check, now, Ct), Ct);
             return (taken, other);
         }, Ct);
 
@@ -82,7 +82,7 @@ public sealed class DispatchTests
         Assert.Null(second);
 
         // Once the first has committed, there is still nothing: the card is building.
-        Assert.Null(await door.InUserTransaction(Jobs.User, transaction => JobStore.Claim(transaction, jobs.Project, Jobs.User, Jobs.SecondWorker, "main", now, Ct), Ct));
+        Assert.Null(await door.InUserTransaction(Jobs.User, transaction => JobStore.Claim(transaction, jobs.Project, Jobs.User, Jobs.SecondWorker, "main", Jobs.Check, now, Ct), Ct));
         Assert.Equal(StatusCodes.Status204NoContent, (await jobs.Next(Jobs.SecondWorker)).Response.StatusCode);
         var run = Assert.Single(await jobs.Runs());
         Assert.Equal(Jobs.FirstWorker, run.WorkerId);

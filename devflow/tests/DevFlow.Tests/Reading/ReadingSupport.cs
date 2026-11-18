@@ -245,6 +245,10 @@ internal sealed class CountingCodeHost(ICodeHost inner) : ICodeHost
         set => Volatile.Write(ref _beforeCommitter, value);
     }
 
+    /// <summary>When set, opening a pull request answers that the host did not answer, and opens
+    /// nothing.</summary>
+    public bool OpeningUnavailable { get; set; }
+
     /// <summary>The most lists of open pull requests that were ever under way at once.</summary>
     public int MostListsAtOnce => Volatile.Read(ref _mostAtOnce);
 
@@ -394,6 +398,11 @@ internal sealed class CountingCodeHost(ICodeHost inner) : ICodeHost
     public Task<WriteResult<PullRequest>> OpenPullRequest(Guid userId, AppWriteToken token, CodeHost.Repository repository, string headBranch, string baseBranch, string title, string body, CancellationToken cancellationToken)
     {
         Record("OpenPullRequest", userId, repository, $"{headBranch} {baseBranch}");
+        if (OpeningUnavailable)
+        {
+            return Task.FromResult<WriteResult<PullRequest>>(new WriteResult<PullRequest>.Unavailable(RetryAt: null));
+        }
+
         return inner.OpenPullRequest(userId, token, repository, headBranch, baseBranch, title, body, cancellationToken);
     }
 

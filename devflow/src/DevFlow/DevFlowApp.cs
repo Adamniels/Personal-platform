@@ -12,6 +12,7 @@ using DevFlow.Link;
 using DevFlow.Merging;
 using DevFlow.Pages;
 using DevFlow.Projects;
+using DevFlow.PullRequests;
 using DevFlow.Reading;
 using DevFlow.Recipes;
 using DevFlow.Settings;
@@ -126,10 +127,16 @@ public static class DevFlowApp
             provider.GetRequiredService<WorkerStart>(),
             provider.GetRequiredService<TimeProvider>(),
             provider.GetRequiredService<ILogger<Dispatcher>>()));
+        // Opening each built card's pull request as the app, on the same minute as the reads. See
+        // "The pull request Dev flow opens" in devflow/README.md.
+        builder.Services.AddSingleton(provider => new PullRequestOpener(
+            database, provider.GetRequiredService<ICodeHost>(), provider.GetRequiredService<TimeProvider>(), provider.GetRequiredService<ILogger<PullRequestOpener>>()));
         if (settings.PollInterval is { } interval)
         {
             builder.Services.AddHostedService(provider => new Poller(
                 database, provider.GetRequiredService<ProjectRefresher>(), provider.GetRequiredService<TimeProvider>(), interval, provider.GetRequiredService<ILogger<Poller>>()));
+            builder.Services.AddHostedService(provider => new OpeningLoop(
+                database, provider.GetRequiredService<PullRequestOpener>(), provider.GetRequiredService<TimeProvider>(), interval, provider.GetRequiredService<ILogger<OpeningLoop>>()));
         }
 
         if (settings.ExposeOpenApi)

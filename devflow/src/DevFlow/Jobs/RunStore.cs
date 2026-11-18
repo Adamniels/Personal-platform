@@ -60,9 +60,9 @@ public enum Recorded
 /// </summary>
 public static class RunStore
 {
-    /// <summary>What a card that built and passed its check says, until a later part opens its
-    /// pull request.</summary>
-    public const string Built = "Built, and its check passed; its pull request opens in a later part";
+    /// <summary>What a card that built and passed its check says, until its pull request is
+    /// opened.</summary>
+    public const string Built = "Built, and its check passed; its pull request opens next";
 
     /// <summary>Why a lost run ended.</summary>
     public const string LostReason = "No result came back, and its worker was not seen for 10 minutes";

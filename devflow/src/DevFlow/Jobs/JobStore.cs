@@ -84,14 +84,15 @@ public static class JobStore
     /// <summary>
     /// Takes the project's first card to hand out, by <see cref="CardStore.QueueOrder"/>, inside
     /// <paramref name="transaction"/>, which runs as the project's user: locks its row with
-    /// <c>FOR UPDATE SKIP LOCKED</c>, moves it to <c>building</c>, and records a run for the worker.
-    /// Null when there is none, a card another transaction holds included, so two workers asking at
+    /// <c>FOR UPDATE SKIP LOCKED</c>, moves it to <c>building</c>, and records a run for the worker,
+    /// with the <paramref name="check"/> its job carries. Null when there is none, a card another transaction holds included, so two workers asking at
     /// once never get the same card and neither waits for the other.
     /// </summary>
-    public static async Task<ClaimedCard?> Claim(NpgsqlTransaction transaction, Guid projectId, Guid userId, Guid workerId, string baseBranch, DateTimeOffset now, CancellationToken cancellationToken)
+    public static async Task<ClaimedCard?> Claim(NpgsqlTransaction transaction, Guid projectId, Guid userId, Guid workerId, string baseBranch, string check, DateTimeOffset now, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(transaction);
         ArgumentException.ThrowIfNullOrEmpty(baseBranch);
+        ArgumentNullException.ThrowIfNull(check);
         var card = await transaction.Connection!.QuerySingleOrDefaultAsync<Picked>(new CommandDefinition(
             $"""
             SELECT number AS Number, picked_title AS Title, picked_body AS Body FROM cards
@@ -116,10 +117,10 @@ public static class JobStore
         var claimed = new ClaimedCard(Guid.CreateVersion7(now), card.Number, card.Title, card.Body, Branch(card.Number, card.Title));
         await transaction.Connection!.ExecuteAsync(new CommandDefinition(
             """
-            INSERT INTO runs (id, project_id, user_id, card_number, worker_id, kind, branch, base, started_at)
-            VALUES (@id, @projectId, @userId, @number, @workerId, 'build', @branch, @baseBranch, @now)
+            INSERT INTO runs (id, project_id, user_id, card_number, worker_id, kind, branch, base, check_command, started_at)
+            VALUES (@id, @projectId, @userId, @number, @workerId, 'build', @branch, @baseBranch, @check, @now)
             """,
-            new { id = claimed.RunId, projectId, userId, number = claimed.Number, workerId, branch = claimed.Branch, baseBranch, now },
+            new { id = claimed.RunId, projectId, userId, number = claimed.Number, workerId, branch = claimed.Branch, baseBranch, check, now },
             transaction,
             cancellationToken: cancellationToken));
         return claimed;
