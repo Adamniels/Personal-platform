@@ -243,6 +243,70 @@
         ],
         "type": "object"
       },
+      "CardRound": {
+        "properties": {
+          "comments": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "fixed_commit": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "replies": {
+            "items": {
+              "$ref": "#/components/schemas/ReportReply"
+            },
+            "type": "array"
+          },
+          "result": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "review_after_run_id": {
+            "format": "uuid",
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "review_run_id": {
+            "format": "uuid",
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "round": {
+            "format": "int32",
+            "type": [
+              "null",
+              "integer"
+            ]
+          },
+          "run_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id",
+          "round",
+          "review_run_id",
+          "comments",
+          "result",
+          "replies",
+          "fixed_commit",
+          "review_after_run_id"
+        ],
+        "type": "object"
+      },
       "CardRun": {
         "properties": {
           "auth_method": {
@@ -409,6 +473,12 @@
             },
             "type": "array"
           },
+          "rounds": {
+            "items": {
+              "$ref": "#/components/schemas/CardRound"
+            },
+            "type": "array"
+          },
           "runs": {
             "items": {
               "$ref": "#/components/schemas/CardRun"
@@ -445,6 +515,7 @@
           "runs",
           "report",
           "reviews",
+          "rounds",
           "screenshots"
         ],
         "type": "object"
@@ -882,6 +953,16 @@
             "default": "",
             "type": "string"
           },
+          "to_fix": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JobFix"
+              }
+            ]
+          },
           "to_review": {
             "oneOf": [
               {
@@ -950,6 +1031,25 @@
         ],
         "type": "object"
       },
+      "JobFix": {
+        "properties": {
+          "commit": {
+            "type": "string"
+          },
+          "round": {
+            "format": "int32",
+            "type": [
+              "null",
+              "integer"
+            ]
+          }
+        },
+        "required": [
+          "commit",
+          "round"
+        ],
+        "type": "object"
+      },
       "JobLimits": {
         "properties": {
           "budget_usd": {
@@ -1004,6 +1104,12 @@
           "commit": {
             "type": "string"
           },
+          "earlier": {
+            "items": {
+              "$ref": "#/components/schemas/JobRound"
+            },
+            "type": "array"
+          },
           "report": {
             "$ref": "#/components/schemas/JsonElement"
           },
@@ -1021,7 +1127,63 @@
         "required": [
           "commit",
           "report",
-          "check"
+          "check",
+          "earlier"
+        ],
+        "type": "object"
+      },
+      "JobRound": {
+        "properties": {
+          "comments": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "findings": {
+            "$ref": "#/components/schemas/JsonElement"
+          },
+          "fixed_commit": {
+            "type": "string"
+          },
+          "replies": {
+            "$ref": "#/components/schemas/JsonElement"
+          },
+          "reviewed_commit": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "round": {
+            "format": "int32",
+            "type": [
+              "null",
+              "integer"
+            ]
+          },
+          "summary": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "verdict": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "required": [
+          "round",
+          "reviewed_commit",
+          "verdict",
+          "summary",
+          "findings",
+          "comments",
+          "replies",
+          "fixed_commit"
         ],
         "type": "object"
       },
@@ -2737,6 +2899,94 @@
         "summary": "One of the pictures the worker took of a card's head commit, read from GitHub as the app",
         "tags": [
           "CardScreenshotEndpoints"
+        ]
+      }
+    },
+    "/devflow/api/projects/{id}/cards/{number}/send-back": {
+      "post": {
+        "description": "Posts comment, trimmed and with nothing added, on the card's open pull request as the caller's linked GitHub account and never as the app; the read of the project that follows takes it, as any comment of his past the newest already taken, and starts a fix run with it, which is not a review round. In order: 404 for a project or card the caller does not have; 422 when comment is missing, empty once trimmed, or longer than 10,000 characters; 409 when the card neither waits for the caller nor has stopped, or has no open pull request; 409 when GitHub is not linked or the link has expired; then GitHub is asked. 204 once posted and the project read again. 409 when GitHub refuses, with its reason; 503 when GitHub did not answer. Without a valid token, 401 with an empty body; a change from another origin, 403.",
+        "operationId": "sendBackCard",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "number",
+            "required": true,
+            "schema": {
+              "format": "int32",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SendBackRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Send a card of Dev flow's own back, with a comment as the caller",
+        "tags": [
+          "ActionEndpoints"
         ]
       }
     },

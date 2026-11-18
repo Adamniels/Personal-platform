@@ -4,13 +4,13 @@ using System.Text.Json;
 namespace DevFlow.Protocol;
 
 /// <summary>
-/// A job, what <c>jobs/next</c> answers a worker with <c>200</c>: one card of its project to build
-/// or to review, with everything the worker needs for it and nothing more. The Claude token and the
-/// key leave Dev flow only here, to the worker holding the job. See "Jobs" and "Review" in
-/// devflow/README.md.
+/// A job, what <c>jobs/next</c> answers a worker with <c>200</c>: one card of its project to build,
+/// to review or to fix, with everything the worker needs for it and nothing more. The Claude token and the
+/// key leave Dev flow only here, to the worker holding the job. See "Jobs", "Review" and
+/// "Fixing" in devflow/README.md.
 /// </summary>
 /// <param name="JobId">The run's id, which the job's other routes take.</param>
-/// <param name="Kind"><see cref="Build"/> or <see cref="Review"/>.</param>
+/// <param name="Kind"><see cref="Build"/>, <see cref="Review"/> or <see cref="Fix"/>.</param>
 /// <param name="Card">The card, as it was picked.</param>
 /// <param name="Repository">Where the code is.</param>
 /// <param name="Branch">The branch the work goes on, <c>devflow/&lt;number&gt;-&lt;slug&gt;</c>.</param>
@@ -29,12 +29,13 @@ namespace DevFlow.Protocol;
 /// for at <see cref="WorkerApi.PushKeyPath"/>, and a review asks for none.</param>
 /// <param name="Committer">Who the worker's commits are made as; a review makes none.</param>
 /// <param name="Limits">When the run is stopped.</param>
-/// <param name="ToReview">What a review reads besides the code, null on a build.</param>
-/// <param name="Start">For a build, the command that starts the project for its pictures, from the
-/// same <c>.devflow/project.json</c> as <paramref name="Check"/>; empty when it has none, and on a
-/// review.</param>
-/// <param name="Url">For a build, where the started project answers, from the same file; empty when
-/// it has none, and on a review.</param>
+/// <param name="ToReview">What a review reads besides the code, null on a build or a fix.</param>
+/// <param name="ToFix">Where a fix starts and which round it is, null on a build or a review.</param>
+/// <param name="Start">For a build or a fix, the command that starts the project for its pictures,
+/// from the same <c>.devflow/project.json</c> as <paramref name="Check"/>; empty when it has none,
+/// and on a review.</param>
+/// <param name="Url">For a build or a fix, where the started project answers, from the same file;
+/// empty when it has none, and on a review.</param>
 public sealed record Job(
     Guid JobId,
     string Kind,
@@ -51,6 +52,7 @@ public sealed record Job(
     JobCommitter Committer,
     JobLimits Limits,
     JobReview? ToReview = null,
+    JobFix? ToFix = null,
     string Start = "",
     string Url = "")
 {
@@ -59,6 +61,10 @@ public sealed record Job(
 
     /// <summary>Reviewing the commit a build left on a card's pull request.</summary>
     public const string Review = "review";
+
+    /// <summary>Fixing a card on its branch, from its head, after a review asked for changes or the
+    /// owner commented on its pull request.</summary>
+    public const string Fix = "fix";
 
     /// <summary>Its kind and card, never the token or the key.</summary>
     public override string ToString() =>
@@ -73,10 +79,45 @@ public sealed record Job(
 /// <param name="Commit">The full id of the commit to review.</param>
 /// <param name="Report">The build's report as it came, in its form.</param>
 /// <param name="Check">The check's result on the commit, as the build's worker sent it.</param>
-/// <param name="Screenshots">The pictures the build's worker took of the commit, on
+/// <param name="Earlier">Each earlier round of the card, oldest first, empty on its first review.</param>
+/// <param name="Screenshots">The pictures the worker took of the commit after its check passed, on
 /// <see cref="PageShots.Branch"/> under <see cref="PageShots.Folder"/>, and its note; null when it
 /// tried none.</param>
-public sealed record JobReview(string Commit, JsonElement Report, CheckResult Check, ResultScreenshots? Screenshots = null);
+public sealed record JobReview(string Commit, JsonElement Report, CheckResult Check, IReadOnlyList<JobRound> Earlier, ResultScreenshots? Screenshots = null);
+
+/// <summary>
+/// An earlier round of a card, as a re-review reads it: what sent the card back, the review that
+/// asked for changes or the owner's comment, the developer's reply to each finding, and the commit
+/// its fix left. Every text is the reviewer's, the owner's or the developer's, and data.
+/// </summary>
+/// <param name="Round">The fix round, 1 to 3, or null when the owner's comment started it.</param>
+/// <param name="ReviewedCommit">The commit the review it answered was for, null when it answered
+/// none.</param>
+/// <param name="Verdict">That review's verdict, null when it answered none.</param>
+/// <param name="Summary">That review's summary, null when it answered none.</param>
+/// <param name="Findings">That review's findings, as the verdict's form holds them; empty when it
+/// answered none.</param>
+/// <param name="Comments">The owner's comments it answered, each exactly as he wrote it.</param>
+/// <param name="Replies">The fix's replies, as its report holds them.</param>
+/// <param name="FixedCommit">The commit the fix left on the branch.</param>
+public sealed record JobRound(
+    int? Round,
+    string? ReviewedCommit,
+    string? Verdict,
+    string? Summary,
+    JsonElement Findings,
+    IReadOnlyList<string> Comments,
+    JsonElement Replies,
+    string FixedCommit);
+
+/// <summary>
+/// Where a fix job starts: the commit the card's branch must be at, the newest one a build or a fix
+/// of the card left there, which the worker checks before anything runs, and the round.
+/// </summary>
+/// <param name="Commit">The full id of the commit the branch is at, which the fix builds on.</param>
+/// <param name="Round">The fix round, 1 to 3, or null when the owner's comment started it, which
+/// is not a round.</param>
+public sealed record JobFix(string Commit, int? Round);
 
 /// <summary>The card a job builds or reviews, as it was picked; its title and body are the
 /// owner's words.</summary>

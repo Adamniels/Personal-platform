@@ -31,12 +31,17 @@ You are in a folder that holds two others:
   - `review/check.txt`, the project's check as the worker ran it itself on the commit, with its
     exit code and the last lines it printed. The check's result is the worker's, not the
     developer's word.
+  - `review/earlier.json`, the card's earlier rounds, oldest first: what sent it back each time,
+    a review that asked for changes or the owner's comment on the pull request, the developer's
+    reply to each finding, and the commit its fix left. An empty list on a first review.
   - `review/screenshots.txt`, which pictures the worker took of the commit, or why it took none:
     after the check passed it started the project from the commit itself and opened each page the
     report names, so the pictures are the worker's, not the developer's word;
   - `review/pictures/`, those pictures, each page full length at a desktop's width,
     `<page>-desktop.png`, 1280 pixels wide, and a phone's, `<page>-phone.png`, 390 pixels wide.
     Open each one.
+
+{{earlier}}
 
 You can read, search and list files, and nothing else: you cannot write, run a command or reach
 the network. Nothing you do changes the code, and you never need to.

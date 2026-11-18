@@ -25,6 +25,13 @@ export type ActionsApi = {
 		number: number,
 		headCommit: string,
 	) => Promise<void>;
+	/** Sends a card back with the owner's comment, posted as him on its pull
+	 * request, which starts its fix. */
+	sendBackCard: (
+		projectId: string,
+		number: number,
+		comment: string,
+	) => Promise<void>;
 };
 
 /** The caller's GitHub link, undefined until the status has been read. */

@@ -81,11 +81,13 @@ function open(
 	cards: CardItem[],
 	{
 		mergeCard = () => Promise.resolve(),
+		sendBackCard = () => Promise.resolve(),
 		after = cards,
 		link = "linked",
 		items = [],
 	}: {
 		mergeCard?: ActionsApi["mergeCard"];
+		sendBackCard?: ActionsApi["sendBackCard"];
 		after?: CardItem[];
 		link?: Status["github"]["state"];
 		items?: WaitingItem[];
@@ -104,6 +106,12 @@ function open(
 			answer = list(after, items);
 		},
 	);
+	const sends = vi.fn(
+		async (project: string, number: number, comment: string) => {
+			await sendBackCard(project, number, comment);
+			answer = list(after, items);
+		},
+	);
 	render(
 		<App
 			loadStatus={() => Promise.resolve(status(link))}
@@ -119,11 +127,12 @@ function open(
 				sendBack: () => Promise.resolve(),
 				resume: () => Promise.resolve(),
 				mergeCard: merges,
+				sendBackCard: sends,
 			}}
 			now={() => NOW}
 		/>,
 	);
-	return { merges, loads };
+	return { merges, sends, loads };
 }
 
 async function item() {
@@ -183,8 +192,10 @@ describe("a card of Dev flow's that waits", () => {
 			"https://github.com/Adamniels/Fodr/pull/7",
 		);
 		expect(link.getAttribute("rel")).toBe("noreferrer");
-		// Sending back waits for a part that can run it.
-		expect(shown.queryByRole("button", { name: "Send back" })).toBeNull();
+		// Send back, beside it and not primary, which starts the card's fix.
+		const back = shown.getByRole("button", { name: "Send back" });
+		expect(back.className).not.toMatch(/primary/);
+		expect(back).toHaveProperty("disabled", false);
 	});
 
 	test("shows the reviewer's verdict on its commit", async () => {
@@ -355,6 +366,75 @@ describe("a card of Dev flow's that waits", () => {
 		expect(await (await item()).findByRole("alert")).toHaveProperty(
 			"textContent",
 			"The pull request has changed since this was shown. It was read again. Look at it before you merge.",
+		);
+	});
+
+	test("sending back asks for a comment, sends it with the card, and it leaves", async () => {
+		const { sends, loads } = open([card()], { after: [] });
+
+		fireEvent.click((await item()).getByRole("button", { name: "Send back" }));
+		const box = (await item()).getByRole("textbox", {
+			name: "What should the developer change?",
+		});
+		const send = (await item()).getByRole("button", { name: "Send" });
+		expect(send).toHaveProperty("disabled", true);
+		fireEvent.change(box, { target: { value: "Name it EmptyList." } });
+		fireEvent.click(send);
+
+		await waitFor(() =>
+			expect(sends).toHaveBeenCalledWith(PROJECT, 4, "Name it EmptyList."),
+		);
+		await waitFor(() =>
+			expect(
+				within(screen.getByRole("tabpanel")).queryByRole("article", {
+					name: TITLE,
+				}),
+			).toBeNull(),
+		);
+		expect(loads.mock.calls.length).toBeGreaterThan(1);
+		expect(await screen.findByText("Sent back #7")).toBeTruthy();
+	});
+
+	test("sending back can be cancelled, and needs a link", async () => {
+		open([card()], { link: "none" });
+
+		expect(
+			(await item()).getByRole("button", { name: "Send back" }),
+		).toHaveProperty("disabled", true);
+		cleanup();
+
+		const { sends } = open([card()]);
+		fireEvent.click((await item()).getByRole("button", { name: "Send back" }));
+		fireEvent.click((await item()).getByRole("button", { name: "Cancel" }));
+		expect((await item()).queryByRole("textbox")).toBeNull();
+		expect(sends).not.toHaveBeenCalled();
+	});
+
+	test("a refused send back is said in the item, and it stays", async () => {
+		open([card()], {
+			sendBackCard: () =>
+				Promise.reject(
+					new ApiError({
+						status: 409,
+						title: "This card cannot be sent back now",
+						detail:
+							"A card is sent back while it waits for you or has stopped, with its pull request open.",
+					}),
+				),
+		});
+
+		fireEvent.click((await item()).getByRole("button", { name: "Send back" }));
+		fireEvent.change(
+			(await item()).getByRole("textbox", {
+				name: "What should the developer change?",
+			}),
+			{ target: { value: "Rename it" } },
+		);
+		fireEvent.click((await item()).getByRole("button", { name: "Send" }));
+
+		expect(await (await item()).findByRole("alert")).toHaveProperty(
+			"textContent",
+			"This card cannot be sent back now. A card is sent back while it waits for you or has stopped, with its pull request open.",
 		);
 	});
 });

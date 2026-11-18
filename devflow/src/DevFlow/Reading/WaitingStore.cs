@@ -229,7 +229,7 @@ public sealed class WaitingStore(UserDb database, TimeProvider time)
                 FROM cards c
                 JOIN projects p ON p.id = c.project_id
                 JOIN LATERAL (SELECT * FROM runs WHERE runs.project_id = c.project_id AND runs.card_number = c.number
-                              AND runs.kind = 'build' AND runs.result = 'succeeded' ORDER BY started_at DESC, id DESC LIMIT 1) r ON true
+                              AND runs.kind IN ('build', 'fix') AND runs.result = 'succeeded' ORDER BY started_at DESC, id DESC LIMIT 1) r ON true
                 LEFT JOIN LATERAL (SELECT * FROM reviews WHERE reviews.project_id = c.project_id AND reviews.card_number = c.number
                                    AND reviews.reviewed_commit = r.head_commit
                                    ORDER BY reviewed_at DESC, run_id DESC LIMIT 1) v ON true

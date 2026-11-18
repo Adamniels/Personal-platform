@@ -121,7 +121,8 @@ features" in `High-level/docs/platform-architecture.md`.
   reads it and refreshing a project, merging and sending back from the page and what each refusal
   means, a project's worker key, the worker scheme and the worker API with their routes and
   tables, the pull request Dev flow opens for a built card, with its body, the screenshots the worker
-  takes of a built card's pages, with `start`, `url` and `DEVFLOW=1`, and a card's page, starting a worker, with the base image, the format of `.devflow/`, the recipe route, the
+  takes of a built card's pages, with `start`, `url` and `DEVFLOW=1`, a card's page, and
+  fixing, with its rounds, the owner's comment as the one input read and sending a card back, starting a worker, with the base image, the format of `.devflow/`, the recipe route, the
   two commands, the memory rule and when a worker needs a rebuild, the worker program with its
   settings, its loop, its exit codes, the agent interface, when a run succeeds, a build job step by
   step with the git rules it keeps, publishing it and its tests, the Claude login, its routes and its table, jobs, with handing out a card, the job, a
@@ -145,11 +146,12 @@ features" in `High-level/docs/platform-architecture.md`.
   under it, the brief quoting the card as picked, how a card reaches its pull request and
   how the waiting list reads Dev flow's own cards beside the runner's, why the report decides nothing, where a failure
   lies and when a run is lost, the worker's pictures and why they never decide a merge, the review and why its verdict lives in the database tied to its
-  commit, and its security decisions and accepted risks, kept for an audit,
+  commit, fixing, why rounds are limited and why the owner's comment is the one input read from
+  GitHub, and its security decisions and accepted risks, kept for an audit,
   the vault's, the fake's, the worker key's, the agent run's environment and token, the Claude
   token's and a job's, the brief's, the report's text in a pull request body, push keys before the watch, the project run as `agent` in a clean copy, its test mode off
   without `DEVFLOW=1`, pictures served through part 1's checks, root never running git in the
-  agent's copy, the copy without credentials, a push never forced, the reviewer that cannot write
+  agent's copy, the copy without credentials, a push never forced, the reviewer that cannot write, a fix started only from the commit handed, only the owner's comment read
   and a verdict that is never a comment among them
 - `docs/superpowers/specs/2026-11-14-development-flow-design.md` — the design of the whole
   development flow, frozen on 2026 11 15 when the slices of its first part were cut; the

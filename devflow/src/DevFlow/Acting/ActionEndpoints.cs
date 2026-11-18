@@ -1,6 +1,7 @@
 using System.Globalization;
 
 using DevFlow.Api;
+using DevFlow.Cards;
 using DevFlow.CodeHost;
 using DevFlow.Link;
 using DevFlow.Reading;
@@ -24,7 +25,7 @@ public sealed record SendBackRequest(string? Comment);
 /// <summary>
 /// Acting on what waits, from the page, as the caller on the code host and never as the app:
 /// merging a waiting pull request, and sending a waiting or stopped one back with a comment, which
-/// the runner reads as the owner's input on its next turn. Under the <c>Api</c> policy and the origin check. Everything
+/// the runner reads as the owner's input on its next turn, or Dev flow's next read of a card's. Under the <c>Api</c> policy and the origin check. Everything
 /// that can be refused without the code host is refused before it is asked; the commit the page
 /// showed travels to the code host, which refuses to merge a pull request that moved on, so a
 /// stale page can cost a click and never a wrong merge. Nothing the runner owns, a label or a
@@ -75,7 +76,103 @@ public static class ActionEndpoints
             .ProducesValidationProblem(StatusCodes.Status422UnprocessableEntity)
             .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
+        routes.MapPost("/devflow/api/projects/{id:guid}/cards/{number:int}/send-back", SendBackCard)
+            .RequireAuthorization(PlatformAuthPolicies.Api)
+            .WithName("sendBackCard")
+            .WithSummary("Send a card of Dev flow's own back, with a comment as the caller")
+            .WithDescription("Posts comment, trimmed and with nothing added, on the card's open pull request as the caller's linked GitHub account and never as the app; the read of the project that follows takes it, as any comment of his past the newest already taken, and starts a fix run with it, which is not a review round. In order: 404 for a project or card the caller does not have; 422 when comment is missing, empty once trimmed, or longer than 10,000 characters; 409 when the card neither waits for the caller nor has stopped, or has no open pull request; 409 when GitHub is not linked or the link has expired; then GitHub is asked. 204 once posted and the project read again. 409 when GitHub refuses, with its reason; 503 when GitHub did not answer. Without a valid token, 401 with an empty body; a change from another origin, 403.")
+            .Produces(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesValidationProblem(StatusCodes.Status422UnprocessableEntity)
+            .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
+
         return routes;
+    }
+
+    /// <summary>
+    /// The owner's send back of a card of Dev flow's own, part 1's send back: his comment, posted
+    /// as him on the card's pull request, which the read that follows takes as the one input Dev flow
+    /// reads from GitHub and starts a fix with. Offered for a card waiting for him and for a stopped
+    /// one, while its pull request is open; Dev flow itself writes nothing to the card here, so the
+    /// comment on GitHub is the one record of it. See "Fixing" in devflow/README.md.
+    /// </summary>
+    private static async Task<Results<NoContent, ProblemHttpResult>> SendBackCard(
+        Guid id,
+        int number,
+        SendBackRequest request,
+        HttpContext context,
+        [FromServices] ActionStore store,
+        [FromServices] UserTokens tokens,
+        [FromServices] ICodeHost host,
+        [FromServices] ProjectRefresher refresher,
+        [FromServices] TimeProvider time)
+    {
+        var userId = context.UserId();
+        var cancellationToken = context.RequestAborted;
+        if (await store.FindCard(userId, id, number, cancellationToken) is not { } card)
+        {
+            return TypedResults.Problem(statusCode: StatusCodes.Status404NotFound, title: "No such card", detail: "You have no card with that number in that project.");
+        }
+
+        if (Comment(request.Comment, "write what the developer should do") is { } invalid)
+        {
+            return invalid;
+        }
+
+        if (card.State is not ("waiting_for_owner" or "stopped") || card.PullRequestNumber is not { } pull || card.Reason == CardStore.PullRequestClosed)
+        {
+            return Conflict("This card cannot be sent back now", "A card is sent back while it waits for you or has stopped, with its pull request open.");
+        }
+
+        // A stopped card's pull request is not followed by the read, so one closed since it stopped
+        // is known only by asking; a comment on it would be taken by no read.
+        if (card.State == "stopped")
+        {
+            switch (await host.PullRequest(userId, card.Repository, pull, cancellationToken))
+            {
+                case CodeHostResult<PullRequest>.Found { Value.State: PullRequestState.Open }:
+                    break;
+                case CodeHostResult<PullRequest>.Found or CodeHostResult<PullRequest>.NotFound:
+                    return Conflict("This card cannot be sent back now", "Its pull request is no longer open.");
+                case CodeHostResult<PullRequest>.Unavailable { RetryAt: var retryAt }:
+                    return Unavailable(context, time, retryAt, "GitHub could not say whether the card's pull request is open; nothing was posted.");
+                default:
+                    throw new InvalidOperationException("a code host result that is not one of the three");
+            }
+        }
+
+        var userToken = await tokens.For(userId, cancellationToken);
+        if (userToken is not UserToken.Usable { Token: var access })
+        {
+            return TokenProblem(userToken, context, time);
+        }
+
+        switch (await host.Comment(userId, access, card.Repository, pull, request.Comment!.Trim(), cancellationToken))
+        {
+            case CommentResult.Posted:
+                await ReadAgain(refresher, card.ProjectId, userId, time, cancellationToken);
+                return TypedResults.NoContent();
+            case CommentResult.Refused { Status: var status, Message: var message }:
+                return Conflict("GitHub refused the comment", HostSaid(status, message));
+            case CommentResult.Unavailable { RetryAt: var retryAt }:
+                // It may have been posted before the answer was lost, so the project is read again.
+                await ReadAgain(refresher, card.ProjectId, userId, time, cancellationToken);
+                return Unavailable(context, time, retryAt, "It is not known whether the comment was posted; the project was read again.");
+            default:
+                throw new InvalidOperationException("a comment result that is not one of the three");
+        }
+    }
+
+    /// <summary>Why a comment from the page is refused, or null when it is one to post: missing,
+    /// empty once trimmed, or longer than <see cref="MostComment"/>.</summary>
+    private static ProblemHttpResult? Comment(string? written, string what)
+    {
+        var comment = written?.Trim();
+        return comment is null ? Invalid("comment", "is missing")
+            : comment.Length == 0 ? Invalid("comment", $"is empty; {what}")
+            : comment.Length > MostComment ? Invalid("comment", string.Create(CultureInfo.InvariantCulture, $"is {comment.Length:N0} characters; it may have at most {MostComment:N0}"))
+            : null;
     }
 
     /// <summary>
@@ -150,21 +247,12 @@ public static class ActionEndpoints
             return NoSuchItem();
         }
 
-        var comment = request.Comment?.Trim();
-        if (comment is null)
+        if (Comment(request.Comment, "write what the runner should do") is { } invalid)
         {
-            return Invalid("comment", "is missing");
+            return invalid;
         }
 
-        if (comment.Length == 0)
-        {
-            return Invalid("comment", "is empty; write what the runner should do");
-        }
-
-        if (comment.Length > MostComment)
-        {
-            return Invalid("comment", string.Create(CultureInfo.InvariantCulture, $"is {comment.Length:N0} characters; it may have at most {MostComment:N0}"));
-        }
+        var comment = request.Comment!.Trim();
 
         var userToken = await tokens.For(userId, cancellationToken);
         if (userToken is not UserToken.Usable { Token: var access })

@@ -10,7 +10,8 @@ namespace DevFlow.Worker.Build;
 
 /// <summary>
 /// One build job, from the job Dev flow handed out to the result it gets back, as Settled in the
-/// slice "The worker builds and pushes". Root clones the repository with the push key into a bare
+/// slice "The worker builds and pushes"; a fix job is carried the same way, on the card's branch
+/// from the commit it was handed, see "Fixing" in devflow/README.md. Root clones the repository with the push key into a bare
 /// repository of its own; the agent clones that, through a bundle root writes in a folder only root
 /// can write, into its working copy, and works
 /// there as <c>agent</c> within the time limit; what it left uncommitted is committed in its copy,
@@ -47,13 +48,13 @@ internal sealed partial class BuildJob(DevFlowClient devFlow, Guid workerId, Job
             job = null;
         }
 
-        if (job is null || job.Kind != Job.Build)
+        if (job is null || !(job.Kind == Job.Build || (job.Kind == Job.Fix && job.ToFix is not null)))
         {
-            Log.Write("The job is not a build job this worker can read; it is left.");
+            Log.Write("The job is not a build or a fix job this worker can read; it is left.");
             return;
         }
 
-        Log.Write($"Building card #{job.Card.Number} on {job.Branch}, job {job.JobId}.");
+        Log.Write($"{(job.Kind == Job.Fix ? "Fixing" : "Building")} card #{job.Card.Number} on {job.Branch}, job {job.JobId}.");
         var started = Time.GetTimestamp();
         Outcome outcome;
         if (Refusal(job) is { } refused)
@@ -139,7 +140,9 @@ internal sealed partial class BuildJob(DevFlowClient devFlow, Guid workerId, Job
     /// <summary>
     /// Root clones the repository with the push key into its own bare repository, mode 700 inside
     /// the job's folder of secrets, and checks the job's branch out there: the remote's when it has
-    /// one, from a run that was lost, and otherwise a new one at the base. The agent then clones it,
+    /// one, from a run that was lost, and otherwise a new one at the base; for a fix, the remote's,
+    /// which must be at the commit the fix was handed, or the fix fails in the card before anything
+    /// runs, since it would build on a commit Dev flow did not hand out. The agent then clones it,
     /// through a bundle root writes in the job's handover folder, which the agent can read and not
     /// write, into its working copy, with the app's bot as its committer. Answers the commit the
     /// branch started at.
@@ -156,6 +159,13 @@ internal sealed partial class BuildJob(DevFlowClient devFlow, Guid workerId, Job
         var baseCommit = await Commit(paths, job.Base, stopping)
             ?? throw new StepFailed(FailureSide.OutsideCard, $"The base branch {job.Base} has no commit");
         var start = await Commit(paths, job.Branch, stopping);
+        if (job.ToFix is { Commit: var handed } && !string.Equals(start, handed, StringComparison.Ordinal))
+        {
+            throw new StepFailed(FailureSide.Card, start is null
+                ? $"The branch {job.Branch} is not on the remote, so the fix of {handed} was not started"
+                : $"The branch {job.Branch} is at {start}, not at {handed}, the commit the fix was handed, so it was not started");
+        }
+
         if (start is null)
         {
             // An empty old value: made only if it is not there.

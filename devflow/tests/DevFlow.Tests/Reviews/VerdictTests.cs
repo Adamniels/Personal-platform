@@ -168,10 +168,14 @@ public sealed class VerdictTests
         var current = await ReviewStore.Current(jobs.Routes.Door, Jobs.Jobs.User, jobs.Project, 4, Ct);
         Assert.Equal(ReviewVerdictKind.Changes, current!.Verdict.Verdict);
         Assert.Equal("changes", Assert.Single(await Reviews(jobs)).Verdict);
-        Assert.Equal("waiting_for_owner", (await Built.Card(jobs, 4)).State);
+        // The recorded changes sent the card to its first fix round, whatever a comment says.
+        Assert.Equal("fixing", (await Built.Card(jobs, 4)).State);
 
         // Nor does one on a pull request still waiting for its review: card 5's is reviewed anyway.
+        // Card 4's fix is handed out first, fixes going before builds, and card 5 is built while it
+        // runs.
         ReviewJobTests.Later(jobs);
+        Assert.Equal(Job.Fix, (string)(await jobs.Job())["kind"]!);
         var five = await Built.Run(jobs, Built.Prepared());
         var fivePull = (await Built.Card(jobs, 5)).PullRequestNumber!.Value;
         Converse(jobs, fivePull, (FakeCodeHost.AppLogin, $"Review of {((string)five["head_commit"]!)[..7]}: approve"));

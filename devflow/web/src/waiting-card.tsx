@@ -2,12 +2,13 @@
 // under "Pull requests waiting" beside the runner's: its title and project, the report's summary,
 // each decision the agent marked for him, the check Dev flow ran, the reviewer's verdict on the
 // commit, and Merge, the owner's own
-// merge, behind the same confirmation as an item's, and Open on GitHub. The commit shown, the one
+// merge, behind the same confirmation as an item's, Send back, his comment posted as him on the
+// pull request, which starts the card's fix, and Open on GitHub. The commit shown, the one
 // the run built and the check passed on, travels with the merge, so a pull request that moved on is
 // refused, never merged. Every text came from the code host or the agent and is shown as text. See
 // "The pages" and "What waits" in devflow/README.md.
-import { Button, Card, Dialog, Status, useToast } from "@platform/ui";
-import { useId, useState } from "react";
+import { Button, Card, Dialog, Status, TextArea, useToast } from "@platform/ui";
+import { type FormEvent, useId, useState } from "react";
 import {
 	type ActionsApi,
 	describe,
@@ -80,7 +81,7 @@ export function ReviewLine({
 }
 
 /** One waiting card: its header, what the owner needs to judge it, and its
- * Merge and Open on GitHub. */
+ * Merge, Send back and Open on GitHub. */
 export function WaitingCard({
 	card,
 	primary,
@@ -91,6 +92,9 @@ export function WaitingCard({
 	const toast = useToast();
 	const lineId = useId();
 	const [confirming, setConfirming] = useState(false);
+	const [writing, setWriting] = useState(false);
+	const [text, setText] = useState("");
+	const [sending, setSending] = useState(false);
 	const [refusal, setRefusal] = useState<string | null>(null);
 	const linkLine =
 		link === "none" ? UNLINKED : link === "needs_relink" ? EXPIRED : null;
@@ -111,6 +115,30 @@ export function WaitingCard({
 		askNavAgain();
 	}
 
+	async function send(event: FormEvent) {
+		event.preventDefault();
+		if (text.trim() === "") return;
+		setSending(true);
+		try {
+			await api.sendBackCard(card.project_id, card.number, text);
+			setRefusal(null);
+			setWriting(false);
+			setText("");
+			toast.success(`Sent back #${card.pull_request_number}`);
+		} catch (error) {
+			setRefusal(describe(error));
+		} finally {
+			setSending(false);
+		}
+		await reload();
+		askNavAgain();
+	}
+
+	function cancel() {
+		setWriting(false);
+		setText("");
+	}
+
 	return (
 		<Card
 			title={card.title}
@@ -124,6 +152,24 @@ export function WaitingCard({
 							{refusal}
 						</p>
 					)}
+					{writing ? (
+						<form className={styles.comment} onSubmit={send}>
+							<TextArea
+								label="What should the developer change?"
+								value={text}
+								rows={4}
+								onChange={(event) => setText(event.target.value)}
+							/>
+							<div className={styles.actions}>
+								<Button type="submit" disabled={sending || text.trim() === ""}>
+									Send
+								</Button>
+								<Button kind="ghost" onClick={cancel}>
+									Cancel
+								</Button>
+							</div>
+						</form>
+					) : null}
 					<div className={styles.actions}>
 						<Button
 							kind={primary ? "primary" : "secondary"}
@@ -133,6 +179,15 @@ export function WaitingCard({
 						>
 							Merge
 						</Button>
+						{writing ? null : (
+							<Button
+								disabled={link !== "linked"}
+								aria-describedby={linkLine === null ? undefined : lineId}
+								onClick={() => setWriting(true)}
+							>
+								Send back
+							</Button>
+						)}
 						{linkable(card.pull_request_url) ? (
 							<a
 								className={styles.open}

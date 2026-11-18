@@ -19,7 +19,7 @@ using Jobs = DevFlow.Tests.Jobs.Jobs;
 public sealed class ReviewWorkerTests
 {
     /// <summary>The files a review is given beside the copy.</summary>
-    private static readonly string[] Evidence = ["diff.patch", "card.md", "report.json", "check.txt", "screenshots.txt"];
+    private static readonly string[] Evidence = ["diff.patch", "card.md", "report.json", "check.txt", "earlier.json", "screenshots.txt"];
 
     /// <summary>A verdict in its form, changes with one blocking finding.</summary>
     private static JsonObject Verdict() => new()
@@ -79,6 +79,8 @@ public sealed class ReviewWorkerTests
         Assert.Contains("$ echo all 3 checks passed", files["check.txt"], StringComparison.Ordinal);
         Assert.Contains("exit 0", files["check.txt"], StringComparison.Ordinal);
         Assert.Contains("\nall 3 checks passed", files["check.txt"], StringComparison.Ordinal);
+        // A first review has no earlier rounds.
+        Assert.Equal("[]\n", files["earlier.json"]);
         // A project with no start: the build said so, and so does the review's file.
         Assert.Equal("This project has no pages to show\n", files["screenshots.txt"]);
 
@@ -96,7 +98,8 @@ public sealed class ReviewWorkerTests
         Assert.Equal(head, (string)sent["head_commit"]!);
         Assert.Equal("changes", (string)sent["report"]!["verdict"]!);
         Assert.Null(sent["check"]);
-        Assert.Equal("waiting_for_owner", (await bench.Jobs.Card(1)).State);
+        // A changes verdict sends the card to its first fix round.
+        Assert.Equal("fixing", (await bench.Jobs.Card(1)).State);
         Assert.Empty(Bench.Files(bench.Folders.Work));
         Assert.Empty(Bench.Files(bench.Folders.Handover));
         Assert.Empty(Bench.Files(bench.Folders.Secrets));

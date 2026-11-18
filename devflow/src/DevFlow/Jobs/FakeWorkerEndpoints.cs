@@ -19,9 +19,11 @@ namespace DevFlow.Jobs;
 
 /// <summary>What the fake worker is asked to do: take the project's next job and end it with the
 /// prepared result, whose worker id, branch and head commit it fills itself; for a review job the
-/// prepared report is the verdict. For a build whose result lists pictures, <paramref name="Pictures"/>
-/// holds their bytes by name, base64 in the JSON, which it puts where a worker pushes them.</summary>
-public sealed record FakeWorkerRun(Guid? ProjectId, ResultRequest? Result, IReadOnlyDictionary<string, byte[]>? Pictures = null);
+/// prepared report is the verdict. With <paramref name="LeaveNoCommit"/>, a fix makes no commit, as
+/// an agent that changed nothing, and names the commit it was handed. For a build or a fix whose
+/// result lists pictures, <paramref name="Pictures"/> holds their bytes by name, base64 in the
+/// JSON, which it puts where a worker pushes them.</summary>
+public sealed record FakeWorkerRun(Guid? ProjectId, ResultRequest? Result, bool? LeaveNoCommit = null, IReadOnlyDictionary<string, byte[]>? Pictures = null);
 
 /// <summary>What the fake worker did: the job it took, its kind, its card, and the commit it left
 /// on the branch, or for a review the commit it reviewed.</summary>
@@ -31,8 +33,8 @@ public sealed record FakeWorkerRan(Guid JobId, string Kind, int Card, string Bra
 /// The fake worker, in the fake mode only, under the <c>Api</c> policy and the origin check, acting
 /// on the caller's own project: one call says hello in the project as a worker on the image
 /// expected, takes its next job through the same <see cref="Dispatcher"/> a real worker asks, makes
-/// a commit on the job's branch in the fake code host for a build, or none for a review, which names
-/// the commit it was handed, and completes the job with the prepared result through the same code a
+/// a commit on the job's branch in the fake code host for a build, on its head for a fix, or none
+/// for a review, which names the commit it was handed, and completes the job with the prepared result through the same code a
 /// real worker's result goes through. So an acceptance test drives the whole chain without a
 /// container. Left out of the schema, as every fake address is. See "Jobs"
 /// in devflow/README.md.
@@ -109,8 +111,42 @@ public static class FakeWorkerEndpoints
             return TypedResults.Ok(new FakeWorkerRan(job.JobId, job.Kind, job.Card.Number, job.Branch, toReview.Commit));
         }
 
-        var message = string.Create(CultureInfo.InvariantCulture, $"Build #{job.Card.Number}, by the fake worker");
         var committer = new Committer(job.Committer.Name, job.Committer.Email);
+
+        // Each picture the result lists, on pr-screenshots under the commit's folder, as a worker
+        // pushes them; one the request gave no bytes for stays missing.
+        void PutPictures(ResultRequest sent, string commit)
+        {
+            foreach (var name in sent.Screenshots?.Names ?? [])
+            {
+                if (request.Pictures?.GetValueOrDefault(name) is { } bytes)
+                {
+                    fake.PutFile(userId, repository, $"{PageShots.Folder(job.Card.Number, commit)}/{name}.png", PageShots.Branch, bytes);
+                }
+            }
+        }
+
+        if (job.ToFix is { } toFix)
+        {
+            // A fix continues the card's branch from the commit it was handed, as a push would.
+            var fixedUp = request.LeaveNoCommit == true
+                ? toFix.Commit
+                : await fake.CommitOnBranch(userId, repository, job.Branch, job.Branch, string.Create(CultureInfo.InvariantCulture, $"Fix #{job.Card.Number}, by the fake worker"), committer, cancellationToken);
+            var result = fixedUp is null
+                ? prepared with { WorkerId = WorkerId, Outcome = ResultRequest.Failed, Report = null, Failure = new RunFailure(NoCommit, false), Check = null, Branch = job.Branch, HeadCommit = null }
+                : prepared with { WorkerId = WorkerId, Branch = job.Branch, HeadCommit = fixedUp };
+            if (fixedUp is not null)
+            {
+                PutPictures(result, fixedUp);
+            }
+
+            await JobEndpoints.Complete(database, caller, job.JobId, WorkerId, JobEndpoints.Read(result)!, now, cancellationToken);
+            return fixedUp is null
+                ? TypedResults.Problem(statusCode: StatusCodes.Status503ServiceUnavailable, title: "The fake's git failed", detail: "no commit was made on the job's branch, so the job ended as a failure outside the card and the card is fixing again")
+                : TypedResults.Ok(new FakeWorkerRan(job.JobId, job.Kind, job.Card.Number, job.Branch, fixedUp));
+        }
+
+        var message = string.Create(CultureInfo.InvariantCulture, $"Build #{job.Card.Number}, by the fake worker");
         // A repository has a commit on its default branch before anything is built on it, so a
         // pull request has a base to go into; the fake's own git starts empty.
         if (!await fake.HasBranch(userId, repository, job.Base, cancellationToken))
@@ -127,15 +163,7 @@ public static class FakeWorkerEndpoints
             : prepared with { WorkerId = WorkerId, Branch = job.Branch, HeadCommit = commit };
         if (commit is not null)
         {
-            // Each picture the result lists, on pr-screenshots under the commit's folder, as a
-            // worker pushes them; one the request gave no bytes for stays missing.
-            foreach (var name in sent.Screenshots?.Names ?? [])
-            {
-                if (request.Pictures?.GetValueOrDefault(name) is { } bytes)
-                {
-                    fake.PutFile(userId, repository, $"{PageShots.Folder(job.Card.Number, commit)}/{name}.png", PageShots.Branch, bytes);
-                }
-            }
+            PutPictures(sent, commit);
         }
 
         await JobEndpoints.Complete(database, caller, job.JobId, WorkerId, JobEndpoints.Read(sent)!, now, cancellationToken);

@@ -73,6 +73,64 @@ public sealed class CardPageTests
     }
 
     [Fact]
+    public async Task TheRoundsAreOnTheCardsPage()
+    {
+        await using var jobs = await Jobs.Jobs.Start([Jobs.Jobs.Card(4)]);
+        var built = await Fixing.Fixed.BuiltAndReviewed(jobs, Built.Verdict("changes"));
+        var fixedUp = await Fixing.Fixed.Fix(jobs);
+        await Built.Review(jobs, Built.Verdict("approve"));
+        var runs = await jobs.Runs();
+        Assert.Equal(["build", "review", "fix", "review"], runs.Select(run => run.Kind));
+
+        var (_, card) = await Built.Get(jobs, $"/devflow/api/projects/{jobs.Project}/cards/4");
+
+        // One round: the review that asked for changes, the fix with its replies and the commit it
+        // left, and the review after it.
+        var round = Assert.Single(card!["rounds"]!.AsArray())!.AsObject();
+        Assert.Equal(1, (int)round["round"]!);
+        Assert.Equal(runs[1].Id, (Guid)round["review_run_id"]!);
+        Assert.Empty(round["comments"]!.AsArray());
+        Assert.Equal(runs[2].Id, (Guid)round["run_id"]!);
+        Assert.Equal("succeeded", (string)round["result"]!);
+        Assert.Equal("The empty state is read once", (string)round["replies"]![0]!["finding"]!);
+        Assert.Equal((string)fixedUp["head_commit"]!, (string)round["fixed_commit"]!);
+        Assert.Equal(runs[3].Id, (Guid)round["review_after_run_id"]!);
+
+        // The fix is among the runs, and its report is the latest; the first review is for an older
+        // commit, and the second is current.
+        Assert.Equal("fix", (string)card["runs"]![1]!["kind"]!);
+        Assert.Equal("Read the empty state on every change, with a test that empties the list.", (string)card["report"]!["summary"]!);
+        var reviews = card["reviews"]!.AsArray();
+        Assert.Equal([true, false], reviews.Select(review => (bool)review!["current"]!));
+        Assert.Equal((string)built["head_commit"]!, (string)reviews[1]!["commit"]!);
+    }
+
+    [Fact]
+    public async Task ARoundTheOwnersCommentStartedHoldsHisWords()
+    {
+        await using var jobs = await Jobs.Jobs.Start([Jobs.Jobs.Card(4)]);
+        await Fixing.Fixed.BuiltAndReviewed(jobs, Built.Verdict("approve"));
+        var pull = (await Built.Card(jobs, 4)).PullRequestNumber!.Value;
+        Fixing.Fixed.Later(jobs);
+        Fixing.Fixed.Comment(jobs, pull, Jobs.Jobs.Owner, "Name it EmptyList.");
+        await jobs.Routes.Read(jobs.Project, Jobs.Jobs.User);
+        Fixing.Fixed.Later(jobs);
+        await jobs.Job();
+
+        var (_, card) = await Built.Get(jobs, $"/devflow/api/projects/{jobs.Project}/cards/4");
+
+        // Not a round, it answers the card's latest review and his comment, and its fix still runs.
+        var round = Assert.Single(card!["rounds"]!.AsArray())!.AsObject();
+        Assert.Null(round["round"]);
+        Assert.Equal((Guid)card["reviews"]![0]!["run_id"]!, (Guid)round["review_run_id"]!);
+        Assert.Equal(["Name it EmptyList."], round["comments"]!.AsArray().Select(comment => (string)comment!));
+        Assert.Null(round["result"]);
+        Assert.Empty(round["replies"]!.AsArray());
+        Assert.Null(round["fixed_commit"]);
+        Assert.Null(round["review_after_run_id"]);
+    }
+
+    [Fact]
     public async Task ACardNoRunHasTouchedHasNoStory()
     {
         await using var jobs = await Jobs.Jobs.Start([Jobs.Jobs.Card(4)]);

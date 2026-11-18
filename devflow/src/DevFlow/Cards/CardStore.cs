@@ -182,14 +182,15 @@ public static class CardStore
     public const string PullRequestClosed = "The pull request was closed";
 
     /// <summary>The project's cards with a pull request that is followed, each with its number:
-    /// those that wait for the owner, and those under review, read as the project's user.</summary>
+    /// those that wait for the owner, and those under review or being fixed, read as the project's
+    /// user.</summary>
     public static async Task<IReadOnlyList<(int Card, int PullRequest)>> FollowedPulls(UserDb database, Guid userId, Guid projectId, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(database);
         var rows = await database.InUserTransaction(userId, transaction => transaction.Connection!.QueryAsync<(int, int)>(new CommandDefinition(
             """
             SELECT number, pull_request_number FROM cards
-            WHERE project_id = @projectId AND state IN ('waiting_for_owner', 'reviewing') AND pull_request_number IS NOT NULL
+            WHERE project_id = @projectId AND state IN ('waiting_for_owner', 'reviewing', 'fixing') AND pull_request_number IS NOT NULL
             ORDER BY number
             """,
             new { projectId },
@@ -199,17 +200,19 @@ public static class CardStore
     }
 
     /// <summary>
-    /// Moves a card that waits for the owner, or is under review, on as its pull request went,
+    /// Moves a card that waits for the owner, or is under review or being fixed, on as its pull
+    /// request went,
     /// inside the read's transaction: merged, by anyone, is <c>done</c>; closed without merging is
     /// <c>stopped</c>, <see cref="PullRequestClosed"/>, or removed when its label was taken off while
     /// it ran, as a run that ends removes such a card. Only while it still waits, or is under
-    /// review, with that pull request; a review still running then ends without moving it.
+    /// review or being fixed, with that pull request; a review or fix still running then ends
+    /// without moving it.
     /// </summary>
     public static async Task Follow(NpgsqlTransaction transaction, Guid projectId, FollowedPull pull, DateTimeOffset now, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(transaction);
         ArgumentNullException.ThrowIfNull(pull);
-        const string Where = "project_id = @projectId AND number = @card AND state IN ('waiting_for_owner', 'reviewing') AND pull_request_number = @pullRequest";
+        const string Where = "project_id = @projectId AND number = @card AND state IN ('waiting_for_owner', 'reviewing', 'fixing') AND pull_request_number = @pullRequest";
         var parameters = new { projectId, card = pull.Card, pullRequest = pull.PullRequest, reason = PullRequestClosed, now };
         if (pull.Merged)
         {

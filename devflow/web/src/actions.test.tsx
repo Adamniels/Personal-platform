@@ -117,6 +117,7 @@ function open(
 				sendBack,
 				resume: () => Promise.resolve(),
 				mergeCard: () => Promise.resolve(),
+				sendBackCard: () => Promise.resolve(),
 			}}
 			now={() => NOW}
 		/>,
