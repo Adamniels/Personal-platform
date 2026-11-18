@@ -216,7 +216,7 @@ public sealed class GitSafetyTests
             var devFlow = new ScriptedDevFlow().Then(WorkerApi.ResultPath(jobId), HttpStatusCode.NoContent);
             using var http = DevFlowClient.CreateHttpClient(WorkerSettings.Load(Environment(("DEVFLOW_URL", "http://devflow.test"), ("DEVFLOW_PROJECT_KEY", Key)), out _)!, devFlow);
             var agent = new ScriptedAgent((_, _) => throw new InvalidOperationException("the agent must not run"));
-            var build = new BuildJob(new DevFlowClient(http), Jobs.FirstWorker, new BuildTools(agent, bench.AsRoot, bench.AsAgent, bench.Folders, bench.User), bench.Clock, new WorkerLog(TextWriter.Null, bench.Clock));
+            var build = new BuildJob(new DevFlowClient(http), Jobs.FirstWorker, new JobTools(agent, bench.AsRoot, bench.AsAgent, bench.Folders, bench.User), bench.Clock, new WorkerLog(TextWriter.Null, bench.Clock));
 
             await build.Run(JsonSerializer.SerializeToElement(job), Ct);
 

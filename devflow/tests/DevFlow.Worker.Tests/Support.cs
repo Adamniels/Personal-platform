@@ -3,6 +3,7 @@ using System.Text;
 using System.Threading.Channels;
 
 using DevFlow.Protocol;
+using DevFlow.Worker.Agents;
 
 using Microsoft.Extensions.Time.Testing;
 
@@ -179,4 +180,19 @@ internal static class Paths
 {
     public const string Hello = WorkerApi.HelloPath;
     public const string Next = WorkerApi.NextJobPath;
+}
+
+/// <summary>Answers each start with the next outcome, and records what it was asked to start,
+/// so a test sees the arguments and the environment of every process without running one.</summary>
+internal sealed class FakeStarter(params ProcessOutcome[] outcomes) : IProcessStarter
+{
+    private readonly Queue<ProcessOutcome> _outcomes = new(outcomes);
+
+    public List<(ProcessSpec Spec, TimeSpan TimeLimit)> Started { get; } = [];
+
+    public Task<ProcessOutcome> Run(ProcessSpec spec, TimeSpan timeLimit, CancellationToken cancellationToken)
+    {
+        Started.Add((spec, timeLimit));
+        return Task.FromResult(_outcomes.Dequeue());
+    }
 }

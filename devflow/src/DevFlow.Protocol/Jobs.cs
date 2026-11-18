@@ -128,6 +128,9 @@ public sealed record ProgressRequest(Guid? WorkerId, string? State)
 /// <param name="Usage">Claude's usage as it came, an object, empty when it gave none.</param>
 /// <param name="DurationMs">How long the job took, in milliseconds.</param>
 /// <param name="Stderr">The last 200 lines of the agent's standard error.</param>
+/// <param name="PermissionDenials">The actions the agent was refused, as Claude Code listed them,
+/// an array; empty when there were none, and null from a worker that sends none. A build's fail
+/// its run; a review's are recorded, since a reviewer cannot write by construction.</param>
 public sealed record ResultRequest(
     Guid? WorkerId,
     string? Outcome,
@@ -139,7 +142,8 @@ public sealed record ResultRequest(
     string? AuthMethod,
     JsonElement? Usage,
     long? DurationMs,
-    string? Stderr)
+    string? Stderr,
+    JsonElement? PermissionDenials = null)
 {
     public const string Succeeded = "succeeded";
     public const string Failed = "failed";

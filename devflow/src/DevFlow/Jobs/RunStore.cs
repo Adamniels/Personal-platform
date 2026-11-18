@@ -20,6 +20,8 @@ namespace DevFlow.Jobs;
 /// <param name="FailureInCard">Whether that lies in the card, on a failure.</param>
 /// <param name="CheckExitCode">The check's exit code, null when it did not run.</param>
 /// <param name="CheckOutput">The last lines of its output, null when it did not run.</param>
+/// <param name="PermissionDenials">The actions the agent was refused, an array as Claude Code
+/// listed them, null when the worker sent none.</param>
 public sealed record RunResult(
     bool Succeeded,
     JsonElement? Report,
@@ -32,7 +34,8 @@ public sealed record RunResult(
     string? AuthMethod,
     JsonElement Usage,
     long DurationMs,
-    string Stderr);
+    string Stderr,
+    JsonElement? PermissionDenials = null);
 
 /// <summary>How a run ended and what it does to its card: the run's <c>result</c>, the reason,
 /// and the state the card moves to.</summary>
@@ -245,7 +248,8 @@ public static class RunStore
                     head_commit = coalesce(@headCommit, head_commit), auth_method = @authMethod,
                     usage = @usage::jsonb, input_tokens = @inputTokens, output_tokens = @outputTokens,
                     cache_creation_input_tokens = @cacheCreation, cache_read_input_tokens = @cacheRead,
-                    cost_usd = @cost, turns = @turns, duration_ms = @durationMs, stderr = @stderr
+                    cost_usd = @cost, turns = @turns, duration_ms = @durationMs, stderr = @stderr,
+                    permission_denials = @permissionDenials::jsonb
                 WHERE id = @runId
                 """,
                 new
@@ -268,6 +272,7 @@ public static class RunStore
                     turns = usage.TryGetProperty("num_turns", out var turns) && turns.ValueKind == JsonValueKind.Number && turns.TryGetInt32(out var n) ? n : (int?)null,
                     durationMs = result.DurationMs,
                     stderr = Tail(result.Stderr),
+                    permissionDenials = result.PermissionDenials?.GetRawText(),
                 },
                 transaction,
                 cancellationToken: cancellationToken));

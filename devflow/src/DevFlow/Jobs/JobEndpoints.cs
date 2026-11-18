@@ -34,7 +34,7 @@ public static partial class JobEndpoints
 
         routes.MapPost(WorkerApi.ResultRoute, Result)
             .WorkerRoute("workerJobResult", "A job has ended",
-                "What the worker sends when its job ends, whatever happened: outcome, succeeded with the agent's report or failed with the failure's reason and whether it lies in the card; the check's exit code and the last 200 lines of its output, null when it did not run; the branch, which must be the job's, and its head commit; the auth method; Claude's usage as it came, an object; the duration in milliseconds; and the last 200 lines of stderr. Each is stored on the run as it came. The report is read against contracts/devflow/report.schema.json, and one that does not match is a failure in the card. A failure outside the card puts the card back in queued, counting nothing against it; a failure in the card, a report that does not match, a report that stopped, a check that did not run or failed stop it with why; otherwise the card waits, checked, for its pull request. 204. Only for the worker holding the job while it runs, and once; 404 otherwise. 422 naming a field that is missing or breaks a rule.",
+                "What the worker sends when its job ends, whatever happened: outcome, succeeded with the agent's report or failed with the failure's reason and whether it lies in the card; the check's exit code and the last 200 lines of its output, null when it did not run; the branch, which must be the job's, and its head commit; the auth method; Claude's usage as it came, an object; the duration in milliseconds; the last 200 lines of stderr; and permission_denials, the actions the agent was refused, an array or null. Each is stored on the run as it came. A build's report is read against contracts/devflow/report.schema.json, and one that does not match is a failure in the card; a review's report is its verdict, read against contracts/devflow/verdict.schema.json, and one that does not match is a failure in the run, never a verdict. A review's head_commit is the commit it was handed, or null on a failure; any other is 422. A failure outside the card puts the card back in queued, counting nothing against it; a failure in the card, a report that does not match, a report that stopped, a check that did not run or failed stop it with why; otherwise the card waits, checked, for its pull request. 204. Only for the worker holding the job while it runs, and once; 404 otherwise. 422 naming a field that is missing or breaks a rule.",
                 StatusCodes.Status404NotFound, StatusCodes.Status422UnprocessableEntity);
 
         return routes;
@@ -80,6 +80,7 @@ public static partial class JobEndpoints
         {
             Recorded.Stored => TypedResults.NoContent(),
             Recorded.WrongBranch => WorkerEndpoints.Invalid(new Dictionary<string, string[]> { ["branch"] = ["must be the job's branch"] }),
+            Recorded.WrongCommit => WorkerEndpoints.Invalid(new Dictionary<string, string[]> { ["head_commit"] = ["must be the commit the review was handed, or null on a failure"] }),
             _ => WorkerEndpoints.NoSuchJob(),
         };
     }
@@ -106,7 +107,8 @@ public static partial class JobEndpoints
                 request.AuthMethod,
                 request.Usage!.Value,
                 request.DurationMs!.Value,
-                request.Stderr!);
+                request.Stderr!,
+                request.PermissionDenials is { ValueKind: JsonValueKind.Array } denials ? denials : null);
 
     /// <summary>Each field of <paramref name="request"/> that is missing or breaks a rule.</summary>
     internal static Dictionary<string, string[]> Errors(ResultRequest request)
@@ -179,6 +181,11 @@ public static partial class JobEndpoints
         if (request.Stderr is null)
         {
             errors["stderr"] = ["must be text, empty when there was none"];
+        }
+
+        if (request.PermissionDenials is { ValueKind: not (JsonValueKind.Array or JsonValueKind.Null) })
+        {
+            errors["permission_denials"] = ["must be null, or an array, empty when none were refused"];
         }
 
         return errors;

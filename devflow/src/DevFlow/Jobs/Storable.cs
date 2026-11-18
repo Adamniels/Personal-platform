@@ -29,6 +29,7 @@ public static class Storable
             CheckOutput = result.CheckOutput is { } output ? Text(output) : null,
             AuthMethod = result.AuthMethod is { } method ? Text(method) : null,
             Usage = Json(result.Usage),
+            PermissionDenials = result.PermissionDenials is { } denials ? Json(denials) : null,
             Stderr = Text(result.Stderr),
         };
     }

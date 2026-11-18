@@ -181,4 +181,51 @@ public sealed class ReviewJobTests
         // Nothing more to hand out: its head has its review.
         Assert.Equal(StatusCodes.Status204NoContent, (await jobs.Next()).Response.StatusCode);
     }
+
+    [Fact]
+    public async Task AReviewsRefusedActionsAreRecorded()
+    {
+        await using var jobs = await Jobs.Jobs.Start([Jobs.Jobs.Card(4)]);
+        await Built.Run(jobs, Built.Prepared());
+        var refused = Built.PreparedVerdict();
+        refused["permission_denials"] = new JsonArray(new JsonObject { ["tool_name"] = "Write", ["tool_input"] = new JsonObject { ["file_path"] = "x" } });
+
+        Later(jobs);
+        await Built.Run(jobs, refused);
+
+        // Stored as it came, and the review still succeeded: a reviewer cannot write by
+        // construction.
+        await using var admin = await jobs.Routes.Database.OpenAdmin(Ct);
+        var stored = await Dapper.SqlMapper.QuerySingleAsync<string>(admin, "SELECT permission_denials::text FROM runs WHERE kind = 'review'");
+        Assert.Equal("Write", (string)JsonNode.Parse(stored)![0]!["tool_name"]!);
+        Assert.Equal("succeeded", (await jobs.Runs())[1].Result);
+
+        // Anything but an array, or null, breaks the result's rules.
+        var bad = Built.PreparedVerdict();
+        bad["permission_denials"] = "Write";
+        var answer = await jobs.Routes.App.SendJson("POST", Built.FakeWorkerPath, Contract.Token, new JsonObject { ["project_id"] = jobs.Project, ["result"] = bad }.ToJsonString());
+        Assert.Equal(StatusCodes.Status422UnprocessableEntity, answer.Response.StatusCode);
+    }
+
+    [Fact]
+    public async Task AReviewsResultMustNameItsCommit()
+    {
+        await using var jobs = await Jobs.Jobs.Start([Jobs.Jobs.Card(4)]);
+        var built = await Built.Run(jobs, Built.Prepared());
+        Later(jobs);
+        var job = await jobs.Job();
+        var path = WorkerApi.ResultPath((Guid)job["job_id"]!);
+        var result = Jobs.Jobs.Result(Jobs.Jobs.FirstWorker, (string)job["branch"]!, Built.Verdict(), checkExit: null);
+
+        // A verdict for another commit than the one handed out is refused, and the review still runs.
+        result["head_commit"] = new string('b', 40);
+        var other = await jobs.Post(path, result);
+        Assert.Equal(StatusCodes.Status422UnprocessableEntity, other.Response.StatusCode);
+        Assert.Null((await jobs.Runs())[1].FinishedAt);
+
+        // For its own commit it is taken.
+        result["head_commit"] = (string)built["head_commit"]!;
+        Assert.Equal(StatusCodes.Status204NoContent, (await jobs.Post(path, result)).Response.StatusCode);
+        Assert.Equal("waiting_for_owner", (await jobs.Card(4)).State);
+    }
 }

@@ -1,5 +1,9 @@
+using System.Text.Json;
+
+using DevFlow.Protocol;
 using DevFlow.Worker.Agents;
 using DevFlow.Worker.Build;
+using DevFlow.Worker.Review;
 
 namespace DevFlow.Worker;
 
@@ -36,18 +40,39 @@ internal static class WorkerProgram
         log.Write($"Dev flow worker {identity.Id} ({identity.Name}), recipe {identity.RecipeVersion} on {identity.BaseImage}, for {settings.DevFlowUrl}.");
         using var http = DevFlowClient.CreateHttpClient(settings, handler);
         var devFlow = new DevFlowClient(http);
-        var build = new BuildJob(devFlow, identity.Id, Tools(time, log), time, log);
-        var loop = new WorkerLoop(devFlow, identity, build.Run, time, log, error);
+        var tools = Tools(time, log);
+        var build = new BuildJob(devFlow, identity.Id, tools, time, log);
+        var review = new ReviewJob(devFlow, identity.Id, tools, time, log);
+        var loop = new WorkerLoop(devFlow, identity, (job, stopping) => RunJob(job, build, review, log, stopping), time, log, error);
         return await loop.Run(stopping);
     }
 
-    /// <summary>What a build job runs with in the base image: Claude Code as <c>agent</c>, root's
+    /// <summary>Runs the job by its kind, a build or a review; a job of any other kind is left, and
+    /// Dev flow finds its run lost.</summary>
+    internal static Task RunJob(JsonElement job, BuildJob build, ReviewJob review, WorkerLog log, CancellationToken stopping)
+    {
+        var kind = job.ValueKind == JsonValueKind.Object && job.TryGetProperty("kind", out var named) && named.ValueKind == JsonValueKind.String
+            ? named.GetString()
+            : null;
+        switch (kind)
+        {
+            case Job.Build:
+                return build.Run(job, stopping);
+            case Job.Review:
+                return review.Run(job, stopping);
+            default:
+                log.Write($"The job is of a kind this worker does not run, {kind ?? "none"}; it is left.");
+                return Task.CompletedTask;
+        }
+    }
+
+    /// <summary>What a job runs with in the base image: Claude Code as <c>agent</c>, root's
     /// processes as the worker's own, and the image's folders.</summary>
-    private static BuildTools Tools(TimeProvider time, WorkerLog log)
+    private static JobTools Tools(TimeProvider time, WorkerLog log)
     {
         var user = AgentUser.Default;
         var asAgent = new SystemProcessStarter(user.Name, time);
         var claude = ClaudeCodeOptions.Default with { Home = user.Home, Path = user.Path, Lang = user.Lang };
-        return new BuildTools(new ClaudeCodeAgent(asAgent, claude, log), new SystemProcessStarter(null, time), asAgent, JobFolders.Default, user);
+        return new JobTools(new ClaudeCodeAgent(asAgent, claude, log), new SystemProcessStarter(null, time), asAgent, JobFolders.Default, user);
     }
 }

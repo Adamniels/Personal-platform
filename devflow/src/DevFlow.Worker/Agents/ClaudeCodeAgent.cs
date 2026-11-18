@@ -65,7 +65,7 @@ internal sealed class ClaudeCodeAgent(IProcessStarter starter, ClaudeCodeOptions
             new ProcessSpec(options.Executable, Arguments(run), run.WorkingDirectory, environment),
             run.Limits.Time,
             cancellationToken), token);
-        var result = Judge(answer, run.Limits, method);
+        var result = Judge(answer, run.Limits, method, run.Access);
         log.Write(result.Failure is { } failure
             ? $"The run failed, {(failure.Side == FailureSide.Card ? "in the card" : "outside the card")}: {failure.Reason}."
             : "The run succeeded with a report.");
@@ -81,11 +81,20 @@ internal sealed class ClaudeCodeAgent(IProcessStarter starter, ClaudeCodeOptions
         [TokenVariable] = token,
     };
 
-    private List<string> Arguments(AgentRun run) =>
+    /// <summary>
+    /// The run's arguments. A developer may change its copy and run commands, with
+    /// <c>bypassPermissions</c>. A reviewer reads and nothing else: the default permission mode,
+    /// which asks before any other tool, no prompts, so every ask is refused and reported in
+    /// <c>permission_denials</c> rather than waiting, and only <c>Read</c>, <c>Grep</c> and
+    /// <c>Glob</c> allowed, as the experiment of 2026-11-16 found.
+    /// </summary>
+    internal List<string> Arguments(AgentRun run) =>
     [
         "-p", run.Brief,
         "--model", options.Model,
-        "--permission-mode", "bypassPermissions",
+        .. run.Access == AgentAccess.ReadOnly
+            ? (string[])["--permission-mode", "default", "--permission-prompts", "none", "--allowedTools", "Read,Grep,Glob"]
+            : ["--permission-mode", "bypassPermissions"],
         "--output-format", "json",
         "--json-schema", run.ReportSchema,
         "--max-turns", run.Limits.MaxTurns.ToString(CultureInfo.InvariantCulture),
@@ -99,12 +108,14 @@ internal sealed class ClaudeCodeAgent(IProcessStarter starter, ClaudeCodeOptions
     /// card: no answer, an answer that is not JSON, an <c>api_error</c> of any kind (not logged in,
     /// a refused key, a usage limit), and anything else Claude Code reports as an error. In the card:
     /// the time limit, <c>max_turns</c>, <c>budget_exhausted</c>, refused actions and no valid
-    /// report.
+    /// report. For a read only run, a reviewer's, refused actions do not fail it, since it cannot
+    /// write by construction; either way they are kept in the result as Claude Code listed them.
     /// </summary>
-    internal static AgentResult Judge(ProcessOutcome answer, AgentLimits limits, string? method)
+    internal static AgentResult Judge(ProcessOutcome answer, AgentLimits limits, string? method, AgentAccess access = AgentAccess.Write)
     {
+        JsonArray? denied = null;
         AgentResult Failed(FailureSide side, string reason, JsonObject? usage = null) =>
-            AgentResult.Failed(side, reason, usage ?? [], answer.Stderr, method);
+            AgentResult.Failed(side, reason, usage ?? [], answer.Stderr, method, denied);
 
         if (answer.TimedOut)
         {
@@ -134,6 +145,7 @@ internal sealed class ClaudeCodeAgent(IProcessStarter starter, ClaudeCodeOptions
         var usage = Usage(output);
         var terminal = Text(output, "terminal_reason");
         var denials = output["permission_denials"] as JsonArray;
+        denied = denials?.DeepClone().AsArray();
         switch (terminal)
         {
             case "api_error":
@@ -145,7 +157,7 @@ internal sealed class ClaudeCodeAgent(IProcessStarter starter, ClaudeCodeOptions
                 return Failed(FailureSide.Card, $"it reached its budget of {limits.MaxBudgetUsd.ToString(CultureInfo.InvariantCulture)} USD", usage);
         }
 
-        if (denials is { Count: > 0 })
+        if (denials is { Count: > 0 } && access == AgentAccess.Write)
         {
             return Failed(FailureSide.Card, $"Claude Code was refused {denials.Count} action{(denials.Count == 1 ? "" : "s")}", usage);
         }
@@ -175,7 +187,7 @@ internal sealed class ClaudeCodeAgent(IProcessStarter starter, ClaudeCodeOptions
             return Failed(FailureSide.Card, "it gave no report, or a report that is not an object", usage);
         }
 
-        return AgentResult.Success((JsonObject)report.DeepClone(), usage, answer.Stderr, method);
+        return AgentResult.Success((JsonObject)report.DeepClone(), usage, answer.Stderr, method, denied);
     }
 
     /// <summary>The usage as Claude Code gave it, those of its five fields it gave.</summary>
