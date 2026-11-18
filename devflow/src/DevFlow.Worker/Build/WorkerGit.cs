@@ -84,4 +84,15 @@ internal sealed class WorkerGit(IProcessStarter root, IProcessStarter asAgent, A
             Limit,
             cancellationToken);
 
+    /// <summary>
+    /// What root's fetch from the agent's copy runs on the copy's side. git runs
+    /// <c>git-upload-pack</c> in the repository it fetches from, reading that repository's config,
+    /// and does not pass on the <c>-c</c> options; as root in a copy the agent owns it refuses, for
+    /// "dubious ownership". So it runs as the agent, with its environment reset, and root only
+    /// reads the pack it sends. Empty without a user of its own, as in the tests.
+    /// </summary>
+    public IReadOnlyList<string> UploadPack() =>
+        user.Name is { } name
+            ? [$"--upload-pack=setpriv --reuid {name} --regid {name} --init-groups --reset-env git-upload-pack"]
+            : [];
 }

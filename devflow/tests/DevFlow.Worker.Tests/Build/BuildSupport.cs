@@ -119,12 +119,12 @@ internal sealed class Bench : IAsyncDisposable
     {
         var next = await Client.NextJob(new NextJobRequest(Jobs.FirstWorker), Ct);
         Assert.Equal(AnswerKind.Job, next.Kind);
-        return next.Job;
+        return next.Body;
     }
 
     /// <summary>A build job for the bench's worker, with <paramref name="agent"/>.</summary>
     public BuildJob Build(IAgent agent) =>
-        new(new BuildTools(agent, AsRoot, AsAgent, Folders, User), Clock, new WorkerLog(TextWriter.Synchronized(new StringWriter(Log)), Clock));
+        new(Client, Jobs.FirstWorker, new BuildTools(agent, AsRoot, AsAgent, Folders, User), Clock, new WorkerLog(TextWriter.Synchronized(new StringWriter(Log)), Clock));
 
     /// <summary>Hands out the next job and runs it to its end with <paramref name="agent"/>.</summary>
     public async Task<JsonElement> RunJob(IAgent agent)

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Checks the worker's base image, devflow/worker.Dockerfile, as built: the agent cannot read the
-# worker's files, and the worker, Claude Code, git and node run; Claude Code's commit attribution is
+# Checks the worker's base image, devflow/worker.Dockerfile, as built: the agent cannot read a
+# job's secrets, in /run/devflow/ or in root's environment, and the worker, Claude Code, git and
+# node run; Claude Code's commit attribution is
 # off for the agent; and a project's image built FROM it reports the base image and the recipe's
 # version the command on the project's page passes. See "The base image" in devflow/README.md.
 #
@@ -53,10 +54,10 @@ if ! docker build -f "$repo/devflow/worker.Dockerfile" -t "$image" "$repo" > "$t
 fi
 ok TheImageBuilds
 
-# --- TheAgentCannotReadTheWorkersFiles -----------------------------------------------------------
-# As agent, listing or reading /run/devflow/ fails, while root, the worker, can write there; the
-# worker binary runs, refusing to start without its settings, exit 2, as it does; Claude Code
-# answers 2.1.325; git and node run.
+# --- TheAgentCannotReadTheJobsSecrets -----------------------------------------------------------
+# What a job gives the worker is root's alone: as agent, listing or reading /run/devflow/ fails,
+# while root, the worker, can write there; and root's environment, where a git command run as root
+# holds the push key, cannot be read through /proc, as /proc/<pid>/environ is its owner's.
 problems=""
 got="$(as agent sh -c 'ls /run/devflow/ && echo listed')"
 case "$got" in *listed*) problems="$problems agent-lists-/run/devflow:[$got]" ;; esac
@@ -65,6 +66,23 @@ got="$(as root sh -c 'echo secret > /run/devflow/job.env && chmod 600 /run/devfl
 got="$(docker run --rm --entrypoint sh "$image" -c \
   'echo secret > /run/devflow/job.env && setpriv --reuid agent --regid agent --init-groups --reset-env cat /run/devflow/job.env && echo read' 2>&1)"
 case "$got" in *read*) problems="$problems agent-reads-a-secret:[$got]" ;; esac
+# A root process holding a key in its environment, as git does for a push, and the agent reading
+# every process's environment it can.
+got="$(docker run --rm -e DEVFLOW_PUSH_KEY_IMAGETEST=ghs_imagetestkey --entrypoint sh "$image" -c \
+  'sleep 30 & pid=$!; setpriv --reuid agent --regid agent --init-groups --reset-env sh -c "cat /proc/1/environ /proc/$pid/environ /proc/self/environ 2>&1; for f in /proc/[0-9]*/environ; do cat \$f 2>/dev/null; done" | tr "\0" "\n"; kill $pid' 2>&1)"
+case "$got" in *ghs_imagetestkey*) problems="$problems agent-reads-roots-environment:[$got]" ;; esac
+case "$got" in *"Permission denied"*) ;; *) problems="$problems no-refusal-seen:[$got]" ;; esac
+if [ -z "$problems" ]; then
+  ok TheAgentCannotReadTheJobsSecrets
+else
+  bad TheAgentCannotReadTheJobsSecrets "$problems"
+fi
+
+# --- TheWorkerAndItsToolsRun ---------------------------------------------------------------------
+# The worker binary runs, refusing to start without its settings, exit 2, as it does; Claude Code
+# answers 2.1.325; git and node run, and git-upload-pack, which the worker's fetch from the agent's
+# copy runs as agent, is on agent's PATH.
+problems=""
 got="$(docker run --rm "$image" 2>&1)"
 code=$?
 if [ "$code" -ne 2 ] || ! printf '%s' "$got" | grep -q 'DEVFLOW_URL is not set'; then
@@ -74,14 +92,16 @@ got="$(as agent claude --version)"
 case "$got" in "2.1.325 "* | 2.1.325) ;; *) problems="$problems claude:[$got]" ;; esac
 got="$(as agent git --version)"
 case "$got" in "git version "*) ;; *) problems="$problems git:[$got]" ;; esac
+got="$(as agent sh -c 'command -v git-upload-pack')"
+case "$got" in /*git-upload-pack) ;; *) problems="$problems git-upload-pack:[$got]" ;; esac
 got="$(as agent node --version)"
 case "$got" in v26.*) ;; *) problems="$problems node:[$got]" ;; esac
 got="$(as agent id -u)"
 [ "$got" = 1000 ] || problems="$problems agent-uid:[$got]"
 if [ -z "$problems" ]; then
-  ok TheAgentCannotReadTheWorkersFiles
+  ok TheWorkerAndItsToolsRun
 else
-  bad TheAgentCannotReadTheWorkersFiles "$problems"
+  bad TheWorkerAndItsToolsRun "$problems"
 fi
 
 # --- TheWorkerRunsAsRootAndTheAgentOwnsTheWork ---------------------------------------------------
