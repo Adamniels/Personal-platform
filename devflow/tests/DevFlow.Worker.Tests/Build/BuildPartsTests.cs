@@ -12,8 +12,8 @@ namespace DevFlow.Worker.Tests.Build;
 
 /// <summary>
 /// The parts of a build job a whole run does not reach: the branch names refused before anything
-/// runs, the result sent again while Dev flow is away, and the tail of an output. See "The worker"
-/// in devflow/README.md.
+/// runs, the result sent again while Dev flow is away, the tail of an output, and the fetch from the
+/// agent's copy as the image runs it, with a user of its own. See "The worker" in devflow/README.md.
 /// </summary>
 public sealed class BuildPartsTests
 {
@@ -96,6 +96,18 @@ public sealed class BuildPartsTests
         // 5 seconds doubling to 60, as the loop waits, and no wait that would end past ten minutes.
         Assert.Equal([5, 10, 20, 40, 60, 60, 60, 60, 60, 60, 60, 60], waits.Select(wait => (int)wait.TotalSeconds));
         Assert.Equal(waits.Count + 1, devFlow.Calls.Count);
+    }
+
+    [Fact]
+    public void TheFetchFromTheCopyRunsGitsSideThereAsTheAgent()
+    {
+        var starter = new RecordingStarter("nobody");
+        var git = new WorkerGit(starter, starter, AgentUser.Default);
+
+        // One argument, which git runs through a shell in the copy: setpriv drops to agent, with
+        // its groups and an environment reset, before git-upload-pack reads anything there.
+        Assert.Equal(["--upload-pack=setpriv --reuid agent --regid agent --init-groups --reset-env git-upload-pack"], git.UploadPack());
+        Assert.Empty(new WorkerGit(starter, starter, AgentUser.Default with { Name = null }).UploadPack());
     }
 
     [Theory]
