@@ -60,7 +60,8 @@ warns him about a month before it is due.
 A project's page also holds its settings, the labels that pick and hold its cards and whether a
 card's pull request waits for the owner, and lists its cards: each read of the project picks the
 open issues he wrote that carry the pick-up label, and each card shows as queued, held, waiting for
-what blocks it, or ignored with why, see "Cards" below. A worker asking for work is handed the
+what blocks it, or ignored with why; a labelled issue with sub-issues is a feature, listed above
+the cards on their own with its sub-issues as its cards, see "Features and their cards" below. A worker asking for work is handed the
 next queued card with a brief written for it, and what it sends back is recorded on the run and
 moves the card on, see "Handing out work" below. A card that built and passed its check gets its
 pull request, opened as the app; a fresh reviewer agent reads that commit and its verdict is kept
@@ -407,6 +408,51 @@ told apart from the list; the card is the story of what was built, and its page 
 `priority: high`, then no priority label, then `priority: low`, each oldest first by when the issue
 was written. The spec left where priority is read from to round 6; it is these two labels, matched
 whatever their case.
+
+### Features and their cards
+
+A feature is the spec's "parent issue with its cards as sub-issues": an open issue carrying the
+pick-up label that has at least one sub-issue. Its cards are its direct sub-issues in the same
+repository, in GitHub's sub-issue order. The routes and the table are "Features" in
+`devflow/README.md`; building a feature's cards, its branch and its page are the later slices of
+part 4, so in this one a feature's cards are picked and shown and never handed out.
+
+**Why a sub-issue needs no label of its own.** The spec's round 2 has the label on a parent cover
+every sub-issue, so a planned feature, which `/plan-feature` already makes as a parent with its
+slices as sub-issues, is switched on in one step. A label on each would be as many steps as cards,
+and a sub-issue added later would be left out until labelled. The label still decides what is
+picked, only at the feature's level: a sub-issue of an unlabelled parent is never a card through
+it.
+
+**Why the parent is checked as a card is.** The parent is the feature's description, which later
+slices quote in every brief and review the whole feature against, so it is an instruction as much
+as a card's body is. It is held to the same rules, written by the owner and edited by nobody
+else, and keeps the same record of what was picked. A parent that fails ignores every card of it,
+read no further: a feature whose description is not his is not his. Each sub-issue is checked by
+the card rules all the same, so a stranger's sub-issue under the owner's parent is not picked
+either.
+
+**What is a card of the feature, and what is not.** Only the direct sub-issues in this repository:
+a card is a number in the project's repository, so a sub-issue in another is not stored, and the
+feature's reason names it instead. A sub-issue of a sub-issue would make a feature a tree, which
+nothing builds; it is ignored on its own. It is known only when the sub-issue in the middle carries
+the label, since sub-issues are read only for labelled issues, as the slice settled; one under an
+unlabelled card is not read at all. A labelled sub-issue is one card of its feature, never a
+second card or a second feature.
+
+**Two rules hang on what is stored, so the store decides them.** A labelled issue that started as
+a card on its own stays one when sub-issues are added, and a closed sub-issue is a card only when
+Dev flow built it, meaning it has started. Both need the card's stored state, which `CardStore`
+reads inside the read's transaction; `CardPicker` reads only the code host. So a card taken by a
+worker while the read ran is seen as started rather than turned into a feature.
+
+**A feature goes with its last card.** Taking the label off the parent does to each of its cards
+what taking a card's own label off does, and the feature is kept, marked unlabelled, while any card
+still refers to it, so a run under way finishes in a feature that still exists.
+
+**Priority and order.** A feature's priority is its parent's label and its age the parent's, so
+features and cards on their own are ordered by one rule, "The order" above; a card's own priority
+label inside a feature is not read, and its row carries the feature's.
 
 **The settings table is a deliberate exception** to "A table arrives with the first slice that
 needs it, in its documented final shape" in `High-level/docs/how-we-build.md`. `project_settings`
@@ -1371,7 +1417,9 @@ its reason, or a risk accepted on purpose; each slice adds the ones it builds.
   read through GraphQL; until part 5 adds a project's trusted accounts, the owner is the only
   account that counts. Anything else carrying the pick-up label, a stranger's issue, the owner's
   issue edited by someone else, or any issue while the owner has no link, is ignored, and the page
-  lists it as ignored with why, so it is seen rather than silently dropped. A card's title and body
+  lists it as ignored with why, so it is seen rather than silently dropped. A feature's parent and
+each of its sub-issues are held to the same rule, see "Features and their cards": the label on
+the owner's parent never makes a stranger's sub-issue an instruction. A card's title and body
   are data, shown as text. The accepted risk: anyone who can label issues in a repository can make
   a card appear as ignored on the owner's page, which shows a stranger's title there as text and
   runs nothing. GitHub's edit history does not cover a comment, which no card is read from yet.
