@@ -1,4 +1,7 @@
+using System.Text.RegularExpressions;
+
 using DevFlow.Briefs;
+using DevFlow.Protocol;
 
 namespace DevFlow.Tests.Jobs;
 
@@ -147,6 +150,29 @@ public sealed class BriefTests
 
         Assert.Contains("````sh\ncat > ", brief, StringComparison.Ordinal);
         Assert.Contains("echo ``` && npm run dev\nDEVFLOW_START\n", brief, StringComparison.Ordinal);
+    }
+
+    /// <summary>The job base-image.test.sh runs the brief's commands as.</summary>
+    private static readonly Guid ImageJob = Guid.Parse("00000000-0000-4000-8000-000000000347");
+
+    [Fact]
+    public void TheImageTestRunsTheBriefsCommands()
+    {
+        // devflow/tests/image/looking.sh is what the brief gives for the page project, with its
+        // page /habits named habits: TheAgentCanStartTheProjectAndTakePictures runs it in the
+        // image, so what it proves is what the agent is told.
+        var project = File.ReadAllText(Repository.Path("devflow", "tests", "image", "page-project", ".devflow", "project.json"));
+        Assert.True(ProjectFile.TryRead(project, out var file, out var error), error);
+        var brief = Brief.Developer(Card, Facts with { Job = ImageJob, Start = file.Start, Url = file.Url });
+        var section = brief[brief.IndexOf("## Looking at your pages", StringComparison.Ordinal)..brief.IndexOf("## Deciding", StringComparison.Ordinal)];
+        var commands = string.Concat(Regex.Matches(section, "```sh\n(.*?)```", RegexOptions.Singleline)
+            .Select(block => block.Groups[1].Value))
+            .Replace("<path>", "/habits", StringComparison.Ordinal)
+            .Replace("<name>", "habits", StringComparison.Ordinal);
+
+        var script = File.ReadAllLines(Repository.Path("devflow", "tests", "image", "looking.sh"))
+            .SkipWhile(line => line.StartsWith('#') || line.Length == 0);
+        Assert.Equal(commands, string.Join('\n', script) + "\n");
     }
 
     private static readonly Guid OtherJob = Guid.Parse("11111111-2222-4333-8444-555555555555");

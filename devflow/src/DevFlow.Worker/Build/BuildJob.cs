@@ -180,6 +180,8 @@ internal sealed partial class BuildJob(DevFlowClient devFlow, Guid workerId, Job
 
         await Root(paths, ["symbolic-ref", "HEAD", $"refs/heads/{job.Branch}"], FailureSide.OutsideCard, "The branch could not be checked out", stopping);
         await Agent("mkdir", [paths.Work], Tools.Folders.Work, FailureSide.OutsideCard, "The job's folder could not be made", stopping);
+        // The agent's folder for its own pictures, beside its copy, which the brief names.
+        await Agent("mkdir", [paths.Self], paths.Work, FailureSide.OutsideCard, "The folder for the agent's pictures could not be made", stopping);
         await CloneForAgent(job, paths, [$"refs/heads/{job.Branch}", $"refs/heads/{job.Base}"], paths.Copy,
             ["-c", $"user.name={job.Committer.Name}", "-c", $"user.email={job.Committer.Email}"], "The working copy could not be made", stopping);
         return start;

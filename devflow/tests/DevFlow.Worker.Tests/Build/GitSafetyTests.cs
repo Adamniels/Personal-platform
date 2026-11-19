@@ -143,7 +143,8 @@ public sealed class GitSafetyTests
             // Its job's folder moved into a folder of root's choosing, and a link left in its place.
             var folder = Path.GetDirectoryName(run.WorkingDirectory)!;
             Directory.Move(Path.Combine(folder, "copy"), Path.Combine(elsewhere, "copy"));
-            Directory.Delete(folder);
+            // With what else the worker made there, its empty folder for pictures.
+            Directory.Delete(folder, recursive: true);
             Directory.CreateSymbolicLink(folder, elsewhere);
         });
 
