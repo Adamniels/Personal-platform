@@ -323,4 +323,49 @@ public sealed class StopTests
         (_, list) = await Built.Get(jobs, "/devflow/api/waiting");
         Assert.Empty(list!["failing_projects"]!.AsArray());
     }
+
+    [Fact]
+    public async Task AStoppedCardWaitsForTheOwner()
+    {
+        await using var jobs = await Jobs.Jobs.Start([Jobs.Jobs.Card(4, "Add the empty state")]);
+        var (_, before) = await Built.Get(jobs, "/devflow/api/waiting");
+        await Stop.Run(jobs, Stop.InCard(TimeLimit, timedOut: true));
+
+        // Listed under its own key with its issue, where a comment runs it again, and why; counted.
+        var (_, list) = await Built.Get(jobs, "/devflow/api/waiting");
+        var stopped = Assert.Single(list!["stopped_cards"]!.AsArray())!;
+        Assert.Equal(4, (int)stopped["number"]!);
+        Assert.Equal("Add the empty state", (string)stopped["title"]!);
+        Assert.Equal("https://github.com/Adamniels/Personal-platform/issues/4", (string)stopped["web_url"]!);
+        Assert.Equal($"The run failed: {TimeLimit}", (string)stopped["reason"]!);
+        Assert.Null(stopped["pull_request_url"]);
+        Assert.Equal((int)before!["count"]! + 1, (int)list["count"]!);
+
+        // Once his comment runs it again, it is no longer listed.
+        Fixed.Later(jobs);
+        Fixed.Comment(jobs, 4, Jobs.Jobs.Owner, "Try again.");
+        await jobs.Routes.Read(jobs.Project, Jobs.Jobs.User);
+        (_, list) = await Built.Get(jobs, "/devflow/api/waiting");
+        Assert.Empty(list!["stopped_cards"]!.AsArray());
+    }
+
+    [Fact]
+    public async Task TheFakeEndsAProjectsWaitForATest()
+    {
+        await using var jobs = await Jobs.Jobs.Start([Jobs.Jobs.Card(4)]);
+        const string Path = "/devflow/api/fake/end-wait";
+        var body = new System.Text.Json.Nodes.JsonObject { ["project_id"] = jobs.Project }.ToJsonString();
+
+        // Nothing waits yet.
+        Assert.Equal(Microsoft.AspNetCore.Http.StatusCodes.Status404NotFound, (await jobs.Routes.App.SendJson("POST", Path, Contract.Token, body)).Response.StatusCode);
+
+        // After a failure outside the card the project waits; ended, the next job is handed out,
+        // and the count is kept.
+        await Stop.Run(jobs, Stop.Outside());
+        Assert.Null(await Stop.Run(jobs, Stop.Outside()));
+        Assert.Equal(Microsoft.AspNetCore.Http.StatusCodes.Status204NoContent, (await jobs.Routes.App.SendJson("POST", Path, Contract.Token, body)).Response.StatusCode);
+        Assert.NotNull(await Stop.Run(jobs, Stop.Outside()));
+        Assert.Equal(2, (await Stop.Wait(jobs))!.Failures);
+        Assert.Equal(Microsoft.AspNetCore.Http.StatusCodes.Status400BadRequest, (await jobs.Routes.App.SendJson("POST", Path, Contract.Token, "{}")).Response.StatusCode);
+    }
 }

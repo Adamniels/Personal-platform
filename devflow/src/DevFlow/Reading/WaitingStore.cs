@@ -156,6 +156,20 @@ public sealed record CardItem(
     CardItemReview? Review,
     CardScreenshots? Screenshots);
 
+/// <summary>A card of Dev flow's own that stopped, shown under "Stopped" until the owner's comment
+/// runs it again. Its title and its reason came from the code host, a worker or an agent, and are
+/// shown as text. See "Stops" in devflow/README.md.</summary>
+/// <param name="ProjectName">The repository's name, as connected.</param>
+/// <param name="Owner">The repository's owner, as connected.</param>
+/// <param name="Number">The card's issue number.</param>
+/// <param name="Title">The card's title, as it was picked.</param>
+/// <param name="WebUrl">Where the card's issue is on the code host, where a comment runs it
+/// again.</param>
+/// <param name="Reason">Why it stopped.</param>
+/// <param name="StoppedAt">When it stopped.</param>
+/// <param name="PullRequestUrl">Where its pull request is, null when it has none.</param>
+public sealed record StoppedCard(Guid ProjectId, string ProjectName, string Owner, int Number, string Title, Uri WebUrl, string Reason, DateTimeOffset StoppedAt, Uri? PullRequestUrl);
+
 /// <summary>A project whose runs keep failing outside their cards, so it cannot run them, shown
 /// until a run succeeds. See "Stops" in devflow/README.md.</summary>
 /// <param name="ProjectName">The repository's name, as connected.</param>
@@ -175,9 +189,10 @@ public sealed record FailingProject(Guid ProjectId, string ProjectName, string O
 /// project.</param>
 /// <param name="Cards">Dev flow's own cards whose pull requests wait for the owner, by project and
 /// number.</param>
+/// <param name="StoppedCards">Dev flow's own cards that stopped, by project and number.</param>
 /// <param name="FailingProjects">The projects whose runs have failed outside their cards six times
 /// in a row, by project.</param>
-public sealed record WaitingList(int Count, bool NeedsRelink, IReadOnlyList<WaitingItem> Items, IReadOnlyList<ProjectFreshness> Projects, IReadOnlyList<OwnItem> OwnItems, IReadOnlyList<CardItem> Cards, IReadOnlyList<FailingProject> FailingProjects);
+public sealed record WaitingList(int Count, bool NeedsRelink, IReadOnlyList<WaitingItem> Items, IReadOnlyList<ProjectFreshness> Projects, IReadOnlyList<OwnItem> OwnItems, IReadOnlyList<CardItem> Cards, IReadOnlyList<StoppedCard> StoppedCards, IReadOnlyList<FailingProject> FailingProjects);
 
 /// <summary>
 /// What waits for a user, read from the snapshot <see cref="ProjectReader"/> stores and never from
@@ -194,7 +209,7 @@ public sealed class WaitingStore(UserDb database, TimeProvider time)
     /// name, and whether their link needs renewing, read in one transaction.</summary>
     public async Task<WaitingList> For(Guid userId, CancellationToken cancellationToken)
     {
-        var (items, projects, relink, stops, cardRows, failingRows) = await database.InUserTransaction(userId, async transaction =>
+        var (items, projects, relink, stops, cardRows, stoppedRows, failingRows) = await database.InUserTransaction(userId, async transaction =>
         {
             var items = await transaction.Connection!.QueryAsync<ItemRow>(new CommandDefinition(
                 """
@@ -263,7 +278,18 @@ public sealed class WaitingStore(UserDb database, TimeProvider time)
                 new { shown = ProjectWaits.Shown },
                 transaction,
                 cancellationToken: cancellationToken));
-            return (items.ToList(), projects.ToList(), relink, stops.ToList(), cards.ToList(), failing.ToList());
+            var stopped = await transaction.Connection!.QueryAsync<StoppedRow>(new CommandDefinition(
+                """
+                SELECT c.project_id AS ProjectId, p.name AS ProjectName, p.owner AS Owner, c.number AS Number,
+                       coalesce(c.picked_title, c.title) AS Title, c.web_url AS WebUrl, coalesce(c.reason, '') AS Reason,
+                       coalesce(c.stopped_at, c.changed_at) AS StoppedAt, c.pull_request_url AS PullRequestUrl
+                FROM cards c JOIN projects p ON p.id = c.project_id
+                WHERE c.state = 'stopped'
+                ORDER BY lower(p.owner), lower(p.name), p.id, c.number
+                """,
+                transaction: transaction,
+                cancellationToken: cancellationToken));
+            return (items.ToList(), projects.ToList(), relink, stops.ToList(), cards.ToList(), stopped.ToList(), failing.ToList());
         }, cancellationToken);
 
         var now = time.GetUtcNow();
@@ -290,8 +316,18 @@ public sealed class WaitingStore(UserDb database, TimeProvider time)
             row.Failures,
             GitHubLink.Utc(row.Since),
             GitHubLink.Utc(row.WaitUntil))).ToList();
+        var stoppedCards = stoppedRows.Select(row => new StoppedCard(
+            row.ProjectId,
+            row.ProjectName,
+            row.Owner,
+            row.Number,
+            row.Title,
+            new Uri(row.WebUrl),
+            row.Reason,
+            GitHubLink.Utc(row.StoppedAt),
+            row.PullRequestUrl is { } address ? new Uri(address) : null)).ToList();
         return new WaitingList(
-            waiting.Count(item => !item.SentBack) + own.Count + cards.Count + failingProjects.Count + (relink ? 1 : 0),
+            waiting.Count(item => !item.SentBack) + own.Count + cards.Count + stoppedCards.Count + failingProjects.Count + (relink ? 1 : 0),
             relink,
             waiting,
             [.. projects.Select(project =>
@@ -301,6 +337,7 @@ public sealed class WaitingStore(UserDb database, TimeProvider time)
             })],
             own,
             cards,
+            stoppedCards,
             failingProjects);
     }
 
@@ -438,6 +475,8 @@ public sealed class WaitingStore(UserDb database, TimeProvider time)
         int Blocking,
         string? Screenshots,
         string? ScreenshotsNote);
+
+    private sealed record StoppedRow(Guid ProjectId, string ProjectName, string Owner, int Number, string Title, string WebUrl, string Reason, DateTime StoppedAt, string? PullRequestUrl);
 
     private sealed record FailingRow(Guid ProjectId, string ProjectName, string Owner, string Reason, int Failures, DateTime Since, DateTime WaitUntil);
 

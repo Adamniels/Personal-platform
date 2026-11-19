@@ -940,6 +940,10 @@ of what Dev flow is:
 - `POST /devflow/api/fake/claude-login-age` with `{"days": 340}` moves when the caller's Claude
   login was given to that many days before now, so a test sees it due without waiting a year,
   `204`; `404` without a login, and `400` for a negative or malformed number.
+- `POST /devflow/api/fake/end-wait` with `{"project_id"}` ends the caller's project's wait after
+  failures outside its cards now, its count kept, so a test sees the next failure without waiting
+  minutes, `204`; `404` for a project the caller does not have or that does not wait, and `400`
+  without a `project_id`. See "Stops".
 - `POST /devflow/api/fake/worker/run`, the fake worker, which takes a project's next job and ends
   it with a prepared result, see "Jobs".
 - `GET /devflow/api/fake/writes` lists the writes the fake took for the caller, oldest first, each

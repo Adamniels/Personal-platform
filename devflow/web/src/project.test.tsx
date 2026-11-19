@@ -329,6 +329,16 @@ describe("a project that hands out no work", () => {
 		expect(heldNotice("stopped")).toContain("Waiting for you");
 	});
 
+	test("says when its runs keep failing outside their cards", async () => {
+		const said =
+			"Dev flow cannot run Fodr's cards: Claude Code is not logged in with the token";
+		renderPage({ list: { cannot_run: said } });
+
+		const workers = await panel();
+		await within(workers).findByText(said);
+		expect(within(workers).getByText("Cannot run")).toBeTruthy();
+	});
+
 	test("says when its default branch could not be read", async () => {
 		renderPage({ list: { held: "unwatched" } });
 
