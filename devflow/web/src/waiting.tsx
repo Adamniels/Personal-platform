@@ -10,7 +10,7 @@ import { navigate } from "./address";
 import type { GetAnswer } from "./api/client";
 import { DecisionIssue, type DecisionItem } from "./decision-issue";
 import { Inline } from "./format";
-import { Screenshots } from "./screenshots";
+import { Screenshots, waitingScreenshot } from "./screenshots";
 import { StoppedProject } from "./stopped";
 import styles from "./waiting.module.css";
 import { WaitingCard } from "./waiting-card";
@@ -433,7 +433,10 @@ function Item({
 				{item.kind === "waiting" && item.reviewer_view.length > 0 ? (
 					<Reviewer points={item.reviewer_view} />
 				) : null}
-				<Screenshots item={item.id} groups={item.screenshots} />
+				<Screenshots
+					address={(name) => waitingScreenshot(item.id, name)}
+					groups={item.screenshots}
+				/>
 			</div>
 		</Card>
 	);

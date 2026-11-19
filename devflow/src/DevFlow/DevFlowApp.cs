@@ -194,6 +194,7 @@ public static class DevFlowApp
         app.MapWatch();
         app.MapJobs();
         app.MapCards();
+        app.MapCardScreenshots();
         app.MapRecipe();
         app.MapClaudeLogin();
         app.MapPages(webRoot);

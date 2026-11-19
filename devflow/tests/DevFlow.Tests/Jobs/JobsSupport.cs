@@ -54,9 +54,10 @@ internal sealed class Jobs : IAsyncDisposable
 
     public FakeCodeHost Fake => Routes.Fake;
 
-    /// <summary>The project.json the world holds unless a test gives another.</summary>
-    public static string ProjectFile(string check = Check) =>
-        new JsonObject { ["version"] = 1, ["check"] = check, ["start"] = "", ["url"] = "" }.ToJsonString();
+    /// <summary>The project.json the world holds unless a test gives another: no start and no url
+    /// unless given.</summary>
+    public static string ProjectFile(string check = Check, string start = "", string url = "") =>
+        new JsonObject { ["version"] = 1, ["check"] = check, ["start"] = start, ["url"] = url }.ToJsonString();
 
     /// <summary>A card the owner wrote and nobody edited, carrying the pick-up label.</summary>
     public static FakeIssue Card(int number, string? title = null, string? body = null, IReadOnlyList<string>? labels = null, int minutes = 0) => new(

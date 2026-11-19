@@ -53,15 +53,9 @@ public static class ScreenshotEndpoints
     private static async Task<Results<FileContentHttpResult, ProblemHttpResult>> Serve(
         Guid id, string name, HttpContext context, [FromServices] WaitingStore store, [FromServices] ICodeHost host, [FromServices] TimeProvider time)
     {
-        // Whatever it answers, it is never sniffed, framed or run; only a PNG served is kept.
-        var headers = context.Response.Headers;
-        headers.XContentTypeOptions = "nosniff";
-        headers.ContentSecurityPolicy = "default-src 'none'";
-        headers.CacheControl = "no-store";
-
+        Guard(context);
         var userId = context.UserId();
-        var cancellationToken = context.RequestAborted;
-        if (await store.ScreenshotsOf(userId, id, cancellationToken) is not { } source)
+        if (await store.ScreenshotsOf(userId, id, context.RequestAborted) is not { } source)
         {
             return NotFound("Nothing waits for you with that id.");
         }
@@ -74,7 +68,37 @@ public static class ScreenshotEndpoints
         }
 
         var path = string.Create(CultureInfo.InvariantCulture, $"{source.Number}/{name}.png");
-        switch (await host.File(userId, source.Repository, path, PullRequestBody.ScreenshotBranch, cancellationToken))
+        return await FromHost(context, host, time, source.Repository, path, "GitHub has no screenshot by that name for this pull request.");
+    }
+
+    /// <summary>The headers every answer of a screenshot route carries, set before anything is
+    /// read, so whatever it answers is never sniffed, framed or run, and only a PNG served is
+    /// kept.</summary>
+    internal static void Guard(HttpContext context)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        var headers = context.Response.Headers;
+        headers.XContentTypeOptions = "nosniff";
+        headers.ContentSecurityPolicy = "default-src 'none'";
+        headers.CacheControl = "no-store";
+    }
+
+    /// <summary>
+    /// The file at <paramref name="path"/> on <c>pr-screenshots</c> of <paramref name="repository"/>,
+    /// which the caller built from a name it listed, read as the app and served only as a PNG of at
+    /// most 5 MB, fixed as <c>image/png</c>, kept an hour; 404 with <paramref name="missing"/> when
+    /// the code host has none, 502 when it is not such a PNG, 503 when the host did not answer. The
+    /// one place a code host's bytes reach the browser, for part 1's items and Dev flow's cards
+    /// alike.
+    /// </summary>
+    internal static async Task<Results<FileContentHttpResult, ProblemHttpResult>> FromHost(
+        HttpContext context, ICodeHost host, TimeProvider time, Repository repository, string path, string missing)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(host);
+        ArgumentNullException.ThrowIfNull(time);
+        var headers = context.Response.Headers;
+        switch (await host.File(context.UserId(), repository, path, PullRequestBody.ScreenshotBranch, context.RequestAborted))
         {
             case CodeHostResult<byte[]>.Found { Value: var bytes }:
                 if (bytes.Length > MostBytes || !bytes.AsSpan().StartsWith(PngSignature))
@@ -88,7 +112,7 @@ public static class ScreenshotEndpoints
                 headers.CacheControl = Kept;
                 return TypedResults.File(bytes, "image/png");
             case CodeHostResult<byte[]>.NotFound:
-                return NotFound("GitHub has no screenshot by that name for this pull request.");
+                return NotFound(missing);
             case CodeHostResult<byte[]>.Unavailable { RetryAt: var retryAt }:
                 if (retryAt is { } at)
                 {
@@ -102,6 +126,6 @@ public static class ScreenshotEndpoints
         }
     }
 
-    private static ProblemHttpResult NotFound(string detail) =>
+    internal static ProblemHttpResult NotFound(string detail) =>
         TypedResults.Problem(statusCode: StatusCodes.Status404NotFound, title: "No such screenshot", detail: detail);
 }

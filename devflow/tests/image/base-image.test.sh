@@ -140,6 +140,42 @@ else
   bad CommitAttributionIsOff "attribution is $got"
 fi
 
+# --- PlaywrightAndChromiumRun ---------------------------------------------------------------------
+# The worker takes a project's pictures as agent, with `playwright screenshot --full-page`, the
+# pinned one on PATH and not through npx, which could resolve another, in an environment built from
+# nothing but HOME, PATH, LANG and PLAYWRIGHT_BROWSERS_PATH, as PageCamera starts it. Playwright is 1.65.0, the version e2e/ pins; Chromium is under
+# /ms-playwright, root's, which agent reads and cannot change, so one job cannot leave a browser
+# that fakes the next job's pictures. A local page served by node, as a project's start serves
+# one, comes out as a PNG at the size asked for.
+problems=""
+got="$(as agent playwright --version)"
+case "$got" in "Version 1.65.0") ;; *) problems="$problems playwright-version:[$got]" ;; esac
+got="$(as root stat -c '%U %a' /ms-playwright)"
+[ "$got" = "root 755" ] || problems="$problems /ms-playwright-is:[$got]"
+got="$(as agent sh -c 'touch /ms-playwright/x && echo wrote; for d in /ms-playwright/*/; do touch "$d/x" && echo "wrote $d"; done')"
+case "$got" in *wrote*) problems="$problems agent-writes-the-browsers:[$got]" ;; esac
+cat > "$tmp/shot.sh" <<'SHOT'
+# As agent, in /tmp/shot: a page served by node on localhost, and its picture at phone width.
+cd /tmp/shot || exit 1
+node -e 'require("http").createServer((q, s) => s.end("<h1>A page</h1>")).listen(8000)' &
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  node -e 'fetch("http://localhost:8000").then(() => process.exit(0), () => process.exit(1))' && break
+  sleep 1
+done
+playwright screenshot --full-page --viewport-size 390,844 http://localhost:8000/ page.png > /dev/null || exit 1
+od -An -tx1 -N8 page.png | tr -d ' \n'
+node -e 'const b = require("fs").readFileSync("page.png"); console.log(" " + b.readUInt32BE(16) + "x" + b.readUInt32BE(20))'
+SHOT
+chmod 644 "$tmp/shot.sh"
+got="$(docker run --rm -v "$tmp/shot.sh:/shot.sh:ro" --entrypoint sh "$image" -c \
+  'mkdir /tmp/shot && chown agent:agent /tmp/shot && setpriv --reuid agent --regid agent --init-groups --reset-env env -i HOME=/home/agent PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 PLAYWRIGHT_BROWSERS_PATH=/ms-playwright sh /shot.sh' 2>&1)"
+case "$got" in "89504e470d0a1a0a"*"390x844"*) ;; *) problems="$problems screenshot:[$got]" ;; esac
+if [ -z "$problems" ]; then
+  ok PlaywrightAndChromiumRun
+else
+  bad PlaywrightAndChromiumRun "$problems"
+fi
+
 # --- AProjectsImageReportsItsBaseAndRecipe -------------------------------------------------------
 # A recipe as a project writes one, built as the page's command builds it, holds the two variables
 # the worker sends in hello.

@@ -117,7 +117,8 @@ public static partial class JobEndpoints
                 request.Usage!.Value,
                 request.DurationMs!.Value,
                 request.Stderr!,
-                request.PermissionDenials is { ValueKind: JsonValueKind.Array } denials ? denials : null);
+                request.PermissionDenials is { ValueKind: JsonValueKind.Array } denials ? denials : null,
+                request.Screenshots);
 
     /// <summary>Each field of <paramref name="request"/> that is missing or breaks a rule.</summary>
     internal static Dictionary<string, string[]> Errors(ResultRequest request)
@@ -197,7 +198,34 @@ public static partial class JobEndpoints
             errors["permission_denials"] = ["must be null, or an array, empty when none were refused"];
         }
 
+        if (request.Screenshots is { } screenshots)
+        {
+            CheckScreenshots(screenshots, errors);
+        }
+
         return errors;
+    }
+
+    /// <summary>
+    /// A build's pictures break no rule: their names, at most two for each of
+    /// <see cref="PageShots.MostPages"/> pages, each once and each a name <see cref="PageShots"/>
+    /// makes, since the route that serves one builds its path from it; and a note of at most
+    /// <see cref="PageShots.MostNote"/> characters, not empty, or null.
+    /// </summary>
+    private static void CheckScreenshots(ResultScreenshots screenshots, Dictionary<string, string[]> errors)
+    {
+        if (screenshots.Names is not { } names
+            || names.Count > PageShots.MostPages * PageShots.Viewports.Count
+            || names.Distinct(StringComparer.Ordinal).Count() != names.Count
+            || !names.All(PageShots.IsName))
+        {
+            errors["screenshots.names"] = [$"must be a list of at most {PageShots.MostPages * PageShots.Viewports.Count} names, each once, each lowercase letters, digits and hyphens ending in -desktop or -phone"];
+        }
+
+        if (screenshots.Note is { } note && (note.Trim().Length == 0 || note.Length > PageShots.MostNote))
+        {
+            errors["screenshots.note"] = [$"must be null, or text of 1 to {PageShots.MostNote} characters"];
+        }
     }
 
     /// <summary>Now, as Postgres keeps it, to the microsecond.</summary>

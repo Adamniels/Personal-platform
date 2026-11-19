@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 
 using Dapper;
 
+using DevFlow.Cards;
 using DevFlow.CodeHost;
 using DevFlow.Link;
 using DevFlow.Runner;
@@ -132,6 +133,8 @@ public sealed record CardItemReview(string Verdict, string Summary, int Blocking
 /// <param name="CanMerge">Whether Merge is offered: false while the project is stopped.</param>
 /// <param name="ChangedAt">When the card came to wait.</param>
 /// <param name="Review">The reviewer's verdict on its head commit, null when it has none.</param>
+/// <param name="Screenshots">The pictures the worker took of its head commit, null when its build
+/// tried none.</param>
 /// <param name="Reason">Why it waits, in words: the merge check's reason, such as CI not
 /// reporting, or that the project waits for the owner on every pull request.</param>
 public sealed record CardItem(
@@ -152,6 +155,7 @@ public sealed record CardItem(
     bool CanMerge,
     DateTimeOffset ChangedAt,
     CardItemReview? Review,
+    CardScreenshots? Screenshots,
     string? Reason);
 
 /// <summary>An issue Dev flow opened for a decision the agent marked for the owner on a card it
@@ -260,7 +264,8 @@ public sealed class WaitingStore(UserDb database, TimeProvider time)
                        r.check_command AS CheckCommand, r.check_exit_code AS CheckExitCode,
                        NOT EXISTS (SELECT 1 FROM project_stops s WHERE s.project_id = c.project_id) AS CanMerge,
                        c.changed_at AS ChangedAt, c.reason AS Reason, v.verdict AS Verdict, v.summary AS VerdictSummary,
-                       (SELECT count(*) FROM jsonb_array_elements(v.findings) f WHERE f->>'blocking' = 'true')::int AS Blocking
+                       (SELECT count(*) FROM jsonb_array_elements(v.findings) f WHERE f->>'blocking' = 'true')::int AS Blocking,
+                       r.screenshots::text AS Screenshots, r.screenshots_note AS ScreenshotsNote
                 FROM cards c
                 JOIN projects p ON p.id = c.project_id
                 JOIN LATERAL (SELECT * FROM runs WHERE runs.project_id = c.project_id AND runs.card_number = c.number
@@ -361,6 +366,7 @@ public sealed class WaitingStore(UserDb database, TimeProvider time)
             row.CanMerge,
             GitHubLink.Utc(row.ChangedAt),
             row.Verdict is { } verdict ? new CardItemReview(verdict, row.VerdictSummary?.Trim() ?? "", row.Blocking, row.HeadCommit) : null,
+            CardScreenshots.Of(row.HeadCommit, row.Screenshots, row.ScreenshotsNote),
             row.Reason);
     }
 
@@ -467,7 +473,9 @@ public sealed class WaitingStore(UserDb database, TimeProvider time)
         string? Reason,
         string? Verdict,
         string? VerdictSummary,
-        int Blocking);
+        int Blocking,
+        string? Screenshots,
+        string? ScreenshotsNote);
 
     private sealed record DecisionRow(
         Guid Id,

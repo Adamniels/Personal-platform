@@ -201,13 +201,19 @@ public sealed class DispatchTests
     [Fact]
     public async Task TheJobHoldsWhatTheWorkerNeedsAndNoMore()
     {
-        await using var jobs = await Jobs.Start([Jobs.Card(12, "Show the habits' empty state!", "The list is blank when there are none.\n\n```js\nalert(1)\n```")]);
+        await using var jobs = await Jobs.Start(
+            [Jobs.Card(12, "Show the habits' empty state!", "The list is blank when there are none.\n\n```js\nalert(1)\n```")],
+            projectFile: Jobs.ProjectFile(start: "npm ci && npm run dev", url: "http://localhost:5173"));
 
         var job = await jobs.Job();
 
         Assert.Equal(
-            ["base", "branch", "brief", "card", "check", "claude_token", "committer", "job_id", "kind", "limits", "push_key", "push_key_expires_at", "report_schema", "repository", "to_fix", "to_review"],
+            ["base", "branch", "brief", "card", "check", "claude_token", "committer", "job_id", "kind", "limits", "push_key", "push_key_expires_at", "report_schema", "repository", "start", "to_fix", "to_review", "url"],
             job.Select(pair => pair.Key).Order(StringComparer.Ordinal));
+        // How the worker starts the project for its pictures, from the same project.json as the
+        // check.
+        Assert.Equal("npm ci && npm run dev", (string)job["start"]!);
+        Assert.Equal("http://localhost:5173", (string)job["url"]!);
         Assert.Equal((Guid)job["job_id"]!, Assert.Single(await jobs.Runs()).Id);
         Assert.Equal("build", (string)job["kind"]!);
         // A build reads nothing besides the code and the card, and starts no fix.

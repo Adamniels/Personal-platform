@@ -181,7 +181,9 @@ public sealed partial class Dispatcher(
             key.Value,
             key.ExpiresAt,
             new JobCommitter(facts.Committer.Name, facts.Committer.Email),
-            JobLimits.Default);
+            JobLimits.Default,
+            Start: facts.Start,
+            Url: facts.Url);
     }
 
     /// <summary>The fix job for a card taken to fix, or null when none was: a build's job on the
@@ -213,12 +215,14 @@ public sealed partial class Dispatcher(
             key.ExpiresAt,
             new JobCommitter(facts.Committer.Name, facts.Committer.Email),
             JobLimits.Default,
-            ToFix: new JobFix(claimed.FromCommit, claimed.Round));
+            ToFix: new JobFix(claimed.FromCommit, claimed.Round),
+            Start: facts.Start,
+            Url: facts.Url);
     }
 
     /// <summary>The review job for a card taken to review, or null when none was: the build's
-    /// branch, base and check, the commit it left, its report and the check's result, the
-    /// reviewer's brief and the verdict's form.</summary>
+    /// branch, base and check, the commit it left, its report, the check's result and its pictures,
+    /// the reviewer's brief and the verdict's form.</summary>
     private static Job? ReviewJob(ClaimedReview? claimed, Repository repository, RepositoryFacts facts, ClaudeToken token, AppWriteToken key)
     {
         if (claimed is null)
@@ -244,7 +248,7 @@ public sealed partial class Dispatcher(
             key.ExpiresAt,
             new JobCommitter(facts.Committer.Name, facts.Committer.Email),
             JobLimits.Default,
-            new JobReview(claimed.Commit, report.RootElement.Clone(), new CheckResult(claimed.CheckExitCode, claimed.CheckOutput), [.. claimed.Earlier.Select(Round)]));
+            new JobReview(claimed.Commit, report.RootElement.Clone(), new CheckResult(claimed.CheckExitCode, claimed.CheckOutput), [.. claimed.Earlier.Select(Round)], claimed.Screenshots));
     }
 
     /// <summary>An earlier round as a review job carries it, its stored JSON read back as it was
@@ -316,7 +320,7 @@ public sealed partial class Dispatcher(
             return null;
         }
 
-        return new RepositoryFacts(branch, project.Check, clone, committer);
+        return new RepositoryFacts(branch, project.Check, project.Start, project.Url, clone, committer);
     }
 
     /// <summary>A key for the repository, narrowed to <paramref name="purpose"/>,
@@ -340,7 +344,7 @@ public sealed partial class Dispatcher(
         return now.AddTicks(-(now.Ticks % 10));
     }
 
-    private sealed record RepositoryFacts(string DefaultBranch, string Check, Uri CloneAddress, Committer Committer);
+    private sealed record RepositoryFacts(string DefaultBranch, string Check, string Start, string Url, Uri CloneAddress, Committer Committer);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Handed out the {Kind} of card {Card} of project {ProjectId} as run {RunId}")]
     private static partial void LogHandedOut(ILogger logger, string kind, Guid projectId, int card, Guid runId);

@@ -6,6 +6,7 @@ using Dapper;
 
 using DevFlow.Cards;
 using DevFlow.Fixing;
+using DevFlow.Protocol;
 using DevFlow.Reviews;
 
 using Npgsql;
@@ -36,7 +37,9 @@ public sealed record ClaimedCard(Guid RunId, int Number, string Title, string Bo
 /// <param name="CheckExitCode">How it ended.</param>
 /// <param name="CheckOutput">The last lines it printed.</param>
 /// <param name="Earlier">The card's earlier rounds, oldest first, empty on its first review.</param>
-public sealed record ClaimedReview(Guid RunId, int Number, string Title, string Body, string Branch, string Base, string Commit, string Report, string? Check, int CheckExitCode, string CheckOutput, IReadOnlyList<EarlierRound> Earlier);
+/// <param name="Screenshots">The pictures the worker took of the commit, and its note; null when
+/// it tried none.</param>
+public sealed record ClaimedReview(Guid RunId, int Number, string Title, string Body, string Branch, string Base, string Commit, string Report, string? Check, int CheckExitCode, string CheckOutput, IReadOnlyList<EarlierRound> Earlier, ResultScreenshots? Screenshots = null);
 
 /// <summary>An earlier round of a card as stored: a fix that succeeded, the review it answered, and
 /// its replies. Its texts are as they were stored.</summary>
@@ -194,7 +197,7 @@ public static class JobStore
             $"""
             SELECT cards.number AS Number, cards.picked_title AS Title, cards.picked_body AS Body, b.branch AS Branch, b.base AS Base,
                    b.head_commit AS Commit, b.report::text AS Report, b.check_command AS "Check", b.check_exit_code AS CheckExitCode,
-                   b.check_output AS CheckOutput
+                   b.check_output AS CheckOutput, b.screenshots::text AS Screenshots, b.screenshots_note AS ScreenshotsNote
             FROM cards
             JOIN LATERAL (SELECT * FROM runs
                           WHERE runs.project_id = cards.project_id AND runs.card_number = cards.number
@@ -219,7 +222,9 @@ public static class JobStore
             transaction,
             cancellationToken: cancellationToken));
         var earlier = await Earlier(transaction, projectId, card.Number, cancellationToken);
-        var claimed = new ClaimedReview(Guid.CreateVersion7(now), card.Number, card.Title, card.Body, card.Branch, card.Base, card.Commit, card.Report, card.Check, card.CheckExitCode, card.CheckOutput ?? "", earlier);
+        var claimed = new ClaimedReview(
+            Guid.CreateVersion7(now), card.Number, card.Title, card.Body, card.Branch, card.Base, card.Commit, card.Report, card.Check, card.CheckExitCode, card.CheckOutput ?? "", earlier,
+            Pictures(card.Screenshots, card.ScreenshotsNote));
         await transaction.Connection!.ExecuteAsync(new CommandDefinition(
             """
             INSERT INTO runs (id, project_id, user_id, card_number, worker_id, kind, branch, base, check_command, head_commit, started_at)
@@ -397,5 +402,11 @@ public static class JobStore
 
     private sealed record ToFix(int Number, string Title, string Body, string Branch, string Base, string FromCommit, int? Round, Guid? ReviewId, string Comments, string? Report);
 
-    private sealed record ToReview(int Number, string Title, string Body, string Branch, string Base, string Commit, string Report, string? Check, int CheckExitCode, string? CheckOutput);
+    private sealed record ToReview(int Number, string Title, string Body, string Branch, string Base, string Commit, string Report, string? Check, int CheckExitCode, string? CheckOutput, string? Screenshots, string? ScreenshotsNote);
+
+    /// <summary>A run's pictures as it keeps them, or null when it tried none.</summary>
+    internal static ResultScreenshots? Pictures(string? names, string? note) =>
+        names is null && note is null
+            ? null
+            : new ResultScreenshots(names is null ? [] : JsonSerializer.Deserialize<List<string>>(names) ?? [], note);
 }

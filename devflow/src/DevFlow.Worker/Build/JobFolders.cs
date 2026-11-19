@@ -18,7 +18,7 @@ internal sealed record JobFolders(string Secrets, string Handover, string Work)
         var id = jobId.ToString("D");
         var secret = Path.Combine(Secrets, id);
         var work = Path.Combine(Work, id);
-        return new JobPaths(secret, Path.Combine(secret, "repo"), Path.Combine(Handover, id), work, Path.Combine(work, "copy"), Path.Combine(work, "check"), Path.Combine(work, "review"));
+        return new JobPaths(secret, Path.Combine(secret, "repo"), Path.Combine(Handover, id), work, Path.Combine(work, "copy"), Path.Combine(work, "check"), Path.Combine(work, "review"), Path.Combine(work, "pages"), Path.Combine(work, "pictures"));
     }
 }
 
@@ -34,7 +34,11 @@ internal sealed record JobFolders(string Secrets, string Handover, string Work)
 /// <param name="Check">The clean copy of the fetched head commit the check runs in.</param>
 /// <param name="Review">For a review, the folder beside <see cref="Copy"/> that holds what the
 /// reviewer reads besides the code, made and filled by the agent from root's handover.</param>
-internal sealed record JobPaths(string Secret, string Repository, string Handover, string Work, string Copy, string Check, string Review);
+/// <param name="Pages">For a build whose check passed, the clean copy of the pushed commit the
+/// project's <c>start</c> runs in.</param>
+/// <param name="Pictures">Where its pictures are written, as the agent, before root reads
+/// them.</param>
+internal sealed record JobPaths(string Secret, string Repository, string Handover, string Work, string Copy, string Check, string Review, string Pages, string Pictures);
 
 /// <summary>
 /// Who the agent's processes run as, and the environment each is given, built from nothing: the

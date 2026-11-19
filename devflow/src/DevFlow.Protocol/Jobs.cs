@@ -31,6 +31,11 @@ namespace DevFlow.Protocol;
 /// <param name="Limits">When the run is stopped.</param>
 /// <param name="ToReview">What a review reads besides the code, null on a build or a fix.</param>
 /// <param name="ToFix">Where a fix starts and which round it is, null on a build or a review.</param>
+/// <param name="Start">For a build or a fix, the command that starts the project for its pictures,
+/// from the same <c>.devflow/project.json</c> as <paramref name="Check"/>; empty when it has none,
+/// and on a review.</param>
+/// <param name="Url">For a build or a fix, where the started project answers, from the same file;
+/// empty when it has none, and on a review.</param>
 public sealed record Job(
     Guid JobId,
     string Kind,
@@ -47,7 +52,9 @@ public sealed record Job(
     JobCommitter Committer,
     JobLimits Limits,
     JobReview? ToReview = null,
-    JobFix? ToFix = null)
+    JobFix? ToFix = null,
+    string Start = "",
+    string Url = "")
 {
     /// <summary>Building a card.</summary>
     public const string Build = "build";
@@ -73,7 +80,10 @@ public sealed record Job(
 /// <param name="Report">The build's report as it came, in its form.</param>
 /// <param name="Check">The check's result on the commit, as the build's worker sent it.</param>
 /// <param name="Earlier">Each earlier round of the card, oldest first, empty on its first review.</param>
-public sealed record JobReview(string Commit, JsonElement Report, CheckResult Check, IReadOnlyList<JobRound> Earlier);
+/// <param name="Screenshots">The pictures the worker took of the commit after its check passed, on
+/// <see cref="PageShots.Branch"/> under <see cref="PageShots.Folder"/>, and its note; null when it
+/// tried none.</param>
+public sealed record JobReview(string Commit, JsonElement Report, CheckResult Check, IReadOnlyList<JobRound> Earlier, ResultScreenshots? Screenshots = null);
 
 /// <summary>
 /// An earlier round of a card, as a re-review reads it: what sent the card back, the review that
@@ -172,6 +182,8 @@ public sealed record ProgressRequest(Guid? WorkerId, string? State)
 /// <param name="PermissionDenials">The actions the agent was refused, as Claude Code listed them,
 /// an array; empty when there were none, and null from a worker that sends none. A build's fail
 /// its run; a review's are recorded, since a reviewer cannot write by construction.</param>
+/// <param name="Screenshots">A build's pictures, taken after its check passed and its branch was
+/// pushed, or why there are none; null when none were tried.</param>
 public sealed record ResultRequest(
     Guid? WorkerId,
     string? Outcome,
@@ -184,7 +196,8 @@ public sealed record ResultRequest(
     JsonElement? Usage,
     long? DurationMs,
     string? Stderr,
-    JsonElement? PermissionDenials = null)
+    JsonElement? PermissionDenials = null,
+    ResultScreenshots? Screenshots = null)
 {
     public const string Succeeded = "succeeded";
     public const string Failed = "failed";

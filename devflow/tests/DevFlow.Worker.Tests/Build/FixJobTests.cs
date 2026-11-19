@@ -75,6 +75,28 @@ public sealed class FixJobTests
     }
 
     [Fact]
+    public async Task AFixTakesPicturesOfItsOwnCommit()
+    {
+        // A project with pages: the build took its pictures, and the fix takes its own, of the
+        // commit it pushed, beside the build's on pr-screenshots.
+        await using var bench = await Bench.Start(start: "npm run dev", url: "http://localhost:5173");
+        var built = await Reviewed(bench);
+        var job = await bench.NextJob();
+        Assert.Equal(Job.Fix, job.GetProperty("kind").GetString());
+
+        await bench.Build(new ScriptedAgent(async (run, _) => await ScriptedAgent.Commit(run, "greeting.test.txt", "reads greeting.txt\n", "Test the greeting"))).Run(job, Ct);
+
+        var head = (await bench.RemoteHead())!;
+        Assert.NotEqual(built, head);
+        var sent = bench.SentResult(job.GetProperty("job_id").GetGuid());
+        Assert.Equal(["habits-desktop", "habits-phone"], sent["screenshots"]!["names"]!.AsArray().Select(name => (string)name!));
+        var files = await Bench.Git(bench.Remote, "ls-tree", "-r", "--name-only", PageShots.Branch);
+        Assert.Contains($"devflow/1/{built[..7]}/habits-desktop.png", files, StringComparison.Ordinal);
+        Assert.Contains($"devflow/1/{head[..7]}/habits-desktop.png", files, StringComparison.Ordinal);
+        Assert.Equal(2, bench.Starter.Started.Count);
+    }
+
+    [Fact]
     public async Task ABranchThatMovedIsNotFixed()
     {
         await using var bench = await Bench.Start();

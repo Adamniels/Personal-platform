@@ -2,6 +2,7 @@
 repositories, reached through the proxy under /devflow and opened from the
 nav bar. See devflow/README.md."""
 
+import base64
 import json
 import re
 from pathlib import Path
@@ -1587,13 +1588,16 @@ def _built_card(
     verdict: dict | None = None,
     review: bool = True,
     green: bool = False,
+    pictures: dict[str, bytes] | None = None,
 ) -> tuple[str, dict]:
     """Connects a repository with one card the owner labelled and the project's
     .devflow/project.json, gives Dev flow a Claude login, reads the project so
     the card is picked, has the fake worker build it with a passing check, with
     `green` stages CI that passed on the commit it built, and then review its
     pull request with `verdict`, an approve unless given, unless `review` is
-    false. The project's id and what the fake worker answered for the build."""
+    false. With `pictures`, the build's result lists them by name and the fake
+    worker puts each on pr-screenshots, as a worker pushes them. The project's
+    id and what the fake worker answered for the build."""
     world = one_repository()
     add_issue(world, CARD, CARD_TITLE, labels=["devflow"])
     add_file(
@@ -1613,26 +1617,29 @@ def _built_card(
         f"/devflow/api/projects/{project}/refresh", headers={"Origin": base_url}
     )
     assert refreshed.status == 204, refreshed.text()
-    ran = page.request.post(
-        "/devflow/api/fake/worker/run",
-        data={
-            "project_id": project,
-            "result": {
-                "outcome": "succeeded",
-                "report": _report(),
-                "failure": None,
-                "check": {"exit_code": 0, "output": "Tests: 12 passed"},
-                "auth_method": "oauth_token",
-                "usage": {
-                    "usage": {"input_tokens": 41, "output_tokens": 6113},
-                    "total_cost_usd": 1.83,
-                    "num_turns": 23,
-                },
-                "duration_ms": 184213,
-                "stderr": "",
-            },
+    result = {
+        "outcome": "succeeded",
+        "report": _report(),
+        "failure": None,
+        "check": {"exit_code": 0, "output": "Tests: 12 passed"},
+        "auth_method": "oauth_token",
+        "usage": {
+            "usage": {"input_tokens": 41, "output_tokens": 6113},
+            "total_cost_usd": 1.83,
+            "num_turns": 23,
         },
-        headers={"Origin": base_url},
+        "duration_ms": 184213,
+        "stderr": "",
+    }
+    run: dict = {"project_id": project, "result": result}
+    if pictures is not None:
+        result["screenshots"] = {"names": list(pictures), "note": None}
+        run["pictures"] = {
+            name: base64.b64encode(content).decode()
+            for name, content in pictures.items()
+        }
+    ran = page.request.post(
+        "/devflow/api/fake/worker/run", data=run, headers={"Origin": base_url}
     )
     assert ran.status == 200, ran.text()
     if green:
@@ -1976,6 +1983,80 @@ def test_a_built_card_is_reviewed(
         check(page)
     assert _axe_violations(page) == []
     capture(page, "devflow-card-review")
+
+
+def test_a_cards_pictures_are_on_its_page_and_the_list(
+    page: Page, invite_code: str, base_url: str, viewport: str, devflow_world
+):
+    register_and_log_in(page, invite_code, base_url)
+    sizes = {"habits-desktop": (640, 400), "habits-phone": (195, 422)}
+    project, ran = _built_card(
+        page,
+        base_url,
+        devflow_world,
+        pictures={
+            "habits-desktop": png(640, 400, (96, 140, 200)),
+            "habits-phone": png(195, 422, (200, 150, 90)),
+        },
+    )
+    head = ran["head_commit"]
+
+    # The pull request's body embeds each at its address on pr-screenshots.
+    body = _opened(page)["body"]
+    for name in sizes:
+        assert (
+            f"![{name}](https://github.com/{OWNER}/{NAME}/blob/pr-screenshots/"
+            f"devflow/{CARD}/{head[:7]}/{name}.png?raw=true)"
+        ) in body
+
+    def shown(shots) -> None:
+        """The one pair, under its page's name, each thumbnail read from
+        Dev flow as the PNG the worker took, at most 160px high."""
+        expect(shots.get_by_role("listitem")).to_have_count(1)
+        expect(shots.get_by_text("habits", exact=True)).to_be_visible()
+        for name, (width, _) in sizes.items():
+            thumbnail = shots.get_by_role("img", name=name)
+            expect(thumbnail).to_be_visible()
+            page.wait_for_function(
+                "img => img.complete && img.naturalWidth > 0",
+                arg=thumbnail.element_handle(),
+            )
+            assert thumbnail.evaluate("img => img.naturalWidth") == width
+            assert thumbnail.bounding_box()["height"] <= 160
+
+    # The card's page: its Screenshots, of the head commit, paired desktop and
+    # phone.
+    page.goto(f"/devflow/projects/{project}/cards/{CARD}")
+    panel = page.get_by_role("article", name="Screenshots")
+    expect(panel).to_contain_text(f"Taken by the worker of {head[:7]}")
+    shown(panel.get_by_role("list", name="Screenshots"))
+    page.evaluate("document.fonts.ready.then(() => null)")
+    for check in (
+        assert_headings_are_capitals,
+        assert_nothing_scrolls_sideways,
+        assert_active_is_inverted,
+        assert_nothing_active_is_amber,
+    ):
+        check(page)
+    assert _axe_violations(page) == []
+    capture(page, "devflow-card-screenshots")
+
+    # One opens large, at its natural size.
+    panel.get_by_role("button", name="habits-desktop").click()
+    dialog = page.get_by_role("dialog", name="habits-desktop")
+    large = dialog.get_by_role("img", name="habits-desktop")
+    expect(large).to_be_visible()
+    box = large.bounding_box()
+    assert (box["width"], box["height"]) == sizes["habits-desktop"]
+    dialog.get_by_role("button", name="Close").click()
+    expect(page.get_by_role("dialog")).to_have_count(0)
+
+    # And its item on Waiting for you, the same pair.
+    page.goto("/devflow")
+    card = _waiting_card(page)
+    shown(card.get_by_role("list", name="Screenshots"))
+    assert _axe_violations(page) == []
+    capture(page, "devflow-card-waiting-screenshots")
 
 
 def _fix_report() -> dict:

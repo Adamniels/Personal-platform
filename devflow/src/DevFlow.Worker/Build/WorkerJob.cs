@@ -4,12 +4,14 @@ using System.Text.RegularExpressions;
 
 using DevFlow.Protocol;
 using DevFlow.Worker.Agents;
+using DevFlow.Worker.Pages;
 
 namespace DevFlow.Worker.Build;
 
 /// <summary>What a job runs with: the agent, a starter for root's processes and one for the
-/// agent's, where the job's files go, and who the agent's processes run as.</summary>
-internal sealed record JobTools(IAgent Agent, IProcessStarter Root, IProcessStarter AsAgent, JobFolders Folders, AgentUser User);
+/// agent's, where the job's files go, who the agent's processes run as, and what a build starts the
+/// project and takes its pictures with.</summary>
+internal sealed record JobTools(IAgent Agent, IProcessStarter Root, IProcessStarter AsAgent, JobFolders Folders, AgentUser User, PageTools Pages);
 
 /// <summary>
 /// What every job a worker runs shares, a build's and a review's: root's folders for the job, made
@@ -47,9 +49,10 @@ internal abstract partial class WorkerJob(DevFlowClient client, Guid workerId, J
     /// Sends the job's result, trying again while Dev flow is away, for at most
     /// <see cref="Patience"/>: succeeded with the agent's report when there is no
     /// <paramref name="failure"/>, failed with it otherwise; the check's result when one ran, the
-    /// commit, and the agent's usage, standard error and refused actions as they came.
+    /// commit, the agent's usage, standard error and refused actions as they came, and a build's
+    /// pictures when they were tried.
     /// </summary>
-    protected async Task Send(Job job, AgentFailure? failure, AgentResult? agent, CheckResult? check, string? head, TimeSpan duration, CancellationToken stopping)
+    protected async Task Send(Job job, AgentFailure? failure, AgentResult? agent, CheckResult? check, string? head, TimeSpan duration, CancellationToken stopping, ResultScreenshots? screenshots = null)
     {
         ArgumentNullException.ThrowIfNull(job);
         var request = new ResultRequest(
@@ -64,7 +67,8 @@ internal abstract partial class WorkerJob(DevFlowClient client, Guid workerId, J
             JsonSerializer.SerializeToElement(agent?.Usage ?? new JsonObject(), WorkerApi.Json),
             (long)duration.TotalMilliseconds,
             Last(agent?.Stderr ?? "", TailLines),
-            JsonSerializer.SerializeToElement(agent?.Denials ?? new JsonArray(), WorkerApi.Json));
+            JsonSerializer.SerializeToElement(agent?.Denials ?? new JsonArray(), WorkerApi.Json),
+            screenshots);
         var answer = await Patiently(() => Client.Result(job.JobId, request, stopping), "the result", stopping);
         Log.Write(answer.Kind == AnswerKind.Done
             ? $"Sent the result: {request.Outcome}{(request.Failure is { } sent ? $", {sent.Reason}" : "")}."
@@ -176,9 +180,9 @@ internal abstract partial class WorkerJob(DevFlowClient client, Guid workerId, J
 
     /// <summary>A root git command that must succeed, or the step fails with
     /// <paramref name="what"/> on <paramref name="side"/>, and what git said, the key scrubbed.</summary>
-    protected async Task Root(JobPaths paths, IReadOnlyList<string> arguments, FailureSide side, string what, CancellationToken stopping, PushCredential? credential = null, bool inSecret = false)
+    protected async Task Root(JobPaths paths, IReadOnlyList<string> arguments, FailureSide side, string what, CancellationToken stopping, PushCredential? credential = null, bool inSecret = false, string? index = null)
     {
-        var outcome = await Git.AsRoot(paths, arguments, stopping, credential, inSecret);
+        var outcome = await Git.AsRoot(paths, arguments, stopping, credential, inSecret, index);
         if (outcome.ExitCode != 0)
         {
             var said = Said(outcome.Stderr);

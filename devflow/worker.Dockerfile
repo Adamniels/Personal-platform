@@ -51,7 +51,19 @@ RUN usermod --login agent --home /home/agent --move-home node && \
 WORKDIR /opt/devflow-tools
 COPY devflow/worker/package.json devflow/worker/package-lock.json ./
 RUN --mount=type=cache,target=/root/.npm npm ci --omit=dev && \
-    ln -s /opt/devflow-tools/node_modules/.bin/claude /usr/local/bin/claude
+    ln -s /opt/devflow-tools/node_modules/.bin/claude /usr/local/bin/claude && \
+    ln -s /opt/devflow-tools/node_modules/.bin/playwright /usr/local/bin/playwright
+
+# Playwright 1.65.0, pinned beside Claude Code, the version e2e/ pins, takes a project's pictures:
+# Chromium and the system packages it needs, at build time, under /ms-playwright, root's and
+# readable by agent, so a job, which runs as agent, cannot change the browser the next job's
+# pictures are taken with. The worker gives the agent's process PLAYWRIGHT_BROWSERS_PATH, since its
+# environment is built from nothing; see "Screenshots" in devflow/README.md.
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+RUN install -d -m 755 -o root -g root /ms-playwright && \
+    playwright install --with-deps chromium && \
+    rm -rf /var/lib/apt/lists/* && \
+    chmod -R a+rX,go-w /ms-playwright
 
 # Claude Code adds a Co-Authored-By trailer to commits and a line to pull requests unless told
 # not to; attribution with both empty turns them off, see "The base image" in devflow/README.md.

@@ -207,7 +207,7 @@ export interface paths {
         };
         /**
          * A card's whole story so far
-         * @description The card as last read, its number, title, web_url, state and reason, and its pull_request, number and url, null before one was opened; each of its runs, newest first, with its kind, the worker it was handed to, when it started and finished, how long it took, its result and, for a failure, its reason and whether it lay in the card, the auth method, the tokens in and out, the check's exit code and the last lines of its output, null when it did not run, and the commit it left; the latest report in its form, the latest build's, null when no build has handed one back; and each review, newest first, with the commit the worker reviewed, its verdict, summary, findings, each blocking or not with its file, line, what and why, the reviewer's view on each decision for the owner, when it was recorded, whether its copy is posted, and whether it is current, for the card's head commit. Read from what Dev flow stored, never from GitHub; every text from GitHub or an agent is to be shown as text. 404 for a project or a card the caller does not have. Without a valid token, 401 with an empty body.
+         * @description The card as last read, its number, title, web_url, state and reason, and its pull_request, number and url, null before one was opened; each of its runs, newest first, with its kind, the worker it was handed to, when it started and finished, how long it took, its result and, for a failure, its reason and whether it lay in the card, the auth method, the tokens in and out, the check's exit code and the last lines of its output, null when it did not run, and the commit it left; the latest report in its form, the latest build's, null when no build has handed one back; and each review, newest first, with the commit the worker reviewed, its verdict, summary, findings, each blocking or not with its file, line, what and why, the reviewer's view on each decision for the owner, when it was recorded, whether its copy is posted, and whether it is current, for the card's head commit; and the screenshots of its head commit, the commit, the pictures' names paired desktop and phone by page, read through getCardScreenshot, and the worker's note, null when its newest build that succeeded tried none. Read from what Dev flow stored, never from GitHub; every text from GitHub or an agent is to be shown as text. 404 for a project or a card the caller does not have. Without a valid token, 401 with an empty body.
          */
         get: operations["getCard"];
         put?: never;
@@ -232,6 +232,26 @@ export interface paths {
          * @description Merges a card of Dev flow's own, from Waiting for you, with a merge commit, as the caller's linked GitHub account and never as the app, only while its pull request's head is head_commit, the commit its run built and checked and the page showed. In order: 404 for a project or card the caller does not have; 422 without head_commit; 409 when the card is not waiting for the caller with a pull request; 409 when the project is stopped, since something landed on its default branch that Dev flow did not put there; 409 when head_commit is not the commit the run built, after the project is read again; 409 when GitHub is not linked or the link has expired; then GitHub is asked. 204 once merged and the project read again, which makes the card done. 409 when GitHub says the head moved, after the project is read again, and when GitHub will not merge it or refuses, with its reason; 503 when GitHub did not answer. Without a valid token, 401 with an empty body; a change from another origin, 403.
          */
         post: operations["mergeCard"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/devflow/api/projects/{id}/cards/{number}/screenshots/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One of the pictures the worker took of a card's head commit, read from GitHub as the app
+         * @description The PNG the card's newest build that succeeded listed as name, read from the branch pr-screenshots of the project's own repository, at devflow/<number>/<the head commit's first seven characters>/<name>.png, as the app. Always image/png, with X-Content-Type-Options: nosniff, Content-Security-Policy: default-src 'none' and Cache-Control: private, max-age=3600. 404 for a project or card the caller does not have, a card with no such build, or a name the build did not list, without asking GitHub; 404 when GitHub has no such file; 502 when what GitHub has is not a PNG or is over 5 MB; 503 when GitHub did not answer. Without a valid token, 401 with an empty body.
+         */
+        get: operations["getCardScreenshot"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -637,6 +657,7 @@ export interface components {
             pull_request_url: string;
             reason: null | string;
             review: null | components["schemas"]["CardItemReview"];
+            screenshots: null | components["schemas"]["CardScreenshots"];
             summary: string;
             title: string;
             /** Format: uri */
@@ -713,6 +734,11 @@ export interface components {
             started_at: string;
             worker: string;
         };
+        CardScreenshots: {
+            commit: string;
+            groups: components["schemas"]["ScreenshotGroup"][];
+            note: null | string;
+        };
         CardStoryView: {
             merge: null | components["schemas"]["CardMerge"];
             /** Format: int32 */
@@ -723,6 +749,7 @@ export interface components {
             reviews: components["schemas"]["CardReview"][];
             rounds: components["schemas"]["CardRound"][];
             runs: components["schemas"]["CardRun"][];
+            screenshots: null | components["schemas"]["CardScreenshots"];
             state: string;
             title: string;
             web_url: string;
@@ -869,8 +896,12 @@ export interface components {
             push_key_expires_at: string;
             report_schema: components["schemas"]["JsonElement"];
             repository: components["schemas"]["JobRepository"];
+            /** @default  */
+            start: string;
             to_fix?: null | components["schemas"]["JobFix"];
             to_review?: null | components["schemas"]["JobReview"];
+            /** @default  */
+            url: string;
         };
         JobCard: {
             body: string;
@@ -907,6 +938,7 @@ export interface components {
             commit: string;
             earlier: components["schemas"]["JobRound"][];
             report: components["schemas"]["JsonElement"];
+            screenshots?: null | components["schemas"]["ResultScreenshots"];
         };
         JobRound: {
             comments: string[];
@@ -1057,10 +1089,15 @@ export interface components {
             outcome: null | string;
             permission_denials?: unknown;
             report: null | components["schemas"]["JsonElement"];
+            screenshots?: null | components["schemas"]["ResultScreenshots"];
             stderr: null | string;
             usage: null | components["schemas"]["JsonElement"];
             /** Format: uuid */
             worker_id: null | string;
+        };
+        ResultScreenshots: {
+            names: null | string[];
+            note: null | string;
         };
         ResumeRequest: {
             commit: null | string;
@@ -1716,6 +1753,64 @@ export interface operations {
                 };
                 content: {
                     "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    getCardScreenshot: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                number: number;
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/png": components["schemas"]["Stream"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Bad Gateway */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
                 };
             };
             /** @description Service Unavailable */

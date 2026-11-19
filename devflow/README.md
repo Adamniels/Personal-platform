@@ -53,7 +53,9 @@ program that calls it: everything else the tabs will show arrives with later sli
   project's settings, and `GET /devflow/api/projects/{id}/cards`, its cards, see "Cards". Without a
   valid token, `401` with an empty body.
 - `GET /devflow/api/projects/{id}/cards/{number}`, a card's whole story so far, see "A card's
-  page", and `POST /devflow/api/projects/{id}/cards/{number}/merge`, which merges a card's pull
+  page", `GET /devflow/api/projects/{id}/cards/{number}/screenshots/{name}`, one of the pictures
+  the worker took of its head commit, as a PNG read from GitHub as the app, see "Screenshots", and
+  `POST /devflow/api/projects/{id}/cards/{number}/merge`, which merges a card's pull
   request that waits, as the caller on GitHub, see "Acting from the page". Without a valid token,
   `401` with an empty body.
 - `POST /devflow/api/projects/{id}/worker-key`, which makes a project's worker key and answers it
@@ -249,8 +251,12 @@ it, "Logged in with <auth method>" and "Tokens <in> in, <out> out", and "Check e
 <commit>" with a "Show" that opens the output's tail, kept as written and wrapped; or "No run has
 taken this card yet."; and, when a run has handed one back, "The latest report": its summary, then
 its tasks, decisions, tests, pages and follow ups, each a list under its label, each item on an
-inset, a decision for the owner marked "For you", a list with nothing left out. Every text came
-from GitHub, a worker or an agent and is shown as text, through `src/format.tsx`.
+inset, a decision for the owner marked "For you", a list with nothing left out. With
+`screenshots`, a `Card` "Screenshots" after "The card": "Taken by the worker of <commit>, after
+its check passed", the worker's note when it has one, and the pairs as part 1's, through
+`src/screenshots.tsx`, each read from the card's own route; a card's item on "Waiting for you"
+shows the same row after its review. Every text came from GitHub, a worker or an agent and is shown
+as text, through `src/format.tsx`.
 
 Waiting for you, `src/waiting.tsx`, is one list of what waits for the owner across his projects,
 read from `GET /devflow/api/waiting`, see "What waits", through React Query: as the page loads,
@@ -1447,8 +1453,13 @@ and built at each release as the service `devflow-worker` in `infra/hosted/compo
 started: it has no replica. Its build stage publishes `DevFlow.Worker` as one self-contained file
 for the build's architecture. Its final stage is `node:26-trixie-slim` with `git`,
 `ca-certificates`, `jq`, `procps`, `util-linux` and Claude Code 2.1.325, installed with `npm ci`
-from `worker/package-lock.json`, which pins it with its integrity, and on `PATH` as `claude`. Two
-users are in it:
+from `worker/package-lock.json`, which pins it with its integrity, and on `PATH` as `claude`; and
+Playwright 1.65.0, the version `e2e/` pins, from the same lock and on `PATH` as `playwright`, with
+Chromium and the system packages it needs installed at build time by
+`playwright install --with-deps chromium` into `/ms-playwright`, root's, mode 755, which `agent`
+reads and cannot change, so one job cannot leave a browser that fakes the next job's pictures; the
+image sets `PLAYWRIGHT_BROWSERS_PATH` to it, and the worker gives it to the agent's process, whose
+environment it builds from nothing. Two users are in it:
 
 - root runs the worker program, the image's entrypoint, `/usr/local/bin/devflow-worker`, and keeps
   a job's secrets in `/run/devflow/`, mode 700, owned by root;
@@ -1468,8 +1479,11 @@ Its test is `tests/image/base-image.test.sh`, which `infra/hosted/check.sh` runs
 image under a tag of its own, never the hosted name, and checks that `agent` cannot list or read
 `/run/devflow/`, nor read root's environment through `/proc`, that the worker runs, that
 `git-upload-pack` is on the agent's `PATH`, that `claude --version` answers 2.1.325, that `git` and
-`node` run, that the attribution is off, and that a recipe built FROM it reports its base and
-version. From the repository root, with Docker running:
+`node` run, that the attribution is off, that `playwright --version` answers 1.65.0 and, as
+`agent` in an environment of `HOME`, `PATH`, `LANG` and `PLAYWRIGHT_BROWSERS_PATH`,
+`playwright screenshot --full-page` of a page node serves on `localhost` writes a PNG at the size
+asked for, while `/ms-playwright` stays root's and unwritable by `agent`, and that a recipe built
+FROM it reports its base and version. From the repository root, with Docker running:
 
 ```zsh
 bash devflow/tests/image/base-image.test.sh
@@ -1484,8 +1498,9 @@ bash devflow/tests/image/base-image.test.sh
 - `.devflow/project.json`, how a card is checked and the project started:
   `{"version": 1, "check": "<command>", "start": "<command or empty>", "url": "<http://localhost… or empty>"}`,
   every field there and no other. Its schema is `contracts/devflow/project.schema.json`, and
-  `DevFlow.Protocol`'s `ProjectFile` reads it by the same rules; the worker and Dev flow read it in
-  later slices.
+  `DevFlow.Protocol`'s `ProjectFile` reads it by the same rules. Dev flow reads it when it hands
+  out a job, which carries its `check`, `start` and `url`; how `start` and `url` are used, and
+  what `start` must do, is "Screenshots".
 
 **The recipe route**, `GET /devflow/api/worker/recipe`, in `src/DevFlow/Recipes/`, under the
 worker scheme: the key's project's `.devflow/Dockerfile`, from `DefaultBranchFile`, read as the app,
@@ -1688,11 +1703,15 @@ and `/work/<job>/`, the agent's, where root writes nothing:
 8. **The push**, whatever the check said: a fresh key from the push key route, and
    `git push origin <head>:refs/heads/<branch>` from root's repository, never with force. A
    refused push is a failure outside the card, its reason what git said, and `head_commit` null.
-9. **The result** is sent, see "Jobs": the agent's report on a success, or the failure; the check;
+9. **The pictures**, when the agent succeeded, the check exited 0 and the push went through: the
+   project is started from a clean copy of the pushed commit and the report's pages are taken, see
+   "Screenshots". The worker says `progress` `checking` every 5 minutes meanwhile, as during the
+   check. Nothing that happens there fails the job.
+10. **The result** is sent, see "Jobs": the agent's report on a success, or the failure; the check;
    the head commit pushed; the auth method, usage and the last 200 lines of the agent's standard
-   error; and the duration. A push key or a result Dev flow is away for is asked again, 5 seconds
-   doubling to 60, for at most 10 minutes.
-10. **Afterwards** the folders are removed: root's two by root, and `/work/<job>/` by the agent,
+   error; the duration; and the pictures' names and note, when they were tried. A push key or a
+   result Dev flow is away for is asked again, 5 seconds doubling to 60, for at most 10 minutes.
+11. **Afterwards** the folders are removed: root's two by root, and `/work/<job>/` by the agent,
     `rm -rf` as `agent`, so a link it left there, or the folder replaced with one, is removed as
     the link and nothing is removed that the agent could not remove itself. The worker asks for its
     next job. The container, its tools and its caches are kept.
@@ -1706,8 +1725,7 @@ Every git command in the copy runs as `agent` with hooks, `core.fsmonitor` and c
 so nothing the agent planted runs or stops the worker's commit. A worker that is stopped mid job
 removes the folders and sends nothing: the run is found lost and the card handed out again, on its
 branch if it was pushed. A step that fails for another reason, a fetch, a clone or the worker
-itself, is a failure outside the card, so the card is queued again. The project's `start` and
-`url` are not used yet: "The worker's screenshots" uses them.
+itself, is a failure outside the card, so the card is queued again.
 
 **Publishing.** One self-contained file carrying its own .NET runtime, so a project's image needs
 no .NET, for each Linux a worker runs on:
@@ -1737,7 +1755,11 @@ with the same two database strings. `Build/` runs whole build jobs on a bench, `
 Dev flow in process handing out a card, the fake code host's real bare git repository as the
 remote, folders of the test's own, both users' processes recorded, and an agent that writes and
 commits as the test says. `BuildJobTests` checks the copy, the agent, the check, the push and the
-result; `GitSafetyTests` that root runs git only in its own repository, that hooks and an
+result; `Screenshots/ScreenshotJobTests` the pictures, on the same bench with the project's start
+faked by `FakePageStarter`, its url by `FakeProbe` and Playwright by a script on the agent's `PATH`
+that records what it is asked and writes a PNG, and with the process group ended for real where
+`setsid` exists, on Linux, skipped on macOS, which has none; `GitSafetyTests` that root runs git
+only in its own repository, that hooks and an
 `fsmonitor` the agent planted never run, that the push key never reaches anything the agent can
 read, and that a push is never forced or to the default branch; `BuildPartsTests` the branch
 names refused, the result sent again while Dev flow is away, and the output's tail. The test
@@ -2003,7 +2025,11 @@ blank line and `Closes #<card>`; `## Tasks`, the report's tasks as a checklist, 
 `## Decisions the agent made`, each "<chosen>. Alternative: <alternative>. Why: <why>.", a part
 left out when the agent wrote nothing for it and one marked `for_owner` beginning `**For you.**`;
 `## Verification`, "Dev flow ran `<check>` on <commit, seven characters>: exit <code>.", then the
-report's tests, each "<what>: <result>"; `## Follow ups`; a list with nothing in it is "None.";
+report's tests, each "<what>: <result>", then, when the worker tried pictures, "Screenshots the
+worker took of the commit, desktop and 390px phone width:" with each as
+`![<name>](https://github.com/<owner>/<name>/blob/pr-screenshots/devflow/<card>/<commit, seven characters>/<name>.png?raw=true)`,
+the form this repository's agents embed theirs in, and the worker's note, as text, see
+"Screenshots"; `## Follow ups`; a list with nothing in it is "None.";
 and a last line, "Built by Dev flow for #<card>, run <run id>.". Every text from the report is the
 agent's, and data: it is made one line; `&`, `<` and `>` are written as entities; its backslashes
 and backticks are escaped, so a backslash of its own cannot undo an escape; a `#` it begins with is
@@ -2029,11 +2055,97 @@ checked, `base`, `summary`, `decisions`, those the agent marked for the owner, e
 `{"chosen", "alternative", "why"}` with an empty part null, `other_decisions`, `check`,
 `{"command", "exit_code", "commit"}`, `review`, the reviewer's verdict on that commit,
 `{"verdict", "summary", "blocking", "commit"}`, `blocking` how many findings block it, or null when
-the commit has none, `can_merge`, false while the project is stopped, `changed_at`, and `reason`,
-why it waits in the merge check's words, or null. Its run is
+the commit has none, `can_merge`, false while the project is stopped, `changed_at`,
+`screenshots`, the pictures of that commit as the card's page has them, or null, and `reason`, why
+it waits in the merge check's words, or null. Its run is
 the latest build or fix that succeeded, never a review, whose report is a verdict. They count in the list's `count`, in the display data's `waiting` and in
 `GET /devflow/api/attention`. A card the merge check merged is `done` and no longer listed; the
 list's `decisions` are its decisions to look at, see "The merge check".
+
+## Screenshots
+
+After a build's or a fix's check passed and its branch was pushed, the worker starts the project
+from that commit and takes its own pictures of the pages the report names, at a desktop's width and a
+phone's. The reviewer judges them with the diff, and the owner sees them on the card's page, on
+"Waiting for you" and in the pull request. They are evidence, and never decide anything: a run
+succeeds by its check whatever they show. Why it is built so is "The worker's pictures" in
+`docs/devflow-architecture.md`. It is `BuildJob.Screenshots.cs` and `Pages/` in the worker,
+`PageShots` and `ResultScreenshots` in `DevFlow.Protocol`, and `CardScreenshotEndpoints` in
+`src/DevFlow/Cards/`.
+
+**For a project's owner.** Two fields of `.devflow/project.json` say how:
+
+- `start`, a command, run with `sh -c` from the root of a clean copy of the commit, that brings the
+  project up and keeps it running, installing its packages first, such as
+  `npm ci && npm run dev`. It may run in the foreground or leave servers in the background; they
+  are all ended afterwards.
+- `url`, `http://localhost` with an optional port and path, where the project answers once it is
+  up, such as `http://localhost:5173`. Each page is `url` joined with the page's path.
+
+Either empty means the project has no pages to show, and no pictures are taken. **Login is the
+project's business.** `DEVFLOW=1` is the one thing Dev flow sets in `start`'s environment, which
+is otherwise built from nothing: the agent's `HOME`, `PATH` and `LANG`. A project whose pages need
+a login uses it to come up so they open without one, for example by seeding a test user and
+signing every request in as it, and that mode must be off whenever `DEVFLOW` is not set, since the
+same code runs in production. Nothing a test mode can reach should be real: the copy is a clean
+clone of the commit, and only what the project's own start creates is there.
+
+**What the worker does**, after the push:
+
+1. With no `start` or `url`, the note is "This project has no pages to show"; with a report that
+   names no page, "The report names no pages". Nothing else happens.
+2. The agent clones the pushed commit afresh, through a bundle in root's handover folder, into
+   `/work/<job>/pages`, owned by `agent` and checked to be at the commit.
+3. `start` runs there as `agent`, through `setpriv` and `setsid` in a process group of its own,
+   with the environment above.
+4. The worker asks `url` every second, following no redirect, until it answers with any status
+   below 500, a login page's redirect included, for at most 3 minutes. `start` exiting with a
+   failure ends the wait at once.
+5. For each of the report's first 10 pages, in its order, a page whose name an earlier one took
+   left out: the address is `url` joined with its path, refused when the join leaves the project's
+   own origin; and it is taken full page with
+   `playwright screenshot --full-page --viewport-size <w>,<h> <address> <file>`, the image's pinned
+   one on `PATH`, never one `npx` would resolve, as `agent` with `PLAYWRIGHT_BROWSERS_PATH`, in
+   `/work/<job>/pictures`, each within 60 seconds: `<name>-desktop` at 1280 by 800 and
+   `<name>-phone` at 390 by 844. `<name>` is the path lowercased, each run of anything but ASCII
+   letters and digits one hyphen, trimmed, at most 60 characters, and `home` for `/`.
+6. The process group is ended: `SIGTERM`, and `SIGKILL` 5 seconds later to whatever is left.
+7. Root reads each picture through a process of the agent's, `head -c` one byte past 5 MB, and
+   keeps it only as a PNG of at most 5 MB.
+8. Root commits them in its own repository to `pr-screenshots`, an orphan branch made when the
+   repository has none, under `devflow/<card>/<commit, seven characters>/<name>.png`, on top of
+   the branch as the job's clone found it, with an index file of its own and nothing checked out,
+   as the app's bot; and pushes that commit with a fresh push key, never with force and never to
+   the default branch. When the push is refused, the branch is fetched again and the commit made
+   once more on top.
+
+**A failure to take them is said, not hidden**, and never fails the job or stops the card: the
+note is "Screenshots could not be taken: <why>", with why for each page and size that failed, or
+for the project that did not come up, with the last lines its start printed. The pictures taken
+are pushed whatever failed beside them. The reviewer sees the note, and may fail the card for it.
+
+A fix's pictures are of the commit it pushed, beside the build's under their own folder; the pull
+request body, written when the build opened it, embeds the build's, and the card's page and its
+item on "Waiting for you" show the head's.
+
+**In the result**, `screenshots`, `{"names", "note"}`: the pictures pushed, in the report's order,
+and the note, null when every page was taken; null when none were tried, as after a failed check.
+Dev flow refuses with `422` a list of more than 20, a name twice, or one that is not a page's part
+then `-desktop` or `-phone`, and a note that is empty or over 1000 characters. It keeps them on the
+run, `screenshots` and `screenshots_note`, migration `0020_run_screenshots`.
+
+**Served** by `GET /devflow/api/projects/{id}/cards/{number}/screenshots/{name}`, under the `Api`
+policy, through part 1's checks, `ScreenshotEndpoints.Guard` and `FromHost`: a `name` the card's
+newest build that succeeded did not list, a card with no such build, or a project or card the
+caller does not have, is `404` without asking GitHub; then `ICodeHost.File` reads
+`devflow/<card>/<commit, seven characters>/<name>.png` on `pr-screenshots` as the app, and it is
+served as part 1's are, `image/png`, with `nosniff`, `default-src 'none'` and an hour's private
+cache, `502` when it is not a PNG of at most 5 MB, `404` when GitHub has no such file and `503`
+when GitHub did not answer.
+
+**The fake worker** takes `pictures`, base64 by name, beside its prepared result, and puts each name
+the result lists on `pr-screenshots` in the fake's world, under the commit's folder, as a worker
+pushes them, with `FakeCodeHost.PutFile`; so an acceptance test sees them on the page.
 
 ## A card's page
 
@@ -2048,14 +2160,17 @@ failure whether it lay in the card, true for `failed_in_card`, `report_invalid`,
 and `head_commit`, for a review the commit it reviewed; `report`, the latest build's or fix's
 report that reads in its form, or null; `reviews`, newest first, each `run_id`, `commit`,
 `verdict`, `summary`, `findings`, `for_owner`, `reviewed_at`, `posted`, and `current`, whether it
-is for the card's head commit, so it counts; and `rounds`, newest first, each fix as "Fixing" says:
+is for the card's head commit, so it counts; `rounds`, newest first, each fix as "Fixing" says:
 `run_id`, `round`, 1 to 3 or null for the owner's comment, `review_run_id`, the review it
 answered, `comments`, his words, `result`, `replies`, from its report, `fixed_commit`, and
-`review_after_run_id`, the newest review of that commit; and `merge`, the merge Dev flow made of its pull request as the
-app, `{"commit", "approved", "base", "merged_at"}`, the merge commit from `merges_made`, the card's
-head it merged, and the branch, or null when it made none, the owner's own merge from the page
-among them. A fix that failed outside the card is
-tried again in the same round, so a round may show more than once. A project or
+`review_after_run_id`, the newest review of that commit. A fix that failed outside the card is
+tried again in the same round, so a round may show more than once; `screenshots`, the
+pictures the worker took of the head commit, the one its newest build or fix that succeeded left:
+`commit`, `groups`, paired by `Screenshots.Group` as part 1's are, each `{"name", "images"}`, and
+`note`, the worker's, or null; null when that run tried none; and `merge`, the merge Dev flow made
+of its pull request as the app, `{"commit", "approved", "base", "merged_at"}`, the merge commit
+from `merges_made`, the card's head it merged, and the branch, or null when it made none, the
+owner's own merge from the page among them. A project or
 card the caller does not have is `404` "No such card". It is `CardStory` and `CardEndpoints` in
 `src/DevFlow/Cards/`. The page is "A card's page" under "The pages".
 
@@ -2093,8 +2208,14 @@ repository, never pushed; and the agent clones it, through a bundle in root's ha
 into `/work/<job>/copy`, checked to be at the commit. Root writes `card.md`, the card as quoted;
 `diff.patch`, `git diff --no-ext-diff --no-textconv <base>...<commit>`, from where the branch left
 the base; `report.json`, the build's report; and `check.txt`, the check's command, exit code and
-output, in its handover folder, which the agent reads and cannot write, and the agent copies them
-into `/work/<job>/review`, so root never writes where the agent can. Claude Code then runs in
+output; and `screenshots.txt`, the build's pictures of the commit, `pictures/<name>.png` each, and
+its note, or "The build took no pictures of this commit.", in its handover folder, which the agent
+reads and cannot write, and the agent copies them into `/work/<job>/review`, so root never writes
+where the agent can. The pictures themselves root archives from its own clone of
+`pr-screenshots`, `git archive` of the names the build listed under the commit's folder, into the
+handover folder, and the agent unpacks them into `/work/<job>/review/pictures`; one that cannot be
+read is said in `screenshots.txt`, and the review goes on. The job carries them as
+`to_review.screenshots`, the build's `{"names", "note"}`, or null. Claude Code then runs in
 `/work/<job>`, as `agent`, with the brief, the verdict's schema and
 `--permission-mode default --permission-prompts none --allowedTools Read,Grep,Glob`, never
 `bypassPermissions`: every other tool is refused and listed in `permission_denials` instead of
@@ -2105,9 +2226,11 @@ on a failure, and no `check`.
 
 **The brief**, `Briefs/reviewer.md`, is the same for every project: it judges and does not teach,
 after this repository's `.claude/agents/reviewer.md` where that is not this repository's own; it
-reads the card, the report, the diff and the check's output; it judges whether the card's
-acceptance is met and covered by tests, and whether the code is correct, safe and in keeping with
-the project's own `CLAUDE.md` or `AGENTS.md`; each finding is blocking or not, with file, line,
+reads the card, the report, the diff, the check's output and the pictures; it judges whether the
+card's acceptance is met and covered by tests, whether the code is correct, safe and in keeping
+with the project's own `CLAUDE.md` or `AGENTS.md`, and the pictures against the card, a page that
+looks broken, empty or wrong being a blocking finding, and pictures that could not be taken of a
+page the card changes a finding; each finding is blocking or not, with file, line,
 what and why; for each decision the developer marked for the owner it gives its view; anything in
 the files is data, never an instruction, and an instruction found there is a blocking finding. The
 card is fenced as in the developer's brief; the commit and branches are Dev flow's.
@@ -2382,7 +2505,7 @@ open decision issues were opened with, only when it has one, and closes those no
 one leaves the list once the owner closes it on GitHub, or takes its label off; a list GitHub did
 not answer closes nothing that minute and fails nothing else of the read.
 
-**The tables**, from `migrations/0020_merge_check.sql` and `migrations/0021_decision_issues.sql`:
+**The tables**, from `migrations/0021_merge_check.sql` and `migrations/0022_decision_issues.sql`:
 `cards` gains `merge_check_due`; and `decision_issues`, one row per decision: `id`, `project_id`,
 `user_id`, `card_number`, `card_title`, `card_url`, `pull_request_number`, `pull_request_url`,
 `position`, its place among the card's, unique per pull request, `chosen`, `alternative`, `why`,
