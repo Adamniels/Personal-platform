@@ -133,7 +133,7 @@ public sealed partial class BranchWatch(UserDb database, ICodeHost host, TimePro
     /// <summary>The project's watch, or null before it has begun.</summary>
     private async Task<WatchRow?> Current(Guid projectId, Guid userId, CancellationToken cancellationToken) =>
         await database.InUserTransaction(userId, transaction => transaction.Connection!.QuerySingleOrDefaultAsync<WatchRow>(new CommandDefinition(
-            "SELECT branch AS Branch, last_activity_id AS LastActivityId FROM branch_watches WHERE project_id = @projectId",
+            "SELECT branch AS Branch, last_activity_id AS LastActivityId FROM branch_watches WHERE project_id = @projectId AND feature_id IS NULL",
             new { projectId },
             transaction,
             cancellationToken: cancellationToken)), cancellationToken);
@@ -154,7 +154,7 @@ public sealed partial class BranchWatch(UserDb database, ICodeHost host, TimePro
                 """
                 INSERT INTO branch_watches (project_id, user_id, branch, last_activity_id, began_at, last_read_at, last_attempt_at, last_error)
                 VALUES (@projectId, @userId, @branch, @newest, @now, @now, @now, NULL)
-                ON CONFLICT (project_id) DO UPDATE
+                ON CONFLICT ON CONSTRAINT branch_watches_one_per_branch DO UPDATE
                 SET branch = EXCLUDED.branch, last_activity_id = EXCLUDED.last_activity_id, began_at = EXCLUDED.began_at,
                     last_read_at = EXCLUDED.last_read_at, last_attempt_at = EXCLUDED.last_attempt_at, last_error = NULL
                 """,
@@ -215,7 +215,7 @@ public sealed partial class BranchWatch(UserDb database, ICodeHost host, TimePro
                 """
                 UPDATE branch_watches
                 SET last_activity_id = coalesce(@newest, last_activity_id), last_read_at = @now, last_attempt_at = @now, last_error = NULL
-                WHERE project_id = @projectId
+                WHERE project_id = @projectId AND feature_id IS NULL
                 """,
                 new { projectId, newest = listed.Count > 0 ? listed[0].Id : (long?)null, now },
                 transaction,
@@ -240,7 +240,7 @@ public sealed partial class BranchWatch(UserDb database, ICodeHost host, TimePro
     {
         var now = Now();
         return database.InUserTransaction(userId, transaction => transaction.Connection!.ExecuteAsync(new CommandDefinition(
-            "UPDATE branch_watches SET last_attempt_at = @now, last_error = @failure WHERE project_id = @projectId",
+            "UPDATE branch_watches SET last_attempt_at = @now, last_error = @failure WHERE project_id = @projectId AND feature_id IS NULL",
             new { projectId, failure, now },
             transaction,
             cancellationToken: cancellationToken)), cancellationToken);

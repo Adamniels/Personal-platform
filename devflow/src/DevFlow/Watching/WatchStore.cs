@@ -103,7 +103,7 @@ public sealed class WatchStore(UserDb database, TimeProvider time)
     public const string HoldSql = """
         CASE
             WHEN EXISTS (SELECT 1 FROM project_stops s WHERE s.project_id = p.id) THEN 'stopped'
-            WHEN NOT EXISTS (SELECT 1 FROM branch_watches b WHERE b.project_id = p.id AND b.last_read_at >= @watchedSince) THEN 'unwatched'
+            WHEN NOT EXISTS (SELECT 1 FROM branch_watches b WHERE b.project_id = p.id AND b.feature_id IS NULL AND b.last_read_at >= @watchedSince) THEN 'unwatched'
         END
         """;
 

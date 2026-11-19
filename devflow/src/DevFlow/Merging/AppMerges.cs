@@ -54,7 +54,8 @@ public sealed class AppMerges(UserDb database, ICodeHost host, TimeProvider time
     /// <summary>
     /// Merges the pull request with the number in the user's project, while its head is
     /// <paramref name="commit"/>, as the app with a key for merging alone, unless the project is
-    /// stopped; and records the merge commit when the host gives one.
+    /// stopped or its default branch's watch has not begun; and records the merge commit when the
+    /// host gives one, as a merge into the default branch, as its watch names it.
     /// </summary>
     public Task<AppMergeOutcome> Merge(Guid userId, Guid projectId, int number, string commit, CancellationToken cancellationToken) =>
         Merge(userId, projectId, number, commit, card: null, cancellationToken);
@@ -110,6 +111,25 @@ public sealed class AppMerges(UserDb database, ICodeHost host, TimeProvider time
                 }
             }
 
+            // The branch the merge goes into, as Dev flow knows it: a card's, the base its newest
+            // build or fix ran on, the default branch or its feature's; any other, the default
+            // branch, as its watch names it. Without one, nothing is merged.
+            var into = await transaction.Connection!.ExecuteScalarAsync<string?>(new CommandDefinition(
+                card is null
+                    ? "SELECT branch FROM branch_watches WHERE project_id = @projectId AND feature_id IS NULL"
+                    : """
+                      SELECT r.base FROM runs r
+                      WHERE r.project_id = @projectId AND r.card_number = @card AND r.kind IN ('build', 'fix') AND r.result = 'succeeded'
+                      ORDER BY r.started_at DESC, r.id DESC LIMIT 1
+                      """,
+                new { projectId, card },
+                transaction,
+                cancellationToken: cancellationToken));
+            if (into is null)
+            {
+                return card is null ? new AppMergeOutcome.ProjectUnwatched() : new AppMergeOutcome.CardMoved();
+            }
+
             var project = await transaction.Connection!.QuerySingleAsync<ProjectRow>(new CommandDefinition(
                 """
                 SELECT p.installation_id AS Installation, p.repository_id AS RepositoryId, p.owner AS Owner, p.name AS Name,
@@ -145,11 +165,11 @@ public sealed class AppMerges(UserDb database, ICodeHost host, TimeProvider time
                 var now = time.GetUtcNow();
                 await transaction.Connection!.ExecuteAsync(new CommandDefinition(
                     """
-                    INSERT INTO merges_made (project_id, user_id, commit, number, merged_at)
-                    VALUES (@projectId, @userId, @merged, @number, @now)
+                    INSERT INTO merges_made (project_id, user_id, branch, commit, number, merged_at)
+                    VALUES (@projectId, @userId, @into, @merged, @number, @now)
                     ON CONFLICT (project_id, commit) DO NOTHING
                     """,
-                    new { projectId, userId, merged, number, now = now.AddTicks(-(now.Ticks % 10)) },
+                    new { projectId, userId, into, merged, number, now = now.AddTicks(-(now.Ticks % 10)) },
                     transaction,
                     cancellationToken: cancellationToken));
             }
