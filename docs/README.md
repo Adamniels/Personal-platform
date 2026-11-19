@@ -2,7 +2,7 @@
 
 Status: exploratory. The walking skeleton is being built.
 
-Last updated: 2026 11 18
+Last updated: 2026 11 19
 
 These are planning notes, not specifications. Everything here is the current best idea with the
 reasoning attached, and it is expected to change as building teaches things planning could not.
@@ -121,7 +121,8 @@ features" in `High-level/docs/platform-architecture.md`.
   reads it and refreshing a project, merging and sending back from the page and what each refusal
   means, a project's worker key, the worker scheme and the worker API with their routes and
   tables, the pull request Dev flow opens for a built card, with its body, the screenshots the worker
-  takes of a built card's pages, with `start`, `url` and `DEVFLOW=1`, a card's page, and
+  takes of a built card's pages, with `start`, `url` and `DEVFLOW=1`, and the developer's own look at
+  its pages before it reports, a card's page, and
   fixing, with its rounds, the owner's comment as the one input read and sending a card back, starting a worker, with the base image, the format of `.devflow/`, the recipe route, the
   two commands, the memory rule and when a worker needs a rebuild, the worker program with its
   settings, its loop, its exit codes, the agent interface, when a run succeeds, a build job step by
@@ -145,7 +146,7 @@ features" in `High-level/docs/platform-architecture.md`.
   a user's runs, handing out work, with the lock that takes a card, why nothing is read from GitHub
   under it, the brief quoting the card as picked, how a card reaches its pull request and
   how the waiting list reads Dev flow's own cards beside the runner's, why the report decides nothing, where a failure
-  lies and when a run is lost, the worker's pictures and why they never decide a merge, the review and why its verdict lives in the database tied to its
+  lies and when a run is lost, the worker's pictures and why they never decide a merge, why the developer looks at its own pages too, the review and why its verdict lives in the database tied to its
   commit, fixing, why rounds are limited and why the owner's comment is the one input read from
   GitHub, and its security decisions and accepted risks, kept for an audit,
   the vault's, the fake's, the worker key's, the agent run's environment and token, the Claude
