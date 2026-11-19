@@ -88,6 +88,7 @@ public static class MergeCheck
 
     public const string Stopped = "Its project is stopped: nothing merges until you resume it";
     public const string Unwatched = "Its project's default branch has not been read lately; Dev flow tries again each minute";
+    public const string FeatureUnwatched = "Its feature's branch has not been read lately; Dev flow tries again each minute";
     public const string NotOpen = "Its pull request is no longer open";
     public const string NotChecked = "Its head commit is not one the worker checked";
     public const string CheckFailed = "The worker's check did not pass on its head commit";

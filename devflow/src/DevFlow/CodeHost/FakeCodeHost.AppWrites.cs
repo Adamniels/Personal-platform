@@ -320,8 +320,8 @@ public sealed partial class FakeCodeHost : IDisposable
 
     /// <summary>As the owner's <see cref="Merge"/>: refused with <c>404</c> for a pull request the
     /// world does not hold, not mergeable unless it is open, head moved unless its head is
-    /// <paramref name="commit"/>, and otherwise merged, by the app, landing on the default branch
-    /// as <see cref="WithMerge"/> says. Its git repository is not changed.</summary>
+    /// <paramref name="commit"/>, and otherwise merged, by the app, landing on its base as
+    /// <see cref="WithMerge"/> says. Its git repository is not changed.</summary>
     public Task<MergeResult> MergeAsApp(Guid userId, AppWriteToken token, Repository repository, int number, string commit, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(token);
@@ -359,7 +359,8 @@ public sealed partial class FakeCodeHost : IDisposable
     /// never moved. A <paramref name="from"/> with no commit is given the fake's first commit
     /// first, by the app, as a real repository has one, which the fake worker does too. A name git
     /// does not take is refused with <c>422</c>. The branch made is recorded as the app's write,
-    /// <c>branch</c>, with the push key's purpose.
+    /// <c>branch</c>, with the push key's purpose, and listed in its changes as its creation by the
+    /// app, after every change the repository lists.
     /// </summary>
     public async Task<BranchResult> MakeBranch(Guid userId, AppWriteToken token, Repository repository, string name, string from, CancellationToken cancellationToken)
     {
@@ -411,9 +412,29 @@ public sealed partial class FakeCodeHost : IDisposable
             _git.Release();
         }
 
-        Change(userId, changed => changed with
+        // Recorded as the app's write, and listed in the branch's changes as its creation, by the
+        // app, as GitHub lists one, so the watch of a feature's branch begins at it.
+        var at = _time.GetUtcNow();
+        Change(userId, changed =>
         {
-            Writes = [.. changed.Writes, new FakeWrite("branch", repository.Id, 0, head, null, null, AppLogin, "push", Branch: name)],
+            changed = changed with
+            {
+                Writes = [.. changed.Writes, new FakeWrite("branch", repository.Id, 0, head, null, null, AppLogin, "push", Branch: name)],
+            };
+            if (Find(changed.World, repository) is not { } found)
+            {
+                return changed;
+            }
+
+            var activity = found.Activity ?? [];
+            var id = activity.Select(each => each.Id).DefaultIfEmpty(0).Max() + 1;
+            return changed with
+            {
+                World = WithRepository(changed.World, repository, found with
+                {
+                    Activity = [.. activity, new FakeActivity(id, name, new string('0', head.Length), head, at, ActivityKind.BranchCreation, AppLogin)],
+                }),
+            };
         });
         return new BranchResult.Made(head);
     }

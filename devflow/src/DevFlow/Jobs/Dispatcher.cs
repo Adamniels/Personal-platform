@@ -119,7 +119,7 @@ public sealed partial class Dispatcher(
         if (await watch.Hold(userId, projectId, cancellationToken) != ProjectHold.None
             || await ProjectWaits.Of(database, userId, projectId, cancellationToken) is { } wait && wait.WaitUntil > time.GetUtcNow()
             || HeldFor(await logins.Status(userId, cancellationToken)) is not null
-            || await JobStore.NextKind(database, userId, projectId, cancellationToken) is not { } kind
+            || await JobStore.NextKind(database, userId, projectId, time.GetUtcNow(), cancellationToken) is not { } kind
             || await workers.RepositoryOf(caller, cancellationToken) is not { } repository)
         {
             return new NextJob.None();
@@ -362,7 +362,7 @@ public sealed partial class Dispatcher(
     /// </summary>
     private async Task<bool> FeatureBranch(Guid projectId, Guid userId, Repository repository, string defaultBranch, AppWriteToken key, CancellationToken cancellationToken)
     {
-        if (await FeatureBranchStore.Due(database, userId, projectId, cancellationToken) is not { } feature)
+        if (await FeatureBranchStore.Due(database, userId, projectId, time.GetUtcNow(), cancellationToken) is not { } feature)
         {
             return true;
         }

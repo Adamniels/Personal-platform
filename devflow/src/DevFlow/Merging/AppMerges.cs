@@ -25,6 +25,11 @@ public abstract record AppMergeOutcome
     /// asked: a card is merged only while its project is watched.</summary>
     public sealed record ProjectUnwatched : AppMergeOutcome;
 
+    /// <summary>The pull request goes into an open feature's branch that has not been read within
+    /// five minutes, so nothing was asked: nothing is merged into a feature's branch while it is
+    /// not watched, though the project's other work goes on.</summary>
+    public sealed record FeatureUnwatched : AppMergeOutcome;
+
     /// <summary>The card no longer waits for this merge, read under the project's lock: it moved
     /// on, its pull request is another, or the project no longer merges by itself. Nothing was
     /// asked.</summary>
@@ -62,7 +67,8 @@ public sealed class AppMerges(UserDb database, ICodeHost host, TimeProvider time
 
     /// <summary>
     /// Merges the pull request of the user's card as <see cref="Merge(Guid, Guid, int, string, CancellationToken)"/>
-    /// does, and only while, read under the project's lock, the project is watched, its setting is
+    /// does, into the base its newest build or fix ran on, the default branch or its feature's,
+    /// and only while, read under the project's lock, the project is watched, its setting is
     /// still <c>never</c>, and the card still waits for this merge, due for the merge check with this
     /// pull request; so a send back, a change of the setting or a stop made since the check read is
     /// never overtaken. When the code host merges, the card is recorded <c>done</c> in the same
@@ -128,6 +134,15 @@ public sealed class AppMerges(UserDb database, ICodeHost host, TimeProvider time
             if (into is null)
             {
                 return card is null ? new AppMergeOutcome.ProjectUnwatched() : new AppMergeOutcome.CardMoved();
+            }
+
+            if (await transaction.Connection!.ExecuteScalarAsync<bool>(new CommandDefinition(
+                    $"SELECT {WatchStore.FeatureUnwatchedSql}",
+                    new { projectId, into, watchedSince = WatchStore.WatchedSince(time.GetUtcNow()) },
+                    transaction,
+                    cancellationToken: cancellationToken)))
+            {
+                return new AppMergeOutcome.FeatureUnwatched();
             }
 
             var project = await transaction.Connection!.QuerySingleAsync<ProjectRow>(new CommandDefinition(
