@@ -71,14 +71,15 @@ public sealed class ResultTests
 
         var response = await jobs.Post(WorkerApi.ResultPath(id), Jobs.Result(Jobs.FirstWorker, branch, Break(how)));
 
-        // The result is taken; the report is a failure in the card, with why.
+        // The result is taken; the report is a failure in the card, with why, which, a first one,
+        // runs the card again, see "Stops".
         Assert.Equal(StatusCodes.Status204NoContent, response.Response.StatusCode);
         var card = await jobs.Card(1);
-        Assert.Equal("stopped", card.State);
-        Assert.StartsWith("The report did not match its form: ", card.Reason, StringComparison.Ordinal);
+        Assert.Equal("queued", card.State);
         var run = Assert.Single(await jobs.Runs());
         Assert.Equal("report_invalid", run.Result);
-        Assert.Equal(card.Reason, run.Reason);
+        Assert.StartsWith("The report did not match its form: ", run.Reason, StringComparison.Ordinal);
+        Assert.Equal(RunStore.Again(run.Reason!), card.Reason);
         Assert.NotNull(run.FinishedAt);
         // The report is kept as it came, for the owner to read.
         Assert.True(JsonNode.DeepEquals(Break(how), JsonNode.Parse(run.Report!)));
@@ -178,15 +179,25 @@ public sealed class ResultTests
 
         Assert.Equal(StatusCodes.Status204NoContent, (await jobs.Post(WorkerApi.ResultPath(id), sent)).Response.StatusCode);
 
-        var card = await jobs.Card(1);
-        Assert.Equal("stopped", card.State);
-        Assert.Equal(reason, card.Reason);
         var run = Assert.Single(await jobs.Runs());
         Assert.Equal(result, run.Result);
         Assert.Equal(reason, run.Reason);
-
-        // A stopped card is not handed out again.
-        Assert.Equal(StatusCodes.Status204NoContent, (await jobs.Next()).Response.StatusCode);
+        var card = await jobs.Card(1);
+        if (how == "stopped")
+        {
+            // A report that stopped stops the card at once, and a stopped card is not handed out
+            // again.
+            Assert.Equal("stopped", card.State);
+            Assert.Equal(reason, card.Reason);
+            Assert.Equal(StatusCodes.Status204NoContent, (await jobs.Next()).Response.StatusCode);
+        }
+        else
+        {
+            // Any other failure in the card, a first one, runs it again, see "Stops".
+            Assert.Equal("queued", card.State);
+            Assert.Equal(RunStore.Again(reason), card.Reason);
+            Assert.Equal(StatusCodes.Status200OK, (await jobs.Next()).Response.StatusCode);
+        }
     }
 
     [Fact]
@@ -205,7 +216,11 @@ public sealed class ResultTests
         Assert.Equal("failed_outside_card", run.Result);
         Assert.Equal("Claude's API answered an error (529)", run.Reason);
 
-        // Nothing counts against it: it is handed out again, as a new run.
+        // Nothing counts against it: it is handed out again, as a new run, once its project's wait
+        // after a failure outside the card is over, see "Stops".
+        Assert.Equal(StatusCodes.Status204NoContent, (await jobs.Next()).Response.StatusCode);
+        jobs.Routes.Time.Advance(DevFlow.Stops.ProjectWaits.First);
+        await jobs.Routes.Read(jobs.Project, Jobs.User);
         var again = await jobs.Job();
         Assert.Equal(1, (int)again["card"]!["number"]!);
         Assert.NotEqual(id, (Guid)again["job_id"]!);
@@ -323,9 +338,9 @@ public sealed class ResultTests
 
         Assert.Equal(StatusCodes.Status204NoContent, response.Response.StatusCode);
         var card = await jobs.Card(1);
-        Assert.Equal("stopped", card.State);
-        Assert.Equal("The run failed: the tool\uFFFD crashed", card.Reason);
-        Assert.Equal(card.Reason, Assert.Single(await jobs.Runs()).Reason);
+        Assert.Equal("queued", card.State);
+        Assert.Equal("The run failed: the tool\uFFFD crashed", Assert.Single(await jobs.Runs()).Reason);
+        Assert.Equal(RunStore.Again("The run failed: the tool\uFFFD crashed"), card.Reason);
     }
 
     [Fact]

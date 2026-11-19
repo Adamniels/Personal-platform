@@ -68,7 +68,9 @@ for it, see "Review" below, with the pictures the worker took of the project sta
 commit, see "The worker's pictures" below; a `changes` verdict, or the owner's comment on its pull request, sends
 it back to a fresh developer on the same branch, see "Fixing" below; and the card then waits for
 the owner on "Waiting for you", where he merges it as himself; each card has a page with its whole story so far, see "How a card reaches
-its pull request" below.
+its pull request" below. A card that cannot be made to work stops, is marked on its issue and
+shows under "Stopped", and his comment runs it again; a failure outside the card makes its project
+wait instead, see "Stops" below.
 
 Every read of a project also watches its default branch: anything that lands there that neither
 Dev flow merged nor the owner put there himself stops the project, which then hands out no work and
@@ -649,9 +651,10 @@ under the agents.
 
 **Where a failure lies decides what follows.** A failure outside the card, the login, Claude's API
 or the machine, puts the card back in the queue with nothing counted against it, since another try
-may well succeed; one in the card, a report that does not match, a report that stopped, or a check
-that did not run or failed stops it with why. The attention label on a stopped card, retries and
-the limit on them are part 3's "Stops".
+may well succeed, and makes its project wait; one in the card, a report that does not match, a
+report that stopped, or a check that did not run or failed is the card's to answer, and stops it
+with why, at once for a report that stopped or a run past its time limit, and otherwise when it
+is the second in a row with nothing new. See "Stops" below.
 
 **A run that never returns is lost after 100 minutes, and only once its worker is gone.** 100
 minutes is the 90 minute limit on a run and a margin for the check and the push. A worker not seen
@@ -789,7 +792,8 @@ developer's replies with the new diff from the base, as this repository's fix lo
 that argues a finding is weighed and not taken on trust, and a fix that broke something elsewhere
 is still seen. Only blocking findings start another round.
 
-**The owner's comment is the one input read from GitHub.** Dev flow learns everything else from its
+**The owner's comment is the one input read from GitHub**, on a card's pull request, and on a
+stopped card's issue too, see "Stops". Dev flow learns everything else from its
 own records, round 4 of the spec; a comment on the pull request is where the owner already talks to
 the work, so it is read, but only his, by his linked login, and only as input to a fix, never as a
 verdict or an approval. It is taken by GitHub's comment id, which only grows, so a comment is acted
@@ -838,6 +842,68 @@ pictures pushed at the same moment are never lost.
 **Read as the app, served like part 1's.** The addresses a body embeds need a GitHub session, so
 the page reads each picture through Dev flow, with the same checks as the runner's items, see "A
 code host's bytes handed to the browser" below.
+
+## Stops
+
+A card stops only when the program cannot produce a working result, and a problem outside the
+card pauses and retries without reaching the owner, the spec's round 2; a run and a card have
+stops on by default, round 3; and anti goal 4, "It burns usage silently". What stops a card, how
+it is marked and run again, and how a project waits are "Stops" in `devflow/README.md`.
+
+**What lies in the card, and what outside it.** In the card is what the card's own work caused:
+the agent ran out of turns, budget or time, was refused an action, handed back no report or one out
+of its form, stopped, or left a check that failed or never ran; a fix that changed nothing; a
+reviewer's verdict out of its form. Outside it is everything another try may well not repeat: the
+login, Claude's API and its usage limit, the network, git and the code host, the machine, and a run
+that never came back. The worker says which, "The worker" in `devflow/README.md` holding the table,
+since only it sees the failure; Dev flow judges what follows.
+
+**A failure outside never counts against the card.** Counting it would stop good cards for a bad
+machine, and a broken machine would then stop every card in turn, each needing the owner's comment
+once it is mended; leaving the cards be means mending the machine is enough. The price is that a
+machine that never mends costs a run every hour, which is why the project, not the card, waits: 5
+minutes after the first failure, doubling to an hour, so a short outage passes in minutes and a
+long one costs a request an hour; and why six in a row say so on the project's page and on "Waiting
+for you", this repository's runner's two failures about a slice, raised for a cause that is not the
+card's, so a broken machine is not silent. At the usage limit the project waits until it resets,
+round 4b's default, which is shorter than the doubling's guess when the limit is near its reset and
+spends nothing on tries that cannot succeed. A lost run is outside the card too: whether its worker
+or its machine went, the card did nothing.
+
+**One failure in the card is tried again; the second with nothing new stops it.** A first failure
+in the card is often a flake, a test that timed out or a run that lost its way, which a fresh run
+gets past, as this repository's runner gives a slice two failures before it stops it. A second with
+the branch where the first left it is the same answer twice, the spec's "a card that comes back
+twice with nothing new", so another run would spend usage on it again. A new commit between them is
+progress, and runs the card once more; how long that may go on is bounded by the fix rounds once a
+pull request exists, and before that only by the daily budget of part 8. A report that stopped and
+a run at its time limit stop at once: the agent said the card cannot be built, or it spent the
+longest a run may take, and a second try would spend as much again on the same card.
+
+**Marked on the card itself, not in an issue of its own.** The spec's builder check settled that a
+stopped card is marked with the attention label and a comment, where the owner already reads it, so
+a stop needs no second thing to find and close; an attention issue is for a decision on a card that
+has merged, which has no card left to mark. The comment is posted once, found again by its last
+line as the review's copy is, and it decides nothing, so the label and the comment are for people,
+and Dev flow's own record is the card's `stopped` row.
+
+**His comment newer than the stop runs it again, on the issue or the pull request.** The issue is
+where the stop's comment asks for one, and it is there whatever became of the pull request, so a
+card stopped before it had one, or whose pull request was closed, can run again too. Here, unlike a
+fix's comments, time is compared: a stop is the moment the owner learns of it, so a comment from
+before it was either taken already or written while the run that stopped it was under way, and was
+not his answer to the stop. His comment is the input to the next run, and the count starts afresh,
+since he has changed what the card is asked. Only his linked login counts, as everywhere a comment
+is read.
+
+**The usage limit's reset is read from the text Claude Code prints.** Its JSON answer has no field
+for it, and the exact `resetsAt` is in a streamed event the worker's format never prints, so the
+worker reads the time from the message, as Claude Code 2.1.322's own formatter writes it, and Dev
+flow believes it only when it is in the future and within 8 days, a week being Claude's longest
+limit. A misreading then costs at most a wait that is too short, which the doubling follows, or a
+week's wait the owner sees on the page; and a message the worker cannot read leaves the doubling,
+which is never wrong for long. When Claude Code's version in the base image changes, a real run at
+the limit is the check that the form still holds.
 
 ## Watching the default branch
 
@@ -1347,3 +1413,16 @@ its reason, or a risk accepted on purpose; each slice adds the ones it builds.
   the GitHub mode. The visible sign is the banner, "Fake GitHub. Nothing here is real.", on every
   Dev flow page in the fake mode, which cannot be dismissed, so a fake page never passes for the
   real one.
+- **A stop's comment carries a run's reason as data.** The reason may be a worker's or an agent's
+  words, so `StopText` makes each one data as the pull request body makes the report's: one line,
+  no HTML, its backticks escaped, a closing keyword and an `@` mention each in a code span, so the
+  app's comment closes nothing and notifies nobody. The label and the comment are posted with a
+  `Post` key, which cannot push or merge.
+- **A stopped card's issue is read for the owner's comment alone.** Running a card again is a
+  write on the strength of a comment, so it is taken only from his linked login, as GitHub compares
+  logins, only when written after the stop, and only into the next run's brief as his input, quoted
+  in a fence no text can end; anyone else's comment, the app's own among them, is never read as an
+  input.
+- **A worker's `resets_at` is believed within limits.** A worker could send a reset far off and
+  hold its own project's work back; it can only hold back the project whose key it has, which it
+  could as well by asking for no work, and Dev flow believes a reset only in the next 8 days.

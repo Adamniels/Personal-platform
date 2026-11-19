@@ -18,6 +18,7 @@ using DevFlow.Recipes;
 using DevFlow.Reviews;
 using DevFlow.Settings;
 using DevFlow.Status;
+using DevFlow.Stops;
 using DevFlow.Watching;
 using DevFlow.Workers;
 
@@ -136,12 +137,16 @@ public static class DevFlowApp
         // See "Review" in devflow/README.md.
         builder.Services.AddSingleton(provider => new ReviewPoster(
             database, provider.GetRequiredService<ICodeHost>(), provider.GetRequiredService<TimeProvider>(), provider.GetRequiredService<ILogger<ReviewPoster>>()));
+        // Marking each stopped card on its issue as the app, on the same minute. See "Stops" in
+        // devflow/README.md.
+        builder.Services.AddSingleton(provider => new StopMarker(
+            database, provider.GetRequiredService<ICodeHost>(), provider.GetRequiredService<TimeProvider>(), settings.PublicOrigin, provider.GetRequiredService<ILogger<StopMarker>>()));
         if (settings.PollInterval is { } interval)
         {
             builder.Services.AddHostedService(provider => new Poller(
                 database, provider.GetRequiredService<ProjectRefresher>(), provider.GetRequiredService<TimeProvider>(), interval, provider.GetRequiredService<ILogger<Poller>>()));
             builder.Services.AddHostedService(provider => new OpeningLoop(
-                database, provider.GetRequiredService<PullRequestOpener>(), provider.GetRequiredService<ReviewPoster>(), provider.GetRequiredService<TimeProvider>(), interval, provider.GetRequiredService<ILogger<OpeningLoop>>()));
+                database, provider.GetRequiredService<PullRequestOpener>(), provider.GetRequiredService<ReviewPoster>(), provider.GetRequiredService<StopMarker>(), provider.GetRequiredService<TimeProvider>(), interval, provider.GetRequiredService<ILogger<OpeningLoop>>()));
         }
 
         if (settings.ExposeOpenApi)

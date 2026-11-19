@@ -109,7 +109,9 @@ public static partial class JobEndpoints
                 request.DurationMs!.Value,
                 request.Stderr!,
                 request.PermissionDenials is { ValueKind: JsonValueKind.Array } denials ? denials : null,
-                request.Screenshots);
+                request.Screenshots,
+                request.Failure?.TimedOut ?? false,
+                request.Failure?.ResetsAt);
 
     /// <summary>Each field of <paramref name="request"/> that is missing or breaks a rule.</summary>
     internal static Dictionary<string, string[]> Errors(ResultRequest request)
@@ -141,6 +143,14 @@ public static partial class JobEndpoints
                 if (request.Failure is not { Reason: { } reason, InCard: not null } || reason.Trim().Length == 0)
                 {
                     errors["failure"] = ["must hold a reason and in_card when the outcome is failed"];
+                }
+                else if (request.Failure is { TimedOut: true, InCard: false })
+                {
+                    errors["failure"] = ["timed_out is a failure in the card, so in_card must be true"];
+                }
+                else if (request.Failure is { ResetsAt: not null, InCard: true })
+                {
+                    errors["failure"] = ["resets_at is for a failure outside the card, so in_card must be false"];
                 }
 
                 break;

@@ -67,7 +67,10 @@ internal enum FailureSide
 }
 
 /// <summary>Why a run failed, and where the failure lies.</summary>
-internal sealed record AgentFailure(FailureSide Side, string Reason);
+/// <param name="TimedOut">Whether it reached its time limit and was ended.</param>
+/// <param name="ResetsAt">When Claude's usage limit resets, when its answer said so; null
+/// otherwise.</param>
+internal sealed record AgentFailure(FailureSide Side, string Reason, bool TimedOut = false, DateTimeOffset? ResetsAt = null);
 
 /// <summary>
 /// What a run answers: the report on success, or the failure, and either way the usage as the
@@ -90,4 +93,8 @@ internal sealed record AgentResult(JsonObject? Report, AgentFailure? Failure, Js
 
     public static AgentResult Failed(FailureSide side, string reason, JsonObject usage, string stderr, string? authMethod, JsonArray? denials = null) =>
         new(null, new AgentFailure(side, reason), usage, stderr, authMethod, denials);
+
+    /// <summary>A run ended at its time limit, a failure in the card.</summary>
+    public static AgentResult TimedOut(AgentLimits limits, JsonObject usage, string stderr, string? authMethod, JsonArray? denials = null) =>
+        new(null, new AgentFailure(FailureSide.Card, $"it ran past the time limit of {limits.Time.TotalMinutes:0} minutes and was ended", TimedOut: true), usage, stderr, authMethod, denials);
 }

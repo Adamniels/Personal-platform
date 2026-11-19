@@ -58,8 +58,11 @@ public sealed partial class PullRequestTests
         invalid.Remove("summary");
         await Built.Run(jobs, Built.Prepared(invalid));
 
+        // None gets further: the failed check and the invalid report each run their card again, see
+        // "Stops", and the report that stopped stops it.
         Assert.Empty(Built.Opened(jobs));
-        Assert.All(await jobs.Cards(), card => Assert.Equal("stopped", card.State));
+        Assert.All(await jobs.Cards(), card => Assert.Contains(card.State, (string[])["queued", "stopped"]));
+        Assert.Contains(await jobs.Cards(), card => card.State == "stopped");
     }
 
     [Fact]

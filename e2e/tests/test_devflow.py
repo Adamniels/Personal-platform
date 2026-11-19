@@ -1581,21 +1581,10 @@ def _report() -> dict:
     }
 
 
-def _built_card(
-    page: Page,
-    base_url: str,
-    devflow_world,
-    verdict: dict | None = None,
-    review: bool = True,
-    pictures: dict[str, bytes] | None = None,
-) -> tuple[str, dict]:
+def _card_project(page: Page, base_url: str, devflow_world) -> str:
     """Connects a repository with one card the owner labelled and the project's
-    .devflow/project.json, gives Dev flow a Claude login, reads the project so
-    the card is picked, has the fake worker build it with a passing check, and
-    then review its pull request with `verdict`, an approve unless given, unless
-    `review` is false. With `pictures`, the build's result lists them by name
-    and the fake worker puts each on pr-screenshots, as a worker pushes them.
-    The project's id and what the fake worker answered for the build."""
+    .devflow/project.json, gives Dev flow a Claude login, and reads the project
+    so the card is picked. The project's id."""
     world = one_repository()
     add_issue(world, CARD, CARD_TITLE, labels=["devflow"])
     add_file(
@@ -1615,6 +1604,25 @@ def _built_card(
         f"/devflow/api/projects/{project}/refresh", headers={"Origin": base_url}
     )
     assert refreshed.status == 204, refreshed.text()
+    return project
+
+
+def _built_card(
+    page: Page,
+    base_url: str,
+    devflow_world,
+    verdict: dict | None = None,
+    review: bool = True,
+    pictures: dict[str, bytes] | None = None,
+) -> tuple[str, dict]:
+    """Connects a repository with one card the owner labelled and the project's
+    .devflow/project.json, gives Dev flow a Claude login, reads the project so
+    the card is picked, has the fake worker build it with a passing check, and
+    then review its pull request with `verdict`, an approve unless given, unless
+    `review` is false. With `pictures`, the build's result lists them by name
+    and the fake worker puts each on pr-screenshots, as a worker pushes them.
+    The project's id and what the fake worker answered for the build."""
+    project = _card_project(page, base_url, devflow_world)
     result = {
         "outcome": "succeeded",
         "report": _report(),
@@ -2236,3 +2244,153 @@ def test_a_card_page_of_no_project_is_not_found(
     register_and_log_in(page, invite_code, base_url)
     page.goto(f"/devflow/projects/{'0' * 8}-0000-7000-8000-{'0' * 12}/cards/1")
     expect(page.get_by_text("There is no such card")).to_be_visible()
+
+
+# Stops: a card that cannot be made to work stops, is marked on its issue and shows under Stopped
+# with why, and the owner's comment runs it again; a project whose runs keep failing outside their
+# cards says it cannot run them. See "Stops" in devflow/README.md.
+
+TURNS = "it reached the most turns, 200 turns"
+TWICE = f"Failed twice in a row with no new commit: The run failed: {TURNS}"
+LOGGED_OUT = "Claude Code is not logged in with the token"
+
+
+def _failure(in_card: bool, reason: str) -> dict:
+    """A run that failed, in the card or outside it, as a worker sends one."""
+    return {
+        "outcome": "failed",
+        "report": None,
+        "failure": {"reason": reason, "in_card": in_card},
+        "check": None,
+        "auth_method": "oauth_token",
+        "usage": {},
+        "duration_ms": 1000,
+        "stderr": "",
+    }
+
+
+def _fake_run(
+    page: Page, base_url: str, project: str, result: dict, leave_no_commit=False
+) -> dict:
+    """The fake worker takes the project's next job and ends it with `result`;
+    with `leave_no_commit`, nothing is pushed. What it answered."""
+    ran = page.request.post(
+        "/devflow/api/fake/worker/run",
+        data={
+            "project_id": project,
+            "result": result,
+            "leave_no_commit": leave_no_commit,
+        },
+        headers={"Origin": base_url},
+    )
+    assert ran.status == 200, ran.text()
+    return ran.json()
+
+
+def _stopped_region(page: Page):
+    return page.get_by_role("region", name=re.compile("^Stopped"))
+
+
+def test_a_stopped_card_tells_me_why_and_i_run_it_again(
+    page: Page, invite_code: str, base_url: str, viewport: str, devflow_world
+):
+    register_and_log_in(page, invite_code, base_url)
+    project = _card_project(page, base_url, devflow_world)
+    # The fake worker fails twice in the card, with nothing pushed between.
+    for _ in range(2):
+        _fake_run(page, base_url, project, _failure(True, TURNS), leave_no_commit=True)
+
+    # The app marked it on its issue: the attention label and one comment.
+    world = repository(page.request.get("/devflow/api/fake/world").json())
+    issue = next(each for each in world["issues"] if each["number"] == CARD)
+    assert "devflow-attention" in issue["labels"]
+    said = [
+        comment
+        for conversation in world["conversations"]
+        if conversation["number"] == CARD
+        for comment in conversation["comments"]
+        if comment["author"] == APP_LOGIN
+    ]
+    assert len(said) == 1, said
+    assert said[0]["body"].startswith(f"Dev flow stopped this card: {TWICE}.")
+    assert "Comment here to run it again." in said[0]["body"]
+
+    # "Waiting for you" shows it under Stopped, with why, and no Merge.
+    page.goto("/devflow")
+    stopped = _stopped_region(page).get_by_role("article", name=CARD_TITLE)
+    expect(stopped).to_be_visible()
+    expect(stopped.get_by_text("Stopped", exact=True)).to_be_visible()
+    expect(stopped).to_contain_text(f"{OWNER}/{NAME}")
+    expect(stopped).to_contain_text(TWICE)
+    expect(stopped.get_by_role("button", name="Merge")).to_have_count(0)
+    expect(stopped.get_by_role("link", name="Open on GitHub")).to_have_attribute(
+        "href", f"https://github.com/{OWNER}/{NAME}/issues/{CARD}"
+    )
+    expect(page.get_by_role("tab", name="Waiting for you 1")).to_be_visible()
+
+    page.evaluate("document.fonts.ready.then(() => null)")
+    for check in (
+        assert_headings_are_capitals,
+        assert_nothing_scrolls_sideways,
+        assert_active_is_inverted,
+        assert_nothing_active_is_amber,
+    ):
+        check(page)
+    assert _axe_violations(page) == []
+    capture(page, "devflow-card-stopped")
+
+    # "Comment to run again" posts his comment on the card's issue, which queues it.
+    stopped.get_by_role("button", name="Comment to run again").click()
+    stopped.get_by_label("A comment runs it again.").fill(
+        "Leave the sorting out and try again."
+    )
+    stopped.get_by_role("button", name="Send").click()
+    expect(page.get_by_text(f"Commented on #{CARD}; it runs again")).to_be_visible()
+    expect(_stopped_region(page)).to_have_count(0)
+    cards = page.request.get(f"/devflow/api/projects/{project}/cards").json()["cards"]
+    assert [card["state"] for card in cards if card["number"] == CARD] == ["queued"]
+    world = repository(page.request.get("/devflow/api/fake/world").json())
+    assert any(
+        comment["author"] == OWNER_LOGIN
+        and comment["body"] == "Leave the sorting out and try again."
+        for conversation in world["conversations"]
+        if conversation["number"] == CARD
+        for comment in conversation["comments"]
+    )
+
+
+def test_a_project_that_cannot_run_its_cards_says_so(
+    page: Page, invite_code: str, base_url: str, viewport: str, devflow_world
+):
+    register_and_log_in(page, invite_code, base_url)
+    project = _card_project(page, base_url, devflow_world)
+    # Six runs in a row fail outside the card, each once the project's wait is over.
+    for failure in range(6):
+        if failure > 0:
+            ended = page.request.post(
+                "/devflow/api/fake/end-wait",
+                data={"project_id": project},
+                headers={"Origin": base_url},
+            )
+            assert ended.status == 204, ended.text()
+        _fake_run(page, base_url, project, _failure(False, LOGGED_OUT))
+    message = f"Dev flow cannot run {NAME}'s cards: {LOGGED_OUT}"
+
+    page.goto("/devflow")
+    failing = _stopped_region(page).get_by_role("article", name=message)
+    expect(failing).to_be_visible()
+    expect(failing.get_by_text("Cannot run", exact=True)).to_be_visible()
+    expect(failing).to_contain_text("6 runs in a row failed outside their cards")
+    expect(page.get_by_role("tab", name="Waiting for you 1")).to_be_visible()
+    page.evaluate("document.fonts.ready.then(() => null)")
+    for check in (assert_headings_are_capitals, assert_nothing_scrolls_sideways):
+        check(page)
+    assert _axe_violations(page) == []
+    capture(page, "devflow-project-failing")
+
+    # The project's page says it too.
+    page.goto(f"/devflow/projects/{project}")
+    workers = page.get_by_role("article", name="Workers")
+    expect(workers.get_by_text(message)).to_be_visible()
+    assert_nothing_scrolls_sideways(page)
+    capture(page, "devflow-project-cannot-run")

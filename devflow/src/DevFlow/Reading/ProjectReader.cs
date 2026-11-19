@@ -213,15 +213,36 @@ public sealed partial class ProjectReader(UserDb database, ICodeHost host, TimeP
 
         var stillOpen = open.Select(pull => pull.Number).ToHashSet();
         var commented = new List<TakenComments>();
-        foreach (var card in (await OwnerComments.Cards(database, userId, projectId, cancellationToken)).Where(card => stillOpen.Contains(card.PullRequest)))
+        foreach (var card in await OwnerComments.Cards(database, userId, projectId, cancellationToken))
         {
-            switch (Listed(await host.Comments(userId, repository, card.PullRequest, cancellationToken)))
+            int? openPull = card.PullRequest is { } pull && stillOpen.Contains(pull) ? pull : null;
+            var stopped = card.StoppedAt is not null;
+            if (openPull is null && !stopped)
             {
-                case null:
+                continue;
+            }
+
+            // A stopped card runs again on his comment on its issue or its open pull request; any
+            // other is sent back on its open pull request alone.
+            var comments = new List<Comment>();
+            foreach (var number in (int?[])[openPull, stopped ? card.Number : null])
+            {
+                if (number is not { } conversation)
+                {
+                    continue;
+                }
+
+                if (Listed(await host.Comments(userId, repository, conversation, cancellationToken)) is not { } listed)
+                {
                     return ([], HostUnavailable);
-                case var comments when OwnerComments.New(card, comments, owner) is { } taken:
-                    commented.Add(taken);
-                    break;
+                }
+
+                comments.AddRange(listed);
+            }
+
+            if (OwnerComments.New(card, comments, owner, openPull) is { } taken)
+            {
+                commented.Add(taken);
             }
         }
 
