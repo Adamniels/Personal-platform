@@ -80,17 +80,33 @@ public static class JobStore
     /// <summary>The longest slug a branch takes from its card's title.</summary>
     public const int MaxSlug = 40;
 
-    /// <summary>What makes a card one to hand out, as SQL over <c>cards</c>: on its own, queued,
-    /// waiting for nothing, picked with its body kept, and with no run under way. A feature's
-    /// cards are built on the feature's branch, which a later slice makes, and never handed out on
-    /// their own. A read can leave a card
+    /// <summary>
+    /// What lets a card of a feature start, as SQL over <c>cards</c>, and nothing for a card on its
+    /// own: its feature is queued or building, no card of the feature has a run under way, and no
+    /// card before it holds it back, <see cref="CardStore.HeldBackBy"/>. So one card of a feature
+    /// runs at a time, the first by position free to start, and a second worker asking meanwhile
+    /// finds the feature's next card held back by the one it took. See "A feature's cards, one at
+    /// a time" in devflow/docs/devflow-architecture.md.
+    /// </summary>
+    private const string FeatureLetsItStart = $"""
+        (cards.feature_id IS NULL OR (
+            EXISTS (SELECT 1 FROM features f WHERE f.id = cards.feature_id AND f.state IN ('queued', 'building'))
+            AND {CardStore.HeldBackBy} IS NULL
+            AND NOT EXISTS (SELECT 1 FROM runs r JOIN cards s ON s.project_id = r.project_id AND s.number = r.card_number
+                            WHERE r.project_id = cards.project_id AND s.feature_id = cards.feature_id AND r.finished_at IS NULL)))
+        """;
+
+    /// <summary>What makes a card one to hand out, as SQL over <c>cards</c>: queued, waiting for
+    /// nothing, picked with its body kept, with no run under way, and, for a card of a feature,
+    /// what <see cref="FeatureLetsItStart"/> says. A read can leave a card
     /// queued while its run still goes on, when it ignored the card and a later one picked it
     /// again; such a card waits for its run to end, so the unique index <c>runs_one_under_way</c>
     /// stays a backstop rather than the guard.</summary>
-    private const string Takeable = """
-        project_id = @projectId AND feature_id IS NULL AND state = 'queued' AND cardinality(waits_for) = 0 AND picked_body IS NOT NULL
+    private const string Takeable = $"""
+        project_id = @projectId AND state = 'queued' AND cardinality(waits_for) = 0 AND picked_body IS NOT NULL
         AND NOT EXISTS (SELECT 1 FROM runs
                         WHERE runs.project_id = cards.project_id AND runs.card_number = cards.number AND runs.finished_at IS NULL)
+        AND {FeatureLetsItStart}
         """;
 
     /// <summary>
