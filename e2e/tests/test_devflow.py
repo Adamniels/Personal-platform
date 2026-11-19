@@ -1317,6 +1317,71 @@ def test_a_card_i_label_shows_as_queued(
     capture(page, "devflow-project-cards")
 
 
+def test_a_labelled_feature_shows_its_cards_in_order(
+    page: Page, invite_code: str, base_url: str, viewport: str, devflow_world
+):
+    register_and_log_in(page, invite_code, base_url)
+    # A parent with the label and three sub-issues without it, in an order
+    # that is not their numbers', one waiting for an issue outside; and a card
+    # on its own beside it.
+    world = one_repository()
+    add_issue(
+        world,
+        40,
+        "Features and their cards",
+        labels=["devflow"],
+        sub_issues=[43, 41, 42],
+    )
+    add_issue(world, 41, "Read the sub-issues")
+    add_issue(world, 42, "Show each feature on the page", blocked_by=[44])
+    add_issue(world, 43, "Store the feature")
+    add_issue(world, 44, "A plain issue it waits for")
+    add_issue(world, 50, "A card on its own", labels=["devflow"])
+    _open_project(page, base_url, devflow_world, world)
+    project = page.url.rsplit("/", 1)[1]
+
+    refreshed = page.request.post(
+        f"/devflow/api/projects/{project}/refresh", headers={"Origin": base_url}
+    )
+    assert refreshed.status == 204, refreshed.text()
+    page.reload()
+
+    features = page.get_by_role("list", name="Features", exact=True)
+    expect(features.locator(":scope > li")).to_have_count(1)
+    feature = features.locator(":scope > li").first
+    expect(feature).to_contain_text("Features and their cards")
+    expect(feature.get_by_role("link", name="#40", exact=True)).to_have_attribute(
+        "href", "https://github.com/Adamniels/Personal-platform/issues/40"
+    )
+    expect(feature.locator(":scope > div").first).to_contain_text("Queued")
+
+    # Its three cards in sub-issue order, each with its state.
+    cards = feature.get_by_role("list", name="Cards of #40", exact=True)
+    rows = cards.get_by_role("listitem")
+    expect(rows).to_have_count(3)
+    expect(rows).to_contain_text(["#43", "#41", "#42"])
+    expect(rows.nth(0)).to_contain_text("Store the feature")
+    expect(rows.nth(0)).to_contain_text("Queued")
+    expect(rows.nth(2)).to_contain_text("Queued")
+    expect(rows.nth(2)).to_contain_text("Waits for #44")
+
+    # Beneath the features, the card on its own, and the parent is not one.
+    own = page.get_by_role("list", name="Cards", exact=True)
+    expect(own.get_by_role("listitem")).to_have_count(1)
+    expect(own).to_contain_text("A card on its own")
+    expect(page.get_by_text("#40", exact=True)).to_have_count(1)
+
+    page.evaluate("document.fonts.ready.then(() => null)")
+    for check in (
+        assert_headings_are_capitals,
+        assert_nothing_scrolls_sideways,
+        assert_active_is_inverted,
+        assert_nothing_active_is_amber,
+    ):
+        check(page)
+    capture(page, "devflow-project-feature")
+
+
 RECIPE = b"ARG DEVFLOW_BASE\nFROM ${DEVFLOW_BASE}\nRUN apt-get update\n"
 
 

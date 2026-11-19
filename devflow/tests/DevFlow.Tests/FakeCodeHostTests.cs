@@ -291,4 +291,37 @@ public sealed class FakeCodeHostTests
         Assert.IsType<CodeHostResult<IReadOnlyList<Dependency>>.Unavailable>(await host.BlockedBy(Owner, Platform, 338, Ct));
         Assert.IsType<CodeHostResult<IReadOnlyList<IssueEdit>>.Unavailable>(await host.Edits(Owner, Platform, 338, Ct));
     }
+
+    [Fact]
+    public async Task SubIssuesAreAnsweredInTheirOrderFromWhereverTheyAre()
+    {
+        var host = new FakeCodeHost();
+        static FakeIssue Issue(int number, bool open = true, IReadOnlyList<FakeSubIssue>? subIssues = null, string repository = "Personal-platform") => new(
+            number, $"Issue {number}", "Adamniels", [], $"Body of {number}",
+            new Uri($"https://github.com/Adamniels/{repository}/issues/{number}"), At.AddDays(-number), open, [], [], subIssues);
+        var world = World;
+        var platform = world.Installations[0].Repositories[0] with
+        {
+            PullRequests = [Waiting],
+            Issues = [Issue(330, subIssues: [new(332, null), new(5, 9002), new(331, null), new(304, null)]), Issue(331, open: false), Issue(332), Issue(333)],
+        };
+        var elsewhere = new FakeRepository(9002, "Adamniels", "elsewhere", [], [], [], [], [Issue(5, repository: "elsewhere")]);
+        host.Replace(Owner, world with { Installations = [world.Installations[0] with { Repositories = [platform, elsewhere] }] });
+
+        var subIssues = Found(await host.SubIssues(Owner, Platform, 330, Ct));
+
+        // In the order staged, not by number, each with its own repository; a pull request marked.
+        Assert.Equal(
+            [(332, "Personal-platform", true, false), (5, "elsewhere", true, false), (331, "Personal-platform", false, false), (304, "Personal-platform", true, true)],
+            subIssues.Select(sub => (sub.Number, sub.Name, sub.Open, sub.IsPullRequest)));
+        Assert.Equal(new SubIssue(332, "Issue 332", "Body of 332", true, "Adamniels", [], At.AddDays(-332), "Adamniels", "Personal-platform",
+            new Uri("https://github.com/Adamniels/Personal-platform/issues/332"), IsPullRequest: false), subIssues[0] with { Labels = [] });
+
+        // None for an issue that has none, not found for one that is not there.
+        Assert.Empty(Found(await host.SubIssues(Owner, Platform, 333, Ct)));
+        Assert.IsType<CodeHostResult<IReadOnlyList<SubIssue>>.NotFound>(await host.SubIssues(Owner, Platform, 999, Ct));
+        Assert.IsType<CodeHostResult<IReadOnlyList<SubIssue>>.NotFound>(await host.SubIssues(Stranger, Platform, 330, Ct));
+        host.SetUnavailable(Owner, unavailable: true);
+        Assert.IsType<CodeHostResult<IReadOnlyList<SubIssue>>.Unavailable>(await host.SubIssues(Owner, Platform, 330, Ct));
+    }
 }

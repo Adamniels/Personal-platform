@@ -150,11 +150,14 @@ def add_issue(
     blocked_by: list[int] | None = None,
     edits: list[dict] | None = None,
     created_at: str = WHEN,
+    sub_issues: list[int] | None = None,
 ) -> dict:
     """Adds an issue to the world's repository, written by the fake's user,
     the owner once GitHub is linked, unless said, open unless said, with the
     labels, the issues in the same repository it is blocked by, and its edits,
-    none unless given. Returns it, so a test can change it."""
+    none unless given; and its sub-issues in the same repository, in their
+    order, which make a labelled issue a feature. Returns it, so a test can
+    change it."""
     issue = {
         "number": number,
         "title": title,
@@ -167,6 +170,10 @@ def add_issue(
         "blocked_by": blocked_by or [],
         "edits": edits or [],
     }
+    if sub_issues is not None:
+        issue["sub_issues"] = [
+            {"number": sub, "repository": None} for sub in sub_issues
+        ]
     repository(world)["issues"].append(issue)
     return issue
 

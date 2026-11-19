@@ -88,6 +88,46 @@ public sealed class CardListTests
         var mine = await routes.Project(Routes.User, repository: 9002, name: "other");
         var empty = await routes.App.Get(PathOf(mine), Contract.Token);
         Assert.Equal(StatusCodes.Status200OK, empty.Response.StatusCode);
-        Assert.Empty(JsonNode.Parse(await Harness.Body(empty))!["cards"]!.AsArray());
+        var nothing = JsonNode.Parse(await Harness.Body(empty))!;
+        Assert.Empty(nothing["cards"]!.AsArray());
+        Assert.Empty(nothing["features"]!.AsArray());
+    }
+
+    [Fact]
+    public async Task FeaturesAreListedAboveWithTheirCardsInOrder()
+    {
+        await using var routes = await Routes.Start();
+        var project = await routes.Project(Routes.User);
+        await Reading.Reading.Link(routes.Door, Routes.User, "octo-owner");
+        // Two features, the low priority one older, and a card on its own.
+        var low = Card(10, labels: ["devflow", "priority: low"]) with { CreatedAt = new DateTimeOffset(2026, 11, 1, 8, 0, 0, TimeSpan.Zero), SubIssues = [new(12, null), new(11, null)] };
+        var high = Card(20, labels: ["devflow", "priority: high"]) with { SubIssues = [new(21, null)] };
+        Stage(routes, Routes.User, low, Card(11, labels: []), Card(12, labels: []), high, Card(21, labels: []), Card(30));
+        await routes.Read(project, Routes.User);
+
+        var answer = await routes.App.Get(PathOf(project), Contract.Token);
+
+        Assert.Equal(StatusCodes.Status200OK, answer.Response.StatusCode);
+        var body = JsonNode.Parse(await Harness.Body(answer))!;
+        // Only the card on its own is among the cards.
+        Assert.Equal([30], body["cards"]!.AsArray().Select(card => (int)card!["number"]!));
+
+        // Features in the order their cards would be taken: priority, then the oldest.
+        var features = body["features"]!.AsArray();
+        Assert.Equal([20, 10], features.Select(feature => (int)feature!["number"]!));
+        var first = features[1]!.AsObject();
+        Assert.Equal(
+            ["cards", "changed_at", "number", "priority", "reason", "state", "title", "web_url"],
+            first.Select(pair => pair.Key).Order(StringComparer.Ordinal));
+        Assert.Equal(("Card 10", "queued", "low"), ((string)first["title"]!, (string)first["state"]!, (string)first["priority"]!));
+        Assert.Equal("https://github.com/Adamniels/Personal-platform/issues/10", (string)first["web_url"]!);
+        Assert.Null(first["reason"]);
+        // Its cards in sub-issue order, each as the list shows a card.
+        var cards = first["cards"]!.AsArray();
+        Assert.Equal([12, 11], cards.Select(card => (int)card!["number"]!));
+        Assert.Equal(
+            ["changed_at", "number", "priority", "reason", "state", "title", "waits_for", "web_url"],
+            cards[0]!.AsObject().Select(pair => pair.Key).Order(StringComparer.Ordinal));
+        Assert.Equal("queued", (string)cards[0]!["state"]!);
     }
 }

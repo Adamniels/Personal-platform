@@ -1,6 +1,13 @@
 import { cleanup, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { type Card, CardsPanel, NO_CARDS, NOT_READ, stateWord } from "./cards";
+import {
+	type Card,
+	CardsPanel,
+	type Feature,
+	NO_CARDS,
+	NOT_READ,
+	stateWord,
+} from "./cards";
 
 afterEach(cleanup);
 
@@ -17,7 +24,25 @@ const card = (number: number, state: string, reason: string | null): Card => ({
 	changed_at: "2026-11-17T12:00:00+00:00",
 });
 
-function renderPanel(load: (id: string) => Promise<{ cards: Card[] }>) {
+const feature = (
+	number: number,
+	state: string,
+	reason: string | null,
+	cards: Card[],
+): Feature => ({
+	number,
+	title: `Feature ${number}`,
+	web_url: `https://github.com/Adamniels/Personal-platform/issues/${number}`,
+	state,
+	reason,
+	priority: "none",
+	changed_at: "2026-11-19T12:00:00+00:00",
+	cards,
+});
+
+function renderPanel(
+	load: (id: string) => Promise<{ cards: Card[]; features: Feature[] }>,
+) {
 	const loadCards = vi.fn(load);
 	render(<CardsPanel id={ID} loadCards={loadCards} />);
 	return loadCards;
@@ -30,6 +55,7 @@ describe("the cards panel", () => {
 	test("lists each card with its number, title, state and reason, as the answer orders them", async () => {
 		const loadCards = renderPanel(() =>
 			Promise.resolve({
+				features: [],
 				cards: [
 					card(12, "queued", null),
 					card(13, "held", "Held by the label devflow-hold"),
@@ -89,6 +115,7 @@ describe("the cards panel", () => {
 	test("an address that is not https is no link, and a title is shown as text", async () => {
 		renderPanel(() =>
 			Promise.resolve({
+				features: [],
 				cards: [
 					{
 						...card(16, "queued", null),
@@ -113,9 +140,77 @@ describe("the cards panel", () => {
 	});
 
 	test("says how a card is made when there is none", async () => {
-		renderPanel(() => Promise.resolve({ cards: [] }));
+		renderPanel(() => Promise.resolve({ cards: [], features: [] }));
 
 		expect(await (await panel()).findByText(NO_CARDS)).toBeTruthy();
+	});
+
+	test("lists each feature above the cards on their own, with its cards in order and their states", async () => {
+		renderPanel(() =>
+			Promise.resolve({
+				features: [
+					feature(40, "held", "Held by the label devflow-hold", [
+						card(43, "held", "The feature is held by the label devflow-hold"),
+						card(41, "held", "The feature is held by the label devflow-hold"),
+					]),
+					feature(30, "queued", null, [card(31, "queued", "Waits for #9")]),
+				],
+				cards: [card(50, "queued", null)],
+			}),
+		);
+		const cards = await panel();
+
+		const features = await cards.findByRole("list", { name: "Features" });
+		const items = [...features.children] as HTMLElement[];
+		expect(
+			items.map((item) => within(item).getAllByRole("link")[0]?.textContent),
+		).toEqual(["#40", "#30"]);
+		const [held, queued] = items.map((item) => within(item));
+		if (held === undefined || queued === undefined)
+			throw new Error("two features");
+
+		// The feature's number links to its issue; its title is text until the
+		// feature has a page of its own.
+		expect(held.getByRole("link", { name: "#40" }).getAttribute("href")).toBe(
+			"https://github.com/Adamniels/Personal-platform/issues/40",
+		);
+		expect(held.getByText("Feature 40").closest("a")).toBeNull();
+		expect(held.getAllByText("Held").length).toBe(3);
+		expect(held.getByText("Held by the label devflow-hold")).toBeTruthy();
+
+		// Its cards in the order given, each a link to its own page.
+		const own = held.getByRole("list", { name: "Cards of #40" });
+		expect(
+			within(own)
+				.getAllByRole("listitem")
+				.map(
+					(row) =>
+						within(row).getByRole("link", { name: /^#\d+$/ }).textContent,
+				),
+		).toEqual(["#43", "#41"]);
+		expect(
+			within(own).getByRole("link", { name: "Card 43" }).getAttribute("href"),
+		).toBe(`/devflow/projects/${ID}/cards/43`);
+		expect(queued.getByText("Waits for #9")).toBeTruthy();
+
+		// The card on its own is in the list of cards, and only it.
+		const alone = within(cards.getByRole("list", { name: "Cards" }));
+		expect(alone.getAllByRole("listitem").length).toBe(1);
+		expect(alone.getByText("Card 50")).toBeTruthy();
+	});
+
+	test("a feature alone needs no list of cards on their own", async () => {
+		renderPanel(() =>
+			Promise.resolve({
+				features: [feature(40, "queued", null, [card(41, "queued", null)])],
+				cards: [],
+			}),
+		);
+		const cards = await panel();
+
+		expect(await cards.findByRole("list", { name: "Features" })).toBeTruthy();
+		expect(cards.queryByRole("list", { name: "Cards" })).toBeNull();
+		expect(cards.queryByText(NO_CARDS)).toBeNull();
 	});
 
 	test("cards that could not be read say so", async () => {

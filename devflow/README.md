@@ -871,7 +871,12 @@ the account it is on, which the list to choose from groups by. A pull request's 
 conversation, empty unless one is listed; a commit that is not listed is not found, unless the
 repository's git repository holds it, such as a commit the fake worker made, which has no statuses
 and no check runs, as GitHub answers for a commit nothing was posted on. An issue's
-`blocked_by` names issues listed in the same repository, by number. Listing issues by label answers
+`blocked_by` names issues listed in the same repository, by number. An issue may also have
+`sub_issues`, its sub-issues in their order, each `{"number", "repository"}`, the id of another
+repository of the same installation or null for this one, naming an issue or a pull request listed
+there and never the issue itself; it is the one field an issue may leave out, and is left out when
+the world is written back. `ICodeHost.SubIssues` answers them in that order, each from its own
+repository, a pull request marked. Listing issues by label answers
 the open issues carrying it, whatever its case, and the open pull requests carrying it, marked as
 pull requests, as GitHub lists them; an issue's edits are answered as staged, its body's first and
 then its title's, `kind` `body` or `title`.
@@ -1211,9 +1216,11 @@ nobody else has edited are picked", "Held by the label <hold label>", and "Waits
 `CardStore.Queue(projectId)` answers the numbers of the queued cards with nothing to wait for, in
 the order they are handed out: high, none, low, each oldest first.
 
-- `GET /devflow/api/projects/{id}/cards` answers `{"cards": [...]}`, every card as last read, newest
-  change first: `number`, `title`, `web_url`, `state`, `reason`, `waits_for`, `priority` and
-  `changed_at`. It reads what is stored, never GitHub. Another user's project, or none, is `404`.
+- `GET /devflow/api/projects/{id}/cards` answers `{"features": [...], "cards": [...]}`: the features,
+  see "Features" below, and every card on its own as last read, newest change first: `number`,
+  `title`, `web_url`, `state`, `reason`, `waits_for`, `priority` and `changed_at`. A feature's cards
+  are listed in it and not among `cards`. It reads what is stored, never GitHub. Another user's
+  project, or none, is `404`.
 
 The table, from `migrations/0011_cards.sql`, guarded like every scoped table: `cards`, `id`,
 `project_id` and `user_id` referencing `projects` as `project_settings` does, `number`, unique per
@@ -1226,6 +1233,59 @@ as it was picked, which a job's brief quotes; null for a card never picked and f
 before the column, until its next read, and such a card is not handed out.
 `migrations/0014_card_pull_requests.sql` adds `pull_request_number` and `pull_request_url`, the
 card's pull request, both or neither, see "The pull request Dev flow opens".
+`migrations/0024_features.sql` adds `feature_id` and `position`, see "Features" below.
+
+### Features
+
+A feature is an open issue carrying `pickup_label` that has at least one sub-issue, and its cards
+are its direct sub-issues in the same repository. Why it is built so is "Features and their cards"
+in `docs/devflow-architecture.md`. Each read picks features beside cards, in `CardPicker`, and
+stores them in the same transaction, in `CardStore`:
+
+- `ICodeHost.SubIssues` reads each labelled issue's sub-issues, as the app, a hundred a page,
+  `GET /repos/{owner}/{repo}/issues/{number}/sub_issues`; one that cannot be read makes the read
+  unavailable, as any read does. A labelled issue with none is a card as above.
+- The parent is checked as a card is, by everything but what blocks it: not linked, another
+  author or another editor is `ignored`, with the card's reasons, and the hold label is `held`,
+  "Held by the label <hold label>". Otherwise `queued`, with its record of what was picked, as a
+  card's.
+- Each direct sub-issue in this repository, a pull request left out, is a card of the feature, at
+  `position` 1, 2, 3 in GitHub's sub-issue order, and is checked by the card rules with no label of
+  its own. With the parent `ignored`, every one is `ignored`, "Its feature, #<parent>, is not
+  picked", read no further; with the parent `held`, every one the owner's is `held`, "The feature is
+  held by the label <hold label>". Its priority is the feature's; its own priority label is not read.
+  A sub-issue carrying the pick-up label too is still one card, of its feature.
+- A closed sub-issue is a card only when it has started, since Dev flow built it; it stays where
+  its run put it. Any other closed one is left out.
+- A sub-issue in another repository is not stored, since a card is a number in the project's
+  repository; while the feature is queued its reason names them, "Only a feature's direct
+  sub-issues in this repository are its cards: owner/name#5 is not one". A sub-issue of a
+  sub-issue, known when the sub-issue in the middle carries the label, is `ignored` on its own with
+  "Only a feature's direct sub-issues in this repository are its cards".
+- A labelled issue that has started as a card on its own stays one when sub-issues are added: it
+  is no feature, and they are `ignored` on their own, "Its parent, #<n>, is being built as a card".
+- Taking the label off the parent removes the cards of it that have not started; one under way is
+  marked `unlabelled` and finishes, as a card's own label does. The feature is marked `unlabelled`
+  while any card refers to it, and is deleted once none does.
+- A feature's cards are not handed out on their own: `CardStore.Queue` and the dispatcher take
+  only cards with no feature. Building them is the feature's branch's, a later slice.
+
+The route above answers each feature as `number`, `title`, `web_url`, `state`, `reason`,
+`priority`, `changed_at` and `cards`, its cards in position order, each as a card on its own is;
+features in the order their cards would be taken, by the parent's priority and then the oldest.
+
+The table, from `migrations/0024_features.sql`, guarded like every scoped table: `features`, `id`,
+`project_id` and `user_id` referencing `projects` as `cards` does, `number`, unique per project,
+`title`, `web_url`, `state`, one of `queued`, `building`, `bringing_in`, `resolving`, `reviewing`,
+`fixing`, `waiting_for_owner`, `ready`, `merged`, `closed`, `held` and `ignored`, of which picking
+sets only `queued`, `held` and `ignored` and the later slices of part 4 the others, `reason`,
+`priority`, `issue_created_at`, the record of what was picked, `picked_body_sha256`, `picked_title`,
+`picked_edit` and `picked_body`, null for a feature never picked, `unlabelled`, and, null until the
+later slices set them, `branch`, `branch_base_commit`, `brought_in_commit` and
+`pull_request_number`; `fix_round`, 0 to 3, 0 until then; `changed_at`, when its state or reason
+last changed, and `read_at`. On `cards`, `feature_id` refers to a feature of the same project, null
+for a card on its own, and `position`, from 1, is set exactly when `feature_id` is, unique per
+feature at the end of each transaction.
 
 ## Acting from the page
 

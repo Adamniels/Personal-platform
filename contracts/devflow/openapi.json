@@ -176,9 +176,16 @@
               "$ref": "#/components/schemas/CardView"
             },
             "type": "array"
+          },
+          "features": {
+            "items": {
+              "$ref": "#/components/schemas/FeatureView"
+            },
+            "type": "array"
           }
         },
         "required": [
+          "features",
           "cards"
         ],
         "type": "object"
@@ -957,6 +964,53 @@
           "failures",
           "since",
           "wait_until"
+        ],
+        "type": "object"
+      },
+      "FeatureView": {
+        "properties": {
+          "cards": {
+            "items": {
+              "$ref": "#/components/schemas/CardView"
+            },
+            "type": "array"
+          },
+          "changed_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "number": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "priority": {
+            "type": "string"
+          },
+          "reason": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "state": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "web_url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "number",
+          "title",
+          "web_url",
+          "state",
+          "reason",
+          "priority",
+          "changed_at",
+          "cards"
         ],
         "type": "object"
       },
@@ -2897,7 +2951,7 @@
     },
     "/devflow/api/projects/{id}/cards": {
       "get": {
-        "description": "Every card of the project as its last read found it, newest change first: its number, title and web_url, its state, the reason it is there, null when there is nothing to say, what it waits for, its priority and changed_at. Read from what Dev flow stored, never from GitHub. 404 for a project the caller does not have. Without a valid token, 401 with an empty body.",
+        "description": "The project's features as its last read found them, in the order their cards would be taken, priority and then the oldest: each with its number, title and web_url, its state, the reason it is there, null when there is nothing to say, its priority, changed_at, and its cards in their sub-issue order; and every card on its own, newest change first. A card has its number, title and web_url, its state, the reason it is there, null when there is nothing to say, what it waits for, its priority and changed_at. Read from what Dev flow stored, never from GitHub. 404 for a project the caller does not have. Without a valid token, 401 with an empty body.",
         "operationId": "listCards",
         "parameters": [
           {
@@ -2935,7 +2989,7 @@
             "description": "Not Found"
           }
         },
-        "summary": "The project's cards",
+        "summary": "The project's features and cards",
         "tags": [
           "DevFlow"
         ]

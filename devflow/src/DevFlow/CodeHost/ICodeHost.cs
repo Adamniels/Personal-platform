@@ -50,6 +50,11 @@ public interface ICodeHost
     /// does not have lists nothing.</summary>
     Task<CodeHostResult<IReadOnlyList<Issue>>> LabelledIssues(Guid userId, Repository repository, string label, CancellationToken cancellationToken);
 
+    /// <summary>The sub-issues of the issue with the number, open or closed, in this repository or
+    /// another, in the host's order, which is the feature's. Not found when there is no such
+    /// issue.</summary>
+    Task<CodeHostResult<IReadOnlyList<SubIssue>>> SubIssues(Guid userId, Repository repository, int number, CancellationToken cancellationToken);
+
     /// <summary>The issues the issue with the number is blocked by, open or closed, in this
     /// repository or another. Not found when there is no such issue.</summary>
     Task<CodeHostResult<IReadOnlyList<Dependency>>> BlockedBy(Guid userId, Repository repository, int number, CancellationToken cancellationToken);

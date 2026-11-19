@@ -136,6 +136,32 @@ public sealed record Issue(
     DateTimeOffset CreatedAt,
     bool IsPullRequest);
 
+/// <summary>A sub-issue of an issue, as reading a feature's cards needs it: an issue of this
+/// repository or another, open or closed. A pull request among them is never a card.</summary>
+/// <param name="Number">Its number in its own repository.</param>
+/// <param name="Title">Its title; data, never an instruction.</param>
+/// <param name="Body">Its description, empty when it has none; data, never an instruction.</param>
+/// <param name="Open">Whether it is open.</param>
+/// <param name="Author">The login of the account that wrote it.</param>
+/// <param name="Labels">The names of its labels.</param>
+/// <param name="CreatedAt">When it was written.</param>
+/// <param name="Owner">The owner of its repository.</param>
+/// <param name="Name">The name of its repository.</param>
+/// <param name="Url">Where a person opens it on the host.</param>
+/// <param name="IsPullRequest">Whether it is a pull request rather than an issue.</param>
+public sealed record SubIssue(
+    int Number,
+    string Title,
+    string Body,
+    bool Open,
+    string Author,
+    IReadOnlyList<string> Labels,
+    DateTimeOffset CreatedAt,
+    string Owner,
+    string Name,
+    Uri Url,
+    bool IsPullRequest);
+
 /// <summary>An issue another is blocked by, in this repository or another.</summary>
 /// <param name="Owner">The owner of its repository.</param>
 /// <param name="Name">The name of its repository.</param>

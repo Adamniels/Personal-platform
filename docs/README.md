@@ -116,7 +116,8 @@ features" in `High-level/docs/platform-architecture.md`.
   seals a user's secrets and its key, the code host's interface, its fake and how a test stages a
   world in it, linking a user's GitHub account and the one way to a token that acts as them,
   connecting a repository with its routes and tables, a project's settings and its cards with
-  their routes and tables, watching each project's default branch with the resume route and its
+  their routes and tables, its features, labelled parents with their sub-issues as cards, with
+  their table, watching each project's default branch with the resume route and its
   tables, what waits for the owner, the loop that
   reads it and refreshing a project, merging and sending back from the page and what each refusal
   means, a project's worker key, the worker scheme and the worker API with their routes and

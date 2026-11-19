@@ -18,6 +18,13 @@
 	font-weight: 600;
 }
 
+/* The features above the cards on their own, a row's gap apart. */
+.lists {
+	display: flex;
+	flex-direction: column;
+	gap: var(--inset-gap);
+}
+
 /* The cards, each on an inset, hard rule 3, as the workers are. */
 .cards {
 	display: flex;
@@ -35,6 +42,28 @@
 	padding: 8px 12px;
 	border-radius: var(--radius-md);
 	background: var(--surface-2);
+}
+
+/* A feature's cards, in their order, inside its inset. The list's own
+ * numbering is left out: each card says its number. */
+.featureCards {
+	display: flex;
+	flex-direction: column;
+	gap: var(--inset-gap);
+	margin: var(--space-1) 0 0;
+	padding: 0;
+	list-style: none;
+}
+
+/* A card of a feature, on the card's surface inside the feature's inset, so
+ * the two levels read apart without a line between them. */
+.featureCard {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-1);
+	padding: 8px 12px;
+	border-radius: var(--radius-md);
+	background: var(--surface);
 }
 
 /* The number, the title and the state on one line, wrapping at phone width

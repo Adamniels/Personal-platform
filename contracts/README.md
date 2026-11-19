@@ -245,6 +245,16 @@ body as it is and the full ones are long:
   `devflow/src/DevFlow/CodeHost/GitHub/GitHubCodeHost.Issues.cs`, exactly, and `owner`
   `Adamniels`, `name` `Personal-platform`, `number` 4 and both `with` variables true: issue 4's two
   body edits, the first version among them, and its one change of title.
+- `sub-issues.json`, recorded on 2026 11 19 the same way for the slice "Features and their cards",
+  read by `devflow/tests/DevFlow.Tests/GitHub/GitHubSubIssueTests.cs`:
+  `gh api 'repos/Adamniels/Personal-platform/issues/330/sub_issues?per_page=100'`, the ten
+  sub-issues of 330, the feature "Dev flow: one card, end to end", all closed, in GitHub's order.
+  Each `body` is cut to its first line as above, and each `repository` to the fields the adapter
+  reads and its identity, with
+  `jq 'map((.body |= (if . == null then . else (split("\n")[0]) end)) | (.repository |= {id, name, full_name, owner: {login: .owner.login, id: .owner.id}}))'`,
+  since the full repository is repeated in each and long. The adapter reads `number`, `title`,
+  `body`, `state`, `user.login`, `labels[].name`, `created_at`, `html_url`, `repository.name`,
+  `repository.owner.login` and whether `pull_request` is there.
 - `issue-edits-not-found.json`: the same query for issue 99999, which does not exist, GraphQL's
   `200` with `issue` null and an error of type `NOT_FOUND`.
 

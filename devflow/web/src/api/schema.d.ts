@@ -186,8 +186,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * The project's cards
-         * @description Every card of the project as its last read found it, newest change first: its number, title and web_url, its state, the reason it is there, null when there is nothing to say, what it waits for, its priority and changed_at. Read from what Dev flow stored, never from GitHub. 404 for a project the caller does not have. Without a valid token, 401 with an empty body.
+         * The project's features and cards
+         * @description The project's features as its last read found them, in the order their cards would be taken, priority and then the oldest: each with its number, title and web_url, its state, the reason it is there, null when there is nothing to say, its priority, changed_at, and its cards in their sub-issue order; and every card on its own, newest change first. A card has its number, title and web_url, its state, the reason it is there, null when there is nothing to say, what it waits for, its priority and changed_at. Read from what Dev flow stored, never from GitHub. 404 for a project the caller does not have. Without a valid token, 401 with an empty body.
          */
         get: operations["listCards"];
         put?: never;
@@ -672,6 +672,7 @@ export interface components {
         };
         CardList: {
             cards: components["schemas"]["CardView"][];
+            features: components["schemas"]["FeatureView"][];
         };
         CardMerge: {
             approved: string;
@@ -865,6 +866,18 @@ export interface components {
             since: string;
             /** Format: date-time */
             wait_until: string;
+        };
+        FeatureView: {
+            cards: components["schemas"]["CardView"][];
+            /** Format: date-time */
+            changed_at: string;
+            /** Format: int32 */
+            number: number;
+            priority: string;
+            reason: null | string;
+            state: string;
+            title: string;
+            web_url: string;
         };
         /** @enum {unknown} */
         GitHubLinkState: "none" | "linked" | "needs_relink";
