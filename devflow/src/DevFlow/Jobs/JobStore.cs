@@ -21,7 +21,9 @@ namespace DevFlow.Jobs;
 /// <param name="Title">Its title as it was picked.</param>
 /// <param name="Body">Its body as it was picked.</param>
 /// <param name="Branch">The branch the work goes on, from <see cref="JobStore.Branch"/>.</param>
-public sealed record ClaimedCard(Guid RunId, int Number, string Title, string Body, string Branch);
+/// <param name="Comments">The owner's comments that ran it again after it stopped, each exactly as
+/// he wrote it; empty for a card that never stopped.</param>
+public sealed record ClaimedCard(Guid RunId, int Number, string Title, string Body, string Branch, IReadOnlyList<string> Comments);
 
 /// <summary>A card taken for its review, with the run made for it and what the review reads of the
 /// build that made the commit.</summary>
@@ -105,7 +107,7 @@ public static class JobStore
     /// of the card left there, whatever its result, since a worker pushes what its agent made even
     /// when the check failed. A fix starts from it; null before anything was pushed.
     /// </summary>
-    private const string BranchHeadOf = """
+    public const string BranchHeadOf = """
         (SELECT b.head_commit FROM runs b
          WHERE b.project_id = cards.project_id AND b.card_number = cards.number AND b.kind IN ('build', 'fix') AND b.head_commit IS NOT NULL
          ORDER BY b.started_at DESC, b.id DESC LIMIT 1)
@@ -347,7 +349,7 @@ public static class JobStore
         ArgumentNullException.ThrowIfNull(check);
         var card = await transaction.Connection!.QuerySingleOrDefaultAsync<Picked>(new CommandDefinition(
             $"""
-            SELECT number AS Number, picked_title AS Title, picked_body AS Body FROM cards
+            SELECT number AS Number, picked_title AS Title, picked_body AS Body, coalesce(fix_comments, '[]'::jsonb)::text AS Comments FROM cards
             WHERE {Takeable}
             ORDER BY {CardStore.QueueOrder}
             LIMIT 1
@@ -366,13 +368,14 @@ public static class JobStore
             new { projectId, number = card.Number, now },
             transaction,
             cancellationToken: cancellationToken));
-        var claimed = new ClaimedCard(Guid.CreateVersion7(now), card.Number, card.Title, card.Body, Branch(card.Number, card.Title));
+        var comments = JsonSerializer.Deserialize<List<string>>(card.Comments) ?? [];
+        var claimed = new ClaimedCard(Guid.CreateVersion7(now), card.Number, card.Title, card.Body, Branch(card.Number, card.Title), comments);
         await transaction.Connection!.ExecuteAsync(new CommandDefinition(
             """
-            INSERT INTO runs (id, project_id, user_id, card_number, worker_id, kind, branch, base, check_command, started_at)
-            VALUES (@id, @projectId, @userId, @number, @workerId, 'build', @branch, @baseBranch, @check, @now)
+            INSERT INTO runs (id, project_id, user_id, card_number, worker_id, kind, branch, base, check_command, owner_comments, started_at)
+            VALUES (@id, @projectId, @userId, @number, @workerId, 'build', @branch, @baseBranch, @check, @comments::jsonb, @now)
             """,
-            new { id = claimed.RunId, projectId, userId, number = claimed.Number, workerId, branch = claimed.Branch, baseBranch, check, now },
+            new { id = claimed.RunId, projectId, userId, number = claimed.Number, workerId, branch = claimed.Branch, baseBranch, check, comments = comments.Count == 0 ? null : card.Comments, now },
             transaction,
             cancellationToken: cancellationToken));
         return claimed;
@@ -398,7 +401,7 @@ public static class JobStore
     /// <summary>What a card under review says while its run is under way.</summary>
     public const string BeingReviewed = "The reviewer is reading it";
 
-    private sealed record Picked(int Number, string Title, string Body);
+    private sealed record Picked(int Number, string Title, string Body, string Comments);
 
     private sealed record ToFix(int Number, string Title, string Body, string Branch, string Base, string FromCommit, int? Round, Guid? ReviewId, string Comments, string? Report);
 

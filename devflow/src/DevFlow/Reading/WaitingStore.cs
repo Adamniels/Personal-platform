@@ -7,6 +7,7 @@ using DevFlow.Cards;
 using DevFlow.CodeHost;
 using DevFlow.Link;
 using DevFlow.Runner;
+using DevFlow.Stops;
 
 using PlatformData;
 
@@ -193,6 +194,31 @@ public sealed record DecisionItem(
     string? ReviewerView,
     DateTimeOffset OpenedAt);
 
+/// <summary>A card of Dev flow's own that stopped, shown under "Stopped" until the owner's comment
+/// runs it again. Its title and its reason came from the code host, a worker or an agent, and are
+/// shown as text. See "Stops" in devflow/README.md.</summary>
+/// <param name="ProjectName">The repository's name, as connected.</param>
+/// <param name="Owner">The repository's owner, as connected.</param>
+/// <param name="Number">The card's issue number.</param>
+/// <param name="Title">The card's title, as it was picked.</param>
+/// <param name="WebUrl">Where the card's issue is on the code host, where a comment runs it
+/// again.</param>
+/// <param name="Reason">Why it stopped.</param>
+/// <param name="StoppedAt">When it stopped.</param>
+/// <param name="PullRequestUrl">Where its pull request is, null when it has none.</param>
+public sealed record StoppedCard(Guid ProjectId, string ProjectName, string Owner, int Number, string Title, Uri WebUrl, string Reason, DateTimeOffset StoppedAt, Uri? PullRequestUrl);
+
+/// <summary>A project whose runs keep failing outside their cards, so it cannot run them, shown
+/// until a run succeeds. See "Stops" in devflow/README.md.</summary>
+/// <param name="ProjectName">The repository's name, as connected.</param>
+/// <param name="Owner">The repository's owner, as connected.</param>
+/// <param name="Message">"Dev flow cannot run &lt;project&gt;'s cards: &lt;the last reason&gt;".</param>
+/// <param name="Reason">The last failure's reason, from a worker or Dev flow, shown as text.</param>
+/// <param name="Failures">How many runs in a row failed outside their cards.</param>
+/// <param name="Since">When the first of them failed.</param>
+/// <param name="WaitUntil">Until when it hands out no job.</param>
+public sealed record FailingProject(Guid ProjectId, string ProjectName, string Owner, string Message, string Reason, int Failures, DateTimeOffset Since, DateTimeOffset WaitUntil);
+
 /// <summary>What <c>GET /devflow/api/waiting</c> answers.</summary>
 /// <param name="Count">The items not sent back, Dev flow's own items, cards and decisions to look
 /// at, and one more when the link needs renewing: what waits for the owner to act.</param>
@@ -201,9 +227,12 @@ public sealed record DecisionItem(
 /// project.</param>
 /// <param name="Cards">Dev flow's own cards whose pull requests wait for the owner, by project and
 /// number.</param>
+/// <param name="StoppedCards">Dev flow's own cards that stopped, by project and number.</param>
+/// <param name="FailingProjects">The projects whose runs have failed outside their cards six times
+/// in a row, by project.</param>
 /// <param name="Decisions">The open issues Dev flow opened for decisions marked for the owner on
 /// cards it merged, by project, oldest first.</param>
-public sealed record WaitingList(int Count, bool NeedsRelink, IReadOnlyList<WaitingItem> Items, IReadOnlyList<ProjectFreshness> Projects, IReadOnlyList<OwnItem> OwnItems, IReadOnlyList<CardItem> Cards, IReadOnlyList<DecisionItem> Decisions);
+public sealed record WaitingList(int Count, bool NeedsRelink, IReadOnlyList<WaitingItem> Items, IReadOnlyList<ProjectFreshness> Projects, IReadOnlyList<OwnItem> OwnItems, IReadOnlyList<CardItem> Cards, IReadOnlyList<StoppedCard> StoppedCards, IReadOnlyList<FailingProject> FailingProjects, IReadOnlyList<DecisionItem> Decisions);
 
 /// <summary>
 /// What waits for a user, read from the snapshot <see cref="ProjectReader"/> stores and never from
@@ -220,7 +249,7 @@ public sealed class WaitingStore(UserDb database, TimeProvider time)
     /// name, and whether their link needs renewing, read in one transaction.</summary>
     public async Task<WaitingList> For(Guid userId, CancellationToken cancellationToken)
     {
-        var (items, projects, relink, stops, cardRows, decisionRows) = await database.InUserTransaction(userId, async transaction =>
+        var (items, projects, relink, stops, cardRows, stoppedRows, failingRows, decisionRows) = await database.InUserTransaction(userId, async transaction =>
         {
             var items = await transaction.Connection!.QueryAsync<ItemRow>(new CommandDefinition(
                 """
@@ -278,6 +307,28 @@ public sealed class WaitingStore(UserDb database, TimeProvider time)
                 """,
                 transaction: transaction,
                 cancellationToken: cancellationToken));
+            var failing = await transaction.Connection!.QueryAsync<FailingRow>(new CommandDefinition(
+                """
+                SELECT w.project_id AS ProjectId, p.name AS ProjectName, p.owner AS Owner, w.reason AS Reason, w.failures AS Failures,
+                       w.since AS Since, w.wait_until AS WaitUntil
+                FROM project_waits w JOIN projects p ON p.id = w.project_id
+                WHERE w.failures >= @shown
+                ORDER BY lower(p.owner), lower(p.name), p.id
+                """,
+                new { shown = ProjectWaits.Shown },
+                transaction,
+                cancellationToken: cancellationToken));
+            var stopped = await transaction.Connection!.QueryAsync<StoppedRow>(new CommandDefinition(
+                """
+                SELECT c.project_id AS ProjectId, p.name AS ProjectName, p.owner AS Owner, c.number AS Number,
+                       coalesce(c.picked_title, c.title) AS Title, c.web_url AS WebUrl, coalesce(c.reason, '') AS Reason,
+                       coalesce(c.stopped_at, c.changed_at) AS StoppedAt, c.pull_request_url AS PullRequestUrl
+                FROM cards c JOIN projects p ON p.id = c.project_id
+                WHERE c.state = 'stopped'
+                ORDER BY lower(p.owner), lower(p.name), p.id, c.number
+                """,
+                transaction: transaction,
+                cancellationToken: cancellationToken));
             var decisions = await transaction.Connection!.QueryAsync<DecisionRow>(new CommandDefinition(
                 """
                 SELECT d.id AS Id, d.project_id AS ProjectId, p.name AS ProjectName, p.owner AS Owner, d.card_number AS CardNumber,
@@ -291,7 +342,7 @@ public sealed class WaitingStore(UserDb database, TimeProvider time)
                 """,
                 transaction: transaction,
                 cancellationToken: cancellationToken));
-            return (items.ToList(), projects.ToList(), relink, stops.ToList(), cards.ToList(), decisions.ToList());
+            return (items.ToList(), projects.ToList(), relink, stops.ToList(), cards.ToList(), stopped.ToList(), failing.ToList(), decisions.ToList());
         }, cancellationToken);
 
         var now = time.GetUtcNow();
@@ -326,8 +377,27 @@ public sealed class WaitingStore(UserDb database, TimeProvider time)
             Said(row.Why),
             row.ReviewerView is { } view ? Said(view) : null,
             GitHubLink.Utc(row.OpenedAt))).ToList();
+        var failingProjects = failingRows.Select(row => new FailingProject(
+            row.ProjectId,
+            row.ProjectName,
+            row.Owner,
+            ProjectWaits.CannotRun(row.ProjectName, row.Reason),
+            row.Reason,
+            row.Failures,
+            GitHubLink.Utc(row.Since),
+            GitHubLink.Utc(row.WaitUntil))).ToList();
+        var stoppedCards = stoppedRows.Select(row => new StoppedCard(
+            row.ProjectId,
+            row.ProjectName,
+            row.Owner,
+            row.Number,
+            row.Title,
+            new Uri(row.WebUrl),
+            row.Reason,
+            GitHubLink.Utc(row.StoppedAt),
+            row.PullRequestUrl is { } address ? new Uri(address) : null)).ToList();
         return new WaitingList(
-            waiting.Count(item => !item.SentBack) + own.Count + cards.Count + decided.Count + (relink ? 1 : 0),
+            waiting.Count(item => !item.SentBack) + own.Count + cards.Count + stoppedCards.Count + failingProjects.Count + decided.Count + (relink ? 1 : 0),
             relink,
             waiting,
             [.. projects.Select(project =>
@@ -337,6 +407,8 @@ public sealed class WaitingStore(UserDb database, TimeProvider time)
             })],
             own,
             cards,
+            stoppedCards,
+            failingProjects,
             decided);
     }
 
@@ -476,6 +548,10 @@ public sealed class WaitingStore(UserDb database, TimeProvider time)
         int Blocking,
         string? Screenshots,
         string? ScreenshotsNote);
+
+    private sealed record StoppedRow(Guid ProjectId, string ProjectName, string Owner, int Number, string Title, string WebUrl, string Reason, DateTime StoppedAt, string? PullRequestUrl);
+
+    private sealed record FailingRow(Guid ProjectId, string ProjectName, string Owner, string Reason, int Failures, DateTime Since, DateTime WaitUntil);
 
     private sealed record DecisionRow(
         Guid Id,

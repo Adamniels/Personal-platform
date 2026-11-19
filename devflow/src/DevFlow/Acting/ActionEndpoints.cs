@@ -80,7 +80,7 @@ public static class ActionEndpoints
             .RequireAuthorization(PlatformAuthPolicies.Api)
             .WithName("sendBackCard")
             .WithSummary("Send a card of Dev flow's own back, with a comment as the caller")
-            .WithDescription("Posts comment, trimmed and with nothing added, on the card's open pull request as the caller's linked GitHub account and never as the app; the read of the project that follows takes it, as any comment of his past the newest already taken, and starts a fix run with it, which is not a review round. In order: 404 for a project or card the caller does not have; 422 when comment is missing, empty once trimmed, or longer than 10,000 characters; 409 when the card neither waits for the caller nor has stopped, or has no open pull request; 409 when GitHub is not linked or the link has expired; then GitHub is asked. 204 once posted and the project read again. 409 when GitHub refuses, with its reason; 503 when GitHub did not answer. Without a valid token, 401 with an empty body; a change from another origin, 403.")
+            .WithDescription("Posts comment, trimmed and with nothing added, as the caller's linked GitHub account and never as the app: on the card's pull request for a card that waits for the caller, which the read of the project that follows takes, as any comment of his past the newest already taken, and starts a fix run with, which is not a review round; on the card's issue for a card that has stopped, which that read takes as a comment newer than the stop and runs the card again with. In order: 404 for a project or card the caller does not have; 422 when comment is missing, empty once trimmed, or longer than 10,000 characters; 409 when the card neither waits for the caller with its pull request nor has stopped; 409 when GitHub is not linked or the link has expired; then GitHub is asked. 204 once posted and the project read again. 409 when GitHub refuses, with its reason; 503 when GitHub did not answer. Without a valid token, 401 with an empty body; a change from another origin, 403.")
             .Produces(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status409Conflict)
@@ -92,10 +92,11 @@ public static class ActionEndpoints
 
     /// <summary>
     /// The owner's send back of a card of Dev flow's own, part 1's send back: his comment, posted
-    /// as him on the card's pull request, which the read that follows takes as the one input Dev flow
-    /// reads from GitHub and starts a fix with. Offered for a card waiting for him and for a stopped
-    /// one, while its pull request is open; Dev flow itself writes nothing to the card here, so the
-    /// comment on GitHub is the one record of it. See "Fixing" in devflow/README.md.
+    /// as him, which the read that follows takes as the one input Dev flow reads from GitHub. For a
+    /// card waiting for him it goes on its pull request and starts a fix; for a stopped one it goes
+    /// on its issue, which always exists whatever became of its pull request, and runs it again, as
+    /// "Comment to run again". Dev flow itself writes nothing to the card here, so the comment on
+    /// GitHub is the one record of it. See "Fixing" and "Stops" in devflow/README.md.
     /// </summary>
     private static async Task<Results<NoContent, ProblemHttpResult>> SendBackCard(
         Guid id,
@@ -120,26 +121,20 @@ public static class ActionEndpoints
             return invalid;
         }
 
-        if (card.State is not ("waiting_for_owner" or "stopped") || card.PullRequestNumber is not { } pull || card.Reason == CardStore.PullRequestClosed)
-        {
-            return Conflict("This card cannot be sent back now", "A card is sent back while it waits for you or has stopped, with its pull request open.");
-        }
-
-        // A stopped card's pull request is not followed by the read, so one closed since it stopped
-        // is known only by asking; a comment on it would be taken by no read.
+        // A stopped card runs again on his comment on its issue; one waiting for him is sent back on
+        // its pull request.
+        int conversation;
         if (card.State == "stopped")
         {
-            switch (await host.PullRequest(userId, card.Repository, pull, cancellationToken))
-            {
-                case CodeHostResult<PullRequest>.Found { Value.State: PullRequestState.Open }:
-                    break;
-                case CodeHostResult<PullRequest>.Found or CodeHostResult<PullRequest>.NotFound:
-                    return Conflict("This card cannot be sent back now", "Its pull request is no longer open.");
-                case CodeHostResult<PullRequest>.Unavailable { RetryAt: var retryAt }:
-                    return Unavailable(context, time, retryAt, "GitHub could not say whether the card's pull request is open; nothing was posted.");
-                default:
-                    throw new InvalidOperationException("a code host result that is not one of the three");
-            }
+            conversation = card.Number;
+        }
+        else if (card.State == "waiting_for_owner" && card.PullRequestNumber is { } pull)
+        {
+            conversation = pull;
+        }
+        else
+        {
+            return Conflict("This card cannot be sent back now", "A card is sent back while it waits for you, or run again once it has stopped.");
         }
 
         var userToken = await tokens.For(userId, cancellationToken);
@@ -148,7 +143,7 @@ public static class ActionEndpoints
             return TokenProblem(userToken, context, time);
         }
 
-        switch (await host.Comment(userId, access, card.Repository, pull, request.Comment!.Trim(), cancellationToken))
+        switch (await host.Comment(userId, access, card.Repository, conversation, request.Comment!.Trim(), cancellationToken))
         {
             case CommentResult.Posted:
                 await ReadAgain(refresher, card.ProjectId, userId, time, cancellationToken);

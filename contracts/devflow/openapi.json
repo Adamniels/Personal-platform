@@ -917,6 +917,49 @@
         ],
         "type": "object"
       },
+      "FailingProject": {
+        "properties": {
+          "failures": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "message": {
+            "type": "string"
+          },
+          "owner": {
+            "type": "string"
+          },
+          "project_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "project_name": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "since": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "wait_until": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "project_name",
+          "owner",
+          "message",
+          "reason",
+          "failures",
+          "since",
+          "wait_until"
+        ],
+        "type": "object"
+      },
       "GitHubLinkState": {
         "enum": [
           "none",
@@ -2033,6 +2076,19 @@
               "null",
               "string"
             ]
+          },
+          "resets_at": {
+            "format": "date-time",
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "timed_out": {
+            "type": [
+              "null",
+              "boolean"
+            ]
           }
         },
         "required": [
@@ -2105,6 +2161,57 @@
           "hold_label",
           "attention_label",
           "waits_for_owner"
+        ],
+        "type": "object"
+      },
+      "StoppedCard": {
+        "properties": {
+          "number": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "owner": {
+            "type": "string"
+          },
+          "project_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "project_name": {
+            "type": "string"
+          },
+          "pull_request_url": {
+            "format": "uri",
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "reason": {
+            "type": "string"
+          },
+          "stopped_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "web_url": {
+            "format": "uri",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "project_name",
+          "owner",
+          "number",
+          "title",
+          "web_url",
+          "reason",
+          "stopped_at",
+          "pull_request_url"
         ],
         "type": "object"
       },
@@ -2234,6 +2341,12 @@
             },
             "type": "array"
           },
+          "failing_projects": {
+            "items": {
+              "$ref": "#/components/schemas/FailingProject"
+            },
+            "type": "array"
+          },
           "items": {
             "items": {
               "$ref": "#/components/schemas/WaitingItem"
@@ -2254,6 +2367,12 @@
               "$ref": "#/components/schemas/ProjectFreshness"
             },
             "type": "array"
+          },
+          "stopped_cards": {
+            "items": {
+              "$ref": "#/components/schemas/StoppedCard"
+            },
+            "type": "array"
           }
         },
         "required": [
@@ -2263,6 +2382,8 @@
           "projects",
           "own_items",
           "cards",
+          "stopped_cards",
+          "failing_projects",
           "decisions"
         ],
         "type": "object"
@@ -2337,6 +2458,12 @@
       },
       "WorkerList": {
         "properties": {
+          "cannot_run": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
           "held": {
             "type": [
               "null",
@@ -3042,7 +3169,7 @@
     },
     "/devflow/api/projects/{id}/cards/{number}/send-back": {
       "post": {
-        "description": "Posts comment, trimmed and with nothing added, on the card's open pull request as the caller's linked GitHub account and never as the app; the read of the project that follows takes it, as any comment of his past the newest already taken, and starts a fix run with it, which is not a review round. In order: 404 for a project or card the caller does not have; 422 when comment is missing, empty once trimmed, or longer than 10,000 characters; 409 when the card neither waits for the caller nor has stopped, or has no open pull request; 409 when GitHub is not linked or the link has expired; then GitHub is asked. 204 once posted and the project read again. 409 when GitHub refuses, with its reason; 503 when GitHub did not answer. Without a valid token, 401 with an empty body; a change from another origin, 403.",
+        "description": "Posts comment, trimmed and with nothing added, as the caller's linked GitHub account and never as the app: on the card's pull request for a card that waits for the caller, which the read of the project that follows takes, as any comment of his past the newest already taken, and starts a fix run with, which is not a review round; on the card's issue for a card that has stopped, which that read takes as a comment newer than the stop and runs the card again with. In order: 404 for a project or card the caller does not have; 422 when comment is missing, empty once trimmed, or longer than 10,000 characters; 409 when the card neither waits for the caller with its pull request nor has stopped; 409 when GitHub is not linked or the link has expired; then GitHub is asked. 204 once posted and the project read again. 409 when GitHub refuses, with its reason; 503 when GitHub did not answer. Without a valid token, 401 with an empty body; a change from another origin, 403.",
         "operationId": "sendBackCard",
         "parameters": [
           {
@@ -3397,7 +3524,7 @@
     },
     "/devflow/api/projects/{id}/workers": {
       "get": {
-        "description": "Every worker that has said hello with the project's key, by when it first did, with what it reported, when it was last seen, and rebuild: recipe when it runs another version of the recipe than Dev flow last read, base_image when it runs on another base image than the one released, or null; key_made_at, when the project's key was made, null before one has been; recipe_version, the recipe's version as last read, null before then or when the default branch has none; start_command, the command that builds and starts the project's worker; and held, why the project hands out no work whichever worker asks, the first that applies: stopped, when something landed on its default branch that Dev flow did not put there, unwatched, when its default branch has not been read for five minutes, no_claude_login when its user has given no Claude login, claude_login_expired when it is past its renewal, or null. The key itself is never in it. 404 for a project the caller does not have. Without a valid token, 401 with an empty body; a change from another origin, 403.",
+        "description": "Every worker that has said hello with the project's key, by when it first did, with what it reported, when it was last seen, and rebuild: recipe when it runs another version of the recipe than Dev flow last read, base_image when it runs on another base image than the one released, or null; key_made_at, when the project's key was made, null before one has been; recipe_version, the recipe's version as last read, null before then or when the default branch has none; start_command, the command that builds and starts the project's worker; and held, why the project hands out no work whichever worker asks, the first that applies: stopped, when something landed on its default branch that Dev flow did not put there, unwatched, when its default branch has not been read for five minutes, no_claude_login when its user has given no Claude login, claude_login_expired when it is past its renewal, or null; and cannot_run, once six runs in a row have failed outside their cards, \"Dev flow cannot run <project>'s cards: <the last reason>\", until a run succeeds, or null. The key itself is never in it. 404 for a project the caller does not have. Without a valid token, 401 with an empty body; a change from another origin, 403.",
         "operationId": "listWorkers",
         "parameters": [
           {
@@ -3468,7 +3595,7 @@
     },
     "/devflow/api/waiting": {
       "get": {
-        "description": "Read from what Dev flow stored and never from GitHub. items are the pull requests that are the caller's turn in every project, by project and number; own_items are Dev flow's own, read from its own tables, in this part each a project stopped because something landed on its default branch that Dev flow did not put there, with the commit, who did it, when, and the commit's address on GitHub, by project; cards are Dev flow's own cards whose pull requests wait for the caller, each with its pull request, the head commit its run built and checked, the branch it merges into, the report's summary, the decisions the agent marked for the caller with the count of the others, the check Dev flow ran, review, the reviewer's verdict on its head commit with its summary and how many findings block, null when it has none, and can_merge, false while the project is stopped, by project and number; count is the items not sent back, the own items and the cards, plus one when needs_relink; projects says for each when it was last read, stale when that is more than five minutes ago or never, and failing when its last read failed. Without a valid token, 401 with an empty body.",
+        "description": "Read from what Dev flow stored and never from GitHub. items are the pull requests that are the caller's turn in every project, by project and number; own_items are Dev flow's own, read from its own tables, in this part each a project stopped because something landed on its default branch that Dev flow did not put there, with the commit, who did it, when, and the commit's address on GitHub, by project; cards are Dev flow's own cards whose pull requests wait for the caller, each with its pull request, the head commit its run built and checked, the branch it merges into, the report's summary, the decisions the agent marked for the caller with the count of the others, the check Dev flow ran, review, the reviewer's verdict on its head commit with its summary and how many findings block, null when it has none, and can_merge, false while the project is stopped, by project and number; stopped_cards are Dev flow's own cards that stopped, each with its issue's address, where a comment runs it again, why it stopped, when, and its pull request's address or null, by project and number; failing_projects are the projects whose runs have failed outside their cards six times in a row, each with message, \"Dev flow cannot run <project>'s cards: <the last reason>\", the reason, how many failures, since when and until when it hands out no job, shown until a run succeeds, by project; decisions are the open issues Dev flow opened for the decisions the agent marked for the caller on cards it merged, each with what was chosen, the alternative, why and the reviewer's view, by project, oldest first, until the caller closes it on GitHub; count is the items not sent back, the own items, the cards, the stopped cards, the failing projects and the decisions, plus one when needs_relink; projects says for each when it was last read, stale when that is more than five minutes ago or never, and failing when its last read failed. Without a valid token, 401 with an empty body.",
         "operationId": "listWaiting",
         "responses": {
           "200": {

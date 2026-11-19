@@ -108,9 +108,10 @@ public sealed class BuildJobTests
         Assert.Equal(3, recorded.CheckExitCode);
         Assert.Equal(committed, recorded.HeadCommit);
         Assert.Equal(committed, await bench.RemoteHead());
+        // A first failure in the card runs it again, see "Stops".
         var card = await bench.Jobs.Card(1);
-        Assert.Equal("stopped", card.State);
-        Assert.Equal("The check failed with exit code 3", card.Reason);
+        Assert.Equal("queued", card.State);
+        Assert.Equal(DevFlow.Jobs.RunStore.Again("The check failed with exit code 3"), card.Reason);
     }
 
     [Fact]

@@ -110,13 +110,13 @@ public sealed class FixJobTests
         await bench.Build(agent).Run(job, Ct);
 
         // Nothing ran on a commit Dev flow did not hand out, nothing was pushed, and the failure lies
-        // in the card, which stops with why.
+        // in the card, which, a first one, runs the fix again in the same round, see "Stops".
         Assert.Null(agent.Given);
         Assert.Equal(moved, await bench.RemoteHead());
         var sent = bench.SentResult(job.GetProperty("job_id").GetGuid());
         Assert.Equal("failed", (string)sent["outcome"]!);
         Assert.True((bool)sent["failure"]!["in_card"]!);
         Assert.Contains($"is at {moved}", (string)sent["failure"]!["reason"]!, StringComparison.Ordinal);
-        Assert.Equal("stopped", (await bench.Jobs.Card(1)).State);
+        Assert.Equal("fixing", (await bench.Jobs.Card(1)).State);
     }
 }

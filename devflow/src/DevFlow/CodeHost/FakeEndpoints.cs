@@ -19,6 +19,11 @@ public sealed record FakeUnavailable(bool Unavailable);
 /// <param name="Days">How many days ago the caller's Claude login is to have been given.</param>
 public sealed record FakeClaudeLoginAge(int Days);
 
+/// <summary>What <c>POST /devflow/api/fake/end-wait</c> takes.</summary>
+/// <param name="ProjectId">The caller's project whose wait after failures outside its cards is to
+/// be over.</param>
+public sealed record FakeEndWait(Guid? ProjectId);
+
 /// <summary>
 /// The fake code host's addresses, through which a test stages its account's world. Mapped only
 /// in the fake mode, so in the GitHub mode each is <c>404</c>; under the <c>Api</c> policy and the
@@ -109,6 +114,29 @@ public static class FakeEndpoints
             return aged > 0
                 ? TypedResults.NoContent()
                 : TypedResults.Problem(statusCode: StatusCodes.Status404NotFound, title: "No Claude login", detail: "the caller has no Claude login to age");
+        });
+
+        // Ends a project's wait after failures outside its cards now, its count kept, so a test sees
+        // the next failure, and the sixth that shows, without waiting minutes. See "Stops" in
+        // devflow/README.md.
+        fake.MapPost("/end-wait", async Task<Results<NoContent, ProblemHttpResult>> (HttpContext context, [FromServices] UserDb database, [FromServices] TimeProvider time) =>
+        {
+            var (body, error) = await FakeJson.Read<FakeEndWait>(context.Request.Body, context.RequestAborted);
+            error ??= body is { ProjectId: null } ? new Malformed("project_id", "is required") : null;
+            if (error is not null)
+            {
+                return Refused("The project is malformed", error);
+            }
+
+            var userId = context.UserId();
+            var ended = await database.InUserTransaction(userId, transaction => transaction.Connection!.ExecuteAsync(new CommandDefinition(
+                "UPDATE project_waits SET wait_until = @now WHERE project_id = @projectId",
+                new { projectId = body!.ProjectId, now = time.GetUtcNow() },
+                transaction,
+                cancellationToken: context.RequestAborted)), context.RequestAborted);
+            return ended > 0
+                ? TypedResults.NoContent()
+                : TypedResults.Problem(statusCode: StatusCodes.Status404NotFound, title: "No wait", detail: "the caller has no such project waiting");
         });
 
         return routes;

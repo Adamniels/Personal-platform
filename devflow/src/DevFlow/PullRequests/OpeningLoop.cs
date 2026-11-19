@@ -3,6 +3,7 @@ using Dapper;
 using DevFlow.Decisions;
 using DevFlow.Merging;
 using DevFlow.Reviews;
+using DevFlow.Stops;
 
 using PlatformData;
 
@@ -14,14 +15,15 @@ namespace DevFlow.PullRequests;
 /// <c>poll_targets</c>, the one thing it reads outside a user, and asks, as each project's user,
 /// <see cref="PullRequestOpener"/> to open its built cards' pull requests,
 /// <see cref="ReviewPoster"/> to post each recorded verdict's copy, <see cref="MergeChecker"/> to
-/// check each card due for a merge, and <see cref="DecisionIssues"/> to open the issues of the
-/// decisions a merged card marked for the owner. A worker's result is answered without waiting for
-/// GitHub, so all of it happens here, within a minute, and what GitHub did not answer for is tried
-/// again. Its own loop rather than the reading loop's, since the reading code can never reach a
-/// write key. Not run with <c>DEVFLOW_POLL_SECONDS=0</c>. See "The pull request Dev flow opens" and
-/// "The merge check" in devflow/README.md.
+/// check each card due for a merge, <see cref="DecisionIssues"/> to open the issues of the
+/// decisions a merged card marked for the owner, and <see cref="StopMarker"/> to mark each stopped
+/// card on its issue. A worker's result is answered without waiting for GitHub, so all of it
+/// happens here, within a minute, and what GitHub did not answer for is tried again. Its own loop
+/// rather than the reading loop's, since the reading code can never reach a write key. Not run with
+/// <c>DEVFLOW_POLL_SECONDS=0</c>. See "The pull request Dev flow opens", "The merge check" and
+/// "Stops" in devflow/README.md.
 /// </summary>
-public sealed partial class OpeningLoop(UserDb database, PullRequestOpener opener, ReviewPoster poster, MergeChecker merger, DecisionIssues decisions, TimeProvider time, TimeSpan interval, ILogger<OpeningLoop> log) : BackgroundService
+public sealed partial class OpeningLoop(UserDb database, PullRequestOpener opener, ReviewPoster poster, MergeChecker merger, DecisionIssues decisions, StopMarker marker, TimeProvider time, TimeSpan interval, ILogger<OpeningLoop> log) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -65,6 +67,7 @@ public sealed partial class OpeningLoop(UserDb database, PullRequestOpener opene
                 await poster.PostPending(target.ProjectId, target.UserId, stoppingToken);
                 await merger.CheckPending(target.ProjectId, target.UserId, stoppingToken);
                 await decisions.OpenPending(target.ProjectId, target.UserId, stoppingToken);
+                await marker.MarkPending(target.ProjectId, target.UserId, stoppingToken);
             }
             catch (Exception failed) when (failed is not OperationCanceledException || !stoppingToken.IsCancellationRequested)
             {

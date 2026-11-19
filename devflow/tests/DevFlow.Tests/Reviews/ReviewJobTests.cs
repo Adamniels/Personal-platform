@@ -157,7 +157,9 @@ public sealed class ReviewJobTests
         Assert.Equal("reviewing", card.State);
         Assert.Equal(PullRequestOpener.ToReview, card.Reason);
 
-        Later(jobs);
+        // Once the project's wait after a failure outside the card is over, see "Stops".
+        jobs.Routes.Time.Advance(DevFlow.Stops.ProjectWaits.First);
+        await jobs.Routes.Read(jobs.Project, Jobs.Jobs.User);
         var again = await jobs.Job();
         Assert.Equal(Job.Review, (string)again["kind"]!);
         Assert.Equal((string)built["head_commit"]!, (string)again["to_review"]!["commit"]!);

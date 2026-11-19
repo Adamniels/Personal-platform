@@ -50,6 +50,8 @@ function openAt(path: string) {
 					Promise.resolve({
 						count: 0,
 						needs_relink: false,
+						stopped_cards: [],
+						failing_projects: [],
 						items: [],
 						projects: [],
 						own_items: [],

@@ -15,8 +15,10 @@ public sealed class CardPageTests
         await using var jobs = await Jobs.Jobs.Start([Jobs.Jobs.Card(4, "Add the empty state")]);
         // A run that failed outside the card, which puts it back in the queue, then one that built it.
         await Built.Run(jobs, Built.PreparedFailure(inCard: false, "Claude's API did not answer"));
-        // The next try comes a minute later, as it would on the worker's next turn.
-        jobs.Routes.Time.Advance(TimeSpan.FromMinutes(1));
+        // The next try comes once the project's wait after a failure outside the card is over, see
+        // "Stops", the project read on its minute.
+        jobs.Routes.Time.Advance(DevFlow.Stops.ProjectWaits.First);
+        await jobs.Routes.Read(jobs.Project, Jobs.Jobs.User);
         var ran = await Built.Run(jobs, Built.Prepared(Built.Report()));
         await Built.Review(jobs);
         var runs = await jobs.Runs();

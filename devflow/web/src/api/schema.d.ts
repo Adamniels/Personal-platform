@@ -269,7 +269,7 @@ export interface paths {
         put?: never;
         /**
          * Send a card of Dev flow's own back, with a comment as the caller
-         * @description Posts comment, trimmed and with nothing added, on the card's open pull request as the caller's linked GitHub account and never as the app; the read of the project that follows takes it, as any comment of his past the newest already taken, and starts a fix run with it, which is not a review round. In order: 404 for a project or card the caller does not have; 422 when comment is missing, empty once trimmed, or longer than 10,000 characters; 409 when the card neither waits for the caller nor has stopped, or has no open pull request; 409 when GitHub is not linked or the link has expired; then GitHub is asked. 204 once posted and the project read again. 409 when GitHub refuses, with its reason; 503 when GitHub did not answer. Without a valid token, 401 with an empty body; a change from another origin, 403.
+         * @description Posts comment, trimmed and with nothing added, as the caller's linked GitHub account and never as the app: on the card's pull request for a card that waits for the caller, which the read of the project that follows takes, as any comment of his past the newest already taken, and starts a fix run with, which is not a review round; on the card's issue for a card that has stopped, which that read takes as a comment newer than the stop and runs the card again with. In order: 404 for a project or card the caller does not have; 422 when comment is missing, empty once trimmed, or longer than 10,000 characters; 409 when the card neither waits for the caller with its pull request nor has stopped; 409 when GitHub is not linked or the link has expired; then GitHub is asked. 204 once posted and the project read again. 409 when GitHub refuses, with its reason; 503 when GitHub did not answer. Without a valid token, 401 with an empty body; a change from another origin, 403.
          */
         post: operations["sendBackCard"];
         delete?: never;
@@ -371,7 +371,7 @@ export interface paths {
         };
         /**
          * The project's workers
-         * @description Every worker that has said hello with the project's key, by when it first did, with what it reported, when it was last seen, and rebuild: recipe when it runs another version of the recipe than Dev flow last read, base_image when it runs on another base image than the one released, or null; key_made_at, when the project's key was made, null before one has been; recipe_version, the recipe's version as last read, null before then or when the default branch has none; start_command, the command that builds and starts the project's worker; and held, why the project hands out no work whichever worker asks, the first that applies: stopped, when something landed on its default branch that Dev flow did not put there, unwatched, when its default branch has not been read for five minutes, no_claude_login when its user has given no Claude login, claude_login_expired when it is past its renewal, or null. The key itself is never in it. 404 for a project the caller does not have. Without a valid token, 401 with an empty body; a change from another origin, 403.
+         * @description Every worker that has said hello with the project's key, by when it first did, with what it reported, when it was last seen, and rebuild: recipe when it runs another version of the recipe than Dev flow last read, base_image when it runs on another base image than the one released, or null; key_made_at, when the project's key was made, null before one has been; recipe_version, the recipe's version as last read, null before then or when the default branch has none; start_command, the command that builds and starts the project's worker; and held, why the project hands out no work whichever worker asks, the first that applies: stopped, when something landed on its default branch that Dev flow did not put there, unwatched, when its default branch has not been read for five minutes, no_claude_login when its user has given no Claude login, claude_login_expired when it is past its renewal, or null; and cannot_run, once six runs in a row have failed outside their cards, "Dev flow cannot run <project>'s cards: <the last reason>", until a run succeeds, or null. The key itself is never in it. 404 for a project the caller does not have. Without a valid token, 401 with an empty body; a change from another origin, 403.
          */
         get: operations["listWorkers"];
         put?: never;
@@ -411,7 +411,7 @@ export interface paths {
         };
         /**
          * What waits for the caller, as last read
-         * @description Read from what Dev flow stored and never from GitHub. items are the pull requests that are the caller's turn in every project, by project and number; own_items are Dev flow's own, read from its own tables, in this part each a project stopped because something landed on its default branch that Dev flow did not put there, with the commit, who did it, when, and the commit's address on GitHub, by project; cards are Dev flow's own cards whose pull requests wait for the caller, each with its pull request, the head commit its run built and checked, the branch it merges into, the report's summary, the decisions the agent marked for the caller with the count of the others, the check Dev flow ran, review, the reviewer's verdict on its head commit with its summary and how many findings block, null when it has none, and can_merge, false while the project is stopped, by project and number; count is the items not sent back, the own items and the cards, plus one when needs_relink; projects says for each when it was last read, stale when that is more than five minutes ago or never, and failing when its last read failed. Without a valid token, 401 with an empty body.
+         * @description Read from what Dev flow stored and never from GitHub. items are the pull requests that are the caller's turn in every project, by project and number; own_items are Dev flow's own, read from its own tables, in this part each a project stopped because something landed on its default branch that Dev flow did not put there, with the commit, who did it, when, and the commit's address on GitHub, by project; cards are Dev flow's own cards whose pull requests wait for the caller, each with its pull request, the head commit its run built and checked, the branch it merges into, the report's summary, the decisions the agent marked for the caller with the count of the others, the check Dev flow ran, review, the reviewer's verdict on its head commit with its summary and how many findings block, null when it has none, and can_merge, false while the project is stopped, by project and number; stopped_cards are Dev flow's own cards that stopped, each with its issue's address, where a comment runs it again, why it stopped, when, and its pull request's address or null, by project and number; failing_projects are the projects whose runs have failed outside their cards six times in a row, each with message, "Dev flow cannot run <project>'s cards: <the last reason>", the reason, how many failures, since when and until when it hands out no job, shown until a run succeeds, by project; decisions are the open issues Dev flow opened for the decisions the agent marked for the caller on cards it merged, each with what was chosen, the alternative, why and the reviewer's view, by project, oldest first, until the caller closes it on GitHub; count is the items not sent back, the own items, the cards, the stopped cards, the failing projects and the decisions, plus one when needs_relink; projects says for each when it was last read, stale when that is more than five minutes ago or never, and failing when its last read failed. Without a valid token, 401 with an empty body.
          */
         get: operations["listWaiting"];
         put?: never;
@@ -852,6 +852,20 @@ export interface components {
             /** Format: int32 */
             waiting: number;
         };
+        FailingProject: {
+            /** Format: int32 */
+            failures: number;
+            message: string;
+            owner: string;
+            /** Format: uuid */
+            project_id: string;
+            project_name: string;
+            reason: string;
+            /** Format: date-time */
+            since: string;
+            /** Format: date-time */
+            wait_until: string;
+        };
         /** @enum {unknown} */
         GitHubLinkState: "none" | "linked" | "needs_relink";
         GitHubLinkStatus: {
@@ -1122,6 +1136,9 @@ export interface components {
         RunFailure: {
             in_card: null | boolean;
             reason: null | string;
+            /** Format: date-time */
+            resets_at?: null | string;
+            timed_out?: null | boolean;
         };
         ScreenshotGroup: {
             images: string[];
@@ -1135,6 +1152,22 @@ export interface components {
             hold_label: null | string;
             pickup_label: null | string;
             waits_for_owner: null | string;
+        };
+        StoppedCard: {
+            /** Format: int32 */
+            number: number;
+            owner: string;
+            /** Format: uuid */
+            project_id: string;
+            project_name: string;
+            /** Format: uri */
+            pull_request_url: null | string;
+            reason: string;
+            /** Format: date-time */
+            stopped_at: string;
+            title: string;
+            /** Format: uri */
+            web_url: string;
         };
         /** Format: binary */
         Stream: string;
@@ -1172,10 +1205,12 @@ export interface components {
             /** Format: int32 */
             count: number;
             decisions: components["schemas"]["DecisionItem"][];
+            failing_projects: components["schemas"]["FailingProject"][];
             items: components["schemas"]["WaitingItem"][];
             needs_relink: boolean;
             own_items: components["schemas"]["OwnItem"][];
             projects: components["schemas"]["ProjectFreshness"][];
+            stopped_cards: components["schemas"]["StoppedCard"][];
         };
         WhoAmI: {
             /** Format: uuid */
@@ -1198,6 +1233,7 @@ export interface components {
             save_command: string;
         };
         WorkerList: {
+            cannot_run?: null | string;
             held: null | string;
             /** Format: date-time */
             key_made_at: null | string;

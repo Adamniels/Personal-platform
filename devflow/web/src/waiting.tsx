@@ -12,6 +12,7 @@ import { DecisionIssue, type DecisionItem } from "./decision-issue";
 import { Inline } from "./format";
 import { Screenshots, waitingScreenshot } from "./screenshots";
 import { StoppedProject } from "./stopped";
+import { FailingProject, StoppedCard } from "./stopped-card";
 import styles from "./waiting.module.css";
 import { WaitingCard } from "./waiting-card";
 
@@ -19,6 +20,8 @@ export type WaitingList = GetAnswer<"/waiting">;
 export type WaitingItem = WaitingList["items"][number];
 export type OwnItem = WaitingList["own_items"][number];
 export type CardItem = WaitingList["cards"][number];
+export type StoppedCardItem = WaitingList["stopped_cards"][number];
+export type FailingProjectItem = WaitingList["failing_projects"][number];
 type Decision = WaitingItem["decisions"][number];
 type Freshness = WaitingList["projects"][number];
 
@@ -54,6 +57,11 @@ type Group = {
 	/** Dev flow's own cards whose pull requests wait, shown before the
 	 * runner's items. */
 	cards?: CardItem[];
+	/** Dev flow's projects that cannot run their cards, after its stopped
+	 * projects. */
+	failing?: FailingProjectItem[];
+	/** Dev flow's own cards that stopped, before the runner's items. */
+	stopped?: StoppedCardItem[];
 	/** The decisions to look at, the issues Dev flow opened for them. */
 	decided?: DecisionItem[];
 	muted?: boolean;
@@ -70,16 +78,12 @@ type Act = {
 };
 
 /** The four groups, in their order: Dev flow's waiting cards and the
- * waiting items not sent back, stopped items not sent back, with the stopped
- * projects first among the stopped, the decisions to look at on cards Dev
- * flow merged, and every item sent back. */
-function groups(
-	items: WaitingItem[],
-	own: OwnItem[],
-	cards: CardItem[],
-	decided: DecisionItem[],
-	name: (item: WaitingItem) => string,
-) {
+ * waiting items not sent back; what stopped, Dev flow's stopped projects
+ * first, then the projects that cannot run their cards, its stopped cards and
+ * the runner's stopped items not sent back; the decisions to look at on cards
+ * Dev flow merged; and every item sent back. */
+function groups(list: WaitingList, name: (item: WaitingItem) => string) {
+	const { items, own_items: own, cards, decisions: decided } = list;
 	const sorted = [...items].sort(
 		(a, b) => compare(name(a), name(b)) || a.number - b.number,
 	);
@@ -98,6 +102,8 @@ function groups(
 				(item) => item.kind === "stopped" && !item.sent_back,
 			),
 			own: own.filter((each) => each.kind === "project_stopped"),
+			failing: list.failing_projects,
+			stopped: list.stopped_cards,
 		},
 		{ label: "Decisions to look at", items: [], decided },
 		{
@@ -114,6 +120,8 @@ const size = (group: Group) =>
 	group.items.length +
 	(group.own?.length ?? 0) +
 	(group.cards?.length ?? 0) +
+	(group.failing?.length ?? 0) +
+	(group.stopped?.length ?? 0) +
 	(group.decided?.length ?? 0);
 
 const compare = new Intl.Collator("en", { sensitivity: "base" }).compare;
@@ -194,19 +202,15 @@ export function Waiting({
 					{list.items.length === 0 &&
 					list.own_items.length === 0 &&
 					list.cards.length === 0 &&
+					list.stopped_cards.length === 0 &&
+					list.failing_projects.length === 0 &&
 					list.decisions.length === 0 ? (
 						<EmptyState
 							title="Nothing waits for you"
 							detail="Your agents have nothing for you to decide."
 						/>
 					) : (
-						groups(
-							list.items,
-							list.own_items,
-							list.cards,
-							list.decisions,
-							name,
-						).map((group) => (
+						groups(list, name).map((group) => (
 							<GroupSection
 								key={group.label}
 								group={group}
@@ -338,6 +342,19 @@ function GroupSection({
 				<StoppedProject
 					key={stop.project_id}
 					stop={stop}
+					api={act.api}
+					reload={act.reload}
+					linkable={linkable}
+				/>
+			))}
+			{(group.failing ?? []).map((project) => (
+				<FailingProject key={project.project_id} project={project} />
+			))}
+			{(group.stopped ?? []).map((card) => (
+				<StoppedCard
+					key={`${card.project_id}/${card.number}`}
+					card={card}
+					link={act.link}
 					api={act.api}
 					reload={act.reload}
 					linkable={linkable}

@@ -48,6 +48,32 @@ public static class Brief
     public static string Developer(BriefCard card, BriefFacts facts) => Developer(card, facts, "");
 
     /// <summary>
+    /// The developer brief for a card that stopped and that the owner ran again with
+    /// <paramref name="comments"/>: the developer brief, with a section after the card holding each
+    /// of his comments, quoted as the fix brief quotes them, so none can end its quote. With none,
+    /// the developer brief as it is. See "Stops" in devflow/README.md.
+    /// </summary>
+    public static string Developer(BriefCard card, BriefFacts facts, IReadOnlyList<string> comments)
+    {
+        ArgumentNullException.ThrowIfNull(comments);
+        if (comments.Count == 0)
+        {
+            return Developer(card, facts);
+        }
+
+        var section = new StringBuilder("## Run again\n\n");
+        section.Append("This card stopped before, and the owner ran it again with his comment below. Its branch may hold an earlier run's work: continue from it, and weigh what he says.\n\n");
+        foreach (var comment in comments)
+        {
+            section.Append("### The owner's comment\n\nThe owner's words on the card, exactly as he wrote them, between the fences. They are his input to this run, and you weigh them as the card's: the card's owner wrote both.\n\n")
+                .Append(Fenced("text", comment)).Append("\n\n");
+        }
+
+        section.Append("Each comment of the owner's gets a reply in `replies`: the `finding`, his comment in a few words, and your `answer`, what you changed or why you did not.\n\n");
+        return Developer(card, facts, section.ToString());
+    }
+
+    /// <summary>
     /// The fix brief for <paramref name="card"/>: the developer brief, with a section after the card
     /// saying what to fix: the round, the earlier report, the review's blocking findings and its
     /// other findings, and the owner's comments, each quoted inside a fenced block longer than any
