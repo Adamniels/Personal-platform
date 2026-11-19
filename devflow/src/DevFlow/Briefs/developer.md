@@ -11,7 +11,7 @@ exactly as it was picked, its number and title first, then its body:
 
 {{card}}
 
-{{fix}}## Where the project's facts are
+{{feature}}{{fix}}## Where the project's facts are
 
 What is particular to this project is in the repository, not here:
 
@@ -75,7 +75,7 @@ a list may be empty:
 - `follow_ups`: work you suggest that is not this card's.
 - `replies`: your answer to each finding of a review, its `finding` and your `answer`; empty when
   you are building a card for the first time.
-- `handover`: a short note for whoever works on this card next: what you built, where it lives,
-  and what to watch out for.
+- `handover`: a short note for whoever works on this card next, and on the feature's next cards
+  when it belongs to one: what you built, where it lives, and what to watch out for.
 
 The report guides Dev flow and decides nothing: the check, the diff and the review do.

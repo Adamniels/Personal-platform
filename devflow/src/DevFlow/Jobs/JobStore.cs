@@ -4,6 +4,7 @@ using System.Text.Json;
 
 using Dapper;
 
+using DevFlow.Briefs;
 using DevFlow.Cards;
 using DevFlow.Fixing;
 using DevFlow.Protocol;
@@ -25,7 +26,9 @@ namespace DevFlow.Jobs;
 /// he wrote it; empty for a card that never stopped.</param>
 /// <param name="Base">The branch it is made from: its feature's branch for a card of a feature,
 /// and otherwise the default branch.</param>
-public sealed record ClaimedCard(Guid RunId, int Number, string Title, string Body, string Branch, IReadOnlyList<string> Comments, string Base);
+/// <param name="Feature">The feature it is a card of, with what its done cards left, null for a
+/// card on its own.</param>
+public sealed record ClaimedCard(Guid RunId, int Number, string Title, string Body, string Branch, IReadOnlyList<string> Comments, string Base, BriefFeature? Feature = null);
 
 /// <summary>A card taken for its review, with the run made for it and what the review reads of the
 /// build that made the commit.</summary>
@@ -43,7 +46,8 @@ public sealed record ClaimedCard(Guid RunId, int Number, string Title, string Bo
 /// <param name="Earlier">The card's earlier rounds, oldest first, empty on its first review.</param>
 /// <param name="Screenshots">The pictures the worker took of the commit, and its note; null when
 /// it tried none.</param>
-public sealed record ClaimedReview(Guid RunId, int Number, string Title, string Body, string Branch, string Base, string Commit, string Report, string? Check, int CheckExitCode, string CheckOutput, IReadOnlyList<EarlierRound> Earlier, ResultScreenshots? Screenshots = null);
+/// <param name="Feature">The feature it is a card of, null for a card on its own.</param>
+public sealed record ClaimedReview(Guid RunId, int Number, string Title, string Body, string Branch, string Base, string Commit, string Report, string? Check, int CheckExitCode, string CheckOutput, IReadOnlyList<EarlierRound> Earlier, ResultScreenshots? Screenshots = null, BriefFeature? Feature = null);
 
 /// <summary>An earlier round of a card as stored: a fix that succeeded, the review it answered, and
 /// its replies. Its texts are as they were stored.</summary>
@@ -70,7 +74,9 @@ public sealed record EarlierRound(int? Round, string? ReviewedCommit, string? Ve
 /// null without one.</param>
 /// <param name="Review">The review the fix answers, null when there is none.</param>
 /// <param name="Comments">The owner's comments the fix answers, each exactly as he wrote it.</param>
-public sealed record ClaimedFix(Guid RunId, int Number, string Title, string Body, string Branch, string Base, string FromCommit, int? Round, string? Report, KeptReview? Review, IReadOnlyList<string> Comments);
+/// <param name="Feature">The feature it is a card of, with what its done cards left, null for a
+/// card on its own.</param>
+public sealed record ClaimedFix(Guid RunId, int Number, string Title, string Body, string Branch, string Base, string FromCommit, int? Round, string? Report, KeptReview? Review, IReadOnlyList<string> Comments, BriefFeature? Feature = null);
 
 /// <summary>
 /// Jobs in the database, through the door as the project's user: which kind of job a project has
@@ -264,7 +270,7 @@ public static class JobStore
         var earlier = await Earlier(transaction, projectId, card.Number, cancellationToken);
         var claimed = new ClaimedReview(
             Guid.CreateVersion7(now), card.Number, card.Title, card.Body, card.Branch, card.Base, card.Commit, card.Report, card.Check, card.CheckExitCode, card.CheckOutput ?? "", earlier,
-            Pictures(card.Screenshots, card.ScreenshotsNote));
+            Pictures(card.Screenshots, card.ScreenshotsNote), await FeatureOf(transaction, projectId, card.Number, cancellationToken));
         await transaction.Connection!.ExecuteAsync(new CommandDefinition(
             """
             INSERT INTO runs (id, project_id, user_id, card_number, worker_id, kind, branch, base, check_command, head_commit, started_at)
@@ -344,7 +350,8 @@ public static class JobStore
             cancellationToken: cancellationToken));
         var review = card.ReviewId is { } reviewId ? await ReviewStore.Of(transaction, reviewId, cancellationToken) : null;
         var comments = JsonSerializer.Deserialize<List<string>>(card.Comments) ?? [];
-        var claimed = new ClaimedFix(Guid.CreateVersion7(now), card.Number, card.Title, card.Body, card.Branch, card.Base, card.FromCommit, card.Round, card.Report, review, comments);
+        var claimed = new ClaimedFix(Guid.CreateVersion7(now), card.Number, card.Title, card.Body, card.Branch, card.Base, card.FromCommit, card.Round, card.Report, review, comments,
+            await FeatureOf(transaction, projectId, card.Number, cancellationToken));
         await transaction.Connection!.ExecuteAsync(new CommandDefinition(
             """
             INSERT INTO runs (id, project_id, user_id, card_number, worker_id, kind, branch, base, check_command, from_commit, fix_round,
@@ -411,7 +418,8 @@ public static class JobStore
             transaction,
             cancellationToken: cancellationToken));
         var comments = JsonSerializer.Deserialize<List<string>>(card.Comments) ?? [];
-        var claimed = new ClaimedCard(Guid.CreateVersion7(now), card.Number, card.Title, card.Body, Branch(card.Number, card.Title), comments, card.FeatureBranch ?? baseBranch);
+        var claimed = new ClaimedCard(Guid.CreateVersion7(now), card.Number, card.Title, card.Body, Branch(card.Number, card.Title), comments, card.FeatureBranch ?? baseBranch,
+            await FeatureOf(transaction, projectId, card.Number, cancellationToken));
         await transaction.Connection!.ExecuteAsync(new CommandDefinition(
             """
             INSERT INTO runs (id, project_id, user_id, card_number, worker_id, kind, branch, base, check_command, owner_comments, started_at)
@@ -421,6 +429,46 @@ public static class JobStore
             transaction,
             cancellationToken: cancellationToken));
         return claimed;
+    }
+
+    /// <summary>
+    /// The feature the card is a card of, as its briefs quote it, read inside
+    /// <paramref name="transaction"/>, which runs as the card's user: the parent's number, title and
+    /// body as they were picked; and each other card of it that is done, in position order, with its
+    /// title as picked and the handover note of its newest build or fix that succeeded, empty when
+    /// that report has none. Null for a card on its own.
+    /// </summary>
+    public static async Task<BriefFeature?> FeatureOf(NpgsqlTransaction transaction, Guid projectId, int number, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(transaction);
+        var parent = await transaction.Connection!.QuerySingleOrDefaultAsync<FeatureParent>(new CommandDefinition(
+            """
+            SELECT f.number AS Number, coalesce(f.picked_title, f.title) AS Title, coalesce(f.picked_body, '') AS Body
+            FROM cards c JOIN features f ON f.id = c.feature_id
+            WHERE c.project_id = @projectId AND c.number = @number
+            """,
+            new { projectId, number },
+            transaction,
+            cancellationToken: cancellationToken));
+        if (parent is null)
+        {
+            return null;
+        }
+
+        var done = await transaction.Connection!.QueryAsync<BriefHandover>(new CommandDefinition(
+            """
+            SELECT e.number AS Number, coalesce(e.picked_title, e.title) AS Title,
+                   coalesce((SELECT r.report->>'handover' FROM runs r
+                             WHERE r.project_id = e.project_id AND r.card_number = e.number AND r.kind IN ('build', 'fix') AND r.result = 'succeeded'
+                             ORDER BY r.started_at DESC, r.id DESC LIMIT 1), '') AS Note
+            FROM cards c JOIN cards e ON e.project_id = c.project_id AND e.feature_id = c.feature_id
+            WHERE c.project_id = @projectId AND c.number = @number AND e.number <> c.number AND e.state = 'done'
+            ORDER BY e.position
+            """,
+            new { projectId, number },
+            transaction,
+            cancellationToken: cancellationToken));
+        return new BriefFeature(parent.Number, parent.Title, parent.Body, [.. done]);
     }
 
     /// <summary>Whether <paramref name="runId"/> is a build or a fix run of the project, under way,
@@ -444,6 +492,8 @@ public static class JobStore
     public const string BeingReviewed = "The reviewer is reading it";
 
     private sealed record Picked(int Number, string Title, string Body, string Comments, string? FeatureBranch);
+
+    private sealed record FeatureParent(int Number, string Title, string Body);
 
     private sealed record ToFix(int Number, string Title, string Body, string Branch, string Base, string FromCommit, int? Round, Guid? ReviewId, string Comments, string? Report);
 
