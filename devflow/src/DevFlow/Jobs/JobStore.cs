@@ -80,13 +80,15 @@ public static class JobStore
     /// <summary>The longest slug a branch takes from its card's title.</summary>
     public const int MaxSlug = 40;
 
-    /// <summary>What makes a card one to hand out, as SQL over <c>cards</c>: queued, waiting for
-    /// nothing, picked with its body kept, and with no run under way. A read can leave a card
+    /// <summary>What makes a card one to hand out, as SQL over <c>cards</c>: on its own, queued,
+    /// waiting for nothing, picked with its body kept, and with no run under way. A feature's
+    /// cards are built on the feature's branch, which a later slice makes, and never handed out on
+    /// their own. A read can leave a card
     /// queued while its run still goes on, when it ignored the card and a later one picked it
     /// again; such a card waits for its run to end, so the unique index <c>runs_one_under_way</c>
     /// stays a backstop rather than the guard.</summary>
     private const string Takeable = """
-        project_id = @projectId AND state = 'queued' AND cardinality(waits_for) = 0 AND picked_body IS NOT NULL
+        project_id = @projectId AND feature_id IS NULL AND state = 'queued' AND cardinality(waits_for) = 0 AND picked_body IS NOT NULL
         AND NOT EXISTS (SELECT 1 FROM runs
                         WHERE runs.project_id = cards.project_id AND runs.card_number = cards.number AND runs.finished_at IS NULL)
         """;
