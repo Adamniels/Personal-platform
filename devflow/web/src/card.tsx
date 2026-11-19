@@ -18,6 +18,7 @@ import type { components } from "./api/schema";
 import styles from "./card.module.css";
 import { stateWord } from "./cards";
 import { Inline } from "./format";
+import { cardScreenshot, Screenshots } from "./screenshots";
 import { linkable } from "./waiting";
 
 export type CardStory = components["schemas"]["CardStoryView"];
@@ -188,6 +189,25 @@ export function CardPage({
 					</p>
 				</div>
 			</Panel>
+			{story.screenshots === null ? null : (
+				<Panel title="Screenshots" className={styles.panel}>
+					<div className={styles.body}>
+						<p className={styles.muted}>
+							Taken by the worker of{" "}
+							<code className={styles.code}>
+								{story.screenshots.commit.slice(0, 7)}
+							</code>
+							, after its check passed
+						</p>
+						<Screenshots
+							titled={false}
+							address={(name) => cardScreenshot(project, number, name)}
+							groups={story.screenshots.groups}
+							note={story.screenshots.note}
+						/>
+					</div>
+				</Panel>
+			)}
 			{story.rounds.length === 0 ? null : (
 				<Panel title="Rounds" className={styles.panel}>
 					<ul className={styles.runs} aria-label="Rounds">

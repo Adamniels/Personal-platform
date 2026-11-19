@@ -108,3 +108,11 @@ dialog.viewer {
 	display: block;
 	max-width: none;
 }
+
+/* What the worker said when some or all could not be taken: its words, as
+ * text, which may be long, so they wrap anywhere. */
+.note {
+	margin: 0;
+	color: var(--text-2);
+	overflow-wrap: anywhere;
+}

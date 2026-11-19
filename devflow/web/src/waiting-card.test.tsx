@@ -43,6 +43,7 @@ function card(overrides: Partial<CardItem> = {}): CardItem {
 		check: { command: "npm ci && npm test", exit_code: 0, commit: HEAD },
 		can_merge: true,
 		changed_at: "2026-11-18T11:55:00+00:00",
+		screenshots: null,
 		...overrides,
 	};
 }
@@ -214,6 +215,28 @@ describe("a card of Dev flow's that waits", () => {
 		expect(shown.getByText("Changes asked for")).toBeTruthy();
 		expect(shown.getByText(/, 2 findings block it\./)).toBeTruthy();
 		expect(shown.getByText("reload").tagName).toBe("CODE");
+	});
+
+	test("shows the pictures of its commit, read from the card's route", async () => {
+		open([
+			card({
+				screenshots: {
+					commit: HEAD,
+					groups: [{ name: "home", images: ["home-desktop", "home-phone"] }],
+					note: null,
+				},
+			}),
+		]);
+
+		const shown = await item();
+		const shots = within(shown.getByRole("list", { name: "Screenshots" }));
+		expect(shots.getByText("home")).toBeTruthy();
+		expect(
+			shots.getAllByRole("img").map((image) => image.getAttribute("src")),
+		).toEqual([
+			`/devflow/api/projects/${PROJECT}/cards/4/screenshots/home-desktop`,
+			`/devflow/api/projects/${PROJECT}/cards/4/screenshots/home-phone`,
+		]);
 	});
 
 	test("an approve with nothing blocking says so, and no review says nothing", async () => {

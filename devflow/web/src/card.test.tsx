@@ -86,6 +86,7 @@ function story(overrides: Partial<CardStory> = {}): CardStory {
 			handover: "",
 		},
 		reviews: [],
+		screenshots: null,
 		rounds: [],
 		...overrides,
 	};
@@ -407,6 +408,55 @@ describe("a card's page", () => {
 		).toBeTruthy();
 		expect(older?.getByText("Not on the pull request yet")).toBeTruthy();
 		expect(older?.queryByRole("list", { name: "Findings" })).toBeNull();
+	});
+
+	test("shows the pictures of its head commit, paired, with the worker's note", async () => {
+		open(() =>
+			Promise.resolve(
+				story({
+					screenshots: {
+						commit: HEAD,
+						groups: [
+							{ name: "habits", images: ["habits-desktop", "habits-phone"] },
+						],
+						note: "Screenshots could not be taken: /broken at desktop size: it took longer than 60 seconds",
+					},
+				}),
+			),
+		);
+
+		const panel = within(
+			await screen.findByRole("article", { name: "Screenshots" }),
+		);
+		expect(panel.getByText("abc1234").tagName).toBe("CODE");
+		expect(
+			panel.getByText(
+				"Screenshots could not be taken: /broken at desktop size: it took longer than 60 seconds",
+			),
+		).toBeTruthy();
+		const shots = within(panel.getByRole("list", { name: "Screenshots" }));
+		expect(shots.getByText("habits")).toBeTruthy();
+		expect(
+			shots
+				.getAllByRole("img")
+				.map((image) => [image.getAttribute("alt"), image.getAttribute("src")]),
+		).toEqual([
+			[
+				"habits-desktop",
+				`/devflow/api/projects/${PROJECT}/cards/4/screenshots/habits-desktop`,
+			],
+			[
+				"habits-phone",
+				`/devflow/api/projects/${PROJECT}/cards/4/screenshots/habits-phone`,
+			],
+		]);
+	});
+
+	test("a card whose build took no pictures has no Screenshots", async () => {
+		open(() => Promise.resolve(story()));
+
+		await screen.findByRole("heading", { name: "Add the empty state" });
+		expect(screen.queryByRole("article", { name: "Screenshots" })).toBeNull();
 	});
 
 	test("shows each round: what sent it back, the fix, its replies and the review after it", async () => {

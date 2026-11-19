@@ -6,7 +6,7 @@ import {
 	within,
 } from "@testing-library/react";
 import { afterEach, expect, test } from "vitest";
-import { Screenshots } from "./screenshots";
+import { cardScreenshot, Screenshots, waitingScreenshot } from "./screenshots";
 
 // jsdom has HTMLDialogElement and its `open` attribute, but neither showModal
 // nor close. These stand in for the browser's, as design/ui's dialog tests
@@ -24,6 +24,7 @@ HTMLDialogElement.prototype.close ??= function (this: HTMLDialogElement) {
 
 const ITEM = "00000000-0000-0000-0000-000000000304";
 const BASE = `/devflow/api/waiting/${ITEM}/screenshots`;
+const PROJECT = "11111111-1111-1111-1111-111111111111";
 
 afterEach(cleanup);
 
@@ -41,7 +42,7 @@ function row() {
 test("each pair shows as thumbnails under its name", () => {
 	render(
 		<Screenshots
-			item={ITEM}
+			address={(name) => waitingScreenshot(ITEM, name)}
 			groups={[
 				{
 					name: "devflow-item",
@@ -79,7 +80,12 @@ test("each pair shows as thumbnails under its name", () => {
 });
 
 test("an item without screenshots shows nothing", () => {
-	const { container } = render(<Screenshots item={ITEM} groups={[]} />);
+	const { container } = render(
+		<Screenshots
+			address={(name) => waitingScreenshot(ITEM, name)}
+			groups={[]}
+		/>,
+	);
 
 	expect(container.innerHTML).toBe("");
 	expect(screen.queryByText("Screenshots")).toBeNull();
@@ -88,7 +94,7 @@ test("an item without screenshots shows nothing", () => {
 test("a thumbnail opens the full image, titled by its name", () => {
 	render(
 		<Screenshots
-			item={ITEM}
+			address={(name) => waitingScreenshot(ITEM, name)}
 			groups={[
 				{
 					name: "devflow-item",
@@ -118,7 +124,7 @@ test("a thumbnail opens the full image, titled by its name", () => {
 test("an image that fails to load shows its name and that it could not be loaded", () => {
 	render(
 		<Screenshots
-			item={ITEM}
+			address={(name) => waitingScreenshot(ITEM, name)}
 			groups={[
 				{
 					name: "devflow-item",
@@ -140,8 +146,47 @@ test("an image that fails to load shows its name and that it could not be loaded
 
 test("a name is put in the address as one segment", () => {
 	render(
-		<Screenshots item={ITEM} groups={[{ name: "odd", images: ["a/../b"] }]} />,
+		<Screenshots
+			address={(name) => waitingScreenshot(ITEM, name)}
+			groups={[{ name: "odd", images: ["a/../b"] }]}
+		/>,
 	);
 
 	expect(row().getByRole("img").getAttribute("src")).toBe(`${BASE}/a%2F..%2Fb`);
+});
+
+test("the worker's note shows as text, with or without pictures", () => {
+	render(
+		<Screenshots
+			address={(name) => cardScreenshot(PROJECT, 4, name)}
+			groups={[]}
+			note="Screenshots could not be taken: <b>/habits</b> did not load"
+		/>,
+	);
+
+	expect(
+		screen.getByText(
+			"Screenshots could not be taken: <b>/habits</b> did not load",
+		),
+	).toBeTruthy();
+	expect(screen.queryByRole("list")).toBeNull();
+	expect(screen.getByRole("heading", { name: "Screenshots" })).toBeTruthy();
+});
+
+test("a card's pictures are read from its own route, each part one segment", () => {
+	render(
+		<Screenshots
+			titled={false}
+			address={(name) => cardScreenshot(PROJECT, 4, name)}
+			groups={[{ name: "habits", images: ["habits-desktop", "a/../b"] }]}
+		/>,
+	);
+
+	// Untitled, inside a panel titled Screenshots, the list keeps its name.
+	expect(screen.queryByRole("heading")).toBeNull();
+	const images = row().getAllByRole("img");
+	expect(images.map((image) => image.getAttribute("src"))).toEqual([
+		`/devflow/api/projects/${PROJECT}/cards/4/screenshots/habits-desktop`,
+		`/devflow/api/projects/${PROJECT}/cards/4/screenshots/a%2F..%2Fb`,
+	]);
 });

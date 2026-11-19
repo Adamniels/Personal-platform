@@ -84,7 +84,7 @@ internal sealed partial class BuildJob(DevFlowClient devFlow, Guid workerId, Job
             }
         }
 
-        await Send(job, outcome.Failure, outcome.Agent, outcome.Check, outcome.Head, Time.GetElapsedTime(started), stopping);
+        await Send(job, outcome.Failure, outcome.Agent, outcome.Check, outcome.Head, Time.GetElapsedTime(started), stopping, outcome.Screenshots);
     }
 
     /// <summary>Why the job is refused before anything runs, or null. A job onto the default
@@ -118,9 +118,17 @@ internal sealed partial class BuildJob(DevFlowClient devFlow, Guid workerId, Job
             }
 
             var pushed = await Push(job, paths, head, stopping);
-            return pushed is { } refused
-                ? Outcome.Failed(Combined(result.Failure, refused), result, check)
-                : new Outcome(result.Failure, result, check, head);
+            if (pushed is { } refused)
+            {
+                return Outcome.Failed(Combined(result.Failure, refused), result, check);
+            }
+
+            // Pictures only of work that passed its check and was pushed: of any other, nobody
+            // reads them, and taking them would spend minutes of a worker.
+            var screenshots = result.Succeeded && check is { ExitCode: 0 }
+                ? await WhileSeen(job, () => Screenshots(job, paths, head, result, stopping), stopping)
+                : null;
+            return new Outcome(result.Failure, result, check, head, screenshots);
         }
         catch (StepFailed failed)
         {
@@ -222,23 +230,13 @@ internal sealed partial class BuildJob(DevFlowClient devFlow, Guid workerId, Job
     {
         await CloneForAgent(job, paths, [$"refs/heads/{job.Branch}"], paths.Check, [], "The clean copy for the check could not be made", stopping);
         Log.Write("Running the check.");
-        ProcessOutcome check;
-        using (var running = CancellationTokenSource.CreateLinkedTokenSource(stopping))
-        {
-            var seen = StaySeen(job, running.Token);
-            try
-            {
-                check = await Tools.AsAgent.Run(
-                    new ProcessSpec("sh", ["-c", $"exec 2>&1\n{job.Check}"], paths.Check, Tools.User.Environment(("CI", "true"))),
-                    CheckLimit,
-                    stopping);
-            }
-            finally
-            {
-                await running.CancelAsync();
-                await seen;
-            }
-        }
+        var check = await WhileSeen(
+            job,
+            () => Tools.AsAgent.Run(
+                new ProcessSpec("sh", ["-c", $"exec 2>&1\n{job.Check}"], paths.Check, Tools.User.Environment(("CI", "true"))),
+                CheckLimit,
+                stopping),
+            stopping);
 
         var output = Last(check.Stdout, TailLines);
         if (check.TimedOut)
@@ -255,6 +253,28 @@ internal sealed partial class BuildJob(DevFlowClient devFlow, Guid workerId, Job
     /// when it was not.</summary>
     private async Task<AgentFailure?> Push(Job job, JobPaths paths, string head, CancellationToken stopping)
     {
+        var (credential, answered) = await FreshKey(job, stopping);
+        if (credential is null)
+        {
+            return new AgentFailure(FailureSide.OutsideCard, $"Dev flow gave no fresh push key ({answered}), so nothing was pushed");
+        }
+
+        var push = await Git.AsRoot(paths, ["push", "--quiet", "--porcelain", "origin", $"{head}:refs/heads/{job.Branch}"], stopping, credential);
+        if (push.ExitCode != 0)
+        {
+            var why = credential.Scrub(Said($"{push.Stdout}\n{push.Stderr}"));
+            Log.Write($"The push was refused: {why}");
+            return new AgentFailure(FailureSide.OutsideCard, $"The code host refused the push of {head} to {job.Branch}: {why}");
+        }
+
+        Log.Write($"Pushed {head} to {job.Branch}.");
+        return null;
+    }
+
+    /// <summary>A fresh push key for the job's repository from the push key route, asked again
+    /// while Dev flow is away; or null, with what Dev flow answered.</summary>
+    private async Task<(PushCredential? Credential, string Why)> FreshKey(Job job, CancellationToken stopping)
+    {
         var answer = await Patiently(() => Client.PushKey(job.JobId, new PushKeyRequest(WorkerId), stopping), "a fresh push key", stopping);
         PushKeyAnswer? key = null;
         if (answer.Kind == AnswerKind.Answered)
@@ -268,22 +288,25 @@ internal sealed partial class BuildJob(DevFlowClient devFlow, Guid workerId, Job
             }
         }
 
-        if (key is null)
-        {
-            return new AgentFailure(FailureSide.OutsideCard, $"Dev flow gave no fresh push key ({answer.Detail}), so nothing was pushed");
-        }
+        return key is null ? (null, answer.Detail) : (new PushCredential(key.PushKey, job.Repository.CloneAddress), "");
+    }
 
-        var credential = new PushCredential(key.PushKey, job.Repository.CloneAddress);
-        var push = await Git.AsRoot(paths, ["push", "--quiet", "--porcelain", "origin", $"{head}:refs/heads/{job.Branch}"], stopping, credential);
-        if (push.ExitCode != 0)
+    /// <summary><paramref name="work"/>, while the worker says again every
+    /// <see cref="SeenEvery"/> that the job runs, so a long check or the pictures after it never
+    /// look like a worker that is gone.</summary>
+    private async Task<T> WhileSeen<T>(Job job, Func<Task<T>> work, CancellationToken stopping)
+    {
+        using var running = CancellationTokenSource.CreateLinkedTokenSource(stopping);
+        var seen = StaySeen(job, running.Token);
+        try
         {
-            var why = credential.Scrub(Said($"{push.Stdout}\n{push.Stderr}"));
-            Log.Write($"The push was refused: {why}");
-            return new AgentFailure(FailureSide.OutsideCard, $"The code host refused the push of {head} to {job.Branch}: {why}");
+            return await work();
         }
-
-        Log.Write($"Pushed {head} to {job.Branch}.");
-        return null;
+        finally
+        {
+            await running.CancelAsync();
+            await seen;
+        }
     }
 
     /// <summary>Says the check runs; Dev flow away or refusing it changes nothing here.</summary>
@@ -320,8 +343,9 @@ internal sealed partial class BuildJob(DevFlowClient devFlow, Guid workerId, Job
         agent is null ? push : agent with { Reason = $"{agent.Reason}; and {char.ToLowerInvariant(push.Reason[0])}{push.Reason[1..]}" };
 
     /// <summary>How the job ended: its failure, or null; the agent's result, when it ran; the
-    /// check's, when it ran; and the commit pushed, when one was.</summary>
-    private sealed record Outcome(AgentFailure? Failure, AgentResult? Agent, CheckResult? Check, string? Head)
+    /// check's, when it ran; the commit pushed, when one was; and its pictures, when they were
+    /// tried.</summary>
+    private sealed record Outcome(AgentFailure? Failure, AgentResult? Agent, CheckResult? Check, string? Head, ResultScreenshots? Screenshots = null)
     {
         public static Outcome Failed(AgentFailure failure, AgentResult? agent, CheckResult? check = null) => new(failure, agent, check, null);
     }

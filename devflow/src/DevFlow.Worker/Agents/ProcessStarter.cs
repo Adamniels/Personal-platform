@@ -1,10 +1,13 @@
 using System.Diagnostics;
+using System.Text;
 
 namespace DevFlow.Worker.Agents;
 
 /// <summary>A program to start: its arguments as a list, never through a shell, and exactly the
 /// environment given, nothing of the worker's own.</summary>
-internal sealed record ProcessSpec(string FileName, IReadOnlyList<string> Arguments, string WorkingDirectory, IReadOnlyDictionary<string, string> Environment);
+/// <param name="Bytes">Whether its standard output is bytes rather than text: read as Latin-1, one
+/// character for each byte, so <c>Encoding.Latin1.GetBytes</c> gives them back exactly.</param>
+internal sealed record ProcessSpec(string FileName, IReadOnlyList<string> Arguments, string WorkingDirectory, IReadOnlyDictionary<string, string> Environment, bool Bytes = false);
 
 /// <summary>How a program ended, and what it wrote.</summary>
 /// <param name="TimedOut">Whether it ran past its time limit and was ended.</param>
@@ -41,6 +44,7 @@ internal sealed class SystemProcessStarter(string? runAs, TimeProvider time) : I
             RedirectStandardInput = true,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
+            StandardOutputEncoding = spec.Bytes ? Encoding.Latin1 : null,
         };
         if (runAs is not null)
         {

@@ -3,6 +3,7 @@ using System.Text.Json;
 using DevFlow.Protocol;
 using DevFlow.Worker.Agents;
 using DevFlow.Worker.Build;
+using DevFlow.Worker.Pages;
 using DevFlow.Worker.Review;
 
 namespace DevFlow.Worker;
@@ -67,12 +68,13 @@ internal static class WorkerProgram
     }
 
     /// <summary>What a job runs with in the base image: Claude Code as <c>agent</c>, root's
-    /// processes as the worker's own, and the image's folders.</summary>
-    private static JobTools Tools(TimeProvider time, WorkerLog log)
+    /// processes as the worker's own, the image's folders, and the project's start as
+    /// <c>agent</c>.</summary>
+    internal static JobTools Tools(TimeProvider time, WorkerLog log)
     {
         var user = AgentUser.Default;
         var asAgent = new SystemProcessStarter(user.Name, time);
         var claude = ClaudeCodeOptions.Default with { Home = user.Home, Path = user.Path, Lang = user.Lang };
-        return new JobTools(new ClaudeCodeAgent(asAgent, claude, log), new SystemProcessStarter(null, time), asAgent, JobFolders.Default, user);
+        return new JobTools(new ClaudeCodeAgent(asAgent, claude, log), new SystemProcessStarter(null, time), asAgent, JobFolders.Default, user, PageTools.For(user.Name, time));
     }
 }

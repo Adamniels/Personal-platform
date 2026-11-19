@@ -3,6 +3,7 @@ using System.Text.Json;
 using Dapper;
 
 using DevFlow.CodeHost;
+using DevFlow.Jobs;
 using DevFlow.Protocol;
 
 using PlatformData;
@@ -70,7 +71,8 @@ public sealed partial class PullRequestOpener(UserDb database, ICodeHost host, T
                     return;
                 }
 
-                var body = PullRequestText.Body(new PullRequestSource(card.Number, card.RunId, card.Report, card.Check, card.HeadCommit, card.ExitCode));
+                var pictures = card.Screenshots is { } taken ? new PullRequestPictures(repository.Owner, repository.Name, taken.Names ?? [], taken.Note) : null;
+                var body = PullRequestText.Body(new PullRequestSource(card.Number, card.RunId, card.Report, card.Check, card.HeadCommit, card.ExitCode, pictures));
                 switch (await host.OpenPullRequest(userId, key, repository, card.Branch, card.Base, card.Title, body, cancellationToken))
                 {
                     case WriteResult<PullRequest>.Written { Value: var opened }:
@@ -141,7 +143,7 @@ public sealed partial class PullRequestOpener(UserDb database, ICodeHost host, T
                 """
                 SELECT c.number AS Number, coalesce(c.picked_title, c.title) AS Title, r.id AS RunId, r.branch AS Branch,
                        r.base AS Base, r.head_commit AS HeadCommit, r.report::text AS Report, r.check_command AS CheckCommand,
-                       r.check_exit_code AS ExitCode
+                       r.check_exit_code AS ExitCode, r.screenshots::text AS Screenshots, r.screenshots_note AS ScreenshotsNote
                 FROM cards c
                 JOIN LATERAL (SELECT * FROM runs WHERE runs.project_id = c.project_id AND runs.card_number = c.number
                               ORDER BY started_at DESC, id DESC LIMIT 1) r ON true
@@ -160,7 +162,7 @@ public sealed partial class PullRequestOpener(UserDb database, ICodeHost host, T
                 using var document = JsonDocument.Parse(row.Report ?? "null");
                 if (Report.TryRead(document.RootElement, out var report, out _))
                 {
-                    pending.Add(new PendingCard(row.Number, row.Title, row.RunId, row.Branch, row.Base, row.HeadCommit!, report, row.CheckCommand, row.ExitCode!.Value));
+                    pending.Add(new PendingCard(row.Number, row.Title, row.RunId, row.Branch, row.Base, row.HeadCommit!, report, row.CheckCommand, row.ExitCode!.Value, JobStore.Pictures(row.Screenshots, row.ScreenshotsNote)));
                 }
             }
 
@@ -199,7 +201,7 @@ public sealed partial class PullRequestOpener(UserDb database, ICodeHost host, T
 
     private sealed record ProjectRow(long Installation, long RepositoryId, string Owner, string Name);
 
-    private sealed record PendingRow(int Number, string Title, Guid RunId, string Branch, string Base, string? HeadCommit, string? Report, string? CheckCommand, int? ExitCode);
+    private sealed record PendingRow(int Number, string Title, Guid RunId, string Branch, string Base, string? HeadCommit, string? Report, string? CheckCommand, int? ExitCode, string? Screenshots, string? ScreenshotsNote);
 
-    private sealed record PendingCard(int Number, string Title, Guid RunId, string Branch, string Base, string HeadCommit, Report Report, string? Check, int ExitCode);
+    private sealed record PendingCard(int Number, string Title, Guid RunId, string Branch, string Base, string HeadCommit, Report Report, string? Check, int ExitCode, ResultScreenshots? Screenshots);
 }
