@@ -105,7 +105,7 @@ public static class JobStore
     /// of the card left there, whatever its result, since a worker pushes what its agent made even
     /// when the check failed. A fix starts from it; null before anything was pushed.
     /// </summary>
-    private const string BranchHeadOf = """
+    public const string BranchHeadOf = """
         (SELECT b.head_commit FROM runs b
          WHERE b.project_id = cards.project_id AND b.card_number = cards.number AND b.kind IN ('build', 'fix') AND b.head_commit IS NOT NULL
          ORDER BY b.started_at DESC, b.id DESC LIMIT 1)

@@ -119,7 +119,7 @@ internal sealed class ClaudeCodeAgent(IProcessStarter starter, ClaudeCodeOptions
 
         if (answer.TimedOut)
         {
-            return Failed(FailureSide.Card, $"it ran past the time limit of {limits.Time.TotalMinutes:0} minutes and was ended");
+            return AgentResult.TimedOut(limits, [], answer.Stderr, method);
         }
 
         if (string.IsNullOrWhiteSpace(answer.Stdout))

@@ -1086,6 +1086,9 @@ export interface components {
         RunFailure: {
             in_card: null | boolean;
             reason: null | string;
+            /** Format: date-time */
+            resets_at?: null | string;
+            timed_out?: null | boolean;
         };
         ScreenshotGroup: {
             images: string[];

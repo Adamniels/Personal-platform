@@ -430,9 +430,14 @@ public sealed class FixTests
         // A card that is being fixed is not sent back.
         Assert.Equal(StatusCodes.Status409Conflict, (await SendBack(jobs, 4, "And another")).Response.StatusCode);
 
-        // A stopped card with its pull request open is sent back the same way.
+        // A stopped card with its pull request open is sent back the same way. Two failures in the
+        // card in a row with nothing pushed stop it, see "Stops".
         var failure = Jobs.Jobs.Failure(Jobs.Jobs.FirstWorker, (string)job["branch"]!, inCard: true, "It ran past its turns");
         Assert.Equal(StatusCodes.Status204NoContent, (await jobs.Post(WorkerApi.ResultPath((Guid)job["job_id"]!), failure)).Response.StatusCode);
+        Fixed.Later(jobs);
+        var twice = await jobs.Job();
+        failure = Jobs.Jobs.Failure(Jobs.Jobs.FirstWorker, (string)twice["branch"]!, inCard: true, "It ran past its turns");
+        Assert.Equal(StatusCodes.Status204NoContent, (await jobs.Post(WorkerApi.ResultPath((Guid)twice["job_id"]!), failure)).Response.StatusCode);
         Assert.Equal("stopped", (await jobs.Card(4)).State);
         Fixed.Later(jobs);
         Assert.Equal(StatusCodes.Status204NoContent, (await SendBack(jobs, 4, "Try once more, smaller.")).Response.StatusCode);
@@ -441,9 +446,14 @@ public sealed class FixTests
         // A stopped card whose pull request was closed after it stopped, which no read follows, is
         // refused once GitHub says so, and nothing is posted.
         Fixed.Later(jobs);
-        var again = await jobs.Job();
-        failure = Jobs.Jobs.Failure(Jobs.Jobs.FirstWorker, (string)again["branch"]!, inCard: true, "It ran past its turns");
-        Assert.Equal(StatusCodes.Status204NoContent, (await jobs.Post(WorkerApi.ResultPath((Guid)again["job_id"]!), failure)).Response.StatusCode);
+        for (var time = 0; time < 2; time++)
+        {
+            Fixed.Later(jobs);
+            var again = await jobs.Job();
+            failure = Jobs.Jobs.Failure(Jobs.Jobs.FirstWorker, (string)again["branch"]!, inCard: true, "It ran past its turns");
+            Assert.Equal(StatusCodes.Status204NoContent, (await jobs.Post(WorkerApi.ResultPath((Guid)again["job_id"]!), failure)).Response.StatusCode);
+        }
+
         Assert.Equal("stopped", (await jobs.Card(4)).State);
         Built.OnGitHub(jobs, pull, PullRequestState.Closed);
         var posted = jobs.Fake.Writes(Jobs.Jobs.User).Count(write => write.Kind == "comment" && write.By == Jobs.Jobs.Owner);
@@ -459,15 +469,16 @@ public sealed class FixTests
 
         var ran = await Fixed.Fix(jobs, leaveNoCommit: true);
 
-        // The branch is where the review left it, so the run failed in the card and the card stops.
+        // The branch is where the review left it, so the run failed in the card, and, a first
+        // failure, the card is fixed again in the same round, see "Stops".
         Assert.Equal((string)built["head_commit"]!, (string)ran["head_commit"]!);
         var run = (await jobs.Runs())[2];
         Assert.Equal("fix", run.Kind);
         Assert.Equal("failed_in_card", run.Result);
         Assert.Equal(FixRounds.NoNewCommit, run.Reason);
         var card = await Built.Card(jobs, 4);
-        Assert.Equal("stopped", card.State);
-        Assert.Equal(FixRounds.NoNewCommit, card.Reason);
+        Assert.Equal("fixing", card.State);
+        Assert.Equal(DevFlow.Jobs.RunStore.Again(FixRounds.NoNewCommit), card.Reason);
         var (_, story) = await Built.Get(jobs, $"/devflow/api/projects/{jobs.Project}/cards/4");
         Assert.True((bool)story!["runs"]![0]!["in_card"]!);
     }

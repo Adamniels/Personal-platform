@@ -1902,6 +1902,19 @@
               "null",
               "string"
             ]
+          },
+          "resets_at": {
+            "format": "date-time",
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "timed_out": {
+            "type": [
+              "null",
+              "boolean"
+            ]
           }
         },
         "required": [

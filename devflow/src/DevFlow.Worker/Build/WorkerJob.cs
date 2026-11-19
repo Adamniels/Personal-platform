@@ -59,7 +59,7 @@ internal abstract partial class WorkerJob(DevFlowClient client, Guid workerId, J
             WorkerId,
             failure is null ? ResultRequest.Succeeded : ResultRequest.Failed,
             failure is null && agent?.Report is { } report ? JsonSerializer.SerializeToElement(report, WorkerApi.Json) : null,
-            failure is { } failed ? new RunFailure(failed.Reason, failed.Side == FailureSide.Card) : null,
+            failure is { } failed ? new RunFailure(failed.Reason, failed.Side == FailureSide.Card, failed.TimedOut, failed.ResetsAt) : null,
             check,
             job.Branch,
             head,
@@ -92,7 +92,7 @@ internal abstract partial class WorkerJob(DevFlowClient client, Guid workerId, J
         }
         catch (OperationCanceledException) when (limit.IsCancellationRequested && !stopping.IsCancellationRequested)
         {
-            result = AgentResult.Failed(FailureSide.Card, $"it ran past the time limit of {limits.Time.TotalMinutes:0} minutes and was ended", [], "", null);
+            result = AgentResult.TimedOut(limits, [], "", null);
         }
 
         Log.Write(result.Failure is { } failure ? $"The agent failed: {failure.Reason}." : "The agent finished with a report.");

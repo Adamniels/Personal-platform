@@ -20,14 +20,15 @@ namespace DevFlow.Jobs;
 /// <summary>What the fake worker is asked to do: take the project's next job and end it with the
 /// prepared result, whose worker id, branch and head commit it fills itself; for a review job the
 /// prepared report is the verdict. With <paramref name="LeaveNoCommit"/>, a fix makes no commit, as
-/// an agent that changed nothing, and names the commit it was handed. For a build or a fix whose
+/// an agent that changed nothing, and names the commit it was handed; and a build makes none and
+/// names none, as a run that failed before anything was pushed. For a build or a fix whose
 /// result lists pictures, <paramref name="Pictures"/> holds their bytes by name, base64 in the
 /// JSON, which it puts where a worker pushes them.</summary>
 public sealed record FakeWorkerRun(Guid? ProjectId, ResultRequest? Result, bool? LeaveNoCommit = null, IReadOnlyDictionary<string, byte[]>? Pictures = null);
 
 /// <summary>What the fake worker did: the job it took, its kind, its card, and the commit it left
-/// on the branch, or for a review the commit it reviewed.</summary>
-public sealed record FakeWorkerRan(Guid JobId, string Kind, int Card, string Branch, string HeadCommit);
+/// on the branch, or for a review the commit it reviewed; null for a build that left none.</summary>
+public sealed record FakeWorkerRan(Guid JobId, string Kind, int Card, string Branch, string? HeadCommit);
 
 /// <summary>
 /// The fake worker, in the fake mode only, under the <c>Api</c> policy and the origin check, acting
@@ -152,6 +153,15 @@ public static class FakeWorkerEndpoints
         if (!await fake.HasBranch(userId, repository, job.Base, cancellationToken))
         {
             await fake.CommitOnBranch(userId, repository, job.Base, job.Base, "The first commit, by the fake worker", committer, cancellationToken);
+        }
+
+        if (request.LeaveNoCommit == true)
+        {
+            // Nothing pushed, as a run that failed before it got that far: the branch stays where
+            // it was, and the result names no commit.
+            var unpushed = prepared with { WorkerId = WorkerId, Branch = job.Branch, HeadCommit = null };
+            await JobEndpoints.Complete(database, caller, job.JobId, WorkerId, JobEndpoints.Read(unpushed)!, now, cancellationToken);
+            return TypedResults.Ok(new FakeWorkerRan(job.JobId, job.Kind, job.Card.Number, job.Branch, null));
         }
 
         var commit = await fake.CommitOnBranch(userId, repository, job.Branch, job.Base, message, committer, cancellationToken);

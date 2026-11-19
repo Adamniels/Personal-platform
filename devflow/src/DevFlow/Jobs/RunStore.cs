@@ -26,6 +26,10 @@ namespace DevFlow.Jobs;
 /// listed them, null when the worker sent none.</param>
 /// <param name="Screenshots">A build's pictures, their names and the worker's note, null when none
 /// were tried.</param>
+/// <param name="TimedOut">Whether the run reached its time limit, a failure in the card that stops
+/// it at once.</param>
+/// <param name="ResetsAt">When Claude's usage limit resets, on a failure outside the card whose
+/// answer said so.</param>
 public sealed record RunResult(
     bool Succeeded,
     JsonElement? Report,
@@ -40,12 +44,18 @@ public sealed record RunResult(
     long DurationMs,
     string Stderr,
     JsonElement? PermissionDenials = null,
-    ResultScreenshots? Screenshots = null);
+    ResultScreenshots? Screenshots = null,
+    bool TimedOut = false,
+    DateTimeOffset? ResetsAt = null);
 
 /// <summary>How a run ended and what it does to its card: the run's <c>result</c>, the reason,
 /// the state the card moves to, and what the card says there when that is not the run's reason or
 /// the state's own line.</summary>
-public sealed record RunEnding(string Result, string? Reason, string CardState, string? CardReason = null);
+/// <param name="Retry">Whether it is a failure in the card that, alone, runs the card again: the
+/// card moves to <see cref="CardState"/> only when it is the second in a row with no new commit, see
+/// <see cref="RunStore.Record"/>. A time limit and a report that stopped are not: either stops the
+/// card at once.</param>
+public sealed record RunEnding(string Result, string? Reason, string CardState, string? CardReason = null, bool Retry = false);
 
 /// <summary>What recording a result comes to.</summary>
 public enum Recorded
@@ -112,13 +122,13 @@ public static class RunStore
         {
             var why = Cut(result.FailureReason ?? "");
             return result.FailureInCard
-                ? new RunEnding("failed_in_card", Cut($"The review failed: {why}"), "stopped")
+                ? new RunEnding("failed_in_card", Cut($"The review failed: {why}"), "stopped", Retry: !result.TimedOut)
                 : new RunEnding("failed_outside_card", why, "reviewing");
         }
 
         if (!ReviewVerdict.TryRead(result.Report ?? default, out var verdict, out var error))
         {
-            return new RunEnding("report_invalid", Cut($"The verdict did not match its form: {error}"), "stopped");
+            return new RunEnding("report_invalid", Cut($"The verdict did not match its form: {error}"), "stopped", Retry: true);
         }
 
         return verdict.Verdict != ReviewVerdictKind.Changes ? new RunEnding("succeeded", null, "waiting_for_owner")
@@ -141,7 +151,7 @@ public static class RunStore
         {
             var why = Cut(result.FailureReason ?? "");
             return result.FailureInCard
-                ? new RunEnding("failed_in_card", Cut($"The fix failed: {why}"), "stopped")
+                ? new RunEnding("failed_in_card", Cut($"The fix failed: {why}"), "stopped", Retry: !result.TimedOut)
                 : new RunEnding("failed_outside_card", why, "fixing");
         }
 
@@ -153,7 +163,7 @@ public static class RunStore
 
         if (result.HeadCommit is null || string.Equals(result.HeadCommit, fromCommit, StringComparison.Ordinal))
         {
-            return new RunEnding("failed_in_card", FixRounds.NoNewCommit, "stopped");
+            return new RunEnding("failed_in_card", FixRounds.NoNewCommit, "stopped", Retry: true);
         }
 
         return built.Result == "succeeded" ? new RunEnding("succeeded", null, "reviewing") : built;
@@ -163,7 +173,8 @@ public static class RunStore
     /// How a build's result ends its run, in this order: a failure outside the card puts the card back in
     /// <c>queued</c>, counting nothing against it; a failure in the card, a report that does not
     /// match its form, a report that stopped, a check that did not run or failed, each stop it with
-    /// why; anything else succeeded, and the card waits, checked, for its pull request.
+    /// why, all but a time limit and a report that stopped only as the second in a row, see
+    /// <see cref="RunEnding.Retry"/>; anything else succeeded, and the card waits, checked, for its pull request.
     /// </summary>
     public static RunEnding Judge(RunResult result)
     {
@@ -172,13 +183,13 @@ public static class RunStore
         {
             var why = Cut(result.FailureReason ?? "");
             return result.FailureInCard
-                ? new RunEnding("failed_in_card", $"The run failed: {why}", "stopped")
+                ? new RunEnding("failed_in_card", $"The run failed: {why}", "stopped", Retry: !result.TimedOut)
                 : new RunEnding("failed_outside_card", why, "queued");
         }
 
         if (!Report.TryRead(result.Report ?? default, out var report, out var error))
         {
-            return new RunEnding("report_invalid", Cut($"The report did not match its form: {error}"), "stopped");
+            return new RunEnding("report_invalid", Cut($"The report did not match its form: {error}"), "stopped", Retry: true);
         }
 
         if (report.Outcome == ReportOutcome.Stopped)
@@ -188,9 +199,9 @@ public static class RunStore
 
         return result.CheckExitCode switch
         {
-            null => new RunEnding("check_failed", "The check did not run", "stopped"),
+            null => new RunEnding("check_failed", "The check did not run", "stopped", Retry: true),
             0 => new RunEnding("succeeded", null, "checking"),
-            var code => new RunEnding("check_failed", string.Create(CultureInfo.InvariantCulture, $"The check failed with exit code {code}"), "stopped"),
+            var code => new RunEnding("check_failed", string.Create(CultureInfo.InvariantCulture, $"The check failed with exit code {code}"), "stopped", Retry: true),
         };
     }
 
@@ -342,6 +353,21 @@ public static class RunStore
                 await ReviewStore.Record(transaction, projectId, userId, run.CardNumber, runId, run.HeadCommit!, verdict, now, cancellationToken);
             }
 
+            // A failure in the card runs it again once; the second in a row, with its branch where
+            // the first left it, stops it. A success starts the count afresh.
+            if (ending.Retry)
+            {
+                ending = await InARow(transaction, projectId, run.CardNumber, run.Kind, ending, cancellationToken);
+            }
+            else if (ending.Result == "succeeded")
+            {
+                await transaction.Connection!.ExecuteAsync(new CommandDefinition(
+                    "UPDATE cards SET in_card_failures = 0, failed_at_commit = NULL WHERE project_id = @projectId AND number = @number",
+                    new { projectId, number = run.CardNumber },
+                    transaction,
+                    cancellationToken: cancellationToken));
+            }
+
             // A card put back in the queue says nothing, as one never started does; the next read
             // gives it its reason, if it waits for something.
             var cardReason = ending.CardReason ?? ending.CardState switch
@@ -414,6 +440,59 @@ public static class RunStore
         }, cancellationToken);
     }
 
+    /// <summary>What a card says when one failure in the card runs it again.</summary>
+    public static string Again(string reason) => Cut($"Failed once in the card, so it runs again: {reason}");
+
+    /// <summary>What a card says when a second failure in the card in a row stopped it.</summary>
+    public static string Twice(string reason) => Cut($"Failed twice in a row with no new commit: {reason}");
+
+    /// <summary>
+    /// A failure in the card that alone runs it again, judged against the one before it, inside the
+    /// transaction that records it, with the card's row locked: the second in a row whose branch is
+    /// at the commit the first left it at, or at none when neither pushed, stops the card with
+    /// <see cref="Twice"/>; any other puts it back where its kind of run starts from, a build's in
+    /// <c>queued</c>, a review's in <c>reviewing</c> and a fix's in <c>fixing</c> in the same round,
+    /// with <see cref="Again"/>, and remembers the commit. A card that is gone is left to
+    /// <see cref="EndCard"/>.
+    /// </summary>
+    private static async Task<RunEnding> InARow(NpgsqlTransaction transaction, Guid projectId, int number, string kind, RunEnding ending, CancellationToken cancellationToken)
+    {
+        var card = await transaction.Connection!.QuerySingleOrDefaultAsync<FailureCount>(new CommandDefinition(
+            $"""
+            SELECT in_card_failures AS Failures, failed_at_commit AS FailedAt, {JobStore.BranchHeadOf} AS BranchHead
+            FROM cards WHERE project_id = @projectId AND number = @number
+            FOR UPDATE
+            """,
+            new { projectId, number },
+            transaction,
+            cancellationToken: cancellationToken));
+        var reason = ending.Reason ?? "";
+        if (card is null)
+        {
+            return ending;
+        }
+
+        if (card.Failures > 0 && string.Equals(card.FailedAt, card.BranchHead, StringComparison.Ordinal))
+        {
+            return ending with { CardState = "stopped", CardReason = Twice(reason) };
+        }
+
+        await transaction.Connection!.ExecuteAsync(new CommandDefinition(
+            "UPDATE cards SET in_card_failures = 1, failed_at_commit = @head WHERE project_id = @projectId AND number = @number",
+            new { projectId, number, head = card.BranchHead },
+            transaction,
+            cancellationToken: cancellationToken));
+        var state = kind switch
+        {
+            Job.Review => "reviewing",
+            Job.Fix => "fixing",
+            _ => "queued",
+        };
+        return ending with { CardState = state, CardReason = Again(reason) };
+    }
+
+    private sealed record FailureCount(int Failures, string? FailedAt, string? BranchHead);
+
     /// <summary>Where a build puts its card while it runs.</summary>
     private static readonly string[] Building = ["building", "checking"];
 
@@ -445,7 +524,9 @@ public static class RunStore
 
         return await transaction.Connection!.ExecuteAsync(new CommandDefinition(
             """
-            UPDATE cards SET state = @state, reason = @reason, changed_at = @now
+            UPDATE cards SET state = @state, reason = @reason, changed_at = @now,
+                stopped_at = CASE WHEN @state = 'stopped' THEN @now ELSE stopped_at END,
+                stop_marked_at = CASE WHEN @state = 'stopped' THEN NULL ELSE stop_marked_at END
             WHERE project_id = @projectId AND number = @number AND state = ANY(@running)
             """,
             new { projectId, number, running, state, reason, now },
