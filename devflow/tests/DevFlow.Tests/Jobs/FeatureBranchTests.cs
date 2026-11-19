@@ -1,5 +1,8 @@
+using System.Text.RegularExpressions;
+
 using DevFlow.CodeHost;
 using DevFlow.Jobs;
+using DevFlow.Tests.PullRequests;
 
 using Microsoft.AspNetCore.Http;
 
@@ -12,7 +15,7 @@ namespace DevFlow.Tests.Jobs;
 /// request into it. Against the fake and a real Postgres. See "Jobs" and "The pull request Dev
 /// flow opens" in devflow/README.md.
 /// </summary>
-public sealed class FeatureBranchTests
+public sealed partial class FeatureBranchTests
 {
     private const string Branch = "feature-10-dev-flow-features";
 
@@ -105,4 +108,51 @@ public sealed class FeatureBranchTests
         var feature = await FeatureJobs.Feature(jobs, 10);
         Assert.Equal(("building", Branch, new string('c', 40)), (feature.State, feature.Branch, feature.BranchBaseCommit));
     }
+
+    [Fact]
+    public async Task ACardIsBuiltFromTheFeaturesBranch()
+    {
+        await using var jobs = await Feature();
+        await FeatureJobs.FirstCommit(jobs);
+
+        var job = await jobs.Job();
+
+        Assert.Equal(Branch, (string)job["base"]!);
+        Assert.Equal("devflow/11-read-the-sub-issues", (string)job["branch"]!);
+        Assert.Equal("main", (string)job["repository"]!["default_branch"]!);
+        Assert.Contains($"You are on the branch `devflow/11-read-the-sub-issues`, made from `{Branch}`", (string)job["brief"]!, StringComparison.Ordinal);
+        var run = Assert.Single(await jobs.Runs());
+        Assert.Equal(Branch, run.Base);
+        Assert.Equal("devflow/11-read-the-sub-issues", run.Branch);
+    }
+
+    [Fact]
+    public async Task ItsPullRequestGoesIntoTheFeaturesBranch()
+    {
+        await using var jobs = await Feature();
+        await FeatureJobs.FirstCommit(jobs);
+
+        var ran = await Built.Run(jobs, Built.Prepared(Built.Report()));
+
+        var opened = Assert.Single(Built.Opened(jobs));
+        Assert.Equal(FakeCodeHost.AppLogin, opened.By);
+        Assert.Equal("devflow/11-read-the-sub-issues", opened.Head);
+        Assert.Equal(Branch, opened.Base);
+        Assert.Equal("Read the sub-issues", opened.Title);
+
+        var body = opened.Body!;
+        Assert.Contains("\n\nCard #11 of the feature #10.\n\n", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("Closes", body, StringComparison.Ordinal);
+        Assert.Equal(
+            ["## Summary", "## Tasks", "## Decisions the agent made", "## Verification", "## Follow ups"],
+            Headings().Matches(body).Select(match => match.Value));
+        var run = Assert.Single(await jobs.Runs());
+        Assert.EndsWith($"Built by Dev flow for #11, run {run.Id}.\n", body, StringComparison.Ordinal);
+        // The rest of it is a card's on its own, line for line, but for the Summary's last line.
+        Assert.Equal(PullRequestTests.Body(11, (string)ran["head_commit"]!, run.Id).Replace("Closes #11", "Card #11 of the feature #10.", StringComparison.Ordinal), body);
+        Assert.Equal("reviewing", (await Built.Card(jobs, 11)).State);
+    }
+
+    [GeneratedRegex("^## .*$", RegexOptions.Multiline)]
+    private static partial Regex Headings();
 }

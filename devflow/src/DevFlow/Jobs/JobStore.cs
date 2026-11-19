@@ -23,7 +23,9 @@ namespace DevFlow.Jobs;
 /// <param name="Branch">The branch the work goes on, from <see cref="JobStore.Branch"/>.</param>
 /// <param name="Comments">The owner's comments that ran it again after it stopped, each exactly as
 /// he wrote it; empty for a card that never stopped.</param>
-public sealed record ClaimedCard(Guid RunId, int Number, string Title, string Body, string Branch, IReadOnlyList<string> Comments);
+/// <param name="Base">The branch it is made from: its feature's branch for a card of a feature,
+/// and otherwise the default branch.</param>
+public sealed record ClaimedCard(Guid RunId, int Number, string Title, string Body, string Branch, IReadOnlyList<string> Comments, string Base);
 
 /// <summary>A card taken for its review, with the run made for it and what the review reads of the
 /// build that made the commit.</summary>
@@ -375,7 +377,9 @@ public static class JobStore
     /// Takes the project's first card to hand out, by <see cref="CardStore.QueueOrder"/>, inside
     /// <paramref name="transaction"/>, which runs as the project's user: locks its row with
     /// <c>FOR UPDATE SKIP LOCKED</c>, moves it to <c>building</c>, and records a run for the worker,
-    /// with the <paramref name="check"/> its job carries. Null when there is none, a card another transaction holds included, so two workers asking at
+    /// with the <paramref name="check"/> its job carries, made from its feature's branch for a card
+    /// of a feature and from <paramref name="baseBranch"/>, the default branch, for one on its own.
+    /// Null when there is none, a card another transaction holds included, so two workers asking at
     /// once never get the same card and neither waits for the other.
     /// </summary>
     public static async Task<ClaimedCard?> Claim(NpgsqlTransaction transaction, Guid projectId, Guid userId, Guid workerId, string baseBranch, string check, DateTimeOffset now, CancellationToken cancellationToken)
@@ -385,7 +389,9 @@ public static class JobStore
         ArgumentNullException.ThrowIfNull(check);
         var card = await transaction.Connection!.QuerySingleOrDefaultAsync<Picked>(new CommandDefinition(
             $"""
-            SELECT number AS Number, picked_title AS Title, picked_body AS Body, coalesce(fix_comments, '[]'::jsonb)::text AS Comments FROM cards
+            SELECT number AS Number, picked_title AS Title, picked_body AS Body, coalesce(fix_comments, '[]'::jsonb)::text AS Comments,
+                   (SELECT f.branch FROM features f WHERE f.id = cards.feature_id) AS FeatureBranch
+            FROM cards
             WHERE {Takeable}
             ORDER BY {CardStore.QueueOrder}
             LIMIT 1
@@ -405,13 +411,13 @@ public static class JobStore
             transaction,
             cancellationToken: cancellationToken));
         var comments = JsonSerializer.Deserialize<List<string>>(card.Comments) ?? [];
-        var claimed = new ClaimedCard(Guid.CreateVersion7(now), card.Number, card.Title, card.Body, Branch(card.Number, card.Title), comments);
+        var claimed = new ClaimedCard(Guid.CreateVersion7(now), card.Number, card.Title, card.Body, Branch(card.Number, card.Title), comments, card.FeatureBranch ?? baseBranch);
         await transaction.Connection!.ExecuteAsync(new CommandDefinition(
             """
             INSERT INTO runs (id, project_id, user_id, card_number, worker_id, kind, branch, base, check_command, owner_comments, started_at)
             VALUES (@id, @projectId, @userId, @number, @workerId, 'build', @branch, @baseBranch, @check, @comments::jsonb, @now)
             """,
-            new { id = claimed.RunId, projectId, userId, number = claimed.Number, workerId, branch = claimed.Branch, baseBranch, check, comments = comments.Count == 0 ? null : card.Comments, now },
+            new { id = claimed.RunId, projectId, userId, number = claimed.Number, workerId, branch = claimed.Branch, baseBranch = claimed.Base, check, comments = comments.Count == 0 ? null : card.Comments, now },
             transaction,
             cancellationToken: cancellationToken));
         return claimed;
@@ -437,7 +443,7 @@ public static class JobStore
     /// <summary>What a card under review says while its run is under way.</summary>
     public const string BeingReviewed = "The reviewer is reading it";
 
-    private sealed record Picked(int Number, string Title, string Body, string Comments);
+    private sealed record Picked(int Number, string Title, string Body, string Comments, string? FeatureBranch);
 
     private sealed record ToFix(int Number, string Title, string Body, string Branch, string Base, string FromCommit, int? Round, Guid? ReviewId, string Comments, string? Report);
 

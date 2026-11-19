@@ -15,7 +15,9 @@ namespace DevFlow.PullRequests;
 /// <param name="Commit">The commit the check ran on, the branch's head.</param>
 /// <param name="ExitCode">How the check ended.</param>
 /// <param name="Pictures">The pictures the worker took of the commit, null when it tried none.</param>
-public sealed record PullRequestSource(int Card, Guid RunId, Report Report, string? Check, string Commit, int ExitCode, PullRequestPictures? Pictures = null);
+/// <param name="Feature">The number of the feature the card is a card of, null for a card on its
+/// own; its pull request goes into the feature's branch, and closes nothing.</param>
+public sealed record PullRequestSource(int Card, Guid RunId, Report Report, string? Check, string Commit, int ExitCode, PullRequestPictures? Pictures = null, int? Feature = null);
 
 /// <summary>The pictures a pull request's body embeds: the repository they are in, on
 /// <see cref="PageShots.Branch"/>, their names as the worker's result listed them, and its note.</summary>
@@ -26,7 +28,8 @@ public sealed record PullRequestPictures(string Owner, string Name, IReadOnlyLis
 /// <summary>
 /// A built card's pull request body, in the layout this repository's agents write theirs, as
 /// <c>.claude/skills/pick-up-slice/templates.md</c> lays it out, so the owner reads Dev flow's pull
-/// requests as he reads the runner's: Summary with the one <c>Closes</c> line, Tasks, Decisions the
+/// requests as he reads the runner's: Summary with the one <c>Closes</c> line, or for a card of a
+/// feature the feature it is a card of, Tasks, Decisions the
 /// agent made, Verification, Follow ups, and a last line that leads back to the card and the run.
 /// See "The pull request Dev flow opens" in devflow/README.md.
 /// </summary>
@@ -41,7 +44,12 @@ public static partial class PullRequestText
         var body = new StringBuilder();
         Section(body, "Summary");
         body.Append(Text(report.Summary)).Append("\n\n");
-        body.Append(CultureInfo.InvariantCulture, $"Closes #{source.Card}\n\n");
+        // GitHub's closing keywords close an issue only from a pull request into the default
+        // branch, so a card of a feature, whose pull request goes into the feature's branch, says
+        // whose it is instead; the app closes the card itself when it lands there.
+        body.Append(source.Feature is { } feature
+            ? string.Create(CultureInfo.InvariantCulture, $"Card #{source.Card} of the feature #{feature}.\n\n")
+            : string.Create(CultureInfo.InvariantCulture, $"Closes #{source.Card}\n\n"));
 
         Section(body, "Tasks");
         List(body, report.Tasks.Select(task => $"[{(task.Done ? 'x' : ' ')}] {Text(task.Text)}"));
