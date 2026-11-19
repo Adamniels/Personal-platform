@@ -11,16 +11,21 @@ using PlatformData;
 
 namespace DevFlow.Fixing;
 
-/// <summary>A card whose pull request is read for the owner's comments: its number, its pull
-/// request, and the newest of his comments already taken.</summary>
+/// <summary>A card whose pull request, or, stopped, whose issue, is read for the owner's comments:
+/// its number, its pull request, the newest of his comments already taken, and when it stopped.</summary>
+/// <param name="PullRequest">Its pull request, null for a stopped card that has none.</param>
 /// <param name="ReadThrough">The id of the newest of his comments taken, null before any was.</param>
-public sealed record CommentableCard(int Number, int PullRequest, long? ReadThrough);
+/// <param name="StoppedAt">When it stopped, for a stopped card, whose comments count only when
+/// newer; null otherwise.</param>
+public sealed record CommentableCard(int Number, int? PullRequest, long? ReadThrough, DateTimeOffset? StoppedAt = null);
 
-/// <summary>The owner's new comments on a card's pull request, oldest first, as a read found them,
-/// to be taken in its transaction.</summary>
+/// <summary>The owner's new comments on a card's pull request, or a stopped card's issue, oldest
+/// first, as a read found them, to be taken in its transaction.</summary>
+/// <param name="PullRequest">The card's open pull request, null for a stopped card without one, which
+/// is built again.</param>
 /// <param name="Bodies">Each comment, exactly as he wrote it.</param>
 /// <param name="Through">The id of the newest of them.</param>
-public sealed record TakenComments(int Card, int PullRequest, IReadOnlyList<string> Bodies, long Through);
+public sealed record TakenComments(int Card, int? PullRequest, IReadOnlyList<string> Bodies, long Through);
 
 /// <summary>
 /// The owner's comment on a card's open pull request, the one input Dev flow reads from GitHub: one
@@ -38,29 +43,39 @@ public static class OwnerComments
     /// a card with a pull request is in between its runs, but done.</summary>
     private static readonly string[] Readable = ["reviewing", "fixing", "waiting_for_owner", "stopped"];
 
-    /// <summary>The project's cards with a pull request and no run under way, in a state whose pull
-    /// request is read for his comments, read as the project's user.</summary>
+    /// <summary>What a stopped card without an open pull request says once his comment ran it
+    /// again.</summary>
+    public const string RanAgain = "You commented on it; it runs again next";
+
+    /// <summary>The project's cards with no run under way, in a state whose pull request is read for
+    /// his comments, with one, or stopped, with or without one, read as the project's user.</summary>
     public static async Task<IReadOnlyList<CommentableCard>> Cards(UserDb database, Guid userId, Guid projectId, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(database);
-        var rows = await database.InUserTransaction(userId, transaction => transaction.Connection!.QueryAsync<CommentableCard>(new CommandDefinition(
+        var rows = await database.InUserTransaction(userId, transaction => transaction.Connection!.QueryAsync<Row>(new CommandDefinition(
             """
-            SELECT c.number AS Number, c.pull_request_number AS PullRequest, c.comments_read_through AS ReadThrough
+            SELECT c.number AS Number, c.pull_request_number AS PullRequest, c.comments_read_through AS ReadThrough,
+                   -- A card stopped before stops were recorded counts from its last change.
+                   CASE WHEN c.state = 'stopped' THEN coalesce(c.stopped_at, c.changed_at) END AS StoppedAt
             FROM cards c
-            WHERE c.project_id = @projectId AND c.state = ANY(@readable) AND c.pull_request_number IS NOT NULL
+            WHERE c.project_id = @projectId AND c.state = ANY(@readable) AND (c.pull_request_number IS NOT NULL OR c.state = 'stopped')
               AND NOT EXISTS (SELECT 1 FROM runs r WHERE r.project_id = c.project_id AND r.card_number = c.number AND r.finished_at IS NULL)
             ORDER BY c.number
             """,
             new { projectId, readable = Readable },
             transaction,
             cancellationToken: cancellationToken)), cancellationToken);
-        return [.. rows];
+        return [.. rows.Select(row => new CommentableCard(row.Number, row.PullRequest, row.ReadThrough, row.StoppedAt is { } at ? new DateTimeOffset(at, TimeSpan.Zero) : null))];
     }
+
+    private sealed record Row(int Number, int? PullRequest, long? ReadThrough, DateTime? StoppedAt);
 
     /// <summary>The owner's new comments among <paramref name="comments"/>, oldest first, or null
     /// when there are none: by <paramref name="owner"/>, his linked login, as GitHub compares logins,
-    /// whatever the case, and new for <paramref name="card"/>.</summary>
-    public static TakenComments? New(CommentableCard card, IReadOnlyList<Comment> comments, string owner)
+    /// whatever the case, new for <paramref name="card"/>, and, for a stopped card, written after it
+    /// stopped. They are for <paramref name="pullRequest"/>, the card's pull request while it is
+    /// open, or null.</summary>
+    public static TakenComments? New(CommentableCard card, IReadOnlyList<Comment> comments, string owner, int? pullRequest)
     {
         ArgumentNullException.ThrowIfNull(card);
         ArgumentNullException.ThrowIfNull(comments);
@@ -68,9 +83,11 @@ public static class OwnerComments
         var taken = comments
             .Where(comment => string.Equals(comment.Author, owner, StringComparison.OrdinalIgnoreCase))
             .Where(comment => card.ReadThrough is not { } through || comment.Id > through)
+            .Where(comment => card.StoppedAt is not { } stopped || comment.CreatedAt > stopped)
+            .DistinctBy(comment => comment.Id)
             .OrderBy(comment => comment.Id)
             .ToList();
-        return taken.Count == 0 ? null : new TakenComments(card.Number, card.PullRequest, [.. taken.Select(comment => comment.Body)], taken[^1].Id);
+        return taken.Count == 0 ? null : new TakenComments(card.Number, pullRequest, [.. taken.Select(comment => comment.Body)], taken[^1].Id);
     }
 
     /// <summary>
@@ -98,6 +115,27 @@ public static class OwnerComments
             new { projectId, card = comments.Card },
             transaction,
             cancellationToken: cancellationToken));
+        if (comments.PullRequest is null)
+        {
+            // A stopped card without an open pull request is built again, on its branch, with his
+            // comments in the brief; a closed pull request is no longer its own, and the next
+            // success opens another.
+            await transaction.Connection!.ExecuteAsync(new CommandDefinition(
+                """
+                UPDATE cards SET
+                    state = 'queued', reason = @ranAgain, fix_round = NULL, fix_review_id = NULL, fix_comments = @bodies::jsonb,
+                    fix_rounds = 0, in_card_failures = 0, failed_at_commit = NULL, pull_request_number = NULL, pull_request_url = NULL,
+                    comments_read_through = @through, changed_at = @now
+                WHERE project_id = @projectId AND number = @card AND state = 'stopped'
+                  AND (comments_read_through IS NULL OR comments_read_through < @through)
+                  AND NOT EXISTS (SELECT 1 FROM runs r WHERE r.project_id = cards.project_id AND r.card_number = cards.number AND r.finished_at IS NULL)
+                """,
+                new { projectId, card = comments.Card, bodies = JsonSerializer.Serialize(comments.Bodies), through = comments.Through, ranAgain = RanAgain, now },
+                transaction,
+                cancellationToken: cancellationToken));
+            return;
+        }
+
         await transaction.Connection!.ExecuteAsync(new CommandDefinition(
             $"""
             UPDATE cards SET
@@ -110,6 +148,10 @@ public static class OwnerComments
                                            ORDER BY v.reviewed_at DESC, v.run_id DESC LIMIT 1) END,
                 fix_comments = CASE WHEN state = 'fixing' THEN coalesce(fix_comments, '[]'::jsonb) || @bodies::jsonb ELSE @bodies::jsonb END,
                 comments_read_through = @through,
+                -- Run again from a stop, its count of failures and rounds starts afresh.
+                fix_rounds = CASE WHEN state = 'stopped' THEN 0 ELSE fix_rounds END,
+                in_card_failures = CASE WHEN state = 'stopped' THEN 0 ELSE in_card_failures END,
+                failed_at_commit = CASE WHEN state = 'stopped' THEN NULL ELSE failed_at_commit END,
                 changed_at = @now
             WHERE project_id = @projectId AND number = @card AND pull_request_number = @pullRequest AND state = ANY(@readable)
               AND (comments_read_through IS NULL OR comments_read_through < @through)

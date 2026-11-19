@@ -2,9 +2,12 @@ using System.Text.Json.Nodes;
 
 using Dapper;
 
+using DevFlow.CodeHost;
+using DevFlow.Stops;
 using DevFlow.Tests.PullRequests;
 
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace DevFlow.Tests.Stops;
 
@@ -66,6 +69,15 @@ internal static class Stop
         Assert.Equal(StatusCodes.Status200OK, response.Response.StatusCode);
         return (await Workers.Workers.Json(response)).AsObject();
     }
+
+    /// <summary>The stops of the project marked, as the opening loop's minute would.</summary>
+    public static Task Mark(Jobs.Jobs jobs) =>
+        jobs.Routes.App.Services.GetRequiredService<StopMarker>().MarkPending(jobs.Project, Jobs.Jobs.User, Ct);
+
+    /// <summary>The app's writes of <paramref name="kind"/> on the issue or pull request with the
+    /// number, oldest first.</summary>
+    public static List<FakeWrite> ByApp(Jobs.Jobs jobs, string kind, int number) =>
+        [.. jobs.Fake.Writes(Jobs.Jobs.User).Where(write => write.Kind == kind && write.Number == number && write.By == FakeCodeHost.AppLogin)];
 
     /// <summary>What the card holds of its stops and its count.</summary>
     public static async Task<StopRow> Card(Jobs.Jobs jobs, int number)

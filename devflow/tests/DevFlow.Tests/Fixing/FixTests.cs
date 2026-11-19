@@ -430,8 +430,8 @@ public sealed class FixTests
         // A card that is being fixed is not sent back.
         Assert.Equal(StatusCodes.Status409Conflict, (await SendBack(jobs, 4, "And another")).Response.StatusCode);
 
-        // A stopped card with its pull request open is sent back the same way. Two failures in the
-        // card in a row with nothing pushed stop it, see "Stops".
+        // A stopped card with its pull request open runs again from the list, his comment on its
+        // issue, see "Stops", as a fix. Two failures in the card in a row with nothing pushed stop it.
         var failure = Jobs.Jobs.Failure(Jobs.Jobs.FirstWorker, (string)job["branch"]!, inCard: true, "It ran past its turns");
         Assert.Equal(StatusCodes.Status204NoContent, (await jobs.Post(WorkerApi.ResultPath((Guid)job["job_id"]!), failure)).Response.StatusCode);
         Fixed.Later(jobs);
@@ -442,9 +442,11 @@ public sealed class FixTests
         Fixed.Later(jobs);
         Assert.Equal(StatusCodes.Status204NoContent, (await SendBack(jobs, 4, "Try once more, smaller.")).Response.StatusCode);
         Assert.Equal("fixing", (await jobs.Card(4)).State);
+        var onIssue = jobs.Fake.Writes(Jobs.Jobs.User).Last(write => write.Kind == "comment" && write.By == Jobs.Jobs.Owner);
+        Assert.Equal((4, "Try once more, smaller."), (onIssue.Number, onIssue.Body));
 
-        // A stopped card whose pull request was closed after it stopped, which no read follows, is
-        // refused once GitHub says so, and nothing is posted.
+        // A stopped card whose pull request was closed after it stopped, which no read follows, runs
+        // again too, built again, since its comment goes on the issue.
         Fixed.Later(jobs);
         for (var time = 0; time < 2; time++)
         {
@@ -456,9 +458,10 @@ public sealed class FixTests
 
         Assert.Equal("stopped", (await jobs.Card(4)).State);
         Built.OnGitHub(jobs, pull, PullRequestState.Closed);
-        var posted = jobs.Fake.Writes(Jobs.Jobs.User).Count(write => write.Kind == "comment" && write.By == Jobs.Jobs.Owner);
-        Assert.Equal(StatusCodes.Status409Conflict, (await SendBack(jobs, 4, "Once more.")).Response.StatusCode);
-        Assert.Equal(posted, jobs.Fake.Writes(Jobs.Jobs.User).Count(write => write.Kind == "comment" && write.By == Jobs.Jobs.Owner));
+        Fixed.Later(jobs);
+        Assert.Equal(StatusCodes.Status204NoContent, (await SendBack(jobs, 4, "Once more.")).Response.StatusCode);
+        Assert.Equal("queued", (await jobs.Card(4)).State);
+        Assert.Null((await Built.Card(jobs, 4)).PullRequestNumber);
     }
 
     [Fact]

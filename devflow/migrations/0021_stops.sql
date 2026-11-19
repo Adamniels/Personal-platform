@@ -9,7 +9,8 @@
 ALTER TABLE cards ADD COLUMN in_card_failures int NOT NULL DEFAULT 0 CHECK (in_card_failures BETWEEN 0 AND 1);
 ALTER TABLE cards ADD COLUMN failed_at_commit text CHECK (failed_at_commit ~ '^([0-9a-f]{40}|[0-9a-f]{64})$');
 
--- When the card last stopped, set as it moves to stopped; null for a card that never did. A
+-- When the card last stopped, set as it moves to stopped; null for a card that never did, and for
+-- one that stopped before this migration, which is never marked and counts from its changed_at. A
 -- comment of the owner's runs it again only when it is newer than this.
 ALTER TABLE cards ADD COLUMN stopped_at timestamptz;
 

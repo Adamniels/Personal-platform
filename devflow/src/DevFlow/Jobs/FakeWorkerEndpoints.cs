@@ -6,6 +6,7 @@ using DevFlow.Protocol;
 using DevFlow.PullRequests;
 using DevFlow.Recipes;
 using DevFlow.Reviews;
+using DevFlow.Stops;
 using DevFlow.Workers;
 
 using Microsoft.AspNetCore.Http.HttpResults;
@@ -70,6 +71,7 @@ public static class FakeWorkerEndpoints
         [FromServices] UserDb database,
         [FromServices] PullRequestOpener opener,
         [FromServices] ReviewPoster poster,
+        [FromServices] StopMarker marker,
         [FromServices] TimeProvider time)
     {
         var cancellationToken = context.RequestAborted;
@@ -109,6 +111,7 @@ public static class FakeWorkerEndpoints
             await JobEndpoints.Complete(database, caller, job.JobId, WorkerId, JobEndpoints.Read(reviewed)!, now, cancellationToken);
             // Its copy is posted on the next minute for a real worker; the fake worker waits for it.
             await poster.PostPending(projectId, userId, cancellationToken);
+            await marker.MarkPending(projectId, userId, cancellationToken);
             return TypedResults.Ok(new FakeWorkerRan(job.JobId, job.Kind, job.Card.Number, job.Branch, toReview.Commit));
         }
 
@@ -142,6 +145,7 @@ public static class FakeWorkerEndpoints
             }
 
             await JobEndpoints.Complete(database, caller, job.JobId, WorkerId, JobEndpoints.Read(result)!, now, cancellationToken);
+            await marker.MarkPending(projectId, userId, cancellationToken);
             return fixedUp is null
                 ? TypedResults.Problem(statusCode: StatusCodes.Status503ServiceUnavailable, title: "The fake's git failed", detail: "no commit was made on the job's branch, so the job ended as a failure outside the card and the card is fixing again")
                 : TypedResults.Ok(new FakeWorkerRan(job.JobId, job.Kind, job.Card.Number, job.Branch, fixedUp));
@@ -161,6 +165,7 @@ public static class FakeWorkerEndpoints
             // it was, and the result names no commit.
             var unpushed = prepared with { WorkerId = WorkerId, Branch = job.Branch, HeadCommit = null };
             await JobEndpoints.Complete(database, caller, job.JobId, WorkerId, JobEndpoints.Read(unpushed)!, now, cancellationToken);
+            await marker.MarkPending(projectId, userId, cancellationToken);
             return TypedResults.Ok(new FakeWorkerRan(job.JobId, job.Kind, job.Card.Number, job.Branch, null));
         }
 
@@ -180,6 +185,7 @@ public static class FakeWorkerEndpoints
         // A real worker's result is answered without waiting for GitHub, and its pull request opens
         // on the next minute; the fake worker waits for it, so a test sees it as soon as it answers.
         await opener.OpenPending(projectId, userId, cancellationToken);
+        await marker.MarkPending(projectId, userId, cancellationToken);
         return commit is null
             ? TypedResults.Problem(statusCode: StatusCodes.Status503ServiceUnavailable, title: "The fake's git failed", detail: "no commit was made on the job's branch, so the job ended as a failure outside the card and the card is queued again")
             : TypedResults.Ok(new FakeWorkerRan(job.JobId, job.Kind, job.Card.Number, job.Branch, commit));

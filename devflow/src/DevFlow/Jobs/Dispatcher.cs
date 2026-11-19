@@ -166,7 +166,8 @@ public sealed partial class Dispatcher(
 
         var brief = Brief.Developer(
             new BriefCard(claimed.Number, claimed.Title, claimed.Body),
-            new BriefFacts(facts.Check, claimed.Branch, facts.DefaultBranch));
+            new BriefFacts(facts.Check, claimed.Branch, facts.DefaultBranch),
+            claimed.Comments);
         return new Job(
             claimed.RunId,
             Job.Build,
