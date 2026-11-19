@@ -63,13 +63,21 @@ public sealed partial class BranchWatch(UserDb database, ICodeHost host, TimePro
 
     /// <summary>
     /// Whether a change to an open feature's branch is one the project may take without its user
-    /// looking: what <see cref="IsFine"/> takes on the default branch, but never the branch's
-    /// deletion, by anyone, since the feature's work is on it.
+    /// looking: what <see cref="IsFine"/> takes on the default branch, and a push that left the
+    /// branch at a commit in <paramref name="pushesMade"/>, those Dev flow's own jobs pushed there
+    /// and their runs' results recorded; but never the branch's deletion, by anyone, since the
+    /// feature's work is on it.
     /// </summary>
-    public static bool IsFineOnFeature(BranchActivity activity, string? owner, IReadOnlySet<string> mergesMade)
+    public static bool IsFineOnFeature(BranchActivity activity, string? owner, IReadOnlySet<string> mergesMade, IReadOnlySet<string> pushesMade)
     {
         ArgumentNullException.ThrowIfNull(activity);
-        return activity.Kind != ActivityKind.BranchDeletion && IsFine(activity, owner, mergesMade);
+        ArgumentNullException.ThrowIfNull(pushesMade);
+        if (activity.Kind == ActivityKind.BranchDeletion)
+        {
+            return false;
+        }
+
+        return (activity.Kind == ActivityKind.Push && pushesMade.Contains(activity.After)) || IsFine(activity, owner, mergesMade);
     }
 
     /// <summary>
@@ -151,7 +159,7 @@ public sealed partial class BranchWatch(UserDb database, ICodeHost host, TimePro
         }
         else
         {
-            await Judge(projectId, userId, new Watched(null, branch), listed, null, owner, cancellationToken);
+            await Judge(projectId, userId, new Watched(null, branch), listed, null, owner, null, cancellationToken);
         }
 
         return null;
@@ -184,9 +192,34 @@ public sealed partial class BranchWatch(UserDb database, ICodeHost host, TimePro
             listed = [.. listed.TakeWhile(activity => activity.Id != creation.Id)];
         }
 
-        await Judge(projectId, userId, new Watched(feature.Id, feature.Branch), listed, from, owner, cancellationToken);
+        // Who the app is, needed only to tell its push while a run is under way on the branch, which
+        // waits for the run's result, from anyone else's, which is judged now.
+        string? app = null;
+        if (listed.Any(activity => activity.Kind == ActivityKind.Push && !string.Equals(activity.Actor, owner, StringComparison.OrdinalIgnoreCase))
+            && await RunUnderWay(projectId, userId, feature.Branch, cancellationToken))
+        {
+            switch (await host.AppCommitter(userId, repository, cancellationToken))
+            {
+                case CodeHostResult<Committer>.Found { Value: var committer }:
+                    app = committer.Name;
+                    break;
+                case var failed:
+                    return Failure(failed);
+            }
+        }
+
+        await Judge(projectId, userId, new Watched(feature.Id, feature.Branch), listed, from, owner, app, cancellationToken);
         return null;
     }
+
+    /// <summary>Whether a run of Dev flow's on the branch is under way, read without a lock: only
+    /// whether asking who the app is may be needed.</summary>
+    private async Task<bool> RunUnderWay(Guid projectId, Guid userId, string branch, CancellationToken cancellationToken) =>
+        await database.InUserTransaction(userId, transaction => transaction.Connection!.ExecuteScalarAsync<bool>(new CommandDefinition(
+            "SELECT EXISTS (SELECT 1 FROM runs WHERE project_id = @projectId AND branch = @branch AND finished_at IS NULL)",
+            new { projectId, branch },
+            transaction,
+            cancellationToken: cancellationToken)), cancellationToken);
 
     private static string Failure<T>(CodeHostResult<T> failed) => failed switch
     {
@@ -253,9 +286,12 @@ public sealed partial class BranchWatch(UserDb database, ICodeHost host, TimePro
     /// another branch already, is left unjudged with every change after it, to be read again once
     /// that stop is resumed. The watch moves on to the newest judged, or stays at
     /// <paramref name="from"/> or where it was when none was, read now; nothing when the project is
-    /// gone.
+    /// gone. On a feature's branch, a push by <paramref name="app"/>, the app's login, while a run of
+    /// Dev flow's on the branch is under way, read under the lock, is awaited rather than judged,
+    /// since the worker pushes before it sends its result, see <see cref="JudgeAwaited"/>; and the
+    /// project's awaited pushes whose run has ended are judged.
     /// </summary>
-    private async Task Judge(Guid projectId, Guid userId, Watched watched, IReadOnlyList<BranchActivity> listed, long? from, string? owner, CancellationToken cancellationToken)
+    private async Task Judge(Guid projectId, Guid userId, Watched watched, IReadOnlyList<BranchActivity> listed, long? from, string? owner, string? app, CancellationToken cancellationToken)
     {
         var now = Now();
         await database.InUserTransaction(userId, async transaction =>
@@ -270,16 +306,47 @@ public sealed partial class BranchWatch(UserDb database, ICodeHost host, TimePro
                 new { projectId, branch = watched.Branch, afters = listed.Select(activity => activity.After).ToArray() },
                 transaction,
                 cancellationToken: cancellationToken))).ToHashSet(StringComparer.Ordinal);
+            HashSet<string> pushed = [];
+            Guid? running = null;
+            if (watched.FeatureId is not null)
+            {
+                pushed = (await transaction.Connection!.QueryAsync<string>(new CommandDefinition(
+                    "SELECT commit FROM pushes_made WHERE project_id = @projectId AND branch = @branch AND commit = ANY (@afters)",
+                    new { projectId, branch = watched.Branch, afters = listed.Select(activity => activity.After).ToArray() },
+                    transaction,
+                    cancellationToken: cancellationToken))).ToHashSet(StringComparer.Ordinal);
+                running = await transaction.Connection!.ExecuteScalarAsync<Guid?>(new CommandDefinition(
+                    """
+                    SELECT id FROM runs WHERE project_id = @projectId AND branch = @branch AND finished_at IS NULL
+                    ORDER BY started_at DESC, id DESC LIMIT 1
+                    """,
+                    new { projectId, branch = watched.Branch },
+                    transaction,
+                    cancellationToken: cancellationToken));
+            }
+
             var newest = from;
             foreach (var activity in listed.Reverse())
             {
-                var fine = watched.FeatureId is null ? IsFine(activity, owner, made) : IsFineOnFeature(activity, owner, made);
+                var fine = watched.FeatureId is null ? IsFine(activity, owner, made) : IsFineOnFeature(activity, owner, made, pushed);
+                if (!fine && running is { } run && app is not null && activity.Kind == ActivityKind.Push
+                    && string.Equals(activity.Actor, app, StringComparison.OrdinalIgnoreCase))
+                {
+                    await Await(transaction, projectId, userId, watched.Branch, run, activity, now, cancellationToken);
+                    fine = true;
+                }
+
                 if (!fine && !await RecordStop(transaction, projectId, userId, watched.Branch, activity, now, cancellationToken))
                 {
                     break;
                 }
 
                 newest = activity.Id;
+            }
+
+            if (watched.FeatureId is not null)
+            {
+                await JudgeAwaited(transaction, projectId, userId, now, cancellationToken);
             }
 
             return await transaction.Connection!.ExecuteAsync(new CommandDefinition(
@@ -350,6 +417,64 @@ public sealed partial class BranchWatch(UserDb database, ICodeHost host, TimePro
         return true;
     }
 
+    /// <summary>A push by the app, read while <paramref name="run"/> was under way on the
+    /// branch, kept to judge when the run ends; once only, by its id.</summary>
+    private static Task<int> Await(NpgsqlTransaction transaction, Guid projectId, Guid userId, string branch, Guid run, BranchActivity activity, DateTimeOffset now, CancellationToken cancellationToken) =>
+        transaction.Connection!.ExecuteAsync(new CommandDefinition(
+            """
+            INSERT INTO pushes_awaited (project_id, user_id, activity_id, branch, run_id, actor, commit, landed_at, read_at)
+            VALUES (@projectId, @userId, @id, @branch, @run, @actor, @commit, @landedAt, @now)
+            ON CONFLICT (project_id, activity_id) DO NOTHING
+            """,
+            new { projectId, userId, id = activity.Id, branch, run, actor = activity.Actor, commit = activity.After, landedAt = activity.At, now },
+            transaction,
+            cancellationToken: cancellationToken));
+
+    /// <summary>
+    /// Judges the project's awaited pushes whose run has ended, inside
+    /// <paramref name="transaction"/>, after taking <see cref="Lock"/>: one whose commit a result
+    /// recorded in <c>pushes_made</c> on its branch is fine, and any other stops the project, as a
+    /// push by the app that Dev flow has no record of, by <see cref="RecordStop"/>; each judged is
+    /// removed, and one that cannot be recorded, since the project is stopped by another branch, is
+    /// kept for later. Called where a run ends, in the transaction that records its result or finds
+    /// it lost, and on each read of a feature's branch. False when the project is gone.
+    /// </summary>
+    internal static async Task<bool> JudgeAwaited(NpgsqlTransaction transaction, Guid projectId, Guid userId, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(transaction);
+        if (!await Lock(transaction, projectId, cancellationToken))
+        {
+            return false;
+        }
+
+        var ended = await transaction.Connection!.QueryAsync<AwaitedPush>(new CommandDefinition(
+            """
+            SELECT a.activity_id AS ActivityId, a.branch AS Branch, a.actor AS Actor, a.commit AS Commit, a.landed_at AS LandedAt,
+                   EXISTS (SELECT 1 FROM pushes_made p WHERE p.project_id = a.project_id AND p.branch = a.branch AND p.commit = a.commit) AS Recorded
+            FROM pushes_awaited a
+            WHERE a.project_id = @projectId
+              AND NOT EXISTS (SELECT 1 FROM runs r WHERE r.id = a.run_id AND r.finished_at IS NULL)
+            ORDER BY a.activity_id
+            """,
+            new { projectId },
+            transaction,
+            cancellationToken: cancellationToken));
+        foreach (var push in ended)
+        {
+            var activity = new BranchActivity(push.ActivityId, push.Commit, push.Commit, new DateTimeOffset(DateTime.SpecifyKind(push.LandedAt, DateTimeKind.Utc)), ActivityKind.Push, push.Actor);
+            if (push.Recorded || await RecordStop(transaction, projectId, userId, push.Branch, activity, now, cancellationToken))
+            {
+                await transaction.Connection!.ExecuteAsync(new CommandDefinition(
+                    "DELETE FROM pushes_awaited WHERE project_id = @projectId AND activity_id = @id",
+                    new { projectId, id = push.ActivityId },
+                    transaction,
+                    cancellationToken: cancellationToken));
+            }
+        }
+
+        return true;
+    }
+
     /// <summary>
     /// Locks the project's row against Dev flow's own merges, which take the same lock, see
     /// <see cref="Merging.AppMerges"/>; false when the project is gone.
@@ -412,4 +537,7 @@ public sealed partial class BranchWatch(UserDb database, ICodeHost host, TimePro
 
     /// <summary>What a stopped project is stopped by.</summary>
     private sealed record StoppedBy(string Branch, long ActivityId);
+
+    /// <summary>An awaited push whose run has ended, and whether a result recorded its commit.</summary>
+    private sealed record AwaitedPush(long ActivityId, string Branch, string Actor, string Commit, DateTime LandedAt, bool Recorded);
 }

@@ -350,6 +350,19 @@ public sealed class FeatureWatchTests
     }
 
     [Fact]
+    public async Task AnotherLoginsPushWhileARunIsUnderWayStopsAtOnce()
+    {
+        await using var jobs = await Made();
+        await FeatureJobs.Finish(jobs, 11, "done");
+        await RunOnTheBranch(jobs);
+
+        Land(jobs, ActivityKind.Push, "octo-stranger", Commit(46));
+        await Read(jobs);
+
+        Assert.Equal(("octo-stranger", Commit(46)), ((await Stop(jobs))?.Actor, (await Stop(jobs))?.Commit));
+    }
+
+    [Fact]
     public async Task AJobsOwnPushIsJudgedWhenItsRunIsLost()
     {
         await using var jobs = await Made();

@@ -260,7 +260,9 @@ public static class RunStore
     /// <see cref="JudgeReview"/> for a review or <see cref="JudgeFix"/> for a fix and moves the card,
     /// with the round a review's changes starts, in one transaction; only when the
     /// worker holds the run under way, the result names the job's branch, and for a review the
-    /// commit it was handed, or none on a failure.
+    /// commit it was handed, or none on a failure. A run on a feature's branch itself records the
+    /// commit it names in <c>pushes_made</c>, and the pushes the watch awaited are judged, see
+    /// <see cref="Watching.BranchWatch.JudgeAwaited"/>.
     /// </summary>
     public static async Task<Recorded> Record(UserDb database, Guid userId, Guid projectId, Guid runId, Guid workerId, RunResult result, DateTimeOffset now, CancellationToken cancellationToken)
     {
@@ -270,6 +272,14 @@ public static class RunStore
         result = Storable.Result(result);
         return await database.InUserTransaction(userId, async transaction =>
         {
+            // The project's row first, as the watch and Dev flow's own merges take it, before the
+            // run's and its card's, so a run ending on a feature's branch judges what was pushed
+            // there in the order every other writer locks in.
+            if (!await Watching.BranchWatch.Lock(transaction, projectId, cancellationToken))
+            {
+                return Recorded.NotHeld;
+            }
+
             var run = await transaction.Connection!.QuerySingleOrDefaultAsync<HeldRun>(new CommandDefinition(
                 """
                 SELECT card_number AS CardNumber, branch AS Branch, kind AS Kind, head_commit AS HeadCommit, from_commit AS FromCommit,
@@ -351,6 +361,30 @@ public static class RunStore
                 },
                 transaction,
                 cancellationToken: cancellationToken));
+            // A run on a feature's branch itself pushed there, before it sent this: the commit it
+            // names is recorded as Dev flow's own push, and what the watch read meanwhile is judged.
+            if (await transaction.Connection!.ExecuteScalarAsync<bool>(new CommandDefinition(
+                    "SELECT EXISTS (SELECT 1 FROM features WHERE project_id = @projectId AND branch = @branch)",
+                    new { projectId, branch = run.Branch },
+                    transaction,
+                    cancellationToken: cancellationToken)))
+            {
+                if (result.HeadCommit is { } pushed)
+                {
+                    await transaction.Connection!.ExecuteAsync(new CommandDefinition(
+                        """
+                        INSERT INTO pushes_made (project_id, user_id, branch, commit, run_id, recorded_at)
+                        VALUES (@projectId, @userId, @branch, @pushed, @runId, @now)
+                        ON CONFLICT (project_id, branch, commit) DO NOTHING
+                        """,
+                        new { projectId, userId, branch = run.Branch, pushed, runId, now },
+                        transaction,
+                        cancellationToken: cancellationToken));
+                }
+
+                await Watching.BranchWatch.JudgeAwaited(transaction, projectId, userId, now, cancellationToken);
+            }
+
             // A verdict in its form is kept for the commit the worker reviewed, the run's, in the
             // same transaction as its result, and is the only way Dev flow learns one.
             if (review && ending.Result == "succeeded" && ReviewVerdict.TryRead(result.Report!.Value, out var verdict, out _))
@@ -433,13 +467,21 @@ public static class RunStore
     /// Ends the project's runs that never returned: handed out at least <see cref="LostAfter"/>
     /// ago, with no result, and a worker not seen for <see cref="QuietFor"/>. Each is recorded lost
     /// and its card put back, counting nothing against it: a build's in <c>queued</c>, a review's in
-    /// <c>reviewing</c>, a fix's in <c>fixing</c>, in the same round. Called on each read of the project, as its user. How many were lost.
+    /// <c>reviewing</c>, a fix's in <c>fixing</c>, in the same round; and the pushes the watch
+    /// awaited of them are judged, with no result to record them. Called on each read of the
+    /// project, as its user. How many were lost.
     /// </summary>
     public static async Task<int> SweepLost(UserDb database, Guid userId, Guid projectId, DateTimeOffset now, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(database);
         return await database.InUserTransaction(userId, async transaction =>
         {
+            // The project's row first, as Record takes it, since a lost run ends as a result does.
+            if (!await Watching.BranchWatch.Lock(transaction, projectId, cancellationToken))
+            {
+                return 0;
+            }
+
             var lost = (await transaction.Connection!.QueryAsync<(int, string, int?)>(new CommandDefinition(
                 """
                 UPDATE runs r SET finished_at = @now, result = 'lost', reason = @reason
@@ -462,6 +504,13 @@ public static class RunStore
                 await EndCard(transaction, projectId, number, running, state, reason, now, cancellationToken);
                 // A lost run lies outside the card: it never counts against it, and its project waits.
                 await ProjectWaits.Failed(transaction, projectId, userId, LostReason, null, now, cancellationToken);
+            }
+
+            // A push a lost run made has no result to record it, so what the watch awaited of it
+            // stops the project.
+            if (lost.Count > 0)
+            {
+                await Watching.BranchWatch.JudgeAwaited(transaction, projectId, userId, now, cancellationToken);
             }
 
             return lost.Count;
