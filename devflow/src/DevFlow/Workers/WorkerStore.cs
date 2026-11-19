@@ -35,7 +35,11 @@ public sealed record Worker(Guid Id, string Name, string RecipeVersion, string B
 /// both from <see cref="Watching.WatchStore.HoldSql"/>; then <c>no_claude_login</c> or
 /// <c>claude_login_expired</c>, from <see cref="Jobs.Dispatcher.HeldFor"/>, which the list route
 /// adds; or null.</param>
-public sealed record WorkerList(DateTimeOffset? KeyMadeAt, string? RecipeVersion, string StartCommand, IReadOnlyList<Worker> Workers, string? Held);
+/// <param name="CannotRun">What the page says once the project's runs have failed outside their
+/// cards six times in a row, "Dev flow cannot run &lt;project&gt;'s cards: &lt;the last
+/// reason&gt;", from <see cref="Stops.ProjectWaits.CannotRunOf"/>, which the list route adds; null
+/// otherwise.</param>
+public sealed record WorkerList(DateTimeOffset? KeyMadeAt, string? RecipeVersion, string StartCommand, IReadOnlyList<Worker> Workers, string? Held, string? CannotRun = null);
 
 /// <summary>Where a worker stands when it asks for work.</summary>
 public enum WorkerState

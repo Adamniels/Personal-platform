@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
+using DevFlow.Merging;
 using DevFlow.Protocol;
 using DevFlow.Recipes;
 using DevFlow.Workers;
@@ -62,7 +63,7 @@ public static partial class JobEndpoints
                 : WorkerEndpoints.NoSuchJob();
     }
 
-    private static async Task<Results<NoContent, ProblemHttpResult>> Result(Guid id, ResultRequest request, HttpContext context, [FromServices] UserDb database, [FromServices] WorkerStore workers, [FromServices] WorkerStart start, [FromServices] TimeProvider time)
+    private static async Task<Results<NoContent, ProblemHttpResult>> Result(Guid id, ResultRequest request, HttpContext context, [FromServices] UserDb database, [FromServices] WorkerStore workers, [FromServices] WorkerStart start, [FromServices] MergeRequests merges, [FromServices] TimeProvider time)
     {
         if (Read(request) is not { } result)
         {
@@ -76,7 +77,15 @@ public static partial class JobEndpoints
             return WorkerEndpoints.NoSuchJob();
         }
 
-        return await Complete(database, caller, id, worker, result, Now(time), context.RequestAborted) switch
+        var recorded = await Complete(database, caller, id, worker, result, Now(time), context.RequestAborted);
+        if (recorded == Recorded.Stored)
+        {
+            // A review that approved has its card checked for a merge now, without the worker
+            // waiting for it; any other result leaves nothing due, which costs the check nothing.
+            merges.Request(caller.ProjectId, caller.UserId);
+        }
+
+        return recorded switch
         {
             Recorded.Stored => TypedResults.NoContent(),
             Recorded.WrongBranch => WorkerEndpoints.Invalid(new Dictionary<string, string[]> { ["branch"] = ["must be the job's branch"] }),
@@ -109,7 +118,9 @@ public static partial class JobEndpoints
                 request.DurationMs!.Value,
                 request.Stderr!,
                 request.PermissionDenials is { ValueKind: JsonValueKind.Array } denials ? denials : null,
-                request.Screenshots);
+                request.Screenshots,
+                request.Failure?.TimedOut ?? false,
+                request.Failure?.ResetsAt);
 
     /// <summary>Each field of <paramref name="request"/> that is missing or breaks a rule.</summary>
     internal static Dictionary<string, string[]> Errors(ResultRequest request)
@@ -141,6 +152,14 @@ public static partial class JobEndpoints
                 if (request.Failure is not { Reason: { } reason, InCard: not null } || reason.Trim().Length == 0)
                 {
                     errors["failure"] = ["must hold a reason and in_card when the outcome is failed"];
+                }
+                else if (request.Failure is { TimedOut: true, InCard: false })
+                {
+                    errors["failure"] = ["timed_out is a failure in the card, so in_card must be true"];
+                }
+                else if (request.Failure is { ResetsAt: not null, InCard: true })
+                {
+                    errors["failure"] = ["resets_at is for a failure outside the card, so in_card must be false"];
                 }
 
                 break;

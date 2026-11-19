@@ -123,7 +123,11 @@ features" in `High-level/docs/platform-architecture.md`.
   tables, the pull request Dev flow opens for a built card, with its body, the screenshots the worker
   takes of a built card's pages, with `start`, `url` and `DEVFLOW=1`, and the developer's own look at
   its pages before it reports, a card's page, and
-  fixing, with its rounds, the owner's comment as the one input read and sending a card back, starting a worker, with the base image, the format of `.devflow/`, the recipe route, the
+  fixing, with its rounds, the owner's comment as the one input read and sending a card back, the
+  merge check, with its conditions in order, merging as the app and the issues for decisions marked
+  for the owner, stops, with what stops a card, its mark on GitHub, running it again on the owner's
+  comment and a project's wait after failures outside its cards, starting a worker, with the base
+  image, the format of `.devflow/`, the recipe route, the
   two commands, the memory rule and when a worker needs a rebuild, the worker program with its
   settings, its loop, its exit codes, the agent interface, when a run succeeds, a build job step by
   step with the git rules it keeps, publishing it and its tests, the Claude login, its routes and its table, jobs, with handing out a card, the job, a
@@ -148,12 +152,19 @@ features" in `High-level/docs/platform-architecture.md`.
   how the waiting list reads Dev flow's own cards beside the runner's, why the report decides nothing, where a failure
   lies and when a run is lost, the worker's pictures and why they never decide a merge, why the developer looks at its own pages too, the review and why its verdict lives in the database tied to its
   commit, fixing, why rounds are limited and why the owner's comment is the one input read from
-  GitHub, and its security decisions and accepted risks, kept for an audit,
+  GitHub, the merge check, each condition and why it fails closed, stops, with what lies in the card
+  and what outside it, why a failure outside never counts, why one failure in the card is tried
+  again, why a stop is marked on the card, running it again on his comment and reading the usage
+  limit's reset, and its security decisions and accepted risks, kept for an audit,
   the vault's, the fake's, the worker key's, the agent run's environment and token, the Claude
   token's and a job's, the brief's, the report's text in a pull request body, push keys before the watch, the project run as `agent` in a clean copy, its test mode off
   without `DEVFLOW=1`, pictures served through part 1's checks, root never running git in the
-  agent's copy, the copy without credentials, a push never forced, the reviewer that cannot write, a fix started only from the commit handed, only the owner's comment read
-  and a verdict that is never a comment among them
+  agent's copy, the copy without credentials, a push never forced, the reviewer that cannot write, a fix started only from the commit handed, only the owner's comment read,
+  a verdict that is never a comment, no language model deciding a merge, CI that never reports not
+  being a pass, a merge naming the approved commit, only a recorded merge being fine on the default
+  branch, a decision issue's text, a stop's comment carrying a run's reason as data, a stopped
+  card's issue read for his comment alone and a worker's `resets_at` believed within limits, among
+  them
 - `docs/superpowers/specs/2026-11-14-development-flow-design.md` — the design of the whole
   development flow, frozen on 2026 11 15 when the slices of its first part were cut; the
   architecture document above is the living description from then on

@@ -242,6 +242,12 @@ export function WaitingCard({
 						<Inline text={card.summary} />
 					</p>
 				)}
+				{card.reason === null ? null : (
+					<div className={styles.block}>
+						<h3 className={styles.label}>Why it waits</h3>
+						<p className={styles.text}>{card.reason}</p>
+					</div>
+				)}
 				{card.decisions.length > 0 ? (
 					<Decisions decisions={card.decisions} others={card.other_decisions} />
 				) : null}

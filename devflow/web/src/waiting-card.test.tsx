@@ -44,6 +44,7 @@ function card(overrides: Partial<CardItem> = {}): CardItem {
 		can_merge: true,
 		changed_at: "2026-11-18T11:55:00+00:00",
 		screenshots: null,
+		reason: "Waiting for CI to report on its commit",
 		...overrides,
 	};
 }
@@ -52,6 +53,8 @@ function list(cards: CardItem[], items: WaitingItem[] = []): WaitingList {
 	return {
 		count: cards.length + items.length,
 		needs_relink: false,
+		stopped_cards: [],
+		failing_projects: [],
 		items,
 		projects: [
 			{
@@ -65,6 +68,7 @@ function list(cards: CardItem[], items: WaitingItem[] = []): WaitingList {
 		],
 		own_items: [],
 		cards,
+		decisions: [],
 	};
 }
 
@@ -196,6 +200,25 @@ describe("a card of Dev flow's that waits", () => {
 		const back = shown.getByRole("button", { name: "Send back" });
 		expect(back.className).not.toMatch(/primary/);
 		expect(back).toHaveProperty("disabled", false);
+	});
+
+	test("says why it waits, in words", async () => {
+		open([
+			card({ reason: "This project waits for you on every pull request" }),
+		]);
+
+		const shown = await item();
+		expect(shown.getByRole("heading", { name: "Why it waits" })).toBeTruthy();
+		expect(
+			shown.getByText("This project waits for you on every pull request"),
+		).toBeTruthy();
+	});
+
+	test("without a reason, there is no reason block", async () => {
+		open([card({ reason: null })]);
+
+		const shown = await item();
+		expect(shown.queryByRole("heading", { name: "Why it waits" })).toBeNull();
 	});
 
 	test("shows the reviewer's verdict on its commit", async () => {

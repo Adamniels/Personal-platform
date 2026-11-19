@@ -76,6 +76,6 @@ internal static class WorkerProgram
         var asAgent = new SystemProcessStarter(user.Name, time);
         var pages = PageTools.For(user.Name, time);
         var claude = ClaudeCodeOptions.Default with { Home = user.Home, Path = user.Path, Lang = user.Lang, BrowsersPath = pages.BrowsersPath };
-        return new JobTools(new ClaudeCodeAgent(asAgent, claude, log), new SystemProcessStarter(null, time), asAgent, JobFolders.Default, user, pages);
+        return new JobTools(new ClaudeCodeAgent(asAgent, claude, log, time), new SystemProcessStarter(null, time), asAgent, JobFolders.Default, user, pages);
     }
 }

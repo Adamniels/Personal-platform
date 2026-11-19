@@ -39,6 +39,8 @@ function list(own: OwnItem[]): WaitingList {
 	return {
 		count: own.length,
 		needs_relink: false,
+		stopped_cards: [],
+		failing_projects: [],
 		items: [],
 		projects: [
 			{
@@ -52,6 +54,7 @@ function list(own: OwnItem[]): WaitingList {
 		],
 		own_items: own,
 		cards: [],
+		decisions: [],
 	};
 }
 

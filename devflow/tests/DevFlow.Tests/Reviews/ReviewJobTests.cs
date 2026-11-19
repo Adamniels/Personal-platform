@@ -157,7 +157,9 @@ public sealed class ReviewJobTests
         Assert.Equal("reviewing", card.State);
         Assert.Equal(PullRequestOpener.ToReview, card.Reason);
 
-        Later(jobs);
+        // Once the project's wait after a failure outside the card is over, see "Stops".
+        jobs.Routes.Time.Advance(DevFlow.Stops.ProjectWaits.First);
+        await jobs.Routes.Read(jobs.Project, Jobs.Jobs.User);
         var again = await jobs.Job();
         Assert.Equal(Job.Review, (string)again["kind"]!);
         Assert.Equal((string)built["head_commit"]!, (string)again["to_review"]!["commit"]!);
@@ -172,9 +174,11 @@ public sealed class ReviewJobTests
         // An approve; a changes verdict starts a fix round instead, see FixTests.
         var reviewed = await Built.Review(jobs, Built.Verdict("approve"));
 
+        // The fake worker runs the merge check after the approve, and with nothing from CI on its
+        // commit yet the card waits for it, see MergeCheckTests.
         var card = await Built.Card(jobs, 4);
         Assert.Equal("waiting_for_owner", card.State);
-        Assert.Equal(PullRequestOpener.Waiting, card.Reason);
+        Assert.Equal(DevFlow.Merging.MergeCheck.CiNotYet, card.Reason);
         var run = (await jobs.Runs())[1];
         Assert.Equal("review", run.Kind);
         Assert.Equal("succeeded", run.Result);

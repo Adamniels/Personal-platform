@@ -270,6 +270,15 @@ function WorkersPanel({
 							<span>{heldNotice(list.held)}</span>
 						</p>
 					) : null}
+					{/* Six runs in a row failed outside their cards: a broken machine, a
+					    usage limit or the network, said rather than left silent. See
+					    "Stops" in devflow/README.md. */}
+					{list?.cannot_run ? (
+						<p className={styles.held} role="status">
+							<Status tone="failed">Cannot run</Status>
+							<span>{list.cannot_run}</span>
+						</p>
+					) : null}
 					{error === null ? null : (
 						<p className={styles.error} role="alert">
 							{error}

@@ -42,12 +42,12 @@ public static class AttentionEndpoints
 public sealed record Attention([property: JsonPropertyName("attention")] bool Value)
 {
     /// <summary>Whether anything is the owner's to act on: what a waiting list's <c>count</c>
-    /// counts, the items not sent back, Dev flow's own items and cards and a needed relink, or a
-    /// Claude login that is due.</summary>
+    /// counts, the items not sent back, Dev flow's own items, cards and decisions to look at and a
+    /// needed relink, or a Claude login that is due.</summary>
     public static Attention From(WaitingList list, ClaudeLoginStatus login)
     {
         ArgumentNullException.ThrowIfNull(list);
         ArgumentNullException.ThrowIfNull(login);
-        return new(list.NeedsRelink || list.Items.Any(item => !item.SentBack) || list.OwnItems.Count > 0 || list.Cards.Count > 0 || login.NeedsYou);
+        return new(list.NeedsRelink || list.Items.Any(item => !item.SentBack) || list.OwnItems.Count > 0 || list.Cards.Count > 0 || list.Decisions.Count > 0 || login.NeedsYou);
     }
 }

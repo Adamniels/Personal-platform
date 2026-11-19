@@ -90,14 +90,15 @@ public sealed class VerdictTests
 
         await Built.Review(jobs, notAVerdict);
 
-        // A failure in the run: the card stops with why, and no verdict is taken from it.
+        // A failure in the run, and no verdict is taken from it: a first one, it is reviewed again,
+        // see "Stops".
         var run = (await jobs.Runs())[1];
         Assert.Equal("review", run.Kind);
         Assert.Equal("report_invalid", run.Result);
         Assert.Equal("The verdict did not match its form: verdict: changes needs at least one blocking finding", run.Reason);
         var card = await Built.Card(jobs, 4);
-        Assert.Equal("stopped", card.State);
-        Assert.Equal(run.Reason, card.Reason);
+        Assert.Equal("reviewing", card.State);
+        Assert.Equal(DevFlow.Jobs.RunStore.Again(run.Reason!), card.Reason);
     }
 
     [Fact]

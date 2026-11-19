@@ -4,6 +4,7 @@ using Dapper;
 
 using DevFlow.Cards;
 using DevFlow.CodeHost;
+using DevFlow.Decisions;
 using DevFlow.Fixing;
 using DevFlow.Jobs;
 using DevFlow.Projects;
@@ -101,9 +102,14 @@ public sealed partial class ProjectReader(UserDb database, ICodeHost host, TimeP
         IReadOnlyList<PickedCard> cards = [];
         IReadOnlyList<FollowedPull> followed = [];
         IReadOnlyList<TakenComments> commented = [];
+        IReadOnlyList<OpenDecisions> decisions = [];
         try
         {
             (items, cards, followed, commented, failure) = await Fetch(projectId, target, userId, cancellationToken);
+            if (failure is null)
+            {
+                decisions = await ReadDecisions(projectId, target, userId, cancellationToken);
+            }
         }
         catch (Exception error) when (error is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
@@ -116,7 +122,7 @@ public sealed partial class ProjectReader(UserDb database, ICodeHost host, TimeP
         {
             try
             {
-                if (!await Store(projectId, userId, items, cards, followed, commented, now, cancellationToken))
+                if (!await Store(projectId, userId, items, cards, followed, commented, decisions, now, cancellationToken))
                 {
                     return ReadResult.NoSuchProject;
                 }
@@ -213,15 +219,36 @@ public sealed partial class ProjectReader(UserDb database, ICodeHost host, TimeP
 
         var stillOpen = open.Select(pull => pull.Number).ToHashSet();
         var commented = new List<TakenComments>();
-        foreach (var card in (await OwnerComments.Cards(database, userId, projectId, cancellationToken)).Where(card => stillOpen.Contains(card.PullRequest)))
+        foreach (var card in await OwnerComments.Cards(database, userId, projectId, cancellationToken))
         {
-            switch (Listed(await host.Comments(userId, repository, card.PullRequest, cancellationToken)))
+            int? openPull = card.PullRequest is { } pull && stillOpen.Contains(pull) ? pull : null;
+            var stopped = card.StoppedAt is not null;
+            if (openPull is null && !stopped)
             {
-                case null:
+                continue;
+            }
+
+            // A stopped card runs again on his comment on its issue or its open pull request; any
+            // other is sent back on its open pull request alone.
+            var comments = new List<Comment>();
+            foreach (var number in (int?[])[openPull, stopped ? card.Number : null])
+            {
+                if (number is not { } conversation)
+                {
+                    continue;
+                }
+
+                if (Listed(await host.Comments(userId, repository, conversation, cancellationToken)) is not { } listed)
+                {
                     return ([], HostUnavailable);
-                case var comments when OwnerComments.New(card, comments, owner) is { } taken:
-                    commented.Add(taken);
-                    break;
+                }
+
+                comments.AddRange(listed);
+            }
+
+            if (OwnerComments.New(card, comments, owner, openPull) is { } taken)
+            {
+                commented.Add(taken);
             }
         }
 
@@ -327,7 +354,7 @@ public sealed partial class ProjectReader(UserDb database, ICodeHost host, TimeP
     /// for the transaction, and a project disconnected before it stores nothing.
     /// </summary>
     /// <returns>Whether the project was still there.</returns>
-    private async Task<bool> Store(Guid projectId, Guid userId, IReadOnlyList<RunnerItem> items, IReadOnlyList<PickedCard> cards, IReadOnlyList<FollowedPull> followed, IReadOnlyList<TakenComments> commented, DateTimeOffset now, CancellationToken cancellationToken) =>
+    private async Task<bool> Store(Guid projectId, Guid userId, IReadOnlyList<RunnerItem> items, IReadOnlyList<PickedCard> cards, IReadOnlyList<FollowedPull> followed, IReadOnlyList<TakenComments> commented, IReadOnlyList<OpenDecisions> decisions, DateTimeOffset now, CancellationToken cancellationToken) =>
         await database.InUserTransaction(userId, async transaction =>
         {
             if (await transaction.Connection!.ExecuteScalarAsync<int?>(new CommandDefinition(
@@ -355,6 +382,11 @@ public sealed partial class ProjectReader(UserDb database, ICodeHost host, TimeP
             foreach (var comments in commented)
             {
                 await OwnerComments.Take(transaction, projectId, comments, now, cancellationToken);
+            }
+
+            foreach (var (label, open) in decisions)
+            {
+                await DecisionStore.Close(transaction, projectId, label, open, now, cancellationToken);
             }
 
             await transaction.Connection!.ExecuteAsync(new CommandDefinition(
@@ -464,6 +496,31 @@ public sealed partial class ProjectReader(UserDb database, ICodeHost host, TimeP
             LogRecipeFailed(log, projectId, error);
         }
     }
+
+    /// <summary>
+    /// For each attention label the project's open decision issues were opened with, the numbers
+    /// the code host lists open with it, read as the app; none when no decision issue is open, so a
+    /// read costs nothing more. A label the code host did not answer for is left out, so its issues
+    /// stay listed until a read that does: whether an issue was closed is not worth failing the rest
+    /// of the read for.
+    /// </summary>
+    private async Task<IReadOnlyList<OpenDecisions>> ReadDecisions(Guid projectId, ProjectTarget target, Guid userId, CancellationToken cancellationToken)
+    {
+        var repository = new Repository(target.Installation, target.RepositoryId, target.Owner, target.Name);
+        var read = new List<OpenDecisions>();
+        foreach (var label in await DecisionStore.OpenLabels(database, userId, projectId, cancellationToken))
+        {
+            if (await host.LabelledIssues(userId, repository, label, cancellationToken) is CodeHostResult<IReadOnlyList<Issue>>.Found { Value: var open })
+            {
+                read.Add(new OpenDecisions(label, [.. open.Where(issue => !issue.IsPullRequest).Select(issue => issue.Number)]));
+            }
+        }
+
+        return read;
+    }
+
+    /// <summary>The issues the code host lists open with an attention label.</summary>
+    private sealed record OpenDecisions(string Label, IReadOnlyList<int> Open);
 
     private sealed record ProjectTarget(
         long Installation,

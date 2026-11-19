@@ -3,11 +3,14 @@ using DevFlow.ClaudeLogin;
 using DevFlow.Jobs;
 using DevFlow.Protocol;
 using DevFlow.Recipes;
+using DevFlow.Stops;
 
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 
 using PlatformAuth;
+
+using PlatformData;
 
 namespace DevFlow.Workers;
 
@@ -49,12 +52,16 @@ public static class WorkerEndpoints
                 "A new key for the project's workers, answered this once with save_command, the command that saves it in ~/.devflow/<project>.env for the start command to read: Dev flow keeps only its SHA-256 and never shows it again. It replaces the project's last key at once, so a worker holding that one is refused from then on. 404 for a project the caller does not have.",
                 StatusCodes.Status404NotFound);
 
-        routes.MapGet("/devflow/api/projects/{id:guid}/workers", async Task<Results<Ok<WorkerList>, ProblemHttpResult>> (Guid id, HttpContext context, [FromServices] WorkerStore store, [FromServices] WorkerStart start, [FromServices] ClaudeLogins logins) =>
+        routes.MapGet("/devflow/api/projects/{id:guid}/workers", async Task<Results<Ok<WorkerList>, ProblemHttpResult>> (Guid id, HttpContext context, [FromServices] WorkerStore store, [FromServices] WorkerStart start, [FromServices] ClaudeLogins logins, [FromServices] UserDb database) =>
                 await store.List(context.UserId(), id, start, context.RequestAborted) is { } list
-                    ? TypedResults.Ok(list with { Held = list.Held ?? Dispatcher.HeldFor(await logins.Status(context.UserId(), context.RequestAborted)) })
+                    ? TypedResults.Ok(list with
+                    {
+                        Held = list.Held ?? Dispatcher.HeldFor(await logins.Status(context.UserId(), context.RequestAborted)),
+                        CannotRun = await ProjectWaits.CannotRunOf(database, context.UserId(), id, context.RequestAborted),
+                    })
                     : NoSuchProject())
             .UserRoute("listWorkers", "The project's workers",
-                "Every worker that has said hello with the project's key, by when it first did, with what it reported, when it was last seen, and rebuild: recipe when it runs another version of the recipe than Dev flow last read, base_image when it runs on another base image than the one released, or null; key_made_at, when the project's key was made, null before one has been; recipe_version, the recipe's version as last read, null before then or when the default branch has none; start_command, the command that builds and starts the project's worker; and held, why the project hands out no work whichever worker asks, the first that applies: stopped, when something landed on its default branch that Dev flow did not put there, unwatched, when its default branch has not been read for five minutes, no_claude_login when its user has given no Claude login, claude_login_expired when it is past its renewal, or null. The key itself is never in it. 404 for a project the caller does not have.",
+                "Every worker that has said hello with the project's key, by when it first did, with what it reported, when it was last seen, and rebuild: recipe when it runs another version of the recipe than Dev flow last read, base_image when it runs on another base image than the one released, or null; key_made_at, when the project's key was made, null before one has been; recipe_version, the recipe's version as last read, null before then or when the default branch has none; start_command, the command that builds and starts the project's worker; and held, why the project hands out no work whichever worker asks, the first that applies: stopped, when something landed on its default branch that Dev flow did not put there, unwatched, when its default branch has not been read for five minutes, no_claude_login when its user has given no Claude login, claude_login_expired when it is past its renewal, or null; and cannot_run, once six runs in a row have failed outside their cards, \"Dev flow cannot run <project>'s cards: <the last reason>\", until a run succeeds, or null. The key itself is never in it. 404 for a project the caller does not have.",
                 StatusCodes.Status404NotFound);
 
         routes.MapPost(WorkerApi.HelloPath, Hello)

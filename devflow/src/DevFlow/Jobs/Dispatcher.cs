@@ -6,6 +6,7 @@ using DevFlow.ClaudeLogin;
 using DevFlow.CodeHost;
 using DevFlow.Protocol;
 using DevFlow.Recipes;
+using DevFlow.Stops;
 using DevFlow.Watching;
 using DevFlow.Workers;
 
@@ -112,7 +113,10 @@ public sealed partial class Dispatcher(
         // Stopped, or its default branch not watched for five minutes: no new work, whatever waits,
         // until its user resumes it or the branch is read again. See "Watching the default branch"
         // in devflow/README.md.
+        // Waiting after failures outside its cards, until its wait is over. See "Stops" in
+        // devflow/README.md.
         if (await watch.Hold(userId, projectId, cancellationToken) != ProjectHold.None
+            || await ProjectWaits.Of(database, userId, projectId, cancellationToken) is { } wait && wait.WaitUntil > time.GetUtcNow()
             || HeldFor(await logins.Status(userId, cancellationToken)) is not null
             || await JobStore.NextKind(database, userId, projectId, cancellationToken) is not { } kind
             || await workers.RepositoryOf(caller, cancellationToken) is not { } repository)
@@ -166,7 +170,8 @@ public sealed partial class Dispatcher(
 
         var brief = Brief.Developer(
             new BriefCard(claimed.Number, claimed.Title, claimed.Body),
-            new BriefFacts(facts.Check, claimed.Branch, facts.DefaultBranch, claimed.RunId, facts.Start, facts.Url));
+            new BriefFacts(facts.Check, claimed.Branch, facts.DefaultBranch, claimed.RunId, facts.Start, facts.Url),
+            claimed.Comments);
         return new Job(
             claimed.RunId,
             Job.Build,

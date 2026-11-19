@@ -189,6 +189,28 @@ export function CardPage({
 					</p>
 				</div>
 			</Panel>
+			{story.merge === null ? null : (
+				<Panel title="The merge" className={styles.panel}>
+					<div className={styles.body}>
+						<p>
+							Dev flow merged #{story.pull_request?.number} into{" "}
+							{story.merge.base} as the app, once every condition of the merge
+							check held.
+						</p>
+						<p className={styles.muted}>
+							Merge commit{" "}
+							<code className={styles.code}>
+								{story.merge.commit.slice(0, 7)}
+							</code>{" "}
+							of the approved{" "}
+							<code className={styles.code}>
+								{story.merge.approved.slice(0, 7)}
+							</code>
+							, on {DATE_TIME.format(new Date(story.merge.merged_at))}.
+						</p>
+					</div>
+				</Panel>
+			)}
 			{story.screenshots === null ? null : (
 				<Panel title="Screenshots" className={styles.panel}>
 					<div className={styles.body}>

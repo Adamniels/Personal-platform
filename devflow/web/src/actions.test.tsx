@@ -54,6 +54,8 @@ function list(items: WaitingItem[]): WaitingList {
 	return {
 		count: items.filter((each) => !each.sent_back).length,
 		needs_relink: false,
+		stopped_cards: [],
+		failing_projects: [],
 		items,
 		projects: [
 			{
@@ -67,6 +69,7 @@ function list(items: WaitingItem[]): WaitingList {
 		],
 		own_items: [],
 		cards: [],
+		decisions: [],
 	};
 }
 

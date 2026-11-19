@@ -230,7 +230,7 @@ public static class CardStore
         }
 
         await transaction.Connection!.ExecuteAsync(new CommandDefinition(
-            $"UPDATE cards SET state = 'stopped', reason = @reason, changed_at = @now WHERE {Where}",
+            $"UPDATE cards SET state = 'stopped', reason = @reason, changed_at = @now, stopped_at = @now, stop_marked_at = NULL WHERE {Where}",
             parameters,
             transaction,
             cancellationToken: cancellationToken));

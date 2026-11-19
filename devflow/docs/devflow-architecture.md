@@ -2,7 +2,7 @@
 
 Status: living. It describes what is built, and changes in the same pull request as the code.
 
-Last updated: 2026 11 18
+Last updated: 2026 11 19
 
 ## What Dev flow is
 
@@ -66,9 +66,13 @@ moves the card on, see "Handing out work" below. A card that built and passed it
 pull request, opened as the app; a fresh reviewer agent reads that commit and its verdict is kept
 for it, see "Review" below, with the pictures the worker took of the project started from that
 commit, see "The worker's pictures" below; a `changes` verdict, or the owner's comment on its pull request, sends
-it back to a fresh developer on the same branch, see "Fixing" below; and the card then waits for
-the owner on "Waiting for you", where he merges it as himself; each card has a page with its whole story so far, see "How a card reaches
-its pull request" below.
+it back to a fresh developer on the same branch, see "Fixing" below; and once approved, the merge
+check merges it as the app when every condition holds, opening an issue for each decision the agent
+marked for the owner, or has it wait for him on "Waiting for you" with why, where he merges it as
+himself, see "The merge check" below; each card has a page with its whole story so far, see "How a card reaches
+its pull request" below. A card that cannot be made to work stops, is marked on its issue and
+shows under "Stopped", and his comment runs it again; a failure outside the card makes its project
+wait instead, see "Stops" below.
 
 Every read of a project also watches its default branch: anything that lands there that neither
 Dev flow merged nor the owner put there himself stops the project, which then hands out no work and
@@ -649,9 +653,10 @@ under the agents.
 
 **Where a failure lies decides what follows.** A failure outside the card, the login, Claude's API
 or the machine, puts the card back in the queue with nothing counted against it, since another try
-may well succeed; one in the card, a report that does not match, a report that stopped, or a check
-that did not run or failed stops it with why. The attention label on a stopped card, retries and
-the limit on them are part 3's "Stops".
+may well succeed, and makes its project wait; one in the card, a report that does not match, a
+report that stopped, or a check that did not run or failed is the card's to answer, and stops it
+with why, at once for a report that stopped or a run past its time limit, and otherwise when it
+is the second in a row with nothing new. See "Stops" below.
 
 **A run that never returns is lost after 100 minutes, and only once its worker is gone.** 100
 minutes is the 90 minute limit on a run and a margin for the check and the push. A worker not seen
@@ -706,8 +711,8 @@ pull request still in the list of open ones costs nothing, and only one that lef
 its own. Merged by anyone, on GitHub or from the page, is done; closed without merging is stopped.
 A card whose pull request opened is reviewed first, see "Review", and is followed while it is under
 review or being fixed too, so a pull request merged or closed meanwhile is not reviewed or fixed for
-nothing. After a review that approves its head every card waits for the owner, whatever the
-project's `waits_for_owner` says, until part 3's merge check acts on the verdict.
+nothing. After a review that approves its head a card waits for the owner until the merge check
+has read it, see "The merge check".
 
 **The waiting list reads Dev flow's own cards beside the runner's.** The runner's items are read
 from its pull requests on GitHub, by its labels and verdicts, see "Reading this repository's
@@ -789,7 +794,8 @@ developer's replies with the new diff from the base, as this repository's fix lo
 that argues a finding is weighed and not taken on trust, and a fix that broke something elsewhere
 is still seen. Only blocking findings start another round.
 
-**The owner's comment is the one input read from GitHub.** Dev flow learns everything else from its
+**The owner's comment is the one input read from GitHub**, on a card's pull request, and on a
+stopped card's issue too, see "Stops". Dev flow learns everything else from its
 own records, round 4 of the spec; a comment on the pull request is where the owner already talks to
 the work, so it is read, but only his, by his linked login, and only as input to a fix, never as a
 verdict or an approval. It is taken by GitHub's comment id, which only grows, so a comment is acted
@@ -856,6 +862,140 @@ pictures pushed at the same moment are never lost.
 **Read as the app, served like part 1's.** The addresses a body embeds need a GitHub session, so
 the page reads each picture through Dev flow, with the same checks as the runner's items, see "A
 code host's bytes handed to the browser" below.
+
+## The merge check
+
+A card merges unattended only when all of round 8's conditions hold, read fresh at the time, and
+the program never guesses in favour of merging. It is the successor of this repository's merge
+gate, `scripts/agent/merge-gate.sh`, and like it is deterministic code that fails closed. The
+order, the reasons and the tables are "The merge check" in `devflow/README.md`.
+
+**One pure function decides, and its caller reads.** `MergeCheck.Decide` takes a record of what was
+read and answers merge or a reason, with no database, network or clock inside it, so every
+condition is one case of a test over plain values, and what decides a merge can be read in one
+place. The code host's answers reach it as they came, failures included, so "anything that cannot
+be read is no merge" is decided there too rather than by each read's caller. No language model
+takes part anywhere in it: the agent's report is not among what it reads, and a test reads the
+compiled code the check runs and fails if it names an agent, a brief, a report, a worker or a job.
+
+**The conditions, and why each fails closed.**
+
+1. *The worker's check passed on the pull request's head.* The check's exit code is the worker's,
+   run on the commit it pushed, never the agent's word. The head is read from GitHub at the time,
+   so a commit pushed since by anyone is not the one checked, and is not merged.
+2. *CI passed on that commit.* Every check run and status completed and succeeded; anything else
+   that completed refuses with its name, `skipped` and `neutral` among them, since a check that did
+   not pass is not known to be fine. Pending waits. CI that never reports does not count as passing:
+   with nothing on the commit 30 minutes after the push, the card is the owner's, "CI did not
+   report", since a project's CI that broke silently looks exactly like one with no CI.
+3. *The latest review approved exactly that commit*, from Dev flow's own `reviews`, never from a
+   comment, so a commit after the review needs a new one, see "Review".
+4. *The card is still valid.* Written by the owner's linked login, open with the pick-up label,
+   without the hold label, and edited by nobody else since it was picked, read again from GitHub as
+   the app rather than from the last minute's picture. Its body and title are compared with the
+   record made when it was picked, and a change the history cannot attribute is a reason too.
+5. *The project's setting is `never`.* Any other value, one it does not know included, waits.
+
+And the project is not stopped and its watch has read within five minutes, as for handing out
+work, since nothing a project produced merges while something unexplained may sit on its default
+branch.
+
+**What is tried again, and what is the owner's.** A reason that may clear by itself, CI still
+running or not reported yet, a read that failed, the watch not read lately, no key or no answer
+from the merge, keeps the card due, and it is read again on the next minute. Every other is the
+owner's: a check, CI or review that failed, a card no longer valid, `always`, a stopped project. It
+then waits on "Waiting for you" with the reason in words, as every card that waits does, and he
+merges it as himself or sends it back; a stopped project's card stays his after he resumes, since
+resuming accepts what landed on the default branch, not the card.
+
+**When it runs.** Right after a review approves, through `MergeRequests`, so a card does not wait a
+minute for nothing, but never inside the worker's result route, whose worker gives up after 30
+seconds while a merge may take GitHub 20 for each request; and on each project's minute, beside the
+program's other writes, outside the reading code, which can never reach a write key.
+
+**The merge is made under the watch's lock and names the approved commit.** `AppMerges.MergeCard`
+holds the project's row as the watch judges under it, reads again there what could have changed
+since the check read, the hold, the setting and that the card still waits for this merge, and only
+then merges with a `Merge` key and `sha` set to the approved commit, so GitHub refuses one whose
+head moved. The merge commit, the card's `done` and its decisions for the owner are recorded in
+that one transaction, so the watch finds the merge fine and none of it is lost. A merge commit
+GitHub's answer did not name is not recorded, and the watch then stops the project: that path errs
+towards asking the owner.
+
+**A decision for the owner, with `never`.** The card merges, and each decision the agent marked for
+him gets one issue, opened as the app with the attention label, round 8's "a new issue with the
+attention label is opened only for a decision the agent flagged on a card that has already
+merged". Every build's and fix's report counts, not only the newest, since a fix need not repeat
+what the build decided, and a decision for the owner that vanished would be one merged unchecked.
+"Waiting for you" lists the open ones until he closes them on GitHub; whether a decision stands is
+his to judge, and a fix is a new card. With `always` nothing merges, so the decision waits on the
+card itself.
+
+**Not on the list, on purpose**, round 8: screenshots, which the reviewer judges; whether tests were
+written, which the reviewer judges by the card's acceptance; and the agent's report, which never
+decides. Branch protection is not relied on either, as for the watch.
+
+## Stops
+
+A card stops only when the program cannot produce a working result, and a problem outside the
+card pauses and retries without reaching the owner, the spec's round 2; a run and a card have
+stops on by default, round 3; and anti goal 4, "It burns usage silently". What stops a card, how
+it is marked and run again, and how a project waits are "Stops" in `devflow/README.md`.
+
+**What lies in the card, and what outside it.** In the card is what the card's own work caused:
+the agent ran out of turns, budget or time, was refused an action, handed back no report or one out
+of its form, stopped, or left a check that failed or never ran; a fix that changed nothing; a
+reviewer's verdict out of its form. Outside it is everything another try may well not repeat: the
+login, Claude's API and its usage limit, the network, git and the code host, the machine, and a run
+that never came back. The worker says which, "The worker" in `devflow/README.md` holding the table,
+since only it sees the failure; Dev flow judges what follows.
+
+**A failure outside never counts against the card.** Counting it would stop good cards for a bad
+machine, and a broken machine would then stop every card in turn, each needing the owner's comment
+once it is mended; leaving the cards be means mending the machine is enough. The price is that a
+machine that never mends costs a run every hour, which is why the project, not the card, waits: 5
+minutes after the first failure, doubling to an hour, so a short outage passes in minutes and a
+long one costs a request an hour; and why six in a row say so on the project's page and on "Waiting
+for you", this repository's runner's two failures about a slice, raised for a cause that is not the
+card's, so a broken machine is not silent. At the usage limit the project waits until it resets,
+round 4b's default, which is shorter than the doubling's guess when the limit is near its reset and
+spends nothing on tries that cannot succeed. A lost run is outside the card too: whether its worker
+or its machine went, the card did nothing.
+
+**One failure in the card is tried again; the second with nothing new stops it.** A first failure
+in the card is often a flake, a test that timed out or a run that lost its way, which a fresh run
+gets past, as this repository's runner gives a slice two failures before it stops it. A second with
+the branch where the first left it is the same answer twice, the spec's "a card that comes back
+twice with nothing new", so another run would spend usage on it again. A new commit between them is
+progress, and runs the card once more; how long that may go on is bounded by the fix rounds once a
+pull request exists, and before that only by the daily budget of part 8. A report that stopped and
+a run at its time limit stop at once: the agent said the card cannot be built, or it spent the
+longest a run may take, and a second try would spend as much again on the same card.
+
+**Marked on the card itself, not in an issue of its own.** The spec's builder check settled that a
+stopped card is marked with the attention label and a comment, where the owner already reads it, so
+a stop needs no second thing to find and close; an attention issue is for a decision on a card that
+has merged, which has no card left to mark. The comment is posted once, found again by its last
+line as the review's copy is, and it decides nothing, so the label and the comment are for people,
+and Dev flow's own record is the card's `stopped` row.
+
+**His comment newer than the stop runs it again, on the issue or the pull request.** The issue is
+where the stop's comment asks for one, and it is there whatever became of the pull request, so a
+card stopped before it had one, or whose pull request was closed, can run again too. Here, unlike a
+fix's comments, time is compared: a stop is the moment the owner learns of it, so a comment from
+before it was either taken already or written while the run that stopped it was under way, and was
+not his answer to the stop. His comment is the input to the next run, and the count starts afresh,
+since he has changed what the card is asked. Only his linked login counts, as everywhere a comment
+is read.
+
+**The usage limit's reset is read from the text Claude Code prints.** Its JSON answer has no field
+for it, and the exact `resetsAt` is in a streamed event the worker's format never prints, so the
+worker reads the time from the message, as Claude Code 2.1.322's own formatter writes it, and Dev
+flow believes it only when it is in the future and within 8 days, a week being Claude's longest
+limit. A misreading then costs at most a wait that is too short, which the doubling follows, or a
+week's wait the owner sees on the page; and a message the worker cannot read leaves the doubling,
+which is never wrong for long. When Claude Code's version in the base image changes, a real run at
+the limit is the check that the form still holds.
 
 ## Watching the default branch
 
@@ -1091,6 +1231,31 @@ its reason, or a risk accepted on purpose; each slice adds the ones it builds.
   flow's, so each of its merges stops the project; this repository's runner merges as
   `mac-mini-agent`, so while it runs, a connected `Personal-platform` stops at each merge the gate
   makes, and is resumed from the page.
+- **No language model decides a merge.** `MergeCheck.Decide` is deterministic code over what was
+  read, and the agent's report is not among it; the reviewer's verdict counts only as Dev flow's
+  record, tied to its commit. `MergeCheckTests.NoLanguageModelDecides` walks everything the check
+  and its caller run in Dev flow's code and fails if any of it names a type of the briefs, the
+  worker protocol, the agent's report, the jobs, the workers, the Claude login or the recipes.
+- **CI that never reports is not a pass.** No check run and no status on the commit is waited for
+  30 minutes from the push and then left to the owner, "CI did not report"; any conclusion but
+  `success`, a status `failure` or `error`, refuses with its name; and a read of CI that failed is
+  no merge. Accepted: a project with no CI at all never merges by itself; its owner merges each card,
+  or gives it CI.
+- **A merge names the approved commit.** The merge is asked with `sha` set to the commit the worker
+  checked and the reviewer approved, which GitHub refuses when the head moved, and that refusal
+  merges nothing and records nothing. The hold, the setting and the card are read again under the
+  project's lock before GitHub is asked, so a stop, a change to `always` or a send back made while
+  the check read is never overtaken. `MergeCheckTests.AHeadThatMovedIsNotMerged` and
+  `EachConditionAloneRefuses` hold it.
+- **Only a merge Dev flow recorded is fine on the default branch.** The merge check merges only
+  through `AppMerges`, which writes the merge commit to `merges_made` in the transaction that
+  merged, under the lock the watch judges under; a merge by the app the watch finds no record of
+  stops the project. Accepted: a merge whose answer named no merge commit stops its project although
+  Dev flow made it, and the owner resumes it.
+- **A decision issue's text cannot close an issue or notify anyone.** Its body is the agent's and the
+  reviewer's words, made data as a card's pull request body makes them, see "The report's text
+  cannot add a section or close an issue"; its title is one line of what was chosen, where GitHub
+  reads no keyword or mention. The issue is opened with a `Post` key, never the merge's.
 - **The owner's actions from the page are made only with his token, and the code makes the other
   impossible.** What the owner does from the waiting list is recorded on GitHub as his, so the
   runner reads his comment as his input; what the program does is the app's, so it is traced back
@@ -1366,3 +1531,16 @@ its reason, or a risk accepted on purpose; each slice adds the ones it builds.
   the GitHub mode. The visible sign is the banner, "Fake GitHub. Nothing here is real.", on every
   Dev flow page in the fake mode, which cannot be dismissed, so a fake page never passes for the
   real one.
+- **A stop's comment carries a run's reason as data.** The reason may be a worker's or an agent's
+  words, so `StopText` makes each one data as the pull request body makes the report's: one line,
+  no HTML, its backticks escaped, a closing keyword and an `@` mention each in a code span, so the
+  app's comment closes nothing and notifies nobody. The label and the comment are posted with a
+  `Post` key, which cannot push or merge.
+- **A stopped card's issue is read for the owner's comment alone.** Running a card again is a
+  write on the strength of a comment, so it is taken only from his linked login, as GitHub compares
+  logins, only when written after the stop, and only into the next run's brief as his input, quoted
+  in a fence no text can end; anyone else's comment, the app's own among them, is never read as an
+  input.
+- **A worker's `resets_at` is believed within limits.** A worker could send a reset far off and
+  hold its own project's work back; it can only hold back the project whose key it has, which it
+  could as well by asking for no work, and Dev flow believes a reset only in the next 8 days.

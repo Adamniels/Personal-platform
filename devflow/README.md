@@ -206,7 +206,9 @@ has changed: run the command again" or "A new base image was released: run the c
 When the list's `held` says the project hands out no work, the panel shows, under its first line,
 the `needs-you` status "No work" and, the same way, "No work is handed out until you give your
 Claude login on the Projects tab", or for `claude_login_expired` "No work is handed out: your
-Claude login is past its renewal. Give a new one on the Projects tab", see "Jobs".
+Claude login is past its renewal. Give a new one on the Projects tab", see "Jobs". When its
+`cannot_run` is set, the panel shows, the same way, the `failed` status "Cannot run" and its text,
+see "Stops".
 
 The Settings panel, `src/settings.tsx`, the package's `Card` titled "Settings", read from
 `GET /devflow/api/projects/{id}/settings` as the page loads, is a form: a line saying Dev flow picks
@@ -234,7 +236,9 @@ card the caller does not have is the `EmptyState` "There is no such card", and o
 read an alert. Under it the package's `Card`s: "The card", its state as the Cards panel
 shows it with its reason beside it, and the links "Issue #<number>" and "Pull request #<number>",
 each in a new tab with `rel="noreferrer"` when its address is https and plain text otherwise;
-"Rounds", once the card has been sent back, the list "Rounds", newest first, each fix an inset row
+"The merge", once Dev flow merged its pull request as the app, "Dev flow merged #<pull request>
+into <base> as the app, once every condition of the merge check held." and, muted, "Merge commit
+<commit> of the approved <commit>, on <time>.", both commits in the mono font; "Rounds", once the card has been sent back, the list "Rounds", newest first, each fix an inset row
 named "Round <n> of 3", or "Your comment" for one the owner's comment started, with its outcome as
 a status, "The review of <commit> asked for changes." or "You sent it back with a comment.", his
 words under "What you wrote" with their line breaks, the developer's answer to each finding under
@@ -271,9 +275,10 @@ answer's `count` as a badge once it is more than none. Its parts, top to bottom:
   when every project is fine, one muted "Updated <time> ago" from the oldest `last_success_at`. A
   secondary "Refresh" beside it posts to every project's refresh route and then reads the list
   again.
-- Three groups, in this order, each a section heading in the heading font's capitals with its
+- Four groups, in this order, each a section heading in the heading font's capitals with its
   count, and shown only with items: "Pull requests waiting", Dev flow's own waiting cards, then
-  items of kind `waiting` not sent back; "Stopped", kind `stopped` not sent back; and "Sent back, the runner has it", every item
+  items of kind `waiting` not sent back; "Stopped", kind `stopped` not sent back; "Decisions to
+  look at", the issues Dev flow opened for decisions on cards it merged; and "Sent back, the runner has it", every item
   sent back, muted, and not in the tab's count. Within a group, by `<owner>/<name>` and then
   number.
 - An item is the package's `Card`, titled by the pull request, its status label on the right:
@@ -311,7 +316,9 @@ answer's `count` as a badge once it is more than none. Its parts, top to bottom:
   package's `ToastProvider`.
 - A card of Dev flow's own, `src/waiting-card.tsx`, is the package's `Card` with the attention
   outline, titled by the card, "Waiting for you" on the right; under the title
-  `<owner>/<name> #<pull request>` in the mono font, the report's summary, "The agent decided" with
+  `<owner>/<name> #<pull request>` in the mono font, the report's summary, "Why it waits" with the
+  card's reason as text, such as "CI did not report" or "This project waits for you on every pull
+  request", when it has one, "The agent decided" with
   the decisions the agent marked for the owner, as an item's, and "and <n> more it did not need you
   for", and "The check", "Dev flow ran <check> on <commit>: exit <code>.". Its actions are "Merge",
   primary when it is the group's first entry, and "Open on GitHub" to its pull request, offered
@@ -861,7 +868,9 @@ once: an installation's id, a repository's id within it, a pull request's or a c
 number, a commit's id, a file's path and branch, a change's id, and an issue's number, which no
 pull request may share. An installation's `account` is the login of
 the account it is on, which the list to choose from groups by. A pull request's number reaches its
-conversation, empty unless one is listed; a commit that is not listed is not found. An issue's
+conversation, empty unless one is listed; a commit that is not listed is not found, unless the
+repository's git repository holds it, such as a commit the fake worker made, which has no statuses
+and no check runs, as GitHub answers for a commit nothing was posted on. An issue's
 `blocked_by` names issues listed in the same repository, by number. Listing issues by label answers
 the open issues carrying it, whatever its case, and the open pull requests carrying it, marked as
 pull requests, as GitHub lists them; an issue's edits are answered as staged, its body's first and
@@ -942,6 +951,10 @@ of what Dev flow is:
 - `POST /devflow/api/fake/claude-login-age` with `{"days": 340}` moves when the caller's Claude
   login was given to that many days before now, so a test sees it due without waiting a year,
   `204`; `404` without a login, and `400` for a negative or malformed number.
+- `POST /devflow/api/fake/end-wait` with `{"project_id"}` ends the caller's project's wait after
+  failures outside its cards now, its count kept, so a test sees the next failure without waiting
+  minutes, `204`; `404` for a project the caller does not have or that does not wait, and `400`
+  without a `project_id`. See "Stops".
 - `POST /devflow/api/fake/worker/run`, the fake worker, which takes a project's next job and ends
   it with a prepared result, see "Jobs".
 - `GET /devflow/api/fake/writes` lists the writes the fake took for the caller, oldest first, each
@@ -1094,7 +1107,7 @@ and runs in the fake mode as well. With `DEVFLOW_POLL_SECONDS=0` it does not run
 **The routes**, under the `Api` policy and the origin check:
 
 - `GET /devflow/api/waiting` answers
-  `{"count", "needs_relink", "items": [...], "projects": [{"id", "owner", "name", "last_success_at", "stale", "failing"}], "own_items": [...], "cards": [...]}`.
+  `{"count", "needs_relink", "items": [...], "projects": [{"id", "owner", "name", "last_success_at", "stale", "failing"}], "own_items": [...], "cards": [...], "stopped_cards": [...], "failing_projects": [...]}`.
   Each item is a stored row with its project's id and repository name: `id`, `project_id`,
   `project_name`, `number`, `kind`, `waiting` or `stopped`, `sent_back`, `title`, `web_url`,
   `slice_number`, null when the body closes none, `head_commit`, `can_merge`, `summary`, `reason`,
@@ -1106,8 +1119,10 @@ and runs in the fake mode as well. With `DEVFLOW_POLL_SECONDS=0` it does not run
   `-desktop` and `-phone`, and the names, the desktop one first; what each means is `RunnerItem` in
   `src/DevFlow/Runner/RunnerItem.cs`, and every text is plain text to show as text. `cards` are Dev
   flow's own cards whose pull requests wait for the owner, by project and number, see "The pull
-  request Dev flow opens". `count` is the items not sent back, the own items and the cards, plus
-  one when `needs_relink`, the caller's link needing renewal. A project is
+  request Dev flow opens". `stopped_cards` are its own cards that stopped and `failing_projects` its
+  projects that cannot run their cards, each by project, see "Stops". `count` is the items not sent
+  back, the own items, the cards, the stopped cards and the failing projects, plus one when
+  `needs_relink`, the caller's link needing renewal. A project is
   `stale` when its last success was more than five minutes ago or it was never read, and `failing`
   when its last read failed.
 - `POST /devflow/api/projects/{id}/refresh` requests the caller's project and answers `204` once it
@@ -1149,8 +1164,8 @@ Four, and only the four something reads:
 |---|---|---|
 | `pickup_label` | `devflow` | An open issue carrying it is a card |
 | `hold_label` | `devflow-hold` | A card carrying it is held |
-| `attention_label` | `devflow-attention` | What a later part marks a card or an issue that needs the owner with |
-| `waits_for_owner` | `never` | `never` or `always`: whether a card's pull request waits for the owner, read by a later part; until the merge check is built every card's pull request waits for him after its review |
+| `attention_label` | `devflow-attention` | The label of the issue Dev flow opens for a decision marked for the owner on a card it merged, see "The merge check"; part 3's "Stops" marks a stopped card with it too |
+| `waits_for_owner` | `never` | `never` or `always`: with `never` the merge check merges an approved card when every condition holds; with `always` it waits for the owner, "This project waits for you on every pull request", see "The merge check" |
 
 A label is written, at most 50 characters, GitHub's limit, with no space at either end, no comma,
 since GitHub's list of issues by label takes a comma separated list, and no control character; and
@@ -1305,7 +1320,9 @@ as the app, with a `Merge` key, while its head is `commit`, and writes the merge
 `MergeAsApp` answered to `merges_made` in the same transaction. It holds the project's row with
 `FOR NO KEY UPDATE` from before the merge until the row is written, and the watch takes the same
 lock before it judges, so the watch never judges Dev flow's merge before it is recorded. It refuses
-a stopped project before GitHub is asked. Nothing calls it yet but its tests; later slices merge a
+a stopped project before GitHub is asked. The merge check merges a card through
+`AppMerges.MergeCard`, which does the same and more under that lock, see "The merge check"; later
+slices merge a
 card's pull request through it.
 
 **Holding work.** `WatchStore.Hold(user, project)` says why a project hands out no new work:
@@ -1397,7 +1414,9 @@ The routes, in `WorkerEndpoints`:
   command that builds and starts a worker; each worker's `rebuild`, `recipe`, `base_image` or
   null, see "Starting a worker"; and `held`, why no worker of the project is handed work, which the
   project's page says, the first that applies: `stopped` or `unwatched`, see "Watching the default
-  branch", then `no_claude_login` or `claude_login_expired`, see "Jobs", or null. Never the key.
+  branch", then `no_claude_login` or `claude_login_expired`, see "Jobs", or null; and
+  `cannot_run`, once six runs in a row have failed outside their cards, "Dev flow cannot run
+  <project>'s cards: <the last reason>", until a run succeeds, or null, see "Stops". Never the key.
   `404` as above.
 - `POST /devflow/api/worker/hello`, the worker's, with
   `{"worker_id": "<uuid>", "name": "<the container's hostname>", "recipe_version", "base_image"}`,
@@ -1628,10 +1647,10 @@ worker checks only that it is an object. Anything else is a failure, judged in t
 
 | What Claude Code answered | Where it lies |
 |---|---|
-| Past the time limit, ended by the worker | In the card |
+| Past the time limit, ended by the worker | In the card, sent with `timed_out` |
 | Nothing on standard output, as root with `bypassPermissions` | Outside |
 | Something that is not JSON | Outside |
-| `terminal_reason` `api_error`: not logged in, a refused key (`api_error_status` 401), a usage limit | Outside |
+| `terminal_reason` `api_error`: not logged in, a refused key (`api_error_status` 401), a usage limit | Outside, with `resets_at` when its `result` says when the limit resets, see "Stops" |
 | `terminal_reason` `max_turns` | In the card |
 | `terminal_reason` `budget_exhausted` | In the card |
 | `permission_denials` not empty, a refused action, for a build; a review's are kept and fail nothing | In the card |
@@ -1907,7 +1926,10 @@ from `building` to `checking`, and the run records `checking_at`. `204`. Any oth
 ```
 
 `outcome` is `succeeded`, with `report` and `failure` null, or `failed`, with `report` null and
-`failure` `{"reason", "in_card"}`, whether the card's own work caused it. `check` is null when the
+`failure` `{"reason", "in_card", "timed_out", "resets_at"}`: whether the card's own work caused
+it; whether the run reached its time limit, which must be in the card, null read as false; and when
+Claude's usage limit resets, which must be outside it, null when the answer gave none, see
+"Stops". `check` is null when the
 check did not run, or holds both fields. `branch` must be the job's, `head_commit` null or a full
 commit id, `auth_method` null or at most 255 characters, `usage` an object, empty when Claude gave
 none, `duration_ms` 0 or more, and `stderr` text. A field missing or breaking a rule is `422` naming
@@ -1932,13 +1954,15 @@ first that holds:
 Reasons from a worker or an agent are cut to 1,000 characters. A cut never splits a character in
 two; it keeps one fewer instead. A card moves only while it is
 `building` or `checking`; one a read has since ignored stays ignored. A card whose label was taken
-off while it ran is removed once its run ends, whatever the result; its runs stay. A stop's
-attention label and retries are part 3's.
+off while it ran is removed once its run ends, whatever the result; its runs stay. Every failure in
+the card above but a time limit and a report that stopped runs the card again once, and a failure
+outside the card makes its project wait, see "Stops".
 
 **A lost run.** Each read of a project, before it asks the code host anything, ends every run of it
 handed out at least 100 minutes ago with no result whose worker has not been seen for 10 minutes:
 the run is `lost`, "No result came back, and its worker was not seen for 10 minutes", and its card
-goes back to `queued`, nothing counted against it. A result that comes after is for a finished job,
+goes back to `queued`, nothing counted against it, and its project waits as after any failure
+outside the card, see "Stops". A result that comes after is for a finished job,
 `404`. It is `RunStore.SweepLost`.
 
 **The brief** is one template, `src/DevFlow/Briefs/developer.md`, embedded in the assembly, the
@@ -2018,7 +2042,8 @@ so two openings record one. GitHub not answering leaves the card as it is.
 `DEVFLOW_POLL_SECONDS`, through the door's `WithoutUser`, and opens each project's as its user, one
 project's failure never stopping another's; with `0` it does not run. A worker's result is answered
 without waiting for GitHub, so its card's pull request opens on the next minute. The fake worker
-waits for it.
+waits for it. The same minute then posts each review's copy, runs the merge check and opens the
+decisions' issues, in that order, see "Review" and "The merge check".
 
 **The body**, `PullRequestText.Body`, in this order: `## Summary`, the report's `summary`, then a
 blank line and `Closes #<card>`; `## Tasks`, the report's tasks as a checklist, `- [x]` or `- [ ]`;
@@ -2057,11 +2082,12 @@ checked, `base`, `summary`, `decisions`, those the agent marked for the owner, e
 `{"chosen", "alternative", "why"}` with an empty part null, `other_decisions`, `check`,
 `{"command", "exit_code", "commit"}`, `review`, the reviewer's verdict on that commit,
 `{"verdict", "summary", "blocking", "commit"}`, `blocking` how many findings block it, or null when
-the commit has none, `can_merge`, false while the project is stopped, `changed_at`, and
-`screenshots`, the pictures of that commit as the card's page has them, or null. Its run is
+the commit has none, `can_merge`, false while the project is stopped, `changed_at`,
+`screenshots`, the pictures of that commit as the card's page has them, or null, and `reason`, why
+it waits in the merge check's words, or null. Its run is
 the latest build or fix that succeeded, never a review, whose report is a verdict. They count in the list's `count`, in the display data's `waiting` and in
-`GET /devflow/api/attention`. Until "The merge check" lands, every card whose review approved its
-head waits for the owner, whatever `waits_for_owner` says.
+`GET /devflow/api/attention`. A card the merge check merged is `done` and no longer listed; the
+list's `decisions` are its decisions to look at, see "The merge check".
 
 ## Screenshots
 
@@ -2199,10 +2225,13 @@ is for the card's head commit, so it counts; `rounds`, newest first, each fix as
 `run_id`, `round`, 1 to 3 or null for the owner's comment, `review_run_id`, the review it
 answered, `comments`, his words, `result`, `replies`, from its report, `fixed_commit`, and
 `review_after_run_id`, the newest review of that commit. A fix that failed outside the card is
-tried again in the same round, so a round may show more than once; and `screenshots`, the
+tried again in the same round, so a round may show more than once; `screenshots`, the
 pictures the worker took of the head commit, the one its newest build or fix that succeeded left:
 `commit`, `groups`, paired by `Screenshots.Group` as part 1's are, each `{"name", "images"}`, and
-`note`, the worker's, or null; null when that run tried none. A project or
+`note`, the worker's, or null; null when that run tried none; and `merge`, the merge Dev flow made
+of its pull request as the app, `{"commit", "approved", "base", "merged_at"}`, the merge commit
+from `merges_made`, the card's head it merged, and the branch, or null when it made none, the
+owner's own merge from the page among them. A project or
 card the caller does not have is `404` "No such card". It is `CardStory` and `CardEndpoints` in
 `src/DevFlow/Cards/`. The page is "A card's page" under "The pages".
 
@@ -2277,8 +2306,10 @@ for a commit.
 **Judged**, `RunStore.JudgeReview`: a failure outside the card puts the card back in `reviewing`
 to be reviewed again; a failure in the card, such as the time limit, or a verdict that does not
 match its form, `report_invalid`, "The verdict did not match its form: <what>", is a failure in the
-run, never a verdict, and stops the card with why; one in its form succeeds. An `approve` has the
-card wait for the owner, "Its pull request waits for you", until "The merge check" lands; a
+run, never a verdict, and stops the card with why, the second in a row, see "Stops"; one in its
+form succeeds. An `approve` has the
+card wait for the owner, due for the merge check, "Approved; Dev flow checks whether it may merge
+it", which merges it or says why not, see "The merge check"; a
 `changes` starts its next fix round, or stops it when its rounds are used up, see "Fixing". A lost review run puts its card back in `reviewing`. A result whose `head_commit` is not the
 commit the review was handed, or null on a failure, is `422`.
 
@@ -2360,7 +2391,8 @@ and every comment gets a reply in `replies`.
 **Judged**, `RunStore.JudgeFix`: a failure outside the card puts the card back in `fixing` in the
 same round; a failure in the card, "The fix failed: <reason>", a report that does not match its
 form or that stopped, a branch left at `from_commit`, "The fix left no new commit on the branch",
-failed in the card, and a check that did not run or failed each stop it with why; anything else
+failed in the card, and a check that did not run or failed each stop it with why, the second in a
+row with no new commit for all but a report that stopped, see "Stops"; anything else
 succeeded, the fix's commit is the card's head and its pull request's, and the card goes back to
 `reviewing`, "Its pull request is open; the reviewer reads it next". A lost fix puts its card back
 in `fixing`.
@@ -2375,7 +2407,8 @@ that still holds is still blocking. Only blocking findings make it `changes`.
 
 **The owner's comment.** Each read of a project, `ProjectReader.Read`, reads the comments of the
 pull request of every card that has one still open, is `reviewing`, `fixing`, `waiting_for_owner`
-or `stopped`, and has no run under way, and takes those by the owner's linked login, as GitHub
+or `stopped`, and has no run under way, and of a stopped card's issue too, whose comments run it
+again, see "Stops"; and takes those by the owner's linked login, as GitHub
 compares logins, whatever the case, that are new: past `comments_read_through`, the id of the
 newest of his already taken, and every one of his before any was. No time is compared, so a comment
 written during a review is not lost to the fix a worker claims seconds after it. They are taken in
@@ -2394,16 +2427,15 @@ the read as any other read does.
 
 **Sending back** a Dev flow card from "Waiting for you":
 `POST /devflow/api/projects/{id}/cards/{number}/send-back`, with `{"comment"}`, under the `Api`
-policy and the origin check, posts the comment, trimmed and with nothing added, on the card's pull
-request as the owner with his linked token, never as the app, and reads the project again, which
-takes it as above. In this order: `404` "No such card"; `422` for a comment missing, empty once
-trimmed or longer than 10,000 characters; `409` "This card cannot be sent back now" for a card that
-neither waits for him nor has stopped, or has no open pull request; for a stopped card, whose pull
-request no read follows, GitHub is asked whether it is still open, with `409` "Its pull request is
-no longer open" and `503` when GitHub did not answer, nothing posted; `409` without a usable link;
-then GitHub is asked to post: `204` once posted, `409` "GitHub refused the comment" with its reason, and
-`503` when GitHub did not answer, after the project is read again. A stopped card is offered it
-from the list once "Stops" lists stopped cards; the route takes one already.
+policy and the origin check, posts the comment, trimmed and with nothing added, as the owner with
+his linked token, never as the app, and reads the project again, which takes it as above: on the
+card's pull request for a card that waits for him, and on the card's issue for a stopped one, as
+"Comment to run again", see "Stops", since its issue is there whatever became of its pull request.
+In this order: `404` "No such card"; `422` for a comment missing, empty once trimmed or longer than
+10,000 characters; `409` "This card cannot be sent back now" for a card that neither waits for him
+with its pull request nor has stopped; `409` without a usable link; then GitHub is asked to post:
+`204` once posted, `409` "GitHub refused the comment" with its reason, and `503` when GitHub did not
+answer, after the project is read again.
 
 **The tables**, from `migrations/0018_fix_rounds.sql` and `migrations/0019_owner_comments.sql`:
 `runs` gains `kind` `fix`, `from_commit`, required on a fix, `fix_round`, `fix_review_id` and
@@ -2411,6 +2443,240 @@ from the list once "Stops" lists stopped cards; the route takes one already.
 fix answers, `fix_round`, `fix_review_id` and `fix_comments`, set as it moves to `fixing`, and
 `comments_read_through`. A card's head, everywhere it is read, is the commit its newest build or
 fix that succeeded left.
+
+## The merge check
+
+A card whose pull request was approved is merged by Dev flow into the branch it was built on when
+every condition holds, and otherwise waits for the owner with the reason, the successor of this
+repository's merge gate. Why it is built so is "The merge check" in `docs/devflow-architecture.md`.
+It is `MergeCheck`, `MergeChecker`, `MergeRequests` and `AppMerges.MergeCard` in
+`src/DevFlow/Merging/`, and `DecisionStore`, `DecisionText` and `DecisionIssues` in
+`src/DevFlow/Decisions/`.
+
+**The decision**, `MergeCheck.Decide(MergeFacts)`, one pure function: no database, no network, no
+clock and no language model. Its caller reads, fresh, what it decides on and passes it in, each
+code host read as it answered, a failure included: the project's hold, `stopped` or not read within
+five minutes, as handing out reads it; its setting, labels and the owner's linked login; the card's
+record of what was picked; what its newest build or fix that succeeded left, its commit, the
+check's exit code and when it came back, which is when it was pushed; its latest review in
+`reviews`; and as the app the pull request, the statuses and check runs on its head, the open
+issues with the pick-up label and the card's edits. It answers `Merge(commit)`, the pull request's
+head, or `Wait(reason, try_again)`, the first that holds deciding:
+
+| Order | What is read | No merge, the card's reason | Tried again |
+|---|---|---|---|
+| 1 | The project is stopped | "Its project is stopped: nothing merges until you resume it" | no |
+| 2 | Its default branch not read for five minutes | "Its project's default branch has not been read lately; Dev flow tries again each minute" | yes |
+| 3 | The pull request not read | "Dev flow could not read its pull request; it tries again each minute" | yes |
+| 4 | It is merged or closed | "Its pull request is no longer open" | no |
+| 5 | Its head is not the commit the card's runs left | "Its head commit is not one the worker checked" | no |
+| 6 | The worker's check did not exit 0 on it | "The worker's check did not pass on its head commit" | no |
+| 7 | The latest review is not for exactly that commit | "The reviewer has not approved its head commit" | no |
+| 8 | It is, and asks for changes | "The reviewer asked for changes on its head commit" | no |
+| 9 | The card or its edits not read | "Dev flow could not read the card; it tries again each minute" | yes |
+| 10 | No linked login | "Dev flow does not know your GitHub login: link GitHub on the Projects tab" | no |
+| 11 | Not open with the pick-up label | "The card is no longer open with the label <label>" | no |
+| 12 | Written by another login | "The card was written by <login>, not by you" | no |
+| 13 | It carries the hold label | "The card is held by the label <label>" | no |
+| 14 | Anyone but the owner edited it | "The card was edited by <login> since it was picked" | no |
+| 15 | Its body or title differ from the record with no newer edit to say who | "The card changed since it was picked, and its history does not say by whom" | no |
+| 16 | The setting is anything but `never` | "This project waits for you on every pull request" | no |
+| 17 | CI not read | "Dev flow could not read CI on its commit; it tries again each minute" | yes |
+| 18 | A check run completed with any conclusion but `success`, or a status `failure` or `error`, the first by name | "CI failed: <name>" | no |
+| 19 | A check run queued or in progress, or a status pending | "CI is still running on its commit" | yes |
+| 20 | No check run and no status, less than 30 minutes after the push | "Waiting for CI to report on its commit" | yes |
+| 21 | None, 30 minutes or more after it | "CI did not report" | no |
+
+Logins and labels are compared whatever their case, as GitHub's are. An edit by the owner since the
+card was picked is fine, so is a change to its body or title his edits explain. Screenshots, whether
+tests were written and the agent's report are not on the list, on purpose: the reviewer judges the
+first two, and the report decides nothing.
+
+**When it runs.** `MergeChecker.CheckPending(project, user)` checks every card of the project that
+is `waiting_for_owner` with `merge_check_due`, which a review that approves sets, as the card
+moves there with "Approved; Dev flow checks whether it may merge it". It runs right after a
+worker's result is recorded, without the worker waiting for it: the result route asks
+`MergeRequests`, whose loop, `MergeRequestLoop`, runs the check and then opens the decisions'
+issues; and on each project's minute, in `OpeningLoop`. With `DEVFLOW_POLL_SECONDS=0` neither runs,
+and a request is dropped, so the service's own tests run it themselves; the fake worker runs it,
+and opens the decisions' issues, before it answers a review. A project that holds is decided without
+asking GitHub anything. A wait records the reason on the card, its `changed_at` moving only when the
+reason does; one that is tried again keeps the card due, and one that is not clears it, so the
+card is the owner's from then on, on "Waiting for you" with its reason, where he can merge it as
+his own merge or send it back. One card's failure is logged and never stops the next.
+
+**Merging.** `AppMerges.MergeCard(user, project, card, number, commit)`: under the project's row
+lock, the one the watch judges under, it reads again that the project is neither stopped nor
+unwatched, that the setting is still `never`, and that the card is still `waiting_for_owner`, due,
+with this pull request, holding its row; then merges as the app with a `Merge` key, a merge commit
+with `sha` the approved commit; and, when GitHub merged, writes the merge commit to `merges_made`,
+records the card `done` and records its decisions for the owner, all in that one transaction. A
+merge whose answer named no merge commit is still `done`, and the watch stops the project when it
+finds a merge by the app it has no record of. What GitHub answered otherwise is the card's reason:
+a moved head, "Its pull request's head moved as it was merged; Dev flow reads it again", tried
+again, when the head is a commit the worker never checked and the card is the owner's; not
+mergeable, "GitHub would not merge it as it is", and refused, "GitHub refused to merge it", the
+owner's; no answer, "GitHub did not answer the merge; Dev flow tries again each minute", and no
+key, "Dev flow could not get a key to merge with; it tries again each minute", tried again. A
+merge whose answer was lost is found merged by the next read, which records the card `done`.
+
+**The setting.** With `waits_for_owner` `always`, an approved card waits on "Waiting for you"
+with "This project waits for you on every pull request", and the owner merges it from there as
+himself, through `POST /devflow/api/projects/{id}/cards/{number}/merge`, see "Acting from the
+page".
+
+**A decision for the owner.** When the check merges a card, `DecisionStore.Record` records in the
+merge's transaction each decision marked `for_owner` in the reports of the card's builds and fixes
+that succeeded, once each by what was chosen, whatever its case, the newest run's words winning, in
+the order they first appeared; with the reviewer's `for_owner` view on it from the review that
+approved the merged commit, matched by the decision's name, and the project's attention label.
+Every run's, since a fix's report need not repeat what the build decided. Read in SQL from the
+reports as stored, so the merge's code names no type of the agent's. `DecisionIssues.OpenPending`
+then opens one issue for each as the app with a `Post` key, on the minute and right after the
+merge: titled "Decision in #<pull request>: <chosen>", what was chosen made one line and cut to
+80 characters, labelled with the attention label, its body
+
+```text
+Dev flow merged #<pull request> for card #<card>. The agent made this decision and marked it for you.
+
+- **Chosen.** <chosen>
+- **Alternative.** <alternative>
+- **Why.** <why>
+- **The reviewer's view.** <view, or "The reviewer gave none.">
+
+The card: <the card's address>
+The merged pull request: <the pull request's address>
+
+Whether it stands is yours to judge. A fix is a new card. Close this issue once you have looked; Dev flow lists it on Waiting for you until then.
+
+Opened by Dev flow for decision <id>.
+```
+
+every text of the agent's and the reviewer's made data as the pull request body makes the
+report's, so it closes no issue and notifies nobody. Before opening, the app's own open issues
+with the label are looked at for one whose body names the decision's id, so an answer that was lost
+never opens a second. With `always` nothing merges, so no issue is opened: the decision is on the
+card's item, which waits for him.
+
+**On "Waiting for you"**, `GET /devflow/api/waiting`'s `decisions` are the open ones, by project,
+oldest first: `id`, `project_id`, `project_name`, `owner`, `card_number`, `card_title`, `card_url`,
+`pull_request_number`, `pull_request_url`, `issue_number`, `issue_url`, `chosen`, `alternative`
+and `why`, null when the agent wrote nothing, `reviewer_view`, null when the reviewer gave none,
+and `opened_at`. They count in the list's `count`, the display data's `waiting` and
+`GET /devflow/api/attention`. Each read of the project lists the open issues with each label its
+open decision issues were opened with, only when it has one, and closes those no longer listed, so
+one leaves the list once the owner closes it on GitHub, or takes its label off; a list GitHub did
+not answer closes nothing that minute and fails nothing else of the read.
+
+**The tables**, from `migrations/0022_merge_check.sql` and `migrations/0023_decision_issues.sql`:
+`cards` gains `merge_check_due`; and `decision_issues`, one row per decision: `id`, `project_id`,
+`user_id`, `card_number`, `card_title`, `card_url`, `pull_request_number`, `pull_request_url`,
+`position`, its place among the card's, unique per pull request, `chosen`, `alternative`, `why`,
+`reviewer_view`, `label`, `recorded_at`, then `issue_number`, `issue_url` and `opened_at`, all
+three or none, and `closed_at`, with row level security as every table.
+
+## Stops
+
+A card that cannot be made to work stops, is marked on its issue and shows under "Stopped" on
+"Waiting for you"; a comment from the owner runs it again. A failure outside the card, a usage
+limit, the network or the machine, never stops it: the card goes back where it was and its project
+waits. Why it is built so is "Stops" in `docs/devflow-architecture.md`. It is `RunStore`'s
+judgement and `InARow`, `ProjectWaits`, `StopMarker`, `StopStore` and `StopText` in
+`src/DevFlow/Stops/`, the stopped card's reading in `OwnerComments` and `ProjectReader`,
+`UsageLimit` in the worker, and `stopped-card.tsx` in the page.
+
+**A card stops** when a run reaches its time limit, 90 minutes, which the worker sends as
+`timed_out`; when the fix rounds are used up, "Fix rounds used up", see "Fixing"; when a report
+says `stopped`; when two runs in a row fail in the card with no new commit on its branch between
+them; or when its pull request is closed without merging, "The pull request was closed". A failure
+in the card is a run whose result is `failed_in_card`, `report_invalid` or `check_failed`, a
+build's, a review's or a fix's. One alone, past the first two, runs the card again where its kind of
+run starts from, a build in `queued`, a review in `reviewing` and a fix in `fixing` in the same
+round, "Failed once in the card, so it runs again: <reason>", and the card remembers it and the
+commit its branch is at, the newest a build or a fix left there, or none. The next failure in the
+card with the branch still at that commit stops it, "Failed twice in a row with no new commit:
+<reason>"; one with a new commit runs it again once more and remembers that commit. Any run that
+succeeds starts the count afresh. The run keeps its own result and reason either way. Every move
+to `stopped` records `stopped_at`.
+
+**Only that card stops.** Other cards of the project are still handed out; a card blocked by the
+stopped one waits for it, since its issue is still open, as "Cards" reads it.
+
+**Marked on the card.** `StopMarker`, on the opening loop's minute and after each fake worker run,
+for every stopped card not yet marked: the app, with a `Post` key, adds the project's attention
+label to the card's issue, and comments once, `StopText.Comment`:
+
+```
+Dev flow stopped this card: <reason>.
+
+## What was tried
+
+- Build, failed in the card: The run failed: it reached the most turns, 200 turns.
+- Build, failed in the card: The run failed: it reached the most turns, 200 turns.
+
+The last run: Build, failed in the card: The run failed: it reached the most turns, 200 turns.
+
+Its whole story is on [the card's page](https://platform.test/devflow/projects/<id>/cards/<n>).
+
+Comment here to run it again.
+
+Stopped by Dev flow for #<n>, stop <stopped_at>.
+```
+
+The runs are the card's, the newest ten, oldest first, with how many there were when there are
+more. Every reason is made data as the pull request body makes the report's, so it mentions nobody
+and closes nothing. Before commenting, the app's own comments on the issue are looked at for the
+last line, so a marking whose answer was lost never posts twice. Nothing else is opened. Once the
+card runs again the app takes the label off, a label already gone being as good. A card stopped
+before this part, whose `stopped_at` is null, is never marked.
+
+**Running it again.** Each read of a project reads a stopped card's issue, and its pull request
+when still open, for the owner's comments, as "The owner's comment" under "Fixing" reads them, by
+his linked login and past `comments_read_through`, and only those written after `stopped_at`, or
+after its last change for a card stopped before this part; anyone else's does nothing. Taken, a
+card with its pull request open moves to `fixing`, "You commented on its pull request; a fix runs
+next", as a fix with his comments; any other is built again, `queued`, "You commented on it; it
+runs again next", with his comments in the build's brief under `## Run again`, each quoted as the
+fix brief quotes them and each to be answered in `replies`, and with its closed pull request let
+go, so the build that succeeds opens another. Either way its count of failures and its fix rounds
+start afresh, and the next marking takes the label off. "Comment to run again" on "Waiting for
+you" is the send back route, which posts his comment on the card's issue, see "Fixing".
+
+**Outside the card.** A failure the worker says lies outside the card, `failed_outside_card`, or a
+lost run, puts the card back as "Jobs" and "Fixing" say and never counts against it. The project
+then hands out no job, `jobs/next` answering `204` before anything else is read, for 5 minutes
+after the first, doubling with each one in a row up to 60, `ProjectWaits`, until a run of the
+project succeeds, which ends the count. When the failure carries `resets_at`, the project waits
+until then instead, when it is in the future and at most 8 days off; otherwise the doubling holds.
+
+**The usage limit's reset.** Claude Code's `--output-format json` answer to a run at its usage
+limit holds only a message for people; the exact time goes out in a streamed `rate_limit_event`
+alone. The message ends ` · resets 3pm (UTC)`, the hour, with the minutes when not on the hour, in
+the zone named, for a reset within 24 hours, or ` · resets Jan 20, 3:30pm (Europe/Stockholm)`, with
+the date and, in another year, the year, for one further off: read from Claude Code 2.1.322's own
+formatter, and recorded as `usage-limit-resets-today.json` and `usage-limit-resets-date.json` in
+`tests/DevFlow.Worker.Tests/Claude/`. `UsageLimit.ResetsAt` reads it on the worker's clock, a time
+without a date being the next at or after now, a minute's grace; a zone .NET does not know, a
+date the month has not, a time a change of clocks skips, or any other text is no time.
+
+**A project that keeps failing.** Six failures outside its cards in a row show on the project's
+page, `cannot_run` in its workers' list, and on "Waiting for you", `failing_projects`, as "Dev flow
+cannot run <project>'s cards: <the last reason>", until a run succeeds. Each counts on the tab,
+the nav's dot and the front page.
+
+**On "Waiting for you".** Under "Stopped", after Dev flow's stopped projects: each failing project,
+the package's `Card` titled with its message, the `failed` status "Cannot run", its repository, and
+how many runs failed since when and when Dev flow tries again; then each stopped card, its `Card`
+titled with its title, the `failed` status "Stopped", its repository and number, "Why it stopped"
+with its reason, when it stopped, and in its footer "Comment to run again", which opens a box
+labelled "A comment runs it again." with Send, and "Open on GitHub", its issue, and no Merge, as
+the runner's stopped items. Without a usable link the button is disabled and says why.
+
+**The tables**, from `migrations/0021_stops.sql`: `cards` gains `in_card_failures`, 0 or 1,
+`failed_at_commit`, `stopped_at`, `stop_marked_at` and `attention_labelled`; `runs` gains
+`timed_out` and `resets_at`; and `project_waits`, guarded like every scoped table, a row while a
+project's failures outside its cards are counted: `project_id`, `user_id`, `failures`, the last
+`reason`, `wait_until` and `since`.
 
 ## Registering the GitHub App
 

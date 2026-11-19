@@ -2,10 +2,13 @@ using System.Globalization;
 
 using DevFlow.Api;
 using DevFlow.CodeHost;
+using DevFlow.Decisions;
+using DevFlow.Merging;
 using DevFlow.Protocol;
 using DevFlow.PullRequests;
 using DevFlow.Recipes;
 using DevFlow.Reviews;
+using DevFlow.Stops;
 using DevFlow.Workers;
 
 using Microsoft.AspNetCore.Http.HttpResults;
@@ -20,14 +23,15 @@ namespace DevFlow.Jobs;
 /// <summary>What the fake worker is asked to do: take the project's next job and end it with the
 /// prepared result, whose worker id, branch and head commit it fills itself; for a review job the
 /// prepared report is the verdict. With <paramref name="LeaveNoCommit"/>, a fix makes no commit, as
-/// an agent that changed nothing, and names the commit it was handed. For a build or a fix whose
+/// an agent that changed nothing, and names the commit it was handed; and a build makes none and
+/// names none, as a run that failed before anything was pushed. For a build or a fix whose
 /// result lists pictures, <paramref name="Pictures"/> holds their bytes by name, base64 in the
 /// JSON, which it puts where a worker pushes them.</summary>
 public sealed record FakeWorkerRun(Guid? ProjectId, ResultRequest? Result, bool? LeaveNoCommit = null, IReadOnlyDictionary<string, byte[]>? Pictures = null);
 
 /// <summary>What the fake worker did: the job it took, its kind, its card, and the commit it left
-/// on the branch, or for a review the commit it reviewed.</summary>
-public sealed record FakeWorkerRan(Guid JobId, string Kind, int Card, string Branch, string HeadCommit);
+/// on the branch, or for a review the commit it reviewed; null for a build that left none.</summary>
+public sealed record FakeWorkerRan(Guid JobId, string Kind, int Card, string Branch, string? HeadCommit);
 
 /// <summary>
 /// The fake worker, in the fake mode only, under the <c>Api</c> policy and the origin check, acting
@@ -69,6 +73,9 @@ public static class FakeWorkerEndpoints
         [FromServices] UserDb database,
         [FromServices] PullRequestOpener opener,
         [FromServices] ReviewPoster poster,
+        [FromServices] MergeChecker merger,
+        [FromServices] DecisionIssues decisions,
+        [FromServices] StopMarker marker,
         [FromServices] TimeProvider time)
     {
         var cancellationToken = context.RequestAborted;
@@ -106,8 +113,13 @@ public static class FakeWorkerEndpoints
             // A review reads the commit it was handed and changes nothing.
             var reviewed = prepared with { WorkerId = WorkerId, Branch = job.Branch, HeadCommit = prepared.Outcome == ResultRequest.Succeeded ? toReview.Commit : null };
             await JobEndpoints.Complete(database, caller, job.JobId, WorkerId, JobEndpoints.Read(reviewed)!, now, cancellationToken);
-            // Its copy is posted on the next minute for a real worker; the fake worker waits for it.
+            // Its copy is posted, an approved card checked for a merge and its decisions' issues
+            // opened, and a stopped card marked, on the next minute or right after for a real
+            // worker; the fake worker waits for all of it.
             await poster.PostPending(projectId, userId, cancellationToken);
+            await merger.CheckPending(projectId, userId, cancellationToken);
+            await decisions.OpenPending(projectId, userId, cancellationToken);
+            await marker.MarkPending(projectId, userId, cancellationToken);
             return TypedResults.Ok(new FakeWorkerRan(job.JobId, job.Kind, job.Card.Number, job.Branch, toReview.Commit));
         }
 
@@ -141,6 +153,7 @@ public static class FakeWorkerEndpoints
             }
 
             await JobEndpoints.Complete(database, caller, job.JobId, WorkerId, JobEndpoints.Read(result)!, now, cancellationToken);
+            await marker.MarkPending(projectId, userId, cancellationToken);
             return fixedUp is null
                 ? TypedResults.Problem(statusCode: StatusCodes.Status503ServiceUnavailable, title: "The fake's git failed", detail: "no commit was made on the job's branch, so the job ended as a failure outside the card and the card is fixing again")
                 : TypedResults.Ok(new FakeWorkerRan(job.JobId, job.Kind, job.Card.Number, job.Branch, fixedUp));
@@ -152,6 +165,16 @@ public static class FakeWorkerEndpoints
         if (!await fake.HasBranch(userId, repository, job.Base, cancellationToken))
         {
             await fake.CommitOnBranch(userId, repository, job.Base, job.Base, "The first commit, by the fake worker", committer, cancellationToken);
+        }
+
+        if (request.LeaveNoCommit == true)
+        {
+            // Nothing pushed, as a run that failed before it got that far: the branch stays where
+            // it was, and the result names no commit.
+            var unpushed = prepared with { WorkerId = WorkerId, Branch = job.Branch, HeadCommit = null };
+            await JobEndpoints.Complete(database, caller, job.JobId, WorkerId, JobEndpoints.Read(unpushed)!, now, cancellationToken);
+            await marker.MarkPending(projectId, userId, cancellationToken);
+            return TypedResults.Ok(new FakeWorkerRan(job.JobId, job.Kind, job.Card.Number, job.Branch, null));
         }
 
         var commit = await fake.CommitOnBranch(userId, repository, job.Branch, job.Base, message, committer, cancellationToken);
@@ -170,6 +193,7 @@ public static class FakeWorkerEndpoints
         // A real worker's result is answered without waiting for GitHub, and its pull request opens
         // on the next minute; the fake worker waits for it, so a test sees it as soon as it answers.
         await opener.OpenPending(projectId, userId, cancellationToken);
+        await marker.MarkPending(projectId, userId, cancellationToken);
         return commit is null
             ? TypedResults.Problem(statusCode: StatusCodes.Status503ServiceUnavailable, title: "The fake's git failed", detail: "no commit was made on the job's branch, so the job ended as a failure outside the card and the card is queued again")
             : TypedResults.Ok(new FakeWorkerRan(job.JobId, job.Kind, job.Card.Number, job.Branch, commit));

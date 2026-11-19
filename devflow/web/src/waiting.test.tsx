@@ -64,10 +64,13 @@ function list(overrides: Partial<WaitingList> = {}): WaitingList {
 	return {
 		count: items.filter((each) => !each.sent_back).length,
 		needs_relink: false,
+		stopped_cards: [],
+		failing_projects: [],
 		items,
 		projects: [project()],
 		own_items: [],
 		cards: [],
+		decisions: [],
 		...overrides,
 	};
 }

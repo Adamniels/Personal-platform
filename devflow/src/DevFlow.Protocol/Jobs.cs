@@ -207,7 +207,11 @@ public sealed record ResultRequest(
 /// <param name="Reason">A sentence.</param>
 /// <param name="InCard">Whether the card's own work caused it, rather than the login, the API or
 /// the machine.</param>
-public sealed record RunFailure(string? Reason, bool? InCard);
+/// <param name="TimedOut">Whether the run reached its time limit and was ended, which stops its
+/// card at once; null, from a worker that sends none, is false.</param>
+/// <param name="ResetsAt">When Claude's usage limit resets, on a failure outside the card whose
+/// answer said so; null otherwise. Dev flow has the project wait until then.</param>
+public sealed record RunFailure(string? Reason, bool? InCard, bool? TimedOut = null, DateTimeOffset? ResetsAt = null);
 
 /// <summary>What the project's check did.</summary>
 /// <param name="ExitCode">Its exit code, <c>0</c> when it passed.</param>
