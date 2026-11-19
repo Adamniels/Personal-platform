@@ -652,6 +652,13 @@ export interface components {
         CardList: {
             cards: components["schemas"]["CardView"][];
         };
+        CardMerge: {
+            approved: string;
+            base: string;
+            commit: string;
+            /** Format: date-time */
+            merged_at: string;
+        };
         CardPullRequest: {
             /** Format: int32 */
             number: number;
@@ -707,6 +714,7 @@ export interface components {
             worker: string;
         };
         CardStoryView: {
+            merge: null | components["schemas"]["CardMerge"];
             /** Format: int32 */
             number: number;
             pull_request: null | components["schemas"]["CardPullRequest"];

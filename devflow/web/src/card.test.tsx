@@ -21,7 +21,7 @@ function story(overrides: Partial<CardStory> = {}): CardStory {
 		title: "Add the empty state",
 		web_url: "https://github.com/Adamniels/Fodr/issues/4",
 		state: "waiting_for_owner",
-		reason: "Its pull request waits for you",
+		reason: "Waiting for CI to report on its commit",
 		pull_request: {
 			number: 7,
 			url: "https://github.com/Adamniels/Fodr/pull/7",
@@ -87,6 +87,7 @@ function story(overrides: Partial<CardStory> = {}): CardStory {
 		},
 		reviews: [],
 		rounds: [],
+		merge: null,
 		...overrides,
 	};
 }
@@ -222,7 +223,9 @@ describe("a card's page", () => {
 		expect(
 			screen.getByRole("tab", { name: "Projects", selected: true }),
 		).toBeTruthy();
-		expect(screen.getByText("Its pull request waits for you")).toBeTruthy();
+		expect(
+			screen.getByText("Waiting for CI to report on its commit"),
+		).toBeTruthy();
 		expect(
 			screen.getByRole("link", { name: "Issue #4" }).getAttribute("href"),
 		).toBe("https://github.com/Adamniels/Fodr/issues/4");
@@ -453,6 +456,39 @@ describe("a card's page", () => {
 		).toBe("Name it `EmptyList`.\nAs the others are.");
 		expect(comment.getByText("Failed")).toBeTruthy();
 		expect(comment.getByText(/^It left/).textContent).toBe("It left fed8765.");
+	});
+
+	test("a card Dev flow merged says so, with the merge commit and the commit approved", async () => {
+		open(() =>
+			Promise.resolve(
+				story({
+					state: "done",
+					reason: null,
+					merge: {
+						commit: `def5678${"0".repeat(33)}`,
+						approved: HEAD,
+						base: "main",
+						merged_at: "2026-11-18T10:30:00+00:00",
+					},
+				}),
+			),
+		);
+
+		const merge = within(
+			await screen.findByRole("article", { name: "The merge" }),
+		);
+		expect(
+			merge.getByText(/Dev flow merged #7 into main as the app/),
+		).toBeTruthy();
+		expect(merge.getByText("def5678").tagName).toBe("CODE");
+		expect(merge.getByText("abc1234").tagName).toBe("CODE");
+	});
+
+	test("a card with no merge of Dev flow's shows none", async () => {
+		open(() => Promise.resolve(story()));
+
+		await screen.findByRole("heading", { name: "Add the empty state" });
+		expect(screen.queryByRole("article", { name: "The merge" })).toBeNull();
 	});
 
 	test("a card that was never sent back shows no rounds", async () => {

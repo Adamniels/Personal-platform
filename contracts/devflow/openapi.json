@@ -172,6 +172,30 @@
         ],
         "type": "object"
       },
+      "CardMerge": {
+        "properties": {
+          "approved": {
+            "type": "string"
+          },
+          "base": {
+            "type": "string"
+          },
+          "commit": {
+            "type": "string"
+          },
+          "merged_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "commit",
+          "approved",
+          "base",
+          "merged_at"
+        ],
+        "type": "object"
+      },
       "CardPullRequest": {
         "properties": {
           "number": {
@@ -408,6 +432,16 @@
       },
       "CardStoryView": {
         "properties": {
+          "merge": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CardMerge"
+              }
+            ]
+          },
           "number": {
             "format": "int32",
             "type": "integer"
@@ -476,7 +510,8 @@
           "runs",
           "report",
           "reviews",
-          "rounds"
+          "rounds",
+          "merge"
         ],
         "type": "object"
       },

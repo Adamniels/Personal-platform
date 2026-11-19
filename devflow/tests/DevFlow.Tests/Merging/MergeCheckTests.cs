@@ -40,6 +40,14 @@ public sealed class MergeCheckTests
         Assert.Equal("done", card.State);
         Assert.Null(card.Reason);
 
+        // Its page tells the merge: the merge commit, the commit approved and where it went.
+        var (status, story) = await Built.Get(jobs, $"/devflow/api/projects/{jobs.Project}/cards/{Merged.Card}");
+        Assert.Equal(200, status);
+        Assert.Equal("done", (string)story!["state"]!);
+        Assert.Equal(made.Commit, (string)story["merge"]!["commit"]!);
+        Assert.Equal(commit, (string)story["merge"]!["approved"]!);
+        Assert.Equal("main", (string)story["merge"]!["base"]!);
+
         // Checking again merges nothing more.
         await Merged.Check(jobs);
         Assert.Single(Merged.AppMerges(jobs));
