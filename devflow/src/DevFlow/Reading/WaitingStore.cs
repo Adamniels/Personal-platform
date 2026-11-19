@@ -7,6 +7,7 @@ using DevFlow.Cards;
 using DevFlow.CodeHost;
 using DevFlow.Link;
 using DevFlow.Runner;
+using DevFlow.Stops;
 
 using PlatformData;
 
@@ -155,6 +156,17 @@ public sealed record CardItem(
     CardItemReview? Review,
     CardScreenshots? Screenshots);
 
+/// <summary>A project whose runs keep failing outside their cards, so it cannot run them, shown
+/// until a run succeeds. See "Stops" in devflow/README.md.</summary>
+/// <param name="ProjectName">The repository's name, as connected.</param>
+/// <param name="Owner">The repository's owner, as connected.</param>
+/// <param name="Message">"Dev flow cannot run &lt;project&gt;'s cards: &lt;the last reason&gt;".</param>
+/// <param name="Reason">The last failure's reason, from a worker or Dev flow, shown as text.</param>
+/// <param name="Failures">How many runs in a row failed outside their cards.</param>
+/// <param name="Since">When the first of them failed.</param>
+/// <param name="WaitUntil">Until when it hands out no job.</param>
+public sealed record FailingProject(Guid ProjectId, string ProjectName, string Owner, string Message, string Reason, int Failures, DateTimeOffset Since, DateTimeOffset WaitUntil);
+
 /// <summary>What <c>GET /devflow/api/waiting</c> answers.</summary>
 /// <param name="Count">The items not sent back, Dev flow's own items and cards, and one more when
 /// the link needs renewing: what waits for the owner to act.</param>
@@ -163,7 +175,9 @@ public sealed record CardItem(
 /// project.</param>
 /// <param name="Cards">Dev flow's own cards whose pull requests wait for the owner, by project and
 /// number.</param>
-public sealed record WaitingList(int Count, bool NeedsRelink, IReadOnlyList<WaitingItem> Items, IReadOnlyList<ProjectFreshness> Projects, IReadOnlyList<OwnItem> OwnItems, IReadOnlyList<CardItem> Cards);
+/// <param name="FailingProjects">The projects whose runs have failed outside their cards six times
+/// in a row, by project.</param>
+public sealed record WaitingList(int Count, bool NeedsRelink, IReadOnlyList<WaitingItem> Items, IReadOnlyList<ProjectFreshness> Projects, IReadOnlyList<OwnItem> OwnItems, IReadOnlyList<CardItem> Cards, IReadOnlyList<FailingProject> FailingProjects);
 
 /// <summary>
 /// What waits for a user, read from the snapshot <see cref="ProjectReader"/> stores and never from
@@ -180,7 +194,7 @@ public sealed class WaitingStore(UserDb database, TimeProvider time)
     /// name, and whether their link needs renewing, read in one transaction.</summary>
     public async Task<WaitingList> For(Guid userId, CancellationToken cancellationToken)
     {
-        var (items, projects, relink, stops, cardRows) = await database.InUserTransaction(userId, async transaction =>
+        var (items, projects, relink, stops, cardRows, failingRows) = await database.InUserTransaction(userId, async transaction =>
         {
             var items = await transaction.Connection!.QueryAsync<ItemRow>(new CommandDefinition(
                 """
@@ -238,7 +252,18 @@ public sealed class WaitingStore(UserDb database, TimeProvider time)
                 """,
                 transaction: transaction,
                 cancellationToken: cancellationToken));
-            return (items.ToList(), projects.ToList(), relink, stops.ToList(), cards.ToList());
+            var failing = await transaction.Connection!.QueryAsync<FailingRow>(new CommandDefinition(
+                """
+                SELECT w.project_id AS ProjectId, p.name AS ProjectName, p.owner AS Owner, w.reason AS Reason, w.failures AS Failures,
+                       w.since AS Since, w.wait_until AS WaitUntil
+                FROM project_waits w JOIN projects p ON p.id = w.project_id
+                WHERE w.failures >= @shown
+                ORDER BY lower(p.owner), lower(p.name), p.id
+                """,
+                new { shown = ProjectWaits.Shown },
+                transaction,
+                cancellationToken: cancellationToken));
+            return (items.ToList(), projects.ToList(), relink, stops.ToList(), cards.ToList(), failing.ToList());
         }, cancellationToken);
 
         var now = time.GetUtcNow();
@@ -256,8 +281,17 @@ public sealed class WaitingStore(UserDb database, TimeProvider time)
             GitHubLink.Utc(stop.LandedAt),
             GitHubLink.Utc(stop.StoppedAt))).ToList();
         var cards = cardRows.Select(Card).ToList();
+        var failingProjects = failingRows.Select(row => new FailingProject(
+            row.ProjectId,
+            row.ProjectName,
+            row.Owner,
+            ProjectWaits.CannotRun(row.ProjectName, row.Reason),
+            row.Reason,
+            row.Failures,
+            GitHubLink.Utc(row.Since),
+            GitHubLink.Utc(row.WaitUntil))).ToList();
         return new WaitingList(
-            waiting.Count(item => !item.SentBack) + own.Count + cards.Count + (relink ? 1 : 0),
+            waiting.Count(item => !item.SentBack) + own.Count + cards.Count + failingProjects.Count + (relink ? 1 : 0),
             relink,
             waiting,
             [.. projects.Select(project =>
@@ -266,7 +300,8 @@ public sealed class WaitingStore(UserDb database, TimeProvider time)
                 return new ProjectFreshness(project.Id, project.Owner, project.Name, success, success is null || now - success > StaleAfter, project.Failing);
             })],
             own,
-            cards);
+            cards,
+            failingProjects);
     }
 
     /// <summary>A waiting card as the list answers it, from its row and its run's report, read into
@@ -403,6 +438,8 @@ public sealed class WaitingStore(UserDb database, TimeProvider time)
         int Blocking,
         string? Screenshots,
         string? ScreenshotsNote);
+
+    private sealed record FailingRow(Guid ProjectId, string ProjectName, string Owner, string Reason, int Failures, DateTime Since, DateTime WaitUntil);
 
     private sealed record StopRow(Guid ProjectId, string Name, string Owner, string Branch, string ActivityType, string? Actor, string Commit, DateTime LandedAt, DateTime StoppedAt);
 }

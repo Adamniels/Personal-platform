@@ -27,8 +27,10 @@ internal sealed record ClaudeCodeOptions(string Executable, string Home, string 
 /// a reason can carry it out.</item>
 /// </list>
 /// </summary>
-internal sealed class ClaudeCodeAgent(IProcessStarter starter, ClaudeCodeOptions options, WorkerLog log) : IAgent
+internal sealed class ClaudeCodeAgent(IProcessStarter starter, ClaudeCodeOptions options, WorkerLog log, TimeProvider? time = null) : IAgent
 {
+    private readonly TimeProvider _time = time ?? TimeProvider.System;
+
     /// <summary>The token's environment variable.</summary>
     public const string TokenVariable = "CLAUDE_CODE_OAUTH_TOKEN";
 
@@ -65,7 +67,7 @@ internal sealed class ClaudeCodeAgent(IProcessStarter starter, ClaudeCodeOptions
             new ProcessSpec(options.Executable, Arguments(run), run.WorkingDirectory, environment),
             run.Limits.Time,
             cancellationToken), token);
-        var result = Judge(answer, run.Limits, method, run.Access);
+        var result = Judge(answer, run.Limits, method, run.Access, _time.GetUtcNow());
         log.Write(result.Failure is { } failure
             ? $"The run failed, {(failure.Side == FailureSide.Card ? "in the card" : "outside the card")}: {failure.Reason}."
             : "The run succeeded with a report.");
@@ -106,12 +108,14 @@ internal sealed class ClaudeCodeAgent(IProcessStarter starter, ClaudeCodeOptions
     /// stdout valid JSON; <c>is_error</c> false; <c>terminal_reason</c> <c>completed</c>;
     /// <c>structured_output</c> present and an object; <c>permission_denials</c> empty. Outside the
     /// card: no answer, an answer that is not JSON, an <c>api_error</c> of any kind (not logged in,
-    /// a refused key, a usage limit), and anything else Claude Code reports as an error. In the card:
+    /// a refused key, a usage limit, with when it resets when its <c>result</c> says, read by
+    /// <see cref="UsageLimit"/> at <paramref name="now"/>), and anything else Claude Code reports as
+    /// an error. In the card:
     /// the time limit, <c>max_turns</c>, <c>budget_exhausted</c>, refused actions and no valid
     /// report. For a read only run, a reviewer's, refused actions do not fail it, since it cannot
     /// write by construction; either way they are kept in the result as Claude Code listed them.
     /// </summary>
-    internal static AgentResult Judge(ProcessOutcome answer, AgentLimits limits, string? method, AgentAccess access = AgentAccess.Write)
+    internal static AgentResult Judge(ProcessOutcome answer, AgentLimits limits, string? method, AgentAccess access = AgentAccess.Write, DateTimeOffset? now = null)
     {
         JsonArray? denied = null;
         AgentResult Failed(FailureSide side, string reason, JsonObject? usage = null) =>
@@ -150,6 +154,17 @@ internal sealed class ClaudeCodeAgent(IProcessStarter starter, ClaudeCodeOptions
         {
             case "api_error":
                 var status = output["api_error_status"] is JsonValue code && code.TryGetValue<int>(out var number) ? $" {number}" : "";
+                if (UsageLimit.ResetsAt(Text(output, "result"), now ?? DateTimeOffset.UtcNow) is { } resets)
+                {
+                    return new AgentResult(
+                        null,
+                        new AgentFailure(FailureSide.OutsideCard, $"Claude's API answered an error{status}: the usage limit resets at {resets.UtcDateTime:yyyy-MM-dd HH:mm} UTC", ResetsAt: resets),
+                        usage,
+                        answer.Stderr,
+                        method,
+                        denied);
+                }
+
                 return Failed(FailureSide.OutsideCard, $"Claude's API answered an error{status}", usage);
             case "max_turns":
                 return Failed(FailureSide.Card, $"it reached the most turns, {limits.MaxTurns} turns", usage);

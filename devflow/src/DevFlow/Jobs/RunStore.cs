@@ -7,6 +7,7 @@ using DevFlow.Fixing;
 using DevFlow.Protocol;
 using DevFlow.PullRequests;
 using DevFlow.Reviews;
+using DevFlow.Stops;
 
 using Npgsql;
 
@@ -316,7 +317,8 @@ public static class RunStore
                     cache_creation_input_tokens = @cacheCreation, cache_read_input_tokens = @cacheRead,
                     cost_usd = @cost, turns = @turns, duration_ms = @durationMs, stderr = @stderr,
                     permission_denials = @permissionDenials::jsonb,
-                    screenshots = @screenshots::jsonb, screenshots_note = @screenshotsNote
+                    screenshots = @screenshots::jsonb, screenshots_note = @screenshotsNote,
+                    timed_out = @timedOut, resets_at = @resetsAt
                 WHERE id = @runId
                 """,
                 new
@@ -343,6 +345,8 @@ public static class RunStore
                     // A review takes none; only a build's are kept.
                     screenshots = !review && result.Screenshots is { Names: { } names } ? JsonSerializer.Serialize(names) : null,
                     screenshotsNote = review ? null : result.Screenshots?.Note,
+                    timedOut = !result.Succeeded && result.TimedOut,
+                    resetsAt = result.Succeeded ? null : result.ResetsAt,
                 },
                 transaction,
                 cancellationToken: cancellationToken));
@@ -366,6 +370,17 @@ public static class RunStore
                     new { projectId, number = run.CardNumber },
                     transaction,
                     cancellationToken: cancellationToken));
+            }
+
+            // A failure outside the card never counts against it, but makes its project wait; a
+            // success ends the wait.
+            if (ending.Result == "failed_outside_card")
+            {
+                await ProjectWaits.Failed(transaction, projectId, userId, ending.Reason ?? "", result.ResetsAt, now, cancellationToken);
+            }
+            else if (ending.Result == "succeeded")
+            {
+                await ProjectWaits.Succeeded(transaction, projectId, cancellationToken);
             }
 
             // A card put back in the queue says nothing, as one never started does; the next read
@@ -434,6 +449,8 @@ public static class RunStore
                     _ => (Building, "queued", (string?)null),
                 };
                 await EndCard(transaction, projectId, number, running, state, reason, now, cancellationToken);
+                // A lost run lies outside the card: it never counts against it, and its project waits.
+                await ProjectWaits.Failed(transaction, projectId, userId, LostReason, null, now, cancellationToken);
             }
 
             return lost.Count;

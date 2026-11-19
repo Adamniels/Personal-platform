@@ -227,4 +227,100 @@ public sealed class StopTests
         Assert.Equal(FixRounds.Commented, card.Reason);
         Assert.Equal(0, card.FixRounds);
     }
+
+    [Fact]
+    public async Task AFailureOutsideTheCardNeverCountsAgainstIt()
+    {
+        await using var jobs = await Jobs.Jobs.Start([Jobs.Jobs.Card(4), Jobs.Jobs.Card(5)]);
+
+        // A lost run is outside the card: it goes back to queued, and its project waits 5 minutes.
+        await jobs.Job();
+        await Stop.AgeTheRun(jobs);
+        await jobs.Routes.Read(jobs.Project, Jobs.Jobs.User);
+        var lost = jobs.Routes.Time.GetUtcNow();
+        Assert.Equal("lost", Assert.Single(await jobs.Runs()).Result);
+        var card = await Stop.Card(jobs, 4);
+        Assert.Equal("queued", card.State);
+        Assert.Equal(0, card.InCardFailures);
+        Assert.Equal(lost + TimeSpan.FromMinutes(5), (await Stop.Wait(jobs))!.WaitUntil);
+
+        // No job is handed out until the wait is over.
+        Assert.Null(await Stop.Run(jobs, Stop.Outside()));
+
+        // Each failure outside the card doubles the wait, to at most 60 minutes, and the card is
+        // queued again each time with nothing counted against it.
+        foreach (var minutes in (int[])[10, 20, 40, 60, 60])
+        {
+            await Stop.EndTheWait(jobs);
+            var ran = await Stop.Run(jobs, Stop.Outside());
+            Assert.Equal(4, (int)ran!["card"]!);
+            var failed = jobs.Routes.Time.GetUtcNow();
+            Assert.Equal(failed + TimeSpan.FromMinutes(minutes), (await Stop.Wait(jobs))!.WaitUntil);
+            card = await Stop.Card(jobs, 4);
+            Assert.Equal("queued", card.State);
+            Assert.Equal(0, card.InCardFailures);
+        }
+
+        // A success ends the wait, and the next job is handed out at once.
+        await Stop.EndTheWait(jobs);
+        await Stop.Run(jobs, Built.Prepared(Built.Report()));
+        Assert.Null(await Stop.Wait(jobs));
+        Assert.Equal("reviewing", (await Stop.Card(jobs, 4)).State);
+        var next = await Stop.Run(jobs, Built.PreparedVerdict(Built.Verdict("approve")));
+        Assert.Equal("review", (string)next!["kind"]!);
+    }
+
+    [Fact]
+    public async Task OnlyTheCardAndWhatDependsOnItStop()
+    {
+        await using var jobs = await Jobs.Jobs.Start([Jobs.Jobs.Card(4), Jobs.Jobs.Card(5) with { BlockedBy = [4] }, Jobs.Jobs.Card(6)]);
+
+        await Stop.Run(jobs, Stop.InCard(TimeLimit, timedOut: true));
+        Assert.Equal("stopped", (await Stop.Card(jobs, 4)).State);
+
+        // The card blocked by the stopped one waits for it; another queued card is still handed out.
+        var ran = await Stop.Run(jobs, Built.Prepared(Built.Report()));
+        Assert.Equal(6, (int)ran!["card"]!);
+        var blocked = await Stop.Card(jobs, 5);
+        Assert.Equal("queued", blocked.State);
+        Assert.Equal("Waits for #4", blocked.Reason);
+        Assert.Null(await Stop.Wait(jobs));
+    }
+
+    [Fact]
+    public async Task AProjectThatKeepsFailingOutsideIsShown()
+    {
+        await using var jobs = await Jobs.Jobs.Start([Jobs.Jobs.Card(4)]);
+        const string Shown = "Dev flow cannot run Personal-platform's cards: Claude's API answered an error 529";
+        var workers = $"/devflow/api/projects/{jobs.Project}/workers";
+
+        // Five failures outside the card in a row are not shown yet.
+        for (var failure = 1; failure <= 5; failure++)
+        {
+            await Stop.EndTheWait(jobs);
+            await Stop.Run(jobs, Stop.Outside());
+        }
+
+        Assert.Null((await Built.Get(jobs, workers)).Body!["cannot_run"]);
+        var (_, list) = await Built.Get(jobs, "/devflow/api/waiting");
+        Assert.Empty(list!["failing_projects"]!.AsArray());
+        var count = (int)list["count"]!;
+
+        // The sixth shows on the project's page and on "Waiting for you", where it counts.
+        await Stop.EndTheWait(jobs);
+        await Stop.Run(jobs, Stop.Outside());
+        Assert.Equal(Shown, (string)(await Built.Get(jobs, workers)).Body!["cannot_run"]!);
+        (_, list) = await Built.Get(jobs, "/devflow/api/waiting");
+        var failing = Assert.Single(list!["failing_projects"]!.AsArray())!;
+        Assert.Equal(Shown, (string)failing["message"]!);
+        Assert.Equal(6, (int)failing["failures"]!);
+        Assert.Equal(count + 1, (int)list["count"]!);
+
+        // Until a run succeeds.
+        await Stop.EndTheWait(jobs);
+        await Stop.Run(jobs, Built.Prepared(Built.Report()));
+        Assert.Null((await Built.Get(jobs, workers)).Body!["cannot_run"]);
+        (_, list) = await Built.Get(jobs, "/devflow/api/waiting");
+        Assert.Empty(list!["failing_projects"]!.AsArray());
+    }
 }

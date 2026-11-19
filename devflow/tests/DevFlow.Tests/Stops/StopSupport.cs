@@ -70,6 +70,34 @@ internal static class Stop
         return (await Workers.Workers.Json(response)).AsObject();
     }
 
+    /// <summary>The project's wait after failures outside its cards, or null.</summary>
+    public static Task<ProjectWait?> Wait(Jobs.Jobs jobs) => ProjectWaits.Of(jobs.Routes.Door, Jobs.Jobs.User, jobs.Project, Ct);
+
+    /// <summary>The project's wait ended now, as if its time had passed, without moving the
+    /// clock, past which the caller's token would no longer be taken.</summary>
+    public static async Task EndTheWait(Jobs.Jobs jobs)
+    {
+        await using var admin = await jobs.Routes.Database.OpenAdmin(Ct);
+        await admin.ExecuteAsync(new CommandDefinition(
+            "UPDATE project_waits SET wait_until = @now WHERE project_id = @project",
+            new { project = jobs.Project, now = jobs.Routes.Time.GetUtcNow() },
+            cancellationToken: Ct));
+    }
+
+    /// <summary>The project's run under way made as old as a lost one, its worker unseen as long,
+    /// without moving the clock.</summary>
+    public static async Task AgeTheRun(Jobs.Jobs jobs)
+    {
+        await using var admin = await jobs.Routes.Database.OpenAdmin(Ct);
+        await admin.ExecuteAsync(new CommandDefinition(
+            """
+            UPDATE runs SET started_at = started_at - interval '101 minutes' WHERE project_id = @project AND finished_at IS NULL;
+            UPDATE workers SET last_seen_at = last_seen_at - interval '11 minutes' WHERE project_id = @project;
+            """,
+            new { project = jobs.Project },
+            cancellationToken: Ct));
+    }
+
     /// <summary>The stops of the project marked, as the opening loop's minute would.</summary>
     public static Task Mark(Jobs.Jobs jobs) =>
         jobs.Routes.App.Services.GetRequiredService<StopMarker>().MarkPending(jobs.Project, Jobs.Jobs.User, Ct);

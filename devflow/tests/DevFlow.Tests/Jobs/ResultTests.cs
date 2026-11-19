@@ -216,7 +216,11 @@ public sealed class ResultTests
         Assert.Equal("failed_outside_card", run.Result);
         Assert.Equal("Claude's API answered an error (529)", run.Reason);
 
-        // Nothing counts against it: it is handed out again, as a new run.
+        // Nothing counts against it: it is handed out again, as a new run, once its project's wait
+        // after a failure outside the card is over, see "Stops".
+        Assert.Equal(StatusCodes.Status204NoContent, (await jobs.Next()).Response.StatusCode);
+        jobs.Routes.Time.Advance(DevFlow.Stops.ProjectWaits.First);
+        await jobs.Routes.Read(jobs.Project, Jobs.User);
         var again = await jobs.Job();
         Assert.Equal(1, (int)again["card"]!["number"]!);
         Assert.NotEqual(id, (Guid)again["job_id"]!);
