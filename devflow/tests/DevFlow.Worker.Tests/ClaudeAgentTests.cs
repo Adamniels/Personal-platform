@@ -134,6 +134,9 @@ public sealed class ClaudeAgentTests
                     ["LANG"] = "C.UTF-8",
                     ["CLAUDE_CONFIG_DIR"] = "/home/agent/.claude",
                     ["CLAUDE_CODE_OAUTH_TOKEN"] = Token,
+                    // The image's Chromium, so the pictures the brief asks the agent to take of
+                    // its own pages find a browser.
+                    ["PLAYWRIGHT_BROWSERS_PATH"] = "/ms-playwright",
                 }.OrderBy(pair => pair.Key, StringComparer.Ordinal),
                 spec.Environment.OrderBy(pair => pair.Key, StringComparer.Ordinal));
             Assert.DoesNotContain("ANTHROPIC_API_KEY", spec.Environment.Keys);

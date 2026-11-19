@@ -1,3 +1,5 @@
+using DevFlow.Protocol;
+
 namespace DevFlow.Worker.Build;
 
 /// <summary>
@@ -10,7 +12,7 @@ namespace DevFlow.Worker.Build;
 /// </summary>
 internal sealed record JobFolders(string Secrets, string Handover, string Work)
 {
-    public static JobFolders Default { get; } = new("/run/devflow", "/run/devflow-handover", "/work");
+    public static JobFolders Default { get; } = new("/run/devflow", "/run/devflow-handover", AgentFolders.Work);
 
     /// <summary>The paths of one job, named by its id.</summary>
     public JobPaths For(Guid jobId)
@@ -18,7 +20,7 @@ internal sealed record JobFolders(string Secrets, string Handover, string Work)
         var id = jobId.ToString("D");
         var secret = Path.Combine(Secrets, id);
         var work = Path.Combine(Work, id);
-        return new JobPaths(secret, Path.Combine(secret, "repo"), Path.Combine(Handover, id), work, Path.Combine(work, "copy"), Path.Combine(work, "check"), Path.Combine(work, "review"), Path.Combine(work, "pages"), Path.Combine(work, "pictures"));
+        return new JobPaths(secret, Path.Combine(secret, "repo"), Path.Combine(Handover, id), work, Path.Combine(work, "copy"), Path.Combine(work, "check"), Path.Combine(work, "review"), Path.Combine(work, "pages"), Path.Combine(work, "pictures"), Path.Combine(work, AgentFolders.Self));
     }
 }
 
@@ -38,7 +40,11 @@ internal sealed record JobFolders(string Secrets, string Handover, string Work)
 /// project's <c>start</c> runs in.</param>
 /// <param name="Pictures">Where its pictures are written, as the agent, before root reads
 /// them.</param>
-internal sealed record JobPaths(string Secret, string Repository, string Handover, string Work, string Copy, string Check, string Review, string Pages, string Pictures);
+/// <param name="Self">For a build or a fix, the agent's own folder for the pictures it takes of
+/// its pages while it works, beside <see cref="Copy"/> and never in it, so nothing in it is
+/// committed or pushed; made by the agent before it runs, and removed with
+/// <see cref="Work"/>. The brief names it, see <see cref="AgentFolders"/>.</param>
+internal sealed record JobPaths(string Secret, string Repository, string Handover, string Work, string Copy, string Check, string Review, string Pages, string Pictures, string Self);
 
 /// <summary>
 /// Who the agent's processes run as, and the environment each is given, built from nothing: the

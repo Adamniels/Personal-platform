@@ -40,7 +40,7 @@ You are on the branch `{{branch}}`, made from `{{base}}`, and it is checked out.
    commit, so the next worker has it.
 7. No `Co-Authored-By` or "Generated with" lines, in a commit or anywhere else.
 
-## Deciding
+{{look}}## Deciding
 
 Nobody answers a question while you work, so never ask one. Where the card and the project's docs
 leave something open, decide it, going with your own recommendation, and record it in the report

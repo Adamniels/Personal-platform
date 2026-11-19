@@ -121,7 +121,8 @@ features" in `High-level/docs/platform-architecture.md`.
   reads it and refreshing a project, merging and sending back from the page and what each refusal
   means, a project's worker key, the worker scheme and the worker API with their routes and
   tables, the pull request Dev flow opens for a built card, with its body, the screenshots the worker
-  takes of a built card's pages, with `start`, `url` and `DEVFLOW=1`, a card's page, and
+  takes of a built card's pages, with `start`, `url` and `DEVFLOW=1`, and the developer's own look at
+  its pages before it reports, a card's page, and
   fixing, with its rounds, the owner's comment as the one input read and sending a card back, the
   merge check, with its conditions in order, merging as the app and the issues for decisions marked
   for the owner, stops, with what stops a card, its mark on GitHub, running it again on the owner's
@@ -149,7 +150,7 @@ features" in `High-level/docs/platform-architecture.md`.
   a user's runs, handing out work, with the lock that takes a card, why nothing is read from GitHub
   under it, the brief quoting the card as picked, how a card reaches its pull request and
   how the waiting list reads Dev flow's own cards beside the runner's, why the report decides nothing, where a failure
-  lies and when a run is lost, the worker's pictures and why they never decide a merge, the review and why its verdict lives in the database tied to its
+  lies and when a run is lost, the worker's pictures and why they never decide a merge, why the developer looks at its own pages too, the review and why its verdict lives in the database tied to its
   commit, fixing, why rounds are limited and why the owner's comment is the one input read from
   GitHub, the merge check, each condition and why it fails closed, stops, with what lies in the card
   and what outside it, why a failure outside never counts, why one failure in the card is tried

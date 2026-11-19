@@ -814,8 +814,8 @@ should the reviewer, round 4 of the spec: "takes the screenshots of the pages th
 How the worker takes them, where they go and how they are served is "Screenshots" in
 `devflow/README.md`.
 
-**The worker takes them, never the developer.** The developer agent could attach pictures of its
-own, but they would be its claim, made from its own copy with whatever it left there. The worker
+**The worker takes the evidence, never the developer.** The developer agent could attach pictures
+of its own, but they would be its claim, made from its own copy with whatever it left there. The worker
 starts the commit it pushed, from a clean copy, as it runs the check, so the pictures are of what
 merges and nothing else, and the program uses those, round 4. Only a run whose check passed and
 whose branch was pushed gets them: a failed check stops the card anyway, and pictures of it would
@@ -827,6 +827,24 @@ they were taken at all. They are evidence for two judges who can look: the revie
 makes a page that looks broken, empty or wrong a blocking finding, and the owner. That is also why
 a failure to take them is said in a note and never fails the job: a project that will not start
 for pictures is worth knowing about, and the reviewer decides whether the card needed them.
+
+**The developer looks too.** This goes beyond the spec, which had only the worker take pictures,
+afterwards, and was decided with the owner on 2026-11-17: verification is what makes an agent good,
+and a developer that never sees its pages hands back layouts that fall apart for the reviewer to
+find a round later. So for a project with pages its brief says how to start the project with
+`DEVFLOW=1`, take each page it changed at both sizes, look at them against the card and fix what
+is wrong before it reports, and its report says in `looked` which it looked at. Its pictures are
+its own check and go nowhere: they are made from its copy, so they are still its claim, and the
+worker's after the push stay what the reviewer and the owner judge. They are taken in a folder
+beside its copy, never in it, so nothing it makes while looking can be committed, and it goes with
+the job. A page it did not look at is shown as such to the owner and the reviewer, who weighs it;
+it stops nothing by itself, since the worker's pictures and the reviewer's judgement of them are
+what would catch a broken page. The time spent looking comes out of the run's own limits rather
+than a budget of its own, so a card that needs much looking is a card that needs much work. The
+brief tells it to use `npx playwright`, which in a project without a Playwright of its own runs the
+image's pinned one, and the image's `playwright` when the project's own cannot find its browser;
+the worker itself never goes through `npx`, since its pictures must not depend on what a project
+installs.
 
 **A project's login is its own business**, as the feature settles. Dev flow could log in on a
 project's behalf, but every project logs in differently, and Dev flow would then hold the
@@ -1097,7 +1115,8 @@ its reason, or a risk accepted on purpose; each slice adds the ones it builds.
   is asked; the path, `devflow/<card>/<commit, seven characters>/<name>.png`, is built by the
   server from the card's own number and stored commit.
 - **An agent's run gets an environment built from nothing.** Claude Code is started with exactly
-  `HOME`, `PATH`, `LANG`, `CLAUDE_CONFIG_DIR` and `CLAUDE_CODE_OAUTH_TOKEN`, and the process starter
+  `HOME`, `PATH`, `LANG`, `CLAUDE_CONFIG_DIR`, `CLAUDE_CODE_OAUTH_TOKEN` and
+  `PLAYWRIGHT_BROWSERS_PATH`, a path to the image's Chromium, which holds no secret, and the process starter
   clears everything else, rather than passing the worker's environment and taking out what is
   known to be dangerous. The experiment found that an `ANTHROPIC_API_KEY` in the environment
   silently wins over the subscription token and bills the API, and a list of what to take out

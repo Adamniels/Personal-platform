@@ -555,7 +555,9 @@ function LatestReport({ report }: { report: Report }) {
 						<>
 							<code className={styles.code}>{page.path}</code>{" "}
 							<span className={styles.mark}>
-								{page.looked ? "Looked at" : "Not looked at"}
+								{page.looked
+									? "Looked at"
+									: "The agent did not look at this page"}
 							</span>
 							{page.why.trim() === "" ? null : (
 								<span className={styles.sub}>

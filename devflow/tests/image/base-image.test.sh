@@ -2,7 +2,8 @@
 # Checks the worker's base image, devflow/worker.Dockerfile, as built: the agent cannot read a
 # job's secrets, in /run/devflow/ or in root's environment, nor write where root hands it bundles,
 # /run/devflow-handover/; the worker, Claude Code, git and node run; Claude Code's commit
-# attribution is off for the agent; and a project's image built FROM it reports the base image and the recipe's
+# attribution is off for the agent; the agent can start a project and take its pictures with the
+# commands its brief gives; and a project's image built FROM it reports the base image and the recipe's
 # version the command on the project's page passes. See "The base image" in devflow/README.md.
 #
 # It builds the image itself, under a tag of its own that it removes again, never under the hosted
@@ -174,6 +175,45 @@ if [ -z "$problems" ]; then
   ok PlaywrightAndChromiumRun
 else
   bad PlaywrightAndChromiumRun "$problems"
+fi
+
+# --- TheAgentCanStartTheProjectAndTakePictures ---------------------------------------------------
+# The developer looks at its own pages with the commands its brief gives, looking.sh beside this
+# file, which BriefTests keeps the brief's text. As agent, in the environment Claude Code is given,
+# built from nothing but HOME, PATH, LANG, CLAUDE_CONFIG_DIR and PLAYWRIGHT_BROWSERS_PATH, from a
+# working copy of page-project/ in its job's folder, with the folder for pictures, self, beside it
+# as the worker makes it: the project starts with DEVFLOW=1, which it needs to answer at all, both
+# pictures are written full page at 1280 and 390 wide with npx's Playwright, the stop ends the
+# project, and the copy is left as it was, since the pictures are outside it. See "Screenshots" in
+# devflow/README.md.
+problems=""
+cat > "$tmp/look.sh" <<'LOOK'
+# As agent: the job's folder, its folder for pictures and the copy, then the brief's commands.
+job=/work/00000000-0000-4000-8000-000000000347
+mkdir "$job" "$job/self" || exit 1
+cp -R /fixture/page-project "$job/copy" && cd "$job/copy" || exit 1
+git init -q && git add -A && git -c user.name=Test -c user.email=test@example.com commit -qm "The page project" || exit 1
+sh /fixture/looking.sh > "$job/looking.out" 2>&1
+echo "looking exit $?"
+for name in habits-desktop habits-phone; do
+  node -e 'const b = require("fs").readFileSync(process.argv[1]); console.log(process.argv[2], b.subarray(0, 8).toString("hex"), b.readUInt32BE(16))' "$job/self/$name.png" "$name" 2>&1
+done
+grep -q "with DEVFLOW=1" "$job/self/start.log" && echo "started with DEVFLOW=1"
+sleep 1
+node -e 'fetch("http://localhost:4173").then(() => console.log("still up"), () => console.log("stopped"))'
+[ -z "$(git status --porcelain --untracked-files=all)" ] && echo "copy clean"
+tail -n 5 "$job/looking.out"
+LOOK
+chmod 644 "$tmp/look.sh"
+got="$(docker run --rm -v "$here:/fixture:ro" -v "$tmp/look.sh:/look.sh:ro" --entrypoint sh "$image" -c \
+  'setpriv --reuid agent --regid agent --init-groups --reset-env env -i HOME=/home/agent PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 CLAUDE_CONFIG_DIR=/home/agent/.claude PLAYWRIGHT_BROWSERS_PATH=/ms-playwright sh /look.sh' 2>&1)"
+for want in "looking exit 0" "habits-desktop 89504e470d0a1a0a 1280" "habits-phone 89504e470d0a1a0a 390" "started with DEVFLOW=1" "stopped" "copy clean"; do
+  case "$got" in *"$want"*) ;; *) problems="$problems missing-[$want]" ;; esac
+done
+if [ -z "$problems" ]; then
+  ok TheAgentCanStartTheProjectAndTakePictures
+else
+  bad TheAgentCanStartTheProjectAndTakePictures "$problems in: $(printf '%s' "$got" | tr '\n' ' ')"
 fi
 
 # --- AProjectsImageReportsItsBaseAndRecipe -------------------------------------------------------

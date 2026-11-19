@@ -170,7 +170,7 @@ public sealed partial class Dispatcher(
 
         var brief = Brief.Developer(
             new BriefCard(claimed.Number, claimed.Title, claimed.Body),
-            new BriefFacts(facts.Check, claimed.Branch, facts.DefaultBranch),
+            new BriefFacts(facts.Check, claimed.Branch, facts.DefaultBranch, claimed.RunId, facts.Start, facts.Url),
             claimed.Comments);
         return new Job(
             claimed.RunId,
@@ -203,7 +203,7 @@ public sealed partial class Dispatcher(
 
         var brief = Brief.Fixer(
             new BriefCard(claimed.Number, claimed.Title, claimed.Body),
-            new BriefFacts(facts.Check, claimed.Branch, claimed.Base),
+            new BriefFacts(facts.Check, claimed.Branch, claimed.Base, claimed.RunId, facts.Start, facts.Url),
             new FixInput(claimed.Round, claimed.Report, claimed.Review?.Verdict, claimed.Comments));
         return new Job(
             claimed.RunId,

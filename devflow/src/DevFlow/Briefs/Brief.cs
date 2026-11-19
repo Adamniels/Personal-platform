@@ -13,8 +13,10 @@ namespace DevFlow.Briefs;
 public sealed record BriefCard(int Number, string Title, string Body);
 
 /// <summary>The project's facts a brief names: the check from its <c>.devflow/project.json</c>, the
-/// branch the work goes on and the branch that is made from.</summary>
-public sealed record BriefFacts(string Check, string Branch, string Base);
+/// branch the work goes on and the branch that is made from; the job, whose folder for the agent's
+/// own pictures the brief names; and the project's <c>start</c> and <c>url</c> from the same file,
+/// each empty when it has none.</summary>
+public sealed record BriefFacts(string Check, string Branch, string Base, Guid Job, string Start, string Url);
 
 /// <summary>The commit a review brief is for, and where it was made: the card's branch and the
 /// branch that is made from; and how many earlier rounds the card had, none on its first
@@ -43,6 +45,12 @@ public static class Brief
     private static readonly Lazy<string> DeveloperTemplate = new(() => Embedded("developer"));
 
     private static readonly Lazy<string> ReviewerTemplate = new(() => Embedded("reviewer"));
+
+    private static readonly Lazy<string> LookingTemplate = new(() => Embedded("looking"));
+
+    /// <summary>What the brief says in place of looking, for a project without a <c>start</c> or a
+    /// <c>url</c>: nothing can be started, so no page is looked at.</summary>
+    internal const string NoPages = "## Looking at your pages\n\nThis project has no pages to look at: its `.devflow/project.json` has no `start` or no `url`, so there is nothing to start and open. If your change affects a page all the same, list it in `pages` with `looked` false.\n\n";
 
     /// <summary>The developer brief for <paramref name="card"/>, with <paramref name="facts"/>.</summary>
     public static string Developer(BriefCard card, BriefFacts facts) => Developer(card, facts, "");
@@ -127,10 +135,62 @@ public static class Brief
             ["card"] = Fenced("text", Quoted(card)),
             ["fix"] = fix,
             ["check"] = Fenced("sh", facts.Check),
+            ["look"] = Looking(facts),
             ["branch"] = facts.Branch,
             ["base"] = facts.Base,
         });
     }
+
+    /// <summary>
+    /// The section on looking at pages, as Settled in the slice "The developer checks its own
+    /// pages": for a project with a <c>start</c> and a <c>url</c>, how to start it with
+    /// <c>DEVFLOW=1</c> in the background, wait for its address, take each page's pictures in the
+    /// job's folder outside the copy, look at them, and stop it; for any other, that there is
+    /// nothing to look at. The start and the address are the project's, from its
+    /// <c>.devflow/project.json</c>, and appear only inside fenced blocks, as the check does, the
+    /// address shell quoted where it is an argument. The start is written to a file through a
+    /// here document whose delimiter it does not hold, so it runs as written whatever it is.
+    /// </summary>
+    private static string Looking(BriefFacts facts)
+    {
+        if (facts.Start.Trim().Length == 0 || facts.Url.Trim().Length == 0)
+        {
+            return NoPages;
+        }
+
+        var self = AgentFolders.SelfOf(facts.Job);
+        var delimiter = "DEVFLOW_START";
+        while (facts.Start.Contains(delimiter, StringComparison.Ordinal))
+        {
+            delimiter += "_";
+        }
+
+        var start = new StringBuilder()
+            .Append(CultureInfo.InvariantCulture, $"cat > {self}/start.sh <<'{delimiter}'\n")
+            .Append(facts.Start.EndsWith('\n') ? facts.Start : facts.Start + "\n")
+            .Append(CultureInfo.InvariantCulture, $"{delimiter}\n")
+            .Append(CultureInfo.InvariantCulture, $"DEVFLOW=1 setsid sh {self}/start.sh > {self}/start.log 2>&1 < /dev/null &\n")
+            .Append(CultureInfo.InvariantCulture, $"echo $! > {self}/start.pid\n")
+            .Append("for _ in $(seq 1 180); do\n")
+            .Append(CultureInfo.InvariantCulture, $"  node -e 'fetch(process.argv[1], {{ redirect: \"manual\" }}).then((r) => process.exit(r.status < 500 ? 0 : 1), () => process.exit(1))' {ShellQuoted(facts.Url)} && break\n")
+            .Append("  sleep 1\n")
+            .Append("done\n")
+            .ToString();
+        var shoot =
+            $"npx playwright screenshot --full-page --viewport-size=1280,800 {facts.Url}<path> {self}/<name>-desktop.png\n" +
+            $"npx playwright screenshot --full-page --viewport-size=390,844 {facts.Url}<path> {self}/<name>-phone.png\n";
+        return Fill(LookingTemplate.Value, new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["self"] = self,
+            ["url"] = facts.Url,
+            ["start"] = Fenced("sh", start),
+            ["shoot"] = Fenced("sh", shoot),
+            ["stop"] = Fenced("sh", $"kill -- -\"$(cat {self}/start.pid)\"\n"),
+        });
+    }
+
+    /// <summary><paramref name="text"/> as one shell word, in single quotes.</summary>
+    private static string ShellQuoted(string text) => "'" + text.Replace("'", "'\\''", StringComparison.Ordinal) + "'";
 
     /// <summary>The reviewer brief for <paramref name="card"/>'s commit, with
     /// <paramref name="facts"/>. The branch names and the commit are Dev flow's, from the build

@@ -2,13 +2,16 @@ using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
+using DevFlow.Worker.Pages;
+
 namespace DevFlow.Worker.Agents;
 
-/// <summary>Where Claude Code is, the user's home it runs in, and the model; the rest of its
+/// <summary>Where Claude Code is, the user's home it runs in, the model, and where the image's
+/// Chromium is, which the pictures the developer takes of its own pages need; the rest of its
 /// environment is built from these and nothing else.</summary>
-internal sealed record ClaudeCodeOptions(string Executable, string Home, string Path, string Lang, string Model)
+internal sealed record ClaudeCodeOptions(string Executable, string Home, string Path, string Lang, string Model, string BrowsersPath)
 {
-    public static ClaudeCodeOptions Default { get; } = new("claude", "/home/agent", "/usr/local/bin:/usr/bin:/bin", "C.UTF-8", "claude-opus-5-5");
+    public static ClaudeCodeOptions Default { get; } = new("claude", "/home/agent", "/usr/local/bin:/usr/bin:/bin", "C.UTF-8", "claude-opus-5-5", PageTools.ImageBrowsers);
 }
 
 /// <summary>
@@ -16,7 +19,8 @@ internal sealed record ClaudeCodeOptions(string Executable, string Home, string 
 /// interface" in devflow/README.md, and "Workers" in devflow/docs/devflow-architecture.md for why.
 /// <list type="bullet">
 /// <item>The environment is built from nothing: <c>HOME</c>, <c>PATH</c>, <c>LANG</c>,
-/// <c>CLAUDE_CONFIG_DIR</c> in that home, and <c>CLAUDE_CODE_OAUTH_TOKEN</c>. An
+/// <c>CLAUDE_CONFIG_DIR</c> in that home, <c>CLAUDE_CODE_OAUTH_TOKEN</c>, and
+/// <c>PLAYWRIGHT_BROWSERS_PATH</c>, the image's Chromium, for the developer's own pictures. An
 /// <c>ANTHROPIC_API_KEY</c> would silently win over the token and bill the API, so none is ever
 /// passed; nor is <c>--bare</c>, which refuses the token.</item>
 /// <item>The login is checked first, with <c>claude auth status --json</c>, which must answer
@@ -81,6 +85,7 @@ internal sealed class ClaudeCodeAgent(IProcessStarter starter, ClaudeCodeOptions
         ["LANG"] = options.Lang,
         ["CLAUDE_CONFIG_DIR"] = $"{options.Home.TrimEnd('/')}/.claude",
         [TokenVariable] = token,
+        ["PLAYWRIGHT_BROWSERS_PATH"] = options.BrowsersPath,
     };
 
     /// <summary>

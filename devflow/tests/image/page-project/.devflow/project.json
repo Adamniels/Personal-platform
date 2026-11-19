@@ -1,0 +1,1 @@
+{"version": 1, "check": "true", "start": "node server.js", "url": "http://localhost:4173"}

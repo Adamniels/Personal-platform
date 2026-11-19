@@ -290,6 +290,28 @@ describe("a card's page", () => {
 		);
 	});
 
+	test("marks each page the agent did not look at", async () => {
+		const shown = story();
+		if (shown.report) {
+			shown.report.pages = [
+				{ path: "/habits", why: "The empty state shows there", looked: true },
+				{ path: "/settings", why: "The toggle moved", looked: false },
+			];
+		}
+		open(() => Promise.resolve(shown));
+
+		const report = within(
+			await screen.findByRole("article", { name: "The latest report" }),
+		);
+		const pages = within(report.getByRole("list", { name: "Pages" }))
+			.getAllByRole("listitem")
+			.map((item) => item.textContent);
+		expect(pages).toEqual([
+			"/habits Looked atThe empty state shows there",
+			"/settings The agent did not look at this pageThe toggle moved",
+		]);
+	});
+
 	test("shows what came from the code host and the agent as text", async () => {
 		open(() =>
 			Promise.resolve(

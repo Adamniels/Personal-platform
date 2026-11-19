@@ -225,6 +225,10 @@ public sealed partial class PullRequestTests
 
         - list.test.tsx: passed
 
+        The pages the change affects:
+
+        - `/habits`: The empty state shows there.
+
         ## Follow ups
 
         - Count the habits in the title
