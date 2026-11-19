@@ -297,8 +297,9 @@ public static class CardStore
             cancellationToken: cancellationToken)), cancellationToken)];
     }
 
-    /// <summary>The project's cards as last read, newest change first, or null when the user has
-    /// no such project.</summary>
+    /// <summary>The project's features as last read, in the order their cards would be taken,
+    /// <see cref="QueueOrder"/>, each with its cards by position; and its cards on their own,
+    /// newest change first. Null when the user has no such project.</summary>
     public static async Task<CardList?> List(UserDb database, Guid userId, Guid projectId, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(database);
@@ -310,21 +311,38 @@ public static class CardStore
                 return null;
             }
 
-            var rows = await transaction.Connection!.QueryAsync<ListedCard>(new CommandDefinition(
+            var rows = (await transaction.Connection!.QueryAsync<ListedCard>(new CommandDefinition(
                 """
                 SELECT number AS Number, title AS Title, web_url AS WebUrl, state AS State, reason AS Reason, waits_for AS WaitsFor,
-                       priority AS Priority, changed_at AS ChangedAt
+                       priority AS Priority, changed_at AS ChangedAt, feature_id AS FeatureId
                 FROM cards WHERE project_id = @projectId
-                ORDER BY changed_at DESC, number DESC
+                ORDER BY position NULLS LAST, changed_at DESC, number DESC
+                """,
+                new { projectId },
+                transaction,
+                cancellationToken: cancellationToken))).ToList();
+            var features = await transaction.Connection!.QueryAsync<ListedFeature>(new CommandDefinition(
+                $"""
+                SELECT id AS Id, number AS Number, title AS Title, web_url AS WebUrl, state AS State, reason AS Reason,
+                       priority AS Priority, changed_at AS ChangedAt
+                FROM features WHERE project_id = @projectId
+                ORDER BY {QueueOrder}
                 """,
                 new { projectId },
                 transaction,
                 cancellationToken: cancellationToken));
-            return new CardList([.. rows.Select(row => new CardView(
-                row.Number, row.Title, row.WebUrl, row.State, row.Reason, row.WaitsFor, row.Priority,
-                new DateTimeOffset(DateTime.SpecifyKind(row.ChangedAt, DateTimeKind.Utc))))]);
+            return new CardList(
+                [.. features.Select(feature => new FeatureView(
+                    feature.Number, feature.Title, feature.WebUrl, feature.State, feature.Reason, feature.Priority, Utc(feature.ChangedAt),
+                    [.. rows.Where(row => row.FeatureId == feature.Id).Select(View)]))],
+                [.. rows.Where(row => row.FeatureId is null).Select(View)]);
         }, cancellationToken);
     }
+
+    private static CardView View(ListedCard row) =>
+        new(row.Number, row.Title, row.WebUrl, row.State, row.Reason, row.WaitsFor, row.Priority, Utc(row.ChangedAt));
+
+    private static DateTimeOffset Utc(DateTime at) => new(DateTime.SpecifyKind(at, DateTimeKind.Utc));
 
     private static string State(Verdict verdict) => verdict switch
     {
@@ -410,7 +428,12 @@ public static class CardStore
         public string Priority { get; init; } = "";
 
         public DateTime ChangedAt { get; init; }
+
+        public Guid? FeatureId { get; init; }
     }
+
+    /// <summary>A feature as listed.</summary>
+    private sealed record ListedFeature(Guid Id, int Number, string Title, string WebUrl, string State, string? Reason, string Priority, DateTime ChangedAt);
 
     /// <summary>A card as stored, set by property: Dapper reads <c>text[]</c> as an array no
     /// constructor parameter matches.</summary>

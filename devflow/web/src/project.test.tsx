@@ -91,7 +91,7 @@ function renderPage(
 			}),
 		),
 		saveSettings: vi.fn((_: string, settings) => Promise.resolve(settings)),
-		loadCards: vi.fn(() => Promise.resolve({ cards: [] })),
+		loadCards: vi.fn(() => Promise.resolve({ cards: [], features: [] })),
 		copy: vi.fn(() => Promise.resolve()),
 		back: vi.fn(),
 	};
