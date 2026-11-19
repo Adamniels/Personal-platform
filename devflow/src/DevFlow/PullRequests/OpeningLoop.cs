@@ -1,5 +1,7 @@
 using Dapper;
 
+using DevFlow.Decisions;
+using DevFlow.Merging;
 using DevFlow.Reviews;
 
 using PlatformData;
@@ -7,17 +9,19 @@ using PlatformData;
 namespace DevFlow.PullRequests;
 
 /// <summary>
-/// The loop that opens built cards' pull requests and posts their reviews: as it starts and then
+/// The loop that makes the program's own writes on each project's minute: as it starts and then
 /// once every <c>DEVFLOW_POLL_SECONDS</c>, the same minute the reading loop keeps, it lists
-/// <c>poll_targets</c>, the one thing it reads outside a user, and asks
-/// <see cref="PullRequestOpener"/> to open each project's as that project's user, then
-/// <see cref="ReviewPoster"/> to post each recorded verdict's copy. A worker's result is answered
-/// without waiting for GitHub, so its card's pull request opens here, and its review's comment is
-/// posted here, within a minute, and one GitHub did not answer for is tried again. Its own loop rather than the reading loop's,
-/// since the reading code can never reach a write key. Not run with <c>DEVFLOW_POLL_SECONDS=0</c>.
-/// See "The pull request Dev flow opens" in devflow/README.md.
+/// <c>poll_targets</c>, the one thing it reads outside a user, and asks, as each project's user,
+/// <see cref="PullRequestOpener"/> to open its built cards' pull requests,
+/// <see cref="ReviewPoster"/> to post each recorded verdict's copy, <see cref="MergeChecker"/> to
+/// check each card due for a merge, and <see cref="DecisionIssues"/> to open the issues of the
+/// decisions a merged card marked for the owner. A worker's result is answered without waiting for
+/// GitHub, so all of it happens here, within a minute, and what GitHub did not answer for is tried
+/// again. Its own loop rather than the reading loop's, since the reading code can never reach a
+/// write key. Not run with <c>DEVFLOW_POLL_SECONDS=0</c>. See "The pull request Dev flow opens" and
+/// "The merge check" in devflow/README.md.
 /// </summary>
-public sealed partial class OpeningLoop(UserDb database, PullRequestOpener opener, ReviewPoster poster, TimeProvider time, TimeSpan interval, ILogger<OpeningLoop> log) : BackgroundService
+public sealed partial class OpeningLoop(UserDb database, PullRequestOpener opener, ReviewPoster poster, MergeChecker merger, DecisionIssues decisions, TimeProvider time, TimeSpan interval, ILogger<OpeningLoop> log) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -35,8 +39,8 @@ public sealed partial class OpeningLoop(UserDb database, PullRequestOpener opene
         }
     }
 
-    /// <summary>Every target's pull requests opened and reviews posted, one project after
-    /// another, each in its own <c>try</c>, so one project's failure never stops another's.</summary>
+    /// <summary>Every target's writes made, one project after another, each in its own
+    /// <c>try</c>, so one project's failure never stops another's.</summary>
     private async Task Tick(CancellationToken stoppingToken)
     {
         IEnumerable<Target> targets;
@@ -59,6 +63,8 @@ public sealed partial class OpeningLoop(UserDb database, PullRequestOpener opene
             {
                 await opener.OpenPending(target.ProjectId, target.UserId, stoppingToken);
                 await poster.PostPending(target.ProjectId, target.UserId, stoppingToken);
+                await merger.CheckPending(target.ProjectId, target.UserId, stoppingToken);
+                await decisions.OpenPending(target.ProjectId, target.UserId, stoppingToken);
             }
             catch (Exception failed) when (failed is not OperationCanceledException || !stoppingToken.IsCancellationRequested)
             {

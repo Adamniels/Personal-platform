@@ -221,6 +221,7 @@ internal sealed class CountingCodeHost(ICodeHost inner) : ICodeHost
     private readonly ConcurrentQueue<Call> _calls = new();
     private readonly ConcurrentQueue<UserAccessToken> _writeTokens = new();
     private Func<Task>? _beforeCommitter;
+    private Func<Task>? _beforeMergeAsApp;
     private int _listing;
     private int _mostAtOnce;
 
@@ -245,9 +246,25 @@ internal sealed class CountingCodeHost(ICodeHost inner) : ICodeHost
         set => Volatile.Write(ref _beforeCommitter, value);
     }
 
+    /// <summary>The operations, by name, that answer unavailable, as GitHub not answering one read
+    /// would, while the rest answer.</summary>
+    public ConcurrentDictionary<string, bool> Unavailable { get; } = new(StringComparer.Ordinal);
+
+    /// <summary>When set, run once as the app next merges, before the code host is asked: so a
+    /// test can move a pull request's head between the merge check's read and its merge.</summary>
+    public Func<Task>? BeforeMergeAsApp
+    {
+        get => Volatile.Read(ref _beforeMergeAsApp);
+        set => Volatile.Write(ref _beforeMergeAsApp, value);
+    }
+
     /// <summary>When set, opening a pull request answers that the host did not answer, and opens
     /// nothing.</summary>
     public bool OpeningUnavailable { get; set; }
+
+    /// <summary>When set, opening an issue opens it, and then answers that the host did not answer,
+    /// as an answer lost on the way would.</summary>
+    public bool OpeningIssueLost { get; set; }
 
     /// <summary>The most lists of open pull requests that were ever under way at once.</summary>
     public int MostListsAtOnce => Volatile.Read(ref _mostAtOnce);
@@ -283,6 +300,11 @@ internal sealed class CountingCodeHost(ICodeHost inner) : ICodeHost
     public Task<CodeHostResult<PullRequest>> PullRequest(Guid userId, CodeHost.Repository repository, int number, CancellationToken cancellationToken)
     {
         Record("PullRequest", userId, repository, $"{number}");
+        if (Unavailable.ContainsKey("PullRequest"))
+        {
+            return Task.FromResult<CodeHostResult<PullRequest>>(new CodeHostResult<PullRequest>.Unavailable(RetryAt: null));
+        }
+
         return inner.PullRequest(userId, repository, number, cancellationToken);
     }
 
@@ -295,12 +317,22 @@ internal sealed class CountingCodeHost(ICodeHost inner) : ICodeHost
     public Task<CodeHostResult<IReadOnlyList<CommitStatus>>> Statuses(Guid userId, CodeHost.Repository repository, string commit, CancellationToken cancellationToken)
     {
         Record("Statuses", userId, repository, commit);
+        if (Unavailable.ContainsKey("Statuses"))
+        {
+            return Task.FromResult<CodeHostResult<IReadOnlyList<CommitStatus>>>(new CodeHostResult<IReadOnlyList<CommitStatus>>.Unavailable(RetryAt: null));
+        }
+
         return inner.Statuses(userId, repository, commit, cancellationToken);
     }
 
     public Task<CodeHostResult<IReadOnlyList<CheckRun>>> CheckRuns(Guid userId, CodeHost.Repository repository, string commit, CancellationToken cancellationToken)
     {
         Record("CheckRuns", userId, repository, commit);
+        if (Unavailable.ContainsKey("CheckRuns"))
+        {
+            return Task.FromResult<CodeHostResult<IReadOnlyList<CheckRun>>>(new CodeHostResult<IReadOnlyList<CheckRun>>.Unavailable(RetryAt: null));
+        }
+
         return inner.CheckRuns(userId, repository, commit, cancellationToken);
     }
 
@@ -319,6 +351,11 @@ internal sealed class CountingCodeHost(ICodeHost inner) : ICodeHost
     public Task<CodeHostResult<IReadOnlyList<Issue>>> LabelledIssues(Guid userId, CodeHost.Repository repository, string label, CancellationToken cancellationToken)
     {
         Record("LabelledIssues", userId, repository, label);
+        if (Unavailable.ContainsKey("LabelledIssues"))
+        {
+            return Task.FromResult<CodeHostResult<IReadOnlyList<Issue>>>(new CodeHostResult<IReadOnlyList<Issue>>.Unavailable(RetryAt: null));
+        }
+
         return inner.LabelledIssues(userId, repository, label, cancellationToken);
     }
 
@@ -331,6 +368,11 @@ internal sealed class CountingCodeHost(ICodeHost inner) : ICodeHost
     public Task<CodeHostResult<IReadOnlyList<IssueEdit>>> Edits(Guid userId, CodeHost.Repository repository, int number, CancellationToken cancellationToken)
     {
         Record("Edits", userId, repository, $"{number}");
+        if (Unavailable.ContainsKey("Edits"))
+        {
+            return Task.FromResult<CodeHostResult<IReadOnlyList<IssueEdit>>>(new CodeHostResult<IReadOnlyList<IssueEdit>>.Unavailable(RetryAt: null));
+        }
+
         return inner.Edits(userId, repository, number, cancellationToken);
     }
 
@@ -424,16 +466,22 @@ internal sealed class CountingCodeHost(ICodeHost inner) : ICodeHost
         return inner.RemoveLabel(userId, token, repository, number, label, cancellationToken);
     }
 
-    public Task<WriteResult<Issue>> OpenIssue(Guid userId, AppWriteToken token, CodeHost.Repository repository, string title, string body, IReadOnlyList<string> labels, CancellationToken cancellationToken)
+    public async Task<WriteResult<Issue>> OpenIssue(Guid userId, AppWriteToken token, CodeHost.Repository repository, string title, string body, IReadOnlyList<string> labels, CancellationToken cancellationToken)
     {
         Record("OpenIssue", userId, repository, "");
-        return inner.OpenIssue(userId, token, repository, title, body, labels, cancellationToken);
+        var opened = await inner.OpenIssue(userId, token, repository, title, body, labels, cancellationToken);
+        return OpeningIssueLost ? new WriteResult<Issue>.Unavailable(RetryAt: null) : opened;
     }
 
-    public Task<MergeResult> MergeAsApp(Guid userId, AppWriteToken token, CodeHost.Repository repository, int number, string commit, CancellationToken cancellationToken)
+    public async Task<MergeResult> MergeAsApp(Guid userId, AppWriteToken token, CodeHost.Repository repository, int number, string commit, CancellationToken cancellationToken)
     {
         Record("MergeAsApp", userId, repository, $"{number} {commit}");
-        return inner.MergeAsApp(userId, token, repository, number, commit, cancellationToken);
+        if (Interlocked.Exchange(ref _beforeMergeAsApp, null) is { } step)
+        {
+            await step();
+        }
+
+        return await inner.MergeAsApp(userId, token, repository, number, commit, cancellationToken);
     }
 
     public Uri InstallAddress(Uri origin) => inner.InstallAddress(origin);

@@ -4,6 +4,7 @@ using System.Text.Json;
 using Dapper;
 
 using DevFlow.Fixing;
+using DevFlow.Merging;
 using DevFlow.Protocol;
 using DevFlow.PullRequests;
 using DevFlow.Reviews;
@@ -99,8 +100,8 @@ public static class RunStore
     /// not match its form, which is a failure in the run and never a verdict, stops it with why;
     /// anything else succeeded. Then <c>changes</c> moves the card to <c>fixing</c> for its next
     /// round, or, with <paramref name="roundsUsed"/> already <see cref="FixRounds.Most"/>, stops it
-    /// with <see cref="FixRounds.UsedUp"/>; and <c>approve</c> has it wait for the owner with its
-    /// verdict, until the merge check acts on it.
+    /// with <see cref="FixRounds.UsedUp"/>; and <c>approve</c> has it wait for the owner, due for
+    /// the merge check, which merges it or says why not.
     /// </summary>
     public static RunEnding JudgeReview(RunResult result, int roundsUsed = 0)
     {
@@ -342,7 +343,7 @@ public static class RunStore
                 "queued" => null,
                 "checking" => Built,
                 "reviewing" => PullRequestOpener.ToReview,
-                "waiting_for_owner" => PullRequestOpener.Waiting,
+                "waiting_for_owner" => MergeCheck.Checking,
                 "fixing" => FixRounds.Waiting(run.FixRound),
                 _ => ending.Reason,
             };
@@ -353,6 +354,16 @@ public static class RunStore
                 _ => Building,
             };
             var moved = await EndCard(transaction, projectId, run.CardNumber, running, ending.CardState, cardReason, now, cancellationToken);
+            if (moved && ending.CardState == "waiting_for_owner")
+            {
+                // Approved: the merge check reads it next, right after this and on each minute.
+                await transaction.Connection!.ExecuteAsync(new CommandDefinition(
+                    "UPDATE cards SET merge_check_due = true WHERE project_id = @projectId AND number = @number",
+                    new { projectId, number = run.CardNumber },
+                    transaction,
+                    cancellationToken: cancellationToken));
+            }
+
             if (moved && review && ending.CardState == "fixing")
             {
                 // The round the changes start, and the review its fix answers, with no comment yet.

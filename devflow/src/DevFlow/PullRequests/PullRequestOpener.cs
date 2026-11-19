@@ -24,9 +24,6 @@ namespace DevFlow.PullRequests;
 /// </summary>
 public sealed partial class PullRequestOpener(UserDb database, ICodeHost host, TimeProvider time, ILogger<PullRequestOpener> log)
 {
-    /// <summary>The reason of a card whose pull request waits for the owner.</summary>
-    public const string Waiting = "Its pull request waits for you";
-
     /// <summary>The reason of a card whose pull request is open and waits for its review.</summary>
     public const string ToReview = "Its pull request is open; the reviewer reads it next";
 

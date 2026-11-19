@@ -83,11 +83,23 @@ public sealed partial class FakeCodeHost : ICodeHost, ICodeHostSignIn
             found.Conversations.FirstOrDefault(conversation => conversation.Number == number)?.Comments
             ?? (found.PullRequests.Any(pullRequest => pullRequest.Number == number) ? [] : null));
 
-    public Task<CodeHostResult<IReadOnlyList<CommitStatus>>> Statuses(Guid userId, Repository repository, string commit, CancellationToken cancellationToken) =>
-        Answer(userId, repository, found => Commit(found, commit)?.Statuses);
+    /// <summary>The statuses the world lists on the commit; none for a commit its git repository
+    /// holds and the world does not list, such as one a worker pushed, as GitHub answers for a
+    /// commit nothing was posted on; and not found for any other.</summary>
+    public async Task<CodeHostResult<IReadOnlyList<CommitStatus>>> Statuses(Guid userId, Repository repository, string commit, CancellationToken cancellationToken) =>
+        await OrInGit(userId, repository, commit, await Answer(userId, repository, found => Commit(found, commit)?.Statuses), cancellationToken);
 
-    public Task<CodeHostResult<IReadOnlyList<CheckRun>>> CheckRuns(Guid userId, Repository repository, string commit, CancellationToken cancellationToken) =>
-        Answer(userId, repository, found => Commit(found, commit)?.CheckRuns);
+    /// <summary>The check runs the world lists on the commit, or none for one only its git
+    /// repository holds, as <see cref="Statuses"/>.</summary>
+    public async Task<CodeHostResult<IReadOnlyList<CheckRun>>> CheckRuns(Guid userId, Repository repository, string commit, CancellationToken cancellationToken) =>
+        await OrInGit(userId, repository, commit, await Answer(userId, repository, found => Commit(found, commit)?.CheckRuns), cancellationToken);
+
+    /// <summary><paramref name="listed"/>, or nothing posted when it is not found and the
+    /// repository's git repository holds the commit.</summary>
+    private async Task<CodeHostResult<IReadOnlyList<T>>> OrInGit<T>(Guid userId, Repository repository, string commit, CodeHostResult<IReadOnlyList<T>> listed, CancellationToken cancellationToken) =>
+        listed is CodeHostResult<IReadOnlyList<T>>.NotFound && Find(Of(userId).World, repository) is not null && await HasCommit(userId, repository, commit, cancellationToken)
+            ? new CodeHostResult<IReadOnlyList<T>>.Found([])
+            : listed;
 
     public Task<CodeHostResult<byte[]>> File(Guid userId, Repository repository, string path, string branch, CancellationToken cancellationToken) =>
         Answer(userId, repository, found => found.Files.FirstOrDefault(file => file.Path == path && file.Branch == branch)?.Content.ToArray());
