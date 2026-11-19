@@ -78,6 +78,7 @@ function list(
 		cards: [],
 		stopped_cards: stoppedCards,
 		failing_projects: failingProjects,
+		decisions: [],
 	};
 }
 

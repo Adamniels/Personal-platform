@@ -54,6 +54,7 @@ function list(own: OwnItem[]): WaitingList {
 		],
 		own_items: own,
 		cards: [],
+		decisions: [],
 	};
 }
 

@@ -1,0 +1,176 @@
+using System.Security.Cryptography;
+using System.Text;
+
+using DevFlow.Cards;
+using DevFlow.CodeHost;
+using DevFlow.Merging;
+using DevFlow.Watching;
+
+namespace DevFlow.Tests.Merging;
+
+/// <summary>
+/// <see cref="MergeCheck.Decide"/> alone: from facts where everything holds, each condition
+/// changed by itself, and the reason it answers, and whether that is tried again. See "The merge
+/// check" in devflow/README.md.
+/// </summary>
+public sealed class DecideTests
+{
+    private const string Head = "1111111111111111111111111111111111111111";
+    private const string Older = "2222222222222222222222222222222222222222";
+    private const string Body = "Build the thing of card 1.";
+    private static readonly DateTimeOffset Pushed = new(2026, 11, 19, 8, 0, 0, TimeSpan.Zero);
+
+    private static CodeHostResult<T> Found<T>(T value) => new CodeHostResult<T>.Found(value);
+
+    private static CodeHostResult<T> Down<T>() => new CodeHostResult<T>.Unavailable(RetryAt: null);
+
+    private static readonly Issue CardIssue = new(1, "Card 1", "octo-owner", ["devflow"], Body,
+        new Uri("https://github.com/Adamniels/Personal-platform/issues/1"), Pushed.AddDays(-1), IsPullRequest: false);
+
+    private static readonly PullRequest Pull = new(2, "Card 1", "devflow-fake[bot]", [], Head, "devflow/1-card-1", "main",
+        Draft: false, "", new Uri("https://github.com/Adamniels/Personal-platform/pull/2"), Pushed, PullRequestState.Open);
+
+    /// <summary>Facts where every condition holds, five minutes after the push.</summary>
+    private static readonly MergeFacts Good = new(
+        Pushed.AddMinutes(5),
+        ProjectHold.None,
+        "never",
+        "devflow",
+        "devflow-hold",
+        "octo-owner",
+        1,
+        new CardRecord(SHA256.HashData(Encoding.UTF8.GetBytes(Body)), "Card 1", null),
+        new CheckedHead(Head, 0, Pushed),
+        new LatestReview("approve", Head),
+        Found(Pull),
+        Found<IReadOnlyList<CommitStatus>>([new CommitStatus("deploy/preview", StatusState.Success, null)]),
+        Found<IReadOnlyList<CheckRun>>([new CheckRun("test", CheckStatus.Completed, CheckConclusion.Success, "github-actions")]),
+        Found<IReadOnlyList<Issue>>([CardIssue]),
+        Found<IReadOnlyList<IssueEdit>>([]));
+
+    [Fact]
+    public void EverythingHoldsAndItMergesTheHead() =>
+        Assert.Equal(new MergeDecision.Merge(Head), MergeCheck.Decide(Good));
+
+    [Fact]
+    public void TheOwnersOwnEditsAreFine()
+    {
+        var edited = Good with
+        {
+            Labelled = Found<IReadOnlyList<Issue>>([CardIssue with { Body = "Build it, and the empty state.", Title = "Card one" }]),
+            Edits = Found<IReadOnlyList<IssueEdit>>([new IssueEdit("UCE_1", "Octo-Owner", Pushed, EditKind.Body), new IssueEdit("UCE_2", "octo-owner", Pushed.AddMinutes(1), EditKind.Title)]),
+        };
+
+        Assert.IsType<MergeDecision.Merge>(MergeCheck.Decide(edited));
+    }
+
+    [Fact]
+    public void CiWithNothingButStatusesOrNothingButRunsMerges()
+    {
+        Assert.IsType<MergeDecision.Merge>(MergeCheck.Decide(Good with { Statuses = Found<IReadOnlyList<CommitStatus>>([]) }));
+        Assert.IsType<MergeDecision.Merge>(MergeCheck.Decide(Good with { CheckRuns = Found<IReadOnlyList<CheckRun>>([]) }));
+    }
+
+    /// <summary>Each condition changed alone, the reason, and whether it is tried again.</summary>
+    public static TheoryData<string, string, bool> Cases() => new()
+    {
+        { "stopped", MergeCheck.Stopped, false },
+        { "unwatched", MergeCheck.Unwatched, true },
+        { "pull request unread", MergeCheck.CouldNotRead("its pull request"), true },
+        { "pull request not found", MergeCheck.CouldNotRead("its pull request"), true },
+        { "pull request merged", MergeCheck.NotOpen, false },
+        { "pull request closed", MergeCheck.NotOpen, false },
+        { "head moved", MergeCheck.NotChecked, false },
+        { "no run succeeded", MergeCheck.NotChecked, false },
+        { "check failed", MergeCheck.CheckFailed, false },
+        { "check did not run", MergeCheck.CheckFailed, false },
+        { "no review", MergeCheck.NotApproved, false },
+        { "review of an older commit", MergeCheck.NotApproved, false },
+        { "review asked for changes", MergeCheck.ChangesAsked, false },
+        { "issues unread", MergeCheck.CouldNotRead("the card"), true },
+        { "edits unread", MergeCheck.CouldNotRead("the card"), true },
+        { "not linked", CardPicker.NotLinked, false },
+        { "closed or unlabelled", MergeCheck.NotLabelled("devflow"), false },
+        { "listed only as a pull request", MergeCheck.NotLabelled("devflow"), false },
+        { "written by someone else", MergeCheck.WrittenBy("mallory"), false },
+        { "held", MergeCheck.Held("devflow-hold"), false },
+        { "edited by someone else", MergeCheck.EditedBy("mallory"), false },
+        { "edited by a deleted account", MergeCheck.EditedBy("ghost"), false },
+        { "changed with no history", MergeCheck.ChangedUnseen, false },
+        { "always", MergeCheck.Always, false },
+        { "a setting it does not know", MergeCheck.Always, false },
+        { "statuses unread", MergeCheck.CouldNotRead("CI on its commit"), true },
+        { "check runs unread", MergeCheck.CouldNotRead("CI on its commit"), true },
+        { "check run failed", MergeCheck.CiFailed("lint"), false },
+        { "check run neutral", MergeCheck.CiFailed("lint"), false },
+        { "check run skipped", MergeCheck.CiFailed("lint"), false },
+        { "status failed", MergeCheck.CiFailed("coverage"), false },
+        { "status errored", MergeCheck.CiFailed("coverage"), false },
+        { "a failure beside one running", MergeCheck.CiFailed("lint"), false },
+        { "check run queued", MergeCheck.CiRunning, true },
+        { "check run in progress", MergeCheck.CiRunning, true },
+        { "status pending", MergeCheck.CiRunning, true },
+        { "no CI yet", MergeCheck.CiNotYet, true },
+        { "no CI for 30 minutes", MergeCheck.CiSilent, false },
+    };
+
+    [Theory]
+    [MemberData(nameof(Cases))]
+    public void EachConditionAloneRefuses(string condition, string reason, bool tryAgain) =>
+        Assert.Equal(new MergeDecision.Wait(reason, tryAgain), MergeCheck.Decide(Break(condition)));
+
+    private static CheckRun Run(CheckStatus status, CheckConclusion? conclusion, string name = "lint") => new(name, status, conclusion, "github-actions");
+
+    private static MergeFacts Break(string condition) => condition switch
+    {
+        "stopped" => Good with { Hold = ProjectHold.Stopped },
+        "unwatched" => Good with { Hold = ProjectHold.Unwatched },
+        "pull request unread" => Good with { PullRequest = Down<PullRequest>() },
+        "pull request not found" => Good with { PullRequest = new CodeHostResult<PullRequest>.NotFound() },
+        "pull request merged" => Good with { PullRequest = Found(Pull with { State = PullRequestState.Merged }) },
+        "pull request closed" => Good with { PullRequest = Found(Pull with { State = PullRequestState.Closed }) },
+        "head moved" => Good with { PullRequest = Found(Pull with { HeadCommit = Older }) },
+        "no run succeeded" => Good with { Head = null },
+        "check failed" => Good with { Head = new CheckedHead(Head, 1, Pushed) },
+        "check did not run" => Good with { Head = new CheckedHead(Head, null, Pushed) },
+        "no review" => Good with { Review = null },
+        "review of an older commit" => Good with { Review = new LatestReview("approve", Older) },
+        "review asked for changes" => Good with { Review = new LatestReview("changes", Head) },
+        "issues unread" => Good with { Labelled = Down<IReadOnlyList<Issue>>() },
+        "edits unread" => Good with { Edits = new CodeHostResult<IReadOnlyList<IssueEdit>>.NotFound() },
+        "not linked" => Good with { OwnerLogin = null },
+        "closed or unlabelled" => Good with { Labelled = Found<IReadOnlyList<Issue>>([]) },
+        "listed only as a pull request" => Good with { Labelled = Found<IReadOnlyList<Issue>>([CardIssue with { IsPullRequest = true }]) },
+        "written by someone else" => Good with { Labelled = Found<IReadOnlyList<Issue>>([CardIssue with { Author = "mallory" }]) },
+        "held" => Good with { Labelled = Found<IReadOnlyList<Issue>>([CardIssue with { Labels = ["devflow", "DevFlow-Hold"] }]) },
+        "edited by someone else" => Good with { Edits = Found<IReadOnlyList<IssueEdit>>([new IssueEdit("UCE_1", "octo-owner", Pushed, EditKind.Body), new IssueEdit("UCE_2", "mallory", Pushed.AddMinutes(1), EditKind.Title)]) },
+        "edited by a deleted account" => Good with { Edits = Found<IReadOnlyList<IssueEdit>>([new IssueEdit("UCE_1", "ghost", Pushed, EditKind.Body)]) },
+        "changed with no history" => Good with { Labelled = Found<IReadOnlyList<Issue>>([CardIssue with { Body = "Something else." }]) },
+        "always" => Good with { WaitsForOwner = "always" },
+        "a setting it does not know" => Good with { WaitsForOwner = "sometimes" },
+        "statuses unread" => Good with { Statuses = Down<IReadOnlyList<CommitStatus>>() },
+        "check runs unread" => Good with { CheckRuns = new CodeHostResult<IReadOnlyList<CheckRun>>.NotFound() },
+        "check run failed" => Good with { CheckRuns = Found<IReadOnlyList<CheckRun>>([Run(CheckStatus.Completed, CheckConclusion.Success, "test"), Run(CheckStatus.Completed, CheckConclusion.Failure)]) },
+        "check run neutral" => Good with { CheckRuns = Found<IReadOnlyList<CheckRun>>([Run(CheckStatus.Completed, CheckConclusion.Neutral)]) },
+        "check run skipped" => Good with { CheckRuns = Found<IReadOnlyList<CheckRun>>([Run(CheckStatus.Completed, CheckConclusion.Skipped)]) },
+        "status failed" => Good with { Statuses = Found<IReadOnlyList<CommitStatus>>([new CommitStatus("coverage", StatusState.Failure, null)]) },
+        "status errored" => Good with { Statuses = Found<IReadOnlyList<CommitStatus>>([new CommitStatus("coverage", StatusState.Error, "It broke")]) },
+        "a failure beside one running" => Good with { CheckRuns = Found<IReadOnlyList<CheckRun>>([Run(CheckStatus.InProgress, null, "test"), Run(CheckStatus.Completed, CheckConclusion.Cancelled)]) },
+        "check run queued" => Good with { CheckRuns = Found<IReadOnlyList<CheckRun>>([Run(CheckStatus.Queued, null)]) },
+        "check run in progress" => Good with { CheckRuns = Found<IReadOnlyList<CheckRun>>([Run(CheckStatus.InProgress, null)]) },
+        "status pending" => Good with { Statuses = Found<IReadOnlyList<CommitStatus>>([new CommitStatus("deploy/preview", StatusState.Pending, null)]) },
+        "no CI yet" => Good with
+        {
+            Now = Pushed.AddMinutes(29),
+            Statuses = Found<IReadOnlyList<CommitStatus>>([]),
+            CheckRuns = Found<IReadOnlyList<CheckRun>>([]),
+        },
+        "no CI for 30 minutes" => Good with
+        {
+            Now = Pushed.AddMinutes(30),
+            Statuses = Found<IReadOnlyList<CommitStatus>>([]),
+            CheckRuns = Found<IReadOnlyList<CheckRun>>([]),
+        },
+        _ => throw new ArgumentOutOfRangeException(nameof(condition), condition, "not a condition"),
+    };
+}

@@ -92,6 +92,24 @@ public sealed class FakeWorkerTests
     }
 
     [Fact]
+    public async Task ACommitItPushedHasNothingFromCiOnIt()
+    {
+        await using var jobs = await Jobs.Start();
+        var ran = await Workers.Workers.Json(await Run(jobs, Prepared()));
+        var commit = (string)ran["head_commit"]!;
+        var repository = new CodeHost.Repository(Reading.Reading.Installation, Reading.Reading.RepositoryId, "Adamniels", "Personal-platform");
+        var ct = TestContext.Current.CancellationToken;
+
+        // As GitHub answers for a commit nothing was posted on, rather than not found.
+        Assert.Equal([], Assert.IsType<CodeHostResult<IReadOnlyList<CommitStatus>>.Found>(await jobs.Fake.Statuses(Jobs.User, repository, commit, ct)).Value);
+        Assert.Equal([], Assert.IsType<CodeHostResult<IReadOnlyList<CheckRun>>.Found>(await jobs.Fake.CheckRuns(Jobs.User, repository, commit, ct)).Value);
+
+        // A commit neither listed nor in its git, or anything that is not a commit id, is not found.
+        Assert.IsType<CodeHostResult<IReadOnlyList<CommitStatus>>.NotFound>(await jobs.Fake.Statuses(Jobs.User, repository, new string('9', 40), ct));
+        Assert.IsType<CodeHostResult<IReadOnlyList<CheckRun>>.NotFound>(await jobs.Fake.CheckRuns(Jobs.User, repository, "--output=/tmp/x", ct));
+    }
+
+    [Fact]
     public async Task APreparedStopStopsTheCard()
     {
         await using var jobs = await Jobs.Start();

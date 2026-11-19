@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
+using DevFlow.Merging;
 using DevFlow.Protocol;
 using DevFlow.Recipes;
 using DevFlow.Workers;
@@ -62,7 +63,7 @@ public static partial class JobEndpoints
                 : WorkerEndpoints.NoSuchJob();
     }
 
-    private static async Task<Results<NoContent, ProblemHttpResult>> Result(Guid id, ResultRequest request, HttpContext context, [FromServices] UserDb database, [FromServices] WorkerStore workers, [FromServices] WorkerStart start, [FromServices] TimeProvider time)
+    private static async Task<Results<NoContent, ProblemHttpResult>> Result(Guid id, ResultRequest request, HttpContext context, [FromServices] UserDb database, [FromServices] WorkerStore workers, [FromServices] WorkerStart start, [FromServices] MergeRequests merges, [FromServices] TimeProvider time)
     {
         if (Read(request) is not { } result)
         {
@@ -76,7 +77,15 @@ public static partial class JobEndpoints
             return WorkerEndpoints.NoSuchJob();
         }
 
-        return await Complete(database, caller, id, worker, result, Now(time), context.RequestAborted) switch
+        var recorded = await Complete(database, caller, id, worker, result, Now(time), context.RequestAborted);
+        if (recorded == Recorded.Stored)
+        {
+            // A review that approved has its card checked for a merge now, without the worker
+            // waiting for it; any other result leaves nothing due, which costs the check nothing.
+            merges.Request(caller.ProjectId, caller.UserId);
+        }
+
+        return recorded switch
         {
             Recorded.Stored => TypedResults.NoContent(),
             Recorded.WrongBranch => WorkerEndpoints.Invalid(new Dictionary<string, string[]> { ["branch"] = ["must be the job's branch"] }),

@@ -411,7 +411,7 @@ export interface paths {
         };
         /**
          * What waits for the caller, as last read
-         * @description Read from what Dev flow stored and never from GitHub. items are the pull requests that are the caller's turn in every project, by project and number; own_items are Dev flow's own, read from its own tables, in this part each a project stopped because something landed on its default branch that Dev flow did not put there, with the commit, who did it, when, and the commit's address on GitHub, by project; cards are Dev flow's own cards whose pull requests wait for the caller, each with its pull request, the head commit its run built and checked, the branch it merges into, the report's summary, the decisions the agent marked for the caller with the count of the others, the check Dev flow ran, review, the reviewer's verdict on its head commit with its summary and how many findings block, null when it has none, and can_merge, false while the project is stopped, by project and number; stopped_cards are Dev flow's own cards that stopped, each with its issue's address, where a comment runs it again, why it stopped, when, and its pull request's address or null, by project and number; failing_projects are the projects whose runs have failed outside their cards six times in a row, each with message, "Dev flow cannot run <project>'s cards: <the last reason>", the reason, how many failures, since when and until when it hands out no job, shown until a run succeeds, by project; count is the items not sent back, the own items, the cards, the stopped cards and the failing projects, plus one when needs_relink; projects says for each when it was last read, stale when that is more than five minutes ago or never, and failing when its last read failed. Without a valid token, 401 with an empty body.
+         * @description Read from what Dev flow stored and never from GitHub. items are the pull requests that are the caller's turn in every project, by project and number; own_items are Dev flow's own, read from its own tables, in this part each a project stopped because something landed on its default branch that Dev flow did not put there, with the commit, who did it, when, and the commit's address on GitHub, by project; cards are Dev flow's own cards whose pull requests wait for the caller, each with its pull request, the head commit its run built and checked, the branch it merges into, the report's summary, the decisions the agent marked for the caller with the count of the others, the check Dev flow ran, review, the reviewer's verdict on its head commit with its summary and how many findings block, null when it has none, and can_merge, false while the project is stopped, by project and number; stopped_cards are Dev flow's own cards that stopped, each with its issue's address, where a comment runs it again, why it stopped, when, and its pull request's address or null, by project and number; failing_projects are the projects whose runs have failed outside their cards six times in a row, each with message, "Dev flow cannot run <project>'s cards: <the last reason>", the reason, how many failures, since when and until when it hands out no job, shown until a run succeeds, by project; decisions are the open issues Dev flow opened for the decisions the agent marked for the caller on cards it merged, each with what was chosen, the alternative, why and the reviewer's view, by project, oldest first, until the caller closes it on GitHub; count is the items not sent back, the own items, the cards, the stopped cards, the failing projects and the decisions, plus one when needs_relink; projects says for each when it was last read, stale when that is more than five minutes ago or never, and failing when its last read failed. Without a valid token, 401 with an empty body.
          */
         get: operations["listWaiting"];
         put?: never;
@@ -655,6 +655,7 @@ export interface components {
             pull_request_number: number;
             /** Format: uri */
             pull_request_url: string;
+            reason: null | string;
             review: null | components["schemas"]["CardItemReview"];
             screenshots: null | components["schemas"]["CardScreenshots"];
             summary: string;
@@ -671,6 +672,13 @@ export interface components {
         };
         CardList: {
             cards: components["schemas"]["CardView"][];
+        };
+        CardMerge: {
+            approved: string;
+            base: string;
+            commit: string;
+            /** Format: date-time */
+            merged_at: string;
         };
         CardPullRequest: {
             /** Format: int32 */
@@ -732,6 +740,7 @@ export interface components {
             note: null | string;
         };
         CardStoryView: {
+            merge: null | components["schemas"]["CardMerge"];
             /** Format: int32 */
             number: number;
             pull_request: null | components["schemas"]["CardPullRequest"];
@@ -800,6 +809,33 @@ export interface components {
             id: number;
             name: string;
             owner: string;
+        };
+        DecisionItem: {
+            alternative: null | string;
+            /** Format: int32 */
+            card_number: number;
+            card_title: string;
+            /** Format: uri */
+            card_url: string;
+            chosen: string;
+            /** Format: uuid */
+            id: string;
+            /** Format: int32 */
+            issue_number: number;
+            /** Format: uri */
+            issue_url: string;
+            /** Format: date-time */
+            opened_at: string;
+            owner: string;
+            /** Format: uuid */
+            project_id: string;
+            project_name: string;
+            /** Format: int32 */
+            pull_request_number: number;
+            /** Format: uri */
+            pull_request_url: string;
+            reviewer_view: null | string;
+            why: null | string;
         };
         DevFlowStatus: {
             code_host: components["schemas"]["CodeHostMode"];
@@ -1168,6 +1204,7 @@ export interface components {
             cards: components["schemas"]["CardItem"][];
             /** Format: int32 */
             count: number;
+            decisions: components["schemas"]["DecisionItem"][];
             failing_projects: components["schemas"]["FailingProject"][];
             items: components["schemas"]["WaitingItem"][];
             needs_relink: boolean;

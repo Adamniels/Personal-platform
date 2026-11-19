@@ -141,6 +141,8 @@ public sealed record CardRound(
 /// <param name="Rounds">Every fix, newest first.</param>
 /// <param name="Screenshots">The pictures of its head commit, null when the newest build or fix
 /// that succeeded tried none.</param>
+/// <param name="Merge">The merge Dev flow made of its pull request as the app, null when it made
+/// none, the owner's own merge among them.</param>
 public sealed record CardStoryView(
     int Number,
     string Title,
@@ -152,7 +154,15 @@ public sealed record CardStoryView(
     Report? Report,
     IReadOnlyList<CardReview> Reviews,
     IReadOnlyList<CardRound> Rounds,
-    CardScreenshots? Screenshots);
+    CardScreenshots? Screenshots,
+    CardMerge? Merge);
+
+/// <summary>A merge Dev flow made of a card's pull request, as the app, by the merge check.</summary>
+/// <param name="Commit">The merge commit, as the code host answered it and Dev flow recorded it.</param>
+/// <param name="Approved">The commit merged, the card's head, which the reviewer approved.</param>
+/// <param name="Base">The branch it merged into.</param>
+/// <param name="MergedAt">When it merged.</param>
+public sealed record CardMerge(string Commit, string Approved, string Base, DateTimeOffset MergedAt);
 
 /// <summary>
 /// A card's story, read from what Dev flow stored and never from the code host, its rounds among
@@ -211,6 +221,19 @@ public static class CardStory
             var built = runs.FirstOrDefault(run => run is { Kind: Job.Build or Job.Fix, Result: "succeeded" });
             var head = built?.HeadCommit;
             var reviews = await ReviewStore.OfCard(transaction, projectId, number, cancellationToken);
+            var merge = card.PullRequestNumber is { } merged && head is not null
+                ? await transaction.Connection!.QuerySingleOrDefaultAsync<MergeRow>(new CommandDefinition(
+                    """
+                    SELECT m.commit AS Commit, m.merged_at AS MergedAt,
+                           (SELECT base FROM runs WHERE runs.project_id = m.project_id AND runs.card_number = @number
+                            AND runs.kind = 'build' ORDER BY started_at DESC, id DESC LIMIT 1) AS Base
+                    FROM merges_made m WHERE m.project_id = @projectId AND m.number = @merged
+                    ORDER BY m.merged_at DESC LIMIT 1
+                    """,
+                    new { projectId, number, merged },
+                    transaction,
+                    cancellationToken: cancellationToken))
+                : null;
             return new CardStoryView(
                 card.Number,
                 card.Title,
@@ -231,7 +254,8 @@ public static class CardStory
                     review.PostedAt is not null,
                     string.Equals(review.Commit, head, StringComparison.Ordinal)))],
                 [.. runs.Where(run => run.Kind == Job.Fix).Select(run => Round(run, reviews))],
-                CardScreenshots.Of(head, built?.Screenshots, built?.ScreenshotsNote));
+                CardScreenshots.Of(head, built?.Screenshots, built?.ScreenshotsNote),
+                merge is null || head is null ? null : new CardMerge(merge.Commit, head, merge.Base ?? "", new DateTimeOffset(DateTime.SpecifyKind(merge.MergedAt, DateTimeKind.Utc))));
         }, cancellationToken);
     }
 
@@ -309,6 +333,8 @@ public static class CardStory
     }
 
     private static DateTimeOffset Utc(DateTime at) => new(DateTime.SpecifyKind(at, DateTimeKind.Utc));
+
+    private sealed record MergeRow(string Commit, DateTime MergedAt, string? Base);
 
     private sealed record CardRow(int Number, string Title, string WebUrl, string State, string? Reason, int? PullRequestNumber, string? PullRequestUrl);
 

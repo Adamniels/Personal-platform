@@ -197,6 +197,22 @@ public sealed partial class FakeCodeHost : IDisposable
         }
     }
 
+    /// <summary>Whether the repository's git repository holds the commit with the full id
+    /// <paramref name="commit"/>; false before its git repository is made, and for anything that is
+    /// not a full id, so nothing else reaches git as an argument.</summary>
+    internal async Task<bool> HasCommit(Guid userId, Repository repository, string commit, CancellationToken cancellationToken)
+    {
+        if (_gitRoot is null || !FullId().IsMatch(commit) || !Directory.Exists(GitPath(userId, repository)))
+        {
+            return false;
+        }
+
+        return (await Git(cancellationToken, "--git-dir", GitPath(userId, repository), "cat-file", "-e", $"{commit}^{{commit}}")).Exit == 0;
+    }
+
+    [System.Text.RegularExpressions.GeneratedRegex("^(?:[0-9a-f]{40}|[0-9a-f]{64})$", System.Text.RegularExpressions.RegexOptions.CultureInvariant)]
+    private static partial System.Text.RegularExpressions.Regex FullId();
+
     /// <summary>
     /// Puts <paramref name="content"/> at <paramref name="path"/> on <paramref name="branch"/> in
     /// the repository's world, replacing a file there, so <see cref="File"/> answers it: what a

@@ -2,6 +2,8 @@ using System.Globalization;
 
 using DevFlow.Api;
 using DevFlow.CodeHost;
+using DevFlow.Decisions;
+using DevFlow.Merging;
 using DevFlow.Protocol;
 using DevFlow.PullRequests;
 using DevFlow.Recipes;
@@ -71,6 +73,8 @@ public static class FakeWorkerEndpoints
         [FromServices] UserDb database,
         [FromServices] PullRequestOpener opener,
         [FromServices] ReviewPoster poster,
+        [FromServices] MergeChecker merger,
+        [FromServices] DecisionIssues decisions,
         [FromServices] StopMarker marker,
         [FromServices] TimeProvider time)
     {
@@ -109,8 +113,12 @@ public static class FakeWorkerEndpoints
             // A review reads the commit it was handed and changes nothing.
             var reviewed = prepared with { WorkerId = WorkerId, Branch = job.Branch, HeadCommit = prepared.Outcome == ResultRequest.Succeeded ? toReview.Commit : null };
             await JobEndpoints.Complete(database, caller, job.JobId, WorkerId, JobEndpoints.Read(reviewed)!, now, cancellationToken);
-            // Its copy is posted on the next minute for a real worker; the fake worker waits for it.
+            // Its copy is posted, an approved card checked for a merge and its decisions' issues
+            // opened, and a stopped card marked, on the next minute or right after for a real
+            // worker; the fake worker waits for all of it.
             await poster.PostPending(projectId, userId, cancellationToken);
+            await merger.CheckPending(projectId, userId, cancellationToken);
+            await decisions.OpenPending(projectId, userId, cancellationToken);
             await marker.MarkPending(projectId, userId, cancellationToken);
             return TypedResults.Ok(new FakeWorkerRan(job.JobId, job.Kind, job.Card.Number, job.Branch, toReview.Commit));
         }
