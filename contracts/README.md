@@ -211,6 +211,19 @@ would write to this repository:
 - `merge.json`, written by hand from GitHub's documented `200` answer to merging a pull request,
   `sha`, `merged` and `message`.
 
+What making a feature's branch sends and reads, for the slice "The feature's branch", read by
+`devflow/tests/DevFlow.Tests/GitHub/GitHubBranchTests.cs`; see "Jobs" in `devflow/README.md`:
+
+- `ref.json`: `gh api repos/Adamniels/Personal-platform/git/ref/heads/main`, recorded on
+  2026 11 19 as the bot, `main` at `eb0521e8`, the merge of "Features and their cards"; the answer
+  to the read of the branch a feature's branch is made from, of which the adapter reads
+  `object.sha`.
+- `ref-created.json`, written by hand from GitHub's documented `201` answer to
+  `POST /repos/{owner}/{repo}/git/refs`, the same shape as `ref.json`, for a branch
+  `feature-361-dev-flow-features` made at that commit, since recording it would make a branch in
+  this repository. `422` with the `message` "Reference already exists", GitHub's answer for a name
+  that is taken, is stubbed in the test rather than kept as a file.
+
 The answer to commenting as the app is the first entry of `issue-comments.json`, the same shape.
 
 What watching a project's default branch reads was recorded on 2026 11 17, as the bot, read by

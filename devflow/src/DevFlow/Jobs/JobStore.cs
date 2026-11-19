@@ -96,17 +96,26 @@ public static class JobStore
                             WHERE r.project_id = cards.project_id AND s.feature_id = cards.feature_id AND r.finished_at IS NULL)))
         """;
 
-    /// <summary>What makes a card one to hand out, as SQL over <c>cards</c>: queued, waiting for
+    /// <summary>What makes a card free to start, as SQL over <c>cards</c>: queued, waiting for
     /// nothing, picked with its body kept, with no run under way, and, for a card of a feature,
     /// what <see cref="FeatureLetsItStart"/> says. A read can leave a card
     /// queued while its run still goes on, when it ignored the card and a later one picked it
     /// again; such a card waits for its run to end, so the unique index <c>runs_one_under_way</c>
     /// stays a backstop rather than the guard.</summary>
-    private const string Takeable = $"""
+    internal const string FreeToStart = $"""
         project_id = @projectId AND state = 'queued' AND cardinality(waits_for) = 0 AND picked_body IS NOT NULL
         AND NOT EXISTS (SELECT 1 FROM runs
                         WHERE runs.project_id = cards.project_id AND runs.card_number = cards.number AND runs.finished_at IS NULL)
         AND {FeatureLetsItStart}
+        """;
+
+    /// <summary>What makes a card one to hand out, as SQL over <c>cards</c>: free to start, and,
+    /// for a card of a feature, its feature's branch made, which <see cref="FeatureBranchStore"/>
+    /// records before the card is taken.</summary>
+    private const string Takeable = $"""
+        {FreeToStart}
+        AND (cards.feature_id IS NULL
+             OR EXISTS (SELECT 1 FROM features f WHERE f.id = cards.feature_id AND f.branch_base_commit IS NOT NULL))
         """;
 
     /// <summary>
@@ -163,6 +172,16 @@ public static class JobStore
     /// </summary>
     public static string Branch(int number, string title)
     {
+        var slug = Slug(title);
+        return slug.Length == 0
+            ? string.Create(CultureInfo.InvariantCulture, $"devflow/{number}")
+            : string.Create(CultureInfo.InvariantCulture, $"devflow/{number}-{slug}");
+    }
+
+    /// <summary>The slug a branch takes from a title, by <see cref="Branch"/>'s rules; empty when
+    /// nothing is left.</summary>
+    internal static string Slug(string title)
+    {
         ArgumentNullException.ThrowIfNull(title);
         var slug = new StringBuilder(title.Length);
         foreach (var c in title.ToLowerInvariant())
@@ -178,16 +197,15 @@ public static class JobStore
         }
 
         var cut = slug.ToString().TrimEnd('-');
-        cut = cut.Length > MaxSlug ? cut[..MaxSlug].TrimEnd('-') : cut;
-        return cut.Length == 0
-            ? string.Create(CultureInfo.InvariantCulture, $"devflow/{number}")
-            : string.Create(CultureInfo.InvariantCulture, $"devflow/{number}-{cut}");
+        return cut.Length > MaxSlug ? cut[..MaxSlug].TrimEnd('-') : cut;
     }
 
     /// <summary>The kind of job the project has to hand out now, <see cref="DevFlow.Protocol.Job.Review"/>,
     /// then <see cref="DevFlow.Protocol.Job.Fix"/>, then <see cref="DevFlow.Protocol.Job.Build"/>, so
-    /// work in progress finishes before new work starts; null when it has none. Read without a lock, so a worker with nothing to do costs
-    /// Dev flow one query and GitHub nothing.</summary>
+    /// work in progress finishes before new work starts; null when it has none. A build counts a
+    /// card of a feature whose branch is still to be made, which the dispatcher makes first. Read
+    /// without a lock, so a worker with nothing to do costs Dev flow one query and GitHub
+    /// nothing.</summary>
     public static async Task<string?> NextKind(UserDb database, Guid userId, Guid projectId, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(database);
@@ -195,7 +213,7 @@ public static class JobStore
             $"""
             SELECT CASE WHEN EXISTS (SELECT 1 FROM cards WHERE {Reviewable}) THEN 'review'
                         WHEN EXISTS (SELECT 1 FROM cards WHERE {Fixable}) THEN 'fix'
-                        WHEN EXISTS (SELECT 1 FROM cards WHERE {Takeable}) THEN 'build' END
+                        WHEN EXISTS (SELECT 1 FROM cards WHERE {FreeToStart}) THEN 'build' END
             """,
             new { projectId },
             transaction,

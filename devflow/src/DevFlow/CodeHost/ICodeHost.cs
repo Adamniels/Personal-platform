@@ -139,6 +139,14 @@ public interface ICodeHost
     /// <see cref="WritePurpose.Post"/> key.</summary>
     Task<WriteResult<Issue>> OpenIssue(Guid userId, AppWriteToken token, Repository repository, string title, string body, IReadOnlyList<string> labels, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Makes the branch <paramref name="name"/> at the head of <paramref name="from"/>, as the
+    /// app, with a <see cref="WritePurpose.Push"/> key, and answers the commit it was made at.
+    /// Never moves a branch that is there: one of that name answers
+    /// <see cref="BranchResult.Exists"/>, whoever made it.
+    /// </summary>
+    Task<BranchResult> MakeBranch(Guid userId, AppWriteToken token, Repository repository, string name, string from, CancellationToken cancellationToken);
+
     /// <summary>Merges the pull request with a merge commit, as the app, with a
     /// <see cref="WritePurpose.Merge"/> key, and only while its head is
     /// <paramref name="commit"/>, which the host checks; answers as <see cref="Merge"/> does.</summary>
