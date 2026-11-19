@@ -19,7 +19,10 @@ internal static class Form
     public static JsonSerializerOptions Json { get; } = CreateJson();
 
     /// <summary>The JSON Schema of <typeparamref name="T"/>, written with <see cref="Json"/>: every
-    /// object closed, every field required, and nothing nullable, under <paramref name="title"/>.</summary>
+    /// object closed, every field required, and nothing nullable, under <paramref name="title"/>.
+    /// It says draft-07, since Claude Code's <c>--json-schema</c> refuses any draft it does not
+    /// know, 2020-12 among them ("no schema with key or ref"), and fails before the agent starts;
+    /// the keywords the exporter writes here mean the same in both.</summary>
     public static JsonObject Schema<T>(string title)
     {
         var schema = JsonSchemaExporter.GetJsonSchemaAsNode(Json, typeof(T), new JsonSchemaExporterOptions
@@ -28,7 +31,7 @@ internal static class Form
         }).AsObject();
         var document = new JsonObject
         {
-            ["$schema"] = "https://json-schema.org/draft/2020-12/schema",
+            ["$schema"] = "http://json-schema.org/draft-07/schema#",
             ["title"] = title,
         };
         foreach (var (name, value) in schema)
