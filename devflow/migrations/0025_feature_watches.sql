@@ -1,8 +1,8 @@
 -- Watching each open feature's branch as the default branch is watched: a watch per watched
 -- branch, the branch each of Dev flow's own merges went into, the pushes Dev flow's own jobs made on
 -- a feature's branch, and the pushes by the app read while a run on that branch was under way,
--- judged when the run ends. Why it is built so is "A feature's branch" under "Watching branches" in
--- devflow/docs/devflow-architecture.md, and the tables are "Watching branches" in
+-- judged when the run ends. Why it is built so is "A feature's branch" under "Watching the default
+-- branch" in devflow/docs/devflow-architecture.md, and the tables are "Watching branches" in
 -- devflow/README.md. Each table follows its project, gone with it and renumbered with it, and is
 -- guarded like every scoped table.
 

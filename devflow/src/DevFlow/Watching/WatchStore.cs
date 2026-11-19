@@ -52,7 +52,7 @@ public sealed record ProjectStop(Guid ProjectId, string Owner, string Name, stri
 /// <summary>
 /// A project's watch as the rest of Dev flow reads it: whether it hands out work, its user's stopped
 /// projects, and resuming one. Every query goes through the door as the user, so only a project's
-/// own user sees it or resumes it. See "Watching the default branch" in devflow/README.md.
+/// own user sees it or resumes it. See "Watching branches" in devflow/README.md.
 /// </summary>
 public sealed class WatchStore(UserDb database, TimeProvider time)
 {
@@ -113,7 +113,7 @@ public sealed class WatchStore(UserDb database, TimeProvider time)
     /// feature whose branch is not made yet, or one whose feature's branch was read since then. A
     /// feature's branch not read lately holds that feature's work alone, never the project's,
     /// which only the default branch's watch holds, by <see cref="HoldSql"/>. See "A feature's
-    /// branch" in devflow/docs/devflow-architecture.md.
+    /// branch" under "Watching the default branch" in devflow/docs/devflow-architecture.md.
     /// </summary>
     public const string FeatureWatchedSql = """
         (cards.feature_id IS NULL

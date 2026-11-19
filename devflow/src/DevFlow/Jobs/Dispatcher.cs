@@ -112,8 +112,8 @@ public sealed partial class Dispatcher(
 
         var (userId, projectId) = (caller.UserId, caller.ProjectId);
         // Stopped, or its default branch not watched for five minutes: no new work, whatever waits,
-        // until its user resumes it or the branch is read again. See "Watching the default branch"
-        // in devflow/README.md.
+        // until its user resumes it or the branch is read again. See "Watching branches" in
+        // devflow/README.md.
         // Waiting after failures outside its cards, until its wait is over. See "Stops" in
         // devflow/README.md.
         if (await watch.Hold(userId, projectId, cancellationToken) != ProjectHold.None

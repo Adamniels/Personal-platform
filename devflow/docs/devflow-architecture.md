@@ -75,10 +75,11 @@ its pull request" below. A card that cannot be made to work stops, is marked on 
 shows under "Stopped", and his comment runs it again; a failure outside the card makes its project
 wait instead, see "Stops" below.
 
-Every read of a project also watches its default branch: anything that lands there that neither
-Dev flow merged nor the owner put there himself stops the project, which then hands out no work and
-merges nothing, and shows on "Waiting for you" until he has looked and resumes it, see "Watching
-the default branch" below.
+Every read of a project also watches its default branch, and each open feature's branch: anything
+that lands on one that neither Dev flow put there nor the owner put there himself stops the
+project, which then hands out no work and merges nothing, and shows on "Waiting for you" until he
+has looked and resumes it, see "Watching the default branch" below, with "A feature's branch"
+under it.
 
 ## The code host seam
 
@@ -1083,7 +1084,7 @@ above, and the spec decided not to lean on branch protection, since rulesets on 
 repository need a paid plan. What makes the key acceptable is that `main` is watched: anything
 landing there that neither Dev flow nor the owner put there pauses the project and reaches him, as
 the spec's round 4 put it. The watch detects; it does not prevent. The routes and tables are
-"Watching the default branch" in `devflow/README.md`.
+"Watching branches" in `devflow/README.md`.
 
 **What is watched** is the repository's default branch, read from GitHub on every read of the
 project rather than assumed to be `main`. The watch is part of each project's minute, through the
@@ -1139,6 +1140,63 @@ accepted, so a later reader sees it.
 stands, as on a project's first read: only an admin of the repository can change it, and no key Dev
 flow makes holds administration. The cost is accepted under "Security decisions and accepted risks"
 below.
+
+### A feature's branch
+
+A push key reaches a feature's branch as it reaches `main`, and a feature's branch reaches `main`
+with one confirmation from the owner, so it is watched as the default branch is, as the spec's
+"Clarified after the builder check" has it: a commit there that Dev flow did not put there pauses
+the project and reaches him. The tables and the order of a read are "Watching branches" in
+`devflow/README.md`.
+
+**One watch per branch, read on its own.** Each open feature's branch has a watch of its own,
+beside the default branch's, read after it in the same minute, each with its own last read and its
+own failure, so a branch GitHub does not answer for holds only what it watches. The project keeps
+one stop, naming the branch that stopped it, since resuming is one decision of the owner's whatever
+branch it was on.
+
+**Where it begins.** At the branch's creation, which Dev flow made itself and recorded with the
+commit it was made from, so the watch begins at the oldest creation GitHub lists at that commit and
+judges nothing before it. A branch of the same name that existed earlier, someone else's and long
+deleted, is history, as a repository's history is for the default branch. When no such creation is
+listed, every change listed is judged, which errs towards asking the owner. The watch is begun in
+the transaction that records the branch as made, so a feature with a branch is never without one,
+and its first card is handed out at once rather than a minute later. It ends when its feature is
+`merged` or `closed`: the branch is then the owner's to delete, and nothing more is built on it.
+
+**What is fine** is what is fine on the default branch, with each merge fine only on the branch
+Dev flow recorded it into, and one more: a push one of Dev flow's own jobs made there, recorded by
+the commit its run's result named. No card's job pushes to a feature's branch, its own branch is a
+card's; the later jobs that do are resolving a conflict and fixing a feature.
+
+**What stops the project** is what stops it on the default branch, and the branch deleted while its
+feature is open, by anyone, the owner included: the feature's work is on it, and nothing Dev flow
+does deletes it, so a deletion is never one of the expected changes. The stop names the branch, and
+resuming is the same action, with the commit shown; for a deletion there is no commit, and the page
+says the branch was deleted.
+
+**Why a job's own push is judged when its run ends.** The worker pushes before it sends its result,
+so the watch can read the push in the minute between, when Dev flow has no record of it yet. Judging
+it then would stop the project for its own work; letting it through would let any push by the app
+during a run through. So a push by the app read while a run of Dev flow's on that branch is under
+way is kept, and judged when the run ends, in the transaction that records the result: fine when
+the result named its commit, a stop when it did not, and a stop when the run is lost, since a lost
+run has no result. Anything else is judged as soon as it is read, a push by another login during a
+run among it, so the wait covers only what the run itself could have made, and only while it runs.
+Taking the project's row before the run's, in recording a result as in the watch, keeps the two in
+one order, so neither waits on the other.
+
+**A stop on another branch is never replaced.** On one branch, a later change replaces what the
+stop shows, since the owner looking at the newest commit sees the older ones under it. Across
+branches that does not hold: a stop on a feature's branch replaced by one on `main` would have the
+owner resume, and so accept, a change he never saw. So a change on another branch than the one
+that stopped the project is left unjudged, its watch staying before it, and stops the project again
+on the first read after he resumes.
+
+**A watch that cannot read a feature's branch** for five minutes holds that feature, no job for its
+cards and no merge into its branch, while the project's other work goes on: GitHub not answering
+for one branch says nothing about the others, and the default branch's watch still holds the whole
+project, since every feature starts from it.
 
 ## Security decisions and accepted risks
 
@@ -1310,6 +1368,20 @@ its reason, or a risk accepted on purpose; each slice adds the ones it builds.
   flow's, so each of its merges stops the project; this repository's runner merges as
   `mac-mini-agent`, so while it runs, a connected `Personal-platform` stops at each merge the gate
   makes, and is resumed from the page.
+- **A feature's branch is watched as the default branch is, and a push key reaching it is accepted
+  on that condition.** A push key can reach every branch, a feature's among them, and a feature's
+  branch reaches `main` with one confirmation from the owner. So each open feature's branch is
+  watched from its creation, every change judged as on `main`, its deletion stopping the project
+  too, and a stop on one branch is never replaced by another's, so nothing is resumed unseen. Fine
+  besides is a push a run of Dev flow's own made there, by the commit its result named; a push by
+  the app while such a run is under way waits for the result, and stops the project when the result
+  names another commit or the run is lost. A feature's branch not read for five minutes holds that
+  feature. `FeatureWatchTests` holds each of these. Accepted: the worker reports the commit it
+  pushed, so a run that pushes something other than its work is fine to the watch as long as its
+  result names it; the worker already holds the push key, and what it pushed is reviewed before it
+  is merged, so the watch guards against what no run of Dev flow's made, not against the run. A
+  feature's branch is no longer watched once its feature is merged or closed, so a change to it
+  afterwards is not seen, and nothing builds on it then.
 - **No language model decides a merge.** `MergeCheck.Decide` is deterministic code over what was
   read, and the agent's report is not among it; the reviewer's verdict counts only as Dev flow's
   record, tied to its commit. `MergeCheckTests.NoLanguageModelDecides` walks everything the check

@@ -592,8 +592,8 @@ def test_something_landed_on_main_and_i_resume(
     page: Page, invite_code: str, base_url: str, devflow_world, viewport: str
 ):
     """A push the app made that Dev flow did not: the project stops and waits
-    for the owner, who looks and resumes it. See "Watching the default branch"
-    in devflow/README.md."""
+    for the owner, who looks and resumes it. See "Watching branches" in
+    devflow/README.md."""
     register_and_log_in(page, invite_code, base_url)
     world = one_repository()
     devflow_world(world)

@@ -227,7 +227,7 @@ What making a feature's branch sends and reads, for the slice "The feature's bra
 The answer to commenting as the app is the first entry of `issue-comments.json`, the same shape.
 
 What watching a project's default branch reads was recorded on 2026 11 17, as the bot, read by
-`devflow/tests/DevFlow.Tests/GitHub/GitHubActivityTests.cs`; see "Watching the default branch" in
+`devflow/tests/DevFlow.Tests/GitHub/GitHubActivityTests.cs`; see "Watching branches" in
 `devflow/README.md`:
 
 - `repository.json`, the same file handing out a job reads, described above; the watch reads

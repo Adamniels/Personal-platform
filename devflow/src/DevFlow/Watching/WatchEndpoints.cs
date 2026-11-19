@@ -16,8 +16,8 @@ public sealed record ResumeRequest(string? Commit);
 
 /// <summary>
 /// Resuming a stopped project, over HTTP, under the <c>Api</c> policy and the origin check, so only
-/// the project's own user, from the platform's page, resumes it. See "Watching the default branch"
-/// in devflow/README.md.
+/// the project's own user, from the platform's page, resumes it. See "Watching branches" in
+/// devflow/README.md.
 /// </summary>
 public static partial class WatchEndpoints
 {

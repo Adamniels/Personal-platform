@@ -20,7 +20,8 @@ namespace DevFlow.Watching;
 /// door as the project's user. A read that fails records why on its branch's watch and changes
 /// nothing else, so a watch that has not read for <see cref="UnwatchedAfter"/> holds work rather
 /// than guessing: the default branch's the project's, a feature's that feature's. See "Watching
-/// branches" in devflow/docs/devflow-architecture.md.
+/// the default branch", with "A feature's branch" under it, in
+/// devflow/docs/devflow-architecture.md, and "Watching branches" in devflow/README.md.
 /// </summary>
 public sealed partial class BranchWatch(UserDb database, ICodeHost host, TimeProvider time, ILogger log)
 {

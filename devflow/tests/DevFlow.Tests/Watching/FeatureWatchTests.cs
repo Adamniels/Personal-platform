@@ -20,7 +20,7 @@ namespace DevFlow.Tests.Watching;
 /// is open among it. A push by the app while a run of Dev flow's on the branch is under way is
 /// judged when the run ends. A feature's branch not read for five minutes holds that feature's
 /// work, not the project's. Against the fake and a real Postgres. See "A feature's branch" under
-/// "Watching branches" in devflow/docs/devflow-architecture.md.
+/// "Watching the default branch" in devflow/docs/devflow-architecture.md.
 /// </summary>
 public sealed class FeatureWatchTests
 {

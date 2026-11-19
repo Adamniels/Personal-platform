@@ -12,7 +12,7 @@ namespace DevFlow.Tests.Watching;
 /// <summary>
 /// A stopped project on "Waiting for you": Dev flow's own items, read from its own tables beside the
 /// runner's, counted in the same number, lighting the nav's dot and counted as stopped on the front
-/// page; and gone once resumed. See "Watching the default branch" in devflow/README.md.
+/// page; and gone once resumed. See "Watching branches" in devflow/README.md.
 /// </summary>
 public sealed class StoppedListTests
 {
