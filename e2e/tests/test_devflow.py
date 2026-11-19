@@ -1382,6 +1382,92 @@ def test_a_labelled_feature_shows_its_cards_in_order(
     capture(page, "devflow-project-feature")
 
 
+def test_a_features_cards_are_built_in_order(
+    page: Page, invite_code: str, base_url: str, viewport: str, devflow_world
+):
+    register_and_log_in(page, invite_code, base_url)
+    # A labelled feature of three cards, in an order that is not their
+    # numbers', and the project's .devflow/project.json.
+    world = one_repository()
+    add_issue(
+        world,
+        60,
+        "The feature's branch",
+        labels=["devflow"],
+        sub_issues=[62, 61, 63],
+    )
+    add_issue(world, 61, "Build a card from its feature's branch")
+    add_issue(world, 62, "Make the feature's branch")
+    add_issue(world, 63, "Carry the feature in the brief")
+    add_file(
+        world,
+        ".devflow/project.json",
+        json.dumps({"version": 1, "check": CHECK, "start": "", "url": ""}).encode(),
+    )
+    _open_project(page, base_url, devflow_world, world)
+    project = page.url.rsplit("/", 1)[1]
+    given = page.request.put(
+        "/devflow/api/claude-login",
+        data={"token": CLAUDE_TOKEN},
+        headers={"Origin": base_url},
+    )
+    assert given.status == 200, given.text()
+    refreshed = page.request.post(
+        f"/devflow/api/projects/{project}/refresh", headers={"Origin": base_url}
+    )
+    assert refreshed.status == 204, refreshed.text()
+
+    # The fake worker takes the project's next job and keeps it running: the
+    # feature's first card, on a branch of its own from the feature's.
+    taken = page.request.post(
+        "/devflow/api/fake/worker/run",
+        data={"project_id": project, "keep_running": True},
+        headers={"Origin": base_url},
+    )
+    assert taken.status == 200, taken.text()
+    assert taken.json()["card"] == 62
+    assert taken.json()["branch"] == "devflow/62-make-the-feature-s-branch"
+    made = [
+        write
+        for write in page.request.get("/devflow/api/fake/writes").json()
+        if write["kind"] == "branch"
+    ]
+    assert [write["branch"] for write in made] == ["feature-60-the-feature-s-branch"]
+    page.reload()
+
+    features = page.get_by_role("list", name="Features", exact=True)
+    feature = features.locator(":scope > li").first
+    expect(feature.locator(":scope > div").first).to_contain_text("Building")
+    rows = feature.get_by_role("list", name="Cards of #60", exact=True).get_by_role(
+        "listitem"
+    )
+    expect(rows).to_have_count(3)
+    expect(rows).to_contain_text(["#62", "#61", "#63"])
+    expect(rows.nth(0)).to_contain_text("Building")
+    expect(rows.nth(1)).to_contain_text("Queued")
+    expect(rows.nth(1)).to_contain_text("Waits for #62, earlier in the feature")
+    expect(rows.nth(2)).to_contain_text("Queued")
+    expect(rows.nth(2)).to_contain_text("Waits for #61, earlier in the feature")
+
+    # Nothing more for a worker while the first card runs.
+    again = page.request.post(
+        "/devflow/api/fake/worker/run",
+        data={"project_id": project, "keep_running": True},
+        headers={"Origin": base_url},
+    )
+    assert again.status == 204, again.text()
+
+    page.evaluate("document.fonts.ready.then(() => null)")
+    for check in (
+        assert_headings_are_capitals,
+        assert_nothing_scrolls_sideways,
+        assert_active_is_inverted,
+        assert_nothing_active_is_amber,
+    ):
+        check(page)
+    capture(page, "devflow-feature-building")
+
+
 RECIPE = b"ARG DEVFLOW_BASE\nFROM ${DEVFLOW_BASE}\nRUN apt-get update\n"
 
 

@@ -414,8 +414,9 @@ whatever their case.
 A feature is the spec's "parent issue with its cards as sub-issues": an open issue carrying the
 pick-up label that has at least one sub-issue. Its cards are its direct sub-issues in the same
 repository, in GitHub's sub-issue order. The routes and the table are "Features" in
-`devflow/README.md`; building a feature's cards, its branch and its page are the later slices of
-part 4, so in this one a feature's cards are picked and shown and never handed out.
+`devflow/README.md`. How its cards are handed out and the branch they are built on are "A
+feature's cards, one at a time" and "A feature's branch" under "Handing out work"; its page and
+the rest of its life are the later slices of part 4.
 
 **Why a sub-issue needs no label of its own.** The spec's round 2 has the label on a parent cover
 every sub-issue, so a planned feature, which `/plan-feature` already makes as a parent with its
@@ -720,6 +721,35 @@ for the usage page of part 7.
 result goes through, and commits on the branch in the fake's git repository, so an acceptance test
 drives handing out, the result and what later parts build on it without a container or a model.
 
+**A feature's cards, one at a time.** Inside a feature one card runs at a time, as the spec's
+round 2 has it, since its cards build on each other in one branch: a card is let start only while
+no card of its feature has a run under way and every card before it is done, stopped or held. A
+card before it in any other state holds it back, whatever that state is, queued and waiting on
+GitHub, ignored, or waiting for the owner, because its work is what the later card builds on: a
+card that is not finished might still change the code under it, and one that is ignored or waits
+for its own blockers is still meant to come first. A stopped or held card is the exception, since
+the spec's "A card stops only when..." has a stop hold back only that card and the cards depending
+on it, and the owner's hold label says the same of one card: the rest of the feature goes on, and
+a card that does depend on it says so with a blocked by link on GitHub, which holds it as any
+blocker does. The rule is one SQL expression, `CardStore.HeldBackBy`, which handing out and the
+page's reason both read, so the page can never say a card waits while a worker takes it. The
+reason is computed as the cards are read and never stored, because the card before moves on
+through runs and merges, not through a read of the project. Different features run side by side,
+as far as there are workers, and between features and cards on their own the project's order
+stands.
+
+**A feature's branch** is made by the app, from the default branch, when the feature's first card
+is about to be handed out, as the spec's "Clarified after the builder check" has it, with a push
+key and outside the lock, as every read for a job is. It is made at the default branch's head as
+the code host reads it then, and recorded with that commit, which "Bringing main in" later
+compares against. Making it is claimed on the feature before GitHub is asked, since two workers
+asking at once would otherwise both ask for the same name and the loser would see a branch that
+exists. That is also why a branch of the name that the feature has no record of is never taken:
+it is someone else's, and building on it would put work Dev flow did not check under every card;
+the feature waits for the owner instead. One case cannot be told apart from it, GitHub making the
+branch while its answer is lost, and it is treated the same, the stricter reading. A claim whose
+worker never came back is taken over after two minutes, longer than the two requests can take.
+
 **A stopped project**, or one whose default branch has not been read for five minutes, hands out
 nothing, ahead of everything above, and the transaction that takes the card reads that again under
 the project's lock, see "Watching the default branch" below.
@@ -727,8 +757,9 @@ the project's lock, see "Watching the default branch" below.
 ## How a card reaches its pull request
 
 A card whose run built it, with a report in its form and a check that exited 0, gets a pull request
-of its own, from its branch into the default branch it was built on, as the spec's round 2 has
-every card, and the owner reads it as he reads the runner's. The routes, the body and the page are
+of its own, from its branch into the branch it was built on, the default branch or, for a card of
+a feature, the feature's branch, as the spec's round 2 has every card, and the owner reads it as he
+reads the runner's. The routes, the body and the page are
 "The pull request Dev flow opens" and "A card's page" in `devflow/README.md`.
 
 **Opened as the app, outside the reads.** Opening is one of the program's own writes, so it is made
@@ -747,7 +778,9 @@ second; GitHub refuses a second from the same branch anyway. One by anyone else 
 the card's: a pull request from a fork can carry the same branch name.
 
 **The body is the templates' layout**, `.claude/skills/pick-up-slice/templates.md`'s Summary with
-its `Closes` line, Tasks, Decisions the agent made, Verification and Follow ups, as the feature
+its `Closes` line, which a card of a feature replaces with "Card #<n> of the feature #<parent>.",
+since GitHub's closing keywords close an issue only from a pull request into the default branch and
+the app closes the card itself when it lands, "A card lands in its feature", Tasks, Decisions the agent made, Verification and Follow ups, as the feature
 keeps of this repository's runner, with Verification saying what Dev flow ran itself rather than
 what the agent says, since the report decides nothing. Everything in it but the check and Dev
 flow's own words is the agent's, and data, see the security entry below.

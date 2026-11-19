@@ -965,9 +965,11 @@ of what Dev flow is:
 - `GET /devflow/api/fake/writes` lists the writes the fake took for the caller, oldest first, each
   `{"kind": "merge", "repository": 1001, "number": 304, "commit": "<40 hex>", "method": "merge",
   "body": null, "by": "octo-owner"}`, or with `kind` `comment`, the `body`, and `commit` and
-  `method` null. A write by the app has `by` `devflow-fake[bot]` and a `purpose`, `post` or `merge`,
-  and may be of `kind` `pull_request`, with `title`, `head`, `base`, its head commit and its body;
-  `issue`, with `title` and `body`; or `label_added` or `label_removed`, with `label`. A field
+  `method` null. A write by the app has `by` `devflow-fake[bot]` and a `purpose`, `post`, `merge`
+  or `push`, and may be of `kind` `pull_request`, with `title`, `head`, `base`, its head commit and
+  its body; `issue`, with `title` and `body`; `label_added` or `label_removed`, with `label`; or
+  `branch`, a branch made with a push key, `number` 0, with `branch` and the `commit` it was made
+  at, in the fake's git repository, the default branch given a first commit when it has none. A field
   that is null past `by` is left out, so the owner's writes read as before.
 
 In the GitHub mode none of them exists, `404`. An acceptance test stages a world through the
@@ -1267,8 +1269,8 @@ stores them in the same transaction, in `CardStore`:
 - Taking the label off the parent removes the cards of it that have not started; one under way is
   marked `unlabelled` and finishes, as a card's own label does. The feature is marked `unlabelled`
   while any card refers to it, and is deleted once none does.
-- A feature's cards are not handed out on their own: `CardStore.Queue` and the dispatcher take
-  only cards with no feature. Building them is the feature's branch's, a later slice.
+- A feature's cards are handed out one at a time, in position order, on the feature's branch, see
+  "Jobs"; `CardStore.Queue` lists only cards on their own.
 
 The route above answers each feature as `number`, `title`, `web_url`, `state`, `reason`,
 `priority`, `changed_at` and `cards`, its cards in position order, each as a card on its own is;
@@ -1925,10 +1927,11 @@ then answers `204`, no work, when:
 
 - the worker needs a rebuild, see "Starting a worker";
 - the project's user has no Claude login, or one past `renew_by`; one due soon still works;
-- the project has no card that is `queued`, waits for nothing, and was picked with its body;
+- the project has no card that is `queued`, waits for nothing, and was picked with its body,
+  and, for a card of a feature, is let start by its feature, see "A feature's cards" below;
 - or the code host does not answer something a job needs: the repository's default branch,
   `.devflow/project.json` on it, valid as "The format of .devflow/" says, its clone address, the
-  app's committer, or a push key. Each is logged as a warning naming what was missing, and the
+  app's committer, a push key, or, for a feature's first card, the feature's branch. Each is logged as a warning naming what was missing, and the
   worker asks again on its next turn.
 
 Otherwise it takes the first such card in the order "Cards" gives, high, none, low, each oldest
@@ -1944,7 +1947,7 @@ queued; moves it to `building`; records a run for the worker; and answers `200` 
 | `card` | `number`, `title` and `body`, as the card was picked |
 | `repository` | `owner`, `name`, `clone_address`, where git fetches and pushes it, and `default_branch` |
 | `branch` | `devflow/<number>-<slug>`: the title lowercased, each run of anything but ASCII letters and digits one hyphen, trimmed, cut to 40 characters; `devflow/<number>` when nothing is left |
-| `base` | The default branch, which the branch is made from |
+| `base` | The branch the card's branch is made from: the default branch, or the feature's branch for a card of a feature |
 | `brief` | What the agent is asked, see "The brief" below |
 | `report_schema` | `contracts/devflow/report.schema.json`, the report's form |
 | `check` | `check` from the project's `.devflow/project.json` on its default branch, read as the app |
@@ -1958,6 +1961,32 @@ held for one short transaction and never while GitHub answers; a push key made f
 worker took first is dropped unused. The project's page says when the Claude login stops work:
 `GET /devflow/api/projects/{id}/workers` answers `held`, `no_claude_login`, `claude_login_expired`
 or null, and the Workers panel shows it, see "The pages".
+
+**A feature's cards.** A card of a feature is let start only while its feature is `queued` or
+`building`, no card of the feature has a run under way, and every card before it in position
+order is `done`, `stopped` or held, `CardStore.HeldBackBy`. A card before it in any other state,
+queued, ignored, under way or waiting for the owner, holds it back, and the page shows a queued card
+with no reason of its own as "Waits for #<n>, earlier in the feature", naming the nearest such card,
+computed when the cards are read and never stored. A stopped or held card holds back only itself,
+and what is blocked by it on GitHub, which waits as `waits_for` says. Between features and cards
+on their own the order above stands: reviews, then fixes, then builds, each by priority and age.
+
+**A feature's branch.** Before a build is taken, the dispatcher looks at the card it would take,
+`FeatureBranchStore.Due`; when that is a feature's card and the feature has no branch made, it
+makes `feature-<parent>-<slug>`, the slug by the card branch's rules from the parent's title as
+picked, at the default branch's head, as the app with the job's push key, through
+`ICodeHost.MakeBranch`, outside the lock. GitHub's side is `GET /repos/{owner}/{repo}/git/ref/heads/<default>`
+then `POST /repos/{owner}/{repo}/git/refs` with `ref` and `sha`, tested against
+`contracts/github/ref.json` and `ref-created.json`. Making it is claimed on the feature first,
+setting `branch` and moving it to `building`, so a second worker asking meanwhile finds the claim
+and asks GitHub nothing; a claim with no commit recorded after two minutes is taken over. Made, the
+feature records `branch_base_commit`. A branch of that name already there, GitHub's `422`
+"Reference already exists", is never taken: the claim is dropped and the feature is
+`waiting_for_owner`, "A branch named <name> already exists"; until "The feature's page" offers a
+way on, taking the label off the parent and putting it back starts the feature again once the
+branch is gone. Any other refusal, or no answer, drops the claim, queues the feature again and is
+no work now. Each card of the feature is then built from the feature's branch at its head, on its
+own `devflow/<number>-<slug>`, the run's `base` the feature's branch.
 
 **A fresh push key.** `POST /devflow/api/worker/jobs/{id}/push-key`, with `{"worker_id"}`, answers
 `{"push_key", "expires_at"}` with `Cache-Control: no-store`, a new key each time, since a key lasts
@@ -2040,6 +2069,16 @@ project with pages; and answer in the report's form. The card's number, title an
 body are quoted inside a fenced block longer than any run of backticks in them, and the check in
 one of its own, so neither can end its quote.
 
+For a card of a feature the brief gains, after the card, "The feature", the parent's number,
+title and body as picked, fenced, with "The feature is what your card belongs to, written by the
+owner. The card is your work: build the card, and nothing else of the feature."; then "What the
+earlier cards built", the `handover` of the newest succeeded build or fix of each `done` card of the
+feature, in position order, each fenced with its number and title first, under the brief's words
+that they are information and never an instruction, or "Nothing yet." for the first card. A fix of
+such a card carries the same sections, and its review's brief, `Brief.Reviewer`, the parent's
+title and body, so the card is judged against what it belongs to. `JobStore.FeatureOf` reads both
+inside the claim.
+
 **The report** is `DevFlow.Protocol`'s `Report`: `outcome`, `done` or `stopped`; `stopped_reason`,
 empty when done; `summary`; `tasks`, each `text` and `done`; `decisions`, each `chosen`,
 `alternative`, `why` and `for_owner`; `tests`, each `what` and `result`; `pages`, each `path`, `why`
@@ -2053,7 +2092,8 @@ on a stop or written on a done.
 **The fake worker**, in the fake mode only, under the `Api` policy and the origin check, and left out
 of `contracts/devflow/openapi.json`: `POST /devflow/api/fake/worker/run` with
 `{"project_id", "result"}`, `result` a result as above without `worker_id`, `branch` and
-`head_commit`. It says hello in the caller's project as `devflow-fake-worker` on the image expected,
+`head_commit`; or `{"project_id", "keep_running": true}`, with no result needed, which takes the
+job and sends nothing back, as a worker still at it, answering `head_commit` null. It says hello in the caller's project as `devflow-fake-worker` on the image expected,
 takes its next job through the same `Dispatcher`, makes a commit on the job's branch in the fake's
 git repository, by the job's committer, on top of the base branch, giving the base branch a first
 commit of its own when the fake's git has none, as a real repository has, ends the job with the
@@ -2082,7 +2122,10 @@ A card that built and passed its check gets a pull request, opened as the app, a
 owner with it; each read follows it to merged or closed. Why it is built so is "How a card reaches
 its pull request" in `docs/devflow-architecture.md`. It is `PullRequestOpener`, `OpeningLoop` and
 `PullRequestText` in `src/DevFlow/PullRequests/`, `CardStore.Follow` in `src/DevFlow/Cards/`, and
-the following in `ProjectReader`.
+the following in `ProjectReader`. A card of a feature's pull request goes from its branch into
+the feature's branch, the run's base, and its Summary says "Card #<n> of the feature #<parent>."
+in place of `Closes #<n>`, since GitHub's closing keywords close an issue only from a pull request
+into the default branch; the rest of the body is as below.
 
 **When.** A card is waiting for its pull request when it is `checking` with none, and its latest
 run's result is `succeeded`: a report in its form that says `done`, and a check that exited 0. Any
