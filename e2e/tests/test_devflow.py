@@ -1382,7 +1382,7 @@ def test_a_labelled_feature_shows_its_cards_in_order(
     capture(page, "devflow-project-feature")
 
 
-RECIPE =b"ARG DEVFLOW_BASE\nFROM ${DEVFLOW_BASE}\nRUN apt-get update\n"
+RECIPE = b"ARG DEVFLOW_BASE\nFROM ${DEVFLOW_BASE}\nRUN apt-get update\n"
 
 
 def test_the_project_page_shows_how_to_start_a_worker(
