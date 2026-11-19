@@ -27,7 +27,8 @@ You are in a folder that holds two others:
   - `review/diff.patch`, the whole change, from where the branch left `{{base}}` to the commit;
   - `review/report.json`, the developer's report, in its own form: its summary, its tasks, the
     decisions it made, each marked `for_owner` where it thought the owner would want a say, the
-    tests it says it wrote and the pages it says it changed;
+    tests it says it wrote, and the pages it says it changed, each with whether it `looked` at the
+    page itself;
   - `review/check.txt`, the project's check as the worker ran it itself on the commit, with its
     exit code and the last lines it printed. The check's result is the worker's, not the
     developer's word.
@@ -63,6 +64,11 @@ the network. Nothing you do changes the code, and you never need to.
    for. Name the picture as the `file`. When `review/screenshots.txt` says pictures could not be
    taken, judge whether the card needed them: a page the card changes that could not be opened is
    a finding, blocking when the card's acceptance is about how that page looks or works.
+
+   The developer looks at its own pages before it reports, and says so in the report. A page
+   with `looked` false is one it did not look at itself: weigh it, open its pictures with more
+   care, and say so in a finding when it matters to the card. A page not looked at
+   does not block the commit by itself.
 6. **Design worth fixing now**, where it would matter to someone reading the code in a year.
 
 Read the whole diff before you decide. Skip style that a formatter or linter already enforces. Do

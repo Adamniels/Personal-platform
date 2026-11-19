@@ -1588,6 +1588,7 @@ def _built_card(
     verdict: dict | None = None,
     review: bool = True,
     pictures: dict[str, bytes] | None = None,
+    report: dict | None = None,
 ) -> tuple[str, dict]:
     """Connects a repository with one card the owner labelled and the project's
     .devflow/project.json, gives Dev flow a Claude login, reads the project so
@@ -1595,7 +1596,8 @@ def _built_card(
     then review its pull request with `verdict`, an approve unless given, unless
     `review` is false. With `pictures`, the build's result lists them by name
     and the fake worker puts each on pr-screenshots, as a worker pushes them.
-    The project's id and what the fake worker answered for the build."""
+    With `report`, the build hands it back instead of `_report()`. The
+    project's id and what the fake worker answered for the build."""
     world = one_repository()
     add_issue(world, CARD, CARD_TITLE, labels=["devflow"])
     add_file(
@@ -1617,7 +1619,7 @@ def _built_card(
     assert refreshed.status == 204, refreshed.text()
     result = {
         "outcome": "succeeded",
-        "report": _report(),
+        "report": report or _report(),
         "failure": None,
         "check": {"exit_code": 0, "output": "Tests: 12 passed"},
         "auth_method": "oauth_token",
@@ -1867,6 +1869,54 @@ def test_a_cards_page_tells_its_story(
         check(page)
     assert _axe_violations(page) == []
     capture(page, "devflow-card-page")
+
+
+def test_the_card_page_shows_which_pages_the_agent_looked_at(
+    page: Page, invite_code: str, base_url: str, viewport: str, devflow_world
+):
+    # The developer looks at its own pages before it reports, and says which in
+    # the report's `looked`: the card's page marks the one it did not look at,
+    # and so does the pull request's body. See "Screenshots" in
+    # devflow/README.md.
+    register_and_log_in(page, invite_code, base_url)
+    report = _report()
+    report["pages"] = [
+        {"path": "/habits", "why": "The empty state shows there", "looked": True},
+        {"path": "/settings", "why": "The toggle moved", "looked": False},
+    ]
+    project, _ = _built_card(page, base_url, devflow_world, report=report)
+
+    page.goto(f"/devflow/projects/{project}/cards/{CARD}")
+    pages = (
+        page.get_by_role("article", name="The latest report")
+        .get_by_role("list", name="Pages")
+        .get_by_role("listitem")
+    )
+    expect(pages).to_have_count(2)
+    expect(pages.first).to_contain_text("/habits")
+    expect(pages.first).to_contain_text("Looked at")
+    expect(pages.first).not_to_contain_text("did not look")
+    expect(pages.nth(1)).to_contain_text("/settings")
+    expect(pages.nth(1)).to_contain_text("The agent did not look at this page")
+
+    # The pull request's body marks it too.
+    body = _opened(page)["body"]
+    assert "- `/habits`: The empty state shows there.\n" in body, body
+    assert (
+        "- `/settings`: The toggle moved. **The agent did not look at this page.**"
+        in body
+    ), body
+
+    page.evaluate("document.fonts.ready.then(() => null)")
+    for check in (
+        assert_headings_are_capitals,
+        assert_nothing_scrolls_sideways,
+        assert_active_is_inverted,
+        assert_nothing_active_is_amber,
+    ):
+        check(page)
+    assert _axe_violations(page) == []
+    capture(page, "devflow-card-looked")
 
 
 def test_a_built_card_is_reviewed(

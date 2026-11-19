@@ -61,6 +61,8 @@ public static partial class PullRequestText
             body.Append('\n');
         }
 
+        Pages(body, report.Pages);
+
         if (source.Pictures is { } pictures)
         {
             Pictures(body, source, pictures);
@@ -72,6 +74,35 @@ public static partial class PullRequestText
         body.Append(CultureInfo.InvariantCulture, $"Built by Dev flow for #{source.Card}, run {source.RunId}.\n");
         return body.ToString();
     }
+
+    /// <summary>The pages the change affects, under Verification, each with why, and one the agent
+    /// did not look at itself marked so; nothing when the report names none. A page not looked at
+    /// stops nothing by itself.</summary>
+    private static void Pages(StringBuilder body, IReadOnlyList<ReportPage> pages)
+    {
+        if (pages.Count == 0)
+        {
+            return;
+        }
+
+        body.Append("The pages the change affects:\n\n");
+        foreach (var page in pages)
+        {
+            var parts = new List<string> { $"{Code(page.Path)}:" };
+            AddSentence(parts, "", page.Why);
+            if (!page.Looked)
+            {
+                parts.Add(NotLooked);
+            }
+
+            body.Append("- ").Append(string.Join(' ', parts)).Append('\n');
+        }
+
+        body.Append('\n');
+    }
+
+    /// <summary>How a page the agent did not look at is marked in the body.</summary>
+    internal const string NotLooked = "**The agent did not look at this page.**";
 
     /// <summary>
     /// The pictures, under Verification, as this repository's agents embed theirs: each an image
