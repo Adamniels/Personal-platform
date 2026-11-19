@@ -171,6 +171,11 @@ public sealed class FakeEndpointsTests
             Repo(world)["issues"]![1]!["number"] = 304;
         }) },
         { "installations[0].repositories[0].issues[0].blocked_by[0]", Changed(world => Repo(world)["issues"]![0]!["blocked_by"]![0] = 400) },
+        { "installations[0].repositories[0].issues[0].sub_issues[0].number", Changed(world => Repo(world)["issues"]![0]!["sub_issues"] = new JsonArray(new JsonObject { ["number"] = 400, ["repository"] = null })) },
+        { "installations[0].repositories[0].issues[0].sub_issues[0].number", Changed(world => Repo(world)["issues"]![0]!["sub_issues"] = new JsonArray(new JsonObject { ["number"] = 338, ["repository"] = null })) },
+        { "installations[0].repositories[0].issues[0].sub_issues[1].repository", Changed(world => Repo(world)["issues"]![0]!["sub_issues"] = new JsonArray(
+            new JsonObject { ["number"] = 339, ["repository"] = null }, new JsonObject { ["number"] = 339, ["repository"] = 9999 })) },
+        { "installations[0].repositories[0].issues[0].sub_issues[0].repository", Changed(world => Repo(world)["issues"]![0]!["sub_issues"] = new JsonArray(new JsonObject { ["number"] = 339 })) },
         { "the body", "{\"installations\": [" },
         { "the body", "" },
     };

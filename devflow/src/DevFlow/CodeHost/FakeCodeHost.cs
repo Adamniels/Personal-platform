@@ -129,6 +129,27 @@ public sealed partial class FakeCodeHost : ICodeHost, ICodeHostSignIn
                 .Select(pull => new Issue(pull.Number, pull.Title, pull.Author, pull.Labels, pull.Body, pull.Url, pull.UpdatedAt, IsPullRequest: true)),
         ]);
 
+    /// <summary>The issue's sub-issues as staged, in their order, each as its own repository holds
+    /// it: an issue there, or a pull request, marked, made when it was last updated.</summary>
+    public Task<CodeHostResult<IReadOnlyList<SubIssue>>> SubIssues(Guid userId, Repository repository, int number, CancellationToken cancellationToken)
+    {
+        var installation = Of(userId).World.Installations.FirstOrDefault(candidate => candidate.Id == repository.Installation);
+        return Answer<IReadOnlyList<SubIssue>>(userId, repository, found =>
+            found.Issues.FirstOrDefault(issue => issue.Number == number) is { } parent
+                ? [.. (parent.SubIssues ?? []).Select(sub =>
+                {
+                    var holder = sub.Repository is { } id ? installation!.Repositories.First(candidate => candidate.Id == id) : found;
+                    return holder.Issues.FirstOrDefault(issue => issue.Number == sub.Number) is { } issue
+                        ? new SubIssue(issue.Number, issue.Title, issue.Body, issue.Open, issue.Author, issue.Labels, issue.CreatedAt, holder.Owner, holder.Name, issue.Url, IsPullRequest: false)
+                        : AsSubIssue(holder.PullRequests.First(pull => pull.Number == sub.Number), holder);
+                })]
+                : null);
+    }
+
+    /// <summary>A pull request listed among an issue's sub-issues, as GitHub would list it.</summary>
+    private static SubIssue AsSubIssue(PullRequest pull, FakeRepository holder) =>
+        new(pull.Number, pull.Title, pull.Body, pull.State == PullRequestState.Open, pull.Author, pull.Labels, pull.UpdatedAt, holder.Owner, holder.Name, pull.Url, IsPullRequest: true);
+
     /// <summary>The issues it is blocked by, each in the same repository, as the world holds
     /// them.</summary>
     public Task<CodeHostResult<IReadOnlyList<Dependency>>> BlockedBy(Guid userId, Repository repository, int number, CancellationToken cancellationToken) =>

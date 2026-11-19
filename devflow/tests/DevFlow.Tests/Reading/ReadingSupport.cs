@@ -359,6 +359,17 @@ internal sealed class CountingCodeHost(ICodeHost inner) : ICodeHost
         return inner.LabelledIssues(userId, repository, label, cancellationToken);
     }
 
+    public Task<CodeHostResult<IReadOnlyList<SubIssue>>> SubIssues(Guid userId, CodeHost.Repository repository, int number, CancellationToken cancellationToken)
+    {
+        Record("SubIssues", userId, repository, $"{number}");
+        if (Unavailable.ContainsKey("SubIssues"))
+        {
+            return Task.FromResult<CodeHostResult<IReadOnlyList<SubIssue>>>(new CodeHostResult<IReadOnlyList<SubIssue>>.Unavailable(RetryAt: null));
+        }
+
+        return inner.SubIssues(userId, repository, number, cancellationToken);
+    }
+
     public Task<CodeHostResult<IReadOnlyList<Dependency>>> BlockedBy(Guid userId, CodeHost.Repository repository, int number, CancellationToken cancellationToken)
     {
         Record("BlockedBy", userId, repository, $"{number}");

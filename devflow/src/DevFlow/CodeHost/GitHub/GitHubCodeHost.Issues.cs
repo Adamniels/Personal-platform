@@ -6,8 +6,8 @@ using System.Text.Json.Nodes;
 namespace DevFlow.CodeHost.GitHub;
 
 /// <summary>
-/// The reads picking cards needs, as the app: the open issues carrying a label and what an issue
-/// is blocked by, through REST like every other read; and who edited an issue's body and title,
+/// The reads picking cards needs, as the app: the open issues carrying a label, an issue's
+/// sub-issues and what an issue is blocked by, through REST like every other read; and who edited an issue's body and title,
 /// which REST does not say, through one GraphQL query, <see cref="EditsQuery"/>, posted by hand
 /// with the same installation token. See "Cards" in devflow/docs/devflow-architecture.md.
 /// </summary>
@@ -65,6 +65,29 @@ public sealed partial class GitHubCodeHost
         issue.HtmlUrl,
         issue.CreatedAt,
         issue.PullRequest is not null);
+
+    /// <summary><c>GET /repos/{owner}/{repo}/issues/{number}/sub_issues</c>, a hundred a page, in
+    /// GitHub's order; each names its own repository, which may be another.</summary>
+    public async Task<CodeHostResult<IReadOnlyList<SubIssue>>> SubIssues(Guid userId, Repository repository, int number, CancellationToken cancellationToken) =>
+        Map(
+            await List<IReadOnlyList<SubIssueAnswer>, SubIssueAnswer>(Invariant($"{Repo(repository)}/issues/{number}/sub_issues?per_page=100"), page => page, AsApp(repository, cancellationToken)),
+            subIssues => (IReadOnlyList<SubIssue>)[.. subIssues.Select(subIssue => new SubIssue(
+                subIssue.Number,
+                subIssue.Title,
+                subIssue.Body ?? "",
+                subIssue.State switch
+                {
+                    "open" => true,
+                    "closed" => false,
+                    _ => throw Unknown("an issue's state"),
+                },
+                Login(subIssue.User),
+                [.. subIssue.Labels.Select(found => found.Name)],
+                subIssue.CreatedAt,
+                subIssue.Repository.Owner.Login,
+                subIssue.Repository.Name,
+                subIssue.HtmlUrl,
+                subIssue.PullRequest is not null))]);
 
     /// <summary><c>GET /repos/{owner}/{repo}/issues/{number}/dependencies/blocked_by</c>.</summary>
     public async Task<CodeHostResult<IReadOnlyList<Dependency>>> BlockedBy(Guid userId, Repository repository, int number, CancellationToken cancellationToken) =>
@@ -228,6 +251,20 @@ public sealed partial class GitHubCodeHost
         JsonElement? PullRequest = null);
 
     private sealed record DependencyRepositoryAnswer(string Name, OwnerAnswer Owner);
+
+    /// <summary>A sub-issue as GitHub lists it, with its repository; <c>pull_request</c> is there
+    /// only for a pull request.</summary>
+    private sealed record SubIssueAnswer(
+        int Number,
+        string Title,
+        string? Body,
+        string State,
+        UserAnswer? User,
+        IReadOnlyList<LabelAnswer> Labels,
+        DateTimeOffset CreatedAt,
+        Uri HtmlUrl,
+        DependencyRepositoryAnswer Repository,
+        JsonElement? PullRequest = null);
 
     private sealed record DependencyAnswer(int Number, string State, Uri HtmlUrl, DependencyRepositoryAnswer Repository);
 

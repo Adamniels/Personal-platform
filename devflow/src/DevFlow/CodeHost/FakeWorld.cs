@@ -78,6 +78,9 @@ public sealed record FakeActivity(long Id, string Branch, string Before, string 
 /// each listed among the repository's issues.</param>
 /// <param name="Edits">Its edits, as <see cref="ICodeHost.Edits"/> answers them; empty when it was
 /// never edited.</param>
+/// <param name="SubIssues">Its sub-issues, in their order, each an issue or a pull request listed
+/// in this repository or another of the same installation; none when it is left out, the one field
+/// an issue may leave out, and left out when it is written back.</param>
 public sealed record FakeIssue(
     int Number,
     string Title,
@@ -88,7 +91,12 @@ public sealed record FakeIssue(
     DateTimeOffset CreatedAt,
     bool Open,
     IReadOnlyList<int> BlockedBy,
-    IReadOnlyList<IssueEdit> Edits);
+    IReadOnlyList<IssueEdit> Edits,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<FakeSubIssue>? SubIssues = null);
+
+/// <summary>A sub-issue, by its number in <paramref name="Repository"/>, the id of another
+/// repository of the same installation, or this one when null.</summary>
+public sealed record FakeSubIssue(int Number, long? Repository);
 
 /// <summary>The conversation of the issue or pull request with the number, oldest first.</summary>
 public sealed record FakeConversation(int Number, IReadOnlyList<Comment> Comments);
@@ -168,7 +176,22 @@ public static partial class FakeJson
 
     private static Malformed? Check(FakeInstallation installation, string at) =>
         Duplicate(installation.Repositories, repository => repository.Id, i => $"{at}.repositories[{i}].id")
-        ?? installation.Repositories.Select((repository, i) => Check(repository, $"{at}.repositories[{i}]")).FirstOrDefault(error => error is not null);
+        ?? installation.Repositories.Select((repository, i) => Check(repository, $"{at}.repositories[{i}]")).FirstOrDefault(error => error is not null)
+        ?? installation.Repositories.Select((repository, i) => CheckSubIssues(installation, repository, $"{at}.repositories[{i}]")).FirstOrDefault(error => error is not null);
+
+    /// <summary>Each sub-issue names an issue or a pull request listed in its repository, this one
+    /// or another of the installation, and never the issue itself.</summary>
+    private static Malformed? CheckSubIssues(FakeInstallation installation, FakeRepository repository, string at) =>
+        repository.Issues.Select((issue, i) => (issue.SubIssues ?? []).Select((sub, j) =>
+                installation.Repositories.FirstOrDefault(candidate => candidate.Id == (sub.Repository ?? repository.Id)) is not { } holder
+                    ? new Malformed($"{at}.issues[{i}].sub_issues[{j}].repository", "names no repository of this installation")
+                    : !holder.Issues.Any(other => other.Number == sub.Number) && !holder.PullRequests.Any(pull => pull.Number == sub.Number)
+                        ? new Malformed($"{at}.issues[{i}].sub_issues[{j}].number", "names no issue or pull request listed in its repository")
+                        : holder.Id == repository.Id && sub.Number == issue.Number
+                            ? new Malformed($"{at}.issues[{i}].sub_issues[{j}].number", "is the issue itself")
+                            : null)
+                .FirstOrDefault(error => error is not null))
+            .FirstOrDefault(error => error is not null);
 
     private static Malformed? Check(FakeRepository repository, string at) =>
         Duplicate(repository.PullRequests, pullRequest => pullRequest.Number, i => $"{at}.pull_requests[{i}].number")
