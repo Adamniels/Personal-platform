@@ -234,6 +234,23 @@ public sealed class ContractTests
             "the verdict's type changed, regenerate contracts/devflow/verdict.schema.json with UPDATE_CONTRACTS=1 and review the diff");
     }
 
+    [Theory]
+    [InlineData("report")]
+    [InlineData("verdict")]
+    public void TheFormSchemasAreDraft07WhichClaudeCodeReads(string form)
+    {
+        // Claude Code's --json-schema refuses a draft it does not know, 2020-12 among them, and
+        // the run fails before the agent starts; so each form says draft-07 and uses no keyword
+        // that draft lacks.
+        var schema = form == "report" ? DevFlow.Protocol.Report.Schema() : DevFlow.Protocol.ReviewVerdict.Schema();
+        Assert.Equal("http://json-schema.org/draft-07/schema#", (string)schema["$schema"]!);
+        string[] newer = ["$defs", "$anchor", "$dynamicRef", "$dynamicAnchor", "prefixItems", "unevaluatedProperties", "unevaluatedItems", "dependentRequired", "dependentSchemas"];
+        foreach (var keyword in newer)
+        {
+            Assert.DoesNotContain($"\"{keyword}\"", schema.ToJsonString(), StringComparison.Ordinal);
+        }
+    }
+
     [Fact]
     public void TheVerdictSchemaHoldsTheTypesFieldsEveryOneRequired()
     {
