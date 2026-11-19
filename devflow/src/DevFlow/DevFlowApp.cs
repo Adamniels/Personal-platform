@@ -121,7 +121,8 @@ public static class DevFlowApp
             database, provider.GetRequiredService<ICodeHost>(), provider.GetRequiredService<AppMerges>(), provider.GetRequiredService<TimeProvider>(), provider.GetRequiredService<ILogger<MergeChecker>>()));
         // Kept when a test registered its own, which asks with the loops off.
         builder.Services.TryAddSingleton(new MergeRequests(enabled: settings.PollInterval is not null));
-        builder.Services.AddSingleton(new DecisionIssues());
+        builder.Services.AddSingleton(provider => new DecisionIssues(
+            database, provider.GetRequiredService<ICodeHost>(), provider.GetRequiredService<TimeProvider>(), provider.GetRequiredService<ILogger<DecisionIssues>>()));
         // Each user's Claude login, sealed in the vault and opened only for one of their runs. See
         // "Claude login" in devflow/README.md.
         builder.Services.AddSingleton(provider => new ClaudeLogins(

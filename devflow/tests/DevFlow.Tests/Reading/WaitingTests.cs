@@ -107,6 +107,7 @@ public sealed class WaitingTests
             // card of its own was built.
             ["own_items"] = new JsonArray(),
             ["cards"] = new JsonArray(),
+            ["decisions"] = new JsonArray(),
         };
         Assert.True(JsonNode.DeepEquals(expected, waited), waited.ToJsonString());
         // Bob's two are stored, and none of them is the caller's.

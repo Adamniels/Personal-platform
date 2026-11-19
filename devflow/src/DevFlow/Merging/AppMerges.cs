@@ -1,6 +1,7 @@
 using Dapper;
 
 using DevFlow.CodeHost;
+using DevFlow.Decisions;
 using DevFlow.Watching;
 
 using PlatformData;
@@ -166,6 +167,9 @@ public sealed class AppMerges(UserDb database, ICodeHost host, TimeProvider time
                     new { projectId, done, now = now.AddTicks(-(now.Ticks % 10)) },
                     transaction,
                     cancellationToken: cancellationToken));
+                // Each decision it marked for the owner, recorded with the merge so none is lost;
+                // its issue opens next.
+                await DecisionStore.Record(transaction, projectId, userId, done, number, commit, now.AddTicks(-(now.Ticks % 10)), cancellationToken);
             }
 
             return new AppMergeOutcome.Done(result);

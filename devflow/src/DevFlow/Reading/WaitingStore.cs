@@ -132,6 +132,8 @@ public sealed record CardItemReview(string Verdict, string Summary, int Blocking
 /// <param name="CanMerge">Whether Merge is offered: false while the project is stopped.</param>
 /// <param name="ChangedAt">When the card came to wait.</param>
 /// <param name="Review">The reviewer's verdict on its head commit, null when it has none.</param>
+/// <param name="Reason">Why it waits, in words: the merge check's reason, such as CI not
+/// reporting, or that the project waits for the owner on every pull request.</param>
 public sealed record CardItem(
     Guid ProjectId,
     string ProjectName,
@@ -149,17 +151,55 @@ public sealed record CardItem(
     CardCheck Check,
     bool CanMerge,
     DateTimeOffset ChangedAt,
-    CardItemReview? Review);
+    CardItemReview? Review,
+    string? Reason);
+
+/// <summary>An issue Dev flow opened for a decision the agent marked for the owner on a card it
+/// merged, which waits for him until he closes it on GitHub. Every text is the agent's or the
+/// reviewer's, or came from the code host, and is shown as text.</summary>
+/// <param name="ProjectName">The repository's name, as connected.</param>
+/// <param name="Owner">The repository's owner, as connected.</param>
+/// <param name="CardNumber">The card's issue number.</param>
+/// <param name="CardTitle">The card's title, as it was picked.</param>
+/// <param name="CardUrl">Where the card's issue is on the code host.</param>
+/// <param name="PullRequestNumber">The merged pull request's number.</param>
+/// <param name="PullRequestUrl">Where it is on the code host.</param>
+/// <param name="IssueNumber">The decision's issue's number.</param>
+/// <param name="IssueUrl">Where the decision's issue is on the code host.</param>
+/// <param name="Chosen">What the agent chose.</param>
+/// <param name="Alternative">The alternative, null when it wrote none.</param>
+/// <param name="Why">Why, null when it wrote nothing.</param>
+/// <param name="ReviewerView">The reviewer's view on it, null when it gave none.</param>
+/// <param name="OpenedAt">When Dev flow opened the issue.</param>
+public sealed record DecisionItem(
+    Guid Id,
+    Guid ProjectId,
+    string ProjectName,
+    string Owner,
+    int CardNumber,
+    string CardTitle,
+    Uri CardUrl,
+    int PullRequestNumber,
+    Uri PullRequestUrl,
+    int IssueNumber,
+    Uri IssueUrl,
+    string Chosen,
+    string? Alternative,
+    string? Why,
+    string? ReviewerView,
+    DateTimeOffset OpenedAt);
 
 /// <summary>What <c>GET /devflow/api/waiting</c> answers.</summary>
-/// <param name="Count">The items not sent back, Dev flow's own items and cards, and one more when
-/// the link needs renewing: what waits for the owner to act.</param>
+/// <param name="Count">The items not sent back, Dev flow's own items, cards and decisions to look
+/// at, and one more when the link needs renewing: what waits for the owner to act.</param>
 /// <param name="NeedsRelink">Whether GitHub stopped taking the owner's link.</param>
 /// <param name="OwnItems">Dev flow's own items, read from its own tables beside the runner's, by
 /// project.</param>
 /// <param name="Cards">Dev flow's own cards whose pull requests wait for the owner, by project and
 /// number.</param>
-public sealed record WaitingList(int Count, bool NeedsRelink, IReadOnlyList<WaitingItem> Items, IReadOnlyList<ProjectFreshness> Projects, IReadOnlyList<OwnItem> OwnItems, IReadOnlyList<CardItem> Cards);
+/// <param name="Decisions">The open issues Dev flow opened for decisions marked for the owner on
+/// cards it merged, by project, oldest first.</param>
+public sealed record WaitingList(int Count, bool NeedsRelink, IReadOnlyList<WaitingItem> Items, IReadOnlyList<ProjectFreshness> Projects, IReadOnlyList<OwnItem> OwnItems, IReadOnlyList<CardItem> Cards, IReadOnlyList<DecisionItem> Decisions);
 
 /// <summary>
 /// What waits for a user, read from the snapshot <see cref="ProjectReader"/> stores and never from
@@ -176,7 +216,7 @@ public sealed class WaitingStore(UserDb database, TimeProvider time)
     /// name, and whether their link needs renewing, read in one transaction.</summary>
     public async Task<WaitingList> For(Guid userId, CancellationToken cancellationToken)
     {
-        var (items, projects, relink, stops, cardRows) = await database.InUserTransaction(userId, async transaction =>
+        var (items, projects, relink, stops, cardRows, decisionRows) = await database.InUserTransaction(userId, async transaction =>
         {
             var items = await transaction.Connection!.QueryAsync<ItemRow>(new CommandDefinition(
                 """
@@ -219,7 +259,7 @@ public sealed class WaitingStore(UserDb database, TimeProvider time)
                        c.pull_request_url AS PullRequestUrl, r.head_commit AS HeadCommit, r.base AS Base, r.report::text AS Report,
                        r.check_command AS CheckCommand, r.check_exit_code AS CheckExitCode,
                        NOT EXISTS (SELECT 1 FROM project_stops s WHERE s.project_id = c.project_id) AS CanMerge,
-                       c.changed_at AS ChangedAt, v.verdict AS Verdict, v.summary AS VerdictSummary,
+                       c.changed_at AS ChangedAt, c.reason AS Reason, v.verdict AS Verdict, v.summary AS VerdictSummary,
                        (SELECT count(*) FROM jsonb_array_elements(v.findings) f WHERE f->>'blocking' = 'true')::int AS Blocking
                 FROM cards c
                 JOIN projects p ON p.id = c.project_id
@@ -233,7 +273,20 @@ public sealed class WaitingStore(UserDb database, TimeProvider time)
                 """,
                 transaction: transaction,
                 cancellationToken: cancellationToken));
-            return (items.ToList(), projects.ToList(), relink, stops.ToList(), cards.ToList());
+            var decisions = await transaction.Connection!.QueryAsync<DecisionRow>(new CommandDefinition(
+                """
+                SELECT d.id AS Id, d.project_id AS ProjectId, p.name AS ProjectName, p.owner AS Owner, d.card_number AS CardNumber,
+                       d.card_title AS CardTitle, d.card_url AS CardUrl, d.pull_request_number AS PullRequestNumber,
+                       d.pull_request_url AS PullRequestUrl, d.issue_number AS IssueNumber, d.issue_url AS IssueUrl,
+                       d.chosen AS Chosen, d.alternative AS Alternative, d.why AS Why, d.reviewer_view AS ReviewerView,
+                       d.opened_at AS OpenedAt
+                FROM decision_issues d JOIN projects p ON p.id = d.project_id
+                WHERE d.issue_number IS NOT NULL AND d.closed_at IS NULL
+                ORDER BY lower(p.owner), lower(p.name), p.id, d.opened_at, d.pull_request_number, d.position
+                """,
+                transaction: transaction,
+                cancellationToken: cancellationToken));
+            return (items.ToList(), projects.ToList(), relink, stops.ToList(), cards.ToList(), decisions.ToList());
         }, cancellationToken);
 
         var now = time.GetUtcNow();
@@ -251,8 +304,25 @@ public sealed class WaitingStore(UserDb database, TimeProvider time)
             GitHubLink.Utc(stop.LandedAt),
             GitHubLink.Utc(stop.StoppedAt))).ToList();
         var cards = cardRows.Select(Card).ToList();
+        var decided = decisionRows.Select(row => new DecisionItem(
+            row.Id,
+            row.ProjectId,
+            row.ProjectName,
+            row.Owner,
+            row.CardNumber,
+            row.CardTitle,
+            new Uri(row.CardUrl),
+            row.PullRequestNumber,
+            new Uri(row.PullRequestUrl),
+            row.IssueNumber,
+            new Uri(row.IssueUrl),
+            row.Chosen,
+            Said(row.Alternative),
+            Said(row.Why),
+            row.ReviewerView is { } view ? Said(view) : null,
+            GitHubLink.Utc(row.OpenedAt))).ToList();
         return new WaitingList(
-            waiting.Count(item => !item.SentBack) + own.Count + cards.Count + (relink ? 1 : 0),
+            waiting.Count(item => !item.SentBack) + own.Count + cards.Count + decided.Count + (relink ? 1 : 0),
             relink,
             waiting,
             [.. projects.Select(project =>
@@ -261,7 +331,8 @@ public sealed class WaitingStore(UserDb database, TimeProvider time)
                 return new ProjectFreshness(project.Id, project.Owner, project.Name, success, success is null || now - success > StaleAfter, project.Failing);
             })],
             own,
-            cards);
+            cards,
+            decided);
     }
 
     /// <summary>A waiting card as the list answers it, from its row and its run's report, read into
@@ -289,7 +360,8 @@ public sealed class WaitingStore(UserDb database, TimeProvider time)
             new CardCheck(row.CheckCommand, row.CheckExitCode ?? 0, row.HeadCommit),
             row.CanMerge,
             GitHubLink.Utc(row.ChangedAt),
-            row.Verdict is { } verdict ? new CardItemReview(verdict, row.VerdictSummary?.Trim() ?? "", row.Blocking, row.HeadCommit) : null);
+            row.Verdict is { } verdict ? new CardItemReview(verdict, row.VerdictSummary?.Trim() ?? "", row.Blocking, row.HeadCommit) : null,
+            row.Reason);
     }
 
     /// <summary>What the agent wrote, trimmed, or null when it wrote nothing.</summary>
@@ -392,9 +464,28 @@ public sealed class WaitingStore(UserDb database, TimeProvider time)
         int? CheckExitCode,
         bool CanMerge,
         DateTime ChangedAt,
+        string? Reason,
         string? Verdict,
         string? VerdictSummary,
         int Blocking);
+
+    private sealed record DecisionRow(
+        Guid Id,
+        Guid ProjectId,
+        string ProjectName,
+        string Owner,
+        int CardNumber,
+        string CardTitle,
+        string CardUrl,
+        int PullRequestNumber,
+        string PullRequestUrl,
+        int IssueNumber,
+        string IssueUrl,
+        string Chosen,
+        string Alternative,
+        string Why,
+        string? ReviewerView,
+        DateTime OpenedAt);
 
     private sealed record StopRow(Guid ProjectId, string Name, string Owner, string Branch, string ActivityType, string? Actor, string Commit, DateTime LandedAt, DateTime StoppedAt);
 }

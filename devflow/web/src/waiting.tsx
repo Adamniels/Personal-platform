@@ -8,6 +8,7 @@ import { type MouseEvent, useId, useState } from "react";
 import { type ActionsApi, ItemActions, type LinkState } from "./actions";
 import { navigate } from "./address";
 import type { GetAnswer } from "./api/client";
+import { DecisionIssue, type DecisionItem } from "./decision-issue";
 import { Inline } from "./format";
 import { Screenshots } from "./screenshots";
 import { StoppedProject } from "./stopped";
@@ -53,6 +54,8 @@ type Group = {
 	/** Dev flow's own cards whose pull requests wait, shown before the
 	 * runner's items. */
 	cards?: CardItem[];
+	/** The decisions to look at, the issues Dev flow opened for them. */
+	decided?: DecisionItem[];
 	muted?: boolean;
 	/** Whether the first item's Merge is the view's one primary button,
 	 * design/DESIGN.md's rule; the others are secondary. */
@@ -66,13 +69,15 @@ type Act = {
 	reload: () => Promise<unknown>;
 };
 
-/** The three groups, in their order: Dev flow's waiting cards and the
+/** The four groups, in their order: Dev flow's waiting cards and the
  * waiting items not sent back, stopped items not sent back, with the stopped
- * projects first among the stopped, and every item sent back. */
+ * projects first among the stopped, the decisions to look at on cards Dev
+ * flow merged, and every item sent back. */
 function groups(
 	items: WaitingItem[],
 	own: OwnItem[],
 	cards: CardItem[],
+	decided: DecisionItem[],
 	name: (item: WaitingItem) => string,
 ) {
 	const sorted = [...items].sort(
@@ -94,6 +99,7 @@ function groups(
 			),
 			own: own.filter((each) => each.kind === "project_stopped"),
 		},
+		{ label: "Decisions to look at", items: [], decided },
 		{
 			label: "Sent back, the runner has it",
 			items: sorted.filter((item) => item.sent_back),
@@ -105,7 +111,10 @@ function groups(
 
 /** How many entries a group holds, Dev flow's and the runner's. */
 const size = (group: Group) =>
-	group.items.length + (group.own?.length ?? 0) + (group.cards?.length ?? 0);
+	group.items.length +
+	(group.own?.length ?? 0) +
+	(group.cards?.length ?? 0) +
+	(group.decided?.length ?? 0);
 
 const compare = new Intl.Collator("en", { sensitivity: "base" }).compare;
 
@@ -184,22 +193,27 @@ export function Waiting({
 					/>
 					{list.items.length === 0 &&
 					list.own_items.length === 0 &&
-					list.cards.length === 0 ? (
+					list.cards.length === 0 &&
+					list.decisions.length === 0 ? (
 						<EmptyState
 							title="Nothing waits for you"
 							detail="Your agents have nothing for you to decide."
 						/>
 					) : (
-						groups(list.items, list.own_items, list.cards, name).map(
-							(group) => (
-								<GroupSection
-									key={group.label}
-									group={group}
-									name={name}
-									act={{ link, api: actions, reload }}
-								/>
-							),
-						)
+						groups(
+							list.items,
+							list.own_items,
+							list.cards,
+							list.decisions,
+							name,
+						).map((group) => (
+							<GroupSection
+								key={group.label}
+								group={group}
+								name={name}
+								act={{ link, api: actions, reload }}
+							/>
+						))
 					)}
 				</>
 			)}
@@ -338,6 +352,9 @@ function GroupSection({
 					api={act.api}
 					reload={act.reload}
 				/>
+			))}
+			{(group.decided ?? []).map((decision) => (
+				<DecisionIssue key={decision.id} decision={decision} />
 			))}
 			{group.items.map((item, index) => (
 				<Item

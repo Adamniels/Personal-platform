@@ -85,6 +85,12 @@
             "format": "uri",
             "type": "string"
           },
+          "reason": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
           "review": {
             "oneOf": [
               {
@@ -123,7 +129,8 @@
           "check",
           "can_merge",
           "changed_at",
-          "review"
+          "review",
+          "reason"
         ],
         "type": "object"
       },
@@ -687,6 +694,95 @@
           "owner",
           "name",
           "connected"
+        ],
+        "type": "object"
+      },
+      "DecisionItem": {
+        "properties": {
+          "alternative": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "card_number": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "card_title": {
+            "type": "string"
+          },
+          "card_url": {
+            "format": "uri",
+            "type": "string"
+          },
+          "chosen": {
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "issue_number": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "issue_url": {
+            "format": "uri",
+            "type": "string"
+          },
+          "opened_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "owner": {
+            "type": "string"
+          },
+          "project_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "project_name": {
+            "type": "string"
+          },
+          "pull_request_number": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "pull_request_url": {
+            "format": "uri",
+            "type": "string"
+          },
+          "reviewer_view": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "why": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "project_id",
+          "project_name",
+          "owner",
+          "card_number",
+          "card_title",
+          "card_url",
+          "pull_request_number",
+          "pull_request_url",
+          "issue_number",
+          "issue_url",
+          "chosen",
+          "alternative",
+          "why",
+          "reviewer_view",
+          "opened_at"
         ],
         "type": "object"
       },
@@ -1998,6 +2094,12 @@
             "format": "int32",
             "type": "integer"
           },
+          "decisions": {
+            "items": {
+              "$ref": "#/components/schemas/DecisionItem"
+            },
+            "type": "array"
+          },
           "items": {
             "items": {
               "$ref": "#/components/schemas/WaitingItem"
@@ -2026,7 +2128,8 @@
           "items",
           "projects",
           "own_items",
-          "cards"
+          "cards",
+          "decisions"
         ],
         "type": "object"
       },

@@ -54,6 +54,7 @@ function openAt(path: string) {
 						projects: [],
 						own_items: [],
 						cards: [],
+						decisions: [],
 					}),
 				refresh: () => Promise.resolve(),
 			}}

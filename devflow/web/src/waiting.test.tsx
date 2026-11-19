@@ -68,6 +68,7 @@ function list(overrides: Partial<WaitingList> = {}): WaitingList {
 		projects: [project()],
 		own_items: [],
 		cards: [],
+		decisions: [],
 		...overrides,
 	};
 }

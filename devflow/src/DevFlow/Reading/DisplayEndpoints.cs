@@ -37,8 +37,8 @@ public static class DisplayEndpoints
 }
 
 /// <summary>What Dev flow offers the front page.</summary>
-/// <param name="Waiting">Items of kind waiting that are not sent back, and Dev flow's own cards
-/// whose pull requests wait.</param>
+/// <param name="Waiting">Items of kind waiting that are not sent back, Dev flow's own cards whose
+/// pull requests wait, and the decisions to look at.</param>
 /// <param name="Stopped">Items of kind stopped that are not sent back, and stopped projects.</param>
 /// <param name="Projects">How many projects the caller has connected.</param>
 /// <param name="Stale">Whether any project is stale or failing, by <see cref="WaitingStore"/>'s
@@ -55,7 +55,7 @@ public sealed record DisplayData(int Waiting, int Stopped, int Projects, bool St
         ArgumentNullException.ThrowIfNull(list);
         ArgumentNullException.ThrowIfNull(login);
         return new(
-            list.Items.Count(item => item.Kind == WaitingKind.Waiting && !item.SentBack) + list.Cards.Count,
+            list.Items.Count(item => item.Kind == WaitingKind.Waiting && !item.SentBack) + list.Cards.Count + list.Decisions.Count,
             list.Items.Count(item => item.Kind == WaitingKind.Stopped && !item.SentBack) + list.OwnItems.Count(item => item.Kind == OwnItemKind.ProjectStopped),
             list.Projects.Count,
             list.Projects.Any(project => project.Stale || project.Failing),

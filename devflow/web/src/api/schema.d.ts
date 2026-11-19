@@ -635,6 +635,7 @@ export interface components {
             pull_request_number: number;
             /** Format: uri */
             pull_request_url: string;
+            reason: null | string;
             review: null | components["schemas"]["CardItemReview"];
             summary: string;
             title: string;
@@ -773,6 +774,33 @@ export interface components {
             id: number;
             name: string;
             owner: string;
+        };
+        DecisionItem: {
+            alternative: null | string;
+            /** Format: int32 */
+            card_number: number;
+            card_title: string;
+            /** Format: uri */
+            card_url: string;
+            chosen: string;
+            /** Format: uuid */
+            id: string;
+            /** Format: int32 */
+            issue_number: number;
+            /** Format: uri */
+            issue_url: string;
+            /** Format: date-time */
+            opened_at: string;
+            owner: string;
+            /** Format: uuid */
+            project_id: string;
+            project_name: string;
+            /** Format: int32 */
+            pull_request_number: number;
+            /** Format: uri */
+            pull_request_url: string;
+            reviewer_view: null | string;
+            why: null | string;
         };
         DevFlowStatus: {
             code_host: components["schemas"]["CodeHostMode"];
@@ -1098,6 +1126,7 @@ export interface components {
             cards: components["schemas"]["CardItem"][];
             /** Format: int32 */
             count: number;
+            decisions: components["schemas"]["DecisionItem"][];
             items: components["schemas"]["WaitingItem"][];
             needs_relink: boolean;
             own_items: components["schemas"]["OwnItem"][];
