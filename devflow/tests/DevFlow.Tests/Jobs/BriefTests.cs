@@ -11,7 +11,8 @@ namespace DevFlow.Tests.Jobs;
 public sealed class BriefTests
 {
     private static readonly BriefCard Card = new(12, "Show the habits' empty state", "The list is blank when there are none.\nShow a sentence instead.");
-    private static readonly BriefFacts Facts = new("npm ci && npm test", "devflow/12-show-the-habits-empty-state", "main");
+    private static readonly Guid Job = Guid.Parse("8f0c1d2e-3a4b-4c5d-9e6f-708192a3b4c5");
+    private static readonly BriefFacts Facts = new("npm ci && npm test", "devflow/12-show-the-habits-empty-state", "main", Job, "npm run dev", "http://localhost:5173");
 
     [Fact]
     public void TheBriefSaysWhatTheSpecSays()
@@ -61,13 +62,13 @@ public sealed class BriefTests
     {
         var other = Brief.Developer(
             new BriefCard(7, "Fodr: a card", "Another body."),
-            new BriefFacts("dotnet test", "devflow/7-fodr-a-card", "trunk"));
+            new BriefFacts("dotnet test", "devflow/7-fodr-a-card", "trunk", OtherJob, "dotnet run", "http://localhost:8000"));
         var mine = Brief.Developer(Card, Facts);
 
         // With the card and the facts taken out, the two are the same text.
         Assert.Equal(
             Without(mine, Card, Facts),
-            Without(other, new BriefCard(7, "Fodr: a card", "Another body."), new BriefFacts("dotnet test", "devflow/7-fodr-a-card", "trunk")));
+            Without(other, new BriefCard(7, "Fodr: a card", "Another body."), new BriefFacts("dotnet test", "devflow/7-fodr-a-card", "trunk", OtherJob, "dotnet run", "http://localhost:8000")));
     }
 
     [Fact]
@@ -87,10 +88,76 @@ public sealed class BriefTests
         Assert.Contains("````sh\necho ``` && npm test\n````", brief, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void APageProjectsBriefSaysHowToLook()
+    {
+        var self = $"/work/{Job:D}/self";
+        var fix = new FixInput(1, null, null, ["Make the sentence shorter."]);
+        foreach (var brief in new[] { Brief.Developer(Card, Facts), Brief.Fixer(Card, Facts, fix) })
+        {
+            // A section of its own, after how to work and before deciding.
+            var section = brief.IndexOf("## Looking at your pages", StringComparison.Ordinal);
+            Assert.True(section > brief.IndexOf("## How to work", StringComparison.Ordinal), "the section comes after how to work");
+            Assert.True(section < brief.IndexOf("## Deciding", StringComparison.Ordinal), "the section comes before deciding");
+
+            // Start the project with DEVFLOW=1, in the background, from the working copy, and wait
+            // for its address.
+            Assert.Contains("in the background from your working copy", brief, StringComparison.Ordinal);
+            Assert.Contains("npm run dev\n", brief, StringComparison.Ordinal);
+            Assert.Contains($"DEVFLOW=1 setsid sh {self}/start.sh", brief, StringComparison.Ordinal);
+            Assert.Contains("`http://localhost:5173`", brief, StringComparison.Ordinal);
+            Assert.Contains("process.argv[1]", brief, StringComparison.Ordinal);
+            Assert.Contains("'http://localhost:5173' && break", brief, StringComparison.Ordinal);
+
+            // A full page picture of each page at a desktop's size and a phone's, in the folder
+            // outside the copy.
+            Assert.Contains($"npx playwright screenshot --full-page --viewport-size=1280,800 http://localhost:5173<path> {self}/<name>-desktop.png", brief, StringComparison.Ordinal);
+            Assert.Contains($"npx playwright screenshot --full-page --viewport-size=390,844 http://localhost:5173<path> {self}/<name>-phone.png", brief, StringComparison.Ordinal);
+            Assert.Contains("outside your working copy", brief, StringComparison.Ordinal);
+
+            // Look, fix, look again, stop it, and say which were looked at.
+            Assert.Contains("open each picture and look at it against the card", brief, StringComparison.Ordinal);
+            Assert.Contains("fix what is wrong, then look again", brief, StringComparison.Ordinal);
+            Assert.Contains($"kill -- -\"$(cat {self}/start.pid)\"", brief, StringComparison.Ordinal);
+            Assert.Contains("stop the project before you report", brief, StringComparison.Ordinal);
+            Assert.Contains("`looked` true only for those you looked at", brief, StringComparison.Ordinal);
+            Assert.DoesNotContain("no pages to look at", brief, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public void NoStartNoLooking()
+    {
+        // Without a start there is nothing to start, and without a url nothing to open.
+        foreach (var facts in new[] { Facts with { Start = "", Url = "" }, Facts with { Start = "  " }, Facts with { Url = "" } })
+        {
+            var brief = Brief.Developer(Card, facts);
+
+            Assert.Contains("This project has no pages to look at", brief, StringComparison.Ordinal);
+            Assert.Contains("`looked` false", brief, StringComparison.Ordinal);
+            Assert.DoesNotContain("npx playwright", brief, StringComparison.Ordinal);
+            Assert.DoesNotContain("DEVFLOW=1", brief, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public void AStartCannotCloseItsFence()
+    {
+        var brief = Brief.Developer(Card, Facts with { Start = "echo ``` && npm run dev" });
+
+        Assert.Contains("````sh\ncat > ", brief, StringComparison.Ordinal);
+        Assert.Contains("echo ``` && npm run dev\nDEVFLOW_START\n", brief, StringComparison.Ordinal);
+    }
+
+    private static readonly Guid OtherJob = Guid.Parse("11111111-2222-4333-8444-555555555555");
+
     private static string Without(string brief, BriefCard card, BriefFacts facts) => brief
         .Replace($"#{card.Number} {card.Title}\n\n{card.Body}", "<card>", StringComparison.Ordinal)
         .Replace($"#{card.Number}", "<number>", StringComparison.Ordinal)
         .Replace(facts.Check, "<check>", StringComparison.Ordinal)
         .Replace(facts.Branch, "<branch>", StringComparison.Ordinal)
-        .Replace($"`{facts.Base}`", "<base>", StringComparison.Ordinal);
+        .Replace($"`{facts.Base}`", "<base>", StringComparison.Ordinal)
+        .Replace(facts.Job.ToString("D"), "<job>", StringComparison.Ordinal)
+        .Replace(facts.Start, "<start>", StringComparison.Ordinal)
+        .Replace(facts.Url, "<url>", StringComparison.Ordinal);
 }
