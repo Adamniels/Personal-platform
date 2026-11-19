@@ -1,9 +1,10 @@
-// A project Dev flow stopped because something landed on its default branch that Dev flow did not
-// put there, as "Waiting for you" shows it under Stopped: what landed, who did it and when, with a
-// link to the commit; and "I have looked, resume", behind a confirmation that says resuming
-// accepts it. The commit shown travels with the resume, so something that landed since is never
-// accepted unseen. Every text from the code host, the actor among them, is shown as text. See
-// "Watching the default branch" in devflow/README.md.
+// A project Dev flow stopped because something landed on a branch it watches, its default branch or
+// an open feature's, that Dev flow did not put there, as "Waiting for you" shows it under Stopped:
+// the branch, what landed, who did it and when, with a link to the commit; or, for a feature's
+// branch deleted, that it was, with no commit, since none is left; and "I have looked, resume",
+// behind a confirmation that says resuming accepts it. The commit shown travels with the resume, so
+// something that landed since is never accepted unseen. Every text from the code host, the actor
+// among them, is shown as text. See "Watching branches" in devflow/README.md.
 import { Button, Card, Dialog, Status, useToast } from "@platform/ui";
 import { useState } from "react";
 import { type ActionsApi, describe } from "./actions";
@@ -54,6 +55,9 @@ export function StoppedProject({
 	const project = `${stop.owner}/${stop.project_name}`;
 	const short = stop.commit.slice(0, 7);
 	const verb = LANDED[stop.activity_type] ?? "changed";
+	// A deleted branch is at no commit: there is nothing to show or open.
+	const deleted = stop.activity_type === "branch_deletion";
+	const who = stop.actor ?? NOBODY;
 
 	async function resume() {
 		try {
@@ -84,7 +88,7 @@ export function StoppedProject({
 						<Button onClick={() => setConfirming(true)}>
 							I have looked, resume
 						</Button>
-						{linkable(stop.commit_url) ? (
+						{!deleted && linkable(stop.commit_url) ? (
 							<a
 								className={styles.open}
 								href={stop.commit_url}
@@ -106,9 +110,17 @@ export function StoppedProject({
 						>
 							<div className={styles.confirm}>
 								<p className={styles.text}>
-									Resuming accepts what landed on {stop.branch}:{" "}
-									<code className={styles.commit}>{short}</code>, {verb} by{" "}
-									{stop.actor ?? NOBODY}.
+									{deleted ? (
+										<>
+											Resuming accepts that {stop.branch} was deleted by {who}.
+										</>
+									) : (
+										<>
+											Resuming accepts what landed on {stop.branch}:{" "}
+											<code className={styles.commit}>{short}</code>, {verb} by{" "}
+											{who}.
+										</>
+									)}
 								</p>
 								<p className={styles.text}>
 									Dev flow hands out work on this project again.
@@ -124,8 +136,12 @@ export function StoppedProject({
 					<span>{project}</span>
 				</p>
 				<p className={styles.text}>
-					<code className={styles.commit}>{short}</code> {verb} by{" "}
-					{stop.actor === null ? NOBODY : <span>{stop.actor}</span>},{" "}
+					{deleted ? (
+						<span>{stop.branch}</span>
+					) : (
+						<code className={styles.commit}>{short}</code>
+					)}{" "}
+					{verb} by {stop.actor === null ? NOBODY : <span>{stop.actor}</span>},{" "}
 					<time dateTime={stop.landed_at}>
 						{DATE_TIME.format(new Date(stop.landed_at))}
 					</time>

@@ -642,6 +642,108 @@ def test_something_landed_on_main_and_i_resume(
     expect(page.get_by_role("tab", name="Waiting for you", exact=True)).to_be_visible()
 
 
+FEATURE_BRANCH = "feature-60-the-feature-s-branch"
+ON_THE_FEATURE = "fe12cd34" + "0" * 32
+
+
+def test_a_change_on_a_features_branch_stops_the_project(
+    page: Page, invite_code: str, base_url: str, devflow_world, viewport: str
+):
+    """Another login pushes to a feature's branch: the project stops and waits
+    for the owner, as for the default branch, and resuming starts it again.
+    See "Watching branches" in devflow/README.md."""
+    register_and_log_in(page, invite_code, base_url)
+    world = one_repository()
+    add_issue(
+        world, 60, "The feature's branch", labels=["devflow"], sub_issues=[61, 62]
+    )
+    add_issue(world, 61, "Make the feature's branch")
+    add_issue(world, 62, "Watch it")
+    add_file(
+        world,
+        ".devflow/project.json",
+        json.dumps({"version": 1, "check": CHECK, "start": "", "url": ""}).encode(),
+    )
+    _open_project(page, base_url, devflow_world, world)
+    project = page.url.rsplit("/", 1)[1]
+    given = page.request.put(
+        "/devflow/api/claude-login",
+        data={"token": CLAUDE_TOKEN},
+        headers={"Origin": base_url},
+    )
+    assert given.status == 200, given.text()
+    _read(page, base_url, project)
+
+    # The feature's first card is handed out, so the app makes its branch,
+    # and the next read begins the branch's watch at its creation.
+    taken = page.request.post(
+        "/devflow/api/fake/worker/run",
+        data={"project_id": project, "keep_running": True},
+        headers={"Origin": base_url},
+    )
+    assert taken.status == 200, taken.text()
+    _read(page, base_url, project)
+
+    staged = page.request.get("/devflow/api/fake/world").json()
+    changes = repository(staged).get("activity", [])
+    assert [each["kind"] for each in changes if each["branch"] == FEATURE_BRANCH] == [
+        "branch_creation"
+    ]
+    add_activity(
+        staged,
+        max(each["id"] for each in changes) + 1,
+        after=ON_THE_FEATURE,
+        actor="octo-stranger",
+        branch=FEATURE_BRANCH,
+        at=LATER,
+    )
+    devflow_world(staged)
+    _read(page, base_url, project)
+
+    page.goto("/devflow")
+    expect(page.get_by_role("tab", name="Waiting for you 1")).to_be_visible()
+    stopped = page.get_by_role("region", name="Stopped").get_by_role(
+        "article",
+        name=f"Something landed on {FEATURE_BRANCH} that Dev flow did not put there",
+    )
+    expect(stopped.get_by_text("Stopped", exact=True)).to_be_visible()
+    expect(stopped.get_by_text(f"{OWNER}/{NAME}")).to_be_visible()
+    expect(stopped.locator("code")).to_have_text(ON_THE_FEATURE[:7])
+    expect(stopped.get_by_text("octo-stranger")).to_be_visible()
+    expect(
+        stopped.get_by_role("link", name="Open the commit on GitHub")
+    ).to_have_attribute(
+        "href", f"https://github.com/{OWNER}/{NAME}/commit/{ON_THE_FEATURE}"
+    )
+    page.evaluate("document.fonts.ready.then(() => null)")
+    for check in (
+        assert_headings_are_capitals,
+        assert_nothing_scrolls_sideways,
+        assert_active_is_inverted,
+        assert_nothing_active_is_amber,
+    ):
+        check(page)
+    capture(page, "devflow-feature-branch-stopped")
+
+    stopped.get_by_role("button", name="I have looked, resume").click()
+    dialog = page.get_by_role("dialog", name=f"Resume {OWNER}/{NAME}?")
+    expect(
+        dialog.get_by_text(f"Resuming accepts what landed on {FEATURE_BRANCH}")
+    ).to_be_visible()
+    expect(dialog.locator("code")).to_have_text(ON_THE_FEATURE[:7])
+    dialog.get_by_role("button", name="Resume").click()
+
+    expect(page.get_by_text(f"Resumed {OWNER}/{NAME}")).to_be_visible()
+    expect(stopped).to_have_count(0)
+    expect(page.get_by_role("tab", name="Waiting for you", exact=True)).to_be_visible()
+
+    # The project hands out work again: what was accepted is not judged again,
+    # and its page holds nothing back.
+    _read(page, base_url, project)
+    page.goto(f"/devflow/projects/{project}")
+    expect(page.get_by_text("No work is handed out")).to_have_count(0)
+
+
 def test_a_pull_request_that_is_not_my_turn_is_not_listed(
     page: Page, invite_code: str, base_url: str, devflow_world
 ):

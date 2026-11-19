@@ -43,7 +43,7 @@ export const rebuildNotice = (
 export const heldNotice = (held: string): string => {
 	switch (held) {
 		case "stopped":
-			return "No work is handed out: something landed on its default branch that Dev flow did not put there. Look at it under Waiting for you, and resume it there";
+			return "No work is handed out: something landed on a branch Dev flow watches, its default branch or a feature's, that Dev flow did not put there. Look at it under Waiting for you, and resume it there";
 		case "unwatched":
 			return "No work is handed out: Dev flow has not read its default branch in the last five minutes, and starts again once it has";
 		case "claude_login_expired":

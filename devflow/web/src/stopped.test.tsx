@@ -161,6 +161,60 @@ describe("a stopped project", () => {
 		).toBeTruthy();
 	});
 
+	test("names a feature's branch it was stopped by", async () => {
+		const branch = "feature-60-the-feature-s-branch";
+		open([stop({ branch, actor: "octo-stranger" })]);
+
+		const item = within(
+			await within(screen.getByRole("tabpanel")).findByRole("article", {
+				name: `Something landed on ${branch} that Dev flow did not put there`,
+			}),
+		);
+		expect(item.getByText("ab12cd3").tagName).toBe("CODE");
+		expect(item.getByText("octo-stranger")).toBeTruthy();
+	});
+
+	test("a deleted branch shows no commit, and resuming accepts the deletion", async () => {
+		const branch = "feature-60-the-feature-s-branch";
+		const { resumes } = open([
+			stop({
+				branch,
+				activity_type: "branch_deletion",
+				actor: "octo-owner",
+				commit: "0".repeat(40),
+				commit_url: `https://github.com/Adamniels/Personal-platform/commit/${"0".repeat(40)}`,
+			}),
+		]);
+
+		const item = within(
+			await within(screen.getByRole("tabpanel")).findByRole("article", {
+				name: `Something landed on ${branch} that Dev flow did not put there`,
+			}),
+		);
+		expect(item.queryByText("0000000")).toBeNull();
+		expect(item.queryByRole("link")).toBeNull();
+		expect(item.getByText(/branch deleted by/)).toBeTruthy();
+		expect(item.getByText(branch)).toBeTruthy();
+
+		fireEvent.click(
+			item.getByRole("button", { name: "I have looked, resume" }),
+		);
+		const dialog = within(
+			await screen.findByRole("dialog", {
+				name: "Resume Adamniels/Personal-platform?",
+			}),
+		);
+		expect(
+			dialog.getByText(
+				`Resuming accepts that ${branch} was deleted by octo-owner.`,
+			),
+		).toBeTruthy();
+		fireEvent.click(dialog.getByRole("button", { name: "Resume" }));
+		await waitFor(() =>
+			expect(resumes).toHaveBeenCalledWith(PROJECT, "0".repeat(40)),
+		);
+	});
+
 	test("a commit address that is not https is not linked", async () => {
 		open([stop({ commit_url: "javascript:alert(1)" })]);
 
