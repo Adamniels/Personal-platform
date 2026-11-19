@@ -116,3 +116,29 @@ public abstract record WriteResult<T>
     /// whether it was done, or what it made, is not known.</summary>
     public sealed record Unavailable(DateTimeOffset? RetryAt) : WriteResult<T>;
 }
+/// <summary>
+/// What making a branch answers. A closed set, as <see cref="WriteResult{T}"/> is, so a
+/// <c>switch</c> over the four is complete. Nothing is retried in a code host; the caller decides.
+/// </summary>
+public abstract record BranchResult
+{
+    private BranchResult()
+    {
+    }
+
+    /// <summary>Made, at <paramref name="Commit"/>, the full id of the commit the host made it
+    /// at.</summary>
+    public sealed record Made(string Commit) : BranchResult;
+
+    /// <summary>The repository has a branch of that name already, so nothing was made.</summary>
+    public sealed record Exists : BranchResult;
+
+    /// <summary>The host refused it, with its HTTP <paramref name="Status"/> and its own words,
+    /// data, or null when it gave none: a key it does not take, a branch to make it from that is
+    /// not there, or a name it does not take.</summary>
+    public sealed record Refused(int Status, string? Message) : BranchResult;
+
+    /// <summary>The host did not answer, or answered a success in a shape that does not parse, so
+    /// whether it was made is not known.</summary>
+    public sealed record Unavailable(DateTimeOffset? RetryAt) : BranchResult;
+}

@@ -200,9 +200,9 @@ public sealed partial class PullRequestTests
     private static Task Opening(Jobs.Jobs jobs) =>
         jobs.Routes.App.Services.GetRequiredService<PullRequestOpener>().OpenPending(jobs.Project, Jobs.Jobs.User, Ct);
 
-    /// <summary>The body the report of <see cref="Built.Report"/> gives card 4, built on
+    /// <summary>The body the report of <see cref="Built.Report"/> gives a card on its own, built on
     /// <paramref name="head"/> by <paramref name="run"/>.</summary>
-    private static string Body(int card, string head, Guid run) => $"""
+    internal static string Body(int card, string head, Guid run) => $"""
         ## Summary
 
         Added the empty state to the habits list.

@@ -26,8 +26,10 @@ namespace DevFlow.Jobs;
 /// an agent that changed nothing, and names the commit it was handed; and a build makes none and
 /// names none, as a run that failed before anything was pushed. For a build or a fix whose
 /// result lists pictures, <paramref name="Pictures"/> holds their bytes by name, base64 in the
-/// JSON, which it puts where a worker pushes them.</summary>
-public sealed record FakeWorkerRun(Guid? ProjectId, ResultRequest? Result, bool? LeaveNoCommit = null, IReadOnlyDictionary<string, byte[]>? Pictures = null);
+/// JSON, which it puts where a worker pushes them. With <paramref name="KeepRunning"/>, it takes the
+/// job and sends nothing back, as a worker still at it, so the card stays where taking it put it;
+/// no result is needed then.</summary>
+public sealed record FakeWorkerRun(Guid? ProjectId, ResultRequest? Result, bool? LeaveNoCommit = null, IReadOnlyDictionary<string, byte[]>? Pictures = null, bool? KeepRunning = null);
 
 /// <summary>What the fake worker did: the job it took, its kind, its card, and the commit it left
 /// on the branch, or for a review the commit it reviewed; null for a build that left none.</summary>
@@ -79,15 +81,15 @@ public static class FakeWorkerEndpoints
         [FromServices] TimeProvider time)
     {
         var cancellationToken = context.RequestAborted;
-        if (request.ProjectId is not { } projectId || request.Result is not { } prepared)
+        var keepRunning = request.KeepRunning == true;
+        if (request.ProjectId is not { } projectId || (request.Result is null && !keepRunning))
         {
-            return Invalid("project_id and result are both required");
+            return Invalid("project_id and result are both required, unless keep_running is true");
         }
 
         // The prepared result is checked before a job is taken, with stand ins for what the fake
         // fills, so a result that breaks a rule leaves the card where it was.
-        var placeholder = prepared with { WorkerId = WorkerId, Branch = "devflow/0", HeadCommit = null };
-        if (JobEndpoints.Errors(placeholder) is { Count: > 0 } errors)
+        if (request.Result is { } given && JobEndpoints.Errors(given with { WorkerId = WorkerId, Branch = "devflow/0", HeadCommit = null }) is { Count: > 0 } errors)
         {
             return Invalid(string.Join("; ", errors.Select(pair => $"result.{pair.Key} {pair.Value[0]}")));
         }
@@ -106,6 +108,14 @@ public static class FakeWorkerEndpoints
             return TypedResults.NoContent();
         }
 
+        if (keepRunning)
+        {
+            // Taken and still running: nothing is pushed and no result comes back.
+            return TypedResults.Ok(new FakeWorkerRan(job.JobId, job.Kind, job.Card.Number, job.Branch, null));
+        }
+
+        // Checked above: a result is given unless the job keeps running.
+        var prepared = request.Result!;
         var now = time.GetUtcNow();
         now = now.AddTicks(-(now.Ticks % 10));
         if (job.ToReview is { } toReview)

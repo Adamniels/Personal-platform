@@ -123,6 +123,33 @@ public sealed class FakeWorkerTests
     }
 
     [Fact]
+    public async Task AJobKeptRunningSendsNothingBack()
+    {
+        await using var jobs = await Jobs.Start([Jobs.Card(4, "Add the empty state"), Jobs.Card(5)]);
+
+        // No result is needed: the job is taken and stays under way, its card building.
+        var response = await jobs.Routes.App.SendJson("POST", Path, Contract.Token, new JsonObject
+        {
+            ["project_id"] = jobs.Project,
+            ["keep_running"] = true,
+        }.ToJsonString());
+
+        Assert.Equal(StatusCodes.Status200OK, response.Response.StatusCode);
+        var answer = await Workers.Workers.Json(response);
+        Assert.Equal(4, (int)answer["card"]!);
+        Assert.Null(answer["head_commit"]);
+        var run = Assert.Single(await jobs.Runs());
+        Assert.Null(run.FinishedAt);
+        Assert.Null(run.HeadCommit);
+        Assert.Equal("building", (await jobs.Card(4)).State);
+
+        // Without it, a result is still required.
+        var missing = await jobs.Routes.App.SendJson("POST", Path, Contract.Token, new JsonObject { ["project_id"] = jobs.Project }.ToJsonString());
+        Assert.Equal(StatusCodes.Status422UnprocessableEntity, missing.Response.StatusCode);
+        Assert.Single(await jobs.Runs());
+    }
+
+    [Fact]
     public async Task AnotherUsersProjectIsNotFound()
     {
         await using var jobs = await Jobs.Start();

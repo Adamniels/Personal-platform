@@ -448,6 +448,12 @@ internal sealed class CountingCodeHost(ICodeHost inner) : ICodeHost
         return inner.CloneAddress(userId, repository, cancellationToken);
     }
 
+    public Task<BranchResult> MakeBranch(Guid userId, AppWriteToken token, CodeHost.Repository repository, string name, string from, CancellationToken cancellationToken)
+    {
+        Record("MakeBranch", userId, repository, $"{name} {from}");
+        return inner.MakeBranch(userId, token, repository, name, from, cancellationToken);
+    }
+
     public Task<WriteResult<PullRequest>> OpenPullRequest(Guid userId, AppWriteToken token, CodeHost.Repository repository, string headBranch, string baseBranch, string title, string body, CancellationToken cancellationToken)
     {
         Record("OpenPullRequest", userId, repository, $"{headBranch} {baseBranch}");

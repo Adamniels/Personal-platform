@@ -13,7 +13,8 @@ namespace DevFlow.PullRequests;
 /// <summary>
 /// Opens the pull request of each card of a project whose run built it and passed its check, as the
 /// app with a <see cref="WritePurpose.Post"/> key, from the card's branch into the branch it was
-/// built on, and moves the card to <c>reviewing</c> with its number, since its head commit has no
+/// built on, its feature's branch for a card of a feature, and moves the card to <c>reviewing</c>
+/// with its number, since its head commit has no
 /// review yet: its review is the project's next job. A pull request the app
 /// already has open for the branch is reused, so opening it again, after an answer that was lost or
 /// on the next minute, never opens a second. Nothing is held while the code host answers: the card
@@ -69,7 +70,7 @@ public sealed partial class PullRequestOpener(UserDb database, ICodeHost host, T
                 }
 
                 var pictures = card.Screenshots is { } taken ? new PullRequestPictures(repository.Owner, repository.Name, taken.Names ?? [], taken.Note) : null;
-                var body = PullRequestText.Body(new PullRequestSource(card.Number, card.RunId, card.Report, card.Check, card.HeadCommit, card.ExitCode, pictures));
+                var body = PullRequestText.Body(new PullRequestSource(card.Number, card.RunId, card.Report, card.Check, card.HeadCommit, card.ExitCode, pictures, card.Feature));
                 switch (await host.OpenPullRequest(userId, key, repository, card.Branch, card.Base, card.Title, body, cancellationToken))
                 {
                     case WriteResult<PullRequest>.Written { Value: var opened }:
@@ -140,7 +141,8 @@ public sealed partial class PullRequestOpener(UserDb database, ICodeHost host, T
                 """
                 SELECT c.number AS Number, coalesce(c.picked_title, c.title) AS Title, r.id AS RunId, r.branch AS Branch,
                        r.base AS Base, r.head_commit AS HeadCommit, r.report::text AS Report, r.check_command AS CheckCommand,
-                       r.check_exit_code AS ExitCode, r.screenshots::text AS Screenshots, r.screenshots_note AS ScreenshotsNote
+                       r.check_exit_code AS ExitCode, r.screenshots::text AS Screenshots, r.screenshots_note AS ScreenshotsNote,
+                       (SELECT f.number FROM features f WHERE f.id = c.feature_id) AS Feature
                 FROM cards c
                 JOIN LATERAL (SELECT * FROM runs WHERE runs.project_id = c.project_id AND runs.card_number = c.number
                               ORDER BY started_at DESC, id DESC LIMIT 1) r ON true
@@ -159,7 +161,7 @@ public sealed partial class PullRequestOpener(UserDb database, ICodeHost host, T
                 using var document = JsonDocument.Parse(row.Report ?? "null");
                 if (Report.TryRead(document.RootElement, out var report, out _))
                 {
-                    pending.Add(new PendingCard(row.Number, row.Title, row.RunId, row.Branch, row.Base, row.HeadCommit!, report, row.CheckCommand, row.ExitCode!.Value, JobStore.Pictures(row.Screenshots, row.ScreenshotsNote)));
+                    pending.Add(new PendingCard(row.Number, row.Title, row.RunId, row.Branch, row.Base, row.HeadCommit!, report, row.CheckCommand, row.ExitCode!.Value, JobStore.Pictures(row.Screenshots, row.ScreenshotsNote), row.Feature));
                 }
             }
 
@@ -198,7 +200,7 @@ public sealed partial class PullRequestOpener(UserDb database, ICodeHost host, T
 
     private sealed record ProjectRow(long Installation, long RepositoryId, string Owner, string Name);
 
-    private sealed record PendingRow(int Number, string Title, Guid RunId, string Branch, string Base, string? HeadCommit, string? Report, string? CheckCommand, int? ExitCode, string? Screenshots, string? ScreenshotsNote);
+    private sealed record PendingRow(int Number, string Title, Guid RunId, string Branch, string Base, string? HeadCommit, string? Report, string? CheckCommand, int? ExitCode, string? Screenshots, string? ScreenshotsNote, int? Feature);
 
-    private sealed record PendingCard(int Number, string Title, Guid RunId, string Branch, string Base, string HeadCommit, Report Report, string? Check, int ExitCode, ResultScreenshots? Screenshots);
+    private sealed record PendingCard(int Number, string Title, Guid RunId, string Branch, string Base, string HeadCommit, Report Report, string? Check, int ExitCode, ResultScreenshots? Screenshots, int? Feature);
 }

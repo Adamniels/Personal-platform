@@ -4,6 +4,7 @@ using System.Text.Json;
 
 using Dapper;
 
+using DevFlow.Briefs;
 using DevFlow.Cards;
 using DevFlow.Fixing;
 using DevFlow.Protocol;
@@ -23,7 +24,11 @@ namespace DevFlow.Jobs;
 /// <param name="Branch">The branch the work goes on, from <see cref="JobStore.Branch"/>.</param>
 /// <param name="Comments">The owner's comments that ran it again after it stopped, each exactly as
 /// he wrote it; empty for a card that never stopped.</param>
-public sealed record ClaimedCard(Guid RunId, int Number, string Title, string Body, string Branch, IReadOnlyList<string> Comments);
+/// <param name="Base">The branch it is made from: its feature's branch for a card of a feature,
+/// and otherwise the default branch.</param>
+/// <param name="Feature">The feature it is a card of, with what its done cards left, null for a
+/// card on its own.</param>
+public sealed record ClaimedCard(Guid RunId, int Number, string Title, string Body, string Branch, IReadOnlyList<string> Comments, string Base, BriefFeature? Feature = null);
 
 /// <summary>A card taken for its review, with the run made for it and what the review reads of the
 /// build that made the commit.</summary>
@@ -41,7 +46,8 @@ public sealed record ClaimedCard(Guid RunId, int Number, string Title, string Bo
 /// <param name="Earlier">The card's earlier rounds, oldest first, empty on its first review.</param>
 /// <param name="Screenshots">The pictures the worker took of the commit, and its note; null when
 /// it tried none.</param>
-public sealed record ClaimedReview(Guid RunId, int Number, string Title, string Body, string Branch, string Base, string Commit, string Report, string? Check, int CheckExitCode, string CheckOutput, IReadOnlyList<EarlierRound> Earlier, ResultScreenshots? Screenshots = null);
+/// <param name="Feature">The feature it is a card of, null for a card on its own.</param>
+public sealed record ClaimedReview(Guid RunId, int Number, string Title, string Body, string Branch, string Base, string Commit, string Report, string? Check, int CheckExitCode, string CheckOutput, IReadOnlyList<EarlierRound> Earlier, ResultScreenshots? Screenshots = null, BriefFeature? Feature = null);
 
 /// <summary>An earlier round of a card as stored: a fix that succeeded, the review it answered, and
 /// its replies. Its texts are as they were stored.</summary>
@@ -68,7 +74,9 @@ public sealed record EarlierRound(int? Round, string? ReviewedCommit, string? Ve
 /// null without one.</param>
 /// <param name="Review">The review the fix answers, null when there is none.</param>
 /// <param name="Comments">The owner's comments the fix answers, each exactly as he wrote it.</param>
-public sealed record ClaimedFix(Guid RunId, int Number, string Title, string Body, string Branch, string Base, string FromCommit, int? Round, string? Report, KeptReview? Review, IReadOnlyList<string> Comments);
+/// <param name="Feature">The feature it is a card of, with what its done cards left, null for a
+/// card on its own.</param>
+public sealed record ClaimedFix(Guid RunId, int Number, string Title, string Body, string Branch, string Base, string FromCommit, int? Round, string? Report, KeptReview? Review, IReadOnlyList<string> Comments, BriefFeature? Feature = null);
 
 /// <summary>
 /// Jobs in the database, through the door as the project's user: which kind of job a project has
@@ -80,17 +88,42 @@ public static class JobStore
     /// <summary>The longest slug a branch takes from its card's title.</summary>
     public const int MaxSlug = 40;
 
-    /// <summary>What makes a card one to hand out, as SQL over <c>cards</c>: on its own, queued,
-    /// waiting for nothing, picked with its body kept, and with no run under way. A feature's
-    /// cards are built on the feature's branch, which a later slice makes, and never handed out on
-    /// their own. A read can leave a card
+    /// <summary>
+    /// What lets a card of a feature start, as SQL over <c>cards</c>, and nothing for a card on its
+    /// own: its feature is queued or building, no card of the feature has a run under way, and no
+    /// card before it holds it back, <see cref="CardStore.HeldBackBy"/>. So one card of a feature
+    /// runs at a time, the first by position free to start, and a second worker asking meanwhile
+    /// finds the feature's next card held back by the one it took. See "A feature's cards, one at
+    /// a time" in devflow/docs/devflow-architecture.md.
+    /// </summary>
+    private const string FeatureLetsItStart = $"""
+        (cards.feature_id IS NULL OR (
+            EXISTS (SELECT 1 FROM features f WHERE f.id = cards.feature_id AND f.state IN ('queued', 'building'))
+            AND {CardStore.HeldBackBy} IS NULL
+            AND NOT EXISTS (SELECT 1 FROM runs r JOIN cards s ON s.project_id = r.project_id AND s.number = r.card_number
+                            WHERE r.project_id = cards.project_id AND s.feature_id = cards.feature_id AND r.finished_at IS NULL)))
+        """;
+
+    /// <summary>What makes a card free to start, as SQL over <c>cards</c>: queued, waiting for
+    /// nothing, picked with its body kept, with no run under way, and, for a card of a feature,
+    /// what <see cref="FeatureLetsItStart"/> says. A read can leave a card
     /// queued while its run still goes on, when it ignored the card and a later one picked it
     /// again; such a card waits for its run to end, so the unique index <c>runs_one_under_way</c>
     /// stays a backstop rather than the guard.</summary>
-    private const string Takeable = """
-        project_id = @projectId AND feature_id IS NULL AND state = 'queued' AND cardinality(waits_for) = 0 AND picked_body IS NOT NULL
+    internal const string FreeToStart = $"""
+        project_id = @projectId AND state = 'queued' AND cardinality(waits_for) = 0 AND picked_body IS NOT NULL
         AND NOT EXISTS (SELECT 1 FROM runs
                         WHERE runs.project_id = cards.project_id AND runs.card_number = cards.number AND runs.finished_at IS NULL)
+        AND {FeatureLetsItStart}
+        """;
+
+    /// <summary>What makes a card one to hand out, as SQL over <c>cards</c>: free to start, and,
+    /// for a card of a feature, its feature's branch made, which <see cref="FeatureBranchStore"/>
+    /// records before the card is taken.</summary>
+    private const string Takeable = $"""
+        {FreeToStart}
+        AND (cards.feature_id IS NULL
+             OR EXISTS (SELECT 1 FROM features f WHERE f.id = cards.feature_id AND f.branch_base_commit IS NOT NULL))
         """;
 
     /// <summary>
@@ -147,6 +180,16 @@ public static class JobStore
     /// </summary>
     public static string Branch(int number, string title)
     {
+        var slug = Slug(title);
+        return slug.Length == 0
+            ? string.Create(CultureInfo.InvariantCulture, $"devflow/{number}")
+            : string.Create(CultureInfo.InvariantCulture, $"devflow/{number}-{slug}");
+    }
+
+    /// <summary>The slug a branch takes from a title, by <see cref="Branch"/>'s rules; empty when
+    /// nothing is left.</summary>
+    internal static string Slug(string title)
+    {
         ArgumentNullException.ThrowIfNull(title);
         var slug = new StringBuilder(title.Length);
         foreach (var c in title.ToLowerInvariant())
@@ -162,16 +205,15 @@ public static class JobStore
         }
 
         var cut = slug.ToString().TrimEnd('-');
-        cut = cut.Length > MaxSlug ? cut[..MaxSlug].TrimEnd('-') : cut;
-        return cut.Length == 0
-            ? string.Create(CultureInfo.InvariantCulture, $"devflow/{number}")
-            : string.Create(CultureInfo.InvariantCulture, $"devflow/{number}-{cut}");
+        return cut.Length > MaxSlug ? cut[..MaxSlug].TrimEnd('-') : cut;
     }
 
     /// <summary>The kind of job the project has to hand out now, <see cref="DevFlow.Protocol.Job.Review"/>,
     /// then <see cref="DevFlow.Protocol.Job.Fix"/>, then <see cref="DevFlow.Protocol.Job.Build"/>, so
-    /// work in progress finishes before new work starts; null when it has none. Read without a lock, so a worker with nothing to do costs
-    /// Dev flow one query and GitHub nothing.</summary>
+    /// work in progress finishes before new work starts; null when it has none. A build counts a
+    /// card of a feature whose branch is still to be made, which the dispatcher makes first. Read
+    /// without a lock, so a worker with nothing to do costs Dev flow one query and GitHub
+    /// nothing.</summary>
     public static async Task<string?> NextKind(UserDb database, Guid userId, Guid projectId, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(database);
@@ -179,7 +221,7 @@ public static class JobStore
             $"""
             SELECT CASE WHEN EXISTS (SELECT 1 FROM cards WHERE {Reviewable}) THEN 'review'
                         WHEN EXISTS (SELECT 1 FROM cards WHERE {Fixable}) THEN 'fix'
-                        WHEN EXISTS (SELECT 1 FROM cards WHERE {Takeable}) THEN 'build' END
+                        WHEN EXISTS (SELECT 1 FROM cards WHERE {FreeToStart}) THEN 'build' END
             """,
             new { projectId },
             transaction,
@@ -228,7 +270,7 @@ public static class JobStore
         var earlier = await Earlier(transaction, projectId, card.Number, cancellationToken);
         var claimed = new ClaimedReview(
             Guid.CreateVersion7(now), card.Number, card.Title, card.Body, card.Branch, card.Base, card.Commit, card.Report, card.Check, card.CheckExitCode, card.CheckOutput ?? "", earlier,
-            Pictures(card.Screenshots, card.ScreenshotsNote));
+            Pictures(card.Screenshots, card.ScreenshotsNote), await FeatureOf(transaction, projectId, card.Number, cancellationToken));
         await transaction.Connection!.ExecuteAsync(new CommandDefinition(
             """
             INSERT INTO runs (id, project_id, user_id, card_number, worker_id, kind, branch, base, check_command, head_commit, started_at)
@@ -308,7 +350,8 @@ public static class JobStore
             cancellationToken: cancellationToken));
         var review = card.ReviewId is { } reviewId ? await ReviewStore.Of(transaction, reviewId, cancellationToken) : null;
         var comments = JsonSerializer.Deserialize<List<string>>(card.Comments) ?? [];
-        var claimed = new ClaimedFix(Guid.CreateVersion7(now), card.Number, card.Title, card.Body, card.Branch, card.Base, card.FromCommit, card.Round, card.Report, review, comments);
+        var claimed = new ClaimedFix(Guid.CreateVersion7(now), card.Number, card.Title, card.Body, card.Branch, card.Base, card.FromCommit, card.Round, card.Report, review, comments,
+            await FeatureOf(transaction, projectId, card.Number, cancellationToken));
         await transaction.Connection!.ExecuteAsync(new CommandDefinition(
             """
             INSERT INTO runs (id, project_id, user_id, card_number, worker_id, kind, branch, base, check_command, from_commit, fix_round,
@@ -341,7 +384,9 @@ public static class JobStore
     /// Takes the project's first card to hand out, by <see cref="CardStore.QueueOrder"/>, inside
     /// <paramref name="transaction"/>, which runs as the project's user: locks its row with
     /// <c>FOR UPDATE SKIP LOCKED</c>, moves it to <c>building</c>, and records a run for the worker,
-    /// with the <paramref name="check"/> its job carries. Null when there is none, a card another transaction holds included, so two workers asking at
+    /// with the <paramref name="check"/> its job carries, made from its feature's branch for a card
+    /// of a feature and from <paramref name="baseBranch"/>, the default branch, for one on its own.
+    /// Null when there is none, a card another transaction holds included, so two workers asking at
     /// once never get the same card and neither waits for the other.
     /// </summary>
     public static async Task<ClaimedCard?> Claim(NpgsqlTransaction transaction, Guid projectId, Guid userId, Guid workerId, string baseBranch, string check, DateTimeOffset now, CancellationToken cancellationToken)
@@ -351,7 +396,9 @@ public static class JobStore
         ArgumentNullException.ThrowIfNull(check);
         var card = await transaction.Connection!.QuerySingleOrDefaultAsync<Picked>(new CommandDefinition(
             $"""
-            SELECT number AS Number, picked_title AS Title, picked_body AS Body, coalesce(fix_comments, '[]'::jsonb)::text AS Comments FROM cards
+            SELECT number AS Number, picked_title AS Title, picked_body AS Body, coalesce(fix_comments, '[]'::jsonb)::text AS Comments,
+                   (SELECT f.branch FROM features f WHERE f.id = cards.feature_id) AS FeatureBranch
+            FROM cards
             WHERE {Takeable}
             ORDER BY {CardStore.QueueOrder}
             LIMIT 1
@@ -371,16 +418,57 @@ public static class JobStore
             transaction,
             cancellationToken: cancellationToken));
         var comments = JsonSerializer.Deserialize<List<string>>(card.Comments) ?? [];
-        var claimed = new ClaimedCard(Guid.CreateVersion7(now), card.Number, card.Title, card.Body, Branch(card.Number, card.Title), comments);
+        var claimed = new ClaimedCard(Guid.CreateVersion7(now), card.Number, card.Title, card.Body, Branch(card.Number, card.Title), comments, card.FeatureBranch ?? baseBranch,
+            await FeatureOf(transaction, projectId, card.Number, cancellationToken));
         await transaction.Connection!.ExecuteAsync(new CommandDefinition(
             """
             INSERT INTO runs (id, project_id, user_id, card_number, worker_id, kind, branch, base, check_command, owner_comments, started_at)
             VALUES (@id, @projectId, @userId, @number, @workerId, 'build', @branch, @baseBranch, @check, @comments::jsonb, @now)
             """,
-            new { id = claimed.RunId, projectId, userId, number = claimed.Number, workerId, branch = claimed.Branch, baseBranch, check, comments = comments.Count == 0 ? null : card.Comments, now },
+            new { id = claimed.RunId, projectId, userId, number = claimed.Number, workerId, branch = claimed.Branch, baseBranch = claimed.Base, check, comments = comments.Count == 0 ? null : card.Comments, now },
             transaction,
             cancellationToken: cancellationToken));
         return claimed;
+    }
+
+    /// <summary>
+    /// The feature the card is a card of, as its briefs quote it, read inside
+    /// <paramref name="transaction"/>, which runs as the card's user: the parent's number, title and
+    /// body as they were picked; and each other card of it that is done, in position order, with its
+    /// title as picked and the handover note of its newest build or fix that succeeded, empty when
+    /// that report has none. Null for a card on its own.
+    /// </summary>
+    public static async Task<BriefFeature?> FeatureOf(NpgsqlTransaction transaction, Guid projectId, int number, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(transaction);
+        var parent = await transaction.Connection!.QuerySingleOrDefaultAsync<FeatureParent>(new CommandDefinition(
+            """
+            SELECT f.number AS Number, coalesce(f.picked_title, f.title) AS Title, coalesce(f.picked_body, '') AS Body
+            FROM cards c JOIN features f ON f.id = c.feature_id
+            WHERE c.project_id = @projectId AND c.number = @number
+            """,
+            new { projectId, number },
+            transaction,
+            cancellationToken: cancellationToken));
+        if (parent is null)
+        {
+            return null;
+        }
+
+        var done = await transaction.Connection!.QueryAsync<BriefHandover>(new CommandDefinition(
+            """
+            SELECT e.number AS Number, coalesce(e.picked_title, e.title) AS Title,
+                   coalesce((SELECT r.report->>'handover' FROM runs r
+                             WHERE r.project_id = e.project_id AND r.card_number = e.number AND r.kind IN ('build', 'fix') AND r.result = 'succeeded'
+                             ORDER BY r.started_at DESC, r.id DESC LIMIT 1), '') AS Note
+            FROM cards c JOIN cards e ON e.project_id = c.project_id AND e.feature_id = c.feature_id
+            WHERE c.project_id = @projectId AND c.number = @number AND e.number <> c.number AND e.state = 'done'
+            ORDER BY e.position
+            """,
+            new { projectId, number },
+            transaction,
+            cancellationToken: cancellationToken));
+        return new BriefFeature(parent.Number, parent.Title, parent.Body, [.. done]);
     }
 
     /// <summary>Whether <paramref name="runId"/> is a build or a fix run of the project, under way,
@@ -403,7 +491,9 @@ public static class JobStore
     /// <summary>What a card under review says while its run is under way.</summary>
     public const string BeingReviewed = "The reviewer is reading it";
 
-    private sealed record Picked(int Number, string Title, string Body, string Comments);
+    private sealed record Picked(int Number, string Title, string Body, string Comments, string? FeatureBranch);
+
+    private sealed record FeatureParent(int Number, string Title, string Body);
 
     private sealed record ToFix(int Number, string Title, string Body, string Branch, string Base, string FromCommit, int? Round, Guid? ReviewId, string Comments, string? Report);
 

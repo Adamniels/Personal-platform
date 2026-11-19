@@ -187,8 +187,8 @@ public static class CardStory
         return await database.InUserTransaction<CardStoryView?>(userId, async transaction =>
         {
             var card = await transaction.Connection!.QuerySingleOrDefaultAsync<CardRow>(new CommandDefinition(
-                """
-                SELECT number AS Number, title AS Title, web_url AS WebUrl, state AS State, reason AS Reason,
+                $"""
+                SELECT number AS Number, title AS Title, web_url AS WebUrl, state AS State, {CardStore.ShownReason} AS Reason,
                        pull_request_number AS PullRequestNumber, pull_request_url AS PullRequestUrl
                 FROM cards WHERE project_id = @projectId AND number = @number
                 """,

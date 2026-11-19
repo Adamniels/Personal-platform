@@ -274,6 +274,34 @@ public static class CardStore
         return ids;
     }
 
+    /// <summary>
+    /// The number of the card that holds a card of a feature back, as SQL over <c>cards</c>: the
+    /// nearest before it in its feature that is not <c>done</c>, <c>stopped</c> or <c>held</c>, so
+    /// whatever else it is, queued, ignored, under way or waiting for the owner, it comes first.
+    /// Null for a card with none before it in such a state, and for a card on its own. A stopped
+    /// or held card holds back only itself, and what is blocked by it on GitHub, which picking
+    /// records in <c>waits_for</c>. See "A feature's cards, one at a time" in
+    /// devflow/docs/devflow-architecture.md.
+    /// </summary>
+    public const string HeldBackBy = """
+        (SELECT e.number FROM cards e
+         WHERE e.project_id = cards.project_id AND e.feature_id = cards.feature_id AND e.position < cards.position
+           AND e.state NOT IN ('done', 'stopped', 'held')
+         ORDER BY e.position DESC LIMIT 1)
+        """;
+
+    /// <summary>
+    /// A card's reason as the page shows it, as SQL over <c>cards</c>: its own, and for a queued
+    /// card of a feature with none, "Waits for #&lt;n&gt;, earlier in the feature" while
+    /// <see cref="HeldBackBy"/> names one. Computed when it is read rather than stored, since the
+    /// card before it moves on without a read of the project.
+    /// </summary>
+    public const string ShownReason = $"""
+        CASE WHEN cards.state = 'queued' AND cards.reason IS NULL AND cards.feature_id IS NOT NULL AND {HeldBackBy} IS NOT NULL
+             THEN 'Waits for #' || {HeldBackBy} || ', earlier in the feature'
+             ELSE cards.reason END
+        """;
+
     /// <summary>The order queued cards free to start are handed out in, as SQL over <c>cards</c>:
     /// <c>priority: high</c>, then no priority, then <c>priority: low</c>, each oldest first by when
     /// the issue was written. Handing out a job takes the first, see
@@ -281,8 +309,9 @@ public static class CardStore
     public const string QueueOrder = "CASE priority WHEN 'high' THEN 0 WHEN 'none' THEN 1 ELSE 2 END, issue_created_at, number";
 
     /// <summary>The numbers of the project's cards on their own that are queued and free to start,
-    /// in the order they are handed out, <see cref="QueueOrder"/>. A feature's cards are not
-    /// handed out on their own: building them is the feature's branch's, a later slice's.</summary>
+    /// in the order they are handed out, <see cref="QueueOrder"/>. A feature's cards are left out:
+    /// which of them is next is the feature's own rule, <see cref="HeldBackBy"/>, which
+    /// <see cref="Jobs.JobStore"/> applies when it hands one out.</summary>
     public static async Task<IReadOnlyList<int>> Queue(UserDb database, Guid userId, Guid projectId, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(database);
@@ -299,7 +328,8 @@ public static class CardStore
 
     /// <summary>The project's features as last read, in the order their cards would be taken,
     /// <see cref="QueueOrder"/>, each with its cards by position; and its cards on their own,
-    /// newest change first. Null when the user has no such project.</summary>
+    /// newest change first; each card's reason as <see cref="ShownReason"/> gives it. Null when the
+    /// user has no such project.</summary>
     public static async Task<CardList?> List(UserDb database, Guid userId, Guid projectId, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(database);
@@ -312,8 +342,8 @@ public static class CardStore
             }
 
             var rows = (await transaction.Connection!.QueryAsync<ListedCard>(new CommandDefinition(
-                """
-                SELECT number AS Number, title AS Title, web_url AS WebUrl, state AS State, reason AS Reason, waits_for AS WaitsFor,
+                $"""
+                SELECT number AS Number, title AS Title, web_url AS WebUrl, state AS State, {ShownReason} AS Reason, waits_for AS WaitsFor,
                        priority AS Priority, changed_at AS ChangedAt, feature_id AS FeatureId
                 FROM cards WHERE project_id = @projectId
                 ORDER BY position NULLS LAST, changed_at DESC, number DESC

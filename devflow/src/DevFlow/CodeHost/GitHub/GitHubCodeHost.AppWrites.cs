@@ -88,6 +88,58 @@ public sealed partial class GitHubCodeHost
         return ToMergeResult(await Send(HttpMethod.Put, Invariant($"{Repo(repository)}/pulls/{number}/merge"), new MergeBody(commit, "merge"), token.Value, cancellationToken));
     }
 
+    /// <summary>What GitHub says with <c>422</c> for a ref whose name is taken.</summary>
+    internal const string ReferenceExists = "Reference already exists";
+
+    /// <summary>
+    /// <c>GET /repos/{owner}/{repo}/git/ref/heads/{from}</c> for the commit <paramref name="from"/>
+    /// is at, then <c>POST /repos/{owner}/{repo}/git/refs</c> with <c>ref</c>
+    /// <c>refs/heads/{name}</c> and that <c>sha</c>, both with the push key, which GitHub files
+    /// under contents. <c>201</c> is made, at the commit GitHub answers; <c>422</c> with
+    /// <see cref="ReferenceExists"/> is a branch that exists, and never moved, since the request
+    /// only creates; any other answer is refused with GitHub's words, or unavailable without one.
+    /// </summary>
+    public async Task<BranchResult> MakeBranch(Guid userId, AppWriteToken token, Repository repository, string name, string from, CancellationToken cancellationToken)
+    {
+        Require(token, WritePurpose.Push, repository);
+        ArgumentException.ThrowIfNullOrEmpty(name);
+        ArgumentException.ThrowIfNullOrEmpty(from);
+        var head = Ref(await Send<object>(HttpMethod.Get, $"{Repo(repository)}/git/ref/heads/{Segments(from)}", null, token.Value, cancellationToken), HttpStatusCode.OK);
+        if (head is not BranchResult.Made { Commit: var commit })
+        {
+            return head;
+        }
+
+        var answer = await Send(HttpMethod.Post, $"{Repo(repository)}/git/refs", new RefBody($"refs/heads/{name}", commit), token.Value, cancellationToken);
+        return answer is { Status: HttpStatusCode.UnprocessableEntity } && Message(answer.Body) == ReferenceExists
+            ? new BranchResult.Exists()
+            : Ref(answer, HttpStatusCode.Created);
+    }
+
+    /// <summary>A ref's answer: <paramref name="success"/> with a full commit id in
+    /// <c>object.sha</c> is made at it; any other status refused, with GitHub's words; and no
+    /// answer, or a success that does not parse, unavailable.</summary>
+    private static BranchResult Ref(GitHubHttp.Answer? answer, HttpStatusCode success)
+    {
+        if (answer is null)
+        {
+            return new BranchResult.Unavailable(RetryAt: null);
+        }
+
+        if (answer.Status != success)
+        {
+            return new BranchResult.Refused((int)answer.Status, Message(answer.Body));
+        }
+
+        return Parse<RefAnswer>(answer.Body)?.Object is { Sha: var sha } && CommitId().IsMatch(sha)
+            ? new BranchResult.Made(sha)
+            : new BranchResult.Unavailable(RetryAt: null);
+    }
+
+    /// <summary>A branch's name in an address, each part between its slashes escaped, since a
+    /// branch may be named with them.</summary>
+    private static string Segments(string branch) => string.Join('/', branch.Split('/').Select(Escape));
+
     private static void Require(AppWriteToken token, WritePurpose purpose, Repository repository)
     {
         ArgumentNullException.ThrowIfNull(token);
@@ -134,4 +186,13 @@ public sealed partial class GitHubCodeHost
 
     /// <summary>What opening an issue sends.</summary>
     private sealed record IssueBody(string Title, string Body, IReadOnlyList<string> Labels);
+
+    /// <summary>What making a branch sends: its full ref and the commit it is made at.</summary>
+    private sealed record RefBody(string Ref, string Sha);
+
+    /// <summary>A ref as GitHub answers one, of which only the commit is read.</summary>
+    private sealed record RefAnswer(RefObject Object);
+
+    /// <summary>What a ref points at.</summary>
+    private sealed record RefObject(string Sha);
 }

@@ -53,7 +53,8 @@ public abstract record FreshKey
 /// project is stopped or its default branch not watched lately, when its project's user has no
 /// Claude login or one past its renewal, or when its project has no card to take; otherwise the
 /// kind of job is chosen, a review before a fix before a build, everything that job needs from the code host is
-/// read first, as the app, with a key for that kind, and only then is a card of that kind taken, in
+/// read first, as the app, with a key for that kind, a feature's branch made for its first card,
+/// and only then is a card of that kind taken, in
 /// one short transaction as the project's user, so no lock is held while GitHub is asked.
 /// That transaction reads the watch's hold again under the project's lock, so a stop recorded
 /// while GitHub was asked still holds the card back. Anything the code host does not answer is no
@@ -133,6 +134,13 @@ public sealed partial class Dispatcher(
             return new NextJob.None();
         }
 
+        // A feature's first card is built on the feature's branch, so the app makes it first, with
+        // the job's push key, outside the lock as every read for a job is.
+        if (kind == Job.Build && !await FeatureBranch(projectId, userId, repository, facts.DefaultBranch, key, cancellationToken))
+        {
+            return new NextJob.None();
+        }
+
         var now = Now();
         var job = await database.InUserTransaction<Job?>(userId, async transaction =>
         {
@@ -170,15 +178,16 @@ public sealed partial class Dispatcher(
 
         var brief = Brief.Developer(
             new BriefCard(claimed.Number, claimed.Title, claimed.Body),
-            new BriefFacts(facts.Check, claimed.Branch, facts.DefaultBranch, claimed.RunId, facts.Start, facts.Url),
-            claimed.Comments);
+            new BriefFacts(facts.Check, claimed.Branch, claimed.Base, claimed.RunId, facts.Start, facts.Url),
+            claimed.Comments,
+            claimed.Feature);
         return new Job(
             claimed.RunId,
             Job.Build,
             new JobCard(claimed.Number, claimed.Title, claimed.Body),
             new JobRepository(repository.Owner, repository.Name, facts.CloneAddress, facts.DefaultBranch),
             claimed.Branch,
-            facts.DefaultBranch,
+            claimed.Base,
             brief,
             ReportSchema,
             facts.Check,
@@ -204,7 +213,8 @@ public sealed partial class Dispatcher(
         var brief = Brief.Fixer(
             new BriefCard(claimed.Number, claimed.Title, claimed.Body),
             new BriefFacts(facts.Check, claimed.Branch, claimed.Base, claimed.RunId, facts.Start, facts.Url),
-            new FixInput(claimed.Round, claimed.Report, claimed.Review?.Verdict, claimed.Comments));
+            new FixInput(claimed.Round, claimed.Report, claimed.Review?.Verdict, claimed.Comments),
+            claimed.Feature);
         return new Job(
             claimed.RunId,
             Job.Fix,
@@ -236,7 +246,7 @@ public sealed partial class Dispatcher(
         }
 
         var card = new BriefCard(claimed.Number, claimed.Title, claimed.Body);
-        var brief = Brief.Reviewer(card, new ReviewFacts(claimed.Commit, claimed.Branch, claimed.Base, claimed.Earlier.Count));
+        var brief = Brief.Reviewer(card, new ReviewFacts(claimed.Commit, claimed.Branch, claimed.Base, claimed.Earlier.Count), claimed.Feature);
         using var report = JsonDocument.Parse(claimed.Report);
         return new Job(
             claimed.RunId,
@@ -342,6 +352,51 @@ public sealed partial class Dispatcher(
         return null;
     }
 
+    /// <summary>
+    /// Makes the branch of the feature whose card is next, when it has none, at the head of
+    /// <paramref name="defaultBranch"/>, as the app with <paramref name="key"/>, and records it on
+    /// the feature with the commit. True when there is nothing to make, another worker is making
+    /// it, it is made, or a branch of its name is there already, when the feature waits for the
+    /// owner and the next card is another's; false when the code host did not make it now, and the
+    /// worker asks again. See "A feature's branch" in devflow/docs/devflow-architecture.md.
+    /// </summary>
+    private async Task<bool> FeatureBranch(Guid projectId, Guid userId, Repository repository, string defaultBranch, AppWriteToken key, CancellationToken cancellationToken)
+    {
+        if (await FeatureBranchStore.Due(database, userId, projectId, cancellationToken) is not { } feature)
+        {
+            return true;
+        }
+
+        var branch = FeatureBranchStore.Name(feature.Number, feature.Title);
+        if (!await FeatureBranchStore.Claim(database, userId, feature.Id, branch, Now(), cancellationToken))
+        {
+            return true;
+        }
+
+        switch (await host.MakeBranch(userId, key, repository, branch, defaultBranch, cancellationToken))
+        {
+            case BranchResult.Made { Commit: var commit }:
+                await FeatureBranchStore.Made(database, userId, feature.Id, branch, commit, Now(), cancellationToken);
+                LogBranchMade(log, projectId, feature.Number, branch);
+                return true;
+            case BranchResult.Exists:
+                // Not Dev flow's, since its making was claimed before GitHub was asked: never taken.
+                await FeatureBranchStore.Taken(database, userId, feature.Id, branch, Now(), cancellationToken);
+                LogBranchExists(log, projectId, feature.Number, branch);
+                return true;
+            case BranchResult.Refused { Status: var status }:
+                await FeatureBranchStore.Released(database, userId, feature.Id, branch, Now(), cancellationToken);
+                LogBranchRefused(log, projectId, feature.Number, status);
+                return false;
+            case BranchResult.Unavailable:
+                await FeatureBranchStore.Released(database, userId, feature.Id, branch, Now(), cancellationToken);
+                LogNotRead(log, projectId, "the feature's branch");
+                return false;
+            default:
+                throw new InvalidOperationException("a branch result that is not one of the four");
+        }
+    }
+
     /// <summary>Now, as Postgres keeps it, to the microsecond.</summary>
     private DateTimeOffset Now()
     {
@@ -356,6 +411,15 @@ public sealed partial class Dispatcher(
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "No job for project {ProjectId}: the code host did not answer {What}")]
     private static partial void LogNotRead(ILogger logger, Guid projectId, string what);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Made the branch {Branch} of feature {Feature} of project {ProjectId}")]
+    private static partial void LogBranchMade(ILogger logger, Guid projectId, int feature, string branch);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Feature {Feature} of project {ProjectId} waits for its owner: a branch named {Branch} already exists")]
+    private static partial void LogBranchExists(ILogger logger, Guid projectId, int feature, string branch);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "No job for project {ProjectId}: the code host refused to make the branch of feature {Feature}, with {Status}")]
+    private static partial void LogBranchRefused(ILogger logger, Guid projectId, int feature, int status);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "No job for project {ProjectId}: its .devflow/project.json is not valid: {Error}")]
     private static partial void LogBadProjectFile(ILogger logger, Guid projectId, string error);

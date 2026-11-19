@@ -350,6 +350,74 @@ public sealed partial class FakeCodeHost : IDisposable
         }));
     }
 
+    /// <summary>
+    /// As GitHub makes a branch: unavailable when the account says so, refused with <c>401</c> for
+    /// a key the account's ledger does not hold for this repository and purpose, or with
+    /// <c>404</c> for a repository the world does not hold; otherwise in the repository's git
+    /// repository, at the commit <paramref name="from"/> is at, with <c>update-ref</c> told the
+    /// branch must not be there, so one that is answers <see cref="BranchResult.Exists"/> and is
+    /// never moved. A <paramref name="from"/> with no commit is given the fake's first commit
+    /// first, by the app, as a real repository has one, which the fake worker does too. A name git
+    /// does not take is refused with <c>422</c>. The branch made is recorded as the app's write,
+    /// <c>branch</c>, with the push key's purpose.
+    /// </summary>
+    public async Task<BranchResult> MakeBranch(Guid userId, AppWriteToken token, Repository repository, string name, string from, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(token);
+        token.Require(WritePurpose.Push, repository);
+        ArgumentException.ThrowIfNullOrEmpty(name);
+        ArgumentException.ThrowIfNullOrEmpty(from);
+        var account = Of(userId);
+        if (account.Unavailable)
+        {
+            return new BranchResult.Unavailable(RetryAt: null);
+        }
+
+        if (!TakesKey(account, token, repository))
+        {
+            return new BranchResult.Refused(StatusCodes.Status401Unauthorized, BadCredentials);
+        }
+
+        if (await CloneAddress(userId, repository, cancellationToken) is not CodeHostResult<Uri>.Found)
+        {
+            return Find(Of(userId).World, repository) is null
+                ? new BranchResult.Refused(StatusCodes.Status404NotFound, NotFoundMessage)
+                : new BranchResult.Unavailable(RetryAt: null);
+        }
+
+        var head = await BranchCommit(userId, repository, from, cancellationToken)
+            ?? await CommitOnBranch(userId, repository, from, from, "The first commit, by the fake", new Committer(AppLogin, AppEmail), cancellationToken);
+        if (head is null)
+        {
+            return new BranchResult.Unavailable(RetryAt: null);
+        }
+
+        await _git.WaitAsync(cancellationToken);
+        try
+        {
+            if ((await Git(cancellationToken, "check-ref-format", $"refs/heads/{name}")).Exit != 0)
+            {
+                return new BranchResult.Refused(StatusCodes.Status422UnprocessableEntity, ValidationFailed);
+            }
+
+            if (await BranchCommit(userId, repository, name, cancellationToken) is not null
+                || (await Git(cancellationToken, "--git-dir", GitPath(userId, repository), "update-ref", $"refs/heads/{name}", head, new string('0', head.Length))).Exit != 0)
+            {
+                return new BranchResult.Exists();
+            }
+        }
+        finally
+        {
+            _git.Release();
+        }
+
+        Change(userId, changed => changed with
+        {
+            Writes = [.. changed.Writes, new FakeWrite("branch", repository.Id, 0, head, null, null, AppLogin, "push", Branch: name)],
+        });
+        return new BranchResult.Made(head);
+    }
+
     /// <summary>The purpose a post key's writes are recorded with.</summary>
     private const string Post = "post";
 
@@ -407,11 +475,7 @@ public sealed partial class FakeCodeHost : IDisposable
                 return unavailable;
             }
 
-            if (!account.Keys.TryGetValue(token.Value, out var issued)
-                || issued.Installation != repository.Installation
-                || issued.Repository != repository.Id
-                || issued.Purpose != token.Purpose
-                || _time.GetUtcNow() >= issued.ExpiresAt)
+            if (!TakesKey(account, token, repository))
             {
                 return refused(StatusCodes.Status401Unauthorized, BadCredentials);
             }
@@ -434,6 +498,15 @@ public sealed partial class FakeCodeHost : IDisposable
             return result;
         }
     }
+
+    /// <summary>Whether the account's ledger holds <paramref name="token"/> for this repository and
+    /// purpose, and it has not expired, as GitHub takes a key.</summary>
+    private bool TakesKey(Account account, AppWriteToken token, Repository repository) =>
+        account.Keys.TryGetValue(token.Value, out var issued)
+        && issued.Installation == repository.Installation
+        && issued.Repository == repository.Id
+        && issued.Purpose == token.Purpose
+        && _time.GetUtcNow() < issued.ExpiresAt;
 
     private static WriteResult<T> Unavailable<T>() => new WriteResult<T>.Unavailable(RetryAt: null);
 
