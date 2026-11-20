@@ -5,6 +5,7 @@ using Dapper;
 using DevFlow.Cards;
 using DevFlow.CodeHost;
 using DevFlow.Decisions;
+using DevFlow.Features;
 using DevFlow.Fixing;
 using DevFlow.Jobs;
 using DevFlow.Projects;
@@ -351,8 +352,9 @@ public sealed partial class ProjectReader(UserDb database, ICodeHost host, TimeP
     /// The project's items replaced by <paramref name="items"/>, its cards merged with
     /// <paramref name="cards"/>, features among them, by <see cref="CardStore.Store"/>, each waiting card whose pull
     /// request merged or closed moved on by <see cref="CardStore.Follow"/>, the owner's new comments
-    /// taken into their cards by <see cref="OwnerComments.Take"/>, and the read recorded as a
-    /// success, in one transaction through the door: an item still there is updated in place and
+    /// taken into their cards by <see cref="OwnerComments.Take"/>, each feature moved to its end, or
+    /// back from it, by <see cref="FeatureEnd.Advance"/>, and the read recorded as a success, in one
+    /// transaction through the door: an item still there is updated in place and
     /// keeps its id, one gone is deleted. The project's row is locked for share first, so a disconnect waits
     /// for the transaction, and a project disconnected before it stores nothing.
     /// </summary>
@@ -386,6 +388,10 @@ public sealed partial class ProjectReader(UserDb database, ICodeHost host, TimeP
             {
                 await OwnerComments.Take(transaction, projectId, comments, now, cancellationToken);
             }
+
+            // A feature whose cards are now all done moves to its end, and one at its end whose
+            // default branch moved is brought in again, from what was just stored.
+            await FeatureEnd.Advance(transaction, projectId, now, cancellationToken);
 
             foreach (var (label, open) in decisions)
             {
