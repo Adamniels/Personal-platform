@@ -1157,8 +1157,16 @@
             },
             "type": "array"
           },
+          "input_tokens": {
+            "format": "int64",
+            "type": "integer"
+          },
           "number": {
             "format": "int32",
+            "type": "integer"
+          },
+          "output_tokens": {
+            "format": "int64",
             "type": "integer"
           },
           "pull_request": {
@@ -1176,6 +1184,12 @@
               "null",
               "string"
             ]
+          },
+          "runs": {
+            "items": {
+              "$ref": "#/components/schemas/CardRun"
+            },
+            "type": "array"
           },
           "state": {
             "type": "string"
@@ -1195,7 +1209,10 @@
           "reason",
           "branch",
           "pull_request",
-          "cards"
+          "cards",
+          "runs",
+          "input_tokens",
+          "output_tokens"
         ],
         "type": "object"
       },
@@ -1423,6 +1440,16 @@
               }
             ]
           },
+          "to_resolve": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JobConflict"
+              }
+            ]
+          },
           "to_review": {
             "oneOf": [
               {
@@ -1488,6 +1515,21 @@
         "required": [
           "name",
           "email"
+        ],
+        "type": "object"
+      },
+      "JobConflict": {
+        "properties": {
+          "default_commit": {
+            "type": "string"
+          },
+          "feature_commit": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "feature_commit",
+          "default_commit"
         ],
         "type": "object"
       },
@@ -2193,6 +2235,12 @@
             ]
           },
           "permission_denials": {},
+          "remerge_diff": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
           "report": {
             "oneOf": [
               {

@@ -7,8 +7,8 @@ namespace DevFlow.Tests.Features;
 /// Bringing the default branch into a finished feature's branch: once every card of a feature is
 /// done, a read moves it to <c>bringing_in</c>, and the end's minute brings the default branch in
 /// as the app, with a key for merging alone, as a merge commit, recorded under the project's lock
-/// so the watch never judges it unrecorded. Nothing to bring in goes on, a conflict waits for the
-/// owner, and a card not done holds the end. Against real Postgres and the fake code host. See "The
+/// so the watch never judges it unrecorded. Nothing to bring in goes on, a conflict goes to an
+/// agent, and a card not done holds the end. Against real Postgres and the fake code host. See "The
 /// end of a feature" in devflow/README.md and devflow/docs/devflow-architecture.md.
 /// </summary>
 public sealed class BringingInTests
@@ -90,24 +90,25 @@ public sealed class BringingInTests
     }
 
     [Fact]
-    public async Task AConflictWaitsForMe()
+    public async Task AConflictGoesToAnAgent()
     {
         await using var jobs = await Ending.Feature();
         await FeaturePage.Landed(jobs);
-        var moved = await Ending.MoveMain(jobs);
+        await Ending.MoveMain(jobs);
         Merging.Merged.Change(jobs, repository => repository with { Conflicts = [Ending.Branch] });
         await Ending.Done(jobs);
 
         await Ending.ReadAndEnd(jobs);
 
-        // The code host answered a conflict: nothing was made and nothing recorded.
+        // The code host answered a conflict: nothing was made and nothing recorded, and the
+        // feature is resolving, for an agent's job, see ConflictJobTests.
         Assert.Equal(1, Ending.Asked(jobs));
         Assert.Empty(Ending.BringIns(jobs));
         Assert.Single(await Ending.MergesMade(jobs));
         var row = await Ending.Row(jobs);
-        Assert.Equal(("waiting_for_owner", "main conflicts with the feature's branch"), (row.State, row.Reason));
+        Assert.Equal(("resolving", "main conflicts with the feature's branch; an agent resolves it"), (row.State, row.Reason));
         Assert.Null(row.BroughtInCommit);
-        Assert.Equal(moved, row.BringInFailedAt);
+        Assert.Null(row.BringInFailedAt);
         Assert.Null(row.PullRequestNumber);
     }
 

@@ -67,6 +67,9 @@ function story(overrides: Partial<FeatureStory> = {}): FeatureStory {
 				decisions: [],
 			},
 		],
+		runs: [],
+		input_tokens: 0,
+		output_tokens: 0,
 		...overrides,
 	};
 }

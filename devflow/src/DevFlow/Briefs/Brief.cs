@@ -42,6 +42,11 @@ public sealed record ReviewFacts(string Commit, string Branch, string Base, int 
 /// <param name="Comments">The owner's comments the fix answers, each exactly as he wrote it.</param>
 public sealed record FixInput(int? Round, string? Report, ReviewVerdict? Review, IReadOnlyList<string> Comments);
 
+/// <summary>The facts a conflict brief names: the check from the project's
+/// <c>.devflow/project.json</c>, the feature's branch the merge goes on, and the default branch it
+/// brings in, which the agent's copy holds as <c>origin/&lt;default&gt;</c>.</summary>
+public sealed record ConflictFacts(string Check, string Branch, string DefaultBranch);
+
 /// <summary>
 /// The briefs an agent gets, <c>developer.md</c> and <c>reviewer.md</c> beside this file, embedded
 /// in the assembly: the same text for every project, filled with one card and its project's facts.
@@ -135,6 +140,14 @@ public static class Brief
 
         section.Append("Every finding gets a reply in `replies`, and so does each comment of the owner's: the `finding` in a few words, and your `answer`, what you changed or why you did not.\n\n");
         return Developer(card, facts, feature, section.ToString());
+    }
+
+    /// <summary>The conflict brief for <paramref name="feature"/>, with <paramref name="facts"/>.</summary>
+    public static string Conflict(BriefFeature feature, ConflictFacts facts)
+    {
+        ArgumentNullException.ThrowIfNull(feature);
+        ArgumentNullException.ThrowIfNull(facts);
+        return $"# Resolve a conflict\n\nBring `origin/{facts.DefaultBranch}` into `{facts.Branch}` with `git merge`, resolve each conflict and commit the merge. The feature:\n\n{Fenced("text", Quoted(feature))}\n\nThe check:\n\n{Fenced("sh", facts.Check)}\n";
     }
 
     private static string Developer(BriefCard card, BriefFacts facts, BriefFeature? feature, string fix)

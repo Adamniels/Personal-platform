@@ -120,7 +120,8 @@ public static partial class JobEndpoints
                 request.PermissionDenials is { ValueKind: JsonValueKind.Array } denials ? denials : null,
                 request.Screenshots,
                 request.Failure?.TimedOut ?? false,
-                request.Failure?.ResetsAt);
+                request.Failure?.ResetsAt,
+                request.RemergeDiff);
 
     /// <summary>Each field of <paramref name="request"/> that is missing or breaks a rule.</summary>
     internal static Dictionary<string, string[]> Errors(ResultRequest request)

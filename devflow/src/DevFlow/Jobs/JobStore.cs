@@ -78,10 +78,24 @@ public sealed record EarlierRound(int? Round, string? ReviewedCommit, string? Ve
 /// card on its own.</param>
 public sealed record ClaimedFix(Guid RunId, int Number, string Title, string Body, string Branch, string Base, string FromCommit, int? Round, string? Report, KeptReview? Review, IReadOnlyList<string> Comments, BriefFeature? Feature = null);
 
+/// <summary>A feature taken to resolve its conflict with the default branch, with the run made for
+/// it.</summary>
+/// <param name="RunId">The conflict run's id, the job's.</param>
+/// <param name="Feature">The feature's parent as it was picked, and the handover note of each of
+/// its done cards, in its order.</param>
+/// <param name="Branch">The feature's branch, which the merge commit goes on.</param>
+/// <param name="Base">The default branch, which is brought in.</param>
+/// <param name="FeatureCommit">The commit the feature's branch is at, as its watch last named it,
+/// which the job starts from.</param>
+/// <param name="DefaultCommit">The default branch's commit, as its watch last named it, which the
+/// job brings in.</param>
+public sealed record ClaimedConflict(Guid RunId, BriefFeature Feature, string Branch, string Base, string FeatureCommit, string DefaultCommit);
+
 /// <summary>
 /// Jobs in the database, through the door as the project's user: which kind of job a project has
-/// to hand out, reviews before fixes before builds, taking a card for one with its lock, and which run a worker
-/// holds. See "Jobs" and "Review" in devflow/README.md.
+/// to hand out, reviews before fixes before conflicts before builds, taking a card or a feature for
+/// one with its lock, and which run a worker holds. See "Jobs", "Review" and "A conflict" in
+/// devflow/README.md.
 /// </summary>
 public static class JobStore
 {
@@ -177,6 +191,37 @@ public static class JobStore
         """;
 
     /// <summary>
+    /// What makes a feature one to resolve, as SQL over <c>features</c>: <c>resolving</c>, its
+    /// branch made and picked with its body kept, no run of the feature under way, and its branch's
+    /// watch read since <c>@watchedSince</c>; the commits the job starts from and brings in are its
+    /// watch's and the default branch's, <see cref="FeatureHeadOf"/> and <see cref="DefaultHeadOf"/>,
+    /// each known.
+    /// </summary>
+    private const string Resolvable = $"""
+        features.project_id = @projectId AND features.state = 'resolving' AND features.branch IS NOT NULL
+        AND features.branch_base_commit IS NOT NULL AND features.picked_body_sha256 IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM runs
+                        WHERE runs.project_id = features.project_id AND runs.feature_number = features.number AND runs.finished_at IS NULL)
+        AND EXISTS (SELECT 1 FROM branch_watches wb
+                    WHERE wb.project_id = features.project_id AND wb.feature_id = features.id AND wb.last_read_at >= @watchedSince)
+        AND {FeatureHeadOf} IS NOT NULL
+        AND {DefaultHeadOf} IS NOT NULL
+        """;
+
+    /// <summary>The commit a feature's branch is at, as SQL over <c>features</c>: the one its watch
+    /// judged last, or the one it was made at before its watch recorded any.</summary>
+    private const string FeatureHeadOf = """
+        coalesce((SELECT wb.last_commit FROM branch_watches wb WHERE wb.project_id = features.project_id AND wb.feature_id = features.id),
+                 features.branch_base_commit)
+        """;
+
+    /// <summary>The default branch's commit as its watch last named it, as SQL over
+    /// <c>features</c>; null before its watch has.</summary>
+    private const string DefaultHeadOf = """
+        (SELECT wd.last_commit FROM branch_watches wd WHERE wd.project_id = features.project_id AND wd.feature_id IS NULL)
+        """;
+
+    /// <summary>
     /// The branch a card's work goes on, <c>devflow/&lt;number&gt;-&lt;slug&gt;</c>: the slug is the
     /// title lowercased, each run of anything but ASCII letters and digits one hyphen, trimmed of
     /// hyphens, cut to <see cref="MaxSlug"/> characters and trimmed again; <c>devflow/&lt;number&gt;</c>
@@ -213,8 +258,9 @@ public static class JobStore
     }
 
     /// <summary>The kind of job the project has to hand out now, <see cref="DevFlow.Protocol.Job.Review"/>,
-    /// then <see cref="DevFlow.Protocol.Job.Fix"/>, then <see cref="DevFlow.Protocol.Job.Build"/>, so
-    /// work in progress finishes before new work starts; null when it has none. A build counts a
+    /// then <see cref="DevFlow.Protocol.Job.Fix"/>, then <see cref="DevFlow.Protocol.Job.Conflict"/>,
+    /// then <see cref="DevFlow.Protocol.Job.Build"/>, so work in progress finishes before new work
+    /// starts; null when it has none. A build counts a
     /// card of a feature whose branch is still to be made, which the dispatcher makes first; a card
     /// of a feature whose branch has not been read since five minutes before <paramref name="now"/>
     /// counts for none. Read without a lock, so a worker with nothing to do costs Dev flow one query and GitHub
@@ -226,6 +272,7 @@ public static class JobStore
             $"""
             SELECT CASE WHEN EXISTS (SELECT 1 FROM cards WHERE {Reviewable}) THEN 'review'
                         WHEN EXISTS (SELECT 1 FROM cards WHERE {Fixable}) THEN 'fix'
+                        WHEN EXISTS (SELECT 1 FROM features WHERE {Resolvable}) THEN 'conflict'
                         WHEN EXISTS (SELECT 1 FROM cards WHERE {FreeToStart}) THEN 'build' END
             """,
             new { projectId, watchedSince = Watching.WatchStore.WatchedSince(now) },
@@ -386,6 +433,80 @@ public static class JobStore
     }
 
     /// <summary>
+    /// Takes the project's first feature to resolve, by <see cref="CardStore.QueueOrder"/>, inside
+    /// <paramref name="transaction"/>, which runs as the project's user, as <see cref="Claim"/> takes
+    /// a card: locks its row with <c>FOR UPDATE SKIP LOCKED</c>, and records a conflict run for the
+    /// worker, for the feature by its number, on its branch with the default branch,
+    /// <paramref name="defaultBranch"/>, as its base, from the commit the feature's branch is at,
+    /// bringing in the default branch's, with the <paramref name="check"/> its job carries. The
+    /// feature stays <c>resolving</c>, the run under way holding it. Null when there is none.
+    /// </summary>
+    public static async Task<ClaimedConflict?> ClaimConflict(NpgsqlTransaction transaction, Guid projectId, Guid userId, Guid workerId, string defaultBranch, string check, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(transaction);
+        ArgumentException.ThrowIfNullOrEmpty(defaultBranch);
+        ArgumentNullException.ThrowIfNull(check);
+        var feature = await transaction.Connection!.QuerySingleOrDefaultAsync<ToResolve>(new CommandDefinition(
+            $"""
+            SELECT features.id AS Id, features.number AS Number, coalesce(features.picked_title, features.title) AS Title,
+                   coalesce(features.picked_body, '') AS Body, features.branch AS Branch,
+                   {FeatureHeadOf} AS FeatureCommit, {DefaultHeadOf} AS DefaultCommit
+            FROM features
+            WHERE {Resolvable}
+            ORDER BY {CardStore.QueueOrder}
+            LIMIT 1
+            FOR UPDATE OF features SKIP LOCKED
+            """,
+            new { projectId, watchedSince = Watching.WatchStore.WatchedSince(now) },
+            transaction,
+            cancellationToken: cancellationToken));
+        if (feature is null)
+        {
+            return null;
+        }
+
+        var done = await transaction.Connection!.QueryAsync<BriefHandover>(new CommandDefinition(
+            """
+            SELECT c.number AS Number, coalesce(c.picked_title, c.title) AS Title,
+                   coalesce((SELECT r.report->>'handover' FROM runs r
+                             WHERE r.project_id = c.project_id AND r.card_number = c.number AND r.kind IN ('build', 'fix') AND r.result = 'succeeded'
+                             ORDER BY r.started_at DESC, r.id DESC LIMIT 1), '') AS Note
+            FROM cards c
+            WHERE c.project_id = @projectId AND c.feature_id = @id AND c.state = 'done'
+            ORDER BY c.position
+            """,
+            new { projectId, id = feature.Id },
+            transaction,
+            cancellationToken: cancellationToken));
+        var claimed = new ClaimedConflict(
+            Guid.CreateVersion7(now), new BriefFeature(feature.Number, feature.Title, feature.Body, [.. done]), feature.Branch, defaultBranch,
+            feature.FeatureCommit, feature.DefaultCommit);
+        await transaction.Connection!.ExecuteAsync(new CommandDefinition(
+            """
+            INSERT INTO runs (id, project_id, user_id, feature_number, worker_id, kind, branch, base, check_command, from_commit,
+                              default_commit, started_at)
+            VALUES (@id, @projectId, @userId, @number, @workerId, 'conflict', @branch, @baseBranch, @check, @fromCommit, @defaultCommit, @now)
+            """,
+            new
+            {
+                id = claimed.RunId,
+                projectId,
+                userId,
+                number = feature.Number,
+                workerId,
+                branch = claimed.Branch,
+                baseBranch = claimed.Base,
+                check,
+                fromCommit = claimed.FeatureCommit,
+                defaultCommit = claimed.DefaultCommit,
+                now,
+            },
+            transaction,
+            cancellationToken: cancellationToken));
+        return claimed;
+    }
+
+    /// <summary>
     /// Takes the project's first card to hand out, by <see cref="CardStore.QueueOrder"/>, inside
     /// <paramref name="transaction"/>, which runs as the project's user: locks its row with
     /// <c>FOR UPDATE SKIP LOCKED</c>, moves it to <c>building</c>, and records a run for the worker,
@@ -476,16 +597,16 @@ public static class JobStore
         return new BriefFeature(parent.Number, parent.Title, parent.Body, [.. done]);
     }
 
-    /// <summary>Whether <paramref name="runId"/> is a build or a fix run of the project, under way,
-    /// held by <paramref name="workerId"/>, the kinds of run a push key is made for; read as the
-    /// project's user, so another user's run is never found.</summary>
+    /// <summary>Whether <paramref name="runId"/> is a build, a fix or a conflict run of the project,
+    /// under way, held by <paramref name="workerId"/>, the kinds of run a push key is made for; read
+    /// as the project's user, so another user's run is never found.</summary>
     public static async Task<bool> HoldsBuild(UserDb database, Guid userId, Guid projectId, Guid runId, Guid workerId, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(database);
         return await database.InUserTransaction(userId, transaction => transaction.Connection!.ExecuteScalarAsync<bool>(new CommandDefinition(
             """
             SELECT EXISTS (SELECT 1 FROM runs
-                           WHERE id = @runId AND project_id = @projectId AND worker_id = @workerId AND kind IN ('build', 'fix')
+                           WHERE id = @runId AND project_id = @projectId AND worker_id = @workerId AND kind IN ('build', 'fix', 'conflict')
                              AND finished_at IS NULL)
             """,
             new { runId, projectId, workerId },
@@ -499,6 +620,8 @@ public static class JobStore
     private sealed record Picked(int Number, string Title, string Body, string Comments, string? FeatureBranch);
 
     private sealed record FeatureParent(int Number, string Title, string Body);
+
+    private sealed record ToResolve(Guid Id, int Number, string Title, string Body, string Branch, string FeatureCommit, string DefaultCommit);
 
     private sealed record ToFix(int Number, string Title, string Body, string Branch, string Base, string FromCommit, int? Round, Guid? ReviewId, string Comments, string? Report);
 

@@ -32,6 +32,8 @@ namespace DevFlow.Jobs;
 /// it at once.</param>
 /// <param name="ResetsAt">When Claude's usage limit resets, on a failure outside the card whose
 /// answer said so.</param>
+/// <param name="RemergeDiff">A conflict's remerge diff of the merge commit it pushed, null for any
+/// other run.</param>
 public sealed record RunResult(
     bool Succeeded,
     JsonElement? Report,
@@ -48,11 +50,12 @@ public sealed record RunResult(
     JsonElement? PermissionDenials = null,
     ResultScreenshots? Screenshots = null,
     bool TimedOut = false,
-    DateTimeOffset? ResetsAt = null);
+    DateTimeOffset? ResetsAt = null,
+    string? RemergeDiff = null);
 
 /// <summary>How a run ended and what it does to its card: the run's <c>result</c>, the reason,
 /// the state the card moves to, and what the card says there when that is not the run's reason or
-/// the state's own line.</summary>
+/// the state's own line. For a feature's run, the state its feature moves to.</summary>
 /// <param name="Retry">Whether it is a failure in the card that, alone, runs the card again: the
 /// card moves to <see cref="CardState"/> only when it is the second in a row with no new commit, see
 /// <see cref="RunStore.Record"/>. A time limit and a report that stopped are not: either stops the
@@ -172,6 +175,41 @@ public static class RunStore
     }
 
     /// <summary>
+    /// How a conflict's result ends its run, in this order: a failure outside the job leaves its
+    /// feature <c>resolving</c>, to be handed out again, counting nothing; a failure in the job, a
+    /// report that does not match its form or that stopped, a check that did not run or failed, as
+    /// <see cref="Judge"/> words each, and a success that names no commit or the one it was handed,
+    /// <see cref="NoMerge"/>, leave the feature <c>waiting_for_owner</c>, since a conflict has no
+    /// rounds; anything else succeeded, and the feature goes on <c>bringing_in</c>, its default
+    /// branch brought in, as after a clean merge.
+    /// </summary>
+    public static RunEnding JudgeConflict(RunResult result, string fromCommit)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        if (!result.Succeeded)
+        {
+            var why = Cut(result.FailureReason ?? "");
+            return result.FailureInCard
+                ? new RunEnding("failed_in_card", Cut($"The run failed: {why}"), "waiting_for_owner")
+                : new RunEnding("failed_outside_card", why, "resolving");
+        }
+
+        var built = Judge(result);
+        if (built.Result != "succeeded")
+        {
+            return built with { CardState = "waiting_for_owner", CardReason = null, Retry = false };
+        }
+
+        return result.HeadCommit is null || string.Equals(result.HeadCommit, fromCommit, StringComparison.Ordinal)
+            ? new RunEnding("failed_in_card", NoMerge, "waiting_for_owner")
+            : new RunEnding("succeeded", null, "bringing_in");
+    }
+
+    /// <summary>Why a conflict that answered a success failed all the same: its branch is where it
+    /// was handed.</summary>
+    public const string NoMerge = "No merge commit was pushed";
+
+    /// <summary>
     /// How a build's result ends its run, in this order: a failure outside the card puts the card back in
     /// <c>queued</c>, counting nothing against it; a failure in the card, a report that does not
     /// match its form, a report that stopped, a check that did not run or failed, each stop it with
@@ -258,7 +296,8 @@ public static class RunStore
     /// Stores <paramref name="result"/> on the run, as it came but made <see cref="Storable"/>,
     /// with the figures the usage page reads, judges it by <see cref="Judge"/> for a build,
     /// <see cref="JudgeReview"/> for a review or <see cref="JudgeFix"/> for a fix and moves the card,
-    /// with the round a review's changes starts, in one transaction; only when the
+    /// with the round a review's changes starts, or by <see cref="JudgeConflict"/> for a conflict,
+    /// which moves its feature, in one transaction; only when the
     /// worker holds the run under way, the result names the job's branch, and for a review the
     /// commit it was handed, or none on a failure. A run on a feature's branch itself records the
     /// commit it names in <c>pushes_made</c>, and the pushes the watch awaited are judged, see
@@ -282,8 +321,8 @@ public static class RunStore
 
             var run = await transaction.Connection!.QuerySingleOrDefaultAsync<HeldRun>(new CommandDefinition(
                 """
-                SELECT card_number AS CardNumber, branch AS Branch, kind AS Kind, head_commit AS HeadCommit, from_commit AS FromCommit,
-                       fix_round AS FixRound,
+                SELECT card_number AS CardNumber, feature_number AS FeatureNumber, branch AS Branch, base AS Base, kind AS Kind,
+                       head_commit AS HeadCommit, from_commit AS FromCommit, default_commit AS DefaultCommit, fix_round AS FixRound,
                        coalesce((SELECT c.fix_rounds FROM cards c WHERE c.project_id = runs.project_id AND c.number = runs.card_number), 0) AS RoundsUsed
                 FROM runs
                 WHERE id = @runId AND project_id = @projectId AND worker_id = @workerId AND finished_at IS NULL
@@ -315,6 +354,7 @@ public static class RunStore
             {
                 Job.Review => JudgeReview(result, run.RoundsUsed),
                 Job.Fix => JudgeFix(result, run.FromCommit!),
+                Job.Conflict => JudgeConflict(result, run.FromCommit!),
                 _ => Judge(result),
             };
             var usage = result.Usage;
@@ -329,7 +369,7 @@ public static class RunStore
                     cost_usd = @cost, turns = @turns, duration_ms = @durationMs, stderr = @stderr,
                     permission_denials = @permissionDenials::jsonb,
                     screenshots = @screenshots::jsonb, screenshots_note = @screenshotsNote,
-                    timed_out = @timedOut, resets_at = @resetsAt
+                    timed_out = @timedOut, resets_at = @resetsAt, remerge_diff = @remergeDiff
                 WHERE id = @runId
                 """,
                 new
@@ -358,6 +398,8 @@ public static class RunStore
                     screenshotsNote = review ? null : result.Screenshots?.Note,
                     timedOut = !result.Succeeded && result.TimedOut,
                     resetsAt = result.Succeeded ? null : result.ResetsAt,
+                    // Only a conflict's, cut as its worker cuts it.
+                    remergeDiff = run.Kind == Job.Conflict && result.RemergeDiff is { } diff ? RemergeDiffs.Cut(diff) : null,
                 },
                 transaction,
                 cancellationToken: cancellationToken));
@@ -385,30 +427,8 @@ public static class RunStore
                 await Watching.BranchWatch.JudgeAwaited(transaction, projectId, userId, now, cancellationToken);
             }
 
-            // A verdict in its form is kept for the commit the worker reviewed, the run's, in the
-            // same transaction as its result, and is the only way Dev flow learns one.
-            if (review && ending.Result == "succeeded" && ReviewVerdict.TryRead(result.Report!.Value, out var verdict, out _))
-            {
-                await ReviewStore.Record(transaction, projectId, userId, run.CardNumber, runId, run.HeadCommit!, verdict, now, cancellationToken);
-            }
-
-            // A failure in the card runs it again once; the second in a row, with its branch where
-            // the first left it, stops it. A success starts the count afresh.
-            if (ending.Retry)
-            {
-                ending = await InARow(transaction, projectId, run.CardNumber, run.Kind, ending, cancellationToken);
-            }
-            else if (ending.Result == "succeeded")
-            {
-                await transaction.Connection!.ExecuteAsync(new CommandDefinition(
-                    "UPDATE cards SET in_card_failures = 0, failed_at_commit = NULL WHERE project_id = @projectId AND number = @number",
-                    new { projectId, number = run.CardNumber },
-                    transaction,
-                    cancellationToken: cancellationToken));
-            }
-
-            // A failure outside the card never counts against it, but makes its project wait; a
-            // success ends the wait.
+            // A failure outside the card, or a feature's job, never counts against it, but makes its
+            // project wait; a success ends the wait.
             if (ending.Result == "failed_outside_card")
             {
                 await ProjectWaits.Failed(transaction, projectId, userId, ending.Reason ?? "", result.ResetsAt, now, cancellationToken);
@@ -416,6 +436,37 @@ public static class RunStore
             else if (ending.Result == "succeeded")
             {
                 await ProjectWaits.Succeeded(transaction, projectId, cancellationToken);
+            }
+
+            // A feature's run moves its feature, never a card.
+            if (run.FeatureNumber is { } feature)
+            {
+                await EndFeature(transaction, projectId, feature, run.Base, run.DefaultCommit, ending, now, cancellationToken);
+                return Recorded.Stored;
+            }
+
+            var card = run.CardNumber!.Value;
+
+            // A verdict in its form is kept for the commit the worker reviewed, the run's, in the
+            // same transaction as its result, and is the only way Dev flow learns one.
+            if (review && ending.Result == "succeeded" && ReviewVerdict.TryRead(result.Report!.Value, out var verdict, out _))
+            {
+                await ReviewStore.Record(transaction, projectId, userId, card, runId, run.HeadCommit!, verdict, now, cancellationToken);
+            }
+
+            // A failure in the card runs it again once; the second in a row, with its branch where
+            // the first left it, stops it. A success starts the count afresh.
+            if (ending.Retry)
+            {
+                ending = await InARow(transaction, projectId, card, run.Kind, ending, cancellationToken);
+            }
+            else if (ending.Result == "succeeded")
+            {
+                await transaction.Connection!.ExecuteAsync(new CommandDefinition(
+                    "UPDATE cards SET in_card_failures = 0, failed_at_commit = NULL WHERE project_id = @projectId AND number = @number",
+                    new { projectId, number = card },
+                    transaction,
+                    cancellationToken: cancellationToken));
             }
 
             // A card put back in the queue says nothing, as one never started does; the next read
@@ -435,13 +486,13 @@ public static class RunStore
                 Job.Fix => Fixing,
                 _ => Building,
             };
-            var moved = await EndCard(transaction, projectId, run.CardNumber, running, ending.CardState, cardReason, now, cancellationToken);
+            var moved = await EndCard(transaction, projectId, card, running, ending.CardState, cardReason, now, cancellationToken);
             if (moved && ending.CardState == "waiting_for_owner")
             {
                 // Approved: the merge check reads it next, right after this and on each minute.
                 await transaction.Connection!.ExecuteAsync(new CommandDefinition(
                     "UPDATE cards SET merge_check_due = true WHERE project_id = @projectId AND number = @number",
-                    new { projectId, number = run.CardNumber },
+                    new { projectId, number = card },
                     transaction,
                     cancellationToken: cancellationToken));
             }
@@ -454,7 +505,7 @@ public static class RunStore
                     UPDATE cards SET fix_rounds = @round, fix_round = @round, fix_review_id = @runId, fix_comments = NULL
                     WHERE project_id = @projectId AND number = @number
                     """,
-                    new { projectId, number = run.CardNumber, round = run.RoundsUsed + 1, runId },
+                    new { projectId, number = card, round = run.RoundsUsed + 1, runId },
                     transaction,
                     cancellationToken: cancellationToken));
             }
@@ -468,8 +519,9 @@ public static class RunStore
     /// ago, with no result, and a worker not seen for <see cref="QuietFor"/>. Each is recorded lost
     /// and its card put back, counting nothing against it: a build's in <c>queued</c>, a review's in
     /// <c>reviewing</c>, a fix's in <c>fixing</c>, in the same round; and the pushes the watch
-    /// awaited of them are judged, with no result to record them. Called on each read of the
-    /// project, as its user. How many were lost.
+    /// awaited of them are judged, with no result to record them. A feature's run lost leaves its
+    /// feature where it was, to be handed out again. Called on each read of the project, as its
+    /// user. How many were lost.
     /// </summary>
     public static async Task<int> SweepLost(UserDb database, Guid userId, Guid projectId, DateTimeOffset now, CancellationToken cancellationToken)
     {
@@ -482,7 +534,7 @@ public static class RunStore
                 return 0;
             }
 
-            var lost = (await transaction.Connection!.QueryAsync<(int, string, int?)>(new CommandDefinition(
+            var lost = (await transaction.Connection!.QueryAsync<(int?, string, int?)>(new CommandDefinition(
                 """
                 UPDATE runs r SET finished_at = @now, result = 'lost', reason = @reason
                 FROM workers w
@@ -493,8 +545,16 @@ public static class RunStore
                 new { projectId, now, reason = LostReason, handedBefore = now - LostAfter, seenBefore = now - QuietFor },
                 transaction,
                 cancellationToken: cancellationToken))).ToList();
-            foreach (var (number, kind, round) in lost)
+            foreach (var (card, kind, round) in lost)
             {
+                // A lost run lies outside the card: it never counts against it, and its project waits.
+                await ProjectWaits.Failed(transaction, projectId, userId, LostReason, null, now, cancellationToken);
+                if (card is not { } number)
+                {
+                    // A feature's: it stays where its run left it, resolving, and is handed out again.
+                    continue;
+                }
+
                 var (running, state, reason) = kind switch
                 {
                     Job.Review => (UnderReview, "reviewing", PullRequestOpener.ToReview),
@@ -502,8 +562,6 @@ public static class RunStore
                     _ => (Building, "queued", (string?)null),
                 };
                 await EndCard(transaction, projectId, number, running, state, reason, now, cancellationToken);
-                // A lost run lies outside the card: it never counts against it, and its project waits.
-                await ProjectWaits.Failed(transaction, projectId, userId, LostReason, null, now, cancellationToken);
             }
 
             // A push a lost run made has no result to record it, so what the watch awaited of it
@@ -625,5 +683,43 @@ public static class RunStore
         : char.IsHighSurrogate(reason[MostReason - 1]) && char.IsLowSurrogate(reason[MostReason]) ? reason[..(MostReason - 1)]
         : reason[..MostReason];
 
-    private sealed record HeldRun(int CardNumber, string Branch, string Kind, string? HeadCommit, string? FromCommit, int? FixRound, int RoundsUsed);
+    private sealed record HeldRun(int? CardNumber, int? FeatureNumber, string Branch, string Base, string Kind, string? HeadCommit, string? FromCommit, string? DefaultCommit, int? FixRound, int RoundsUsed);
+
+    /// <summary>
+    /// Moves a feature whose conflict run has just ended to <paramref name="ending"/>'s state, only
+    /// while it is still <c>resolving</c>: on a success to <c>bringing_in</c>, with
+    /// <paramref name="defaultCommit"/>, the default branch's commit the run brought in, as the one
+    /// brought in, so its end goes on as after a clean merge; on a failure in the job to
+    /// <c>waiting_for_owner</c>, with <see cref="Features.FeatureEnd.NotResolved"/>, and the commit
+    /// as the one bringing in failed at, so it is not tried again until the default branch moves; on
+    /// a failure outside it, nowhere, so it is handed out again.
+    /// </summary>
+    private static async Task EndFeature(NpgsqlTransaction transaction, Guid projectId, int number, string defaultBranch, string? defaultCommit, RunEnding ending, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        if (ending.CardState == "resolving")
+        {
+            return;
+        }
+
+        var succeeded = ending.CardState == "bringing_in";
+        await transaction.Connection!.ExecuteAsync(new CommandDefinition(
+            """
+            UPDATE features SET state = @state, reason = @reason, changed_at = @now,
+                brought_in_commit = CASE WHEN @succeeded THEN @defaultCommit ELSE brought_in_commit END,
+                bring_in_failed_at = CASE WHEN @succeeded THEN NULL ELSE @defaultCommit END
+            WHERE project_id = @projectId AND number = @number AND state = 'resolving'
+            """,
+            new
+            {
+                projectId,
+                number,
+                state = ending.CardState,
+                reason = succeeded ? null : Features.FeatureEnd.NotResolved(defaultBranch, ending.Reason ?? ""),
+                succeeded,
+                defaultCommit,
+                now,
+            },
+            transaction,
+            cancellationToken: cancellationToken));
+    }
 }
