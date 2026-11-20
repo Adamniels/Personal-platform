@@ -9,8 +9,8 @@ namespace DevFlow.CodeHost;
 /// after <paramref name="By"/> are left out of the JSON when null, so a person's write reads as it
 /// always has.</summary>
 /// <param name="Kind"><c>merge</c> or <c>comment</c>, by a person or the app; or, by the app
-/// alone, <c>pull_request</c>, <c>issue</c>, <c>label_added</c>, <c>label_removed</c> or
-/// <c>branch</c>.</param>
+/// alone, <c>pull_request</c>, <c>issue</c>, <c>issue_closed</c>, <c>issue_opened</c>,
+/// <c>label_added</c>, <c>label_removed</c> or <c>branch</c>.</param>
 /// <param name="Repository">The repository's id.</param>
 /// <param name="Number">The issue's or pull request's number, the new one for what was
 /// opened; 0 for a branch made.</param>

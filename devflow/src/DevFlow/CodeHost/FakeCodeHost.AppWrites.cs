@@ -299,6 +299,26 @@ public sealed partial class FakeCodeHost : IDisposable
     public Task<WriteResult<IReadOnlyList<string>>> RemoveLabel(Guid userId, AppWriteToken token, Repository repository, int number, string label, CancellationToken cancellationToken) =>
         Label(userId, token, repository, number, label, add: false);
 
+    /// <summary>Refused with <c>404</c> for a number with no issue, a pull request's included, as
+    /// the world holds them; otherwise the issue is closed, or opened again, by the app, as it
+    /// already was included, and recorded as <c>issue_closed</c> or <c>issue_opened</c>.</summary>
+    public Task<WriteResult<Issue>> SetIssueState(Guid userId, AppWriteToken token, Repository repository, int number, bool open, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(token);
+        token.Require(WritePurpose.Post, repository);
+        return Task.FromResult(AsApp<WriteResult<Issue>>(userId, token, repository, Unavailable<Issue>(), Refused<Issue>, found =>
+        {
+            if (found.Issues.FirstOrDefault(issue => issue.Number == number) is not { } issue)
+            {
+                return (Refused<Issue>(StatusCodes.Status404NotFound, NotFoundMessage), null, null);
+            }
+
+            return (new WriteResult<Issue>.Written(new Issue(issue.Number, issue.Title, issue.Author, issue.Labels, issue.Body, issue.Url, issue.CreatedAt, IsPullRequest: false)),
+                found with { Issues = [.. found.Issues.Select(each => each.Number == number ? each with { Open = open } : each)] },
+                new FakeWrite(open ? "issue_opened" : "issue_closed", repository.Id, number, null, null, null, AppLogin, Post));
+        }));
+    }
+
     /// <summary>Opened by the app with the next number and the labels, open, blocked by nothing and
     /// never edited, in the world's issues.</summary>
     public Task<WriteResult<Issue>> OpenIssue(Guid userId, AppWriteToken token, Repository repository, string title, string body, IReadOnlyList<string> labels, CancellationToken cancellationToken)

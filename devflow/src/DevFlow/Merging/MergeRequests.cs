@@ -30,10 +30,10 @@ public sealed class MergeRequests(bool enabled)
     internal ChannelReader<(Guid ProjectId, Guid UserId)> Reader => _requests.Reader;
 }
 
-/// <summary>Runs each project's merge check, and then opens its decisions' issues, as
-/// <see cref="MergeRequests"/> asks, one request after another, each in its own <c>try</c>. Not
-/// run with <c>DEVFLOW_POLL_SECONDS=0</c>.</summary>
-public sealed partial class MergeRequestLoop(MergeRequests requests, MergeChecker checker, DecisionIssues decisions, ILogger<MergeRequestLoop> log) : BackgroundService
+/// <summary>Runs each project's merge check, and then opens its decisions' issues and tells its
+/// landed cards' issues, as <see cref="MergeRequests"/> asks, one request after another, each in
+/// its own <c>try</c>. Not run with <c>DEVFLOW_POLL_SECONDS=0</c>.</summary>
+public sealed partial class MergeRequestLoop(MergeRequests requests, MergeChecker checker, DecisionIssues decisions, LandedCards landed, ILogger<MergeRequestLoop> log) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -45,6 +45,7 @@ public sealed partial class MergeRequestLoop(MergeRequests requests, MergeChecke
                 {
                     await checker.CheckPending(projectId, userId, stoppingToken);
                     await decisions.OpenPending(projectId, userId, stoppingToken);
+                    await landed.TellPending(projectId, userId, stoppingToken);
                 }
                 catch (Exception failed) when (failed is not OperationCanceledException || !stoppingToken.IsCancellationRequested)
                 {

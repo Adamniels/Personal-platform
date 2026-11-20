@@ -9,6 +9,7 @@ using DevFlow.Tests.Jobs;
 using DevFlow.Tests.PullRequests;
 
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace DevFlow.Tests.Merging;
 
@@ -236,6 +237,80 @@ public sealed class FeatureLandingTests
         Assert.Empty((await Built.Get(jobs, "/devflow/api/waiting")).Body!["cards"]!.AsArray());
     }
 
+    [Theory]
+    [InlineData("dev flow")]
+    [InlineData("the owner from the page")]
+    [InlineData("someone on github")]
+    public async Task TheCardsIssueIsClosedWithAComment(string mergedBy)
+    {
+        await using var jobs = await Feature(signIn: true);
+        if (mergedBy != "dev flow")
+        {
+            await Merged.Waits(jobs, "always");
+        }
+
+        var built = await Approved(jobs);
+        var number = (await Built.Card(jobs, First)).PullRequestNumber!.Value;
+        switch (mergedBy)
+        {
+            case "the owner from the page":
+                Assert.Equal(StatusCodes.Status204NoContent, (await Built.Merge(jobs, First, (string)built["head_commit"]!)).Response.StatusCode);
+                break;
+            case "someone on github":
+                Built.OnGitHub(jobs, number, PullRequestState.Merged);
+                await jobs.Routes.Read(jobs.Project, User);
+                break;
+        }
+
+        Assert.Equal("done", (await Built.Card(jobs, First)).State);
+        // The fake worker waits for the program's writes after its merge, as the minute or the
+        // request after a review makes them; any other merge is told on the minute.
+        await Tell(jobs);
+
+        // One comment on the card's issue as the app with a post key, then the issue closed.
+        var text = $"Built and merged into the feature's branch `{Branch}` in #{number}. It reaches `main` with its feature, #10.";
+        AssertClosedWith(jobs, text);
+
+        // Told once: the next minute writes nothing more.
+        var writes = jobs.Fake.Writes(User).Count;
+        await Tell(jobs);
+        Assert.Equal(writes, jobs.Fake.Writes(User).Count);
+    }
+
+    [Fact]
+    public async Task ALostAnswerIsNotToldTwice()
+    {
+        await using var jobs = await Feature();
+        await Merged.Waits(jobs, "always");
+        await Approved(jobs);
+        var number = (await Built.Card(jobs, First)).PullRequestNumber!.Value;
+        Built.OnGitHub(jobs, number, PullRequestState.Merged);
+        await jobs.Routes.Read(jobs.Project, User);
+
+        // The comment was posted, and its answer lost before the issue was closed: GitHub is down.
+        var text = $"Built and merged into the feature's branch `{Branch}` in #{number}. It reaches `main` with its feature, #10.";
+        var post = Assert.IsType<CodeHostResult<AppWriteToken>.Found>(await jobs.Fake.ForWrite(User, FeatureJobs.Repo, WritePurpose.Post, Ct)).Value;
+        Assert.IsType<WriteResult<Comment>.Written>(await jobs.Fake.CommentOnIssue(User, post, FeatureJobs.Repo, First, text, Ct));
+
+        await Tell(jobs);
+
+        // The comment found, not posted again, and the issue closed.
+        AssertClosedWith(jobs, text);
+    }
+
+    [Fact]
+    public async Task ACardOnItsOwnIsLeftToItsPullRequest()
+    {
+        await using var jobs = await Jobs.Jobs.Start();
+        await Merged.Approved(jobs);
+        Assert.Equal("done", (await Built.Card(jobs, Merged.Card)).State);
+
+        await Tell(jobs);
+
+        // Its pull request into the default branch closes it, by its closing keyword.
+        Assert.DoesNotContain(jobs.Fake.Writes(User), write => write.Kind is "comment" or "issue_closed" && write.Number == Merged.Card);
+    }
+
     [Fact]
     public async Task TheNextCardStartsFromTheMergedBranch()
     {
@@ -257,6 +332,22 @@ public sealed class FeatureLandingTests
         Assert.Equal(Branch, Assert.Single(await jobs.Runs(), run => run.CardNumber == Second).Base);
         Assert.Equal($"{(string)next["head_commit"]!} {made.Commit}", await Git(git, "rev-list", "--parents", "-n", "1", (string)next["head_commit"]!));
     }
+
+    /// <summary>The card's issue closed in the fake world, after one comment by the app with
+    /// <paramref name="text"/>, both with a post key, the comment first.</summary>
+    private static void AssertClosedWith(Jobs.Jobs jobs, string text)
+    {
+        var issue = Assert.Single(jobs.Fake.World(User).Installations.Single().Repositories.Single().Issues, each => each.Number == First);
+        Assert.False(issue.Open);
+        var writes = jobs.Fake.Writes(User).Where(write => write.Number == First && write.Kind is "comment" or "issue_closed").ToList();
+        Assert.Equal(["comment", "issue_closed"], writes.Select(write => write.Kind));
+        Assert.All(writes, write => Assert.Equal((FakeCodeHost.AppLogin, "post"), (write.By, write.Purpose)));
+        Assert.Equal(text, writes[0].Body);
+    }
+
+    /// <summary>The landed cards' issues told, as their minute tells them.</summary>
+    private static Task Tell(Jobs.Jobs jobs) =>
+        jobs.Routes.App.Services.GetRequiredService<LandedCards>().TellPending(jobs.Project, User, Ct);
 
     /// <summary>The card's state and reason, as recorded.</summary>
     private static async Task<(string, string?)> State(Jobs.Jobs jobs)

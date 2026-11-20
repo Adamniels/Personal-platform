@@ -48,7 +48,7 @@ public sealed class MergeRequestTests
         Merged.Ci(jobs, (string)built["head_commit"]!, Merged.GreenRuns);
         var requests = new MergeRequests(enabled: true);
         var services = jobs.Routes.App.Services;
-        using var loop = new MergeRequestLoop(requests, services.GetRequiredService<MergeChecker>(), services.GetRequiredService<DecisionIssues>(), NullLogger<MergeRequestLoop>.Instance);
+        using var loop = new MergeRequestLoop(requests, services.GetRequiredService<MergeChecker>(), services.GetRequiredService<DecisionIssues>(), services.GetRequiredService<LandedCards>(), NullLogger<MergeRequestLoop>.Instance);
         await loop.StartAsync(Merged.Ct);
         try
         {
