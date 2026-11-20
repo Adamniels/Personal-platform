@@ -141,6 +141,15 @@ public static class FeatureStory
                 new { projectId, numbers },
                 transaction,
                 cancellationToken: cancellationToken))).ToLookup(run => run.CardNumber);
+            var answers = (await transaction.Connection!.QueryAsync<AnswerRow>(new CommandDefinition(
+                """
+                SELECT run_id AS RunId, position AS Position, answer AS Answer, answered_at AS AnsweredAt
+                FROM decision_answers WHERE project_id = @projectId AND card_number = ANY (@numbers)
+                """,
+                new { projectId, numbers },
+                transaction,
+                cancellationToken: cancellationToken))).ToDictionary(answer => (answer.RunId, answer.Position));
+
             var shown = new List<FeatureCard>(cards.Count);
             foreach (var card in cards)
             {
@@ -157,7 +166,7 @@ public static class FeatureStory
                     ofCard.Sum(run => run.InputTokens ?? 0),
                     ofCard.Sum(run => run.OutputTokens ?? 0),
                     CardScreenshots.Of(built?.HeadCommit, built?.Screenshots, built?.ScreenshotsNote),
-                    Decisions(ofCard, reviews)));
+                    Decisions(ofCard, reviews, answers)));
             }
 
             return new FeatureStoryView(
@@ -176,10 +185,11 @@ public static class FeatureStory
     /// The decisions marked for the owner in the card's latest report, the newest build's or fix's
     /// that reads, as the card's page shows it, see <see cref="CardStory.Read"/>; each with
     /// the view on it of the newest review of the commit that run left, matched by what was chosen
-    /// whatever its case and surrounding space, as a merge's decisions are.
+    /// whatever its case and surrounding space, as a merge's decisions are, and the answer kept for
+    /// it by that run and its place in the report.
     /// </summary>
     private static List<FeatureDecision> Decisions(
-        IReadOnlyList<RunRow> runs, IReadOnlyList<KeptReview> reviews)
+        IReadOnlyList<RunRow> runs, IReadOnlyList<KeptReview> reviews, IReadOnlyDictionary<(Guid, int), AnswerRow> answers)
     {
         var latest = runs.Where(run => run.Kind is Job.Build or Job.Fix)
             .Select(run => (Run: run, Report: CardStory.Read(run.Report)))
@@ -201,7 +211,9 @@ public static class FeatureStory
                 each.Decision.Why,
                 review?.Verdict.ForOwner.FirstOrDefault(view => SameDecision(view.Decision, each.Decision.Chosen))?.View is { } view
                     && !string.IsNullOrWhiteSpace(view) ? view : null,
-                null))];
+                answers.TryGetValue((latest.Run.Id, each.Position), out var answer)
+                    ? new DecisionAnswer(answer.Answer, new DateTimeOffset(DateTime.SpecifyKind(answer.AnsweredAt, DateTimeKind.Utc)))
+                    : null))];
     }
 
     private static bool SameDecision(string one, string other) =>
@@ -209,6 +221,8 @@ public static class FeatureStory
 
     private sealed record FeatureRow(
         Guid Id, int Number, string Title, string WebUrl, string State, string? Reason, string? Branch, string? BranchCommit, int? PullRequestNumber, string? PullRequestUrl);
+
+    private sealed record AnswerRow(Guid RunId, int Position, string Answer, DateTime AnsweredAt);
 
     private sealed record CardRow(int Number, string Title, string WebUrl, string State, string? Reason, int FixRounds);
 

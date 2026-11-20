@@ -28,6 +28,26 @@ public static class FeatureEndpoints
             .Produces(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
+        routes.MapPost("/devflow/api/projects/{id:guid}/features/{number:int}/decisions/{run:guid}/{position:int}/fine", Fine)
+            .RequireAuthorization(PlatformAuthPolicies.Api)
+            .WithName("answerDecisionFine")
+            .WithSummary("Answers a decision of a feature's card \"Fine as it is\", in Dev flow alone")
+            .WithDescription("Keeps the answer fine to the decision at position among the decisions of the report of run, a build or fix of a card of the feature, when that decision is marked for the owner and that report is still the card's latest, the one getFeature shows. Kept once, as first given: answering again changes nothing and answers the answer kept, with its answered_at. Never written to GitHub. 404 for a project, feature, run or decision the caller does not have, or one not marked for the owner; 409 when the card has a newer report than that run's, so the page is to be read again. Without a valid token, 401 with an empty body.")
+            .Produces(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict);
+
         return routes;
     }
+
+    private static async Task<Results<Ok<DecisionAnswer>, ProblemHttpResult>> Fine(
+        Guid id, int number, Guid run, int position, HttpContext context, [FromServices] UserDb database, [FromServices] TimeProvider time) =>
+        await DecisionAnswers.Fine(database, context.UserId(), id, number, run, position, time.GetUtcNow(), context.RequestAborted) switch
+        {
+            AnswerOutcome.Kept kept => TypedResults.Ok(kept.Answer),
+            AnswerOutcome.Superseded => TypedResults.Problem(
+                statusCode: StatusCodes.Status409Conflict, title: "A newer report", detail: "The card has a newer report than the one this decision is from. Read the page again."),
+            _ => TypedResults.Problem(
+                statusCode: StatusCodes.Status404NotFound, title: "No such decision", detail: "You have no decision marked for you by that number in that run of the feature."),
+        };
 }
