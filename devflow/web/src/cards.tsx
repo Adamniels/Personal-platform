@@ -36,6 +36,7 @@ const STATES: Record<string, { word: string; tone: StatusTone }> = {
 	reviewing: { word: "Reviewing", tone: "running" },
 	fixing: { word: "Fixing", tone: "running" },
 	waiting_for_owner: { word: "Waiting for you", tone: "needs-you" },
+	ready: { word: "Ready for you", tone: "needs-you" },
 	done: { word: "Done", tone: "done" },
 	stopped: { word: "Stopped", tone: "failed" },
 };

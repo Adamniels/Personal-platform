@@ -70,6 +70,7 @@ function story(overrides: Partial<FeatureStory> = {}): FeatureStory {
 		runs: [],
 		input_tokens: 0,
 		output_tokens: 0,
+		reviews: [],
 		...overrides,
 	};
 }
@@ -347,6 +348,87 @@ describe("a feature's page", () => {
 		expect(failed.textContent).toContain(
 			"Claude's API did not answer It lay outside the job, so it runs again.",
 		);
+	});
+
+	test("shows the review of the whole feature, and whether it covers the head", async () => {
+		open({
+			loadFeature: () =>
+				Promise.resolve(
+					story({
+						state: "ready",
+						pull_request: {
+							number: 51,
+							url: "https://github.com/Adamniels/Fodr/pull/51",
+						},
+						reviews: [
+							{
+								run_id: "019a0000-0000-7000-8000-0000000000f1",
+								commit: COMMIT,
+								verdict: "approve",
+								summary: "The plan and its page fit together.",
+								findings: [
+									{
+										blocking: false,
+										file: "src/plan.ts",
+										line: 12,
+										what: "Two cards round the same amount",
+										why: "One rule would do",
+									},
+								],
+								for_owner: [],
+								reviewed_at: "2026-11-20T09:00:00+00:00",
+								posted: true,
+								current: true,
+							},
+							{
+								run_id: "019a0000-0000-7000-8000-0000000000f0",
+								commit: "8".repeat(40),
+								verdict: "changes",
+								summary: "The page reads the plan twice.",
+								findings: [],
+								for_owner: [],
+								reviewed_at: "2026-11-19T09:00:00+00:00",
+								posted: true,
+								current: false,
+							},
+						],
+					}),
+				),
+		});
+
+		const reviews = await screen.findByRole("list", {
+			name: "Reviews of the feature",
+		});
+		// The reviews are the list's own items; each review's findings are a list
+		// of their own inside it.
+		const [latest, older] = Array.from(reviews.children) as [
+			HTMLElement,
+			HTMLElement,
+		];
+		expect(within(latest).getByText(COMMIT.slice(0, 7))).toBeTruthy();
+		expect(within(latest).getByText("Approved")).toBeTruthy();
+		expect(
+			within(latest).getByText("For the pull request's head"),
+		).toBeTruthy();
+		expect(
+			within(latest).getByText("The plan and its page fit together."),
+		).toBeTruthy();
+		expect(
+			within(latest).getByText("Two cards round the same amount"),
+		).toBeTruthy();
+		expect(
+			within(older).getByText("For an older commit, so it does not count"),
+		).toBeTruthy();
+		expect(screen.getByText("Ready for you")).toBeTruthy();
+	});
+
+	test("a feature not reviewed yet shows no review", async () => {
+		open();
+
+		await screen.findByRole("heading", { name: "Feeding plan, version 2" });
+		expect(
+			screen.queryByRole("list", { name: "Reviews of the feature" }),
+		).toBeNull();
 	});
 
 	test("a feature with no run of its own shows no runs", async () => {

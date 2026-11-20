@@ -45,6 +45,9 @@ public sealed class GitHubBranchMergeTests
         var made = Assert.IsType<BringInResult.Merged>(brought);
         Assert.Equal((string)recorded["sha"]!, made.Commit);
         Assert.Equal((string)recorded["parents"]![1]!["sha"]!, made.BroughtIn);
+        // The base's commit it merged into, its first parent, which a whole feature's review of it
+        // carries over to the merge.
+        Assert.Equal((string)recorded["parents"]![0]!["sha"]!, made.Parent);
 
         // One request, as GitHub documents it, with the merging key, never a person's token.
         var request = Assert.Single(host.Stub.Reads);

@@ -1,5 +1,7 @@
 using Dapper;
 
+using DevFlow.CodeHost;
+
 using PlatformData;
 
 namespace DevFlow.Features;
@@ -14,7 +16,7 @@ namespace DevFlow.Features;
 /// from the code host, as the app, as the merge check reads it. It writes nothing to the code host.
 /// See "Reviewing a feature" in devflow/README.md and devflow/docs/devflow-architecture.md.
 /// </summary>
-public sealed partial class FeatureReadiness(UserDb database, TimeProvider time, ILogger<FeatureReadiness> log)
+public sealed partial class FeatureReadiness(UserDb database, ICodeHost host, TimeProvider time, ILogger<FeatureReadiness> log)
 {
     /// <summary>
     /// Decides every feature of the project that is due, as the project's user,
@@ -23,12 +25,21 @@ public sealed partial class FeatureReadiness(UserDb database, TimeProvider time,
     /// </summary>
     public async Task DecidePending(Guid projectId, Guid userId, CancellationToken cancellationToken)
     {
-        var due = await Read(projectId, userId, cancellationToken);
+        var (repository, due) = await Read(projectId, userId, cancellationToken);
         foreach (var feature in due)
         {
             try
             {
-                if (FeatureReady.Decide(new ReadyFacts(feature.Head, feature.ReviewFailedAt, feature.Latest)) is { } decision)
+                var facts = new ReadyFacts(feature.Head, feature.ReviewFailedAt, feature.Latest, feature.CleanMerges);
+                // CI is read only for a head an approve covers, and with the time it was read at.
+                var ci = FeatureReady.Covering(facts) is { Verdict: "approve" } && repository is not null
+                    ? new ReadyCi(
+                        await host.CheckRuns(userId, repository, feature.Head, cancellationToken),
+                        await host.Statuses(userId, repository, feature.Head, cancellationToken),
+                        time.GetUtcNow(),
+                        feature.PushedAt)
+                    : null;
+                if (FeatureReady.Decide(facts, ci) is { } decision)
                 {
                     await Move(userId, feature, decision, cancellationToken);
                 }
@@ -45,15 +56,31 @@ public sealed partial class FeatureReadiness(UserDb database, TimeProvider time,
     /// as the user: <c>reviewing</c>, <c>waiting_for_owner</c> or <c>ready</c>, with their pull
     /// request, the default branch brought in, every card done, no run of their own under way, and
     /// their branch's watch read in the last five minutes and since Dev flow's last merge or push
-    /// there, so the commit it names holds what Dev flow put there; each with its latest review.
+    /// there, so the commit it names holds what Dev flow put there; each with its latest review, the
+    /// clean merges Dev flow made on its branch, and when its head was pushed: the time Dev flow
+    /// recorded its merge or its push, or the feature's last change for a head pushed by the owner.
+    /// The project's repository with them, null for a project the user does not have.
     /// </summary>
-    private async Task<IReadOnlyList<Due>> Read(Guid projectId, Guid userId, CancellationToken cancellationToken) =>
-        await database.InUserTransaction<IReadOnlyList<Due>>(userId, async transaction =>
+    private async Task<(Repository? Repository, IReadOnlyList<Due> Due)> Read(Guid projectId, Guid userId, CancellationToken cancellationToken) =>
+        await database.InUserTransaction<(Repository?, IReadOnlyList<Due>)>(userId, async transaction =>
         {
+            var project = await transaction.Connection!.QuerySingleOrDefaultAsync<ProjectRow>(new CommandDefinition(
+                "SELECT installation_id AS Installation, repository_id AS RepositoryId, owner AS Owner, name AS Name FROM projects WHERE id = @projectId",
+                new { projectId },
+                transaction,
+                cancellationToken: cancellationToken));
+            if (project is null)
+            {
+                return (null, []);
+            }
+
             var rows = (await transaction.Connection!.QueryAsync<DueRow>(new CommandDefinition(
                 """
                 SELECT f.id AS Id, f.number AS Number, f.branch AS Branch, f.state AS State, f.reason AS Reason, f.review_commit AS ReviewCommit,
                        f.review_failed_at AS ReviewFailedAt, wb.last_commit AS Head,
+                       coalesce((SELECT m.merged_at FROM merges_made m WHERE m.project_id = f.project_id AND m.commit = wb.last_commit),
+                                (SELECT p.recorded_at FROM pushes_made p WHERE p.project_id = f.project_id AND p.branch = f.branch AND p.commit = wb.last_commit),
+                                f.changed_at) AS PushedAt,
                        v.reviewed_commit AS ReviewedCommit, v.verdict AS Verdict
                 FROM features f
                 JOIN branch_watches wb ON wb.project_id = f.project_id AND wb.feature_id = f.id
@@ -73,9 +100,21 @@ public sealed partial class FeatureReadiness(UserDb database, TimeProvider time,
                 new { projectId, watchedSince = Watching.WatchStore.WatchedSince(time.GetUtcNow()) },
                 transaction,
                 cancellationToken: cancellationToken))).ToList();
-            return [.. rows.Select(row => new Due(
+            var merges = rows.Count == 0
+                ? []
+                : (await transaction.Connection!.QueryAsync<(string Branch, string Commit, string Parent)>(new CommandDefinition(
+                    """
+                    SELECT branch, commit, parent_commit FROM merges_made
+                    WHERE project_id = @projectId AND branch = ANY (@branches) AND number IS NULL AND parent_commit IS NOT NULL
+                    """,
+                    new { projectId, branches = rows.Select(row => row.Branch).ToArray() },
+                    transaction,
+                    cancellationToken: cancellationToken))).ToList();
+            return (new Repository(project.Installation, project.RepositoryId, project.Owner, project.Name), [.. rows.Select(row => new Due(
                 row.Id, row.Number, row.State, row.Reason, row.ReviewCommit, row.ReviewFailedAt, row.Head,
-                row.ReviewedCommit is { } commit && row.Verdict is { } verdict ? new ReviewOfFeature(commit, verdict) : null))];
+                new DateTimeOffset(DateTime.SpecifyKind(row.PushedAt, DateTimeKind.Utc)),
+                row.ReviewedCommit is { } commit && row.Verdict is { } verdict ? new ReviewOfFeature(commit, verdict) : null,
+                merges.Where(merge => merge.Branch == row.Branch).ToDictionary(merge => merge.Commit, merge => merge.Parent, StringComparer.Ordinal)))]);
         }, cancellationToken);
 
     /// <summary>Moves the feature as <paramref name="decision"/> says, only while it is still in the
@@ -116,7 +155,13 @@ public sealed partial class FeatureReadiness(UserDb database, TimeProvider time,
     private static partial void LogFailed(ILogger logger, Guid project, int feature, Exception failed);
 
     /// <summary>A feature whose review or readiness is due, as read.</summary>
-    private sealed record Due(Guid Id, int Number, string State, string? Reason, string? ReviewCommit, string? ReviewFailedAt, string Head, ReviewOfFeature? Latest);
+    private sealed record Due(
+        Guid Id, int Number, string State, string? Reason, string? ReviewCommit, string? ReviewFailedAt, string Head, DateTimeOffset PushedAt,
+        ReviewOfFeature? Latest, IReadOnlyDictionary<string, string> CleanMerges);
 
-    private sealed record DueRow(Guid Id, int Number, string Branch, string State, string? Reason, string? ReviewCommit, string? ReviewFailedAt, string Head, string? ReviewedCommit, string? Verdict);
+    private sealed record DueRow(
+        Guid Id, int Number, string Branch, string State, string? Reason, string? ReviewCommit, string? ReviewFailedAt, string Head, DateTime PushedAt,
+        string? ReviewedCommit, string? Verdict);
+
+    private sealed record ProjectRow(long Installation, long RepositoryId, string Owner, string Name);
 }

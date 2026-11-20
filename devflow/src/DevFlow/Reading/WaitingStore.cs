@@ -219,9 +219,49 @@ public sealed record StoppedCard(Guid ProjectId, string ProjectName, string Owne
 /// <param name="WaitUntil">Until when it hands out no job.</param>
 public sealed record FailingProject(Guid ProjectId, string ProjectName, string Owner, string Message, string Reason, int Failures, DateTimeOffset Since, DateTimeOffset WaitUntil);
 
+/// <summary>The latest review of a whole feature, as "Waiting for you" shows it.</summary>
+/// <param name="Verdict"><c>approve</c> or <c>changes</c>.</param>
+/// <param name="Summary">What the reviewer found, as text.</param>
+/// <param name="Blocking">How many of its findings block the feature.</param>
+/// <param name="Commit">The commit it is for.</param>
+public sealed record FeatureItemReview(string Verdict, string Summary, int Blocking, string Commit);
+
+/// <summary>A feature of Dev flow's own that is the owner's turn, under "Features ready for your
+/// review": one that is ready, its latest review approving its head and CI passed there, or one that
+/// waits for him with why. Read from Dev flow's own tables, never from the code host. Every text came
+/// from the code host or an agent, and is shown as text. See "Reviewing a feature" in
+/// devflow/README.md.</summary>
+/// <param name="ProjectName">The repository's name, as connected.</param>
+/// <param name="Owner">The repository's owner, as connected.</param>
+/// <param name="Number">The parent's issue number, which its page is named by.</param>
+/// <param name="Title">The parent's title as last read.</param>
+/// <param name="WebUrl">Where the parent is on the code host.</param>
+/// <param name="State"><c>ready</c> or <c>waiting_for_owner</c>.</param>
+/// <param name="Reason">Why it waits, in words; null when it is ready.</param>
+/// <param name="PullRequestNumber">The feature's pull request's number, null before it is opened.</param>
+/// <param name="PullRequestUrl">Where it is on the code host, null before it is opened.</param>
+/// <param name="Review">Its latest review, null before any.</param>
+/// <param name="Unanswered">How many decisions its cards' latest reports marked for the owner he has
+/// not answered on its page.</param>
+/// <param name="ChangedAt">When it came to be where it is.</param>
+public sealed record FeatureItem(
+    Guid ProjectId,
+    string ProjectName,
+    string Owner,
+    int Number,
+    string Title,
+    Uri WebUrl,
+    string State,
+    string? Reason,
+    int? PullRequestNumber,
+    Uri? PullRequestUrl,
+    FeatureItemReview? Review,
+    int Unanswered,
+    DateTimeOffset ChangedAt);
+
 /// <summary>What <c>GET /devflow/api/waiting</c> answers.</summary>
-/// <param name="Count">The items not sent back, Dev flow's own items, cards and decisions to look
-/// at, and one more when the link needs renewing: what waits for the owner to act.</param>
+/// <param name="Count">The items not sent back, Dev flow's own items, cards, decisions to look at
+/// and features, and one more when the link needs renewing: what waits for the owner to act.</param>
 /// <param name="NeedsRelink">Whether GitHub stopped taking the owner's link.</param>
 /// <param name="OwnItems">Dev flow's own items, read from its own tables beside the runner's, by
 /// project.</param>
@@ -232,7 +272,9 @@ public sealed record FailingProject(Guid ProjectId, string ProjectName, string O
 /// in a row, by project.</param>
 /// <param name="Decisions">The open issues Dev flow opened for decisions marked for the owner on
 /// cards it merged, by project, oldest first.</param>
-public sealed record WaitingList(int Count, bool NeedsRelink, IReadOnlyList<WaitingItem> Items, IReadOnlyList<ProjectFreshness> Projects, IReadOnlyList<OwnItem> OwnItems, IReadOnlyList<CardItem> Cards, IReadOnlyList<StoppedCard> StoppedCards, IReadOnlyList<FailingProject> FailingProjects, IReadOnlyList<DecisionItem> Decisions);
+/// <param name="Features">Dev flow's own features that are ready for the owner's review or wait for
+/// him, by project and number.</param>
+public sealed record WaitingList(int Count, bool NeedsRelink, IReadOnlyList<WaitingItem> Items, IReadOnlyList<ProjectFreshness> Projects, IReadOnlyList<OwnItem> OwnItems, IReadOnlyList<CardItem> Cards, IReadOnlyList<StoppedCard> StoppedCards, IReadOnlyList<FailingProject> FailingProjects, IReadOnlyList<DecisionItem> Decisions, IReadOnlyList<FeatureItem> Features);
 
 /// <summary>
 /// What waits for a user, read from the snapshot <see cref="ProjectReader"/> stores and never from
@@ -249,7 +291,7 @@ public sealed class WaitingStore(UserDb database, TimeProvider time)
     /// name, and whether their link needs renewing, read in one transaction.</summary>
     public async Task<WaitingList> For(Guid userId, CancellationToken cancellationToken)
     {
-        var (items, projects, relink, stops, cardRows, stoppedRows, failingRows, decisionRows) = await database.InUserTransaction(userId, async transaction =>
+        var (items, projects, relink, stops, cardRows, stoppedRows, failingRows, decisionRows, features) = await database.InUserTransaction(userId, async transaction =>
         {
             var items = await transaction.Connection!.QueryAsync<ItemRow>(new CommandDefinition(
                 """
@@ -342,7 +384,33 @@ public sealed class WaitingStore(UserDb database, TimeProvider time)
                 """,
                 transaction: transaction,
                 cancellationToken: cancellationToken));
-            return (items.ToList(), projects.ToList(), relink, stops.ToList(), cards.ToList(), stopped.ToList(), failing.ToList(), decisions.ToList());
+            var featureRows = await transaction.Connection!.QueryAsync<FeatureRow>(new CommandDefinition(
+                """
+                SELECT f.project_id AS ProjectId, p.name AS ProjectName, p.owner AS Owner, f.number AS Number, f.title AS Title,
+                       f.web_url AS WebUrl, f.state AS State, f.reason AS Reason, f.pull_request_number AS PullRequestNumber,
+                       f.pull_request_url AS PullRequestUrl, f.changed_at AS ChangedAt, v.verdict AS Verdict, v.summary AS VerdictSummary,
+                       v.reviewed_commit AS ReviewedCommit,
+                       (SELECT count(*) FROM jsonb_array_elements(v.findings) e WHERE e->>'blocking' = 'true')::int AS Blocking
+                FROM features f
+                JOIN projects p ON p.id = f.project_id
+                LEFT JOIN LATERAL (SELECT * FROM feature_reviews
+                                   WHERE feature_reviews.project_id = f.project_id AND feature_reviews.feature_number = f.number
+                                   ORDER BY reviewed_at DESC, run_id DESC LIMIT 1) v ON true
+                WHERE f.state IN ('ready', 'waiting_for_owner')
+                ORDER BY lower(p.owner), lower(p.name), p.id, f.number
+                """,
+                transaction: transaction,
+                cancellationToken: cancellationToken));
+            // How many of each feature's decisions are not answered is what its page counts, read
+            // the same way in the same transaction, so the two never disagree.
+            var features = new List<FeatureItem>();
+            foreach (var row in featureRows)
+            {
+                var story = await Features.FeatureStory.Read(transaction, row.ProjectId, row.Number, cancellationToken);
+                features.Add(Feature(row, story?.Cards.Sum(card => card.Decisions.Count(decision => decision.Answer is null)) ?? 0));
+            }
+
+            return (items.ToList(), projects.ToList(), relink, stops.ToList(), cards.ToList(), stopped.ToList(), failing.ToList(), decisions.ToList(), features);
         }, cancellationToken);
 
         var now = time.GetUtcNow();
@@ -397,7 +465,7 @@ public sealed class WaitingStore(UserDb database, TimeProvider time)
             GitHubLink.Utc(row.StoppedAt),
             row.PullRequestUrl is { } address ? new Uri(address) : null)).ToList();
         return new WaitingList(
-            waiting.Count(item => !item.SentBack) + own.Count + cards.Count + stoppedCards.Count + failingProjects.Count + decided.Count + (relink ? 1 : 0),
+            waiting.Count(item => !item.SentBack) + own.Count + cards.Count + stoppedCards.Count + failingProjects.Count + decided.Count + features.Count + (relink ? 1 : 0),
             relink,
             waiting,
             [.. projects.Select(project =>
@@ -409,8 +477,26 @@ public sealed class WaitingStore(UserDb database, TimeProvider time)
             cards,
             stoppedCards,
             failingProjects,
-            decided);
+            decided,
+            features);
     }
+
+    /// <summary>A feature as the list answers it, from its row, with how many of its decisions are
+    /// not answered.</summary>
+    private static FeatureItem Feature(FeatureRow row, int unanswered) => new(
+        row.ProjectId,
+        row.ProjectName,
+        row.Owner,
+        row.Number,
+        row.Title,
+        new Uri(row.WebUrl),
+        row.State,
+        row.Reason,
+        row.PullRequestNumber,
+        row.PullRequestUrl is { } address ? new Uri(address) : null,
+        row.Verdict is { } verdict && row.ReviewedCommit is { } commit ? new FeatureItemReview(verdict, row.VerdictSummary?.Trim() ?? "", row.Blocking, commit) : null,
+        unanswered,
+        GitHubLink.Utc(row.ChangedAt));
 
     /// <summary>A waiting card as the list answers it, from its row and its run's report, read into
     /// its form; a report that does not read, which a waiting card's run never has, says
@@ -570,6 +656,23 @@ public sealed class WaitingStore(UserDb database, TimeProvider time)
         string Why,
         string? ReviewerView,
         DateTime OpenedAt);
+
+    private sealed record FeatureRow(
+        Guid ProjectId,
+        string ProjectName,
+        string Owner,
+        int Number,
+        string Title,
+        string WebUrl,
+        string State,
+        string? Reason,
+        int? PullRequestNumber,
+        string? PullRequestUrl,
+        DateTime ChangedAt,
+        string? Verdict,
+        string? VerdictSummary,
+        string? ReviewedCommit,
+        int Blocking);
 
     private sealed record StopRow(Guid ProjectId, string Name, string Owner, string Branch, string ActivityType, string? Actor, string Commit, DateTime LandedAt, DateTime StoppedAt);
 }

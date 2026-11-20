@@ -240,7 +240,7 @@ public static class MergeCheck
             return Final(Always);
         }
 
-        return (MergeDecision?)Ci(facts, checkedHead) ?? new MergeDecision.Merge(head);
+        return (MergeDecision?)Ci(facts.CheckRuns, facts.Statuses, facts.Now, checkedHead.PushedAt) ?? new MergeDecision.Merge(head);
     }
 
     /// <summary>Why the card is no longer one a run merges from, or null when it still is: a card on
@@ -335,13 +335,19 @@ public static class MergeCheck
         return !same && string.Equals(newest, record.NewestEdit, StringComparison.Ordinal) ? Final(words.ChangedUnseen) : null;
     }
 
-    /// <summary>Why CI holds the merge, or null when every check run and status on the commit
-    /// completed and succeeded. A failure decides first, by name, then anything still running;
-    /// nothing at all waits until <see cref="CiReportsWithin"/> after the push.</summary>
-    private static MergeDecision.Wait? Ci(MergeFacts facts, CheckedHead head)
+    /// <summary>Why CI holds the commit, or null when every check run and status on it completed
+    /// and succeeded, as the code host answered them at <paramref name="now"/>. A failure decides
+    /// first, by name, then anything still running; nothing at all waits until
+    /// <see cref="CiReportsWithin"/> after <paramref name="pushedAt"/>, when the commit was pushed,
+    /// and is then "CI did not report". Anything that could not be read waits too. The one rule a
+    /// card's merge and a whole feature's readiness read CI by, see "Reviewing a feature" in
+    /// devflow/README.md.</summary>
+    public static MergeDecision.Wait? Ci(CodeHostResult<IReadOnlyList<CheckRun>> checkRuns, CodeHostResult<IReadOnlyList<CommitStatus>> statuses, DateTimeOffset now, DateTimeOffset pushedAt)
     {
-        if (facts.CheckRuns is not CodeHostResult<IReadOnlyList<CheckRun>>.Found { Value: var runs }
-            || facts.Statuses is not CodeHostResult<IReadOnlyList<CommitStatus>>.Found { Value: var statuses })
+        ArgumentNullException.ThrowIfNull(checkRuns);
+        ArgumentNullException.ThrowIfNull(statuses);
+        if (checkRuns is not CodeHostResult<IReadOnlyList<CheckRun>>.Found { Value: var runs }
+            || statuses is not CodeHostResult<IReadOnlyList<CommitStatus>>.Found { Value: var listed })
         {
             return Again(CouldNotRead("CI on its commit"));
         }
@@ -349,7 +355,7 @@ public static class MergeCheck
         var failed = runs
             .Where(run => run.Status == CheckStatus.Completed && run.Conclusion != CheckConclusion.Success)
             .Select(run => run.Name)
-            .Concat(statuses.Where(status => status.State is StatusState.Failure or StatusState.Error).Select(status => status.Context))
+            .Concat(listed.Where(status => status.State is StatusState.Failure or StatusState.Error).Select(status => status.Context))
             .Order(StringComparer.Ordinal)
             .FirstOrDefault();
         if (failed is not null)
@@ -357,14 +363,14 @@ public static class MergeCheck
             return Final(CiFailed(failed));
         }
 
-        if (runs.Any(run => run.Status != CheckStatus.Completed) || statuses.Any(status => status.State == StatusState.Pending))
+        if (runs.Any(run => run.Status != CheckStatus.Completed) || listed.Any(status => status.State == StatusState.Pending))
         {
             return Again(CiRunning);
         }
 
-        if (runs.Count == 0 && statuses.Count == 0)
+        if (runs.Count == 0 && listed.Count == 0)
         {
-            return facts.Now - head.PushedAt >= CiReportsWithin ? Final(CiSilent) : Again(CiNotYet);
+            return now - pushedAt >= CiReportsWithin ? Final(CiSilent) : Again(CiNotYet);
         }
 
         return null;

@@ -136,7 +136,7 @@ public static class DevFlowApp
         // feature, and whether it is ready for the owner. See "Reviewing a feature" in
         // devflow/README.md.
         builder.Services.AddSingleton(provider => new FeatureReadiness(
-            database, provider.GetRequiredService<TimeProvider>(), provider.GetRequiredService<ILogger<FeatureReadiness>>()));
+            database, provider.GetRequiredService<ICodeHost>(), provider.GetRequiredService<TimeProvider>(), provider.GetRequiredService<ILogger<FeatureReadiness>>()));
         // Each user's Claude login, sealed in the vault and opened only for one of their runs. See
         // "Claude login" in devflow/README.md.
         builder.Services.AddSingleton(provider => new ClaudeLogins(

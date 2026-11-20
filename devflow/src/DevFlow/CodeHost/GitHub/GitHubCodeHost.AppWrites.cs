@@ -132,7 +132,10 @@ public sealed partial class GitHubCodeHost
         return answer.Status switch
         {
             HttpStatusCode.Created => Parse<MergeCommitAnswer>(answer.Body) is { } made
-                ? new BringInResult.Merged(Full(made.Sha), Full(made.Parents is [_, { Sha: var brought }, ..] ? brought : null))
+                ? new BringInResult.Merged(
+                    Full(made.Sha),
+                    Full(made.Parents is [_, { Sha: var brought }, ..] ? brought : null),
+                    Full(made.Parents is [{ Sha: var first }, ..] ? first : null))
                 : new BringInResult.Merged(null, null),
             HttpStatusCode.NoContent => new BringInResult.NothingToBringIn(),
             HttpStatusCode.Conflict => new BringInResult.Conflict(),

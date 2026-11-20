@@ -30,7 +30,7 @@ public static class AttentionEndpoints
             .RequireAuthorization(PlatformAuthPolicies.Api)
             .WithName("getAttention")
             .WithSummary("Whether something needs the caller, for the nav bar")
-            .WithDescription("Read from what Dev flow stored and never from GitHub. attention is true when the caller has a pull request, waiting or stopped, that is not sent back, a stopped project, a card of Dev flow's whose pull request waits, a GitHub link that has expired, or a Claude login due for renewal within a month or past it, and false otherwise. The nav bar asks it with the session's cookie. Without a valid token, 401 with an empty body.")
+            .WithDescription("Read from what Dev flow stored and never from GitHub. attention is true when the caller has a pull request, waiting or stopped, that is not sent back, a stopped project, a card of Dev flow's whose pull request waits, a feature of Dev flow's ready for review or waiting for the caller, a GitHub link that has expired, or a Claude login due for renewal within a month or past it, and false otherwise. The nav bar asks it with the session's cookie. Without a valid token, 401 with an empty body.")
             .Produces(StatusCodes.Status401Unauthorized);
 
         return routes;
@@ -42,12 +42,12 @@ public static class AttentionEndpoints
 public sealed record Attention([property: JsonPropertyName("attention")] bool Value)
 {
     /// <summary>Whether anything is the owner's to act on: what a waiting list's <c>count</c>
-    /// counts, the items not sent back, Dev flow's own items, cards and decisions to look at and a
-    /// needed relink, or a Claude login that is due.</summary>
+    /// counts, the items not sent back, Dev flow's own items, cards, decisions to look at and
+    /// features, and a needed relink, or a Claude login that is due.</summary>
     public static Attention From(WaitingList list, ClaudeLoginStatus login)
     {
         ArgumentNullException.ThrowIfNull(list);
         ArgumentNullException.ThrowIfNull(login);
-        return new(list.NeedsRelink || list.Items.Any(item => !item.SentBack) || list.OwnItems.Count > 0 || list.Cards.Count > 0 || list.Decisions.Count > 0 || login.NeedsYou);
+        return new(list.NeedsRelink || list.Items.Any(item => !item.SentBack) || list.OwnItems.Count > 0 || list.Cards.Count > 0 || list.Decisions.Count > 0 || list.Features.Count > 0 || login.NeedsYou);
     }
 }

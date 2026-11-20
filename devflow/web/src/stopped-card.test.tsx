@@ -63,6 +63,7 @@ function list(
 	return {
 		count: stoppedCards.length + failingProjects.length,
 		needs_relink: false,
+		features: [],
 		items: [],
 		projects: [
 			{

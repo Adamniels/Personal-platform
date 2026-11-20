@@ -5,6 +5,8 @@ using DevFlow.Jobs;
 using DevFlow.Protocol;
 using DevFlow.Reviews;
 
+using Npgsql;
+
 using PlatformData;
 
 namespace DevFlow.Features;
@@ -81,6 +83,9 @@ public sealed record FeatureCard(
 /// card's page shows its runs; none of its cards'.</param>
 /// <param name="InputTokens">The tokens the feature's own runs read, 0 before any.</param>
 /// <param name="OutputTokens">The tokens they wrote, 0 before any.</param>
+/// <param name="Reviews">The reviews of the whole feature, newest first, each as a card's page shows
+/// one; <c>current</c> is whether it is the newest and covers the feature branch's head, its own
+/// commit or one that differs from it only by clean merges of the default branch.</param>
 public sealed record FeatureStoryView(
     int Number,
     string Title,
@@ -92,7 +97,8 @@ public sealed record FeatureStoryView(
     IReadOnlyList<FeatureCard> Cards,
     IReadOnlyList<CardRun> Runs,
     long InputTokens,
-    long OutputTokens);
+    long OutputTokens,
+    IReadOnlyList<CardReview> Reviews);
 
 /// <summary>
 /// A feature's story, read from what Dev flow stored and never from the code host, through the
@@ -106,91 +112,122 @@ public static class FeatureStory
     public static async Task<FeatureStoryView?> Of(UserDb database, Guid userId, Guid projectId, int number, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(database);
-        return await database.InUserTransaction<FeatureStoryView?>(userId, async transaction =>
-        {
-            var feature = await transaction.Connection!.QuerySingleOrDefaultAsync<FeatureRow>(new CommandDefinition(
-                """
-                SELECT f.id AS Id, f.number AS Number, f.title AS Title, f.web_url AS WebUrl, f.state AS State, f.reason AS Reason,
-                       CASE WHEN f.branch_base_commit IS NULL THEN NULL ELSE f.branch END AS Branch,
-                       coalesce(b.last_commit, f.branch_base_commit) AS BranchCommit,
-                       f.pull_request_number AS PullRequestNumber, f.pull_request_url AS PullRequestUrl
-                FROM features f
-                LEFT JOIN branch_watches b ON b.project_id = f.project_id AND b.feature_id = f.id
-                WHERE f.project_id = @projectId AND f.number = @number
-                """,
-                new { projectId, number },
-                transaction,
-                cancellationToken: cancellationToken));
-            if (feature is null)
-            {
-                return null;
-            }
-
-            var cards = (await transaction.Connection!.QueryAsync<CardRow>(new CommandDefinition(
-                $"""
-                SELECT number AS Number, title AS Title, web_url AS WebUrl, state AS State, {CardStore.ShownReason} AS Reason,
-                       fix_rounds AS FixRounds
-                FROM cards WHERE project_id = @projectId AND feature_id = @feature
-                ORDER BY position
-                """,
-                new { projectId, feature = feature.Id },
-                transaction,
-                cancellationToken: cancellationToken))).ToList();
-            var numbers = cards.Select(card => card.Number).ToArray();
-            var runs = (await transaction.Connection!.QueryAsync<RunRow>(new CommandDefinition(
-                """
-                SELECT id AS Id, card_number AS CardNumber, kind AS Kind, result AS Result, head_commit AS HeadCommit,
-                       report::text AS Report, input_tokens AS InputTokens, output_tokens AS OutputTokens,
-                       screenshots::text AS Screenshots, screenshots_note AS ScreenshotsNote
-                FROM runs WHERE project_id = @projectId AND card_number = ANY (@numbers)
-                ORDER BY started_at DESC, id DESC
-                """,
-                new { projectId, numbers },
-                transaction,
-                cancellationToken: cancellationToken))).ToLookup(run => run.CardNumber);
-            var answers = (await transaction.Connection!.QueryAsync<AnswerRow>(new CommandDefinition(
-                """
-                SELECT run_id AS RunId, position AS Position, answer AS Answer, answered_at AS AnsweredAt
-                FROM decision_answers WHERE project_id = @projectId AND card_number = ANY (@numbers)
-                """,
-                new { projectId, numbers },
-                transaction,
-                cancellationToken: cancellationToken))).ToDictionary(answer => (answer.RunId, answer.Position));
-
-            var shown = new List<FeatureCard>(cards.Count);
-            foreach (var card in cards)
-            {
-                var ofCard = runs[card.Number].ToList();
-                var built = ofCard.FirstOrDefault(run => run is { Kind: Job.Build or Job.Fix, Result: "succeeded" });
-                var reviews = await ReviewStore.OfCard(transaction, projectId, card.Number, cancellationToken);
-                shown.Add(new FeatureCard(
-                    card.Number,
-                    card.Title,
-                    card.WebUrl,
-                    card.State,
-                    card.Reason,
-                    card.FixRounds,
-                    ofCard.Sum(run => run.InputTokens ?? 0),
-                    ofCard.Sum(run => run.OutputTokens ?? 0),
-                    CardScreenshots.Of(built?.HeadCommit, built?.Screenshots, built?.ScreenshotsNote),
-                    Decisions(ofCard, reviews, answers)));
-            }
-
-            var own = await CardStory.FeatureRuns(transaction, projectId, feature.Number, cancellationToken);
-            return new FeatureStoryView(
-                feature.Number,
-                feature.Title,
-                feature.WebUrl,
-                feature.State,
-                feature.Reason,
-                feature.Branch is { } branch ? new FeatureBranch(branch, feature.BranchCommit) : null,
-                feature.PullRequestNumber is { } pull && feature.PullRequestUrl is { } url ? new CardPullRequest(pull, url) : null,
-                shown,
-                own,
-                own.Sum(run => run.InputTokens ?? 0),
-                own.Sum(run => run.OutputTokens ?? 0));
-        }, cancellationToken);
+        return await database.InUserTransaction(userId, transaction => Read(transaction, projectId, number, cancellationToken), cancellationToken);
     }
+
+    /// <summary>The feature with the number in the project, read inside
+    /// <paramref name="transaction"/>, which runs as the project's user, or null when there is no
+    /// such feature.</summary>
+    public static async Task<FeatureStoryView?> Read(NpgsqlTransaction transaction, Guid projectId, int number, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(transaction);
+        var feature = await transaction.Connection!.QuerySingleOrDefaultAsync<FeatureRow>(new CommandDefinition(
+            """
+            SELECT f.id AS Id, f.number AS Number, f.title AS Title, f.web_url AS WebUrl, f.state AS State, f.reason AS Reason,
+                   CASE WHEN f.branch_base_commit IS NULL THEN NULL ELSE f.branch END AS Branch,
+                   coalesce(b.last_commit, f.branch_base_commit) AS BranchCommit,
+                   f.pull_request_number AS PullRequestNumber, f.pull_request_url AS PullRequestUrl
+            FROM features f
+            LEFT JOIN branch_watches b ON b.project_id = f.project_id AND b.feature_id = f.id
+            WHERE f.project_id = @projectId AND f.number = @number
+            """,
+            new { projectId, number },
+            transaction,
+            cancellationToken: cancellationToken));
+        if (feature is null)
+        {
+            return null;
+        }
+
+        var cards = (await transaction.Connection!.QueryAsync<CardRow>(new CommandDefinition(
+            $"""
+            SELECT number AS Number, title AS Title, web_url AS WebUrl, state AS State, {CardStore.ShownReason} AS Reason,
+                   fix_rounds AS FixRounds
+            FROM cards WHERE project_id = @projectId AND feature_id = @feature
+            ORDER BY position
+            """,
+            new { projectId, feature = feature.Id },
+            transaction,
+            cancellationToken: cancellationToken))).ToList();
+        var numbers = cards.Select(card => card.Number).ToArray();
+        var runs = (await transaction.Connection!.QueryAsync<RunRow>(new CommandDefinition(
+            """
+            SELECT id AS Id, card_number AS CardNumber, kind AS Kind, result AS Result, head_commit AS HeadCommit,
+                   report::text AS Report, input_tokens AS InputTokens, output_tokens AS OutputTokens,
+                   screenshots::text AS Screenshots, screenshots_note AS ScreenshotsNote
+            FROM runs WHERE project_id = @projectId AND card_number = ANY (@numbers)
+            ORDER BY started_at DESC, id DESC
+            """,
+            new { projectId, numbers },
+            transaction,
+            cancellationToken: cancellationToken))).ToLookup(run => run.CardNumber);
+        var answers = (await transaction.Connection!.QueryAsync<AnswerRow>(new CommandDefinition(
+            """
+            SELECT run_id AS RunId, position AS Position, answer AS Answer, answered_at AS AnsweredAt
+            FROM decision_answers WHERE project_id = @projectId AND card_number = ANY (@numbers)
+            """,
+            new { projectId, numbers },
+            transaction,
+            cancellationToken: cancellationToken))).ToDictionary(answer => (answer.RunId, answer.Position));
+
+        var shown = new List<FeatureCard>(cards.Count);
+        foreach (var card in cards)
+        {
+            var ofCard = runs[card.Number].ToList();
+            var built = ofCard.FirstOrDefault(run => run is { Kind: Job.Build or Job.Fix, Result: "succeeded" });
+            var reviews = await ReviewStore.OfCard(transaction, projectId, card.Number, cancellationToken);
+            shown.Add(new FeatureCard(
+                card.Number,
+                card.Title,
+                card.WebUrl,
+                card.State,
+                card.Reason,
+                card.FixRounds,
+                ofCard.Sum(run => run.InputTokens ?? 0),
+                ofCard.Sum(run => run.OutputTokens ?? 0),
+                CardScreenshots.Of(built?.HeadCommit, built?.Screenshots, built?.ScreenshotsNote),
+                Decisions(ofCard, reviews, answers)));
+        }
+
+        var own = await CardStory.FeatureRuns(transaction, projectId, feature.Number, cancellationToken);
+        var featureReviews = await FeatureReviewStore.OfFeature(transaction, projectId, feature.Number, cancellationToken);
+        var covering = feature.BranchCommit is { } head && featureReviews.Count > 0
+            ? FeatureReady.Covering(new ReadyFacts(head, null, new ReviewOfFeature(featureReviews[0].Commit, featureReviews[0].Verdict.Word), await CleanMerges(transaction, projectId, feature.Branch, cancellationToken)))
+            : null;
+        return new FeatureStoryView(
+            feature.Number,
+            feature.Title,
+            feature.WebUrl,
+            feature.State,
+            feature.Reason,
+            feature.Branch is { } branch ? new FeatureBranch(branch, feature.BranchCommit) : null,
+            feature.PullRequestNumber is { } pull && feature.PullRequestUrl is { } url ? new CardPullRequest(pull, url) : null,
+            shown,
+            own,
+            own.Sum(run => run.InputTokens ?? 0),
+            own.Sum(run => run.OutputTokens ?? 0),
+            [.. featureReviews.Select((review, at) => new CardReview(
+                review.RunId,
+                review.Commit,
+                review.Verdict.Word,
+                review.Verdict.Summary,
+                review.Verdict.Findings,
+                review.Verdict.ForOwner,
+                review.ReviewedAt,
+                review.PostedAt is not null,
+                at == 0 && covering is not null))]);
+    }
+
+    /// <summary>Each merge of the default branch Dev flow made cleanly on the feature's branch, by its
+    /// commit with its first parent, as <see cref="FeatureReady.Covering"/> follows them.</summary>
+    private static async Task<IReadOnlyDictionary<string, string>> CleanMerges(NpgsqlTransaction transaction, Guid projectId, string? branch, CancellationToken cancellationToken) =>
+        branch is null
+            ? new Dictionary<string, string>()
+            : (await transaction.Connection!.QueryAsync<(string Commit, string Parent)>(new CommandDefinition(
+                "SELECT commit, parent_commit FROM merges_made WHERE project_id = @projectId AND branch = @branch AND number IS NULL AND parent_commit IS NOT NULL",
+                new { projectId, branch },
+                transaction,
+                cancellationToken: cancellationToken))).ToDictionary(merge => merge.Commit, merge => merge.Parent, StringComparer.Ordinal);
 
     /// <summary>
     /// The decisions marked for the owner in the card's latest report, the newest build's or fix's

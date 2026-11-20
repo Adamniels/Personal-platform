@@ -127,16 +127,19 @@ public sealed partial class FeatureEnds(UserDb database, ICodeHost host, TimePro
             var result = await host.BringIn(userId, key, repository, current.Branch, current.DefaultBranch, Message(current.DefaultBranch, current.Branch), cancellationToken);
             switch (result)
             {
-                case BringInResult.Merged { Commit: var commit, BroughtIn: var brought }:
+                case BringInResult.Merged { Commit: var commit, BroughtIn: var brought, Parent: var parent }:
                     if (commit is not null)
                     {
+                        // With the feature branch's commit it merged into, its first parent, so a
+                        // review of that commit carries over to the merge, which only brought the
+                        // default branch in; see "Reviewing a feature" in devflow/README.md.
                         await transaction.Connection!.ExecuteAsync(new CommandDefinition(
                             """
-                            INSERT INTO merges_made (project_id, user_id, branch, commit, number, merged_at)
-                            VALUES (@projectId, @userId, @branch, @commit, NULL, @now)
+                            INSERT INTO merges_made (project_id, user_id, branch, commit, number, parent_commit, merged_at)
+                            VALUES (@projectId, @userId, @branch, @commit, NULL, @parent, @now)
                             ON CONFLICT (project_id, commit) DO NOTHING
                             """,
-                            new { projectId, userId, branch = current.Branch, commit, now },
+                            new { projectId, userId, branch = current.Branch, commit, parent, now },
                             transaction,
                             cancellationToken: cancellationToken));
                     }

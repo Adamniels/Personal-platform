@@ -15,6 +15,7 @@ import { StoppedProject } from "./stopped";
 import { FailingProject, StoppedCard } from "./stopped-card";
 import styles from "./waiting.module.css";
 import { WaitingCard } from "./waiting-card";
+import { type FeatureItem, WaitingFeature } from "./waiting-feature";
 
 export type WaitingList = GetAnswer<"/waiting">;
 export type WaitingItem = WaitingList["items"][number];
@@ -64,6 +65,9 @@ type Group = {
 	stopped?: StoppedCardItem[];
 	/** The decisions to look at, the issues Dev flow opened for them. */
 	decided?: DecisionItem[];
+	/** Dev flow's own features ready for the owner's review, or waiting for
+	 * him. */
+	features?: FeatureItem[];
 	muted?: boolean;
 	/** Whether the first item's Merge is the view's one primary button,
 	 * design/DESIGN.md's rule; the others are secondary. */
@@ -77,8 +81,9 @@ type Act = {
 	reload: () => Promise<unknown>;
 };
 
-/** The four groups, in their order: Dev flow's waiting cards and the
- * waiting items not sent back; what stopped, Dev flow's stopped projects
+/** The five groups, in their order: Dev flow's waiting cards and the
+ * waiting items not sent back; Dev flow's features ready for the owner's
+ * review, or waiting for him; what stopped, Dev flow's stopped projects
  * first, then the projects that cannot run their cards, its stopped cards and
  * the runner's stopped items not sent back; the decisions to look at on cards
  * Dev flow merged; and every item sent back. */
@@ -95,6 +100,11 @@ function groups(list: WaitingList, name: (item: WaitingItem) => string) {
 			),
 			cards,
 			primaryFirst: true,
+		},
+		{
+			label: "Features ready for your review",
+			items: [],
+			features: list.features,
 		},
 		{
 			label: "Stopped",
@@ -122,7 +132,8 @@ const size = (group: Group) =>
 	(group.cards?.length ?? 0) +
 	(group.failing?.length ?? 0) +
 	(group.stopped?.length ?? 0) +
-	(group.decided?.length ?? 0);
+	(group.decided?.length ?? 0) +
+	(group.features?.length ?? 0);
 
 const compare = new Intl.Collator("en", { sensitivity: "base" }).compare;
 
@@ -204,7 +215,8 @@ export function Waiting({
 					list.cards.length === 0 &&
 					list.stopped_cards.length === 0 &&
 					list.failing_projects.length === 0 &&
-					list.decisions.length === 0 ? (
+					list.decisions.length === 0 &&
+					list.features.length === 0 ? (
 						<EmptyState
 							title="Nothing waits for you"
 							detail="Your agents have nothing for you to decide."
@@ -368,6 +380,12 @@ function GroupSection({
 					link={act.link}
 					api={act.api}
 					reload={act.reload}
+				/>
+			))}
+			{(group.features ?? []).map((feature) => (
+				<WaitingFeature
+					key={`${feature.project_id}/${feature.number}`}
+					feature={feature}
 				/>
 			))}
 			{(group.decided ?? []).map((decision) => (
