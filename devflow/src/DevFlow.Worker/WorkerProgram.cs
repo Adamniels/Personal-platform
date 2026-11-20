@@ -49,7 +49,8 @@ internal static class WorkerProgram
     }
 
     /// <summary>Runs the job by its kind: a build, or a fix or a conflict, which are carried as one,
-    /// or a review; a job of any other kind is left, and Dev flow finds its run lost.</summary>
+    /// or a review of a card or of a whole feature, carried as one too; a job of any other kind is
+    /// left, and Dev flow finds its run lost.</summary>
     internal static Task RunJob(JsonElement job, BuildJob build, ReviewJob review, WorkerLog log, CancellationToken stopping)
     {
         var kind = job.ValueKind == JsonValueKind.Object && job.TryGetProperty("kind", out var named) && named.ValueKind == JsonValueKind.String
@@ -59,7 +60,7 @@ internal static class WorkerProgram
         {
             case Job.Build or Job.Fix or Job.Conflict:
                 return build.Run(job, stopping);
-            case Job.Review:
+            case Job.Review or Job.FeatureReview:
                 return review.Run(job, stopping);
             default:
                 log.Write($"The job is of a kind this worker does not run, {kind ?? "none"}; it is left.");
