@@ -952,10 +952,15 @@ export interface components {
         FeatureStoryView: {
             branch: null | components["schemas"]["FeatureBranch"];
             cards: components["schemas"]["FeatureCard"][];
+            /** Format: int64 */
+            input_tokens: number;
             /** Format: int32 */
             number: number;
+            /** Format: int64 */
+            output_tokens: number;
             pull_request: null | components["schemas"]["CardPullRequest"];
             reason: null | string;
+            runs: components["schemas"]["CardRun"][];
             state: string;
             title: string;
             web_url: string;
@@ -1019,6 +1024,7 @@ export interface components {
             /** @default  */
             start: string;
             to_fix?: null | components["schemas"]["JobFix"];
+            to_resolve?: null | components["schemas"]["JobConflict"];
             to_review?: null | components["schemas"]["JobReview"];
             /** @default  */
             url: string;
@@ -1032,6 +1038,10 @@ export interface components {
         JobCommitter: {
             email: string;
             name: string;
+        };
+        JobConflict: {
+            default_commit: string;
+            feature_commit: string;
         };
         JobFix: {
             commit: string;
@@ -1208,6 +1218,7 @@ export interface components {
             head_commit: null | string;
             outcome: null | string;
             permission_denials?: unknown;
+            remerge_diff?: null | string;
             report: null | components["schemas"]["JsonElement"];
             screenshots?: null | components["schemas"]["ResultScreenshots"];
             stderr: null | string;

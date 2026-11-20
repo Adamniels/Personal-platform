@@ -127,8 +127,8 @@ features" in `High-level/docs/platform-architecture.md`.
   fixing, with its rounds, the owner's comment as the one input read and sending a card back, the
   merge check, with its conditions in order, merging as the app and the issues for decisions marked
   for the owner, a feature's card checked through its parent and its issue closed by the app once it
-  lands, the end of a feature, with bringing the default branch in, the feature's pull request and
-  keeping it current, stops, with what stops a card, its mark on GitHub, running it again on the owner's
+  lands, the end of a feature, with bringing the default branch in, the feature's pull request,
+  keeping it current and a conflict resolved by an agent in a job of its own, stops, with what stops a card, its mark on GitHub, running it again on the owner's
   comment and a project's wait after failures outside its cards, starting a worker, with the base
   image, the format of `.devflow/`, the recipe route, the
   two commands, the memory rule and when a worker needs a rebuild, the worker program with its
@@ -160,7 +160,10 @@ features" in `High-level/docs/platform-architecture.md`.
   GitHub, the merge check, each condition and why it fails closed, a card of a feature, why the app
   closes its issue and why its decisions open no issue, the end of a feature, with why it is a merge
   and never a rebase, why its pull request is opened at the end, not as a draft as the spec has it,
-  and why the default branch is kept in a feature that waits, stops, with what lies in the card
+  and why the default branch is kept in a feature that waits, a conflict, with a run for a feature,
+  why the files in conflict are those both sides changed, why the worker accepts exactly one merge
+  commit and pushes it only once its check passed, and why the resolution is kept apart for the
+  review, stops, with what lies in the card
   and what outside it, why a failure outside never counts, why one failure in the card is tried
   again, why a stop is marked on the card, running it again on his comment and reading the usage
   limit's reset, and its security decisions and accepted risks, kept for an audit,
@@ -171,7 +174,8 @@ features" in `High-level/docs/platform-architecture.md`.
   a verdict that is never a comment, no language model deciding a merge, CI that never reports not
   being a pass, a merge naming the approved commit, only a recorded merge being fine on the default
   branch, a decision issue's text, a stop's comment carrying a run's reason as data, a stopped
-  card's issue read for his comment alone and a worker's `resets_at` believed within limits, among
+  card's issue read for his comment alone, a worker's `resets_at` believed within limits and the
+  one job that pushes a merge of the default branch held to one merge commit, among
   them
 - `docs/superpowers/specs/2026-11-14-development-flow-design.md` — the design of the whole
   development flow, frozen on 2026 11 15 when the slices of its first part were cut; the

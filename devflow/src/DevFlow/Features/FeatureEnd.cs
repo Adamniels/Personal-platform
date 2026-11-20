@@ -16,7 +16,8 @@ public sealed record EndCard(int Number, string State);
 /// for the owner, or ready, moves there again when the default branch, as its watch last named it,
 /// has moved past the commit last brought in and the one bringing in last failed at; and a card not
 /// done sends a feature past building back to <c>building</c>, with the first card that holds its
-/// end named. A feature resolving, reviewing, fixing or bringing in is left as it is. The read of a
+/// end named. A feature resolving, reviewing, fixing or bringing in is left as it is: a conflict's
+/// job ends <c>resolving</c>, see <see cref="Jobs.RunStore"/>. The read of a
 /// project runs it, inside its transaction, and so does the end's minute before it acts, see
 /// <see cref="FeatureEnds"/>, so a feature's end never waits for the next read. It writes nothing
 /// to the code host. See "The end of a feature" in devflow/README.md and
@@ -36,9 +37,14 @@ public static class FeatureEnd
     /// of the whole feature is built.</summary>
     public const string NotReviewed = "Not reviewed as a whole yet";
 
-    /// <summary>Why a feature waits for the owner when the default branch conflicts with its
+    /// <summary>What a feature says while an agent resolves the default branch's conflict with its
     /// branch.</summary>
-    public static string Conflict(string defaultBranch) => $"{defaultBranch} conflicts with the feature's branch";
+    public static string Conflict(string defaultBranch) => $"{defaultBranch} conflicts with the feature's branch; an agent resolves it";
+
+    /// <summary>Why a feature waits for the owner when its conflict job failed in the job:
+    /// <paramref name="reason"/> is its run's.</summary>
+    public static string NotResolved(string defaultBranch, string reason) =>
+        $"Dev flow could not resolve the conflict with {defaultBranch}: {reason}";
 
     /// <summary>Why a feature waits for the owner when the code host refused to bring the default
     /// branch in.</summary>

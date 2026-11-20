@@ -50,9 +50,9 @@ internal abstract partial class WorkerJob(DevFlowClient client, Guid workerId, J
     /// <see cref="Patience"/>: succeeded with the agent's report when there is no
     /// <paramref name="failure"/>, failed with it otherwise; the check's result when one ran, the
     /// commit, the agent's usage, standard error and refused actions as they came, and a build's
-    /// pictures when they were tried.
+    /// pictures when they were tried, and a conflict's remerge diff.
     /// </summary>
-    protected async Task Send(Job job, AgentFailure? failure, AgentResult? agent, CheckResult? check, string? head, TimeSpan duration, CancellationToken stopping, ResultScreenshots? screenshots = null)
+    protected async Task Send(Job job, AgentFailure? failure, AgentResult? agent, CheckResult? check, string? head, TimeSpan duration, CancellationToken stopping, ResultScreenshots? screenshots = null, string? remergeDiff = null)
     {
         ArgumentNullException.ThrowIfNull(job);
         var request = new ResultRequest(
@@ -68,7 +68,8 @@ internal abstract partial class WorkerJob(DevFlowClient client, Guid workerId, J
             (long)duration.TotalMilliseconds,
             Last(agent?.Stderr ?? "", TailLines),
             JsonSerializer.SerializeToElement(agent?.Denials ?? new JsonArray(), WorkerApi.Json),
-            screenshots);
+            screenshots,
+            remergeDiff);
         var answer = await Patiently(() => Client.Result(job.JobId, request, stopping), "the result", stopping);
         Log.Write(answer.Kind == AnswerKind.Done
             ? $"Sent the result: {request.Outcome}{(request.Failure is { } sent ? $", {sent.Reason}" : "")}."

@@ -99,13 +99,13 @@ internal sealed class Bench : IAsyncDisposable
     /// The bench, its project's check <paramref name="check"/>, with <see cref="Out"/> standing in
     /// for <see cref="OutFile"/>. <c>main</c> holds a README and a <c>.gitignore</c> ignoring
     /// <c>build/</c>; <paramref name="before"/> may push more to the remote before the job is
-    /// handed out.
+    /// handed out. <paramref name="cards"/> are the repository's issues, card 1 unless given.
     /// </summary>
-    public static async Task<Bench> Start(string check = "true", Func<Bench, Task>? before = null, string start = "", string url = "")
+    public static async Task<Bench> Start(string check = "true", Func<Bench, Task>? before = null, string start = "", string url = "", IReadOnlyList<FakeIssue>? cards = null)
     {
         var root = Directory.CreateTempSubdirectory("devflow-build-").FullName;
         var outFile = Path.Combine(root, "out");
-        var jobs = await Jobs.Start([Jobs.Card(1, Title)], projectFile: Jobs.ProjectFile(check.Replace(Out, outFile, StringComparison.Ordinal), start, url));
+        var jobs = await Jobs.Start(cards ?? [Jobs.Card(1, Title)], projectFile: Jobs.ProjectFile(check.Replace(Out, outFile, StringComparison.Ordinal), start, url));
         try
         {
             var repository = new Repository(Reading.Installation, Reading.RepositoryId, "Adamniels", "Personal-platform");

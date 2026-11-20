@@ -74,8 +74,8 @@ himself, see "The merge check" below; each card has a page with its whole story 
 its pull request" below, and each feature one with its cards, its branch and the decisions its cards
 marked for the owner, answered there, see "A feature's page" below. When every card of a feature is
 done, the default branch is brought into its branch as the app and its pull request to the default
-branch opened, kept up to the default branch while it waits for the owner, see "The end of a
-feature" below. A card that cannot be made to work stops, is marked on its issue and
+branch opened, kept up to the default branch while it waits for the owner, a conflict resolved by an
+agent in a job of its own, see "The end of a feature" and "A conflict" below. A card that cannot be made to work stops, is marked on its issue and
 shows under "Stopped", and his comment runs it again; a failure outside the card makes its project
 wait instead, see "Stops" below.
 
@@ -1140,10 +1140,10 @@ last judged. The answer's second parent says which commit it merged, and that is
 default branch that moved in the gap is brought in again on a later read, and answers nothing to
 bring in: one request more, never one missed.
 
-**A conflict waits for the owner**, with the default branch's commit it met remembered, so it is not
-asked again every minute while nothing has changed, and is asked again once the default branch
-moves, since a change there may resolve it. "Resolving a conflict" replaces the wait with an agent.
-A refusal waits the same way, since asking again unchanged would be refused again.
+**A conflict goes to an agent**, see "A conflict" below. A refusal waits for the owner, with the
+default branch's commit it met remembered, so it is not asked again every minute while nothing has
+changed, since asking again unchanged would be refused again, and is asked again once the default
+branch moves.
 
 **The pull request is opened at the end, not as a draft from the first card.** The spec opens a
 draft pull request for the feature from its first card. Draft pull requests on a private repository
@@ -1174,6 +1174,73 @@ in once the feature waits again.
 the next read, as every sub-issue is, and is one more card to build: the feature is `building` again,
 its pull request stays open, since the owner's view of it stays useful, and the end runs again once
 the card is done.
+
+### A conflict
+
+When the default branch conflicts with a feature's branch, bringing it in is a job for an agent,
+checked and reviewed like a card, as the spec's "Clarified after the builder check" has it and the
+feature issue decides for "The end of a feature". GitHub only says that it conflicts; an agent on one
+of the project's workers makes the merge and resolves it, the worker checks it and pushes it to the
+feature's branch, and what the agent chose is kept for the review of the whole feature. The job, its
+brief and its routes are "A conflict" under "The end of a feature" in `devflow/README.md`, and the
+worker's side "The worker" there.
+
+**A run for a feature, not a card.** A run names a card or a feature, exactly one, by a check
+constraint, so the reviews and fixes of a whole feature that follow use the same, and a feature's
+runs are counted, measured and shown on its page as a card's are on its page. Every query that reads
+a card's runs names its card, so a feature's run is never taken for one; the one thing that listed
+runs without a card, the sweep for lost runs, leaves a feature's where it was.
+
+**From the commits Dev flow judged.** The job starts from the feature branch's commit as its watch
+last named it, and brings in the default branch's as its watch last named it, the same commit the
+end set out to bring in. It is handed out only once the feature's watch has read the branch since
+the feature began resolving: the card whose landing ended the feature was merged there moments
+before, and a job handed out before the watch saw that merge would start from a commit the branch
+has left. The watch can still lag behind GitHub, so a worker that finds the branch elsewhere fails
+outside the job and the job is handed out again later; a push by anyone else on the branch stops
+the project anyway.
+
+**The files in conflict are where the conflicts are.** Dev flow has no git, and GitHub's merge
+answers a conflict without naming a file, so the brief lists the files each side changed since the
+two parted, from the code host's comparison of each commit with the other, read as the app before
+the feature is taken; the feature is then taken only at those two commits, so the list is never
+handed out with others. A file both sides changed may well merge cleanly, and the agent's
+`git merge` names exactly which conflict. Reading the worker's own trial merge instead would have
+put the brief, which is Dev flow's, together on the worker, and listing nothing would have left the
+brief without what the slice asks it to carry.
+
+**Exactly one merge commit, of known parents.** The worker takes the agent's branch only when it is
+one new commit on the feature's head, a merge whose first parent is that head and whose second is
+the default branch's commit Dev flow handed out. That is what bringing the default branch in is,
+and nothing more: a second commit would be work no card asked for, landing on a branch every later
+job of the feature builds on and no review of a card saw; a commit that is not a merge would rewrite
+the feature's history in one squash, so its reviewed commits would no longer be what the branch
+holds; and a merge of another commit could bring in anything, a branch of the agent's own among
+them. The check's fixes go in the merge commit itself, so the rule never refuses a resolution that
+needed one more change. What the agent leaves uncommitted is not committed for it, as a build's is,
+since that would be the second commit.
+
+**Pushed only once its check passed.** A build's branch is pushed whatever its check said, so its
+work is never lost; a card's branch is its own. The feature's branch is shared: every later card and
+the feature's pull request build on it, and a merge pushed there with its check failing would make
+the next clean bringing in look like a finished end, the broken resolution under it. So a conflict
+whose check failed pushes nothing, and the feature waits for the owner with why, at the commit it
+failed at.
+
+**No rounds for a conflict.** A failure in the job, or a check that failed, leaves the feature
+waiting for the owner, the conflict's default branch commit remembered as `bring_in_failed_at`, so
+it is not tried again until the default branch moves, when it may well merge cleanly or conflict
+differently. Trying the same conflict again would spend usage on the answer the agent already gave;
+the owner, who reviews the whole feature anyway, decides. A failure outside the job is tried again
+as a card's is, the project waiting, since the job did nothing wrong.
+
+**The resolution is kept apart for the review.** `git show --remerge-diff` of the merge commit shows
+what the agent's merge holds against what git's own merge would have left, conflict markers and all,
+and nothing for the files that merged cleanly. A review of the whole feature reads its diff from the
+merge base, in which a resolution is invisible: the merge's lines read as the feature's own or the
+default branch's. Kept on the run, it lets "Reviewing the whole feature" judge the one place where an
+agent wrote code no card asked for, apart from the rest. It is text from a worker, cut beyond 1 MiB,
+and data wherever it is shown or handed on.
 
 ## Stops
 
@@ -1859,3 +1926,14 @@ the owner's parent never makes a stranger's sub-issue an instruction. A card's t
 - **A worker's `resets_at` is believed within limits.** A worker could send a reset far off and
   hold its own project's work back; it can only hold back the project whose key it has, which it
   could as well by asking for no work, and Dev flow believes a reset only in the next 8 days.
+- **The only job that pushes a merge of the default branch is held to one merge commit with known
+  parents.** A conflict job pushes to a feature's branch, which every later job of the feature builds
+  on and whose pull request goes to the default branch. The worker takes the agent's work only when
+  it is one new commit, a merge whose parents are the feature's head and the default branch's
+  commit Dev flow handed out, in that order, and pushes it without force and only once its check
+  passed on a clean copy; anything else pushes nothing. So an agent steered by a conflicting file
+  cannot add commits of its own, rewrite the feature's history, or merge in a branch of its own
+  choosing. The merge's tree is still the agent's, as any build's is, and is judged by the check and
+  then by the review of the whole feature, which reads the resolution apart as its remerge diff, the
+  text a worker sent and data. The files in conflict in the brief are paths the code host listed,
+  fenced as every other text from outside is.

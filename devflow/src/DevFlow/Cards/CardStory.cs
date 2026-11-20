@@ -20,9 +20,10 @@ public sealed record CardPullRequest(int Number, string Url);
 /// <summary>The check a run's worker ran, and the last lines of what it printed.</summary>
 public sealed record RunCheck(int ExitCode, string Output);
 
-/// <summary>One run of a card, as its page shows it. Every text from a worker or an agent is shown
-/// as text.</summary>
-/// <param name="Kind"><c>build</c>, <c>review</c> or <c>fix</c>.</param>
+/// <summary>One run of a card, or of a feature, as its page shows it. Every text from a worker or an
+/// agent is shown as text.</summary>
+/// <param name="Kind"><c>build</c>, <c>review</c> or <c>fix</c>, or for a feature
+/// <c>conflict</c>.</param>
 /// <param name="Worker">The name the worker said hello with, its container's hostname.</param>
 /// <param name="StartedAt">When it was handed out.</param>
 /// <param name="FinishedAt">When its result came back or it was found lost, null while it
@@ -209,17 +210,7 @@ public static class CardStory
             }
 
             var runs = (await transaction.Connection!.QueryAsync<RunRow>(new CommandDefinition(
-                """
-                SELECT r.id AS Id, r.kind AS Kind, w.name AS Worker, r.started_at AS StartedAt, r.finished_at AS FinishedAt,
-                       r.duration_ms AS DurationMs, r.result AS Result, r.reason AS Reason, r.auth_method AS AuthMethod,
-                       r.input_tokens AS InputTokens, r.output_tokens AS OutputTokens, r.check_exit_code AS CheckExitCode,
-                       r.check_output AS CheckOutput, r.head_commit AS HeadCommit, r.report::text AS Report,
-                       r.fix_round AS FixRound, r.fix_review_id AS FixReviewId, r.owner_comments::text AS OwnerComments,
-                       r.screenshots::text AS Screenshots, r.screenshots_note AS ScreenshotsNote
-                FROM runs r JOIN workers w ON w.project_id = r.project_id AND w.id = r.worker_id
-                WHERE r.project_id = @projectId AND r.card_number = @number
-                ORDER BY r.started_at DESC, r.id DESC
-                """,
+                $"{SelectRuns} WHERE r.project_id = @projectId AND r.card_number = @number ORDER BY r.started_at DESC, r.id DESC",
                 new { projectId, number },
                 transaction,
                 cancellationToken: cancellationToken))).ToList();
@@ -266,6 +257,32 @@ public static class CardStory
                 merge is null || head is null ? null : new CardMerge(merge.Commit, head, merge.Base ?? "", new DateTimeOffset(DateTime.SpecifyKind(merge.MergedAt, DateTimeKind.Utc))),
                 card.FeatureNumber is { } feature && card.FeatureTitle is { } featureTitle ? new CardFeature(feature, featureTitle) : null);
         }, cancellationToken);
+    }
+
+    /// <summary>Each run of a project's run with a worker, as its page shows one, the filter and the
+    /// order the caller's.</summary>
+    private const string SelectRuns = """
+        SELECT r.id AS Id, r.kind AS Kind, w.name AS Worker, r.started_at AS StartedAt, r.finished_at AS FinishedAt,
+               r.duration_ms AS DurationMs, r.result AS Result, r.reason AS Reason, r.auth_method AS AuthMethod,
+               r.input_tokens AS InputTokens, r.output_tokens AS OutputTokens, r.check_exit_code AS CheckExitCode,
+               r.check_output AS CheckOutput, r.head_commit AS HeadCommit, r.report::text AS Report,
+               r.fix_round AS FixRound, r.fix_review_id AS FixReviewId, r.owner_comments::text AS OwnerComments,
+               r.screenshots::text AS Screenshots, r.screenshots_note AS ScreenshotsNote
+        FROM runs r JOIN workers w ON w.project_id = r.project_id AND w.id = r.worker_id
+        """;
+
+    /// <summary>The runs of the project's feature with the number, its own and none of its cards',
+    /// newest first, each as a card's page shows one; read inside <paramref name="transaction"/>,
+    /// which runs as the project's user.</summary>
+    internal static async Task<IReadOnlyList<CardRun>> FeatureRuns(Npgsql.NpgsqlTransaction transaction, Guid projectId, int feature, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(transaction);
+        var runs = await transaction.Connection!.QueryAsync<RunRow>(new CommandDefinition(
+            $"{SelectRuns} WHERE r.project_id = @projectId AND r.feature_number = @feature ORDER BY r.started_at DESC, r.id DESC",
+            new { projectId, feature },
+            transaction,
+            cancellationToken: cancellationToken));
+        return [.. runs.Select(Run)];
     }
 
     /// <summary>A fix run as a round: what it answered, its replies, and the newest review of the

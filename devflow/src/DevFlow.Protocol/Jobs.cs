@@ -5,13 +5,15 @@ namespace DevFlow.Protocol;
 
 /// <summary>
 /// A job, what <c>jobs/next</c> answers a worker with <c>200</c>: one card of its project to build,
-/// to review or to fix, with everything the worker needs for it and nothing more. The Claude token and the
+/// to review or to fix, or a feature's conflict to resolve, with everything the worker needs for it
+/// and nothing more. The Claude token and the
 /// key leave Dev flow only here, to the worker holding the job. See "Jobs", "Review" and
 /// "Fixing" in devflow/README.md.
 /// </summary>
 /// <param name="JobId">The run's id, which the job's other routes take.</param>
-/// <param name="Kind"><see cref="Build"/>, <see cref="Review"/> or <see cref="Fix"/>.</param>
-/// <param name="Card">The card, as it was picked.</param>
+/// <param name="Kind"><see cref="Build"/>, <see cref="Review"/>, <see cref="Fix"/> or
+/// <see cref="Conflict"/>.</param>
+/// <param name="Card">The card, as it was picked; for a conflict, the feature's parent.</param>
 /// <param name="Repository">Where the code is.</param>
 /// <param name="Branch">The branch the work goes on, <c>devflow/&lt;number&gt;-&lt;slug&gt;</c>.</param>
 /// <param name="Base">The branch it is made from, the repository's default branch.</param>
@@ -36,6 +38,7 @@ namespace DevFlow.Protocol;
 /// and on a review.</param>
 /// <param name="Url">For a build or a fix, where the started project answers, from the same file;
 /// empty when it has none, and on a review.</param>
+/// <param name="ToResolve">For a conflict, the two commits it merges; null on any other job.</param>
 public sealed record Job(
     Guid JobId,
     string Kind,
@@ -54,7 +57,8 @@ public sealed record Job(
     JobReview? ToReview = null,
     JobFix? ToFix = null,
     string Start = "",
-    string Url = "")
+    string Url = "",
+    JobConflict? ToResolve = null)
 {
     /// <summary>Building a card.</summary>
     public const string Build = "build";
@@ -65,6 +69,11 @@ public sealed record Job(
     /// <summary>Fixing a card on its branch, from its head, after a review asked for changes or the
     /// owner commented on its pull request.</summary>
     public const string Fix = "fix";
+
+    /// <summary>Bringing the default branch into a feature's branch where it conflicts, as one merge
+    /// commit an agent resolves; <see cref="Card"/> is then the feature's parent, and
+    /// <see cref="Branch"/> the feature's branch.</summary>
+    public const string Conflict = "conflict";
 
     /// <summary>Its kind and card, never the token or the key.</summary>
     public override string ToString() =>
@@ -119,8 +128,18 @@ public sealed record JobRound(
 /// is not a round.</param>
 public sealed record JobFix(string Commit, int? Round);
 
-/// <summary>The card a job builds or reviews, as it was picked; its title and body are the
-/// owner's words.</summary>
+/// <summary>
+/// Where a conflict job starts and what it brings in: the commit the feature's branch must be at,
+/// which the worker checks before anything runs, and the default branch's commit, which the agent
+/// finds as <c>origin/&lt;default&gt;</c>. The merge commit it hands back has exactly these two as
+/// its parents, in this order.
+/// </summary>
+/// <param name="FeatureCommit">The full id of the commit the feature's branch is at.</param>
+/// <param name="DefaultCommit">The full id of the default branch's commit to bring in.</param>
+public sealed record JobConflict(string FeatureCommit, string DefaultCommit);
+
+/// <summary>The card a job builds or reviews, as it was picked, or the feature a conflict job is
+/// for; its title and body are the owner's words.</summary>
 public sealed record JobCard(int Number, string Title, string Body);
 
 /// <summary>The repository a job's code is in.</summary>
@@ -184,6 +203,9 @@ public sealed record ProgressRequest(Guid? WorkerId, string? State)
 /// its run; a review's are recorded, since a reviewer cannot write by construction.</param>
 /// <param name="Screenshots">A build's pictures, taken after its check passed and its branch was
 /// pushed, or why there are none; null when none were tried.</param>
+/// <param name="RemergeDiff">A conflict's <c>git show --remerge-diff</c> of the merge commit it
+/// pushed, cut by <see cref="RemergeDiffs.Cut"/>; null for any other job, and when nothing was
+/// pushed.</param>
 public sealed record ResultRequest(
     Guid? WorkerId,
     string? Outcome,
@@ -197,7 +219,8 @@ public sealed record ResultRequest(
     long? DurationMs,
     string? Stderr,
     JsonElement? PermissionDenials = null,
-    ResultScreenshots? Screenshots = null)
+    ResultScreenshots? Screenshots = null,
+    string? RemergeDiff = null)
 {
     public const string Succeeded = "succeeded";
     public const string Failed = "failed";

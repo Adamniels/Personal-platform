@@ -224,6 +224,17 @@ What making a feature's branch sends and reads, for the slice "The feature's bra
   this repository. `422` with the `message` "Reference already exists", GitHub's answer for a name
   that is taken, is stubbed in the test rather than kept as a file.
 
+What handing out a conflict reads, for the slice "Resolving a conflict", read by
+`devflow/tests/DevFlow.Tests/GitHub/GitHubJobReadTests.cs`; see "A conflict" in
+`devflow/README.md`:
+
+- `compare.json`, recorded on 2026 11 20 as the bot: `gh api
+  'repos/Adamniels/Personal-platform/compare/e437065c9ae0bd12e33d638268ef827aacace112...812a7cf8b9afa1482500f8c480ad2b00399af025'`,
+  `main` before and after "Bringing main in, and the feature's pull request" merged, piped through
+  `jq '{url, status, ahead_by, behind_by, total_commits, merge_base_commit: {sha: .merge_base_commit.sha}, commits: [.commits[0] | {sha}], files: [.files[0:3][] | del(.patch)]}'`,
+  cut to one commit and its first three files without their patches. The adapter asks with
+  `per_page=1`, since it reads no commit, and reads each file's `filename`.
+
 What bringing one branch into another answers, for the slice "Bringing main in, and the feature's
 pull request", read by `devflow/tests/DevFlow.Tests/GitHub/GitHubBranchMergeTests.cs`; see "The end
 of a feature" in `devflow/README.md`:

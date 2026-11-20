@@ -4,8 +4,9 @@
 // the code host. Top to bottom: its title and state, with the reason and a link to its pull request
 // once there is one; what the agents want you to know, every decision its cards' latest reports
 // marked for you, each answered "Fine as it is" here and nowhere else; its branch with the command
-// to check it out; every card's screenshots, by card; and its cards in order. Every text came from
-// the code host or an agent and is shown as text. See "A feature's page" in devflow/README.md.
+// to check it out; every card's screenshots, by card; its cards in order; and its own runs, such as
+// an agent resolving a conflict, as a card's page shows its runs. Every text came from the code
+// host or an agent and is shown as text. See "A feature's page" in devflow/README.md.
 import {
 	Button,
 	EmptyState,
@@ -17,6 +18,7 @@ import {
 import { useCallback, useEffect, useState } from "react";
 import { navigate, plainClick } from "./address";
 import type { components } from "./api/schema";
+import { RunRow } from "./card";
 import styles from "./card.module.css";
 import { stateWord } from "./cards";
 import own from "./feature.module.css";
@@ -281,6 +283,15 @@ export function FeaturePage({
 					rowKey={(card) => String(card.number)}
 				/>
 			</Panel>
+			{story.runs.length === 0 ? null : (
+				<Panel title="Runs" className={styles.panel}>
+					<ul className={styles.runs} aria-label="Runs of the feature">
+						{story.runs.map((run) => (
+							<RunRow key={run.id} run={run} of="feature" />
+						))}
+					</ul>
+				</Panel>
+			)}
 		</>
 	);
 }

@@ -20,7 +20,8 @@ namespace DevFlow.Features;
 /// takes the same lock before it judges, never sees the merge unrecorded. Should the record fail
 /// after the code host merged, or the host not say the commit, the watch finds an unrecorded push by
 /// the app and stops the project, erring towards asking the owner, as <see cref="Merging.AppMerges"/>
-/// does. A conflict, or a refusal, leaves the feature waiting for the owner. It writes, so it lives
+/// does. A conflict has the feature <c>resolving</c>, for an agent's job, and a refusal leaves it
+/// waiting for the owner. It writes, so it lives
 /// outside <c>Reading/</c>, which can never reach a write key. See "The end of a feature" in
 /// devflow/README.md and devflow/docs/devflow-architecture.md.
 /// </summary>
@@ -157,7 +158,13 @@ public sealed partial class FeatureEnds(UserDb database, ICodeHost host, TimePro
                         cancellationToken: cancellationToken));
                     return true;
                 case BringInResult.Conflict:
-                    await Waits(transaction, feature.Id, current.DefaultHead, now, FeatureEnd.Conflict(current.DefaultBranch), cancellationToken);
+                    // An agent resolves it, in a job of its own handed out next, see JobStore.ClaimConflict;
+                    // a run that cannot leaves the feature waiting for the owner.
+                    await transaction.Connection!.ExecuteAsync(new CommandDefinition(
+                        "UPDATE features SET state = 'resolving', reason = @reason, changed_at = @now WHERE id = @id AND state = 'bringing_in'",
+                        new { id = feature.Id, now, reason = FeatureEnd.Conflict(current.DefaultBranch) },
+                        transaction,
+                        cancellationToken: cancellationToken));
                     LogConflict(log, projectId, feature.Number, current.DefaultBranch);
                     return false;
                 case BringInResult.Refused { Status: var status }:
@@ -176,7 +183,7 @@ public sealed partial class FeatureEnds(UserDb database, ICodeHost host, TimePro
     }
 
     /// <summary>The feature waits for the owner with <paramref name="reason"/>, and bringing in is
-    /// not tried again until the default branch moves past the commit it failed at.</summary>
+    /// not tried again until the default branch moves past the commit it failed at; a refusal's.</summary>
     private static Task<int> Waits(Npgsql.NpgsqlTransaction transaction, Guid id, string? head, DateTimeOffset now, string reason, CancellationToken cancellationToken) =>
         transaction.Connection!.ExecuteAsync(new CommandDefinition(
             """
@@ -344,7 +351,7 @@ public sealed partial class FeatureEnds(UserDb database, ICodeHost host, TimePro
     [LoggerMessage(Level = LogLevel.Information, Message = "Bringing the default branch into feature #{Feature} of project {Project} waits: {Hold}")]
     private static partial void LogHeld(ILogger logger, Guid project, int feature, ProjectHold hold);
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "{Default} conflicts with the branch of feature #{Feature} of project {Project}; it waits for its owner")]
+    [LoggerMessage(Level = LogLevel.Warning, Message = "{Default} conflicts with the branch of feature #{Feature} of project {Project}; an agent resolves it")]
     private static partial void LogConflict(ILogger logger, Guid project, int feature, string @default);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "The code host refused to bring the default branch into feature #{Feature} of project {Project}, with {Status}; it waits for its owner")]

@@ -23,7 +23,8 @@ namespace DevFlow.Jobs;
 
 /// <summary>What the fake worker is asked to do: take the project's next job and end it with the
 /// prepared result, whose worker id, branch and head commit it fills itself; for a review job the
-/// prepared report is the verdict. With <paramref name="LeaveNoCommit"/>, a fix makes no commit, as
+/// prepared report is the verdict, and for a conflict job the prepared remerge diff is sent with
+/// the merge commit it makes, when the result passed its check. With <paramref name="LeaveNoCommit"/>, a fix makes no commit, as
 /// an agent that changed nothing, and names the commit it was handed; and a build makes none and
 /// names none, as a run that failed before anything was pushed. For a build or a fix whose
 /// result lists pictures, <paramref name="Pictures"/> holds their bytes by name, base64 in the
@@ -32,16 +33,18 @@ namespace DevFlow.Jobs;
 /// no result is needed then.</summary>
 public sealed record FakeWorkerRun(Guid? ProjectId, ResultRequest? Result, bool? LeaveNoCommit = null, IReadOnlyDictionary<string, byte[]>? Pictures = null, bool? KeepRunning = null);
 
-/// <summary>What the fake worker did: the job it took, its kind, its card, and the commit it left
-/// on the branch, or for a review the commit it reviewed; null for a build that left none.</summary>
+/// <summary>What the fake worker did: the job it took, its kind, its card, or for a conflict its
+/// feature, and the commit it left on the branch, or for a review the commit it reviewed; null for
+/// a build or a conflict that left none.</summary>
 public sealed record FakeWorkerRan(Guid JobId, string Kind, int Card, string Branch, string? HeadCommit);
 
 /// <summary>
 /// The fake worker, in the fake mode only, under the <c>Api</c> policy and the origin check, acting
 /// on the caller's own project: one call says hello in the project as a worker on the image
 /// expected, takes its next job through the same <see cref="Dispatcher"/> a real worker asks, makes
-/// a commit on the job's branch in the fake code host for a build, on its head for a fix, or none
-/// for a review, which names the commit it was handed, and completes the job with the prepared result through the same code a
+/// a commit on the job's branch in the fake code host for a build, on its head for a fix, a merge
+/// commit of the default branch's on a feature's branch for a conflict, or none for a review,
+/// which names the commit it was handed, and completes the job with the prepared result through the same code a
 /// real worker's result goes through. So an acceptance test drives the whole chain without a
 /// container. Left out of the schema, as every fake address is. See "Jobs"
 /// in devflow/README.md.
@@ -140,6 +143,27 @@ public static class FakeWorkerEndpoints
         }
 
         var committer = new Committer(job.Committer.Name, job.Committer.Email);
+
+        if (job.ToResolve is { } toResolve)
+        {
+            // A conflict brings the default branch's commit into the feature's branch as one merge
+            // commit, pushed, as a worker pushes it, only when the agent succeeded and its check
+            // passed; the remerge diff is the prepared one.
+            var passed = prepared.Outcome == ResultRequest.Succeeded && prepared.Check is { ExitCode: 0 } && request.LeaveNoCommit != true;
+            var merged = passed
+                ? await fake.MergeOnBranch(userId, repository, job.Branch, toResolve.FeatureCommit, toResolve.DefaultCommit,
+                    string.Create(CultureInfo.InvariantCulture, $"Merge {job.Base} into {job.Branch}, by the fake worker"), committer, cancellationToken)
+                : null;
+            var resolved = passed && merged is null
+                ? prepared with { WorkerId = WorkerId, Outcome = ResultRequest.Failed, Report = null, Failure = new RunFailure(NoCommit, false), Check = null, Branch = job.Branch, HeadCommit = null, RemergeDiff = null }
+                : prepared with { WorkerId = WorkerId, Branch = job.Branch, HeadCommit = merged, RemergeDiff = merged is null ? null : prepared.RemergeDiff };
+            await JobEndpoints.Complete(database, caller, job.JobId, WorkerId, JobEndpoints.Read(resolved)!, now, cancellationToken);
+            // The feature's end goes on, on the next minute for a real worker; the fake waits for it.
+            await ends.EndPending(projectId, userId, cancellationToken);
+            return passed && merged is null
+                ? TypedResults.Problem(statusCode: StatusCodes.Status503ServiceUnavailable, title: "The fake's git failed", detail: "no merge commit was made on the feature's branch, so the job ended as a failure outside it and the feature is resolving again")
+                : TypedResults.Ok(new FakeWorkerRan(job.JobId, job.Kind, job.Card.Number, job.Branch, merged));
+        }
 
         // Each picture the result lists, on pr-screenshots under the commit's folder, as a worker
         // pushes them; one the request gave no bytes for stays missing.

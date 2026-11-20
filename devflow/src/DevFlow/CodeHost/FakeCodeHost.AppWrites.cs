@@ -227,6 +227,59 @@ public sealed partial class FakeCodeHost : IDisposable
         return after;
     }
 
+    /// <summary>
+    /// A merge commit on <paramref name="branch"/> in the repository's git repository, as a conflict
+    /// job's worker pushes one: by <paramref name="committer"/>, with <paramref name="from"/>, the
+    /// commit the branch must be at, and <paramref name="other"/> as its parents, in that order, and
+    /// the tree of <paramref name="from"/>, the fake's commits never changing one; the branch moved
+    /// to it only from <paramref name="from"/>, and the push listed in its changes as the app's, as
+    /// GitHub lists a push with the app's key. Its id, or null when the repository is not the
+    /// world's, the branch is elsewhere, either commit is missing or git fails.
+    /// </summary>
+    internal async Task<string?> MergeOnBranch(Guid userId, Repository repository, string branch, string from, string other, string message, Committer committer, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(branch);
+        ArgumentNullException.ThrowIfNull(committer);
+        if (await BranchCommit(userId, repository, branch, cancellationToken) != from
+            || !await HasCommit(userId, repository, other, cancellationToken))
+        {
+            return null;
+        }
+
+        string merge;
+        await _git.WaitAsync(cancellationToken);
+        try
+        {
+            string[] who = ["-c", $"user.name={committer.Name}", "-c", $"user.email={committer.Email}", "--git-dir", GitPath(userId, repository)];
+            var tree = await Git(cancellationToken, [.. who, "rev-parse", $"{from}^{{tree}}"]);
+            var made = tree.Exit == 0 ? await Git(cancellationToken, [.. who, "commit-tree", tree.Output.Trim(), "-p", from, "-p", other, "-m", message]) : tree;
+            if (made.Exit != 0 || (await Git(cancellationToken, [.. who, "update-ref", $"refs/heads/{branch}", made.Output.Trim(), from])).Exit != 0)
+            {
+                return null;
+            }
+
+            merge = made.Output.Trim();
+        }
+        finally
+        {
+            _git.Release();
+        }
+
+        var at = _time.GetUtcNow();
+        Change(userId, account => Find(account.World, repository) is { } found
+            ? account with
+            {
+                World = WithRepository(account.World, repository, found with
+                {
+                    Activity = [.. found.Activity ?? [], new FakeActivity(
+                        (found.Activity ?? []).Select(each => each.Id).DefaultIfEmpty(0).Max() + 1,
+                        branch, from, merge, at, ActivityKind.Push, AppLogin)],
+                }),
+            }
+            : account);
+        return merge;
+    }
+
     /// <summary>Whether the repository's git repository holds the commit with the full id
     /// <paramref name="commit"/>; false before its git repository is made, and for anything that is
     /// not a full id, so nothing else reaches git as an argument.</summary>
@@ -238,6 +291,30 @@ public sealed partial class FakeCodeHost : IDisposable
         }
 
         return (await Git(cancellationToken, "--git-dir", GitPath(userId, repository), "cat-file", "-e", $"{commit}^{{commit}}")).Exit == 0;
+    }
+
+    /// <summary>The paths <paramref name="head"/> changed since its merge base with
+    /// <paramref name="from"/>, both commits its git repository holds, sorted; null when git
+    /// fails.</summary>
+    private async Task<IReadOnlyList<string>?> DiffNames(Guid userId, Repository repository, string from, string head, CancellationToken cancellationToken)
+    {
+        var (exit, output) = await Git(cancellationToken, "--git-dir", GitPath(userId, repository), "diff", "--name-only", "--no-renames", $"{from}...{head}");
+        return exit == 0
+            ? [.. output.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Order(StringComparer.Ordinal)]
+            : null;
+    }
+
+    /// <summary>The parents of the commit with the full id <paramref name="commit"/> in the
+    /// repository's git repository, first parent first; empty when it holds no such commit.</summary>
+    internal async Task<IReadOnlyList<string>> Parents(Guid userId, Repository repository, string commit, CancellationToken cancellationToken)
+    {
+        if (!await HasCommit(userId, repository, commit, cancellationToken))
+        {
+            return [];
+        }
+
+        var (exit, output) = await Git(cancellationToken, "--git-dir", GitPath(userId, repository), "rev-list", "--parents", "-n", "1", commit);
+        return exit == 0 ? [.. output.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Skip(1)] : [];
     }
 
     [System.Text.RegularExpressions.GeneratedRegex("^(?:[0-9a-f]{40}|[0-9a-f]{64})$", System.Text.RegularExpressions.RegexOptions.CultureInvariant)]
@@ -803,7 +880,7 @@ public sealed partial class FakeCodeHost : IDisposable
 
     /// <summary>The commit the branch points at in the repository's git repository, or null when
     /// it has none, or no git repository has been made for it.</summary>
-    private async Task<string?> BranchCommit(Guid userId, Repository repository, string branch, CancellationToken cancellationToken)
+    internal async Task<string?> BranchCommit(Guid userId, Repository repository, string branch, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrEmpty(branch);
         if (_gitRoot is null || !Directory.Exists(GitPath(userId, repository)))

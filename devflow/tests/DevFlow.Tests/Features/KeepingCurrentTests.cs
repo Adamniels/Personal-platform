@@ -6,8 +6,8 @@ namespace DevFlow.Tests.Features;
 /// <summary>
 /// A feature kept current while it waits for the owner: each read finds the default branch's
 /// commit, as its watch named it, and brings it in again once it has moved past the one brought in,
-/// never while the feature is worked on; a conflict is not tried again until the default branch
-/// moves; and a card added to a feature at its end sends it back to building, its pull request open,
+/// never while the feature is worked on; a conflict its agent could not resolve is not tried again
+/// until the default branch moves; and a card added to a feature at its end sends it back to building, its pull request open,
 /// and its end runs again once that card is done. Against real Postgres and the fake code host. See
 /// "The end of a feature" in devflow/README.md.
 /// </summary>
@@ -105,11 +105,17 @@ public sealed class KeepingCurrentTests
         await Ending.ReadAndEnd(jobs);
         Assert.Equal(1, Ending.Asked(jobs));
 
+        // The agent could not resolve it, so the feature waits for the owner.
+        jobs.Routes.Time.Advance(TimeSpan.FromSeconds(1));
+        await jobs.Routes.Read(jobs.Project, Ending.User);
+        await PullRequests.Built.Run(jobs, PullRequests.Built.PreparedFailure(inCard: true, "The agent ran out of turns"));
+        Assert.Equal("waiting_for_owner", (await Ending.Row(jobs)).State);
+
         // Read again at the same commit: not asked again.
         await Ending.ReadAndEnd(jobs);
         await Ending.ReadAndEnd(jobs);
         Assert.Equal(1, Ending.Asked(jobs));
-        Assert.Equal(FeatureEnd.Conflict("main"), (await Ending.Row(jobs)).Reason);
+        Assert.Equal(FeatureEnd.NotResolved("main", "The run failed: The agent ran out of turns"), (await Ending.Row(jobs)).Reason);
 
         // The default branch moves, the conflict is gone: brought in, and the pull request opened.
         var moved = await Ending.MoveMain(jobs, "Main resolves it");

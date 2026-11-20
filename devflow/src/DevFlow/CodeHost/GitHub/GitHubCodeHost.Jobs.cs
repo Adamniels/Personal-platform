@@ -46,6 +46,34 @@ public sealed partial class GitHubCodeHost
         return read;
     }
 
+    /// <summary>
+    /// <c>GET /repos/{owner}/{repo}/compare/{from}...{head}?per_page=1</c>, as the app: the files
+    /// <paramref name="head"/> changed since the two parted, its first page holding every file
+    /// GitHub lists, at most 300, and one commit, since the commits are not read. Each by its
+    /// <c>filename</c>, a renamed one's new path, each once. Anything but two full commit ids is
+    /// never sent.
+    /// </summary>
+    public async Task<CodeHostResult<IReadOnlyList<string>>> ChangedFiles(Guid userId, Repository repository, string from, string head, CancellationToken cancellationToken)
+    {
+        if (!FullCommit(from) || !FullCommit(head))
+        {
+            throw new ArgumentException("a comparison is of two full commit ids");
+        }
+
+        return Map(
+            await One<CompareAnswer>(repository, $"{Repo(repository)}/compare/{from}...{head}?per_page=1", cancellationToken),
+            answer => (IReadOnlyList<string>)[.. (answer.Files ?? []).Select(file => file.Filename is { Length: > 0 } name ? name : throw new JsonException("a file with no name"))
+                .Distinct(StringComparer.Ordinal).Take(ICodeHost.MostChangedFiles)]);
+    }
+
+    /// <summary>A full commit id, 40 or 64 lowercase hex digits.</summary>
+    private static bool FullCommit(string? commit) =>
+        commit is { Length: 40 or 64 } && commit.All(c => char.IsAsciiDigit(c) || c is >= 'a' and <= 'f');
+
+    private sealed record CompareAnswer(IReadOnlyList<CompareFile>? Files);
+
+    private sealed record CompareFile(string? Filename);
+
     private sealed record RepositoryInfoAnswer(string DefaultBranch);
 
     private sealed record BotAnswer(string Login, long Id);

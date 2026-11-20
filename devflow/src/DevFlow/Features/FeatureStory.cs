@@ -77,6 +77,10 @@ public sealed record FeatureCard(
 /// <param name="PullRequest">Its pull request to the default branch, null before it is
 /// opened.</param>
 /// <param name="Cards">Its cards, in their sub-issue order.</param>
+/// <param name="Runs">The feature's own runs, a conflict's resolution among them, newest first, as a
+/// card's page shows its runs; none of its cards'.</param>
+/// <param name="InputTokens">The tokens the feature's own runs read, 0 before any.</param>
+/// <param name="OutputTokens">The tokens they wrote, 0 before any.</param>
 public sealed record FeatureStoryView(
     int Number,
     string Title,
@@ -85,7 +89,10 @@ public sealed record FeatureStoryView(
     string? Reason,
     FeatureBranch? Branch,
     CardPullRequest? PullRequest,
-    IReadOnlyList<FeatureCard> Cards);
+    IReadOnlyList<FeatureCard> Cards,
+    IReadOnlyList<CardRun> Runs,
+    long InputTokens,
+    long OutputTokens);
 
 /// <summary>
 /// A feature's story, read from what Dev flow stored and never from the code host, through the
@@ -169,6 +176,7 @@ public static class FeatureStory
                     Decisions(ofCard, reviews, answers)));
             }
 
+            var own = await CardStory.FeatureRuns(transaction, projectId, feature.Number, cancellationToken);
             return new FeatureStoryView(
                 feature.Number,
                 feature.Title,
@@ -177,7 +185,10 @@ public static class FeatureStory
                 feature.Reason,
                 feature.Branch is { } branch ? new FeatureBranch(branch, feature.BranchCommit) : null,
                 feature.PullRequestNumber is { } pull && feature.PullRequestUrl is { } url ? new CardPullRequest(pull, url) : null,
-                shown);
+                shown,
+                own,
+                own.Sum(run => run.InputTokens ?? 0),
+                own.Sum(run => run.OutputTokens ?? 0));
         }, cancellationToken);
     }
 

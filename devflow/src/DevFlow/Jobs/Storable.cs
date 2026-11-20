@@ -37,6 +37,7 @@ public static class Storable
             Screenshots = result.Screenshots is { } screenshots
                 ? screenshots with { Note = screenshots.Note is { } note ? Text(note) : null }
                 : null,
+            RemergeDiff = result.RemergeDiff is { } diff ? Text(diff) : null,
         };
     }
 

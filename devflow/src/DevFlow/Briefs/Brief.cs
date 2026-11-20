@@ -42,9 +42,17 @@ public sealed record ReviewFacts(string Commit, string Branch, string Base, int 
 /// <param name="Comments">The owner's comments the fix answers, each exactly as he wrote it.</param>
 public sealed record FixInput(int? Round, string? Report, ReviewVerdict? Review, IReadOnlyList<string> Comments);
 
+/// <summary>The facts a conflict brief names: the check from the project's
+/// <c>.devflow/project.json</c>, the feature's branch the merge goes on, the default branch it
+/// brings in, which the agent's copy holds as <c>origin/&lt;default&gt;</c>, and the files in
+/// conflict, those both sides changed since they parted as the code host compares them, sorted;
+/// empty when it listed none.</summary>
+public sealed record ConflictFacts(string Check, string Branch, string DefaultBranch, IReadOnlyList<string> Files);
+
 /// <summary>
-/// The briefs an agent gets, <c>developer.md</c> and <c>reviewer.md</c> beside this file, embedded
-/// in the assembly: the same text for every project, filled with one card and its project's facts.
+/// The briefs an agent gets, <c>developer.md</c>, <c>reviewer.md</c> and <c>conflict.md</c> beside
+/// this file, embedded in the assembly: the same text for every project, filled with one card, or
+/// for a conflict one feature, and its project's facts.
 /// The card's title and body, and for a card of a feature the parent's, are the only text from
 /// GitHub in either, each quoted inside a fenced block longer than any run of backticks in them,
 /// so nothing in a card can end the quote and write into the brief. The check, and the earlier
@@ -58,6 +66,8 @@ public static class Brief
     private static readonly Lazy<string> ReviewerTemplate = new(() => Embedded("reviewer"));
 
     private static readonly Lazy<string> LookingTemplate = new(() => Embedded("looking"));
+
+    private static readonly Lazy<string> ConflictTemplate = new(() => Embedded("conflict"));
 
     /// <summary>What the brief says in place of looking, for a project without a <c>start</c> or a
     /// <c>url</c>: nothing can be started, so no page is looked at.</summary>
@@ -135,6 +145,53 @@ public static class Brief
 
         section.Append("Every finding gets a reply in `replies`, and so does each comment of the owner's: the `finding` in a few words, and your `answer`, what you changed or why you did not.\n\n");
         return Developer(card, facts, feature, section.ToString());
+    }
+
+    /// <summary>
+    /// The conflict brief for <paramref name="feature"/>, with <paramref name="facts"/>, as Settled
+    /// in the slice "Resolving a conflict": bring the default branch in and resolve each conflict so
+    /// both sides' intent holds; change nothing that is not in conflict; run the check and fix what
+    /// the resolution broke in the merge commit itself; decide and record, never ask; the parent,
+    /// each done card's handover note and the files in conflict as information; and the report in
+    /// its usual form. The parent's words are the owner's, the notes an agent's and the paths the
+    /// code host's, so each is quoted inside a fenced block longer than any run of backticks in it,
+    /// and none can end its quote and write into the brief.
+    /// </summary>
+    public static string Conflict(BriefFeature feature, ConflictFacts facts)
+    {
+        ArgumentNullException.ThrowIfNull(feature);
+        ArgumentNullException.ThrowIfNull(facts);
+        var notes = new StringBuilder();
+        if (feature.Earlier.Count == 0)
+        {
+            notes.Append("None of its cards left a note.\n");
+        }
+        else
+        {
+            notes.Append("The handover notes the developers of the feature's done cards left, in the feature's order, each between the fences with its card's number and title first. Their work is on the branch you are on.\n\n");
+            foreach (var earlier in feature.Earlier)
+            {
+                var note = earlier.Note.Trim().Length == 0 ? "It left no note." : earlier.Note;
+                notes.Append(Fenced("text", string.Create(CultureInfo.InvariantCulture, $"#{earlier.Number} {earlier.Title}\n\n{note}"))).Append("\n\n");
+            }
+        }
+
+        var files = facts.Files.Count == 0
+            ? "The code host listed no file that both sides changed; `git merge` names the files in conflict.\n"
+            : "The files both sides changed since the feature's branch was made, as the code host compares them, one path a line: the conflicts are among them, and `git merge` names exactly which.\n\n"
+              + Fenced("text", string.Join('\n', facts.Files))
+              + (facts.Files.Count >= CodeHost.ICodeHost.MostChangedFiles
+                  ? string.Create(CultureInfo.InvariantCulture, $"\n\nThe code host lists at most {CodeHost.ICodeHost.MostChangedFiles} files a side, so there may be more.\n")
+                  : "\n");
+        return Fill(ConflictTemplate.Value, new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["feature"] = Fenced("text", Quoted(feature)),
+            ["notes"] = notes.ToString().TrimEnd('\n') + "\n",
+            ["files"] = files,
+            ["check"] = Fenced("sh", facts.Check),
+            ["branch"] = facts.Branch,
+            ["default"] = facts.DefaultBranch,
+        });
     }
 
     private static string Developer(BriefCard card, BriefFacts facts, BriefFeature? feature, string fix)

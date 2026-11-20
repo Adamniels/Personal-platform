@@ -52,9 +52,9 @@ public abstract record FreshKey
 /// Hands out work. A worker asking for it is answered nothing when it needs a rebuild, when its
 /// project is stopped or its default branch not watched lately, when its project's user has no
 /// Claude login or one past its renewal, or when its project has no card to take; otherwise the
-/// kind of job is chosen, a review before a fix before a build, everything that job needs from the code host is
+/// kind of job is chosen, a review before a fix before a conflict before a build, everything that job needs from the code host is
 /// read first, as the app, with a key for that kind, a feature's branch made for its first card,
-/// and only then is a card of that kind taken, in
+/// and only then is a card, or for a conflict a feature, of that kind taken, in
 /// one short transaction as the project's user, so no lock is held while GitHub is asked.
 /// That transaction reads the watch's hold again under the project's lock, so a stop recorded
 /// while GitHub was asked still holds the card back. Anything the code host does not answer is no
@@ -125,7 +125,8 @@ public sealed partial class Dispatcher(
             return new NextJob.None();
         }
 
-        // The key is made for the kind found, before anything is taken: a review's only fetches.
+        // The key is made for the kind found, before anything is taken: a review's only fetches, and
+        // a build's, a fix's and a conflict's fetch and push.
         var purpose = kind == Job.Review ? WritePurpose.Fetch : WritePurpose.Push;
         if (await Facts(projectId, userId, repository, cancellationToken) is not { } facts
             || await logins.ForRun(userId, cancellationToken) is not { } token
@@ -141,6 +142,21 @@ public sealed partial class Dispatcher(
             return new NextJob.None();
         }
 
+        // A conflict's brief lists the files both sides changed, read as the app outside the lock,
+        // for the feature it would take and the two commits it would merge.
+        DueConflict? due = null;
+        IReadOnlyList<string> files = [];
+        if (kind == Job.Conflict)
+        {
+            due = await JobStore.ConflictDue(database, userId, projectId, time.GetUtcNow(), cancellationToken);
+            if (due is null || await InConflict(projectId, userId, repository, due, cancellationToken) is not { } changed)
+            {
+                return new NextJob.None();
+            }
+
+            files = changed;
+        }
+
         var now = Now();
         var job = await database.InUserTransaction<Job?>(userId, async transaction =>
         {
@@ -153,6 +169,7 @@ public sealed partial class Dispatcher(
             {
                 Job.Review => ReviewJob(await JobStore.ClaimReview(transaction, projectId, userId, workerId, now, cancellationToken), repository, facts, token, key),
                 Job.Fix => FixJob(await JobStore.ClaimFix(transaction, projectId, userId, workerId, facts.Check, now, cancellationToken), repository, facts, token, key),
+                Job.Conflict => ConflictJob(await JobStore.ClaimConflict(transaction, projectId, userId, workerId, due!, facts.DefaultBranch, facts.Check, now, cancellationToken), repository, facts, token, key, files),
                 _ => BuildJob(await JobStore.Claim(transaction, projectId, userId, workerId, facts.DefaultBranch, facts.Check, now, cancellationToken), repository, facts, token, key),
             };
         }, cancellationToken);
@@ -198,6 +215,35 @@ public sealed partial class Dispatcher(
             JobLimits.Default,
             Start: facts.Start,
             Url: facts.Url);
+    }
+
+    /// <summary>The conflict job for a feature taken to resolve, or null when none was: on the
+    /// feature's branch, with the default branch as its base, the feature's parent as its card, the
+    /// conflict brief, the report's form, the check, and the two commits it merges.</summary>
+    private static Job? ConflictJob(ClaimedConflict? claimed, Repository repository, RepositoryFacts facts, ClaudeToken token, AppWriteToken key, IReadOnlyList<string> files)
+    {
+        if (claimed is null)
+        {
+            return null;
+        }
+
+        var brief = Brief.Conflict(claimed.Feature, new ConflictFacts(facts.Check, claimed.Branch, claimed.Base, files));
+        return new Job(
+            claimed.RunId,
+            Job.Conflict,
+            new JobCard(claimed.Feature.Number, claimed.Feature.Title, claimed.Feature.Body),
+            new JobRepository(repository.Owner, repository.Name, facts.CloneAddress, facts.DefaultBranch),
+            claimed.Branch,
+            claimed.Base,
+            brief,
+            ReportSchema,
+            facts.Check,
+            token.Value,
+            key.Value,
+            key.ExpiresAt,
+            new JobCommitter(facts.Committer.Name, facts.Committer.Email),
+            JobLimits.Default,
+            ToResolve: new JobConflict(claimed.FeatureCommit, claimed.DefaultCommit));
     }
 
     /// <summary>The fix job for a card taken to fix, or null when none was: a build's job on the
@@ -285,7 +331,8 @@ public sealed partial class Dispatcher(
     }
 
     /// <summary>A fresh push key for the job, only for the worker holding it while it runs, and
-    /// only for a build or a fix: a review is given no key that pushes. Marks the worker seen.</summary>
+    /// only for a build, a fix or a conflict: a review is given no key that pushes. Marks the worker
+    /// seen.</summary>
     public async Task<FreshKey> PushKey(WorkerCaller caller, Guid runId, Guid workerId, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(caller);
@@ -336,6 +383,25 @@ public sealed partial class Dispatcher(
         }
 
         return new RepositoryFacts(branch, project.Check, project.Start, project.Url, clone, committer);
+    }
+
+    /// <summary>
+    /// The files in conflict between the feature's branch and the default branch, as their brief
+    /// lists them: those each side changed since they parted, by the code host's comparison of each
+    /// commit against the other, sorted. GitHub cannot say which conflict without merging, which is
+    /// the worker's, so these are where the conflicts are, and the agent's <c>git merge</c> names
+    /// them exactly. Null when the code host did not answer, which is no work now.
+    /// </summary>
+    private async Task<IReadOnlyList<string>?> InConflict(Guid projectId, Guid userId, Repository repository, DueConflict due, CancellationToken cancellationToken)
+    {
+        if (await host.ChangedFiles(userId, repository, due.DefaultCommit, due.FeatureCommit, cancellationToken) is not CodeHostResult<IReadOnlyList<string>>.Found { Value: var feature }
+            || await host.ChangedFiles(userId, repository, due.FeatureCommit, due.DefaultCommit, cancellationToken) is not CodeHostResult<IReadOnlyList<string>>.Found { Value: var landed })
+        {
+            LogNotRead(log, projectId, "the files in conflict");
+            return null;
+        }
+
+        return [.. feature.Intersect(landed, StringComparer.Ordinal).Order(StringComparer.Ordinal)];
     }
 
     /// <summary>A key for the repository, narrowed to <paramref name="purpose"/>,
@@ -406,7 +472,7 @@ public sealed partial class Dispatcher(
 
     private sealed record RepositoryFacts(string DefaultBranch, string Check, string Start, string Url, Uri CloneAddress, Committer Committer);
 
-    [LoggerMessage(Level = LogLevel.Information, Message = "Handed out the {Kind} of card {Card} of project {ProjectId} as run {RunId}")]
+    [LoggerMessage(Level = LogLevel.Information, Message = "Handed out the {Kind} of #{Card} of project {ProjectId} as run {RunId}")]
     private static partial void LogHandedOut(ILogger logger, string kind, Guid projectId, int card, Guid runId);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "No job for project {ProjectId}: the code host did not answer {What}")]

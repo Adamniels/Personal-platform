@@ -172,6 +172,31 @@ public sealed partial class FakeCodeHost : ICodeHost, ICodeHostSignIn
     public Task<CodeHostResult<string>> DefaultBranch(Guid userId, Repository repository, CancellationToken cancellationToken) =>
         Answer(userId, repository, found => found.Default);
 
+    /// <summary>As GitHub compares two commits: unavailable when the account says so, not found
+    /// for a repository the world does not hold or a commit its git repository does not; and
+    /// otherwise the files <paramref name="head"/> changed since its merge base with
+    /// <paramref name="from"/> in its git repository, by path, sorted, at most 300.</summary>
+    public async Task<CodeHostResult<IReadOnlyList<string>>> ChangedFiles(Guid userId, Repository repository, string from, string head, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(repository);
+        var account = Of(userId);
+        if (account.Unavailable)
+        {
+            return new CodeHostResult<IReadOnlyList<string>>.Unavailable(RetryAt: null);
+        }
+
+        if (Find(account.World, repository) is null
+            || !await HasCommit(userId, repository, from, cancellationToken)
+            || !await HasCommit(userId, repository, head, cancellationToken))
+        {
+            return new CodeHostResult<IReadOnlyList<string>>.NotFound();
+        }
+
+        return await DiffNames(userId, repository, from, head, cancellationToken) is { } names
+            ? new CodeHostResult<IReadOnlyList<string>>.Found([.. names.Take(ICodeHost.MostChangedFiles)])
+            : new CodeHostResult<IReadOnlyList<string>>.Unavailable(RetryAt: null);
+    }
+
     /// <summary>The branch's changes as the world lists them, newest first: with
     /// <paramref name="since"/> null at most the newest hundred, GitHub's one page; otherwise those
     /// after it, or all when it is not listed.</summary>
