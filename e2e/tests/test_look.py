@@ -134,6 +134,15 @@ PAGES = [
         True,
         lambda page: page.get_by_role("button", name="Link GitHub"),
     ),
+    # A fresh account has no feature, so its page is opened in the state it
+    # shows one it does not have; the page with a feature's cards and decisions
+    # is held to the look in test_devflow.py.
+    Entry(
+        "dev flow: a feature",
+        "/devflow/projects/00000000-0000-4000-8000-000000000000/features/1",
+        True,
+        text("There is no such feature"),
+    ),
 ]
 
 

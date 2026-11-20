@@ -2987,13 +2987,13 @@ def test_a_features_card_lands_in_its_branch(
     capture(page, "devflow-feature-card-landed")
 
 
-def _landed_feature(page: Page, base_url: str, devflow_world) -> tuple[str, dict]:
+def _landed_feature(page: Page, base_url: str, devflow_world) -> str:
     """Connects a repository with a labelled feature of three cards, 61, 62 and
     63 under 60, and the project's .devflow/project.json; the fake worker
     builds 61 with `_report()`, which marks a decision for the owner, and two
     pictures of one page, CI passes on it and the reviewer approves, so Dev
     flow merges it into the feature's branch; then 62 is handed out and kept
-    running. The project's id and what the fake worker answered for 61."""
+    running. The project's id."""
     world = one_repository()
     add_issue(
         world, 60, "The feature's branch", labels=["devflow"], sub_issues=[61, 62, 63]
@@ -3069,7 +3069,7 @@ def _landed_feature(page: Page, base_url: str, devflow_world) -> tuple[str, dict
     )
     assert taken.status == 200, taken.text()
     assert taken.json()["card"] == 62
-    return project, ran.json()
+    return project
 
 
 def _look(page: Page, name: str) -> None:
@@ -3094,7 +3094,7 @@ def test_a_features_page_shows_its_cards_and_decisions(
     page.context.grant_permissions(
         ["clipboard-read", "clipboard-write"], origin=base_url
     )
-    project, ran = _landed_feature(page, base_url, devflow_world)
+    project = _landed_feature(page, base_url, devflow_world)
 
     # From the project's page to the feature's, by its title.
     page.goto(f"/devflow/projects/{project}")
@@ -3168,7 +3168,7 @@ def test_i_answer_a_decision_fine_as_it_is(
     page: Page, invite_code: str, base_url: str, viewport: str, devflow_world
 ):
     register_and_log_in(page, invite_code, base_url)
-    project, _ = _landed_feature(page, base_url, devflow_world)
+    project = _landed_feature(page, base_url, devflow_world)
     world_before = page.request.get("/devflow/api/fake/world").json()
     writes_before = _writes(page)
 

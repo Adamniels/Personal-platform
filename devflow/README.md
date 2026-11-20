@@ -58,6 +58,10 @@ program that calls it: everything else the tabs will show arrives with later sli
   `POST /devflow/api/projects/{id}/cards/{number}/merge`, which merges a card's pull
   request that waits, as the caller on GitHub, see "Acting from the page". Without a valid token,
   `401` with an empty body.
+- `GET /devflow/api/projects/{id}/features/{number}`, a feature's whole story so far, and
+  `POST /devflow/api/projects/{id}/features/{number}/decisions/{run}/{position}/fine`, which
+  answers a decision of one of its cards "Fine as it is", in Dev flow alone, see "A feature's
+  page". Without a valid token, `401` with an empty body.
 - `POST /devflow/api/projects/{id}/worker-key`, which makes a project's worker key and answers it
   once, and `GET /devflow/api/projects/{id}/workers`, the workers that have said hello with it,
   see "Workers". Without a valid token, `401` with an empty body.
@@ -98,7 +102,8 @@ program that calls it: everything else the tabs will show arrives with later sli
   its sign in page, `/devflow/fake-github/authorize`, and its install page,
   `/devflow/fake-github/install`, see "The fake".
 - `GET /devflow`, `/devflow/projects`, `/devflow/projects/{id}`, a project's page, and
-  `/devflow/projects/{id}/cards/{number}`, a card's page, with any query, the page:
+  `/devflow/projects/{id}/cards/{number}`, a card's page, and
+  `/devflow/projects/{id}/features/{number}`, a feature's page, with any query, the page:
   `web/dist/index.html`, revalidated on every load; `{id}` must be a UUID and `{number}` a number. Without a valid token each answers `303` to
   `/auth/refresh?return_to=<the path and query as received, URL encoded>`.
 - `GET /devflow/assets/*`, the page's built files from `web/dist/assets/`, without a token, as
@@ -227,7 +232,10 @@ to the card's page; its
 state as a status, "Queued" and "Held" `idle`, "Ignored" and "Stopped" `failed`, "Building",
 "Checking", "Reviewing" and "Fixing" `running`, "Waiting for you" `needs-you` and "Done" `done`;
 and its reason under them as a caption. With none, "No cards yet. An open issue you wrote with the
-pick-up label becomes one."; a list that could not be read is an alert.
+pick-up label becomes one."; a list that could not be read is an alert. Features come first, in the
+list "Features", each its parent's number linked to the issue as a card's is, its title, a link to
+the feature's page, see "A feature's page", its state and reason, and its cards in their order in
+the list "Cards of #<number>".
 
 A card's page, `src/card.tsx`, is at `/devflow/projects/<id>/cards/<number>`, under the Projects
 tab, which stays selected there, read from `GET /devflow/api/projects/{id}/cards/{number}` as it
@@ -235,7 +243,8 @@ loads. Its header is a link "Back to the project" over the card's title as a sec
 card the caller does not have is the `EmptyState` "There is no such card", and one that cannot be
 read an alert. Under it the package's `Card`s: "The card", its state as the Cards panel
 shows it with its reason beside it, and the links "Issue #<number>" and "Pull request #<number>",
-each in a new tab with `rel="noreferrer"` when its address is https and plain text otherwise;
+each in a new tab with `rel="noreferrer"` when its address is https and plain text otherwise, with,
+between them for a card of a feature, "Feature #<number>: <title>", to the feature's page;
 "The merge", once Dev flow merged its pull request as the app, "Dev flow merged #<pull request>
 into <base> as the app, once every condition of the merge check held." and, muted, "Merge commit
 <commit> of the approved <commit>, on <time>.", both commits in the mono font; "Rounds", once the card has been sent back, the list "Rounds", newest first, each fix an inset row
@@ -357,7 +366,8 @@ the session cookie, a `401` is refreshed once, shared by every call that got one
 `src/api/schema.d.ts`. The page reads the status once as it loads, in `src/status.ts`, for the
 banner and the link, and again after unlinking; its other calls are starting a link, unlinking,
 the projects' four, reading what waits and refreshing a project, merging and sending back,
-merging a card, reading a card's story, a project's workers and making its key, and reading, giving and removing the Claude login, which
+merging a card, reading a card's story, reading a feature's story and answering a decision on it,
+a project's workers and making its key, and reading, giving and removing the Claude login, which
 `src/app.tsx` gives the tabs, so a test gives its own,
 with its own clock.
 
@@ -1284,7 +1294,8 @@ sets only `queued`, `held` and `ignored` and the later slices of part 4 the othe
 `priority`, `issue_created_at`, the record of what was picked, `picked_body_sha256`, `picked_title`,
 `picked_edit` and `picked_body`, null for a feature never picked, `unlabelled`, and, null until the
 later slices set them, `branch`, `branch_base_commit`, `brought_in_commit` and
-`pull_request_number`; `fix_round`, 0 to 3, 0 until then; `changed_at`, when its state or reason
+`pull_request_number`, with `pull_request_url` beside it from `migrations/0027_feature_page.sql`,
+both or neither; `fix_round`, 0 to 3, 0 until then; `changed_at`, when its state or reason
 last changed, and `read_at`. On `cards`, `feature_id` refers to a feature of the same project, null
 for a card on its own, and `position`, from 1, is set exactly when `feature_id` is, unique per
 feature at the end of each transaction.
@@ -1457,8 +1468,10 @@ each guarded like every scoped table and following its project:
   not distinct: `project_id`, `user_id`, `feature_id`, null on the default branch's row and the
   feature's id on a feature's, following the feature, `branch`, `last_activity_id`, the code host's
   id of the newest change judged, null when the branch had none when the watch began or a
-  feature's watch has judged nothing yet, `began_at`, `last_read_at`, `last_attempt_at` and
-  `last_error`.
+  feature's watch has judged nothing yet, `last_commit`, the commit the branch was at after the
+  newest change judged, fine or not, and for a feature's branch the one it was made at until then,
+  null for a watch that began before the column until its next judged change, which a feature's
+  page shows, `began_at`, `last_read_at`, `last_attempt_at` and `last_error`.
 - `merges_made`: `project_id`, `user_id`, `branch`, the branch it merged into, `commit`, `number`
   and `merged_at`, its primary key `(project_id, commit)`.
 - `pushes_made`: `project_id`, `user_id`, `branch`, `commit`, `run_id`, the run whose result named
@@ -2373,9 +2386,82 @@ pictures the worker took of the head commit, the one its newest build or fix tha
 `note`, the worker's, or null; null when that run tried none; and `merge`, the merge Dev flow made
 of its pull request as the app, `{"commit", "approved", "base", "merged_at"}`, the merge commit
 from `merges_made`, the card's head it merged, and the branch, or null when it made none, the
-owner's own merge from the page among them. A project or
+owner's own merge from the page among them; and `feature`, `{"number", "title"}`, the feature it is
+a card of, as last read, or null for a card on its own. A project or
 card the caller does not have is `404` "No such card". It is `CardStory` and `CardEndpoints` in
 `src/DevFlow/Cards/`. The page is "A card's page" under "The pages".
+
+## A feature's page
+
+Why the page reads only what Dev flow stored, and why an answer never reaches the code host, is "A
+feature's page" in `docs/devflow-architecture.md`.
+
+**The route.** `GET /devflow/api/projects/{id}/features/{number}`, under the `Api` policy, answers
+a feature's whole story so far, read in one transaction through the door as the caller, never from
+GitHub: `number`, the parent's, `title` as last read, `web_url`, `state`, `reason`, null when there
+is nothing to say; `branch`, `{"name", "commit"}`, null before the branch is made, `commit` the one
+its watch recorded after the newest change it judged, `branch_watches.last_commit`, or the one it
+was made at before any, null for a watch that began before the column and has judged nothing
+since; `pull_request`, `{"number", "url"}`, its pull request to the default branch, null before
+one is opened; and `cards`, in position order, each `number`, `title`, `web_url`, `state` and
+`reason` as the Cards route answers them, `fix_rounds`, 0 to 3, `input_tokens` and `output_tokens`,
+summed over every run of the card, `screenshots`, as "A card's page" answers them, whose pictures
+are read through that card's `…/screenshots/{name}`, and `decisions`. A card's `decisions` are those
+its latest report marks for the owner, the report "A card's page" answers as `report`, so the two
+pages never disagree, in the report's order, each `run_id`, the run whose report it is,
+`position`, its place among that report's decisions from 0, `chosen`, `alternative`, `why`,
+`reviewer_view`, the reviewer's view of it in the newest review of the commit that run left,
+matched by `chosen` as the merge check matches them, null with none, and `answer`,
+`{"answer", "answered_at"}` or null. A project or feature the caller does not have is `404` "No
+such feature". It is `FeatureStory` and `FeatureEndpoints` in `src/DevFlow/Features/`.
+
+**Answering.** `POST /devflow/api/projects/{id}/features/{number}/decisions/{run}/{position}/fine`
+keeps the answer `fine`, "Fine as it is", to that decision, in one transaction with what it checks,
+and answers `{"answer", "answered_at"}`. Only a decision the page can show is answered: `run` a
+build or fix of a card of that feature, its report's decision at `position` marked for the owner,
+otherwise `404` "No such decision"; and that report still the card's latest, otherwise `409` "A
+newer report", so a page read before a newer run reads again rather than answering what the card no
+longer says. An answer is kept as first given, so answering again changes nothing and answers the
+one kept. Nothing is written to the code host. It is `DecisionAnswers` in `src/DevFlow/Features/`.
+
+**The table**, from `migrations/0028_decision_answers.sql`, guarded like every scoped table and
+following its project: `decision_answers`, `project_id`, `user_id`, `card_number`, `run_id`,
+referencing `runs` and deleted with it, `position`, `answer`, `fine` or `sent_back`, which
+"Sending a card back" gives, and `answered_at`, its primary key `(project_id, run_id, position)`,
+so a newer report's decisions are answered again. `migrations/0027_feature_page.sql` adds
+`branch_watches.last_commit`, see "Watching branches", and `features.pull_request_url`, beside
+`pull_request_number`, both or neither, as a card's are.
+
+**The page**, `src/feature.tsx`, is at `/devflow/projects/<id>/features/<number>`, under the
+Projects tab, which stays selected there, read from the route above as it loads, and laid out as
+the feature page of the spec's mockup `2-feature-and-running-now.html`. Its header is a link "Back
+to the project" over the feature's title as a section heading; a feature the caller does not have
+is the `EmptyState` "There is no such feature", and one that cannot be read an alert. Under it the
+package's `Card`s, top to bottom:
+
+- "The feature": its state, as the Cards panel says a state, with its reason beside it; the links
+  "Issue #<number>" and, once there is one, "Pull request #<number>", in a new tab with
+  `rel="noreferrer"` when their address is https and plain text otherwise; and "<done> of <all>
+  cards done".
+- "What the agents want you to know", only when a card has a decision for the owner, in attention
+  while any is not answered: the list "Decisions for you", each "#<card>: <chosen>", "Instead of
+  <alternative>", "Because <why>" and "Reviewer: <view>", or "Reviewer: gave no view on it.", then a
+  secondary "Fine as it is", which posts the answer and shows it in place; once answered, the
+  `done` status "Fine as it is" and "answered <when>". A refused answer reads the story again and
+  shows an alert under the decision.
+- "The branch": "Its branch is made when its first card starts." before it is, and then a line
+  saying the feature is not in main yet, with the commit it is at, short, and the region "Check out
+  the branch", `git fetch origin <branch> && git switch <branch>` in the mono font with a secondary
+  "Copy the command" that reads "Copied" once it has, as a worker's commands are copied.
+- "Screenshots", only when a card has any: a region "Screenshots of #<card>" per card with its
+  number and title, each card's pictures as its own page shows them.
+- "Cards": the table "Cards of the feature", each card's number and title linked to its page, its
+  state, its fix rounds, its tokens and how many decisions it has for the owner, the numbers folded
+  under the card at phone width.
+
+Every text from the code host or an agent goes through `src/format.tsx`, as everywhere in Dev flow.
+"Merge into main", "Send the whole feature back" and "Send back" arrive with their slices and are
+not shown before then.
 
 ## Review
 
