@@ -7,7 +7,8 @@ using PlatformData;
 namespace DevFlow.Reviews;
 
 /// <summary>
-/// Posts each recorded verdict's copy on its pull request, once, as one comment by the app with a
+/// Posts each recorded verdict's copy on its pull request, a card's on the card's and a whole
+/// feature's on the feature's, once, as one comment by the app with a
 /// <see cref="WritePurpose.Post"/> key, and marks it posted. The verdict is already kept by Dev
 /// flow; the comment is for people, and nothing reads it back to learn a verdict. Before posting,
 /// the app's own comments on the pull request are looked at only to find a copy of this review
@@ -26,7 +27,12 @@ public sealed partial class ReviewPoster(UserDb database, ICodeHost host, TimePr
     /// </summary>
     public async Task PostPending(Guid projectId, Guid userId, CancellationToken cancellationToken)
     {
-        var pending = await ReviewStore.Unposted(database, userId, projectId, cancellationToken);
+        var cards = await ReviewStore.Unposted(database, userId, projectId, cancellationToken);
+        var features = await FeatureReviewStore.Unposted(database, userId, projectId, cancellationToken);
+        var pending = cards
+            .Select(review => new Pending(review.RunId, review.CardNumber, review.PullRequestNumber, ReviewText.Comment(review), ReviewStore.MarkPosted))
+            .Concat(features.Select(review => new Pending(review.RunId, review.FeatureNumber, review.PullRequestNumber, ReviewText.FeatureComment(review), FeatureReviewStore.MarkPosted)))
+            .ToList();
         if (pending.Count == 0 || await RepositoryOf(projectId, userId, cancellationToken) is not { } repository)
         {
             return;
@@ -46,7 +52,7 @@ public sealed partial class ReviewPoster(UserDb database, ICodeHost host, TimePr
                 switch (await AlreadyPosted(userId, repository, review, app.Name, cancellationToken))
                 {
                     case true:
-                        await ReviewStore.MarkPosted(database, userId, review.RunId, Now(), cancellationToken);
+                        await review.MarkPosted(database, userId, review.RunId, Now(), cancellationToken);
                         continue;
                     case null:
                         LogNotNow(log, projectId, "the pull request's comments");
@@ -60,14 +66,14 @@ public sealed partial class ReviewPoster(UserDb database, ICodeHost host, TimePr
                     return;
                 }
 
-                switch (await host.CommentOnIssue(userId, key, repository, review.PullRequestNumber, ReviewText.Comment(review), cancellationToken))
+                switch (await host.CommentOnIssue(userId, key, repository, review.PullRequestNumber, review.Body, cancellationToken))
                 {
                     case WriteResult<Comment>.Written:
-                        await ReviewStore.MarkPosted(database, userId, review.RunId, Now(), cancellationToken);
-                        LogPosted(log, projectId, review.CardNumber, review.PullRequestNumber);
+                        await review.MarkPosted(database, userId, review.RunId, Now(), cancellationToken);
+                        LogPosted(log, projectId, review.Number, review.PullRequestNumber);
                         break;
                     case WriteResult<Comment>.Refused { Status: var status }:
-                        LogRefused(log, projectId, review.CardNumber, status);
+                        LogRefused(log, projectId, review.Number, status);
                         break;
                     case WriteResult<Comment>.Unavailable:
                         // Whether it was posted is not known; the next posting finds it if it was.
@@ -79,14 +85,14 @@ public sealed partial class ReviewPoster(UserDb database, ICodeHost host, TimePr
             }
             catch (Exception error) when (error is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
             {
-                LogFailed(log, projectId, review.CardNumber, error);
+                LogFailed(log, projectId, review.Number, error);
             }
         }
     }
 
     /// <summary>Whether the app's own copy of the review is on the pull request already, found by
     /// the run its last line names; null when the code host did not answer.</summary>
-    private async Task<bool?> AlreadyPosted(Guid userId, Repository repository, UnpostedReview review, string app, CancellationToken cancellationToken) =>
+    private async Task<bool?> AlreadyPosted(Guid userId, Repository repository, Pending review, string app, CancellationToken cancellationToken) =>
         await host.Comments(userId, repository, review.PullRequestNumber, cancellationToken) switch
         {
             CodeHostResult<IReadOnlyList<Comment>>.Found { Value: var comments } => comments.Any(comment =>
@@ -114,7 +120,7 @@ public sealed partial class ReviewPoster(UserDb database, ICodeHost host, TimePr
         return now.AddTicks(-(now.Ticks % 10));
     }
 
-    [LoggerMessage(Level = LogLevel.Information, Message = "Posted the review of card {Card} of project {Project} on pull request {Pull}")]
+    [LoggerMessage(Level = LogLevel.Information, Message = "Posted the review of #{Card} of project {Project} on pull request {Pull}")]
     private static partial void LogPosted(ILogger logger, Guid project, int card, int pull);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "The code host did not answer {What} for project {Project}; its reviews are posted on a later minute")]
@@ -127,4 +133,8 @@ public sealed partial class ReviewPoster(UserDb database, ICodeHost host, TimePr
     private static partial void LogFailed(ILogger logger, Guid project, int card, Exception failed);
 
     private sealed record ProjectRow(long Installation, long RepositoryId, string Owner, string Name);
+
+    /// <summary>A copy to post: the review's run, the card's number or the feature's parent's, the
+    /// pull request, the comment, and how it is marked posted.</summary>
+    private sealed record Pending(Guid RunId, int Number, int PullRequestNumber, string Body, Func<UserDb, Guid, Guid, DateTimeOffset, CancellationToken, Task> MarkPosted);
 }

@@ -3306,11 +3306,11 @@ def test_a_finished_feature_gets_its_pull_request(
     assert workers.status == 200, workers.text()
     assert workers.json()["held"] is None
 
-    # The feature's page links to its pull request and says why it waits.
+    # The feature's page links to its pull request and says it is reviewed as a
+    # whole next.
     page.goto(f"/devflow/projects/{project}/features/60")
     feature = page.get_by_role("article", name="The feature")
-    expect(feature).to_contain_text("Waiting for you")
-    expect(feature).to_contain_text("Not reviewed as a whole yet")
+    expect(feature).to_contain_text("Reviewing")
     expect(feature).to_contain_text("1 of 1 cards done")
     link = feature.get_by_role("link", name=f"Pull request #{pull['number']}")
     expect(link).to_have_attribute("href", pull["url"])
@@ -3426,7 +3426,8 @@ def test_a_conflict_is_resolved_by_an_agent(
     assert resolved.json()["branch"] == FEATURE_BRANCH
 
     # The feature goes on as after a clean bringing in: its pull request into
-    # main is opened, and it waits for me; the watch finds the push fine.
+    # main is opened, and it is reviewed as a whole next; the watch finds the
+    # push fine.
     opened = [
         write
         for write in _writes(page)
@@ -3444,8 +3445,7 @@ def test_a_conflict_is_resolved_by_an_agent(
     # Its page shows the run that resolved it.
     page.goto(f"/devflow/projects/{project}/features/60")
     feature = page.get_by_role("article", name="The feature")
-    expect(feature).to_contain_text("Waiting for you")
-    expect(feature).to_contain_text("Not reviewed as a whole yet")
+    expect(feature).to_contain_text("Reviewing")
     runs = page.get_by_role("article", name="Runs").get_by_role(
         "list", name="Runs of the feature"
     )
@@ -3456,3 +3456,4 @@ def test_a_conflict_is_resolved_by_an_agent(
     expect(run).to_contain_text(f"on {resolved.json()['head_commit'][:7]}")
     expect(run).to_contain_text("Tokens 12 in, 3,400 out")
     _look(page, "devflow-feature-conflict-resolved")
+

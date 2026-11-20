@@ -132,6 +132,11 @@ public static class DevFlowApp
         // branch as the app. See "The end of a feature" in devflow/README.md.
         builder.Services.AddSingleton(provider => new FeatureEnds(
             database, provider.GetRequiredService<ICodeHost>(), provider.GetRequiredService<TimeProvider>(), provider.GetRequiredService<ILogger<FeatureEnds>>()));
+        // Each feature whose pull request is open: whether its head needs a review of the whole
+        // feature, and whether it is ready for the owner. See "Reviewing a feature" in
+        // devflow/README.md.
+        builder.Services.AddSingleton(provider => new FeatureReadiness(
+            database, provider.GetRequiredService<TimeProvider>(), provider.GetRequiredService<ILogger<FeatureReadiness>>()));
         // Each user's Claude login, sealed in the vault and opened only for one of their runs. See
         // "Claude login" in devflow/README.md.
         builder.Services.AddSingleton(provider => new ClaudeLogins(
@@ -171,6 +176,7 @@ public static class DevFlowApp
                 provider.GetRequiredService<DecisionIssues>(),
                 provider.GetRequiredService<LandedCards>(),
                 provider.GetRequiredService<FeatureEnds>(),
+                provider.GetRequiredService<FeatureReadiness>(),
                 provider.GetRequiredService<StopMarker>(),
                 provider.GetRequiredService<TimeProvider>(),
                 interval,

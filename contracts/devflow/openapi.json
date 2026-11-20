@@ -1460,6 +1460,16 @@
               }
             ]
           },
+          "to_review_feature": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JobFeatureReview"
+              }
+            ]
+          },
           "url": {
             "default": "",
             "type": "string"
@@ -1530,6 +1540,100 @@
         "required": [
           "feature_commit",
           "default_commit"
+        ],
+        "type": "object"
+      },
+      "JobFeatureCard": {
+        "properties": {
+          "handover": {
+            "type": "string"
+          },
+          "number": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "summary": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "verdict": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "required": [
+          "number",
+          "title",
+          "verdict",
+          "summary",
+          "handover"
+        ],
+        "type": "object"
+      },
+      "JobFeatureCheck": {
+        "properties": {
+          "command": {
+            "type": "string"
+          },
+          "commit": {
+            "type": "string"
+          },
+          "exit_code": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "output": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "command",
+          "commit",
+          "exit_code",
+          "output"
+        ],
+        "type": "object"
+      },
+      "JobFeatureReview": {
+        "properties": {
+          "cards": {
+            "items": {
+              "$ref": "#/components/schemas/JobFeatureCard"
+            },
+            "type": "array"
+          },
+          "check": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JobFeatureCheck"
+              }
+            ]
+          },
+          "commit": {
+            "type": "string"
+          },
+          "remerge_diff": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "required": [
+          "commit",
+          "cards",
+          "check",
+          "remerge_diff"
         ],
         "type": "object"
       },

@@ -23,7 +23,7 @@ namespace DevFlow.Jobs;
 
 /// <summary>What the fake worker is asked to do: take the project's next job and end it with the
 /// prepared result, whose worker id, branch and head commit it fills itself; for a review job the
-/// prepared report is the verdict, and for a conflict job the prepared remerge diff is sent with
+/// prepared report is the verdict, as it is for a whole feature's review, and for a conflict job the prepared remerge diff is sent with
 /// the merge commit it makes, when the result passed its check. With <paramref name="LeaveNoCommit"/>, a fix makes no commit, as
 /// an agent that changed nothing, and names the commit it was handed; and a build makes none and
 /// names none, as a run that failed before anything was pushed. For a build or a fix whose
@@ -43,8 +43,8 @@ public sealed record FakeWorkerRan(Guid JobId, string Kind, int Card, string Bra
 /// on the caller's own project: one call says hello in the project as a worker on the image
 /// expected, takes its next job through the same <see cref="Dispatcher"/> a real worker asks, makes
 /// a commit on the job's branch in the fake code host for a build, on its head for a fix, a merge
-/// commit of the default branch's on a feature's branch for a conflict, or none for a review,
-/// which names the commit it was handed, and completes the job with the prepared result through the same code a
+/// commit of the default branch's on a feature's branch for a conflict, or none for a review of a
+/// card or of a whole feature, which names the commit it was handed, and completes the job with the prepared result through the same code a
 /// real worker's result goes through. So an acceptance test drives the whole chain without a
 /// container. Left out of the schema, as every fake address is. See "Jobs"
 /// in devflow/README.md.
@@ -83,6 +83,7 @@ public static class FakeWorkerEndpoints
         [FromServices] DecisionIssues decisions,
         [FromServices] LandedCards landed,
         [FromServices] FeatureEnds ends,
+        [FromServices] FeatureReadiness readiness,
         [FromServices] StopMarker marker,
         [FromServices] TimeProvider time)
     {
@@ -138,8 +139,21 @@ public static class FakeWorkerEndpoints
             await decisions.OpenPending(projectId, userId, cancellationToken);
             await landed.TellPending(projectId, userId, cancellationToken);
             await ends.EndPending(projectId, userId, cancellationToken);
+            await readiness.DecidePending(projectId, userId, cancellationToken);
             await marker.MarkPending(projectId, userId, cancellationToken);
             return TypedResults.Ok(new FakeWorkerRan(job.JobId, job.Kind, job.Card.Number, job.Branch, toReview.Commit));
+        }
+
+        if (job.ToReviewFeature is { } toReviewFeature)
+        {
+            // A whole feature's review reads the commit it was handed and changes nothing.
+            var reviewed = prepared with { WorkerId = WorkerId, Branch = job.Branch, HeadCommit = prepared.Outcome == ResultRequest.Succeeded ? toReviewFeature.Commit : null };
+            await JobEndpoints.Complete(database, caller, job.JobId, WorkerId, JobEndpoints.Read(reviewed)!, now, cancellationToken);
+            // Its copy is posted and whether the feature is ready read, on the next minute for a
+            // real worker; the fake worker waits for both.
+            await poster.PostPending(projectId, userId, cancellationToken);
+            await readiness.DecidePending(projectId, userId, cancellationToken);
+            return TypedResults.Ok(new FakeWorkerRan(job.JobId, job.Kind, job.Card.Number, job.Branch, toReviewFeature.Commit));
         }
 
         var committer = new Committer(job.Committer.Name, job.Committer.Email);
@@ -158,8 +172,10 @@ public static class FakeWorkerEndpoints
                 ? prepared with { WorkerId = WorkerId, Outcome = ResultRequest.Failed, Report = null, Failure = new RunFailure(NoCommit, false), Check = null, Branch = job.Branch, HeadCommit = null, RemergeDiff = null }
                 : prepared with { WorkerId = WorkerId, Branch = job.Branch, HeadCommit = merged, RemergeDiff = merged is null ? null : prepared.RemergeDiff };
             await JobEndpoints.Complete(database, caller, job.JobId, WorkerId, JobEndpoints.Read(resolved)!, now, cancellationToken);
-            // The feature's end goes on, on the next minute for a real worker; the fake waits for it.
+            // The feature's end goes on, and its review is decided, on the next minute for a real
+            // worker; the fake waits for both.
             await ends.EndPending(projectId, userId, cancellationToken);
+            await readiness.DecidePending(projectId, userId, cancellationToken);
             return passed && merged is null
                 ? TypedResults.Problem(statusCode: StatusCodes.Status503ServiceUnavailable, title: "The fake's git failed", detail: "no merge commit was made on the feature's branch, so the job ended as a failure outside it and the feature is resolving again")
                 : TypedResults.Ok(new FakeWorkerRan(job.JobId, job.Kind, job.Card.Number, job.Branch, merged));

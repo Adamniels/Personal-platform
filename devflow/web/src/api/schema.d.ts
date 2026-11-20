@@ -1026,6 +1026,7 @@ export interface components {
             to_fix?: null | components["schemas"]["JobFix"];
             to_resolve?: null | components["schemas"]["JobConflict"];
             to_review?: null | components["schemas"]["JobReview"];
+            to_review_feature?: null | components["schemas"]["JobFeatureReview"];
             /** @default  */
             url: string;
         };
@@ -1042,6 +1043,27 @@ export interface components {
         JobConflict: {
             default_commit: string;
             feature_commit: string;
+        };
+        JobFeatureCard: {
+            handover: string;
+            /** Format: int32 */
+            number: number;
+            summary: null | string;
+            title: string;
+            verdict: null | string;
+        };
+        JobFeatureCheck: {
+            command: string;
+            commit: string;
+            /** Format: int32 */
+            exit_code: number;
+            output: string;
+        };
+        JobFeatureReview: {
+            cards: components["schemas"]["JobFeatureCard"][];
+            check: null | components["schemas"]["JobFeatureCheck"];
+            commit: string;
+            remerge_diff: null | string;
         };
         JobFix: {
             commit: string;

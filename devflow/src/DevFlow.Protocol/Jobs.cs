@@ -11,8 +11,8 @@ namespace DevFlow.Protocol;
 /// "Fixing" in devflow/README.md.
 /// </summary>
 /// <param name="JobId">The run's id, which the job's other routes take.</param>
-/// <param name="Kind"><see cref="Build"/>, <see cref="Review"/>, <see cref="Fix"/> or
-/// <see cref="Conflict"/>.</param>
+/// <param name="Kind"><see cref="Build"/>, <see cref="Review"/>, <see cref="Fix"/>,
+/// <see cref="Conflict"/> or <see cref="FeatureReview"/>.</param>
 /// <param name="Card">The card, as it was picked; for a conflict, the feature's parent.</param>
 /// <param name="Repository">Where the code is.</param>
 /// <param name="Branch">The branch the work goes on, <c>devflow/&lt;number&gt;-&lt;slug&gt;</c>.</param>
@@ -39,6 +39,8 @@ namespace DevFlow.Protocol;
 /// <param name="Url">For a build or a fix, where the started project answers, from the same file;
 /// empty when it has none, and on a review.</param>
 /// <param name="ToResolve">For a conflict, the two commits it merges; null on any other job.</param>
+/// <param name="ToReviewFeature">For a whole feature's review, what it reads besides the code; null
+/// on any other job.</param>
 public sealed record Job(
     Guid JobId,
     string Kind,
@@ -58,7 +60,8 @@ public sealed record Job(
     JobFix? ToFix = null,
     string Start = "",
     string Url = "",
-    JobConflict? ToResolve = null)
+    JobConflict? ToResolve = null,
+    JobFeatureReview? ToReviewFeature = null)
 {
     /// <summary>Building a card.</summary>
     public const string Build = "build";
@@ -74,6 +77,10 @@ public sealed record Job(
     /// commit an agent resolves; <see cref="Card"/> is then the feature's parent, and
     /// <see cref="Branch"/> the feature's branch.</summary>
     public const string Conflict = "conflict";
+
+    /// <summary>Reviewing a whole feature at its head, once its pull request is open; <see cref="Card"/>
+    /// is then the feature's parent, and <see cref="Branch"/> the feature's branch.</summary>
+    public const string FeatureReview = "feature_review";
 
     /// <summary>Its kind and card, never the token or the key.</summary>
     public override string ToString() =>
@@ -138,8 +145,34 @@ public sealed record JobFix(string Commit, int? Round);
 /// <param name="DefaultCommit">The full id of the default branch's commit to bring in.</param>
 public sealed record JobConflict(string FeatureCommit, string DefaultCommit);
 
-/// <summary>The card a job builds or reviews, as it was picked, or the feature a conflict job is
-/// for; its title and body are the owner's words.</summary>
+/// <summary>
+/// What a whole feature's review reads besides the code: the commit it reviews, the feature
+/// branch's head as Dev flow's watch last named it, which the verdict is for; each card of the
+/// feature in its order; the newest check Dev flow holds on the feature's branch; and the remerge
+/// diff of each conflict an agent resolved since the feature's last review. The diff from the merge
+/// base the worker makes itself. Every text but the commits is an agent's, the owner's or the
+/// check's, and data.
+/// </summary>
+/// <param name="Commit">The full id of the commit to review.</param>
+/// <param name="Cards">The feature's cards, in its order.</param>
+/// <param name="Check">The newest check a worker ran on the feature's branch, and on which commit;
+/// null when Dev flow holds none.</param>
+/// <param name="RemergeDiff">The remerge diffs of the conflicts resolved since the feature's last
+/// review, each under a line naming its run, cut as <see cref="RemergeDiffs.Cut"/> cuts one; null
+/// when there is none.</param>
+public sealed record JobFeatureReview(string Commit, IReadOnlyList<JobFeatureCard> Cards, JobFeatureCheck? Check, string? RemergeDiff);
+
+/// <summary>A card of a feature, as its whole review reads it: its number and title as picked, its
+/// latest review's verdict and summary, each null when it has none, and the handover note of its
+/// newest build or fix that succeeded, empty when it left none.</summary>
+public sealed record JobFeatureCard(int Number, string Title, string? Verdict, string? Summary, string Handover);
+
+/// <summary>A check a worker ran on a commit of a feature's branch, as Dev flow recorded it: the
+/// command, the commit, its exit code and the last lines it printed.</summary>
+public sealed record JobFeatureCheck(string Command, string Commit, int ExitCode, string Output);
+
+/// <summary>The card a job builds or reviews, as it was picked, or the feature a conflict job or a
+/// whole feature's review is for; its title and body are the owner's words.</summary>
 public sealed record JobCard(int Number, string Title, string Body);
 
 /// <summary>The repository a job's code is in.</summary>

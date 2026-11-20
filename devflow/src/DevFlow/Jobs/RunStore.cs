@@ -210,6 +210,30 @@ public static class RunStore
     public const string NoMerge = "No merge commit was pushed";
 
     /// <summary>
+    /// How a whole feature's review ends its run, in this order: a failure outside the job leaves the
+    /// feature <c>reviewing</c>, to be reviewed again, counting nothing; a failure in the job, or a
+    /// verdict that does not match its form, which is a failure in the run and never a verdict,
+    /// leaves it <c>waiting_for_owner</c> with why, since the owner reviews a feature anyway and the
+    /// same commit is not reviewed again; anything else succeeded, and the feature stays
+    /// <c>reviewing</c> until the minute reads whether it is ready.
+    /// </summary>
+    public static RunEnding JudgeFeatureReview(RunResult result)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        if (!result.Succeeded)
+        {
+            var why = Cut(result.FailureReason ?? "");
+            return result.FailureInCard
+                ? new RunEnding("failed_in_card", Cut($"The run failed: {why}"), "waiting_for_owner")
+                : new RunEnding("failed_outside_card", why, "reviewing");
+        }
+
+        return ReviewVerdict.TryRead(result.Report ?? default, out _, out var error)
+            ? new RunEnding("succeeded", null, "reviewing")
+            : new RunEnding("report_invalid", Cut($"The verdict did not match its form: {error}"), "waiting_for_owner");
+    }
+
+    /// <summary>
     /// How a build's result ends its run, in this order: a failure outside the card puts the card back in
     /// <c>queued</c>, counting nothing against it; a failure in the card, a report that does not
     /// match its form, a report that stopped, a check that did not run or failed, each stop it with
@@ -347,9 +371,9 @@ public static class RunStore
                 return Recorded.WrongBranch;
             }
 
-            var review = run.Kind == Job.Review;
-            // A review is for the commit it was handed, which the worker checked out: a success
-            // names that commit, and a failure that one or none.
+            var review = run.Kind is Job.Review or Job.FeatureReview;
+            // A review, of a card or of a whole feature, is for the commit it was handed, which the
+            // worker checked out: a success names that commit, and a failure that one or none.
             if (review && (result.Succeeded || result.HeadCommit is not null)
                 && !string.Equals(run.HeadCommit, result.HeadCommit, StringComparison.Ordinal))
             {
@@ -361,6 +385,7 @@ public static class RunStore
                 Job.Review => JudgeReview(result, run.RoundsUsed),
                 Job.Fix => JudgeFix(result, run.FromCommit!),
                 Job.Conflict => JudgeConflict(result, run.FromCommit!),
+                Job.FeatureReview => JudgeFeatureReview(result),
                 _ => Judge(result),
             };
             var usage = result.Usage;
@@ -411,13 +436,14 @@ public static class RunStore
                 cancellationToken: cancellationToken));
             // A run on a feature's branch itself pushed there, before it sent this: the commit it
             // names is recorded as Dev flow's own push, and what the watch read meanwhile is judged.
+            // A review, of a whole feature among them, names the commit it read and pushed nothing.
             if (await transaction.Connection!.ExecuteScalarAsync<bool>(new CommandDefinition(
                     "SELECT EXISTS (SELECT 1 FROM features WHERE project_id = @projectId AND branch = @branch)",
                     new { projectId, branch = run.Branch },
                     transaction,
                     cancellationToken: cancellationToken)))
             {
-                if (result.HeadCommit is { } pushed)
+                if (!review && result.HeadCommit is { } pushed)
                 {
                     await transaction.Connection!.ExecuteAsync(new CommandDefinition(
                         """
@@ -444,9 +470,22 @@ public static class RunStore
                 await ProjectWaits.Succeeded(transaction, projectId, cancellationToken);
             }
 
-            // A feature's run moves its feature, never a card.
+            // A feature's run moves its feature, never a card. A whole feature's verdict in its form is
+            // kept for the commit the worker reviewed, the run's, in the same transaction as its
+            // result, as a card's is.
             if (run.FeatureNumber is { } feature)
             {
+                if (run.Kind == Job.FeatureReview)
+                {
+                    if (ending.Result == "succeeded" && ReviewVerdict.TryRead(result.Report!.Value, out var whole, out _))
+                    {
+                        await FeatureReviewStore.Record(transaction, projectId, userId, feature, runId, run.HeadCommit!, whole, now, cancellationToken);
+                    }
+
+                    await EndFeatureReview(transaction, projectId, feature, run.HeadCommit!, ending, now, cancellationToken);
+                    return Recorded.Stored;
+                }
+
                 await EndFeature(transaction, projectId, feature, run.Base, run.DefaultCommit, ending, now, cancellationToken);
                 return Recorded.Stored;
             }
@@ -540,24 +579,30 @@ public static class RunStore
                 return 0;
             }
 
-            var lost = (await transaction.Connection!.QueryAsync<(int?, string, int?)>(new CommandDefinition(
+            var lost = (await transaction.Connection!.QueryAsync<(int?, string, int?, int?)>(new CommandDefinition(
                 """
                 UPDATE runs r SET finished_at = @now, result = 'lost', reason = @reason
                 FROM workers w
                 WHERE r.project_id = @projectId AND r.finished_at IS NULL AND r.started_at <= @handedBefore
                   AND w.project_id = r.project_id AND w.id = r.worker_id AND w.last_seen_at <= @seenBefore
-                RETURNING r.card_number, r.kind, r.fix_round
+                RETURNING r.card_number, r.kind, r.fix_round, r.feature_number
                 """,
                 new { projectId, now, reason = LostReason, handedBefore = now - LostAfter, seenBefore = now - QuietFor },
                 transaction,
                 cancellationToken: cancellationToken))).ToList();
-            foreach (var (card, kind, round) in lost)
+            foreach (var (card, kind, round, feature) in lost)
             {
                 // A lost run lies outside the card: it never counts against it, and its project waits.
                 await ProjectWaits.Failed(transaction, projectId, userId, LostReason, null, now, cancellationToken);
                 if (card is not { } number)
                 {
-                    // A feature's: it stays where its run left it, resolving, and is handed out again.
+                    // A feature's: it stays where its run left it, resolving or reviewing, and is
+                    // handed out again; a review no longer under way says so.
+                    if (kind == Job.FeatureReview && feature is { } parent)
+                    {
+                        await EndFeatureReview(transaction, projectId, parent, null, new RunEnding("lost", LostReason, "reviewing"), now, cancellationToken);
+                    }
+
                     continue;
                 }
 
@@ -723,6 +768,39 @@ public static class RunStore
                 reason = succeeded ? null : Features.FeatureEnd.NotResolved(defaultBranch, ending.Reason ?? ""),
                 succeeded,
                 defaultCommit,
+                now,
+            },
+            transaction,
+            cancellationToken: cancellationToken));
+    }
+
+    /// <summary>
+    /// Moves a feature whose whole review has just ended, only while it is still <c>reviewing</c>:
+    /// on a success it stays there, <see cref="Features.FeatureReview.Reviewed"/>, for the minute to
+    /// read whether it is ready; on a failure outside the job, or a run lost, it stays there to be
+    /// reviewed again, <see cref="Features.FeatureReview.ToReview"/>; on a failure in the job it
+    /// waits for the owner with why, and <paramref name="commit"/>, the one the review was handed,
+    /// is the one its review failed at, so it is not handed out again until the branch moves.
+    /// </summary>
+    private static async Task EndFeatureReview(NpgsqlTransaction transaction, Guid projectId, int number, string? commit, RunEnding ending, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        var waits = ending.CardState == "waiting_for_owner";
+        await transaction.Connection!.ExecuteAsync(new CommandDefinition(
+            """
+            UPDATE features SET state = @state, reason = @reason, changed_at = @now,
+                review_failed_at = CASE WHEN @waits THEN @commit ELSE review_failed_at END
+            WHERE project_id = @projectId AND number = @number AND state = 'reviewing'
+            """,
+            new
+            {
+                projectId,
+                number,
+                state = ending.CardState,
+                reason = waits ? Features.FeatureReview.Failed(ending.Reason ?? "")
+                    : ending.Result == "succeeded" ? Features.FeatureReview.Reviewed
+                    : Features.FeatureReview.ToReview,
+                waits,
+                commit,
                 now,
             },
             transaction,

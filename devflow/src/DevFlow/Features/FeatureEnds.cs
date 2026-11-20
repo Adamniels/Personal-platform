@@ -200,8 +200,9 @@ public sealed partial class FeatureEnds(UserDb database, ICodeHost host, TimePro
     /// none recorded, one is opened, not a draft, as the app with a
     /// <see cref="WritePurpose.Post"/> key, titled with the parent's title as picked; its body,
     /// <see cref="FeatureText.Body"/> over the feature's cards, is brought in step when it differs.
-    /// Then it is recorded and the feature waits for the owner, <see cref="FeatureEnd.NotReviewed"/>,
-    /// only while it still waits for its end. Nothing is held while the code host answers; a minute
+    /// Then it is recorded and the feature is <c>reviewing</c>, only while it still waits for its end,
+    /// for <see cref="FeatureReadiness"/> to decide, once its branch is read, whether its head needs
+    /// a review of the whole feature. Nothing is held while the code host answers; a minute
     /// it did not answer for leaves the feature bringing in, already brought in, to be published on
     /// the next. A pull request recorded that is no longer open is never opened again here.
     /// </summary>
@@ -276,11 +277,11 @@ public sealed partial class FeatureEnds(UserDb database, ICodeHost host, TimePro
         var now = Now();
         await database.InUserTransaction(userId, transaction => transaction.Connection!.ExecuteAsync(new CommandDefinition(
             """
-            UPDATE features SET state = 'waiting_for_owner', reason = @reason, changed_at = @now,
+            UPDATE features SET state = 'reviewing', reason = NULL, review_commit = NULL, changed_at = @now,
                                 pull_request_number = coalesce(@number, pull_request_number), pull_request_url = coalesce(@url, pull_request_url)
             WHERE id = @id AND state = 'bringing_in'
             """,
-            new { id = feature.Id, reason = FeatureEnd.NotReviewed, now, number = pull?.Number, url = pull?.Url.ToString() },
+            new { id = feature.Id, now, number = pull?.Number, url = pull?.Url.ToString() },
             transaction,
             cancellationToken: cancellationToken)), cancellationToken);
     }

@@ -23,7 +23,7 @@ public sealed record RunCheck(int ExitCode, string Output);
 /// <summary>One run of a card, or of a feature, as its page shows it. Every text from a worker or an
 /// agent is shown as text.</summary>
 /// <param name="Kind"><c>build</c>, <c>review</c> or <c>fix</c>, or for a feature
-/// <c>conflict</c>.</param>
+/// <c>conflict</c> or <c>feature_review</c>.</param>
 /// <param name="Worker">The name the worker said hello with, its container's hostname.</param>
 /// <param name="StartedAt">When it was handed out.</param>
 /// <param name="FinishedAt">When its result came back or it was found lost, null while it
