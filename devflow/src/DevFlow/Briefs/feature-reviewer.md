@@ -17,6 +17,7 @@ picked, its number and title first, then its body:
 Its cards were built on the branch `{{branch}}`, made from `{{default}}`, and the commit you review
 is `{{commit}}`, where that branch is now. Your verdict is for that commit and no other.
 
+{{earlier}}
 ## Where everything is
 
 You are in a folder that holds two others:
@@ -31,7 +32,10 @@ You are in a folder that holds two others:
   - `review/diff.patch`, the feature's own changes, `git diff {{default}}...{{commit}}`, from where
     the feature's branch and `{{default}}` last met. What landed on `{{default}}` and was brought
     into the feature's branch is not in it;
-{{remerge}}  - `review/check.txt`, the newest check a worker ran on the feature's branch, with the commit it
+{{remerge}}  - `review/earlier.json`, each earlier fix round of the feature, oldest first: the review it
+    answered with its findings, the owner's comments, the developer's reply to each and the commit
+    the fix left; an empty list on the feature's first review;
+  - `review/check.txt`, the newest check a worker ran on the feature's branch, with the commit it
     ran on, its exit code and the last lines it printed. The check's result is the worker's, not a
     developer's word.
 

@@ -50,9 +50,10 @@ public sealed record FixInput(int? Round, string? Report, ReviewVerdict? Review,
 public sealed record ConflictFacts(string Check, string Branch, string DefaultBranch, IReadOnlyList<string> Files);
 
 /// <summary>What a whole feature's review brief names: the commit it reviews, the feature's branch,
-/// the default branch its diff is read from, and whether a conflict's resolution is given apart.
-/// Each is Dev flow's, never text from GitHub.</summary>
-public sealed record FeatureReviewFacts(string Commit, string Branch, string DefaultBranch, bool Remerge);
+/// the default branch its diff is read from, whether a conflict's resolution is given apart, and how
+/// many earlier fix rounds the feature had, none on its first review. Each is Dev flow's, never text
+/// from GitHub.</summary>
+public sealed record FeatureReviewFacts(string Commit, string Branch, string DefaultBranch, bool Remerge, int EarlierRounds = 0);
 
 /// <summary>
 /// The briefs an agent gets, <c>developer.md</c>, <c>reviewer.md</c> and <c>conflict.md</c> beside
@@ -152,6 +153,14 @@ public static class Brief
 
         section.Append("Every finding gets a reply in `replies`, and so does each comment of the owner's: the `finding` in a few words, and your `answer`, what you changed or why you did not.\n\n");
         return Developer(card, facts, feature, section.ToString());
+    }
+
+    /// <summary>The fix brief of a whole feature: for now the card's fix brief, with the parent in
+    /// the card's place and the feature's sections after it.</summary>
+    public static string FeatureFixer(BriefFeature feature, BriefFacts facts, FixInput fix)
+    {
+        ArgumentNullException.ThrowIfNull(feature);
+        return Fixer(new BriefCard(feature.Number, feature.Title, feature.Body), facts, fix, feature);
     }
 
     /// <summary>
@@ -337,7 +346,9 @@ public static class Brief
     /// its body, inside a fenced block longer than any run of backticks in it, so its words cannot
     /// end their quote and write into the brief; with <paramref name="facts"/>, whose commit and
     /// branch names are Dev flow's, and the line on a conflict's resolution only when one is given
-    /// apart. The cards and their notes are files the review reads, never quoted here.</summary>
+    /// apart, and whether this is its first review or a later one that judges the whole again with
+    /// the earlier rounds beside it. The cards and their notes are files the review reads, never
+    /// quoted here.</summary>
     public static string FeatureReviewer(BriefFeature feature, FeatureReviewFacts facts)
     {
         ArgumentNullException.ThrowIfNull(feature);
@@ -351,6 +362,9 @@ public static class Brief
             ["remerge"] = facts.Remerge
                 ? "  - `review/remerge.patch`, what an agent chose where the default branch conflicted with the feature's branch since the feature's last review: `git show --remerge-diff` of each merge commit it made, against what git's own merge would have left, conflict markers and all, each under a line naming its run. In `review/diff.patch` a resolution reads as the feature's own lines or the default branch's, so this is the one place it shows.\n"
                 : "  - No conflict was resolved since the feature's last review, so there is no `review/remerge.patch`.\n",
+            ["earlier"] = facts.EarlierRounds == 0
+                ? "This is the feature's first review.\n"
+                : string.Create(CultureInfo.InvariantCulture, $"This is not the feature's first review: it was sent back to be fixed {facts.EarlierRounds} {(facts.EarlierRounds == 1 ? "time" : "times")} before, and `review/earlier.json` holds each round. Judge the whole feature again, from where its branch and `{facts.DefaultBranch}` last met to the commit, not only what changed since: a finding that still holds is still blocking, a reply that argues one is weighed on its merits, and a new finding counts as any other.\n"),
         });
     }
 

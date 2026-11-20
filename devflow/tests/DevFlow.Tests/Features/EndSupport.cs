@@ -38,14 +38,18 @@ internal static class Ending
 
     /// <summary>A feature of two cards, 11 and 12, its parent 10, with <paramref name="more"/> as
     /// further issues of the repository.</summary>
-    public static Task<Jobs.Jobs> Feature(params FakeIssue[] more) =>
+    public static Task<Jobs.Jobs> Feature(params FakeIssue[] more) => Feature(false, more);
+
+    /// <summary>The same feature, with the owner's GitHub linked all the way when
+    /// <paramref name="signIn"/>, so Dev flow holds a token that comments as him.</summary>
+    public static Task<Jobs.Jobs> Feature(bool signIn, params FakeIssue[] more) =>
         Jobs.Jobs.Start(
         [
             FeatureJobs.Parent(Parent, "Dev flow: features", [First, Second]),
             FeatureJobs.Sub(First, "Read the sub-issues"),
             FeatureJobs.Sub(Second, "Show each feature"),
             .. more,
-        ]);
+        ], signIn: signIn);
 
     /// <summary>The second card done, as its landing in pull request <paramref name="pull"/> and
     /// the app telling its issue would leave it.</summary>

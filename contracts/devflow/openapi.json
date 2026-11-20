@@ -1735,6 +1735,15 @@
           "commit": {
             "type": "string"
           },
+          "earlier": {
+            "items": {
+              "$ref": "#/components/schemas/JobRound"
+            },
+            "type": [
+              "null",
+              "array"
+            ]
+          },
           "remerge_diff": {
             "type": [
               "null",

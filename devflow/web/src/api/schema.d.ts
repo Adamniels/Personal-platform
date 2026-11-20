@@ -1093,6 +1093,7 @@ export interface components {
             cards: components["schemas"]["JobFeatureCard"][];
             check: null | components["schemas"]["JobFeatureCheck"];
             commit: string;
+            earlier?: null | components["schemas"]["JobRound"][];
             remerge_diff: null | string;
         };
         JobFix: {

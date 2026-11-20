@@ -52,8 +52,8 @@ public abstract record FreshKey
 /// Hands out work. A worker asking for it is answered nothing when it needs a rebuild, when its
 /// project is stopped or its default branch not watched lately, when its project's user has no
 /// Claude login or one past its renewal, or when its project has no card to take; otherwise the
-/// kind of job is chosen, a card's review before a whole feature's before a fix before a conflict
-/// before a build, everything that job needs from the code host is
+/// kind of job is chosen, a card's review before a whole feature's before a card's fix before a
+/// whole feature's before a conflict before a build, everything that job needs from the code host is
 /// read first, as the app, with a key for that kind, a feature's branch made for its first card,
 /// and only then is a card, or for a conflict a feature, of that kind taken, in
 /// one short transaction as the project's user, so no lock is held while GitHub is asked.
@@ -127,7 +127,8 @@ public sealed partial class Dispatcher(
         }
 
         // The key is made for the kind found, before anything is taken: a review's, of a card or of a
-        // whole feature, only fetches, and a build's, a fix's and a conflict's fetch and push.
+        // whole feature, only fetches, and a build's, a fix's, a conflict's and a feature's fix's
+        // fetch and push.
         var purpose = kind is Job.Review or Job.FeatureReview ? WritePurpose.Fetch : WritePurpose.Push;
         if (await Facts(projectId, userId, repository, cancellationToken) is not { } facts
             || await logins.ForRun(userId, cancellationToken) is not { } token
@@ -171,6 +172,7 @@ public sealed partial class Dispatcher(
                 Job.Review => ReviewJob(await JobStore.ClaimReview(transaction, projectId, userId, workerId, now, cancellationToken), repository, facts, token, key),
                 Job.FeatureReview => FeatureReviewJob(await JobStore.ClaimFeatureReview(transaction, projectId, userId, workerId, facts.DefaultBranch, facts.Check, now, cancellationToken), repository, facts, token, key),
                 Job.Fix => FixJob(await JobStore.ClaimFix(transaction, projectId, userId, workerId, facts.Check, now, cancellationToken), repository, facts, token, key),
+                Job.FeatureFix => FeatureFixJob(await JobStore.ClaimFeatureFix(transaction, projectId, userId, workerId, facts.DefaultBranch, facts.Check, now, cancellationToken), repository, facts, token, key),
                 Job.Conflict => ConflictJob(await JobStore.ClaimConflict(transaction, projectId, userId, workerId, due!, facts.DefaultBranch, facts.Check, now, cancellationToken), repository, facts, token, key, files),
                 _ => BuildJob(await JobStore.Claim(transaction, projectId, userId, workerId, facts.DefaultBranch, facts.Check, now, cancellationToken), repository, facts, token, key),
             };
@@ -259,7 +261,7 @@ public sealed partial class Dispatcher(
             return null;
         }
 
-        var brief = Brief.FeatureReviewer(claimed.Feature, new FeatureReviewFacts(claimed.Commit, claimed.Branch, claimed.Base, claimed.RemergeDiff is not null));
+        var brief = Brief.FeatureReviewer(claimed.Feature, new FeatureReviewFacts(claimed.Commit, claimed.Branch, claimed.Base, claimed.RemergeDiff is not null, claimed.Earlier.Count));
         return new Job(
             claimed.RunId,
             Job.FeatureReview,
@@ -275,7 +277,41 @@ public sealed partial class Dispatcher(
             key.ExpiresAt,
             new JobCommitter(facts.Committer.Name, facts.Committer.Email),
             JobLimits.Default,
-            ToReviewFeature: new JobFeatureReview(claimed.Commit, claimed.Cards, claimed.Check, claimed.RemergeDiff));
+            ToReviewFeature: new JobFeatureReview(claimed.Commit, claimed.Cards, claimed.Check, claimed.RemergeDiff, [.. claimed.Earlier.Select(Round)]));
+    }
+
+    /// <summary>The fix job for a feature taken to fix as a whole, or null when none was: a fix's job
+    /// on the feature's branch, with the default branch as its base, the feature's parent as its
+    /// card, the feature's fix brief, the report's form, and where the fix starts.</summary>
+    private static Job? FeatureFixJob(ClaimedFeatureFix? claimed, Repository repository, RepositoryFacts facts, ClaudeToken token, AppWriteToken key)
+    {
+        if (claimed is null)
+        {
+            return null;
+        }
+
+        var brief = Brief.FeatureFixer(
+            claimed.Feature,
+            new BriefFacts(facts.Check, claimed.Branch, claimed.Base, claimed.RunId, facts.Start, facts.Url),
+            new FixInput(claimed.Round, claimed.Report, claimed.Review?.Verdict, claimed.Comments));
+        return new Job(
+            claimed.RunId,
+            Job.FeatureFix,
+            new JobCard(claimed.Feature.Number, claimed.Feature.Title, claimed.Feature.Body),
+            new JobRepository(repository.Owner, repository.Name, facts.CloneAddress, facts.DefaultBranch),
+            claimed.Branch,
+            claimed.Base,
+            brief,
+            ReportSchema,
+            facts.Check,
+            token.Value,
+            key.Value,
+            key.ExpiresAt,
+            new JobCommitter(facts.Committer.Name, facts.Committer.Email),
+            JobLimits.Default,
+            ToFix: new JobFix(claimed.FromCommit, claimed.Round),
+            Start: facts.Start,
+            Url: facts.Url);
     }
 
     /// <summary>The fix job for a card taken to fix, or null when none was: a build's job on the
@@ -363,7 +399,7 @@ public sealed partial class Dispatcher(
     }
 
     /// <summary>A fresh push key for the job, only for the worker holding it while it runs, and
-    /// only for a build, a fix or a conflict: a review is given no key that pushes. Marks the worker
+    /// only for a build, a fix, a conflict or a feature's fix: a review is given no key that pushes. Marks the worker
     /// seen.</summary>
     public async Task<FreshKey> PushKey(WorkerCaller caller, Guid runId, Guid workerId, CancellationToken cancellationToken)
     {

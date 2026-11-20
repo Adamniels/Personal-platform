@@ -24,7 +24,7 @@ public sealed class KeepingCurrentTests
         Assert.Equal(("reviewing", (string?)null), (row.State, row.Reason));
         if (waiting)
         {
-            await Ending.SetState(jobs, "waiting_for_owner", FeatureReview.ChangesAsked);
+            await Ending.SetState(jobs, "waiting_for_owner", FeatureFix.UsedUp);
         }
 
         return row.PullRequestNumber!.Value;
@@ -56,7 +56,7 @@ public sealed class KeepingCurrentTests
 
         // Waiting for the owner again, as its review leaves it, it moves again, and is brought in
         // again, recording the newer commit.
-        await Ending.SetState(jobs, "waiting_for_owner", FeatureReview.ChangesAsked);
+        await Ending.SetState(jobs, "waiting_for_owner", FeatureFix.UsedUp);
         var again = await Ending.MoveMain(jobs, "Main moves again");
         await Ending.ReadAndEnd(jobs);
         Assert.Equal(2, Ending.BringIns(jobs).Count);
@@ -80,7 +80,7 @@ public sealed class KeepingCurrentTests
         Assert.Equal(state, (await Ending.Row(jobs)).State);
 
         // Once it waits for the owner again, the next read brings the default branch in.
-        await Ending.SetState(jobs, "waiting_for_owner", FeatureReview.ChangesAsked);
+        await Ending.SetState(jobs, "waiting_for_owner", FeatureFix.UsedUp);
         await Ending.ReadAndEnd(jobs);
         Assert.Equal(2, Ending.Asked(jobs));
         Assert.Single(Ending.BringIns(jobs));

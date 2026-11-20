@@ -13,7 +13,9 @@ namespace DevFlow.Worker.Build;
 /// slice "The worker builds and pushes"; a fix job is carried the same way, on the card's branch
 /// from the commit it was handed, see "Fixing" in devflow/README.md; and a conflict job too, on the
 /// feature's branch from the commit it was handed, with the default branch's commit beside it, held
-/// to one merge commit of the two and pushed only once its check passed, see "A conflict" there. Root clones the repository with the push key into a bare
+/// to one merge commit of the two and pushed only once its check passed, see "A conflict" there; and
+/// a whole feature's fix as a card's fix, on the feature's branch, pushed only once its check passed,
+/// see "Fixing a feature" there. Root clones the repository with the push key into a bare
 /// repository of its own; the agent clones that, through a bundle root writes in a folder only root
 /// can write, into its working copy, and works
 /// there as <c>agent</c> within the time limit; what it left uncommitted is committed in its copy,
@@ -50,7 +52,7 @@ internal sealed partial class BuildJob(DevFlowClient devFlow, Guid workerId, Job
             job = null;
         }
 
-        if (job is null || !(job.Kind == Job.Build || (job.Kind == Job.Fix && job.ToFix is not null) || (job.Kind == Job.Conflict && job.ToResolve is not null)))
+        if (job is null || !(job.Kind == Job.Build || (job.Kind is Job.Fix or Job.FeatureFix && job.ToFix is not null) || (job.Kind == Job.Conflict && job.ToResolve is not null)))
         {
             Log.Write("The job is not a build, a fix or a conflict job this worker can read; it is left.");
             return;
@@ -59,6 +61,7 @@ internal sealed partial class BuildJob(DevFlowClient devFlow, Guid workerId, Job
         Log.Write(job.Kind switch
         {
             Job.Fix => $"Fixing card #{job.Card.Number} on {job.Branch}, job {job.JobId}.",
+            Job.FeatureFix => $"Fixing feature #{job.Card.Number} on its branch {job.Branch}, job {job.JobId}.",
             Job.Conflict => $"Bringing {job.Base} into {job.Branch}, the branch of feature #{job.Card.Number}, job {job.JobId}.",
             _ => $"Building card #{job.Card.Number} on {job.Branch}, job {job.JobId}.",
         });
@@ -129,15 +132,24 @@ internal sealed partial class BuildJob(DevFlowClient devFlow, Guid workerId, Job
                 check = await Check(job, paths, stopping);
             }
 
+            // A feature's branch is shared, and the head of its pull request to the default branch:
+            // only a fix whose agent succeeded and whose check passed is pushed there.
+            if (job.Kind == Job.FeatureFix && !(result.Succeeded && check is { ExitCode: 0 }))
+            {
+                Log.Write("The fix did not pass, so nothing is pushed to the feature's branch.");
+                return new Outcome(result.Failure, result, check, null);
+            }
+
             var pushed = await Push(job, paths, head, stopping);
             if (pushed is { } refused)
             {
                 return Outcome.Failed(Combined(result.Failure, refused), result, check);
             }
 
-            // Pictures only of work that passed its check and was pushed: of any other, nobody
-            // reads them, and taking them would spend minutes of a worker.
-            var screenshots = result.Succeeded && check is { ExitCode: 0 }
+            // Pictures only of a card's work that passed its check and was pushed: of any other,
+            // a feature's fix among them, nobody reads them, and taking them would spend minutes of
+            // a worker.
+            var screenshots = result.Succeeded && check is { ExitCode: 0 } && job.Kind != Job.FeatureFix
                 ? await WhileSeen(job, () => Screenshots(job, paths, head, result, stopping), stopping)
                 : null;
             return new Outcome(result.Failure, result, check, head, screenshots);
@@ -253,7 +265,9 @@ internal sealed partial class BuildJob(DevFlowClient devFlow, Guid workerId, Job
     /// the job's folder of secrets, and checks the job's branch out there: the remote's when it has
     /// one, from a run that was lost, and otherwise a new one at the base; for a fix, the remote's,
     /// which must be at the commit the fix was handed, or the fix fails in the card before anything
-    /// runs, since it would build on a commit Dev flow did not hand out. The agent then clones it,
+    /// runs, since it would build on a commit Dev flow did not hand out; for a whole feature's fix,
+    /// the commit is the one the feature's watch last named, which can lag behind the branch, so a
+    /// branch elsewhere fails outside it, as a conflict's does. The agent then clones it,
     /// through a bundle root writes in the job's handover folder, which the agent can read and not
     /// write, into its working copy, with the app's bot as its committer. Answers the commit the
     /// branch started at.
@@ -272,7 +286,7 @@ internal sealed partial class BuildJob(DevFlowClient devFlow, Guid workerId, Job
         var start = await Commit(paths, job.Branch, stopping);
         if (job.ToFix is { Commit: var handed } && !string.Equals(start, handed, StringComparison.Ordinal))
         {
-            throw new StepFailed(FailureSide.Card, start is null
+            throw new StepFailed(job.Kind == Job.FeatureFix ? FailureSide.OutsideCard : FailureSide.Card, start is null
                 ? $"The branch {job.Branch} is not on the remote, so the fix of {handed} was not started"
                 : $"The branch {job.Branch} is at {start}, not at {handed}, the commit the fix was handed, so it was not started");
         }

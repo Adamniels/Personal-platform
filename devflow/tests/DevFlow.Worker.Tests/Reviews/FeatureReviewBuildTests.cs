@@ -150,9 +150,11 @@ public sealed class FeatureReviewBuildTests
         await bench.Review(agent).Run(job, Ct);
 
         // The copy is at the feature's head, and the folder beside it holds what Dev flow gives,
-        // with no remerge diff, since no conflict was resolved.
+        // with no remerge diff, since no conflict was resolved, and no earlier round on its first
+        // review.
         Assert.Equal(merge, copyHead);
-        Assert.Equal(["cards.md", "check.txt", "diff.patch", "feature.md"], files.Keys.Order(StringComparer.Ordinal));
+        Assert.Equal(["cards.md", "check.txt", "diff.patch", "earlier.json", "feature.md"], files.Keys.Order(StringComparer.Ordinal));
+        Assert.Equal("[]\n", files["earlier.json"]);
 
         // The diff is the feature's own, from where it parted from main: the card's file, and none
         // of main's change that was brought in.
