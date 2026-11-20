@@ -1328,9 +1328,11 @@ him anyway: he reviews every feature before he merges it, its pull request is op
 already shows the review's findings beside each round. Stopping it would add nothing he does not
 see, and would hold back what does not need him: the default branch is still brought in while it
 waits, and his comment still starts a fix. So "Review rounds used up" is a reason a feature waits
-for him, as is a fix that failed twice in a row, and never a stop. The same reasoning has a fix
-that failed in the job wait at that commit, as a review that failed does: running it again on the
-same commit would most likely fail the same way and spend the usage again.
+for him, as is a fix that failed twice in a row, and never a stop. A fix that failed in the job
+runs once more from the same commit, as a card's fix does, since a developer's failure is often a
+bad run rather than a bad commit; the second in a row waits for him at that commit, since a third
+would most likely fail the same way and spend the usage again. A time limit or a report that
+stopped waits for him at once.
 
 **A fix of a card, on the feature's branch.** A feature's fix needs what a card's fix needs, the
 same worker, key and brief with what to fix, so it is the same job carried by the same code, a
