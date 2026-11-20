@@ -1345,9 +1345,12 @@ is never lost: a card's branch is its own, and the merge check stands between it
 shared. A feature's branch is shared, and it is the head of the feature's pull request to the
 default branch, which GitHub's own button merges. A fix whose check failed pushed there would be one
 click from the default branch, and the next round would build on it. So, as a conflict's merge is,
-a feature's fix is pushed only when its agent succeeded and its check passed, and one that failed
-leaves the branch where it was handed it, a failure in the job. This is a difference from a card's
-fix, which the slice describes as carried the same way.
+a feature's fix is pushed only when its agent succeeded, its report reads as `done` and its check
+passed, and one that failed leaves the branch where it was handed it, a failure in the job. The
+worker reads the report with the same `Report.TryRead` Dev flow judges the run by, so an agent that
+committed part of the work and reported it stopped, or wrote a report out of its form, pushes
+nothing a passing check would otherwise carry; the check is not run for it. This is a difference
+from a card's fix, which the slice describes as carried the same way.
 
 **The re-review judges the whole again**, as a card's does: a fresh reviewer gets the earlier
 findings with the developer's replies, and the whole diff from the merge base, not only what the fix

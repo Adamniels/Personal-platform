@@ -1,7 +1,10 @@
+using System.Text.Json.Nodes;
+
 using Dapper;
 
 using DevFlow.Features;
 using DevFlow.Protocol;
+using DevFlow.Worker.Agents;
 
 using static DevFlow.Worker.Tests.Support;
 
@@ -124,6 +127,50 @@ public sealed class FeatureFixBuildTests
         Assert.Equal(("succeeded", 3), ((string)sent["outcome"]!, (int)sent["check"]!["exit_code"]!));
         Assert.Null(sent["head_commit"]?.GetValue<string>());
         Assert.Equal(("fixing", FeatureFix.Again("The check failed with exit code 3")), await FeatureState(bench));
+    }
+
+    /// <summary>An agent that commits work and then reports it stopped did not fix the feature, so
+    /// its commit is not put on the shared branch, whatever a check would say, and the check is not
+    /// run; the feature waits for the owner at the head it had.</summary>
+    [Fact]
+    public async Task AFixWhoseAgentStoppedPushesNothing()
+    {
+        await using var bench = await Bench.Start(check: $"echo ran > '{Bench.Out}'", cards: Feature());
+        var head = await Fixing(bench);
+        var job = await bench.NextJob();
+
+        await bench.Build(new ScriptedAgent(
+            async (run, _) => await ScriptedAgent.Commit(run, "README.md", "half done\n", "Part of the fix"),
+            () => AgentResult.Success(Jobs.GoodReport("stopped", "The finding needs a decision"), [], "", "oauth_token"))).Run(job, Ct);
+
+        Assert.Equal(head, await bench.RemoteHead(Branch));
+        Assert.False(File.Exists(bench.OutFile));
+        var sent = bench.SentResult(job.GetProperty("job_id").GetGuid());
+        Assert.Equal("succeeded", (string)sent["outcome"]!);
+        Assert.Null(sent["head_commit"]?.GetValue<string>());
+        Assert.Null(sent["check"]);
+        Assert.Equal("waiting_for_owner", (await FeatureState(bench)).State);
+    }
+
+    /// <summary>A report that does not match its form is no fix either: nothing is pushed, and the
+    /// fix runs once more from the same commit, so the second in a row waits for the owner.</summary>
+    [Fact]
+    public async Task AFixWithAReportOutOfFormPushesNothing()
+    {
+        await using var bench = await Bench.Start(check: $"echo ran > '{Bench.Out}'", cards: Feature());
+        var head = await Fixing(bench);
+        var job = await bench.NextJob();
+
+        await bench.Build(new ScriptedAgent(
+            async (run, _) => await ScriptedAgent.Commit(run, "README.md", "unsaid\n", "A fix it did not report"),
+            () => AgentResult.Success(new JsonObject { ["outcome"] = "done" }, [], "", "oauth_token"))).Run(job, Ct);
+
+        Assert.Equal(head, await bench.RemoteHead(Branch));
+        Assert.False(File.Exists(bench.OutFile));
+        var sent = bench.SentResult(job.GetProperty("job_id").GetGuid());
+        Assert.Null(sent["head_commit"]?.GetValue<string>());
+        Assert.Null(sent["check"]);
+        Assert.Equal("fixing", (await FeatureState(bench)).State);
     }
 
     /// <summary>The commit handed is the feature watch's, which can lag behind the branch, so a

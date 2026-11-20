@@ -14,8 +14,8 @@ namespace DevFlow.Worker.Build;
 /// from the commit it was handed, see "Fixing" in devflow/README.md; and a conflict job too, on the
 /// feature's branch from the commit it was handed, with the default branch's commit beside it, held
 /// to one merge commit of the two and pushed only once its check passed, see "A conflict" there; and
-/// a whole feature's fix as a card's fix, on the feature's branch, pushed only once its check passed,
-/// see "Fixing a feature" there. Root clones the repository with the push key into a bare
+/// a whole feature's fix as a card's fix, on the feature's branch, pushed only once its agent reported
+/// it done and its check passed, see "Fixing a feature" there. Root clones the repository with the push key into a bare
 /// repository of its own; the agent clones that, through a bundle root writes in a folder only root
 /// can write, into its working copy, and works
 /// there as <c>agent</c> within the time limit; what it left uncommitted is committed in its copy,
@@ -125,16 +125,19 @@ internal sealed partial class BuildJob(DevFlowClient devFlow, Guid workerId, Job
             var result = await RunAgent(job, paths.Copy, AgentAccess.Write, stopping);
             await KeepUncommitted(paths, stopping);
             var head = await FetchBack(job, paths, start, stopping);
+            // A feature's branch is shared, and the head of its pull request to the default branch:
+            // only a fix whose agent succeeded with a done report and whose check passed is pushed
+            // there. A stopped report or one out of form is no fix, whatever its check would say,
+            // so the check is not run for it.
+            var featureFixDone = job.Kind != Job.FeatureFix || ReportedDone(result);
             CheckResult? check = null;
-            if (result.Succeeded)
+            if (result.Succeeded && featureFixDone)
             {
                 await Progress(job, stopping);
                 check = await Check(job, paths, stopping);
             }
 
-            // A feature's branch is shared, and the head of its pull request to the default branch:
-            // only a fix whose agent succeeded and whose check passed is pushed there.
-            if (job.Kind == Job.FeatureFix && !(result.Succeeded && check is { ExitCode: 0 }))
+            if (job.Kind == Job.FeatureFix && !(result.Succeeded && featureFixDone && check is { ExitCode: 0 }))
             {
                 Log.Write("The fix did not pass, so nothing is pushed to the feature's branch.");
                 return new Outcome(result.Failure, result, check, null);
@@ -160,6 +163,14 @@ internal sealed partial class BuildJob(DevFlowClient devFlow, Guid workerId, Job
             return Outcome.Failed(new AgentFailure(failed.Side, failed.Message), null);
         }
     }
+
+    /// <summary>Whether the agent succeeded with a report that matches its form and is done, read
+    /// by <see cref="Report.TryRead"/>, the same reading Dev flow judges the run by, so the worker
+    /// never pushes to a feature's branch work Dev flow would not count as a fix.</summary>
+    internal static bool ReportedDone(AgentResult result) =>
+        result is { Succeeded: true, Report: { } report }
+        && Report.TryRead(JsonSerializer.SerializeToElement(report), out var read, out _)
+        && read.Outcome == ReportOutcome.Done;
 
     /// <summary>
     /// A conflict job's work: the copy with both commits; the agent, which merges the default

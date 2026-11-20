@@ -1878,10 +1878,11 @@ and `/work/<job>/`, the agent's, where root writes nothing:
 **A whole feature's fix** is carried as a card's fix, see "Fixing a feature" under "Reviewing a
 feature", on the feature's branch from `to_fix.commit`, with three differences: a branch that is
 elsewhere on the remote runs nothing and fails outside the job, since the commit came from the
-feature's watch, which can lag; its commit is pushed only when the agent succeeded and its check
-passed, since the feature's branch is shared and is the head of its pull request to the default
-branch, so a fix that failed pushes nothing and names no commit; and it takes no pictures, since
-nobody reads them.
+feature's watch, which can lag; its commit is pushed only when the agent succeeded with a report
+that `Report.TryRead` reads as `done` and its check passed, since the feature's branch is shared and
+is the head of its pull request to the default branch, so a fix that failed, stopped or reported out
+of its form pushes nothing and names no commit, and for a report stopped or out of form the check is
+not run; and it takes no pictures, since nobody reads them.
 
 **A conflict job** is carried as a build, see "A conflict" under "The end of a feature", on the
 feature's branch from `to_resolve.feature_commit`, with these differences:
@@ -3274,7 +3275,8 @@ first where behaviour changes, or argue in `replies`, the nits when cheap, and e
 fenced as his input. Every finding and every comment gets a reply.
 
 **On the worker** it is carried as a card's fix, "The worker" says with what differences: pushed to
-the feature's branch, never forced, only once the agent succeeded and its check passed.
+the feature's branch, never forced, only once the agent succeeded with a `done` report and its
+check passed.
 
 **Judged**, `RunStore.JudgeFeatureFix`, only while the feature is `fixing`:
 
@@ -3334,7 +3336,8 @@ reviews started, and gains `next_fix_round`, `fix_review_id` and `fix_comments`,
 answers, set as it moves to `fixing`, `comments_read_through`, and `fix_failed_at`.
 
 **In the fake**, the fake worker answers a feature's fix as a worker would: it pushes a commit by
-the app on the feature's branch only when the prepared result succeeded with its check passed,
+the app on the feature's branch only when the prepared result succeeded with a `done` report and its
+check passed,
 names the commit it was handed with `leave_no_commit`, and decides readiness after.
 
 ## Stops
