@@ -131,6 +131,8 @@ features" in `High-level/docs/platform-architecture.md`.
   keeping it current and a conflict resolved by an agent in a job of its own, reviewing a whole
   feature, with when it is reviewed, its job, the diff from the merge base and the remerge diff
   apart, its brief, its verdict kept and posted, when it is ready and its group on Waiting for you,
+  and fixing a feature, with its rounds, its job and brief, the re-review, the owner's comment on
+  its pull request and sending the whole feature back,
   stops, with what stops a card, its mark on GitHub, running it again on the owner's
   comment and a project's wait after failures outside its cards, starting a worker, with the base
   image, the format of `.devflow/`, the recipe route, the
@@ -168,7 +170,9 @@ features" in `High-level/docs/platform-architecture.md`.
   commit and pushes it only once its check passed, and why the resolution is kept apart for the
   review, reviewing a feature, which the spec has not, with why its diff is from the merge base, why
   a clean bringing in needs no new review and a resolved conflict does, and why its readiness is
-  decided each minute from what Dev flow stored, stops, with what lies in the card
+  decided each minute from what Dev flow stored, fixing a feature, with why its rounds end with the
+  owner rather than a stop, why its fix is pushed only once its check passed, and why his comment is
+  taken by id and not by time, stops, with what lies in the card
   and what outside it, why a failure outside never counts, why one failure in the card is tried
   again, why a stop is marked on the card, running it again on his comment and reading the usage
   limit's reset, and its security decisions and accepted risks, kept for an audit,

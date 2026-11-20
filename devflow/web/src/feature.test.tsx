@@ -27,6 +27,8 @@ function story(overrides: Partial<FeatureStory> = {}): FeatureStory {
 		reason: null,
 		branch: { name: BRANCH, commit: COMMIT },
 		pull_request: null,
+		fix_rounds: 0,
+		rounds: [],
 		cards: [
 			{
 				number: 39,
@@ -492,5 +494,72 @@ describe("a feature's page", () => {
 		expect(
 			screen.queryByRole("button", { name: "Send the whole feature back" }),
 		).toBeNull();
+	});
+
+	test("shows each fix round of the whole feature", async () => {
+		const asked = "019a0000-0000-7000-8000-0000000000f0";
+		open({
+			loadFeature: () =>
+				Promise.resolve(
+					story({
+						state: "fixing",
+						reason: "Round 1 of 3: the developer is fixing the feature",
+						pull_request: {
+							number: 51,
+							url: "https://github.com/Adamniels/Fodr/pull/51",
+						},
+						fix_rounds: 1,
+						reviews: [
+							{
+								run_id: asked,
+								commit: "8".repeat(40),
+								verdict: "changes",
+								summary: "The page reads the plan twice.",
+								findings: [
+									{
+										blocking: true,
+										file: "src/plan.ts",
+										line: 12,
+										what: "Two cards read the plan",
+										why: "One will drift",
+									},
+								],
+								for_owner: [],
+								reviewed_at: "2026-11-20T09:00:00+00:00",
+								posted: true,
+								current: true,
+							},
+						],
+						rounds: [
+							{
+								run_id: "019a0000-0000-7000-8000-0000000000f2",
+								round: 1,
+								review_run_id: asked,
+								comments: [],
+								result: "succeeded",
+								replies: [
+									{
+										finding: "Two cards read the plan",
+										answer: "Fixed: one reader.",
+									},
+								],
+								fixed_commit: COMMIT,
+								review_after_run_id: null,
+							},
+						],
+					}),
+				),
+		});
+
+		const rounds = await screen.findByRole("list", {
+			name: "Fix rounds of the feature",
+		});
+		expect(screen.getByText("Fix rounds, 1 of 3 used")).toBeTruthy();
+		const round = within(
+			within(rounds).getByRole("listitem", { name: "Round 1 of 3" }),
+		);
+		expect(round.getByText("8888888")).toBeTruthy();
+		expect(round.getByText("Fixed: one reader.")).toBeTruthy();
+		expect(round.getByText(COMMIT.slice(0, 7))).toBeTruthy();
 	});
 });

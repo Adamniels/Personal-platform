@@ -68,6 +68,17 @@ public sealed class FeatureFixTests
         Assert.Contains((Ending.Branch, fixedCommit, run.Id), await FeatureFixing.Pushes(jobs));
         Assert.Equal(("reviewing", FeatureFix.Fixed), ((await FeatureFixing.Row(jobs)).State, (await FeatureFixing.Row(jobs)).Reason));
 
+        // Its page shows the round: the review that started it, the run, its replies and the commit
+        // it left, not reviewed yet.
+        var (status, story) = await Built.Get(jobs, FeaturePage.PathOf(jobs.Project));
+        Assert.Equal(StatusCodes.Status200OK, status);
+        Assert.Equal(1, (int)story!["fix_rounds"]!);
+        var shown = Assert.Single(story["rounds"]!.AsArray())!;
+        Assert.Equal((run.Id, 1, review.RunId, "succeeded", fixedCommit),
+            ((Guid)shown["run_id"]!, (int?)shown["round"], (Guid?)shown["review_run_id"], (string?)shown["result"], (string?)shown["fixed_commit"]));
+        Assert.Equal("Fixed: one reader, in CardPicker.", (string)shown["replies"]![0]!["answer"]!);
+        Assert.Null(shown["review_after_run_id"]);
+
         // Once the watch has read the push, which is fine since Dev flow recorded it, a new review of
         // the whole feature is queued at the fix's commit.
         await Reviewing.Minute(jobs);
@@ -226,6 +237,48 @@ public sealed class FeatureFixTests
         Assert.Equal(("waiting_for_owner", FeatureFix.Failed(RunStore.Twice(FixRounds.NoNewCommit)), 1), (row.State, row.Reason, row.FixRound));
         Fixed.Later(jobs);
         Assert.Equal(StatusCodes.Status204NoContent, (await jobs.Next()).Response.StatusCode);
+    }
+
+    /// <summary>A watch read that listed the feature's branch before the fix pushed, and stored what
+    /// it read after the fix's result was recorded, holds the branch's old head; it must not count as
+    /// a read since that push, or the review that asked for changes would still cover the head it
+    /// names and start another round.</summary>
+    [Fact]
+    public async Task AReadThatListedBeforeTheFixDoesNotStartAnotherRound()
+    {
+        await using var jobs = await Ending.Feature();
+        await Reviewing.Published(jobs);
+        await Reviewing.Review(jobs, Built.Verdict("changes"));
+        Fixed.Later(jobs);
+        var job = await jobs.Job();
+        Assert.Equal(Job.FeatureFix, (string)job["kind"]!);
+
+        // The project's minute lists the feature's branch; then, before it stores what it read, the
+        // worker pushes the fix and its result is recorded, a second later.
+        string? fixedCommit = null;
+        jobs.Routes.Host.AfterFeatureActivity = async () =>
+        {
+            jobs.Routes.Time.Advance(TimeSpan.FromSeconds(1));
+            fixedCommit = await FeatureFixing.PushFix(jobs);
+            var result = Jobs.Jobs.Result(Jobs.Jobs.FirstWorker, Ending.Branch, Fixed.Report());
+            result["head_commit"] = fixedCommit;
+            Assert.Equal(StatusCodes.Status204NoContent, (await jobs.Post(WorkerApi.ResultPath((Guid)job["job_id"]!), result)).Response.StatusCode);
+            jobs.Routes.Time.Advance(TimeSpan.FromSeconds(1));
+        };
+        await Reviewing.Minute(jobs);
+        Assert.NotNull(fixedCommit);
+
+        // That read is older than the push, so nothing is decided from it: the feature waits for its
+        // new head to be reviewed, in round 1 still.
+        var row = await FeatureFixing.Row(jobs);
+        Assert.Equal(("reviewing", FeatureFix.Fixed, 1), (row.State, row.Reason, row.FixRound));
+
+        // The next read finds the push, and the review of the fix's commit is next.
+        await Reviewing.Minute(jobs);
+        Assert.Equal(("reviewing", fixedCommit), ((await FeatureFixing.Row(jobs)).State, (await FeatureFixing.Row(jobs)).ReviewCommit));
+        Fixed.Later(jobs);
+        var next = await jobs.Job();
+        Assert.Equal((Job.FeatureReview, fixedCommit), ((string)next["kind"]!, (string)next["to_review_feature"]!["commit"]!));
     }
 
     [Fact]

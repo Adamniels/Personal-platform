@@ -75,9 +75,10 @@ its pull request" below, and each feature one with its cards, its branch and the
 marked for the owner, answered there, see "A feature's page" below. When every card of a feature is
 done, the default branch is brought into its branch as the app and its pull request to the default
 branch opened, kept up to the default branch while it waits for the owner, a conflict resolved by an
-agent in a job of its own, and the whole feature reviewed by a fresh reviewer and ready for the
-owner once that review approves its head and CI passed there, see "The end of a feature", "A
-conflict" and "Reviewing a feature" below. A card that cannot be made to work stops, is marked on its issue and
+agent in a job of its own, and the whole feature reviewed by a fresh reviewer, fixed on its branch
+in up to three rounds when that review asks for changes or on the owner's comment, and ready for the
+owner once a review approves its head and CI passed there, see "The end of a feature", "A
+conflict", "Reviewing a feature" and "Fixing a feature" below. A card that cannot be made to work stops, is marked on its issue and
 shows under "Stopped", and his comment runs it again; a failure outside the card makes its project
 wait instead, see "Stops" below.
 
@@ -1310,9 +1311,59 @@ conflict is not: the owner reviews a feature anyway, and the same commit would m
 same way and spend the usage again. Once the branch moves, its new head is reviewed afresh. A
 failure outside the job is tried again as a card's is.
 
-**Until "Fixing a feature" lands**, a review that asks for changes leaves the feature waiting for the
-owner with its findings, on its page and on "Waiting for you"; the rounds of the feature issue, the
-three fixes on the feature's branch, are that slice's.
+**Changes start a fix round**, see "Fixing a feature" below.
+
+### Fixing a feature
+
+A review of the whole feature that asks for changes sends it to a fresh developer agent on the
+feature's branch, for at most three rounds, each followed by a new review, and the owner sends a
+feature back by commenting on its pull request, as the feature issue, "Dev flow: features", decides
+for "The review of the whole feature". With the rounds used up the feature waits for him with the
+findings. The job, its brief, its tables and its routes are "Fixing a feature" under "Reviewing a
+feature" in `devflow/README.md`.
+
+**Its rounds end with the owner, not a stop.** A card whose developer and reviewer cannot agree
+stops after three rounds, see "Fixing", because a stop is how a card reaches him. A feature reaches
+him anyway: he reviews every feature before he merges it, its pull request is open, and its page
+already shows the review's findings beside each round. Stopping it would add nothing he does not
+see, and would hold back what does not need him: the default branch is still brought in while it
+waits, and his comment still starts a fix. So "Review rounds used up" is a reason a feature waits
+for him, as is a fix that failed twice in a row, and never a stop. The same reasoning has a fix
+that failed in the job wait at that commit, as a review that failed does: running it again on the
+same commit would most likely fail the same way and spend the usage again.
+
+**A fix of a card, on the feature's branch.** A feature's fix needs what a card's fix needs, the
+same worker, key and brief with what to fix, so it is the same job carried by the same code, a
+sixth kind of run for the feature, on the feature's branch from its head instead of a card's
+branch: the branch, its pull request and its reviews stay one story, as a card's do. It starts from
+the commit the feature's watch last named after Dev flow's own last change there, as a conflict
+does, so a worker that finds the branch elsewhere, the watch having lagged, fails outside the job
+and runs again later; a push by anyone but the owner stops the project anyway.
+
+**Pushed only once its check passed.** A card's fix is pushed whatever its check said, so its work
+is never lost: a card's branch is its own, and the merge check stands between it and anything
+shared. A feature's branch is shared, and it is the head of the feature's pull request to the
+default branch, which GitHub's own button merges. A fix whose check failed pushed there would be one
+click from the default branch, and the next round would build on it. So, as a conflict's merge is,
+a feature's fix is pushed only when its agent succeeded and its check passed, and one that failed
+leaves the branch where it was handed it, a failure in the job. This is a difference from a card's
+fix, which the slice describes as carried the same way.
+
+**The re-review judges the whole again**, as a card's does: a fresh reviewer gets the earlier
+findings with the developer's replies, and the whole diff from the merge base, not only what the fix
+changed, so a reply that argues a finding is weighed rather than taken on trust, and a fix that
+broke something elsewhere in the feature is still seen.
+
+**His comment, by id and not by time.** A comment by his linked login on the feature's pull request
+is the one comment read there as an input, as on a card's, and for the card's reasons, see
+"Fixing": it is taken by GitHub's comment id past the newest of his already taken, only between the
+feature's runs, and never by comparing its time with a run's. The slice says a comment newer than
+the feature's last run starts a round; read as a time, that would drop a comment written in the
+seconds between one read and a run claimed before the next, since the comment is then older than
+the run that did not see it. Taken by id, every comment of his is answered exactly once, which is
+what "newer than the last run" is for. It does not count against the three rounds: he decides when
+his own input is worth another run. "Send the whole feature back" posts his comment as him and lets
+the next read take it, so the comment on GitHub is the one record and there is one way in.
 
 ## Stops
 

@@ -2,12 +2,15 @@
 // from the project's Cards panel and from each of its cards' pages: the feature's whole story so
 // far, read from GET /devflow/api/projects/{id}/features/{number}, what Dev flow stored and never
 // the code host. Top to bottom: its title and state, with the reason and a link to its pull request
-// once there is one, and "Send the whole feature back" while it is ready or waits for you; the reviews of the whole feature, newest first, each with its findings and
-// whether it covers the head; what the agents want you to know, every decision its cards' latest reports
-// marked for you, each answered "Fine as it is" here and nowhere else; its branch with the command
-// to check it out; every card's screenshots, by card; its cards in order; and its own runs, such as
-// an agent resolving a conflict, as a card's page shows its runs. Every text came from the code
-// host or an agent and is shown as text. See "A feature's page" in devflow/README.md.
+// once there is one, and "Send the whole feature back" while it is ready or waits for you; the
+// reviews of the whole feature, newest first, each with its findings and whether it covers the
+// head; its fix rounds, each with the review that started it or your comment, the developer's
+// replies and the review after it; what the agents want you to know, every decision its cards'
+// latest reports marked for you, each answered "Fine as it is" here and nowhere else; its branch
+// with the command to check it out; every card's screenshots, by card; its cards in order; and its
+// own runs, such as an agent resolving a conflict, as a card's page shows its runs. Every text came
+// from the code host or an agent and is shown as text. See "A feature's page" in
+// devflow/README.md.
 import {
 	Button,
 	EmptyState,
@@ -20,7 +23,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { LinkState } from "./actions";
 import { navigate, plainClick } from "./address";
 import type { components } from "./api/schema";
-import { ReviewRow, RunRow } from "./card";
+import { ReviewRow, RoundRow, RunRow } from "./card";
 import styles from "./card.module.css";
 import { stateWord } from "./cards";
 import own from "./feature.module.css";
@@ -219,6 +222,22 @@ export function FeaturePage({
 					<ul className={styles.runs} aria-label="Reviews of the feature">
 						{story.reviews.map((review) => (
 							<ReviewRow key={review.run_id} review={review} />
+						))}
+					</ul>
+				</Panel>
+			)}
+			{story.rounds.length === 0 ? null : (
+				<Panel
+					title={`Fix rounds, ${story.fix_rounds} of 3 used`}
+					className={styles.panel}
+				>
+					<ul className={styles.runs} aria-label="Fix rounds of the feature">
+						{story.rounds.map((round) => (
+							<RoundRow
+								key={round.run_id}
+								round={round}
+								reviews={story.reviews}
+							/>
 						))}
 					</ul>
 				</Panel>
