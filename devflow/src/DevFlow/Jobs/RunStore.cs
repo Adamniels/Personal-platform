@@ -262,25 +262,31 @@ public static class RunStore
         return kept[(char.IsLowSurrogate(kept[start]) && char.IsHighSurrogate(kept[start - 1]) ? start + 1 : start)..];
     }
 
-    /// <summary>Marks the run's check begun and its card <c>checking</c>, when the worker holds
-    /// it under way. False otherwise.</summary>
+    /// <summary>Marks the run's check begun and its card <c>checking</c>, a feature's run moving no
+    /// card, when the worker holds it under way. False otherwise.</summary>
     public static async Task<bool> Checking(UserDb database, Guid userId, Guid projectId, Guid runId, Guid workerId, DateTimeOffset now, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(database);
         return await database.InUserTransaction(userId, async transaction =>
         {
-            var number = await transaction.Connection!.QuerySingleOrDefaultAsync<int?>(new CommandDefinition(
+            var held = await transaction.Connection!.QuerySingleOrDefaultAsync<(Guid Id, int? Card)?>(new CommandDefinition(
                 """
                 UPDATE runs SET checking_at = coalesce(checking_at, @now)
                 WHERE id = @runId AND project_id = @projectId AND worker_id = @workerId AND finished_at IS NULL
-                RETURNING card_number
+                RETURNING id, card_number
                 """,
                 new { runId, projectId, workerId, now },
                 transaction,
                 cancellationToken: cancellationToken));
-            if (number is null)
+            if (held is not { } run)
             {
                 return false;
+            }
+
+            // A feature's run has no card to move.
+            if (run.Card is not { } number)
+            {
+                return true;
             }
 
             await transaction.Connection!.ExecuteAsync(new CommandDefinition(

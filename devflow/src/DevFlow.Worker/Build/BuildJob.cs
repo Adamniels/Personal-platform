@@ -11,7 +11,9 @@ namespace DevFlow.Worker.Build;
 /// <summary>
 /// One build job, from the job Dev flow handed out to the result it gets back, as Settled in the
 /// slice "The worker builds and pushes"; a fix job is carried the same way, on the card's branch
-/// from the commit it was handed, see "Fixing" in devflow/README.md. Root clones the repository with the push key into a bare
+/// from the commit it was handed, see "Fixing" in devflow/README.md; and a conflict job too, on the
+/// feature's branch from the commit it was handed, with the default branch's commit beside it, held
+/// to one merge commit of the two and pushed only once its check passed, see "A conflict" there. Root clones the repository with the push key into a bare
 /// repository of its own; the agent clones that, through a bundle root writes in a folder only root
 /// can write, into its working copy, and works
 /// there as <c>agent</c> within the time limit; what it left uncommitted is committed in its copy,
@@ -48,13 +50,18 @@ internal sealed partial class BuildJob(DevFlowClient devFlow, Guid workerId, Job
             job = null;
         }
 
-        if (job is null || !(job.Kind == Job.Build || (job.Kind == Job.Fix && job.ToFix is not null)))
+        if (job is null || !(job.Kind == Job.Build || (job.Kind == Job.Fix && job.ToFix is not null) || (job.Kind == Job.Conflict && job.ToResolve is not null)))
         {
-            Log.Write("The job is not a build or a fix job this worker can read; it is left.");
+            Log.Write("The job is not a build, a fix or a conflict job this worker can read; it is left.");
             return;
         }
 
-        Log.Write($"{(job.Kind == Job.Fix ? "Fixing" : "Building")} card #{job.Card.Number} on {job.Branch}, job {job.JobId}.");
+        Log.Write(job.Kind switch
+        {
+            Job.Fix => $"Fixing card #{job.Card.Number} on {job.Branch}, job {job.JobId}.",
+            Job.Conflict => $"Bringing {job.Base} into {job.Branch}, the branch of feature #{job.Card.Number}, job {job.JobId}.",
+            _ => $"Building card #{job.Card.Number} on {job.Branch}, job {job.JobId}.",
+        });
         var started = Time.GetTimestamp();
         Outcome outcome;
         if (Refusal(job) is { } refused)
@@ -84,7 +91,7 @@ internal sealed partial class BuildJob(DevFlowClient devFlow, Guid workerId, Job
             }
         }
 
-        await Send(job, outcome.Failure, outcome.Agent, outcome.Check, outcome.Head, Time.GetElapsedTime(started), stopping, outcome.Screenshots);
+        await Send(job, outcome.Failure, outcome.Agent, outcome.Check, outcome.Head, Time.GetElapsedTime(started), stopping, outcome.Screenshots, outcome.RemergeDiff);
     }
 
     /// <summary>Why the job is refused before anything runs, or null. A job onto the default
@@ -104,6 +111,11 @@ internal sealed partial class BuildJob(DevFlowClient devFlow, Guid workerId, Job
     /// failure.</summary>
     private async Task<Outcome> Work(Job job, JobPaths paths, CancellationToken stopping)
     {
+        if (job.ToResolve is { } conflict)
+        {
+            return await Resolve(job, conflict, paths, stopping);
+        }
+
         try
         {
             var start = await Fetch(job, paths, stopping);
@@ -138,6 +150,105 @@ internal sealed partial class BuildJob(DevFlowClient devFlow, Guid workerId, Job
     }
 
     /// <summary>
+    /// A conflict job's work: the copy with both commits; the agent, which merges the default
+    /// branch's commit and resolves the conflict; its branch fetched back, with nothing it left
+    /// uncommitted taken, since the merge commit is the whole of its work; then, when the agent
+    /// succeeded, <see cref="OneMerge"/>, the check on a clean copy, the remerge diff, and the push
+    /// without force, each only after the one before it passed, so the feature's branch, which
+    /// every later job of the feature builds on, only ever gets a merge whose check passed.
+    /// </summary>
+    private async Task<Outcome> Resolve(Job job, JobConflict conflict, JobPaths paths, CancellationToken stopping)
+    {
+        try
+        {
+            var start = await Fetch(job, paths, stopping);
+            var result = await RunAgent(job, paths.Copy, AgentAccess.Write, stopping);
+            var head = await FetchBack(job, paths, start, stopping);
+            if (!result.Succeeded)
+            {
+                return Outcome.Failed(result.Failure!, result);
+            }
+
+            if (await OneMerge(paths, head, conflict, job.Base, stopping) is { } notOne)
+            {
+                Log.Write($"Not taken: {notOne}.");
+                return Outcome.Failed(new AgentFailure(FailureSide.Card, notOne), result);
+            }
+
+            await Progress(job, stopping);
+            var check = await Check(job, paths, stopping);
+            if (check.ExitCode != 0)
+            {
+                Log.Write("The check failed, so the merge is not pushed to the feature's branch.");
+                return new Outcome(null, result, check, null);
+            }
+
+            var diff = await RemergeDiff(paths, head, stopping);
+            if (await Push(job, paths, head, stopping) is { } refused)
+            {
+                return Outcome.Failed(refused, result, check);
+            }
+
+            return new Outcome(null, result, check, head, RemergeDiff: diff);
+        }
+        catch (StepFailed failed)
+        {
+            Log.Write($"The job ended: {failed.Message}.");
+            return Outcome.Failed(new AgentFailure(failed.Side, failed.Message), null);
+        }
+    }
+
+    /// <summary>
+    /// Why the agent's branch, at <paramref name="head"/>, is not exactly one new commit on the
+    /// feature's head, a merge whose first parent is that head and whose second is the default
+    /// branch's commit handed, or null when it is: anything else is refused, since the only job that
+    /// pushes a merge of the default branch onto a feature's branch must merge what Dev flow handed
+    /// it and nothing more. Read as root in its own repository.
+    /// </summary>
+    private async Task<string?> OneMerge(JobPaths paths, string head, JobConflict conflict, string defaultBranch, CancellationToken stopping)
+    {
+        var listed = await Git.AsRoot(paths, ["rev-list", "--parents", "-n", "1", head], stopping);
+        if (listed.ExitCode != 0)
+        {
+            throw new StepFailed(FailureSide.OutsideCard, $"The agent's commit could not be read: {Said(listed.Stderr)}");
+        }
+
+        var parents = listed.Stdout.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Skip(1).ToList();
+        if (head == conflict.FeatureCommit || parents.Count == 0 || parents[0] != conflict.FeatureCommit)
+        {
+            return $"The agent's branch is not one new commit on {conflict.FeatureCommit}: it is at {head}";
+        }
+
+        if (parents.Count == 1)
+        {
+            return $"The agent's commit {head} is not a merge: it has one parent";
+        }
+
+        if (parents.Count > 2)
+        {
+            return $"The agent's commit {head} is not a merge of two commits: it has {parents.Count} parents";
+        }
+
+        return parents[1] == conflict.DefaultCommit
+            ? null
+            : $"The agent's merge {head} brings in {parents[1]}, which is not {defaultBranch}'s head, {conflict.DefaultCommit}";
+    }
+
+    /// <summary><c>git show --remerge-diff</c> of the merge commit, as root in its own repository:
+    /// what the agent chose against what git's own merge would have left, and nothing for the
+    /// files that merged cleanly; cut as Dev flow keeps it, <see cref="RemergeDiffs.Cut"/>.</summary>
+    private async Task<string> RemergeDiff(JobPaths paths, string head, CancellationToken stopping)
+    {
+        var shown = await Git.AsRoot(paths, ["show", "--remerge-diff", "--no-color", "--format=", head], stopping);
+        if (shown.ExitCode != 0)
+        {
+            throw new StepFailed(FailureSide.OutsideCard, $"The remerge diff of {head} could not be made: {Said(shown.Stderr)}");
+        }
+
+        return RemergeDiffs.Cut(shown.Stdout);
+    }
+
+    /// <summary>
     /// Root clones the repository with the push key into its own bare repository, mode 700 inside
     /// the job's folder of secrets, and checks the job's branch out there: the remote's when it has
     /// one, from a run that was lost, and otherwise a new one at the base; for a fix, the remote's,
@@ -164,6 +275,25 @@ internal sealed partial class BuildJob(DevFlowClient devFlow, Guid workerId, Job
             throw new StepFailed(FailureSide.Card, start is null
                 ? $"The branch {job.Branch} is not on the remote, so the fix of {handed} was not started"
                 : $"The branch {job.Branch} is at {start}, not at {handed}, the commit the fix was handed, so it was not started");
+        }
+
+        if (job.ToResolve is { } conflict)
+        {
+            if (!string.Equals(start, conflict.FeatureCommit, StringComparison.Ordinal))
+            {
+                throw new StepFailed(FailureSide.Card, start is null
+                    ? $"The feature's branch {job.Branch} is not on the remote, so its conflict was not started"
+                    : $"The feature's branch {job.Branch} is at {start}, not at {conflict.FeatureCommit}, the commit the conflict was handed, so it was not started");
+            }
+
+            // The default branch's commit handed, which the agent finds as origin/<default>: root's
+            // own ref of it moved there, in root's own repository, which never pushes it.
+            if ((await Git.AsRoot(paths, ["rev-parse", "--verify", "--quiet", $"{conflict.DefaultCommit}^{{commit}}"], stopping)).ExitCode != 0)
+            {
+                throw new StepFailed(FailureSide.Card, $"{job.Base}'s commit {conflict.DefaultCommit} is not in the repository, so its conflict was not started");
+            }
+
+            await Root(paths, ["update-ref", $"refs/heads/{job.Base}", conflict.DefaultCommit], FailureSide.OutsideCard, $"{job.Base}'s commit could not be named", stopping);
         }
 
         if (start is null)
@@ -345,9 +475,9 @@ internal sealed partial class BuildJob(DevFlowClient devFlow, Guid workerId, Job
         agent is null ? push : agent with { Reason = $"{agent.Reason}; and {char.ToLowerInvariant(push.Reason[0])}{push.Reason[1..]}" };
 
     /// <summary>How the job ended: its failure, or null; the agent's result, when it ran; the
-    /// check's, when it ran; the commit pushed, when one was; and its pictures, when they were
-    /// tried.</summary>
-    private sealed record Outcome(AgentFailure? Failure, AgentResult? Agent, CheckResult? Check, string? Head, ResultScreenshots? Screenshots = null)
+    /// check's, when it ran; the commit pushed, when one was; its pictures, when they were tried;
+    /// and for a conflict, the remerge diff of the merge it pushed.</summary>
+    private sealed record Outcome(AgentFailure? Failure, AgentResult? Agent, CheckResult? Check, string? Head, ResultScreenshots? Screenshots = null, string? RemergeDiff = null)
     {
         public static Outcome Failed(AgentFailure failure, AgentResult? agent, CheckResult? check = null) => new(failure, agent, check, null);
     }
