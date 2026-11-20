@@ -96,6 +96,18 @@ public sealed class FeaturePageTests
     }
 
     [Fact]
+    public async Task ACardsPageNamesItsFeature()
+    {
+        await using var jobs = await Feature();
+        await jobs.Routes.Read(jobs.Project, User);
+
+        var (_, card) = await Built.Get(jobs, $"/devflow/api/projects/{jobs.Project}/cards/{Second}");
+
+        Assert.Equal(Parent, (int)card!["feature"]!["number"]!);
+        Assert.Equal("Dev flow: features", (string)card["feature"]!["title"]!);
+    }
+
+    [Fact]
     public async Task ABranchNotYetMadeHasNone()
     {
         await using var jobs = await Feature();

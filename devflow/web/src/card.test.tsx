@@ -89,6 +89,7 @@ function story(overrides: Partial<CardStory> = {}): CardStory {
 		screenshots: null,
 		rounds: [],
 		merge: null,
+		feature: null,
 		...overrides,
 	};
 }
@@ -212,6 +213,28 @@ describe("a card's page", () => {
 			cardAt(`/devflow/projects/${PROJECT}/cards/99999999999`),
 		).toBeUndefined();
 		expect(cardAt(`/devflow/projects/${PROJECT}`)).toBeUndefined();
+	});
+
+	test("links to its feature's page when it is a card of one", async () => {
+		open(() =>
+			Promise.resolve(
+				story({ feature: { number: 10, title: "Dev flow: features" } }),
+			),
+		);
+
+		const link = await screen.findByRole("link", {
+			name: "Feature #10: Dev flow: features",
+		});
+		expect(link.getAttribute("href")).toBe(
+			`/devflow/projects/${PROJECT}/features/10`,
+		);
+		expect(link.getAttribute("target")).toBeNull();
+	});
+
+	test("names no feature when it is a card on its own", async () => {
+		open(() => Promise.resolve(story()));
+		await screen.findByRole("heading", { name: "Add the empty state" });
+		expect(screen.queryByRole("link", { name: /^Feature #/ })).toBeNull();
 	});
 
 	test("tells the card's story: its state, links, runs and latest report", async () => {

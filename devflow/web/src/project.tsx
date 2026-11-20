@@ -387,8 +387,8 @@ function ShownKey({
 }
 
 /** A command to paste, labelled, in the mono font on an inset, with a
- * button that copies it. */
-function Command({
+ * button that copies it; a feature's page shows its branch's with it. */
+export function Command({
 	label,
 	copyLabel,
 	text,

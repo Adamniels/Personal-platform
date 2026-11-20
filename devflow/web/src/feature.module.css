@@ -1,0 +1,20 @@
+/* What a feature's page adds to the card page's styles, card.module.css, which it shares. Tokens
+ * only, design/DESIGN.md. */
+
+/* How many cards are done: a count, hard rule 8. */
+.count {
+	color: var(--text-2);
+	font-family: var(--font-mono);
+	font-size: var(--text-mono-size);
+	line-height: var(--text-mono-line);
+	font-variant-numeric: tabular-nums;
+}
+
+/* A card in the table, its number and title, which wraps rather than
+ * widening the table at phone width (hard rule 13). */
+.card {
+	border-radius: var(--radius-sm);
+	color: var(--info);
+	font-weight: 600;
+	overflow-wrap: anywhere;
+}

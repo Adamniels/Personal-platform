@@ -1,7 +1,7 @@
 // Dev flow's sections, in the order of their tabs, each with its own address, and each showing its
-// own content, and a project's page and a card's page under it, which sit under the Projects tab at
-// their own addresses. "Running now" and "Usage and history" join with the parts that build them, never as
-// empty tabs. The addresses the service answers with the page are in
+// own content, and a project's page and a card's page and a feature's page under it, which sit under
+// the Projects tab at their own addresses. "Running now" and "Usage and history" join with the
+// parts that build them, never as empty tabs. The addresses the service answers with the page are in
 // src/DevFlow/Pages/PageEndpoints.cs, and the two change together.
 
 export type Section = {
@@ -65,4 +65,25 @@ export function cardAt(
 /** A card's page's address, under its project's. */
 export function cardPath(project: string, number: number): string {
 	return `${projectPath(project)}/cards/${number}`;
+}
+
+const FEATURE_PAGE =
+	/^\/devflow\/projects\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/features\/([1-9][0-9]{0,9})\/*$/i;
+
+/** The project and the number of the feature whose page an address names, a
+ * trailing slash aside, or undefined when it names none. */
+export function featureAt(
+	pathname: string,
+): { project: string; number: number } | undefined {
+	const match = FEATURE_PAGE.exec(pathname);
+	if (!match?.[1] || !match[2]) return undefined;
+	const number = Number(match[2]);
+	return number <= 2_147_483_647
+		? { project: match[1].toLowerCase(), number }
+		: undefined;
+}
+
+/** A feature's page's address, under its project's. */
+export function featurePath(project: string, number: number): string {
+	return `${projectPath(project)}/features/${number}`;
 }
