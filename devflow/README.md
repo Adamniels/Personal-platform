@@ -2609,30 +2609,69 @@ head, or `Wait(reason, try_again)`, the first that holds deciding:
 |---|---|---|---|
 | 1 | The project is stopped | "Its project is stopped: nothing merges until you resume it" | no |
 | 2 | Its default branch not read for five minutes | "Its project's default branch has not been read lately; Dev flow tries again each minute" | yes |
-| 3 | The pull request not read | "Dev flow could not read its pull request; it tries again each minute" | yes |
-| 4 | It is merged or closed | "Its pull request is no longer open" | no |
-| 5 | Its head is not the commit the card's runs left | "Its head commit is not one the worker checked" | no |
-| 6 | The worker's check did not exit 0 on it | "The worker's check did not pass on its head commit" | no |
-| 7 | The latest review is not for exactly that commit | "The reviewer has not approved its head commit" | no |
-| 8 | It is, and asks for changes | "The reviewer asked for changes on its head commit" | no |
-| 9 | The card or its edits not read | "Dev flow could not read the card; it tries again each minute" | yes |
-| 10 | No linked login | "Dev flow does not know your GitHub login: link GitHub on the Projects tab" | no |
-| 11 | Not open with the pick-up label | "The card is no longer open with the label <label>" | no |
-| 12 | Written by another login | "The card was written by <login>, not by you" | no |
-| 13 | It carries the hold label | "The card is held by the label <label>" | no |
-| 14 | Anyone but the owner edited it | "The card was edited by <login> since it was picked" | no |
-| 15 | Its body or title differ from the record with no newer edit to say who | "The card changed since it was picked, and its history does not say by whom" | no |
-| 16 | The setting is anything but `never` | "This project waits for you on every pull request" | no |
-| 17 | CI not read | "Dev flow could not read CI on its commit; it tries again each minute" | yes |
-| 18 | A check run completed with any conclusion but `success`, or a status `failure` or `error`, the first by name | "CI failed: <name>" | no |
-| 19 | A check run queued or in progress, or a status pending | "CI is still running on its commit" | yes |
-| 20 | No check run and no status, less than 30 minutes after the push | "Waiting for CI to report on its commit" | yes |
-| 21 | None, 30 minutes or more after it | "CI did not report" | no |
+| 3 | For a card of a feature, its feature's branch not read for five minutes | "Its feature's branch has not been read lately; Dev flow tries again each minute" | yes |
+| 4 | The pull request not read | "Dev flow could not read its pull request; it tries again each minute" | yes |
+| 5 | It is merged or closed | "Its pull request is no longer open" | no |
+| 6 | Its head is not the commit the card's runs left | "Its head commit is not one the worker checked" | no |
+| 7 | The worker's check did not exit 0 on it | "The worker's check did not pass on its head commit" | no |
+| 8 | The pull request goes into another branch than the one its run used, the default branch or its feature's | "Its pull request goes into <base>, not <branch>" | no |
+| 9 | The latest review is not for exactly that commit | "The reviewer has not approved its head commit" | no |
+| 10 | It is, and asks for changes | "The reviewer asked for changes on its head commit" | no |
+| 11 | The card or its edits not read | "Dev flow could not read the card; it tries again each minute" | yes |
+| 12 | No linked login | "Dev flow does not know your GitHub login: link GitHub on the Projects tab" | no |
+| 13 | Not open with the pick-up label | "The card is no longer open with the label <label>" | no |
+| 14 | Written by another login | "The card was written by <login>, not by you" | no |
+| 15 | It carries the hold label | "The card is held by the label <label>" | no |
+| 16 | Anyone but the owner edited it | "The card was edited by <login> since it was picked" | no |
+| 17 | Its body or title differ from the record with no newer edit to say who | "The card changed since it was picked, and its history does not say by whom" | no |
+| 18 | The setting is anything but `never` | "This project waits for you on every pull request" | no |
+| 19 | CI not read | "Dev flow could not read CI on its commit; it tries again each minute" | yes |
+| 20 | A check run completed with any conclusion but `success`, or a status `failure` or `error`, the first by name | "CI failed: <name>" | no |
+| 21 | A check run queued or in progress, or a status pending | "CI is still running on its commit" | yes |
+| 22 | No check run and no status, less than 30 minutes after the push | "Waiting for CI to report on its commit" | yes |
+| 23 | None, 30 minutes or more after it | "CI did not report" | no |
 
-Logins and labels are compared whatever their case, as GitHub's are. An edit by the owner since the
-card was picked is fine, so is a change to its body or title his edits explain. Screenshots, whether
-tests were written and the agent's report are not on the list, on purpose: the reviewer judges the
-first two, and the report decides nothing.
+Logins and labels are compared whatever their case, as GitHub's are, and branches exactly, as git's
+are. An edit by the owner since the card was picked is fine, so is a change to its body or title his
+edits explain. Screenshots, whether tests were written and the agent's report are not on the list,
+on purpose: the reviewer judges the first two, and the report decides nothing.
+
+**A card of a feature** is checked by the same function, `MergeFacts.Feature` carrying its feature,
+with the feature's branch as its base: its run's base, row 8, and its branch's watch, row 3, read as
+`WatchStore.FeatureWatchedSql` reads it for handing out. Its rows 11 to 17 read it through its
+parent, since a feature's cards carry no label of their own: as the app, the parent's sub-issues,
+`ICodeHost.SubIssues`, and its edits, beside the card's, any of them unread being row 11. In place
+of row 13, the parent is open with the pick-up label, "Its feature, #<parent>, is no longer open with the label <label>"; then picked,
+"Its feature, #<parent>, is not picked" otherwise; then held to rows 14 to 17 against its own record
+in `features`, "Its feature, #<parent>, was written by <login>, not by you", "Its feature, #<parent>,
+is held by the label <label>", "Its feature, #<parent>, was edited by <login> since it was picked"
+and "Its feature, #<parent>, changed since it was picked, and its history does not say by whom";
+then the card is an open sub-issue of it in the project's repository, "The card is no longer an open
+sub-issue of its feature, #<parent>"; then the card itself, rows 14 to 17, as a card on its own. None
+of these is tried again. With `never` it merges into the feature's branch, and with `always` it
+waits on "Waiting for you" with its feature's branch as its `base`, and the owner merges it from
+there into that branch.
+
+**A card of a feature that landed.** A card of a feature is `done` when its pull request merged into
+the feature's branch, whoever merged it, the check, the owner from the page or anyone on GitHub, which
+the read then finds. `LandedCards.TellPending(project, user)` then tells each such card's issue, as
+the app with a `Post` key: it reads the pull request, and one merged into the feature's branch gets
+one comment,
+
+```text
+Built and merged into the feature's branch `<branch>` in #<pull request>. It reaches `<default>` with its feature, #<parent>.
+```
+
+`<default>` the default branch as its watch names it, and the issue is then closed as completed with
+`ICodeHost.SetIssueState`, `PATCH /repos/{owner}/{repo}/issues/{number}` with `state` and
+`state_reason`, which also opens an issue again for the later slices that send a card back. The
+app's own comments on the issue are read first, so a comment whose answer was lost is not posted
+twice. Told, the card's `landing_told_for` is its pull request's number. One merged into another
+branch is marked told and left as it is, since the comment would not be true of it. It runs where
+the decisions' issues open, after a merge the result route asked for, in `MergeRequestLoop`, on each
+project's minute, in `OpeningLoop`, and in the fake worker after a review; what GitHub did not answer
+for is tried again the next minute. A card on its own is closed by its pull request's `Closes` line,
+and is never told.
 
 **When it runs.** `MergeChecker.CheckPending(project, user)` checks every card of the project that
 is `waiting_for_owner` with `merge_check_due`, which a review that approves sets, as the card
@@ -2667,7 +2706,7 @@ with "This project waits for you on every pull request", and the owner merges it
 himself, through `POST /devflow/api/projects/{id}/cards/{number}/merge`, see "Acting from the
 page".
 
-**A decision for the owner.** When the check merges a card, `DecisionStore.Record` records in the
+**A decision for the owner.** When the check merges a card on its own, `DecisionStore.Record` records in the
 merge's transaction each decision marked `for_owner` in the reports of the card's builds and fixes
 that succeeded, once each by what was chosen, whatever its case, the newest run's words winning, in
 the order they first appeared; with the reviewer's `for_owner` view on it from the review that
@@ -2698,7 +2737,8 @@ every text of the agent's and the reviewer's made data as the pull request body 
 report's, so it closes no issue and notifies nobody. Before opening, the app's own open issues
 with the label are looked at for one whose body names the decision's id, so an answer that was lost
 never opens a second. With `always` nothing merges, so no issue is opened: the decision is on the
-card's item, which waits for him.
+card's item, which waits for him. A card of a feature opens no issue, with `never` or `always`: its
+decisions stay in its reports, and the feature's page shows them with an answer.
 
 **On "Waiting for you"**, `GET /devflow/api/waiting`'s `decisions` are the open ones, by project,
 oldest first: `id`, `project_id`, `project_name`, `owner`, `card_number`, `card_title`, `card_url`,
@@ -2710,8 +2750,9 @@ open decision issues were opened with, only when it has one, and closes those no
 one leaves the list once the owner closes it on GitHub, or takes its label off; a list GitHub did
 not answer closes nothing that minute and fails nothing else of the read.
 
-**The tables**, from `migrations/0022_merge_check.sql` and `migrations/0023_decision_issues.sql`:
-`cards` gains `merge_check_due`; and `decision_issues`, one row per decision: `id`, `project_id`,
+**The tables**, from `migrations/0022_merge_check.sql`, `migrations/0023_decision_issues.sql` and
+`migrations/0026_landed_cards.sql`: `cards` gains `merge_check_due`, and `landing_told_for`, the pull
+request whose landing in its feature's branch its issue was told of, null until then; and `decision_issues`, one row per decision: `id`, `project_id`,
 `user_id`, `card_number`, `card_title`, `card_url`, `pull_request_number`, `pull_request_url`,
 `position`, its place among the card's, unique per pull request, `chosen`, `alternative`, `why`,
 `reviewer_view`, `label`, `recorded_at`, then `issue_number`, `issue_url` and `opened_at`, all
