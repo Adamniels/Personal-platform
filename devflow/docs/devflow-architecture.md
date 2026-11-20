@@ -71,7 +71,8 @@ it back to a fresh developer on the same branch, see "Fixing" below; and once ap
 check merges it as the app when every condition holds, opening an issue for each decision the agent
 marked for the owner, or has it wait for him on "Waiting for you" with why, where he merges it as
 himself, see "The merge check" below; each card has a page with its whole story so far, see "How a card reaches
-its pull request" below. A card that cannot be made to work stops, is marked on its issue and
+its pull request" below, and each feature one with its cards, its branch and the decisions its cards
+marked for the owner, answered there, see "A feature's page" below. A card that cannot be made to work stops, is marked on its issue and
 shows under "Stopped", and his comment runs it again; a failure outside the card makes its project
 wait instead, see "Stops" below.
 
@@ -1053,6 +1054,41 @@ already in the default branch is not merged unseen. A feature's card's decisions
 default branch until the owner merges the feature, and the feature's page shows them with an
 answer, so they stay in the card's reports, with `never` and with `always`. A card on its own keeps
 its attention issues.
+
+### A feature's page
+
+A feature has a page of its own, as a card has, laid out as the mockup's feature page of the spec's
+round 7: its state, what the agents want the owner to know, its branch to try, every card's
+screenshots and its cards with their state, fix rounds and tokens. "Trying a feature is its branch
+and its screenshots for now": the page gives the command that checks the branch out and the
+pictures the worker took, and runs nothing. Tokens are shown, not cost, as the spec's round 7 says.
+
+**Read from what Dev flow stored, as every page is.** The story is the feature's row, its cards in
+order, their runs, reviews and answers, read in one transaction as the user, never from the code
+host, so a page that reads often costs GitHub nothing and another user's feature is not there. The
+commit the branch is at is the one the watch last judged, `branch_watches.last_commit`, or the one
+it was made from before any change: the commit Dev flow has seen, the owner's own pushes among them,
+rather than one guessed from Dev flow's own merges. Its pictures are each card's, read through the
+card's own route, so they pass the same checks as everywhere, see "A code host's bytes handed to
+the browser".
+
+**The decisions are each card's latest report's.** What the page shows is what the card's page shows
+as its latest report, the newest build's or fix's that reads, so the two pages never disagree; a fix
+whose report decides again is asked about again. Each decision carries the reviewer's view from the
+newest review of the commit that report's run left, matched by what was chosen as a merge's decisions
+are. The texts are the agent's and the reviewer's, shown as text through `format.tsx`, see "Text
+read from a code host is data".
+
+**An answer stays in Dev flow and never reaches the code host.** "Fine as it is" is kept in
+`decision_answers`, per card, run and decision, and nothing is written to GitHub: nothing of a
+feature is in the default branch before the owner merges it, so there is no one on GitHub to tell,
+and an issue or a comment would be noise the owner then has to close, the reason a feature's
+decisions open no attention issue. Keeping it in Dev flow also keeps it out of what agents read: a
+comment on the card would be text a later brief could quote. An answer is kept as first given, and
+only a decision the page can show is answered, marked for the owner in the card's latest report; one
+from an older report is refused as `409`, so a page read before a newer run is read again rather than
+answering what the card no longer says. "Send back", the other answer, arrives with "Sending a card
+back", and the confirmation of "Merging a feature into main" counts the decisions not answered.
 
 ## Stops
 
