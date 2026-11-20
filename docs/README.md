@@ -127,7 +127,8 @@ features" in `High-level/docs/platform-architecture.md`.
   fixing, with its rounds, the owner's comment as the one input read and sending a card back, the
   merge check, with its conditions in order, merging as the app and the issues for decisions marked
   for the owner, a feature's card checked through its parent and its issue closed by the app once it
-  lands, stops, with what stops a card, its mark on GitHub, running it again on the owner's
+  lands, the end of a feature, with bringing the default branch in, the feature's pull request and
+  keeping it current, stops, with what stops a card, its mark on GitHub, running it again on the owner's
   comment and a project's wait after failures outside its cards, starting a worker, with the base
   image, the format of `.devflow/`, the recipe route, the
   two commands, the memory rule and when a worker needs a rebuild, the worker program with its
@@ -157,7 +158,9 @@ features" in `High-level/docs/platform-architecture.md`.
   lies and when a run is lost, the worker's pictures and why they never decide a merge, why the developer looks at its own pages too, the review and why its verdict lives in the database tied to its
   commit, fixing, why rounds are limited and why the owner's comment is the one input read from
   GitHub, the merge check, each condition and why it fails closed, a card of a feature, why the app
-  closes its issue and why its decisions open no issue, stops, with what lies in the card
+  closes its issue and why its decisions open no issue, the end of a feature, with why it is a merge
+  and never a rebase, why its pull request is opened at the end, not as a draft as the spec has it,
+  and why the default branch is kept in a feature that waits, stops, with what lies in the card
   and what outside it, why a failure outside never counts, why one failure in the card is tried
   again, why a stop is marked on the card, running it again on his comment and reading the usage
   limit's reset, and its security decisions and accepted risks, kept for an audit,

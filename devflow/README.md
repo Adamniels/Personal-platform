@@ -867,12 +867,14 @@ out, and list what changed its branches, oldest first, as `ICodeHost.Activity` a
 first: `"activity": [{"id": 1, "branch": "main", "before": "<40 hex>", "after": "<40 hex>", "at":
 "...", "kind": "push", "actor": "devflow-fake[bot]"}]`, `kind` one of `push`, `force_push`,
 `branch_creation`, `branch_deletion`, `pull_request_merge` and `merge_queue_merge`, and `actor`
-null for an account GitHub no longer names; none when it is left out. Both are left out when they
-are read back unset. A test stages a push to the default branch by adding one, as `add_activity` in
-`e2e/devflow_worlds.py` does.
+null for an account GitHub no longer names; none when it is left out. It may also list the branches
+that bringing another branch into answers a conflict, `"conflicts": ["feature-60-x"]`, none when it
+is left out, see "The end of a feature". Each is left out when it is read back unset. A test stages
+a push to the default branch by adding one, as `add_activity` in `e2e/devflow_worlds.py` does, or
+pushes a commit through `POST /devflow/api/fake/push`, below.
 
 It is read strictly, by `FakeJson` in `src/DevFlow/CodeHost/FakeWorld.cs`: every field present but
-`user`, a repository's `default_branch` and its `activity`, null only where the record allows it, no field the records do not have, numbers as numbers, and states
+`user`, a repository's `default_branch`, its `activity` and its `conflicts`, null only where the record allows it, no field the records do not have, numbers as numbers, and states
 as their snake case words, `open`, `in_progress`, `timed_out`. What identifies a thing is listed
 once: an installation's id, a repository's id within it, a pull request's or a conversation's
 number, a commit's id, a file's path and branch, a change's id, and an issue's number, which no
@@ -970,6 +972,12 @@ of what Dev flow is:
   failures outside its cards now, its count kept, so a test sees the next failure without waiting
   minutes, `204`; `404` for a project the caller does not have or that does not wait, and `400`
   without a `project_id`. See "Stops".
+- `POST /devflow/api/fake/push` with `{"repository": 1001, "branch": "main", "message": "…"}`
+  pushes one commit on the branch of the caller's repository with that id, made in the fake's git
+  repository on top of where the branch is, and lists it among the branch's changes as a push by the
+  person the world signs in as, so the watch finds it the owner's; it answers `{"commit": "<40
+  hex>"}`, and `404` for a repository the world does not hold. How a test moves the default branch
+  on under a feature, see "The end of a feature".
 - `POST /devflow/api/fake/worker/run`, the fake worker, which takes a project's next job and ends
   it with a prepared result, see "Jobs".
 - `GET /devflow/api/fake/writes` lists the writes the fake took for the caller, oldest first, each
@@ -977,9 +985,12 @@ of what Dev flow is:
   "body": null, "by": "octo-owner"}`, or with `kind` `comment`, the `body`, and `commit` and
   `method` null. A write by the app has `by` `devflow-fake[bot]` and a `purpose`, `post`, `merge`
   or `push`, and may be of `kind` `pull_request`, with `title`, `head`, `base`, its head commit and
-  its body; `issue`, with `title` and `body`; `label_added` or `label_removed`, with `label`; or
-  `branch`, a branch made with a push key, `number` 0, with `branch` and the `commit` it was made
-  at, in the fake's git repository, the default branch given a first commit when it has none. A field
+  its body; `pull_request_edited`, with its new body; `issue`, with `title` and `body`;
+  `label_added` or `label_removed`, with `label`; `branch`, a branch made with a push key, `number`
+  0, with `branch` and the `commit` it was made at, in the fake's git repository, the default branch
+  given a first commit when it has none; or `branch_merge`, a branch brought into another with a
+  merge key, `number` 0, with `head`, `base`, the merge `commit`, `method` `merge` and its message as
+  `body`. A field
   that is null past `by` is left out, so the owner's writes read as before.
 
 In the GitHub mode none of them exists, `404`. An acceptance test stages a world through the
@@ -1296,7 +1307,8 @@ sets only `queued`, `held` and `ignored` and the later slices of part 4 the othe
 `picked_edit` and `picked_body`, null for a feature never picked, `unlabelled`, and, null until the
 later slices set them, `branch`, `branch_base_commit`, `brought_in_commit` and
 `pull_request_number`, with `pull_request_url` beside it from `migrations/0027_feature_page.sql`,
-both or neither; `fix_round`, 0 to 3, 0 until then; `changed_at`, when its state or reason
+both or neither, and `bring_in_failed_at` from `migrations/0029_feature_end.sql`, see "The end of
+a feature"; `fix_round`, 0 to 3, 0 until then; `changed_at`, when its state or reason
 last changed, and `read_at`. On `cards`, `feature_id` refers to a feature of the same project, null
 for a card on its own, and `position`, from 1, is set exactly when `feature_id` is, unique per
 feature at the end of each transaction.
@@ -1394,7 +1406,8 @@ again.
 the owner's linked login, from `github_accounts`, compared whatever its case, as GitHub compares
 logins; or when it is a merged pull request whose merge commit is in `merges_made` for that branch.
 On a feature's branch the same, and a push that left the branch at a commit in `pushes_made` for
-that branch; but its deletion is never fine, by anyone. Anything else stops the project: a push or
+that branch, or at a commit in `merges_made` for that branch, the default branch brought in, which
+GitHub lists as a push, see "The end of a feature"; but its deletion is never fine, by anyone. Anything else stops the project: a push or
 a merge by the app that Dev flow did not record, a force push by anyone, the owner included, a
 change by any other login, one whose actor GitHub no longer names, and a feature's branch deleted.
 The project's `project_stops` row records when it stopped and the newest change that stopped it,
@@ -2844,6 +2857,93 @@ request whose landing in its feature's branch its issue was told of, null until 
 `position`, its place among the card's, unique per pull request, `chosen`, `alternative`, `why`,
 `reviewer_view`, `label`, `recorded_at`, then `issue_number`, `issue_url` and `opened_at`, all
 three or none, and `closed_at`, with row level security as every table.
+
+## The end of a feature
+
+When every card of a feature is done, Dev flow brings the default branch into the feature's branch
+and opens the feature's pull request to the default branch; while the feature waits for the owner,
+each change on the default branch is brought in again, and a card added to it sends it back to
+building. Why it is built so is "The end of a feature" in `docs/devflow-architecture.md`. It is
+`FeatureEnd`, the decision, `FeatureEnds`, the writes, and `FeatureText`, the body, in
+`src/DevFlow/Features/`, and `BringIn` and `EditPullRequestBody` in `ICodeHost`.
+
+**When.** `FeatureEnd.Advance`, in every read of the project, inside its transaction, and again at
+the start of the end's minute, from what Dev flow stored and nothing else. For each feature whose
+branch is made, by its cards in its order:
+
+- a feature `building` whose cards are all `done` moves to `bringing_in`;
+- one `waiting_for_owner` or `ready` whose cards are all `done` moves to `bringing_in` when the
+  default branch's commit, `last_commit` of its watch, is known and is neither `brought_in_commit`,
+  the one last brought in, nor `bring_in_failed_at`, the one bringing in last failed at;
+- one `building`, `waiting_for_owner` or `ready` with a card not `done` is `building`, its reason
+  "Its end waits for #<n>, which is stopped", "is held", "waits for you" or "is ignored", for the
+  first card in that state, and none otherwise;
+- one `resolving`, `reviewing`, `fixing` or `bringing_in` is left as it is, and is brought in once
+  it waits for the owner again.
+
+**Bringing in**, on the minute of the opening loop, `OpeningLoop`, after the landed cards are told,
+and right after each fake worker review: for each feature `bringing_in`, under the project's lock,
+`BranchWatch.Lock`, while the project is not stopped, its default branch was read in the last five
+minutes, the feature's branch too, and the feature is still `bringing_in`, the app, with a `Merge`
+key, asks `POST /repos/{owner}/{repo}/merges` with `base` the feature's branch, `head` the default
+branch and `commit_message` "Bring <default> into <feature branch>". The lock is held while GitHub
+answers. A feature already brought in at the default branch's commit asks nothing.
+
+| GitHub answers | Dev flow |
+|---|---|
+| `201`, the merge commit | written to `merges_made` with the feature's branch and `number` null, in the same transaction; `brought_in_commit` is the answer's second parent, the default branch's commit merged, or its watch's commit when the answer names none; then the pull request |
+| `204`, nothing to bring in | `brought_in_commit` is the watch's commit when it has one; then the pull request |
+| `409`, a conflict | `waiting_for_owner`, "<default> conflicts with the feature's branch", `bring_in_failed_at` the watch's commit, so it is tried again only once the default branch has moved |
+| any other status | `waiting_for_owner`, "GitHub refused to bring <default> into the feature's branch, with <status>", the same way |
+| no answer | left `bringing_in`, tried again on the next minute |
+
+The watch takes a push on a feature's branch that left it at a commit in `merges_made` for that
+branch as fine, since GitHub lists a merge through this endpoint as a push by the app, see "Watching
+branches". A conflict waits for the owner until "Resolving a conflict" hands it to an agent.
+
+**The feature's pull request**, once the default branch is in: the app's own open pull request from
+the feature's branch into the default branch is the feature's, or, while the feature has none
+recorded, one is opened as the app with a `Post` key, not a draft, titled with the parent's title as
+picked, with the body
+
+```text
+Feature #<parent>.
+
+## Cards
+
+- #<card> <title>, landed in #<pull request>
+
+Closes #<parent>
+
+Built by Dev flow for the feature #<parent>.
+```
+
+each card in the feature's order, its title as picked, ", landed in #<n>" left out when it has no
+pull request recorded, and every title made data as a card's report is in its body, see "The pull
+request Dev flow opens", so none adds a heading, hides what follows or closes an issue. A body that
+differs from it is replaced, `PATCH /repos/{owner}/{repo}/pulls/{number}` as the app with a `Post`
+key, so a card added later is listed once the end runs again. A refusal to open is looked at again
+for one opened meanwhile, as a card's is. Then `pull_request_number` and `pull_request_url` are
+recorded, and the feature is `waiting_for_owner`, "Not reviewed as a whole yet", until "Reviewing
+the whole feature" lands; the owner merges it on GitHub. A pull request recorded that is no longer
+open is not opened again: what follows a feature's pull request closed is "Merging a feature into
+main" and "Sending a card back". Nothing is held while GitHub answers for the pull request, and a
+minute it did not answer for leaves the feature `bringing_in`, already brought in, for the next.
+
+**A card added** to a feature at its end is picked on the next read, as every sub-issue is; the
+feature moves to `building`, its pull request stays open, and its end runs again once that card is
+done, adding the card to the body.
+
+**The columns**, from `migrations/0029_feature_end.sql`: `merges_made.number` is null for a merge
+that merged no pull request, and `features` gains `bring_in_failed_at`, the default branch's commit
+at which bringing in last met a conflict or a refusal, null otherwise. `brought_in_commit`,
+`pull_request_number` and `pull_request_url` are 0024's and 0027's, set here.
+
+**In the fake**, bringing in is a merge commit in the repository's git repository, with the base's
+tree and the base's and head's commits as its parents, recorded as the app's write `branch_merge`
+and listed on the base as a push by the app; nothing to bring in when the base holds the head
+already; a conflict for a base the repository's `conflicts` lists; `404` for a base or head its git
+repository does not have. Editing a body is recorded as `pull_request_edited`. See "The fake".
 
 ## Stops
 

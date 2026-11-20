@@ -3192,3 +3192,126 @@ def test_i_answer_a_decision_fine_as_it_is(
     assert page.request.get("/devflow/api/fake/world").json() == world_before
     assert _writes(page) == writes_before
     _look(page, "devflow-feature-decision-answered")
+
+
+def test_a_finished_feature_gets_its_pull_request(
+    page: Page, invite_code: str, base_url: str, viewport: str, devflow_world
+):
+    register_and_log_in(page, invite_code, base_url)
+    # A labelled feature of one card, and the project's .devflow/project.json.
+    world = one_repository()
+    add_issue(world, 60, "The feature's branch", labels=["devflow"], sub_issues=[61])
+    add_issue(world, 61, "Bring main in")
+    add_file(
+        world,
+        ".devflow/project.json",
+        json.dumps({"version": 1, "check": CHECK, "start": "", "url": ""}).encode(),
+    )
+    _open_project(page, base_url, devflow_world, world)
+    project = page.url.rsplit("/", 1)[1]
+    given = page.request.put(
+        "/devflow/api/claude-login",
+        data={"token": CLAUDE_TOKEN},
+        headers={"Origin": base_url},
+    )
+    assert given.status == 200, given.text()
+    refreshed = page.request.post(
+        f"/devflow/api/projects/{project}/refresh", headers={"Origin": base_url}
+    )
+    assert refreshed.status == 204, refreshed.text()
+
+    # The fake worker builds the one card into its own branch from the
+    # feature's, with a passing check.
+    ran = page.request.post(
+        "/devflow/api/fake/worker/run",
+        data={
+            "project_id": project,
+            "result": {
+                "outcome": "succeeded",
+                "report": _report(),
+                "failure": None,
+                "check": {"exit_code": 0, "output": "Tests: 12 passed"},
+                "auth_method": "oauth_token",
+                "usage": {
+                    "usage": {"input_tokens": 41, "output_tokens": 6113},
+                    "num_turns": 23,
+                },
+                "duration_ms": 184213,
+                "stderr": "",
+            },
+        },
+        headers={"Origin": base_url},
+    )
+    assert ran.status == 200, ran.text()
+    assert ran.json()["card"] == 61
+
+    # Meanwhile I push to main myself, and the project is read, so the watch
+    # judges my push fine and the feature's branch is watched.
+    pushed = page.request.post(
+        "/devflow/api/fake/push",
+        data={"repository": REPOSITORY, "branch": "main", "message": "Main moves on"},
+        headers={"Origin": base_url},
+    )
+    assert pushed.status == 200, pushed.text()
+    refreshed = page.request.post(
+        f"/devflow/api/projects/{project}/refresh", headers={"Origin": base_url}
+    )
+    assert refreshed.status == 204, refreshed.text()
+
+    # CI green and the reviewer's approve: the card lands in the feature's
+    # branch, which ends the feature.
+    _stage_ci(page, devflow_world, ran.json()["head_commit"], [check_run("test")])
+    _fake_review(page, base_url, project, _verdict("approve"))
+
+    # The fake world holds main brought into the feature's branch by the app,
+    # a merge commit, and then the feature's pull request into main.
+    writes = _writes(page)
+    brought = [write for write in writes if write["kind"] == "branch_merge"]
+    assert len(brought) == 1, brought
+    assert (brought[0]["by"], brought[0]["purpose"], brought[0]["method"]) == (
+        APP_LOGIN,
+        "merge",
+        "merge",
+    )
+    assert (brought[0]["head"], brought[0]["base"]) == ("main", FEATURE_BRANCH)
+    assert brought[0]["body"] == f"Bring main into {FEATURE_BRANCH}"
+    opened = [
+        write
+        for write in writes
+        if write["kind"] == "pull_request" and write.get("base") == "main"
+    ]
+    assert len(opened) == 1, opened
+    assert writes.index(brought[0]) < writes.index(opened[0])
+    pull = next(
+        pull
+        for pull in repository(page.request.get("/devflow/api/fake/world").json())[
+            "pull_requests"
+        ]
+        if pull["number"] == opened[0]["number"]
+    )
+    assert (pull["author"], pull["state"], pull["draft"]) == (APP_LOGIN, "open", False)
+    assert (pull["head_branch"], pull["base_branch"]) == (FEATURE_BRANCH, "main")
+    assert pull["title"] == "The feature's branch"
+    assert "\nCloses #60\n" in pull["body"]
+    assert re.search(
+        r"^- #61 Bring main in, landed in #\d+$", pull["body"], re.MULTILINE
+    )
+
+    # Read again, the watch finds both merges on the feature's branch fine.
+    refreshed = page.request.post(
+        f"/devflow/api/projects/{project}/refresh", headers={"Origin": base_url}
+    )
+    assert refreshed.status == 204, refreshed.text()
+    workers = page.request.get(f"/devflow/api/projects/{project}/workers")
+    assert workers.status == 200, workers.text()
+    assert workers.json()["held"] is None
+
+    # The feature's page links to its pull request and says why it waits.
+    page.goto(f"/devflow/projects/{project}/features/60")
+    feature = page.get_by_role("article", name="The feature")
+    expect(feature).to_contain_text("Waiting for you")
+    expect(feature).to_contain_text("Not reviewed as a whole yet")
+    expect(feature).to_contain_text("1 of 1 cards done")
+    link = feature.get_by_role("link", name=f"Pull request #{pull['number']}")
+    expect(link).to_have_attribute("href", pull["url"])
+    _look(page, "devflow-feature-pull-request")

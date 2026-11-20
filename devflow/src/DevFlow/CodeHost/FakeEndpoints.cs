@@ -19,6 +19,16 @@ public sealed record FakeUnavailable(bool Unavailable);
 /// <param name="Days">How many days ago the caller's Claude login is to have been given.</param>
 public sealed record FakeClaudeLoginAge(int Days);
 
+/// <summary>What <c>POST /devflow/api/fake/push</c> takes.</summary>
+/// <param name="Repository">The id of the caller's repository, in any of its world's
+/// installations.</param>
+/// <param name="Branch">The branch to push a commit on, made with it when it has none.</param>
+/// <param name="Message">The commit's message.</param>
+public sealed record FakePush(long Repository, string Branch, string Message);
+
+/// <summary>What <c>POST /devflow/api/fake/push</c> answers: the commit pushed.</summary>
+public sealed record FakePushed(string Commit);
+
 /// <summary>What <c>POST /devflow/api/fake/end-wait</c> takes.</summary>
 /// <param name="ProjectId">The caller's project whose wait after failures outside its cards is to
 /// be over.</param>
@@ -60,6 +70,31 @@ public static class FakeEndpoints
 
             host.Replace(context.UserId(), world!);
             return TypedResults.NoContent();
+        });
+
+        // A push of one commit on a branch of the caller's repository, by the person the world signs
+        // in as, made in the fake's git and listed in the branch's changes: how a test moves the
+        // default branch on under a feature, as the owner pushing would.
+        fake.MapPost("/push", async Task<Results<Ok<FakePushed>, ProblemHttpResult>> (HttpContext context, [FromServices] FakeCodeHost host) =>
+        {
+            var (push, error) = await FakeJson.Read<FakePush>(context.Request.Body, context.RequestAborted);
+            if (error is not null || push!.Branch.Length == 0)
+            {
+                return Refused("The push is malformed", error ?? new Malformed("branch", "is empty"));
+            }
+
+            var userId = context.UserId();
+            var world = host.World(userId);
+            if (world.Installations.SelectMany(installation => installation.Repositories.Select(repository => (installation, repository)))
+                    .FirstOrDefault(pair => pair.repository.Id == push.Repository) is not { repository: not null } found)
+            {
+                return TypedResults.Problem(statusCode: StatusCodes.Status404NotFound, title: "No such repository", detail: "the caller's world holds no repository with that id");
+            }
+
+            var repository = new Repository(found.installation.Id, found.repository.Id, found.repository.Owner, found.repository.Name);
+            return await host.Push(userId, repository, push.Branch, push.Message, world.SignedInUser.Login, context.RequestAborted) is { } commit
+                ? TypedResults.Ok(new FakePushed(commit))
+                : TypedResults.Problem(statusCode: StatusCodes.Status503ServiceUnavailable, title: "The fake's git failed", detail: "no commit was pushed");
         });
 
         fake.MapPost("/unavailable", async Task<Results<NoContent, ProblemHttpResult>> (HttpContext context, [FromServices] FakeCodeHost host) =>

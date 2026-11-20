@@ -31,16 +31,20 @@ public sealed class BringingInTests
 
         // A read started while the code host is asked cannot judge the feature's branch before the
         // merge is recorded: it waits for the project's lock, which bringing in holds throughout.
-        Task? reading = null;
+        // What the hook saw is kept and asserted after, since an exception thrown inside it would be
+        // the end's own failure, logged and retried, rather than this test's.
+        Task<DevFlow.Reading.ReadResult>? reading = null;
+        DevFlow.Reading.ReadResult? finishedDuringBringIn = null;
         jobs.Routes.Host.BeforeBringIn = async () =>
         {
             reading = jobs.Routes.Read(jobs.Project, Ending.User);
             await Task.Delay(TimeSpan.FromMilliseconds(500), Ct);
-            Assert.False(reading.IsCompleted, "a read finished while the bring in held the project's lock");
+            finishedDuringBringIn = reading.IsCompleted ? await reading : null;
         };
         await Ending.End(jobs);
         Assert.NotNull(reading);
-        await reading;
+        Assert.True(finishedDuringBringIn is null, $"a read finished while the bring in held the project's lock, with {finishedDuringBringIn}");
+        Assert.Equal(DevFlow.Reading.ReadResult.Read, await reading);
 
         // One merge by the app with the merging key, of the default branch into the feature's, a
         // merge commit with the message Dev flow writes, made in the fake's git.
