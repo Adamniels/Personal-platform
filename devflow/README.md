@@ -230,7 +230,8 @@ answer gives, each card an inset row: its number, `#12` in the mono font, a link
 GitHub in a new tab when its address is https and plain text otherwise; its title, as text, a link
 to the card's page; its
 state as a status, "Queued" and "Held" `idle`, "Ignored" and "Stopped" `failed`, "Building",
-"Checking", "Reviewing" and "Fixing" `running`, "Waiting for you" `needs-you` and "Done" `done`;
+"Checking", "Reviewing" and "Fixing" `running`, "Waiting for you" and a feature's "Ready for you"
+`needs-you` and "Done" `done`;
 and its reason under them as a caption. With none, "No cards yet. An open issue you wrote with the
 pick-up label becomes one."; a list that could not be read is an alert. Features come first, in the
 list "Features", each its parent's number linked to the issue as a card's is, its title, a link to
@@ -284,9 +285,10 @@ answer's `count` as a badge once it is more than none. Its parts, top to bottom:
   when every project is fine, one muted "Updated <time> ago" from the oldest `last_success_at`. A
   secondary "Refresh" beside it posts to every project's refresh route and then reads the list
   again.
-- Four groups, in this order, each a section heading in the heading font's capitals with its
+- Five groups, in this order, each a section heading in the heading font's capitals with its
   count, and shown only with items: "Pull requests waiting", Dev flow's own waiting cards, then
-  items of kind `waiting` not sent back; "Stopped", kind `stopped` not sent back; "Decisions to
+  items of kind `waiting` not sent back; "Features ready for your review", Dev flow's features
+  ready for review or waiting for the owner, see "Reviewing a feature"; "Stopped", kind `stopped` not sent back; "Decisions to
   look at", the issues Dev flow opened for decisions on cards it merged; and "Sent back, the runner has it", every item
   sent back, muted, and not in the tab's count. Within a group, by `<owner>/<name>` and then
   number.
@@ -1142,7 +1144,7 @@ and runs in the fake mode as well. With `DEVFLOW_POLL_SECONDS=0` it does not run
 **The routes**, under the `Api` policy and the origin check:
 
 - `GET /devflow/api/waiting` answers
-  `{"count", "needs_relink", "items": [...], "projects": [{"id", "owner", "name", "last_success_at", "stale", "failing"}], "own_items": [...], "cards": [...], "stopped_cards": [...], "failing_projects": [...]}`.
+  `{"count", "needs_relink", "items": [...], "projects": [{"id", "owner", "name", "last_success_at", "stale", "failing"}], "own_items": [...], "cards": [...], "stopped_cards": [...], "failing_projects": [...], "decisions": [...], "features": [...]}`.
   Each item is a stored row with its project's id and repository name: `id`, `project_id`,
   `project_name`, `number`, `kind`, `waiting` or `stopped`, `sent_back`, `title`, `web_url`,
   `slice_number`, null when the body closes none, `head_commit`, `can_merge`, `summary`, `reason`,
@@ -1155,8 +1157,11 @@ and runs in the fake mode as well. With `DEVFLOW_POLL_SECONDS=0` it does not run
   `src/DevFlow/Runner/RunnerItem.cs`, and every text is plain text to show as text. `cards` are Dev
   flow's own cards whose pull requests wait for the owner, by project and number, see "The pull
   request Dev flow opens". `stopped_cards` are its own cards that stopped and `failing_projects` its
-  projects that cannot run their cards, each by project, see "Stops". `count` is the items not sent
-  back, the own items, the cards, the stopped cards and the failing projects, plus one when
+  projects that cannot run their cards, each by project, see "Stops". `decisions` are the issues Dev
+  flow opened for decisions marked for the owner on cards it merged, see "The merge check", and
+  `features` its features ready for the owner's review or waiting for him, see "Reviewing a
+  feature". `count` is the items not sent
+  back, the own items, the cards, the stopped cards, the failing projects, the decisions and the features, plus one when
   `needs_relink`, the caller's link needing renewal. A project is
   `stale` when its last success was more than five minutes ago or it was never read, and `failing`
   when its last read failed.
@@ -2010,7 +2015,7 @@ token removes the login.
 
 ## Jobs
 
-A job is one card, or for a conflict one feature, handed to one worker, with what the worker needs
+A job is one card, or for a conflict or a whole feature's review one feature, handed to one worker, with what the worker needs
 for it and nothing more; a run is Dev flow's record of it, from when it was handed out to when its result came back or it was
 found lost. Why it is built so is "Handing out work" in `docs/devflow-architecture.md`. It is
 `Dispatcher`, `JobStore`, `RunStore`, `JobEndpoints` and `FakeWorkerEndpoints` in `src/DevFlow/Jobs/`,
@@ -2043,8 +2048,8 @@ queued; moves it to `building`; records a run for the worker; and answers `200` 
 | Field | What it is |
 |---|---|
 | `job_id` | The run's id, which the job's routes take |
-| `kind` | `build`, `review`, see "Review", `fix`, see "Fixing", or `conflict`, see "A conflict" under "The end of a feature" |
-| `card` | `number`, `title` and `body`, as the card was picked; for a conflict, the feature's parent's |
+| `kind` | `build`, `review`, see "Review", `fix`, see "Fixing", `conflict`, see "A conflict" under "The end of a feature", or `feature_review`, see "Reviewing a feature" |
+| `card` | `number`, `title` and `body`, as the card was picked; for a conflict or a whole feature's review, the feature's parent's |
 | `repository` | `owner`, `name`, `clone_address`, where git fetches and pushes it, and `default_branch` |
 | `branch` | `devflow/<number>-<slug>`: the title lowercased, each run of anything but ASCII letters and digits one hyphen, trimmed, cut to 40 characters; `devflow/<number>` when nothing is left |
 | `base` | The branch the card's branch is made from: the default branch, or the feature's branch for a card of a feature |
@@ -2056,6 +2061,7 @@ queued; moves it to `building`; records a run for the worker; and answers `200` 
 | `committer` | `name` and `email`, the app's bot, `<app-slug>[bot]` and `<id>+<app-slug>[bot]@users.noreply.github.com`, read once from GitHub's `GET /users/<app-slug>[bot]` and kept; `devflow-fake[bot]` with a fixed address in the fake mode |
 | `limits` | `turns` 200, `budget_usd` 25 and `minutes` 90, fixed in code until part 5 |
 | `to_resolve` | For a conflict, `feature_commit`, the commit the feature's branch is at, and `default_commit`, the default branch's commit to bring in; null on any other job |
+| `to_review_feature` | For a whole feature's review, what it reads besides the code, see "Reviewing a feature"; null on any other job |
 
 Everything the job needs from the code host is read before the card is taken, so the row lock is
 held for one short transaction and never while GitHub answers; a push key made for a card another
@@ -2070,7 +2076,7 @@ queued, ignored, under way or waiting for the owner, holds it back, and the page
 with no reason of its own as "Waits for #<n>, earlier in the feature", naming the nearest such card,
 computed when the cards are read and never stored. A stopped or held card holds back only itself,
 and what is blocked by it on GitHub, which waits as `waits_for` says. Between features and cards
-on their own the order above stands: reviews, then fixes, then conflicts, then builds, each by
+on their own the order above stands: reviews of cards, then of whole features, then fixes, then conflicts, then builds, each by
 priority and age.
 
 **A feature's branch.** Before a build is taken, the dispatcher looks at the card it would take,
@@ -2222,7 +2228,9 @@ for a card or for a feature: `card_number` is null for a feature's, and `feature
 parent's number, is set instead, exactly one of the two by a check; `kind` takes `conflict`, which
 also needs `from_commit`, the feature's head it starts from, and `default_commit`, the default
 branch's commit it brings in; `remerge_diff` is a conflict's, see "A conflict"; and a second unique
-index allows one run under way per feature.
+index allows one run under way per feature. From `migrations/0031_feature_reviews.sql`, `kind` takes
+`feature_review` too, a feature's run that needs `head_commit`, the commit it reviews, see
+"Reviewing a feature".
 
 ## The pull request Dev flow opens
 
@@ -2471,8 +2479,9 @@ matched by `chosen` as the merge check matches them, null with none, and `answer
 `{"answer", "answered_at"}` or null. A project or feature the caller does not have is `404` "No
 such feature". It is `FeatureStory` and `FeatureEndpoints` in `src/DevFlow/Features/`. It also
 answers `runs`, the feature's own runs, none of its cards', a conflict's among them, newest first,
-each as "A card's page" answers a run, and `input_tokens` and `output_tokens`, summed over them,
-0 before any.
+each as "A card's page" answers a run, a whole feature's review among them, and `input_tokens` and
+`output_tokens`, summed over them, 0 before any; and `reviews`, the reviews of the whole feature,
+newest first, each as "A card's page" answers a review, see "Reviewing a feature".
 
 **Answering.** `POST /devflow/api/projects/{id}/features/{number}/decisions/{run}/{position}/fine`
 keeps the answer `fine`, "Fine as it is", to that decision, in one transaction with what it checks,
@@ -2502,6 +2511,9 @@ package's `Card`s, top to bottom:
   "Issue #<number>" and, once there is one, "Pull request #<number>", in a new tab with
   `rel="noreferrer"` when their address is https and plain text otherwise; and "<done> of <all>
   cards done".
+- "The review of the whole feature", once it has a review: the list "Reviews of the feature",
+  newest first, each as a card's page shows a review, its commit, its verdict, whether it covers the
+  pull request's head, its summary, its findings and its views for the owner.
 - "What the agents want you to know", only when a card has a decision for the owner, in attention
   while any is not answered: the list "Decisions for you", each "#<card>: <chosen>", "Instead of
   <alternative>", "Because <why>" and "Reviewer: <view>", or "Reviewer: gave no view on it.", then a
@@ -2538,7 +2550,8 @@ It is `ClaimReview` in `JobStore`, `JudgeReview` in `RunStore`, `Brief.Reviewer`
 **When.** A card is to be reviewed when it is `reviewing`, with its pull request, picked with its
 body kept, with no run under way, and its head commit, the one its newest build that succeeded
 left, has no review in `reviews`. Opening its pull request moves it there. `jobs/next` hands out a
-project's reviews before its fixes, see "Fixing", and those before its builds, each by the cards'
+project's reviews before its fixes, see "Fixing", a whole feature's review between the two, see
+"Reviewing a feature", and those before its builds, each by the cards'
 order, so work in progress finishes before new work starts. The kind is read first, the key is made
 for it, and only a card of that kind is then taken, with the same `FOR UPDATE SKIP LOCKED` lock.
 The card stays `reviewing`, "The reviewer is reading it", and the run, `kind` `review`, is recorded
@@ -2927,8 +2940,10 @@ branch is made, by its cards in its order:
 - one `building`, `waiting_for_owner` or `ready` with a card not `done` is `building`, its reason
   "Its end waits for #<n>, which is stopped", "is held", "waits for you" or "is ignored", for the
   first card in that state, and none otherwise;
-- one `resolving`, `reviewing`, `fixing` or `bringing_in` is left as it is, and is brought in once
-  it waits for the owner again.
+- one `reviewing` with a card not `done`, a card added at its end, is `building` too, as above,
+  and its review, when one runs, is kept and judged again at the new head;
+- one `resolving`, `fixing` or `bringing_in`, and one `reviewing` whose cards are all `done`, is
+  left as it is, and is brought in once it waits for the owner again.
 
 **Bringing in**, on the minute of the opening loop, `OpeningLoop`, after the landed cards are told,
 and right after each fake worker review: for each feature `bringing_in`, under the project's lock,
@@ -2973,8 +2988,8 @@ request Dev flow opens", so none adds a heading, hides what follows or closes an
 differs from it is replaced, `PATCH /repos/{owner}/{repo}/pulls/{number}` as the app with a `Post`
 key, so a card added later is listed once the end runs again. A refusal to open is looked at again
 for one opened meanwhile, as a card's is. Then `pull_request_number` and `pull_request_url` are
-recorded, and the feature is `waiting_for_owner`, "Not reviewed as a whole yet", until "Reviewing
-the whole feature" lands; the owner merges it on GitHub. A pull request recorded that is no longer
+recorded, and the feature is `reviewing`, for its review of the whole feature, see "Reviewing a
+feature"; the owner merges it on GitHub. A pull request recorded that is no longer
 open is not opened again: what follows a feature's pull request closed is "Merging a feature into
 main" and "Sending a card back". Nothing is held while GitHub answers for the pull request, and a
 minute it did not answer for leaves the feature `bringing_in`, already brought in, for the next.
@@ -3031,7 +3046,8 @@ for the feature rather than for a card. It is `JobStore.ClaimConflict`, `Dispatc
   commit to `pushes_made`, in the same transaction, and the watch finds it fine, as "Watching
   branches" has it for every job on a feature's branch.
 - **The remerge diff** is kept on the run, `remerge_diff`, as text, cut beyond 1 MiB with a line
-  saying so, and it is data. "Reviewing the whole feature" hands it to the reviewer.
+  saying so, and it is data. The review of the whole feature hands it to the reviewer, see
+  "Reviewing a feature".
 
 **The columns**, from `migrations/0029_feature_end.sql`: `merges_made.number` is null for a merge
 that merged no pull request, and `features` gains `bring_in_failed_at`, the default branch's commit
@@ -3047,6 +3063,151 @@ answers a conflict job with a merge commit on the feature's branch, the feature'
 default branch's commit its parents, with the feature's tree, listed on the branch as a push by the
 app, when the prepared result succeeded with a passing check, and with the prepared
 `remerge_diff`; with anything else it pushes nothing, as a worker does. See "The fake".
+
+## Reviewing a feature
+
+Once a feature's pull request is open, a fresh reviewer agent on one of the project's workers
+reviews the whole feature at its head, seeing only the feature's own changes and, apart, what an
+agent chose where a conflict was resolved. The verdict is kept by Dev flow for that commit, shown
+on the feature's page and on "Waiting for you", and posted on the feature's pull request for
+people to read. The feature is ready for the owner when the latest review approves its head and CI
+passed there. Why it is built so is "Reviewing a feature" in `docs/devflow-architecture.md`. It
+is `FeatureReady`, the decision, and `FeatureReadiness`, its minute, in `src/DevFlow/Features/`;
+`ClaimFeatureReview` in `JobStore` and `JudgeFeatureReview` in `RunStore`; `Brief.FeatureReviewer`
+and `Briefs/feature-reviewer.md`; `FeatureReviewStore`, `ReviewText.FeatureComment` and
+`ReviewPoster` in `src/DevFlow/Reviews/`; `MergeCheck.Ci`, the CI rule it shares with a card's
+merge; and the worker's `ReviewJob`, which runs a card's review and a feature's.
+
+**When.** `FeatureReadiness.DecidePending`, on the minute of the opening loop, right after the end
+of each feature, see "The end of a feature", and after each fake worker run. It looks at each
+feature `reviewing`, `waiting_for_owner` or `ready` with its pull request recorded, the default
+branch brought in, `bring_in_failed_at` null, every card `done`, no run of its own under way, and
+its branch's watch read in the last five minutes and since Dev flow's last merge or push on the
+branch, `merges_made.merged_at` and `pushes_made.recorded_at`, so the commit the watch names, its
+`last_commit`, is the feature's head with what Dev flow put there. Opening or keeping the pull
+request moves the feature to `reviewing`, with no reason, for it to decide. For each, by
+`FeatureReady.Decide`, from what Dev flow stored, in this order:
+
+- **No review covers the head**: `reviewing`, "To be reviewed as a whole", with `review_commit`
+  the head, and its review is a job, below; unless its review failed in the job at that commit,
+  `review_failed_at`, when it stays waiting for the owner with why, until the branch moves.
+- **The covering review asked for changes**: `waiting_for_owner`, "The review of the whole feature
+  asked for changes", with its findings on its page, until "Fixing a feature" lands.
+- **The covering review approved**: CI on the head, read as the app, every check run and status,
+  by `MergeCheck.Ci` as "The merge check" reads it: a failure first, by name, "CI failed: <name>";
+  anything running, "CI is still running on its commit"; nothing at all, "Waiting for CI to report
+  on its commit", and 30 minutes after the push "CI did not report"; a read that failed, "Dev flow
+  could not read CI on its commit; it tries again each minute". Each is `waiting_for_owner` with
+  that reason. Every check passed: `ready`, no reason. The push is when Dev flow recorded the head
+  in `merges_made` or `pushes_made`, or the feature's last change for a head of the owner's.
+
+The latest review **covers** the head when it is for the head, or when the head differs from it
+only by merges of the default branch Dev flow made cleanly: following the head back through
+`merges_made` rows of the feature's branch with no `number`, each by its `parent_commit`, the
+feature branch's commit it merged into, reaches the reviewed commit. So a clean bringing in needs
+CI again and no new review, and a conflict an agent resolved, a push of its own in `pushes_made`
+that no such row names, needs a new review. A commit the owner pushes to the branch himself is
+covered by no review either. Each minute reads it again, so a feature that is ready and whose CI
+fails later, or whose branch moves, moves with it; nothing is written while nothing changes, and
+`changed_at` moves only with the state or the reason.
+
+**Handed out** with the reviews of cards, first: `jobs/next` hands out a card's review, then a whole
+feature's, then a fix, a conflict and a build, see "Jobs". A feature is reviewable when it is
+`reviewing` with its pull request, its branch made and its parent picked with its body kept, no run
+of its own under way, its `review_commit` still the commit its watch names and not the one its
+review failed at, no review in `feature_reviews` for that commit, and its branch watched in the
+last five minutes. It is taken by `CardStore.QueueOrder` with `FOR UPDATE SKIP LOCKED`, as a card
+is, and its reason is "The reviewer reads the whole feature" while its run is under way. The run,
+`kind` `feature_review`, names the feature by `feature_number`, its branch, the default branch as
+its `base`, the commit as its `head_commit` from the start, and the check the job carries.
+
+**The job** is a `Job` of `kind` `feature_review`: the parent as picked as its `card`, the
+feature's branch as its `branch`, the default branch as its `base`, the project's `check`, the
+feature reviewer's brief as `brief`, the verdict's form, `contracts/devflow/verdict.schema.json`, as
+`report_schema`, and `to_review_feature`, null on every other job:
+
+| Field | What it is |
+|---|---|
+| `commit` | The commit to review, `review_commit` |
+| `cards` | Each card in the feature's order: `number`, `title` as picked, `verdict` and `summary` of its newest review, each null without one, and `handover`, the note of its newest build or fix that succeeded, empty without one |
+| `check` | The newest check a worker ran on the feature's branch, a card's build or fix that succeeded or a conflict's, `{"command", "commit", "exit_code", "output"}`, or null |
+| `remerge_diff` | The `remerge_diff` of each conflict run of the feature that succeeded and started since its newest review, oldest first, each under a line naming its run and its two commits, cut beyond 1 MiB as `RemergeDiffs.Cut` cuts one; null when there is none |
+
+Its `push_key` is a key narrowed to `Fetch`, as a card's review's, and the push key route answers it
+`404`. The model is `claude-opus-5-5`, as for every job.
+
+**On the worker**, `ReviewJob`, as a card's review is fetched: root's bare clone with the key, the
+commit checked to be there, the feature's branch pointed at it in root's own repository, never
+pushed, and the agent's copy at `/work/<job>/copy`, checked to be at the commit. Root writes in its
+handover folder, and the agent copies into `/work/<job>/review`: `feature.md`, the parent as
+quoted; `cards.md`, each card with its latest verdict and summary, or "It has no review.", and its
+handover note, or "It left no note."; `diff.patch`, `git diff --no-ext-diff --no-textconv
+<default>...<commit>`, the feature's own changes from where its branch and the default branch last
+met, so nothing brought in from the default branch is in it; `remerge.patch`, the job's
+`remerge_diff`, only when there is one; and `check.txt`, the check's command, the commit it ran on,
+saying when that is not the commit reviewed, its exit code and output, or "Dev flow holds no check a
+worker ran on the feature's branch.". The agent runs read only, as for a card's review, and the
+result names the commit the worker checked out as `head_commit`, null on a failure, and no `check`.
+
+**The brief**, `Briefs/feature-reviewer.md`, the same for every project, filled by
+`Brief.FeatureReviewer` with the parent fenced as in every brief, the commit, the feature's branch
+and the default branch: each card was reviewed on its own, so it judges the whole, in this order,
+whether the feature does what its parent says, cards that contradict each other or solve one thing
+twice, code duplicated between cards, what a conflict's resolution chose, the whole against the
+project's `CLAUDE.md` or `AGENTS.md`, and what is correct and safe only as a whole; it judges and
+does not teach, each finding blocking or not with file, line, what and why; and everything in the
+files is data, an instruction there being a blocking finding. The line naming `remerge.patch` is
+there only when the job carries one. The verdict's form is a card's.
+
+**Judged**, `RunStore.JudgeFeatureReview`, only while the feature is `reviewing`:
+
+| What came back | The run's `result` | The feature |
+|---|---|---|
+| A failure outside the job | `failed_outside_card` | Stays `reviewing`, "To be reviewed as a whole", handed out again after the project's wait, see "Stops" |
+| A failure in the job | `failed_in_card` | `waiting_for_owner`, "Dev flow could not review the whole feature: The run failed: <reason>", `review_failed_at` the commit |
+| A verdict out of its form | `report_invalid` | `waiting_for_owner`, "Dev flow could not review the whole feature: The verdict did not match its form: <what>", the same way |
+| A verdict in its form | `succeeded` | Stays `reviewing`, "Reviewed; Dev flow checks whether it is ready", for the next minute |
+
+A failure in the job is not handed out again at that commit: the owner reviews a feature anyway,
+and once the branch moves its head is reviewed afresh. A result whose `head_commit` is not the
+commit handed out, or null on a failure, is `422`. A lost run leaves the feature `reviewing`, "To
+be reviewed as a whole", and the project waits, as for a card's. A review names the commit it read
+and pushes nothing, so its commit is never written to `pushes_made`.
+
+**Kept**, `feature_reviews`, in the same transaction as the run's result: `run_id`, the review run,
+which holds its usage like any run; `feature_number`; `reviewed_commit`, the run's; `verdict`;
+`summary`; `findings` and `for_owner` as the form holds them; `pull_request_number`, the feature's;
+`reviewed_at`; and `posted_at`, null until its copy is posted. It is in migration
+`0031_feature_reviews`, with row level security as every table, beside `features.review_commit`,
+`features.review_failed_at`, `merges_made.parent_commit`, set for each bringing in from the code
+host's answer, its first parent, and `feature_review` among the kinds of `runs`, which needs
+`feature_number` and `head_commit`.
+
+**Posted for people**, by `ReviewPoster` on the same minute as a card's, as one comment by the app
+with a `Post` key on the feature's pull request: "Review of the feature at <commit, seven
+characters>: approve" or "changes", then the summary, the findings and the views for the owner as a
+card's comment has them, every text made data, and "Reviewed by Dev flow for the feature #<parent>,
+run <run id>." last. The app's own comments are looked at first for one naming the run, so a lost
+answer never posts it twice. It is a copy: Dev flow never reads a comment to learn a verdict.
+
+**On "Waiting for you"**, `features` in `GET /devflow/api/waiting`, the group "Features ready for
+your review" after "Pull requests waiting": each feature `ready` or `waiting_for_owner`, by project
+and number, `{"project_id", "project_name", "owner", "number", "title", "web_url", "state",
+"reason", "pull_request_number", "pull_request_url", "review", "unanswered", "changed_at"}`,
+`review` its latest, `{"verdict", "summary", "blocking", "commit"}` or null, and `unanswered` how
+many decisions its cards' latest reports marked for the owner have no answer, counted as its page
+counts them, in the same transaction. Each is counted in `count`, in the nav's dot, `attention`,
+and in the front page's `waiting`, as every item is. The page shows its title, its state, why it
+waits, the review's verdict and summary, the decisions left to answer, "Open the feature", its page
+inside the app, and "Open on GitHub", its pull request.
+
+**On its page**, `reviews` in the feature's story, newest first, each as a card's page shows a
+review, its `current` true for the newest when it covers the head; the page shows them under "The
+review of the whole feature", after the feature's state.
+
+**In the fake**, the fake worker answers a feature's review as it answers a card's, naming the
+commit it was handed and changing nothing, then posts the copy and decides readiness, as the minute
+would; and bringing in answers the base's commit it merged into as the first parent.
 
 ## Stops
 

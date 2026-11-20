@@ -75,7 +75,9 @@ its pull request" below, and each feature one with its cards, its branch and the
 marked for the owner, answered there, see "A feature's page" below. When every card of a feature is
 done, the default branch is brought into its branch as the app and its pull request to the default
 branch opened, kept up to the default branch while it waits for the owner, a conflict resolved by an
-agent in a job of its own, see "The end of a feature" and "A conflict" below. A card that cannot be made to work stops, is marked on its issue and
+agent in a job of its own, and the whole feature reviewed by a fresh reviewer and ready for the
+owner once that review approves its head and CI passed there, see "The end of a feature", "A
+conflict" and "Reviewing a feature" below. A card that cannot be made to work stops, is marked on its issue and
 shows under "Stopped", and his comment runs it again; a failure outside the card makes its project
 wait instead, see "Stops" below.
 
@@ -1102,8 +1104,8 @@ back", and the confirmation of "Merging a feature into main" counts the decision
 When every card of a feature is done, the default branch is brought into the feature's branch and
 the feature's pull request to the default branch is opened, as the spec's "Clarified after the
 builder check" has it for "A feature's branch", and as the feature issue, "Dev flow: features",
-decides for "The end of a feature". Until "Reviewing the whole feature" lands, the feature then
-waits for the owner, not reviewed as a whole, and he merges it on GitHub. The routes, states and
+decides for "The end of a feature". The feature is then reviewed as a whole, see "Reviewing a
+feature" below, and he merges it on GitHub until "Merging a feature into main" lands. The routes, states and
 tables are "The end of a feature" in `devflow/README.md`.
 
 **Decided from what Dev flow stored.** Whether a feature's end is due is one pure function,
@@ -1238,9 +1240,79 @@ as a card's is, the project waiting, since the job did nothing wrong.
 what the agent's merge holds against what git's own merge would have left, conflict markers and all,
 and nothing for the files that merged cleanly. A review of the whole feature reads its diff from the
 merge base, in which a resolution is invisible: the merge's lines read as the feature's own or the
-default branch's. Kept on the run, it lets "Reviewing the whole feature" judge the one place where an
+default branch's. Kept on the run, it lets the review of the whole feature, see "Reviewing a feature", judge the one place where an
 agent wrote code no card asked for, apart from the rest. It is text from a worker, cut beyond 1 MiB,
 and data wherever it is shown or handed on.
+
+### Reviewing a feature
+
+Once a feature's pull request is open, a fresh reviewer reads the whole feature at its head, and the
+feature is the owner's when that review approves its head and CI passed there, as the feature issue,
+"Dev flow: features", decides for "The review of the whole feature" and "A feature is ready for
+me". **The spec has no agent review of a whole feature; this adds it**: each card was reviewed on its
+own against its own acceptance, and what no review of one card can see, cards that contradict each
+other or solve one thing twice, code duplicated between them, the feature against what its parent
+asked, and what an agent chose in a conflict, is what this review is for. The job, its brief, its
+tables and its routes are "Reviewing a feature" in `devflow/README.md`.
+
+**A job for the feature, like a card's review.** It needs the same worker, the same read only agent
+and the same care with keys as a card's review, so it is a fifth kind of run, for the feature as a
+conflict's is, and the worker's `ReviewJob` runs both, with a key that only fetches. It is handed
+out with the reviews of cards, first, so a finished feature reaches the owner before new work
+starts, and on the same model, since the reviewer is the last job to weaken.
+
+**The diff is from the merge base.** By the time a feature is reviewed, the default branch has been
+brought into its branch, so `git diff <default> <head>` would show what the default branch has
+that the feature lacks as removed, and the feature's branch's whole history would show every change
+of the default branch merged in. `git diff <default>...<head>`, from where the two last met, which
+after a bringing in is the default branch's commit brought in, is the feature's own changes and
+nothing else, as the pull request shows them on GitHub. The worker computes it itself, from the
+repository it fetched, rather than Dev flow asking GitHub's comparison, since that is capped and
+would put the whole diff through Dev flow for nothing.
+
+**A conflict's resolution is given apart.** In that diff a resolution is invisible: its lines read
+as the feature's own or the default branch's. The remerge diff each conflict run kept, see "A
+conflict", shows the one place an agent wrote code no card asked for, so the review is handed each
+one resolved since the feature's last review, which judged the earlier ones already.
+
+**Kept by Dev flow and tied to the commit**, as a card's verdict is, see "Review": in
+`feature_reviews`, in the transaction that records its run's result, for the commit the worker was
+handed and checked out, never one the agent names. The comment on the feature's pull request is a
+copy for people and is never read back, so no comment by anyone can approve a feature.
+
+**Why a clean bringing in needs no new review, and a resolved conflict does.** A merge the code
+host made bringing the default branch in, without a conflict, adds no line anyone wrote: every
+change in it is the default branch's, which was reviewed where it landed, and the feature's own
+changes, the diff above, are the same before and after. Reviewing it again would spend a review on
+nothing new, every time the default branch moves while the feature waits. So a review carries over
+from the commit it approved to a head that differs from it only by such merges, which Dev flow
+recorded itself in `merges_made` with the commit each merged into, and nothing else: a conflict an
+agent resolved is a commit of its own, an agent's choices in it, so it needs a new review, as does a
+push by anyone to the branch. CI runs on the new head either way, since a merge that changed nothing
+by hand can still break the build. The walk follows only Dev flow's own records, so a merge it did
+not make, or whose first parent the code host did not name, carries nothing over, erring towards a
+review.
+
+**Decided from what Dev flow stored, each minute.** Whether a feature needs a review and whether it
+is ready is one pure function, `FeatureReady.Decide`, over its head as its branch's watch last named
+it, its latest review, the merges Dev flow made on its branch and CI on the head, so what decides a
+feature's readiness can be read in one place, as the merge check's can. The head is used only once
+the watch has read the branch since Dev flow's own last merge or push there, so a review is never
+asked for a commit the watch has not seen and judged, and a bringing in that just happened is not
+missed. CI is read as "The merge check" reads it, by the same `MergeCheck.Ci`: pending waits,
+nothing for 30 minutes is "CI did not report", any other conclusion is "CI failed". It is read
+again each minute while a feature is ready or waits, so a ready feature whose CI later fails, or
+whose branch moves, stops being ready on the next minute.
+
+**A failure in the job waits for the owner, at that commit.** A review that failed in its own work,
+its time limit or a verdict out of its form, is not handed out again for the same commit, as a
+conflict is not: the owner reviews a feature anyway, and the same commit would most likely fail the
+same way and spend the usage again. Once the branch moves, its new head is reviewed afresh. A
+failure outside the job is tried again as a card's is.
+
+**Until "Fixing a feature" lands**, a review that asks for changes leaves the feature waiting for the
+owner with its findings, on its page and on "Waiting for you"; the rounds of the feature issue, the
+three fixes on the feature's branch, are that slice's.
 
 ## Stops
 

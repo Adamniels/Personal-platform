@@ -109,6 +109,10 @@ public static class FakeWorkerEndpoints
 
         var caller = new WorkerCaller(projectId, userId);
         await workers.Hello(caller, new WorkerHello(WorkerId, Name, list.RecipeVersion ?? "fake", start.Image), cancellationToken);
+        // Whether a finished feature needs its review, or is ready, is decided on the minute; a
+        // worker asks after a minute has, so the fake decides it first, and a test that reads a
+        // project and then asks finds its feature's review as a worker would.
+        await readiness.DecidePending(projectId, userId, cancellationToken);
         if (await dispatcher.Next(caller, WorkerId, cancellationToken) is not NextJob.Handed { Job: var job }
             || await workers.RepositoryOf(caller, cancellationToken) is not { } repository)
         {

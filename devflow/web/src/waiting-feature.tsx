@@ -65,7 +65,10 @@ export function WaitingFeature({ feature }: { feature: FeatureItem }) {
 				<p className={styles.where}>
 					<span>{project}</span> <span>Feature #{feature.number}</span>
 					{feature.pull_request_number === null ? null : (
-						<span>Pull request #{feature.pull_request_number}</span>
+						<>
+							{" "}
+							<span>Pull request #{feature.pull_request_number}</span>
+						</>
 					)}
 				</p>
 				{feature.reason === null ? null : (
