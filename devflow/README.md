@@ -47,7 +47,7 @@ program that calls it: everything else the tabs will show arrives with later sli
   merge a waiting pull request and send one back with a comment, as the caller on GitHub, see
   "Acting from the page". Without a valid token, `401` with an empty body.
 - `POST /devflow/api/projects/{id}/resume`, which resumes a project stopped because something
-  landed on its default branch that Dev flow did not put there, see "Watching the default branch".
+  landed on a branch it watches that Dev flow did not put there, see "Watching branches".
   Without a valid token, `401` with an empty body.
 - `GET /devflow/api/projects/{id}/settings` and `PUT /devflow/api/projects/{id}/settings`, a
   project's settings, and `GET /devflow/api/projects/{id}/cards`, its cards, see "Cards". Without a
@@ -72,7 +72,7 @@ program that calls it: everything else the tabs will show arrives with later sli
 - `GET /devflow/api/display`, what the platform's front page shows of Dev flow,
   `{"waiting": 2, "stopped": 1, "projects": 1, "stale": false, "needs_relink": false, "claude_login": "ok"}`:
   the items of kind `waiting` and of kind `stopped` that are not sent back, `stopped` with the
-  caller's stopped projects added, see "Watching the default branch", how many projects the
+  caller's stopped projects added, see "Watching branches", how many projects the
   caller has connected, whether any of them is stale or failing, whether their GitHub link has
   expired, and where their Claude login stands, `none`, `ok`, `due_soon` or `expired`, as
   `GET /devflow/api/claude-login` says it, which the core says apart as it does the link.
@@ -649,7 +649,7 @@ does. Its read side:
   `Push`, `ForcePush`, `BranchCreation`, `BranchDeletion`, `PullRequestMerge` or
   `MergeQueueMerge`, and the actor's login, null when the host names none. With `since` null, the
   newest page alone; otherwise every change newer than the one with that id, read page by page
-  until it is reached, and all of them when it never is, as for `0`. "Watching the default branch"
+  until it is reached, and all of them when it never is, as for `0`. "Watching branches"
   reads both;
 - `Installations(user, userToken)`: the installations of the app the person whose token it is can
   reach, each with its id and the login of the account it is on;
@@ -1121,7 +1121,7 @@ and runs in the fake mode as well. With `DEVFLOW_POLL_SECONDS=0` it does not run
   `decisions`, each `{"chosen", "alternative", "why"}`, `other_decisions`, `reviewer_view`,
   `screenshots` and `read_at`, by project and number. `own_items` are Dev flow's own, read from its
   own tables beside the runner's, by project; in this part each is a stopped project, see
-  "Watching the default branch". `screenshots` are the stored names paired for
+  "Watching branches". `screenshots` are the stored names paired for
   the page by `Screenshots.Group`, each `{"name", "images"}`: the part of the names before
   `-desktop` and `-phone`, and the names, the desktop one first; what each means is `RunnerItem` in
   `src/DevFlow/Runner/RunnerItem.cs`, and every text is plain text to show as text. `cards` are Dev
@@ -1349,55 +1349,85 @@ an expired link among them. It is `askNavAgain` in `web/src/nav-attention.ts`. N
 writes a label, a status or anything else the runner owns: after a comment, the runner sees the
 owner's input on its next turn and moves the label itself.
 
-## Watching the default branch
+## Watching branches
 
-Every read of a project watches its default branch first, so anything that lands there that Dev
-flow did not merge, and the owner did not put there himself, stops the project until he has looked.
-Why, and what it guards, is "Watching the default branch" in `docs/devflow-architecture.md`. It is
-`BranchWatch`, `WatchStore` and `WatchEndpoints`, in `src/DevFlow/Watching/`, and `AppMerges`, in
-`src/DevFlow/Merging/`.
+Every read of a project watches its default branch first, then each open feature's branch, so
+anything that lands on one of them that Dev flow did not put there, and the owner did not put there
+himself, stops the project until he has looked. Why, and what it guards, is "Watching the default
+branch" in `docs/devflow-architecture.md`, with "A feature's branch" under it. It is `BranchWatch`,
+`WatchStore` and `WatchEndpoints`, in `src/DevFlow/Watching/`, `AppMerges`, in
+`src/DevFlow/Merging/`, and `RunStore.Record`, in `src/DevFlow/Jobs/`, for a run's own push.
 
 **Reading.** `ProjectReader.Read` calls `BranchWatch.Watch` before anything else, through the same
 seam as every read, `ProjectRefresher`, so the loop watches every project about once a minute. It
 asks `ICodeHost.DefaultBranch` for the branch, never assuming `main`, and `ICodeHost.Activity` for
 what changed it, both as the app with the read only token and both conditional requests. The first
 read of a project, or the first after its default branch changed, records the newest change and
-judges nothing; every read after judges what is newer than the last change judged. A read that
-fails records `last_attempt_at` and a fixed phrase, "GitHub did not answer", "GitHub does not show
-this repository" or "Reading failed", and changes nothing else; it never fails the rest of the
-project's read.
+judges nothing; every read after judges what is newer than the last change judged. Then each open
+feature whose branch is made, every state but `merged` and `closed`, has its branch's changes read
+the same way, each on its own. A card's own branch is never watched. A read that fails records
+`last_attempt_at` and a fixed phrase, "GitHub did not answer", "GitHub does not show this
+repository" or "Reading failed", on that branch's watch alone, and changes nothing else; it never
+fails the next branch's read or the rest of the project's.
 
-**Judging.** A change is fine when it is not a force push and its actor is the owner's linked
-login, from `github_accounts`, compared whatever its case, as GitHub compares logins; or when it is
-a merged pull request whose merge commit is in `merges_made`. Anything else stops the project: a
-push or a merge by the app that Dev flow did not record, a force push by anyone, the owner
-included, a change by any other login, and one whose actor GitHub no longer names. The project's
-`project_stops` row records when it stopped and the newest change that stopped it, its type, actor,
-commit and when it landed. While it is stopped the watch goes on reading, and a later change that
-would stop it replaces what the row shows, keeping when it stopped, so the owner always looks at
-the newest.
+**A feature's watch begins** when its branch is made: `FeatureBranchStore.Made` writes the
+feature's `branch_watches` row in the transaction that records the branch, read as of then, with no
+change judged. Its first read lists every change the branch has and begins at the oldest
+`branch_creation` that made it at the commit the feature recorded, `branch_base_commit`, judging
+nothing before it, such as an earlier branch of the same name. When no such creation is listed,
+every change listed is judged. Once its feature is `merged` or `closed`, its branch is not read
+again.
+
+**Judging.** On the default branch, a change is fine when it is not a force push and its actor is
+the owner's linked login, from `github_accounts`, compared whatever its case, as GitHub compares
+logins; or when it is a merged pull request whose merge commit is in `merges_made` for that branch.
+On a feature's branch the same, and a push that left the branch at a commit in `pushes_made` for
+that branch; but its deletion is never fine, by anyone. Anything else stops the project: a push or
+a merge by the app that Dev flow did not record, a force push by anyone, the owner included, a
+change by any other login, one whose actor GitHub no longer names, and a feature's branch deleted.
+The project's `project_stops` row records when it stopped and the newest change that stopped it,
+its branch, type, actor, commit and when it landed. While it is stopped the watch goes on reading:
+a later change on the same branch that would stop it replaces what the row shows, keeping when it
+stopped, so the owner always looks at the newest; one on another branch is not judged yet, and the
+watch of that branch stays before it, so it is judged, and stops the project again, on the first
+read after he resumes.
+
+**A run's own push.** A push by the app on a feature's branch, read while a run of Dev flow's on
+that branch is under way, is not judged yet: it is kept in `pushes_awaited` with the run. The run's
+result, in `RunStore.Record`, writes the commit it names to `pushes_made` with the branch and the
+run, and judges every awaited push whose run has ended, in the same transaction: fine when its
+commit is in `pushes_made`, a stop when it is not. A run found lost has no result, so its awaited
+pushes stop the project when `RunStore.SweepLost` ends it, and each read of a feature's branch
+judges any left. Both take the project's row first, as the watch and `AppMerges` do. Who the app
+is comes from `ICodeHost.AppCommitter`, asked only when such a push is listed while a run is under
+way. Any other change is judged as soon as it is read. No job of this part pushes to a feature's
+branch: resolving a conflict and fixing a feature, in later slices, are the runs this is for.
 
 **Dev flow's own merges.** `AppMerges.Merge(user, project, number, commit)` merges a pull request
-as the app, with a `Merge` key, while its head is `commit`, and writes the merge commit
-`MergeAsApp` answered to `merges_made` in the same transaction. It holds the project's row with
-`FOR NO KEY UPDATE` from before the merge until the row is written, and the watch takes the same
-lock before it judges, so the watch never judges Dev flow's merge before it is recorded. It refuses
-a stopped project before GitHub is asked. The merge check merges a card through
-`AppMerges.MergeCard`, which does the same and more under that lock, see "The merge check"; later
-slices merge a
-card's pull request through it.
+as the app, with a `Merge` key, while its head is `commit`, into the default branch as its watch
+names it, and writes the merge commit `MergeAsApp` answered to `merges_made`, with that branch, in
+the same transaction. `AppMerges.MergeCard` merges a card's pull request into the base its newest
+build or fix ran on, the default branch or its feature's, and records that branch. Each holds the
+project's row with `FOR NO KEY UPDATE` from before the merge until the row is written, and the
+watch takes the same lock before it judges, so the watch never judges Dev flow's merge before it is
+recorded. Each refuses a stopped project before GitHub is asked, and a merge into an open
+feature's branch not read for five minutes, `FeatureUnwatched`, which the merge check records on
+the card as "Its feature's branch has not been read lately" and tries again; see "The merge
+check".
 
 **Holding work.** `WatchStore.Hold(user, project)` says why a project hands out no new work:
-`Stopped`, while it has a stop, then `Unwatched`, when its watch has not read the branch for five
-minutes, or never has; otherwise `None`. `jobs/next` answers `204` to every worker of a held
-project: the `Dispatcher` reads the hold before it asks GitHub anything, and again with
+`Stopped`, while it has a stop, then `Unwatched`, when its default branch's watch has not read the
+branch for five minutes, or never has; otherwise `None`. `jobs/next` answers `204` to every worker
+of a held project: the `Dispatcher` reads the hold before it asks GitHub anything, and again with
 `WatchStore.HoldUnderLock` in the transaction that takes the card, after taking the project's row
 `FOR SHARE`, so a stop recorded meanwhile still holds the card back. The workers' route answers it
 as `held`, `stopped` or `unwatched`, ahead of the Claude login's reasons, and the project's page
 says why under Workers. An unwatched project is not marked stopped, and hands out work again as
-soon as a read succeeds. A card already with a worker is left as it is, so its run finishes and
-its result is recorded; nothing it produced is merged while the project is stopped, since
-`AppMerges` refuses.
+soon as a read succeeds. A feature's branch not read for five minutes holds only that feature:
+`WatchStore.FeatureWatchedSql` keeps its cards from every job, build, review and fix, while the
+project's other cards are handed out. A card already with a worker is left as it is, so its run
+finishes and its result is recorded; nothing it produced is merged while the project is stopped,
+since `AppMerges` refuses.
 
 **On "Waiting for you".** A stopped project is one of Dev flow's own items, `own_items` in
 `GET /devflow/api/waiting`, of kind `project_stopped`, with its project's id, `project_name` and
@@ -1406,8 +1436,8 @@ GitHub built from the project's owner and name, `landed_at` and `stopped_at`. It
 list's `count`, lights the nav's dot, and is counted in the display data's `stopped`. The page shows
 it under "Stopped", before the runner's, as "Something landed on <branch> that Dev flow did not put
 there", with the commit's first seven characters, who did it, when, and "Open the commit on GitHub"
-when the address is `https`; "I have looked, resume" asks first, in a dialog that says resuming
-accepts what landed.
+when the address is `https`; a deleted branch shows the branch instead, and no commit or link.
+"I have looked, resume" asks first, in a dialog that says resuming accepts what landed.
 
 **The route**, under the `Api` policy and the origin check, so only the project's own user, from
 the platform's page, resumes it:
@@ -1418,18 +1448,27 @@ the platform's page, resumes it:
   "Something else has landed since this was shown" when it is stopped by another commit, so what
   landed after the page was shown is never accepted unseen. `204` once resumed: the stop is copied
   to `project_resumes` with who resumed it, when and the commit accepted, and removed, in one
-  transaction under the watch's lock.
+  transaction under the watch's lock. A stop on a feature's branch is resumed the same way.
 
-The four tables, from `migrations/0013_main_watch.sql`, each guarded like every scoped table and
-following its project:
+The six tables, from `migrations/0013_main_watch.sql` and `migrations/0025_feature_watches.sql`,
+each guarded like every scoped table and following its project:
 
-- `branch_watches`: `project_id`, its primary key, `user_id`, `branch`, `last_activity_id`, the
-  code host's id of the newest change judged, null when the branch had none when the watch began,
-  `began_at`, `last_read_at`, `last_attempt_at` and `last_error`.
-- `merges_made`: `project_id`, `user_id`, `commit`, `number` and `merged_at`, its primary key
-  `(project_id, commit)`.
-- `project_stops`: `project_id`, its primary key, `user_id`, `stopped_at`, `branch`, `activity_id`,
-  `activity_type`, `actor`, `commit` and `landed_at`; a row while the project is stopped.
+- `branch_watches`: one row per watched branch, unique on `(project_id, feature_id)` with nulls
+  not distinct: `project_id`, `user_id`, `feature_id`, null on the default branch's row and the
+  feature's id on a feature's, following the feature, `branch`, `last_activity_id`, the code host's
+  id of the newest change judged, null when the branch had none when the watch began or a
+  feature's watch has judged nothing yet, `began_at`, `last_read_at`, `last_attempt_at` and
+  `last_error`.
+- `merges_made`: `project_id`, `user_id`, `branch`, the branch it merged into, `commit`, `number`
+  and `merged_at`, its primary key `(project_id, commit)`.
+- `pushes_made`: `project_id`, `user_id`, `branch`, `commit`, `run_id`, the run whose result named
+  it, and `recorded_at`, its primary key `(project_id, branch, commit)`.
+- `pushes_awaited`: `project_id`, `user_id`, `activity_id`, `branch`, `run_id`, the run under way
+  when it was read, `actor`, `commit`, `landed_at` and `read_at`, its primary key
+  `(project_id, activity_id)`; a row until its run has ended and it is judged.
+- `project_stops`: `project_id`, its primary key, `user_id`, `stopped_at`, `branch`, the branch
+  that stopped it, `activity_id`, `activity_type`, `actor`, `commit` and `landed_at`; a row while
+  the project is stopped.
 - `project_resumes`: `id`, `project_id`, `user_id`, `resumed_by`, `resumed_at`,
   `accepted_commit`, and the stop as it was: `branch`, `activity_type`, `actor`, `stopped_at` and
   `landed_at`. Kept, so a later reader sees who accepted what.
@@ -1488,7 +1527,7 @@ The routes, in `WorkerEndpoints`:
 - `POST /devflow/api/worker/jobs/next`, the worker's, with `{"worker_id"}`, marks the worker seen
   and answers its next job, `200`, or `204` when there is none for it, see "Jobs". A worker that
   needs a rebuild is never given one, nor is a worker of a project that is stopped or unwatched, see
-  "Watching the default branch". A worker that has not said hello
+  "Watching branches". A worker that has not said hello
   in the key's project is `409` "Say hello first", and says hello and asks again; no `worker_id`
   is `422`.
 

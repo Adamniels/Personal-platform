@@ -62,7 +62,7 @@ public sealed class FeaturePickerTests
         // None is queued as a card on its own; the feature's first card is its next build, by the
         // feature's own rule, see FeatureDispatchTests.
         Assert.Empty(await CardStore.Queue(reading.Door, Reading.Reading.Alice, project, Ct));
-        Assert.Equal("build", await DevFlow.Jobs.JobStore.NextKind(reading.Door, Reading.Reading.Alice, project, Ct));
+        Assert.Equal("build", await DevFlow.Jobs.JobStore.NextKind(reading.Door, Reading.Reading.Alice, project, DateTimeOffset.UtcNow, Ct));
     }
 
     [Fact]

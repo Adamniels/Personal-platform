@@ -50,7 +50,7 @@ public static class FeatureBranchStore
     /// once its branch is there. Null when that card is on its own, or its feature's branch is
     /// made. Read without a lock.
     /// </summary>
-    public static async Task<DueBranch?> Due(UserDb database, Guid userId, Guid projectId, CancellationToken cancellationToken)
+    public static async Task<DueBranch?> Due(UserDb database, Guid userId, Guid projectId, DateTimeOffset now, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(database);
         return await database.InUserTransaction(userId, async transaction =>
@@ -62,7 +62,7 @@ public static class FeatureBranchStore
                 ORDER BY {CardStore.QueueOrder}
                 LIMIT 1
                 """,
-                new { projectId },
+                new { projectId, watchedSince = Watching.WatchStore.WatchedSince(now) },
                 transaction,
                 cancellationToken: cancellationToken));
             return feature is not { } id
@@ -98,10 +98,33 @@ public static class FeatureBranchStore
             cancellationToken: cancellationToken)) == 1, cancellationToken);
     }
 
-    /// <summary>Records the commit the feature's branch was made at, while the claim is still
-    /// this branch's with none recorded.</summary>
-    public static Task Made(UserDb database, Guid userId, Guid featureId, string branch, string commit, DateTimeOffset now, CancellationToken cancellationToken) =>
-        Update(database, userId, featureId, branch, "branch_base_commit = @commit, reason = NULL, changed_at = @now", new { featureId, branch, commit, now }, cancellationToken);
+    /// <summary>
+    /// Records the commit the feature's branch was made at, while the claim is still this branch's
+    /// with none recorded, and begins the branch's watch in the same transaction, read as of now,
+    /// with no change judged yet: its first read begins at the branch's creation, see
+    /// <see cref="Watching.BranchWatch"/>. So a feature whose branch is made is never without a
+    /// watch, and its first card is handed out at once.
+    /// </summary>
+    public static async Task Made(UserDb database, Guid userId, Guid featureId, string branch, string commit, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(database);
+        await database.InUserTransaction(userId, transaction => transaction.Connection!.ExecuteAsync(new CommandDefinition(
+            """
+            WITH made AS (
+                UPDATE features SET branch_base_commit = @commit, reason = NULL, changed_at = @now
+                WHERE id = @featureId AND state = 'building' AND branch = @branch AND branch_base_commit IS NULL
+                RETURNING project_id, user_id, id, branch
+            )
+            INSERT INTO branch_watches (project_id, user_id, feature_id, branch, last_activity_id, began_at, last_read_at, last_attempt_at, last_error)
+            SELECT project_id, user_id, id, branch, NULL, @now, @now, @now, NULL FROM made
+            ON CONFLICT ON CONSTRAINT branch_watches_one_per_branch DO UPDATE
+            SET branch = EXCLUDED.branch, last_activity_id = NULL, began_at = EXCLUDED.began_at, last_read_at = EXCLUDED.last_read_at,
+                last_attempt_at = EXCLUDED.last_attempt_at, last_error = NULL
+            """,
+            new { featureId, branch, commit, now },
+            transaction,
+            cancellationToken: cancellationToken)), cancellationToken);
+    }
 
     /// <summary>A branch of the name is there already, which Dev flow did not record making: the
     /// claim is dropped, so the feature has no record of the branch and never takes it, and the

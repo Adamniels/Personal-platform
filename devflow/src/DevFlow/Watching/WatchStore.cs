@@ -52,7 +52,7 @@ public sealed record ProjectStop(Guid ProjectId, string Owner, string Name, stri
 /// <summary>
 /// A project's watch as the rest of Dev flow reads it: whether it hands out work, its user's stopped
 /// projects, and resuming one. Every query goes through the door as the user, so only a project's
-/// own user sees it or resumes it. See "Watching the default branch" in devflow/README.md.
+/// own user sees it or resumes it. See "Watching branches" in devflow/README.md.
 /// </summary>
 public sealed class WatchStore(UserDb database, TimeProvider time)
 {
@@ -103,13 +103,45 @@ public sealed class WatchStore(UserDb database, TimeProvider time)
     public const string HoldSql = """
         CASE
             WHEN EXISTS (SELECT 1 FROM project_stops s WHERE s.project_id = p.id) THEN 'stopped'
-            WHEN NOT EXISTS (SELECT 1 FROM branch_watches b WHERE b.project_id = p.id AND b.last_read_at >= @watchedSince) THEN 'unwatched'
+            WHEN NOT EXISTS (SELECT 1 FROM branch_watches b WHERE b.project_id = p.id AND b.feature_id IS NULL AND b.last_read_at >= @watchedSince) THEN 'unwatched'
         END
+        """;
+
+    /// <summary>
+    /// Whether a card <c>cards</c> is free of its feature's watch, in SQL, with
+    /// <c>@watchedSince</c> the oldest last read that still counts: a card on its own, a card of a
+    /// feature whose branch is not made yet, or one whose feature's branch was read since then. A
+    /// feature's branch not read lately holds that feature's work alone, never the project's,
+    /// which only the default branch's watch holds, by <see cref="HoldSql"/>. See "A feature's
+    /// branch" under "Watching the default branch" in devflow/docs/devflow-architecture.md.
+    /// </summary>
+    public const string FeatureWatchedSql = """
+        (cards.feature_id IS NULL
+         OR NOT EXISTS (SELECT 1 FROM features wf WHERE wf.id = cards.feature_id AND wf.branch_base_commit IS NOT NULL)
+         OR EXISTS (SELECT 1 FROM branch_watches wb
+                    WHERE wb.project_id = cards.project_id AND wb.feature_id = cards.feature_id AND wb.last_read_at >= @watchedSince))
+        """;
+
+    /// <summary>
+    /// Whether <c>@into</c>, a branch of project <c>@projectId</c>, is an open feature's branch that
+    /// has not been read since <c>@watchedSince</c>, in SQL: nothing is merged into it then. The
+    /// default branch, or a branch that is no open feature's, is not held by it.
+    /// </summary>
+    public const string FeatureUnwatchedSql = """
+        EXISTS (SELECT 1 FROM features f
+                WHERE f.project_id = @projectId AND f.branch = @into AND f.branch_base_commit IS NOT NULL
+                  AND f.state NOT IN ('merged', 'closed')
+                  AND NOT EXISTS (SELECT 1 FROM branch_watches b
+                                  WHERE b.project_id = f.project_id AND b.feature_id = f.id AND b.last_read_at >= @watchedSince))
         """;
 
     /// <summary>The oldest last read of a branch's changes that still lets its project hand out
     /// work.</summary>
-    public DateTimeOffset WatchedSince() => time.GetUtcNow() - BranchWatch.UnwatchedAfter;
+    public DateTimeOffset WatchedSince() => WatchedSince(time.GetUtcNow());
+
+    /// <summary>The oldest last read of a branch's changes that still counts at
+    /// <paramref name="now"/>.</summary>
+    public static DateTimeOffset WatchedSince(DateTimeOffset now) => now - BranchWatch.UnwatchedAfter;
 
     /// <summary>A hold as <see cref="HoldSql"/> words it.</summary>
     public static ProjectHold Read(string? word) => word switch

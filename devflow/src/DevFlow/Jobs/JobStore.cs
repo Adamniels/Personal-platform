@@ -106,7 +106,8 @@ public static class JobStore
 
     /// <summary>What makes a card free to start, as SQL over <c>cards</c>: queued, waiting for
     /// nothing, picked with its body kept, with no run under way, and, for a card of a feature,
-    /// what <see cref="FeatureLetsItStart"/> says. A read can leave a card
+    /// what <see cref="FeatureLetsItStart"/> says, and its feature's branch watched, by
+    /// <see cref="Watching.WatchStore.FeatureWatchedSql"/>, with <c>@watchedSince</c>. A read can leave a card
     /// queued while its run still goes on, when it ignored the card and a later one picked it
     /// again; such a card waits for its run to end, so the unique index <c>runs_one_under_way</c>
     /// stays a backstop rather than the guard.</summary>
@@ -115,6 +116,7 @@ public static class JobStore
         AND NOT EXISTS (SELECT 1 FROM runs
                         WHERE runs.project_id = cards.project_id AND runs.card_number = cards.number AND runs.finished_at IS NULL)
         AND {FeatureLetsItStart}
+        AND {Watching.WatchStore.FeatureWatchedSql}
         """;
 
     /// <summary>What makes a card one to hand out, as SQL over <c>cards</c>: free to start, and,
@@ -149,19 +151,20 @@ public static class JobStore
         """;
 
     /// <summary>What makes a card one to fix, as SQL over <c>cards</c>: fixing, with its pull
-    /// request, picked with its body kept, no run under way, and a commit on its branch to start
-    /// from.</summary>
+    /// request, picked with its body kept, no run under way, a commit on its branch to start
+    /// from, and, for a card of a feature, its feature's branch watched.</summary>
     private const string Fixable = $"""
         cards.project_id = @projectId AND cards.state = 'fixing' AND cards.pull_request_number IS NOT NULL
         AND cards.picked_body IS NOT NULL
         AND NOT EXISTS (SELECT 1 FROM runs
                         WHERE runs.project_id = cards.project_id AND runs.card_number = cards.number AND runs.finished_at IS NULL)
         AND {BranchHeadOf} IS NOT NULL
+        AND {Watching.WatchStore.FeatureWatchedSql}
         """;
 
     /// <summary>What makes a card one to review, as SQL over <c>cards</c>: reviewing, with its pull
-    /// request open, picked with its body kept, no run under way, and a head commit no kept review
-    /// is for.</summary>
+    /// request open, picked with its body kept, no run under way, a head commit no kept review
+    /// is for, and, for a card of a feature, its feature's branch watched.</summary>
     private const string Reviewable = $"""
         cards.project_id = @projectId AND cards.state = 'reviewing' AND cards.pull_request_number IS NOT NULL
         AND cards.picked_body IS NOT NULL
@@ -170,6 +173,7 @@ public static class JobStore
         AND {HeadOf} IS NOT NULL
         AND NOT EXISTS (SELECT 1 FROM reviews v
                         WHERE v.project_id = cards.project_id AND v.card_number = cards.number AND v.reviewed_commit = {HeadOf})
+        AND {Watching.WatchStore.FeatureWatchedSql}
         """;
 
     /// <summary>
@@ -211,10 +215,11 @@ public static class JobStore
     /// <summary>The kind of job the project has to hand out now, <see cref="DevFlow.Protocol.Job.Review"/>,
     /// then <see cref="DevFlow.Protocol.Job.Fix"/>, then <see cref="DevFlow.Protocol.Job.Build"/>, so
     /// work in progress finishes before new work starts; null when it has none. A build counts a
-    /// card of a feature whose branch is still to be made, which the dispatcher makes first. Read
-    /// without a lock, so a worker with nothing to do costs Dev flow one query and GitHub
+    /// card of a feature whose branch is still to be made, which the dispatcher makes first; a card
+    /// of a feature whose branch has not been read since five minutes before <paramref name="now"/>
+    /// counts for none. Read without a lock, so a worker with nothing to do costs Dev flow one query and GitHub
     /// nothing.</summary>
-    public static async Task<string?> NextKind(UserDb database, Guid userId, Guid projectId, CancellationToken cancellationToken)
+    public static async Task<string?> NextKind(UserDb database, Guid userId, Guid projectId, DateTimeOffset now, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(database);
         return await database.InUserTransaction(userId, transaction => transaction.Connection!.ExecuteScalarAsync<string?>(new CommandDefinition(
@@ -223,7 +228,7 @@ public static class JobStore
                         WHEN EXISTS (SELECT 1 FROM cards WHERE {Fixable}) THEN 'fix'
                         WHEN EXISTS (SELECT 1 FROM cards WHERE {FreeToStart}) THEN 'build' END
             """,
-            new { projectId },
+            new { projectId, watchedSince = Watching.WatchStore.WatchedSince(now) },
             transaction,
             cancellationToken: cancellationToken)), cancellationToken);
     }
@@ -254,7 +259,7 @@ public static class JobStore
             LIMIT 1
             FOR UPDATE OF cards SKIP LOCKED
             """,
-            new { projectId },
+            new { projectId, watchedSince = Watching.WatchStore.WatchedSince(now) },
             transaction,
             cancellationToken: cancellationToken));
         if (card is null)
@@ -335,7 +340,7 @@ public static class JobStore
             LIMIT 1
             FOR UPDATE OF cards SKIP LOCKED
             """,
-            new { projectId },
+            new { projectId, watchedSince = Watching.WatchStore.WatchedSince(now) },
             transaction,
             cancellationToken: cancellationToken));
         if (card is null)
@@ -404,7 +409,7 @@ public static class JobStore
             LIMIT 1
             FOR UPDATE SKIP LOCKED
             """,
-            new { projectId },
+            new { projectId, watchedSince = Watching.WatchStore.WatchedSince(now) },
             transaction,
             cancellationToken: cancellationToken));
         if (card is null)

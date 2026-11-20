@@ -250,6 +250,10 @@ internal sealed class CountingCodeHost(ICodeHost inner) : ICodeHost
     /// would, while the rest answer.</summary>
     public ConcurrentDictionary<string, bool> Unavailable { get; } = new(StringComparer.Ordinal);
 
+    /// <summary>The branches whose changes answer unavailable, as GitHub not answering for one
+    /// branch would, while every other read answers.</summary>
+    public ConcurrentDictionary<string, bool> UnavailableBranches { get; } = new(StringComparer.Ordinal);
+
     /// <summary>When set, run once as the app next merges, before the code host is asked: so a
     /// test can move a pull request's head between the merge check's read and its merge.</summary>
     public Func<Task>? BeforeMergeAsApp
@@ -396,6 +400,11 @@ internal sealed class CountingCodeHost(ICodeHost inner) : ICodeHost
     public Task<CodeHostResult<IReadOnlyList<BranchActivity>>> Activity(Guid userId, CodeHost.Repository repository, string branch, long? since, CancellationToken cancellationToken)
     {
         Record("Activity", userId, repository, $"{branch} {since}");
+        if (UnavailableBranches.ContainsKey(branch))
+        {
+            return Task.FromResult<CodeHostResult<IReadOnlyList<BranchActivity>>>(new CodeHostResult<IReadOnlyList<BranchActivity>>.Unavailable(RetryAt: null));
+        }
+
         return inner.Activity(userId, repository, branch, since, cancellationToken);
     }
 

@@ -89,6 +89,7 @@ public sealed partial class MergeChecker(UserDb database, ICodeHost host, AppMer
             AppMergeOutcome.Done { Result: MergeResult.Unavailable } => (MergeCheck.MergeUnanswered, true),
             AppMergeOutcome.ProjectStopped => (MergeCheck.Stopped, false),
             AppMergeOutcome.ProjectUnwatched => (MergeCheck.Unwatched, true),
+            AppMergeOutcome.FeatureUnwatched => (MergeCheck.FeatureUnwatched, true),
             AppMergeOutcome.NoKey => (MergeCheck.NoKey, true),
             AppMergeOutcome.CardMoved or AppMergeOutcome.NoSuchProject => ((string?)null, false),
             _ => throw new InvalidOperationException("a merge outcome that is not one of the known"),

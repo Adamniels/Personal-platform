@@ -112,14 +112,14 @@ public sealed partial class Dispatcher(
 
         var (userId, projectId) = (caller.UserId, caller.ProjectId);
         // Stopped, or its default branch not watched for five minutes: no new work, whatever waits,
-        // until its user resumes it or the branch is read again. See "Watching the default branch"
-        // in devflow/README.md.
+        // until its user resumes it or the branch is read again. See "Watching branches" in
+        // devflow/README.md.
         // Waiting after failures outside its cards, until its wait is over. See "Stops" in
         // devflow/README.md.
         if (await watch.Hold(userId, projectId, cancellationToken) != ProjectHold.None
             || await ProjectWaits.Of(database, userId, projectId, cancellationToken) is { } wait && wait.WaitUntil > time.GetUtcNow()
             || HeldFor(await logins.Status(userId, cancellationToken)) is not null
-            || await JobStore.NextKind(database, userId, projectId, cancellationToken) is not { } kind
+            || await JobStore.NextKind(database, userId, projectId, time.GetUtcNow(), cancellationToken) is not { } kind
             || await workers.RepositoryOf(caller, cancellationToken) is not { } repository)
         {
             return new NextJob.None();
@@ -362,7 +362,7 @@ public sealed partial class Dispatcher(
     /// </summary>
     private async Task<bool> FeatureBranch(Guid projectId, Guid userId, Repository repository, string defaultBranch, AppWriteToken key, CancellationToken cancellationToken)
     {
-        if (await FeatureBranchStore.Due(database, userId, projectId, cancellationToken) is not { } feature)
+        if (await FeatureBranchStore.Due(database, userId, projectId, time.GetUtcNow(), cancellationToken) is not { } feature)
         {
             return true;
         }

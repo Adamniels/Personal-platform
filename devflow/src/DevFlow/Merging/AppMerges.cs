@@ -25,6 +25,11 @@ public abstract record AppMergeOutcome
     /// asked: a card is merged only while its project is watched.</summary>
     public sealed record ProjectUnwatched : AppMergeOutcome;
 
+    /// <summary>The pull request goes into an open feature's branch that has not been read within
+    /// five minutes, so nothing was asked: nothing is merged into a feature's branch while it is
+    /// not watched, though the project's other work goes on.</summary>
+    public sealed record FeatureUnwatched : AppMergeOutcome;
+
     /// <summary>The card no longer waits for this merge, read under the project's lock: it moved
     /// on, its pull request is another, or the project no longer merges by itself. Nothing was
     /// asked.</summary>
@@ -54,14 +59,16 @@ public sealed class AppMerges(UserDb database, ICodeHost host, TimeProvider time
     /// <summary>
     /// Merges the pull request with the number in the user's project, while its head is
     /// <paramref name="commit"/>, as the app with a key for merging alone, unless the project is
-    /// stopped; and records the merge commit when the host gives one.
+    /// stopped or its default branch's watch has not begun; and records the merge commit when the
+    /// host gives one, as a merge into the default branch, as its watch names it.
     /// </summary>
     public Task<AppMergeOutcome> Merge(Guid userId, Guid projectId, int number, string commit, CancellationToken cancellationToken) =>
         Merge(userId, projectId, number, commit, card: null, cancellationToken);
 
     /// <summary>
     /// Merges the pull request of the user's card as <see cref="Merge(Guid, Guid, int, string, CancellationToken)"/>
-    /// does, and only while, read under the project's lock, the project is watched, its setting is
+    /// does, into the base its newest build or fix ran on, the default branch or its feature's,
+    /// and only while, read under the project's lock, the project is watched, its setting is
     /// still <c>never</c>, and the card still waits for this merge, due for the merge check with this
     /// pull request; so a send back, a change of the setting or a stop made since the check read is
     /// never overtaken. When the code host merges, the card is recorded <c>done</c> in the same
@@ -110,6 +117,34 @@ public sealed class AppMerges(UserDb database, ICodeHost host, TimeProvider time
                 }
             }
 
+            // The branch the merge goes into, as Dev flow knows it: a card's, the base its newest
+            // build or fix ran on, the default branch or its feature's; any other, the default
+            // branch, as its watch names it. Without one, nothing is merged.
+            var into = await transaction.Connection!.ExecuteScalarAsync<string?>(new CommandDefinition(
+                card is null
+                    ? "SELECT branch FROM branch_watches WHERE project_id = @projectId AND feature_id IS NULL"
+                    : """
+                      SELECT r.base FROM runs r
+                      WHERE r.project_id = @projectId AND r.card_number = @card AND r.kind IN ('build', 'fix') AND r.result = 'succeeded'
+                      ORDER BY r.started_at DESC, r.id DESC LIMIT 1
+                      """,
+                new { projectId, card },
+                transaction,
+                cancellationToken: cancellationToken));
+            if (into is null)
+            {
+                return card is null ? new AppMergeOutcome.ProjectUnwatched() : new AppMergeOutcome.CardMoved();
+            }
+
+            if (await transaction.Connection!.ExecuteScalarAsync<bool>(new CommandDefinition(
+                    $"SELECT {WatchStore.FeatureUnwatchedSql}",
+                    new { projectId, into, watchedSince = WatchStore.WatchedSince(time.GetUtcNow()) },
+                    transaction,
+                    cancellationToken: cancellationToken)))
+            {
+                return new AppMergeOutcome.FeatureUnwatched();
+            }
+
             var project = await transaction.Connection!.QuerySingleAsync<ProjectRow>(new CommandDefinition(
                 """
                 SELECT p.installation_id AS Installation, p.repository_id AS RepositoryId, p.owner AS Owner, p.name AS Name,
@@ -145,11 +180,11 @@ public sealed class AppMerges(UserDb database, ICodeHost host, TimeProvider time
                 var now = time.GetUtcNow();
                 await transaction.Connection!.ExecuteAsync(new CommandDefinition(
                     """
-                    INSERT INTO merges_made (project_id, user_id, commit, number, merged_at)
-                    VALUES (@projectId, @userId, @merged, @number, @now)
+                    INSERT INTO merges_made (project_id, user_id, branch, commit, number, merged_at)
+                    VALUES (@projectId, @userId, @into, @merged, @number, @now)
                     ON CONFLICT (project_id, commit) DO NOTHING
                     """,
-                    new { projectId, userId, merged, number, now = now.AddTicks(-(now.Ticks % 10)) },
+                    new { projectId, userId, into, merged, number, now = now.AddTicks(-(now.Ticks % 10)) },
                     transaction,
                     cancellationToken: cancellationToken));
             }

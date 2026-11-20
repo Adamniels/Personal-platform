@@ -112,7 +112,7 @@ public static class DevFlowApp
         builder.Services.AddSingleton(provider => new WorkerStore(database, provider.GetRequiredService<TimeProvider>()));
         // Watching each project's default branch: whether it hands out work, its stopped projects and
         // resuming one, and Dev flow's own merges, recorded so the watch finds them fine. See
-        // "Watching the default branch" in devflow/README.md.
+        // "Watching branches" in devflow/README.md.
         builder.Services.AddSingleton(provider => new WatchStore(database, provider.GetRequiredService<TimeProvider>()));
         builder.Services.AddSingleton(provider => new AppMerges(database, provider.GetRequiredService<ICodeHost>(), provider.GetRequiredService<TimeProvider>()));
         // The merge check, which merges an approved card as the app when every condition holds, the
