@@ -96,6 +96,52 @@ public sealed class PollerTests
     }
 
     [Fact]
+    public async Task ATickReadsOnlyAFewProjectsAtOnce()
+    {
+        await using var reading = await Reading.Start();
+        // More projects than a tick reads at once, each its own repository.
+        var repositories = Enumerable.Range(0, (Poller.ReadsAtOnce * 2) + 1).Select(each => 9100L + each).ToArray();
+        var projects = new List<Guid>();
+        foreach (var repository in repositories)
+        {
+            projects.Add(await reading.Project(Reading.Alice, repository: repository, name: $"repository-{repository}"));
+        }
+
+        reading.Stage(Reading.Alice, [Reading.From(Waiting)], [Reading.SliceOf(Waiting)], repositories);
+
+        await using var refresher = Refresher(reading);
+        var hold = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        reading.Host.Hold = hold;
+        using var loop = Loop(reading, refresher);
+
+        // Held at the code host, the tick has started only as many reads as it runs at once.
+        await loop.StartAsync(Ct);
+        await Reading.Until(() => Task.FromResult(reading.Host.Lists() >= Poller.ReadsAtOnce), "the first reads starting");
+        await Task.Delay(300, Ct);
+        Assert.Equal(Poller.ReadsAtOnce, reading.Host.Lists());
+
+        // Let go, every project is read, never more of them at once.
+        reading.Host.Hold = null;
+        hold.SetResult();
+        await Reading.Until(async () =>
+        {
+            foreach (var project in projects)
+            {
+                if (await reading.ReadOf(project) is null)
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }, "every project being read");
+        await loop.StopAsync(Ct);
+
+        Assert.Equal(projects.Count, reading.Host.Lists());
+        Assert.Equal(Poller.ReadsAtOnce, reading.Host.MostListsAtOnce);
+    }
+
+    [Fact]
     public async Task AProjectIsNeverReadTwiceAtOnce()
     {
         await using var reading = await Reading.Start();

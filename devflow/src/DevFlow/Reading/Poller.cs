@@ -14,6 +14,12 @@ namespace DevFlow.Reading;
 /// </summary>
 public sealed partial class Poller(UserDb database, ProjectRefresher refresher, TimeProvider time, TimeSpan interval, ILogger<Poller> log) : BackgroundService
 {
+    /// <summary>How many projects a tick reads at once. Each read holds a database connection while
+    /// it runs, so a tick over every project at once would open as many as there are projects;
+    /// a few at a time keeps the pool small, and a tick of a hundred projects still ends in
+    /// seconds.</summary>
+    public const int ReadsAtOnce = 4;
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         // Made first, so the interval runs from the start and a tick that takes long delays the next
@@ -32,9 +38,9 @@ public sealed partial class Poller(UserDb database, ProjectRefresher refresher, 
         }
     }
 
-    /// <summary>Every target requested, and waited for. A list that cannot be read is tried again
-    /// on the next tick; a project's read never fails the tick, since the refresher's tasks never
-    /// fault.</summary>
+    /// <summary>Every target requested, <see cref="ReadsAtOnce"/> at a time, and waited for. A list
+    /// that cannot be read is tried again on the next tick; a project's read never fails the tick,
+    /// since the refresher's tasks never fault.</summary>
     private async Task Tick(CancellationToken stoppingToken)
     {
         IEnumerable<Target> targets;
@@ -51,7 +57,10 @@ public sealed partial class Poller(UserDb database, ProjectRefresher refresher, 
             return;
         }
 
-        await Task.WhenAll(targets.Select(target => refresher.Request(target.ProjectId, target.UserId))).WaitAsync(stoppingToken);
+        await Parallel.ForEachAsync(
+            targets,
+            new ParallelOptions { MaxDegreeOfParallelism = ReadsAtOnce, CancellationToken = stoppingToken },
+            async (target, cancellationToken) => await refresher.Request(target.ProjectId, target.UserId).WaitAsync(cancellationToken));
     }
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Listing the projects to read failed; the loop tries again at its next tick")]

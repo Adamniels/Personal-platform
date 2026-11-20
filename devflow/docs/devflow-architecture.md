@@ -341,7 +341,11 @@ user, so everything it stores goes through the door as its owner. It reads as th
 user, so it goes on when the owner's link has expired; it uses his link only to learn his login,
 which tells his own comments apart. It runs every `DEVFLOW_POLL_SECONDS`, a minute by default, in
 the fake mode as well, and not at all with `0`, which the service's own tests use so no test's app
-reads on its own; its time is `TimeProvider`'s, so its tests move it.
+reads on its own; its time is `TimeProvider`'s, so its tests move it. A tick reads a few projects
+at a time rather than all at once: each read holds a database connection while it runs, so reading
+every project together grew the pool to one connection per project and, with the database's
+connections shared by every service, ran the others out; a few at a time costs a tick of a hundred
+projects seconds, well inside its minute.
 
 **Stale and failing.** A project's picture is stale when its last successful read was more than
 five minutes ago, or there has been none, and failing when its last read failed. A read that fails

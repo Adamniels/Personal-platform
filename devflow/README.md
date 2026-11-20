@@ -1118,7 +1118,8 @@ page", and a webhook, when the platform is reachable, all call it.
 
 **The loop.** `Poller`, a hosted service, lists `poll_targets` as it starts and then every
 `DEVFLOW_POLL_SECONDS`, through the door's `WithoutUser`, the one read outside a user, and requests
-each project as its user. It reads as the app, so it goes on when the owner's link has expired,
+each project as its user, `Poller.ReadsAtOnce`, 4, at a time, so a tick holds at most that many
+database connections for its reads however many projects there are. It reads as the app, so it goes on when the owner's link has expired,
 and runs in the fake mode as well. With `DEVFLOW_POLL_SECONDS=0` it does not run.
 
 **The routes**, under the `Api` policy and the origin check:
