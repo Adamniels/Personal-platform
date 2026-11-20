@@ -2,7 +2,8 @@
 // from the project's Cards panel and from each of its cards' pages: the feature's whole story so
 // far, read from GET /devflow/api/projects/{id}/features/{number}, what Dev flow stored and never
 // the code host. Top to bottom: its title and state, with the reason and a link to its pull request
-// once there is one; what the agents want you to know, every decision its cards' latest reports
+// once there is one; the reviews of the whole feature, newest first, each with its findings and
+// whether it covers the head; what the agents want you to know, every decision its cards' latest reports
 // marked for you, each answered "Fine as it is" here and nowhere else; its branch with the command
 // to check it out; every card's screenshots, by card; its cards in order; and its own runs, such as
 // an agent resolving a conflict, as a card's page shows its runs. Every text came from the code
@@ -18,7 +19,7 @@ import {
 import { useCallback, useEffect, useState } from "react";
 import { navigate, plainClick } from "./address";
 import type { components } from "./api/schema";
-import { RunRow } from "./card";
+import { ReviewRow, RunRow } from "./card";
 import styles from "./card.module.css";
 import { stateWord } from "./cards";
 import own from "./feature.module.css";
@@ -191,6 +192,15 @@ export function FeaturePage({
 					</p>
 				</div>
 			</Panel>
+			{story.reviews.length === 0 ? null : (
+				<Panel title="The review of the whole feature" className={styles.panel}>
+					<ul className={styles.runs} aria-label="Reviews of the feature">
+						{story.reviews.map((review) => (
+							<ReviewRow key={review.run_id} review={review} />
+						))}
+					</ul>
+				</Panel>
+			)}
 			{decisions.length === 0 ? null : (
 				<Panel
 					title="What the agents want you to know"

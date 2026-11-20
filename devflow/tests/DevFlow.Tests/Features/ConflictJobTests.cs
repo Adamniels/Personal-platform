@@ -136,9 +136,9 @@ public sealed class ConflictJobTests
         Assert.Equal(moved, row.BroughtInCommit);
         Assert.Null(row.BringInFailedAt);
 
-        // It goes on as after a clean bringing in: the feature's pull request is opened, and it
-        // waits for the owner, not reviewed as a whole yet.
-        Assert.Equal(("waiting_for_owner", DevFlow.Features.FeatureEnd.NotReviewed), (row.State, row.Reason));
+        // It goes on as after a clean bringing in: the feature's pull request is opened, and it is
+        // reviewing, for its review of the whole feature.
+        Assert.Equal(("reviewing", (string?)null), (row.State, row.Reason));
         Assert.NotNull(row.PullRequestNumber);
         Assert.Single(jobs.Fake.Writes(Ending.User), write => write.Kind == "pull_request" && write.Base == "main");
 

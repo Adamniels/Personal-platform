@@ -49,6 +49,11 @@ public sealed record FixInput(int? Round, string? Report, ReviewVerdict? Review,
 /// empty when it listed none.</summary>
 public sealed record ConflictFacts(string Check, string Branch, string DefaultBranch, IReadOnlyList<string> Files);
 
+/// <summary>What a whole feature's review brief names: the commit it reviews, the feature's branch,
+/// the default branch its diff is read from, and whether a conflict's resolution is given apart.
+/// Each is Dev flow's, never text from GitHub.</summary>
+public sealed record FeatureReviewFacts(string Commit, string Branch, string DefaultBranch, bool Remerge);
+
 /// <summary>
 /// The briefs an agent gets, <c>developer.md</c>, <c>reviewer.md</c> and <c>conflict.md</c> beside
 /// this file, embedded in the assembly: the same text for every project, filled with one card, or
@@ -68,6 +73,8 @@ public static class Brief
     private static readonly Lazy<string> LookingTemplate = new(() => Embedded("looking"));
 
     private static readonly Lazy<string> ConflictTemplate = new(() => Embedded("conflict"));
+
+    private static readonly Lazy<string> FeatureReviewerTemplate = new(() => Embedded("feature-reviewer"));
 
     /// <summary>What the brief says in place of looking, for a project without a <c>start</c> or a
     /// <c>url</c>: nothing can be started, so no page is looked at.</summary>
@@ -322,6 +329,28 @@ public static class Brief
             ["earlier"] = facts.EarlierRounds == 0
                 ? "This is the card's first review.\n"
                 : string.Create(CultureInfo.InvariantCulture, $"This is not the card's first review: it was sent back {facts.EarlierRounds} {(facts.EarlierRounds == 1 ? "time" : "times")} before, and `review/earlier.json` holds each round. Judge the whole change again, from `{facts.Base}` to the commit, not only what changed since: a finding that still holds is still blocking, a reply that argues one is weighed on its merits, and a new finding counts as any other.\n"),
+        });
+    }
+
+    /// <summary>The whole feature's reviewer brief, the same for every project, for
+    /// <paramref name="feature"/>'s parent quoted as it was picked, its number and title first, then
+    /// its body, inside a fenced block longer than any run of backticks in it, so its words cannot
+    /// end their quote and write into the brief; with <paramref name="facts"/>, whose commit and
+    /// branch names are Dev flow's, and the line on a conflict's resolution only when one is given
+    /// apart. The cards and their notes are files the review reads, never quoted here.</summary>
+    public static string FeatureReviewer(BriefFeature feature, FeatureReviewFacts facts)
+    {
+        ArgumentNullException.ThrowIfNull(feature);
+        ArgumentNullException.ThrowIfNull(facts);
+        return Fill(FeatureReviewerTemplate.Value, new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["feature"] = Fenced("text", Quoted(feature)),
+            ["commit"] = facts.Commit,
+            ["branch"] = facts.Branch,
+            ["default"] = facts.DefaultBranch,
+            ["remerge"] = facts.Remerge
+                ? "  - `review/remerge.patch`, what an agent chose where the default branch conflicted with the feature's branch since the feature's last review: `git show --remerge-diff` of each merge commit it made, against what git's own merge would have left, conflict markers and all, each under a line naming its run. In `review/diff.patch` a resolution reads as the feature's own lines or the default branch's, so this is the one place it shows.\n"
+                : "  - No conflict was resolved since the feature's last review, so there is no `review/remerge.patch`.\n",
         });
     }
 

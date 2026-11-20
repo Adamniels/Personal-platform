@@ -62,6 +62,7 @@ const KINDS: Record<string, string> = {
 	review: "Review",
 	fix: "Fix",
 	conflict: "Conflict",
+	feature_review: "Review of the feature",
 };
 
 /** What the review of a fix's commit said of it, after "the review of it". */
@@ -467,7 +468,7 @@ function RoundRow({ round, reviews }: { round: Round; reviews: Review[] }) {
 /** One review on an inset: the commit it is for and its verdict, whether it
  * counts for the card's head, the reviewer's summary, its findings, blocking
  * ones first, and its view on each decision marked for the owner. */
-function ReviewRow({ review }: { review: Review }) {
+export function ReviewRow({ review }: { review: Review }) {
 	const verdict = verdictWord(review.verdict);
 	const findings = [...review.findings].sort(
 		(one, other) => Number(other.blocking) - Number(one.blocking),

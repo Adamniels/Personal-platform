@@ -128,9 +128,10 @@ public abstract record BringInResult
     }
 
     /// <summary>Brought in, with a merge commit on the base. <paramref name="Commit"/> is the merge
-    /// commit's full id and <paramref name="BroughtIn"/> the head's commit it merged, its second
-    /// parent; each null when the host's answer did not give one that reads as a commit id.</summary>
-    public sealed record Merged(string? Commit, string? BroughtIn) : BringInResult;
+    /// commit's full id, <paramref name="BroughtIn"/> the head's commit it merged, its second
+    /// parent, and <paramref name="Parent"/> the base's commit it merged into, its first; each null
+    /// when the host's answer did not give one that reads as a commit id.</summary>
+    public sealed record Merged(string? Commit, string? BroughtIn, string? Parent = null) : BringInResult;
 
     /// <summary>The base holds the head already, so nothing was made.</summary>
     public sealed record NothingToBringIn : BringInResult;

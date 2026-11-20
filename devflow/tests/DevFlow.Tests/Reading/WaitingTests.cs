@@ -110,6 +110,8 @@ public sealed class WaitingTests
             ["stopped_cards"] = new JsonArray(),
             ["failing_projects"] = new JsonArray(),
             ["decisions"] = new JsonArray(),
+            // No feature of its own is ready or waits.
+            ["features"] = new JsonArray(),
         };
         Assert.True(JsonNode.DeepEquals(expected, waited), waited.ToJsonString());
         // Bob's two are stored, and none of them is the caller's.

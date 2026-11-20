@@ -605,7 +605,7 @@ public sealed partial class FakeCodeHost : IDisposable
                 }),
             };
         });
-        return new BringInResult.Merged(merge, from);
+        return new BringInResult.Merged(merge, from, into);
     }
 
     /// <summary>A merge commit made in git, not yet on its branch: the branch it goes on, the

@@ -41,6 +41,7 @@ function list(own: OwnItem[]): WaitingList {
 		needs_relink: false,
 		stopped_cards: [],
 		failing_projects: [],
+		features: [],
 		items: [],
 		projects: [
 			{

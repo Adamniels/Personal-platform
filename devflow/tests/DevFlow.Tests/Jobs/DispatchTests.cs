@@ -208,7 +208,7 @@ public sealed class DispatchTests
         var job = await jobs.Job();
 
         Assert.Equal(
-            ["base", "branch", "brief", "card", "check", "claude_token", "committer", "job_id", "kind", "limits", "push_key", "push_key_expires_at", "report_schema", "repository", "start", "to_fix", "to_resolve", "to_review", "url"],
+            ["base", "branch", "brief", "card", "check", "claude_token", "committer", "job_id", "kind", "limits", "push_key", "push_key_expires_at", "report_schema", "repository", "start", "to_fix", "to_resolve", "to_review", "to_review_feature", "url"],
             job.Select(pair => pair.Key).Order(StringComparer.Ordinal));
         // How the worker starts the project for its pictures, from the same project.json as the
         // check.

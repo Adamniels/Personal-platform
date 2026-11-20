@@ -127,16 +127,19 @@ public sealed partial class FeatureEnds(UserDb database, ICodeHost host, TimePro
             var result = await host.BringIn(userId, key, repository, current.Branch, current.DefaultBranch, Message(current.DefaultBranch, current.Branch), cancellationToken);
             switch (result)
             {
-                case BringInResult.Merged { Commit: var commit, BroughtIn: var brought }:
+                case BringInResult.Merged { Commit: var commit, BroughtIn: var brought, Parent: var parent }:
                     if (commit is not null)
                     {
+                        // With the feature branch's commit it merged into, its first parent, so a
+                        // review of that commit carries over to the merge, which only brought the
+                        // default branch in; see "Reviewing a feature" in devflow/README.md.
                         await transaction.Connection!.ExecuteAsync(new CommandDefinition(
                             """
-                            INSERT INTO merges_made (project_id, user_id, branch, commit, number, merged_at)
-                            VALUES (@projectId, @userId, @branch, @commit, NULL, @now)
+                            INSERT INTO merges_made (project_id, user_id, branch, commit, number, parent_commit, merged_at)
+                            VALUES (@projectId, @userId, @branch, @commit, NULL, @parent, @now)
                             ON CONFLICT (project_id, commit) DO NOTHING
                             """,
-                            new { projectId, userId, branch = current.Branch, commit, now },
+                            new { projectId, userId, branch = current.Branch, commit, parent, now },
                             transaction,
                             cancellationToken: cancellationToken));
                     }
@@ -200,8 +203,9 @@ public sealed partial class FeatureEnds(UserDb database, ICodeHost host, TimePro
     /// none recorded, one is opened, not a draft, as the app with a
     /// <see cref="WritePurpose.Post"/> key, titled with the parent's title as picked; its body,
     /// <see cref="FeatureText.Body"/> over the feature's cards, is brought in step when it differs.
-    /// Then it is recorded and the feature waits for the owner, <see cref="FeatureEnd.NotReviewed"/>,
-    /// only while it still waits for its end. Nothing is held while the code host answers; a minute
+    /// Then it is recorded and the feature is <c>reviewing</c>, only while it still waits for its end,
+    /// for <see cref="FeatureReadiness"/> to decide, once its branch is read, whether its head needs
+    /// a review of the whole feature. Nothing is held while the code host answers; a minute
     /// it did not answer for leaves the feature bringing in, already brought in, to be published on
     /// the next. A pull request recorded that is no longer open is never opened again here.
     /// </summary>
@@ -276,11 +280,11 @@ public sealed partial class FeatureEnds(UserDb database, ICodeHost host, TimePro
         var now = Now();
         await database.InUserTransaction(userId, transaction => transaction.Connection!.ExecuteAsync(new CommandDefinition(
             """
-            UPDATE features SET state = 'waiting_for_owner', reason = @reason, changed_at = @now,
+            UPDATE features SET state = 'reviewing', reason = NULL, review_commit = NULL, changed_at = @now,
                                 pull_request_number = coalesce(@number, pull_request_number), pull_request_url = coalesce(@url, pull_request_url)
             WHERE id = @id AND state = 'bringing_in'
             """,
-            new { id = feature.Id, reason = FeatureEnd.NotReviewed, now, number = pull?.Number, url = pull?.Url.ToString() },
+            new { id = feature.Id, now, number = pull?.Number, url = pull?.Url.ToString() },
             transaction,
             cancellationToken: cancellationToken)), cancellationToken);
     }

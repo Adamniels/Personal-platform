@@ -58,9 +58,9 @@ public sealed class FeaturePullRequestTests
         Assert.Equal((PullRequestState.Open, false, Ending.Branch, "main"), (pull.State, pull.Draft, pull.HeadBranch, pull.BaseBranch));
         Assert.Equal(Expected(first), pull.Body);
 
-        // Recorded on the feature, which waits for the owner until the whole feature is reviewed.
+        // Recorded on the feature, which is reviewing, for its review of the whole feature.
         var row = await Ending.Row(jobs);
-        Assert.Equal(("waiting_for_owner", FeatureEnd.NotReviewed, opened.Number, pull.Url.ToString()),
+        Assert.Equal(("reviewing", (string?)null, opened.Number, pull.Url.ToString()),
             (row.State, row.Reason, row.PullRequestNumber, row.PullRequestUrl));
 
         // Its minute again opens nothing more.
@@ -84,7 +84,7 @@ public sealed class FeaturePullRequestTests
         // None opened; that one is the feature's, and its body is brought in step.
         Assert.Empty(Opened(jobs));
         var row = await Ending.Row(jobs);
-        Assert.Equal((77, "waiting_for_owner"), (row.PullRequestNumber, row.State));
+        Assert.Equal((77, "reviewing"), (row.PullRequestNumber, row.State));
         var edit = Assert.Single(jobs.Fake.Writes(Ending.User), write => write.Kind == "pull_request_edited");
         Assert.Equal((77, FakeCodeHost.AppLogin, "post"), (edit.Number, edit.By, edit.Purpose));
         Assert.StartsWith("Feature #10.", Pull(jobs, 77).Body, StringComparison.Ordinal);
@@ -112,7 +112,7 @@ public sealed class FeaturePullRequestTests
         Assert.Equal(PullRequestState.Open, Pull(jobs, number).State);
         Assert.Equal(Expected(first, "- #13 The feature's end, landed in #41\n"), Pull(jobs, number).Body);
         Assert.Single(jobs.Fake.Writes(Ending.User), write => write.Kind == "pull_request_edited" && write.Number == number);
-        Assert.Equal(("waiting_for_owner", number), ((await Ending.Row(jobs)).State, (await Ending.Row(jobs)).PullRequestNumber));
+        Assert.Equal(("reviewing", number), ((await Ending.Row(jobs)).State, (await Ending.Row(jobs)).PullRequestNumber));
     }
 
     [Fact]

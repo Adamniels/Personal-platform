@@ -91,6 +91,21 @@ public sealed record ClaimedFix(Guid RunId, int Number, string Title, string Bod
 /// job brings in.</param>
 public sealed record ClaimedConflict(Guid RunId, BriefFeature Feature, string Branch, string Base, string FeatureCommit, string DefaultCommit);
 
+/// <summary>A feature taken for its whole review, with the run made for it and what the review
+/// reads besides the code.</summary>
+/// <param name="RunId">The review run's id, the job's.</param>
+/// <param name="Feature">The feature's parent as it was picked; its earlier cards are in
+/// <paramref name="Cards"/>.</param>
+/// <param name="Branch">The feature's branch.</param>
+/// <param name="Base">The default branch, from whose merge base the diff is read.</param>
+/// <param name="Commit">The commit to review, the feature branch's head as the minute found it.</param>
+/// <param name="Cards">Each card of the feature, in its order, with its latest verdict and its
+/// handover note.</param>
+/// <param name="Check">The newest check a worker ran on the feature's branch, null without one.</param>
+/// <param name="RemergeDiff">The conflicts' remerge diffs since the feature's last review, null
+/// without one.</param>
+public sealed record ClaimedFeatureReview(Guid RunId, BriefFeature Feature, string Branch, string Base, string Commit, IReadOnlyList<JobFeatureCard> Cards, JobFeatureCheck? Check, string? RemergeDiff);
+
 /// <summary>The project's first feature to resolve, as read before it is taken: its id, and the
 /// commits its job would start from and bring in, which the files in conflict are read
 /// between.</summary>
@@ -215,9 +230,30 @@ public static class JobStore
         AND {DefaultHeadOf} IS NOT NULL
         """;
 
+    /// <summary>
+    /// What makes a feature one to review as a whole, as SQL over <c>features</c>:
+    /// <c>reviewing</c>, with its pull request, its branch made and picked with its body kept, no run
+    /// of the feature under way, a commit the minute found no review covering, which is still where
+    /// its branch is, <see cref="FeatureHeadOf"/>, with no review kept for it and no review that
+    /// failed there, and its branch's watch read since <c>@watchedSince</c>. See "Reviewing a
+    /// feature" in devflow/README.md.
+    /// </summary>
+    private const string FeatureReviewable = $"""
+        features.project_id = @projectId AND features.state = 'reviewing' AND features.pull_request_number IS NOT NULL
+        AND features.branch IS NOT NULL AND features.branch_base_commit IS NOT NULL AND features.picked_body_sha256 IS NOT NULL
+        AND features.review_commit IS NOT NULL AND features.review_commit = {FeatureHeadOf}
+        AND features.review_commit IS DISTINCT FROM features.review_failed_at
+        AND NOT EXISTS (SELECT 1 FROM runs
+                        WHERE runs.project_id = features.project_id AND runs.feature_number = features.number AND runs.finished_at IS NULL)
+        AND NOT EXISTS (SELECT 1 FROM feature_reviews v
+                        WHERE v.project_id = features.project_id AND v.feature_number = features.number AND v.reviewed_commit = features.review_commit)
+        AND EXISTS (SELECT 1 FROM branch_watches wb
+                    WHERE wb.project_id = features.project_id AND wb.feature_id = features.id AND wb.last_read_at >= @watchedSince)
+        """;
+
     /// <summary>The commit a feature's branch is at, as SQL over <c>features</c>: the one its watch
     /// judged last, or the one it was made at before its watch recorded any.</summary>
-    private const string FeatureHeadOf = """
+    internal const string FeatureHeadOf = """
         coalesce((SELECT wb.last_commit FROM branch_watches wb WHERE wb.project_id = features.project_id AND wb.feature_id = features.id),
                  features.branch_base_commit)
         """;
@@ -265,7 +301,8 @@ public static class JobStore
     }
 
     /// <summary>The kind of job the project has to hand out now, <see cref="DevFlow.Protocol.Job.Review"/>,
-    /// then <see cref="DevFlow.Protocol.Job.Fix"/>, then <see cref="DevFlow.Protocol.Job.Conflict"/>,
+    /// then <see cref="DevFlow.Protocol.Job.FeatureReview"/>, then <see cref="DevFlow.Protocol.Job.Fix"/>,
+    /// then <see cref="DevFlow.Protocol.Job.Conflict"/>,
     /// then <see cref="DevFlow.Protocol.Job.Build"/>, so work in progress finishes before new work
     /// starts; null when it has none. A build counts a
     /// card of a feature whose branch is still to be made, which the dispatcher makes first; a card
@@ -278,6 +315,7 @@ public static class JobStore
         return await database.InUserTransaction(userId, transaction => transaction.Connection!.ExecuteScalarAsync<string?>(new CommandDefinition(
             $"""
             SELECT CASE WHEN EXISTS (SELECT 1 FROM cards WHERE {Reviewable}) THEN 'review'
+                        WHEN EXISTS (SELECT 1 FROM features WHERE {FeatureReviewable}) THEN 'feature_review'
                         WHEN EXISTS (SELECT 1 FROM cards WHERE {Fixable}) THEN 'fix'
                         WHEN EXISTS (SELECT 1 FROM features WHERE {Resolvable}) THEN 'conflict'
                         WHEN EXISTS (SELECT 1 FROM cards WHERE {FreeToStart}) THEN 'build' END
@@ -535,6 +573,122 @@ public static class JobStore
     }
 
     /// <summary>
+    /// Takes the project's first feature to review as a whole, by <see cref="CardStore.QueueOrder"/>,
+    /// inside <paramref name="transaction"/>, which runs as the project's user, as
+    /// <see cref="ClaimReview"/> takes a card: locks its row with <c>FOR UPDATE SKIP LOCKED</c>, and
+    /// records a review run for the worker, for the feature by its number, on its branch with the
+    /// default branch, <paramref name="defaultBranch"/>, as its base, with the commit it reviews and
+    /// the <paramref name="check"/> its job carries. What the review reads is read in the same
+    /// transaction: each card in the feature's order with its latest review's verdict and summary and
+    /// the handover note of its newest build or fix that succeeded; the newest check a worker ran on
+    /// the feature's branch, a card's build or fix that succeeded, which ran on what then landed, or a
+    /// conflict's; and the remerge diff of each conflict resolved since the feature's last review.
+    /// The feature stays <c>reviewing</c>, the run under way holding it. Null when there is none.
+    /// </summary>
+    public static async Task<ClaimedFeatureReview?> ClaimFeatureReview(NpgsqlTransaction transaction, Guid projectId, Guid userId, Guid workerId, string defaultBranch, string check, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(transaction);
+        ArgumentException.ThrowIfNullOrEmpty(defaultBranch);
+        ArgumentNullException.ThrowIfNull(check);
+        var feature = await transaction.Connection!.QuerySingleOrDefaultAsync<ToReviewFeature>(new CommandDefinition(
+            $"""
+            SELECT features.id AS Id, features.number AS Number, coalesce(features.picked_title, features.title) AS Title,
+                   coalesce(features.picked_body, '') AS Body, features.branch AS Branch, features.review_commit AS Commit
+            FROM features
+            WHERE {FeatureReviewable}
+            ORDER BY {CardStore.QueueOrder}
+            LIMIT 1
+            FOR UPDATE OF features SKIP LOCKED
+            """,
+            new { projectId, watchedSince = Watching.WatchStore.WatchedSince(now) },
+            transaction,
+            cancellationToken: cancellationToken));
+        if (feature is null)
+        {
+            return null;
+        }
+
+        var cards = await transaction.Connection!.QueryAsync<JobFeatureCard>(new CommandDefinition(
+            """
+            SELECT c.number AS Number, coalesce(c.picked_title, c.title) AS Title, v.verdict AS Verdict, v.summary AS Summary,
+                   coalesce((SELECT r.report->>'handover' FROM runs r
+                             WHERE r.project_id = c.project_id AND r.card_number = c.number AND r.kind IN ('build', 'fix') AND r.result = 'succeeded'
+                             ORDER BY r.started_at DESC, r.id DESC LIMIT 1), '') AS Handover
+            FROM cards c
+            LEFT JOIN LATERAL (SELECT verdict, summary FROM reviews
+                               WHERE reviews.project_id = c.project_id AND reviews.card_number = c.number
+                               ORDER BY reviewed_at DESC, run_id DESC LIMIT 1) v ON true
+            WHERE c.project_id = @projectId AND c.feature_id = @id
+            ORDER BY c.position
+            """,
+            new { projectId, id = feature.Id },
+            transaction,
+            cancellationToken: cancellationToken));
+        var checkRun = await transaction.Connection!.QuerySingleOrDefaultAsync<FeatureCheckRow>(new CommandDefinition(
+            """
+            SELECT coalesce(r.check_command, '') AS Command, r.head_commit AS Commit, r.check_exit_code AS ExitCode, coalesce(r.check_output, '') AS Output
+            FROM runs r
+            WHERE r.project_id = @projectId AND r.result = 'succeeded' AND r.check_exit_code IS NOT NULL AND r.head_commit IS NOT NULL
+              AND ((r.kind IN ('build', 'fix') AND r.card_number IN (SELECT number FROM cards WHERE project_id = @projectId AND feature_id = @id))
+                   OR (r.kind = 'conflict' AND r.feature_number = @number))
+            ORDER BY r.finished_at DESC, r.id DESC
+            LIMIT 1
+            """,
+            new { projectId, id = feature.Id, number = feature.Number },
+            transaction,
+            cancellationToken: cancellationToken));
+        var remerges = (await transaction.Connection!.QueryAsync<RemergeRow>(new CommandDefinition(
+            """
+            SELECT r.id AS RunId, r.head_commit AS Commit, r.default_commit AS DefaultCommit, r.remerge_diff AS Diff
+            FROM runs r
+            WHERE r.project_id = @projectId AND r.feature_number = @number AND r.kind = 'conflict' AND r.result = 'succeeded'
+              AND r.remerge_diff IS NOT NULL
+              AND r.started_at > coalesce((SELECT max(v.reviewed_at) FROM feature_reviews v
+                                           WHERE v.project_id = r.project_id AND v.feature_number = r.feature_number), '-infinity')
+            ORDER BY r.started_at, r.id
+            """,
+            new { projectId, number = feature.Number },
+            transaction,
+            cancellationToken: cancellationToken))).ToList();
+
+        await transaction.Connection!.ExecuteAsync(new CommandDefinition(
+            "UPDATE features SET reason = @reason, changed_at = @now WHERE id = @id",
+            new { id = feature.Id, reason = Features.FeatureReview.BeingReviewed, now },
+            transaction,
+            cancellationToken: cancellationToken));
+        var claimed = new ClaimedFeatureReview(
+            Guid.CreateVersion7(now),
+            new BriefFeature(feature.Number, feature.Title, feature.Body, []),
+            feature.Branch,
+            defaultBranch,
+            feature.Commit,
+            [.. cards],
+            checkRun is null ? null : new JobFeatureCheck(checkRun.Command, checkRun.Commit, checkRun.ExitCode, checkRun.Output),
+            remerges.Count == 0 ? null : RemergeDiffs.Cut(string.Concat(remerges.Select(Remerge))));
+        await transaction.Connection!.ExecuteAsync(new CommandDefinition(
+            """
+            INSERT INTO runs (id, project_id, user_id, feature_number, worker_id, kind, branch, base, check_command, head_commit, started_at)
+            VALUES (@id, @projectId, @userId, @number, @workerId, 'feature_review', @branch, @baseBranch, @check, @commit, @now)
+            """,
+            new { id = claimed.RunId, projectId, userId, number = feature.Number, workerId, branch = claimed.Branch, baseBranch = claimed.Base, check, commit = claimed.Commit, now },
+            transaction,
+            cancellationToken: cancellationToken));
+        return claimed;
+    }
+
+    /// <summary>One conflict's remerge diff as a whole feature's review reads it, under a line naming
+    /// its run and the commits it merged.</summary>
+    private static string Remerge(RemergeRow row)
+    {
+        var diff = row.Diff.EndsWith('\n') ? row.Diff : row.Diff + "\n";
+        return string.Create(CultureInfo.InvariantCulture,
+            $"# The conflict resolved by run {row.RunId}: {Short(row.DefaultCommit)} brought into the feature's branch as {Short(row.Commit)}\n\n{diff}\n");
+    }
+
+    /// <summary>A commit's first seven characters, or "an unknown commit" when there is none.</summary>
+    private static string Short(string? commit) => commit is { Length: >= 7 } ? commit[..7] : "an unknown commit";
+
+    /// <summary>
     /// Takes the project's first card to hand out, by <see cref="CardStore.QueueOrder"/>, inside
     /// <paramref name="transaction"/>, which runs as the project's user: locks its row with
     /// <c>FOR UPDATE SKIP LOCKED</c>, moves it to <c>building</c>, and records a run for the worker,
@@ -648,6 +802,12 @@ public static class JobStore
     private sealed record Picked(int Number, string Title, string Body, string Comments, string? FeatureBranch);
 
     private sealed record FeatureParent(int Number, string Title, string Body);
+
+    private sealed record ToReviewFeature(Guid Id, int Number, string Title, string Body, string Branch, string Commit);
+
+    private sealed record FeatureCheckRow(string Command, string Commit, int ExitCode, string Output);
+
+    private sealed record RemergeRow(Guid RunId, string? Commit, string? DefaultCommit, string Diff);
 
     private sealed record ToResolve(Guid Id, int Number, string Title, string Body, string Branch, string FeatureCommit, string DefaultCommit);
 

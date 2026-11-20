@@ -11,7 +11,7 @@ export interface paths {
         };
         /**
          * Whether something needs the caller, for the nav bar
-         * @description Read from what Dev flow stored and never from GitHub. attention is true when the caller has a pull request, waiting or stopped, that is not sent back, a stopped project, a card of Dev flow's whose pull request waits, a GitHub link that has expired, or a Claude login due for renewal within a month or past it, and false otherwise. The nav bar asks it with the session's cookie. Without a valid token, 401 with an empty body.
+         * @description Read from what Dev flow stored and never from GitHub. attention is true when the caller has a pull request, waiting or stopped, that is not sent back, a stopped project, a card of Dev flow's whose pull request waits, a feature of Dev flow's ready for review or waiting for the caller, a GitHub link that has expired, or a Claude login due for renewal within a month or past it, and false otherwise. The nav bar asks it with the session's cookie. Without a valid token, 401 with an empty body.
          */
         get: operations["getAttention"];
         put?: never;
@@ -59,7 +59,7 @@ export interface paths {
         };
         /**
          * What waits, for the front page
-         * @description Read from what Dev flow stored and never from GitHub. waiting, the pull requests that wait for the caller and were not sent back, the runner's and Dev flow's own cards'; stopped, those the runner stopped on, not sent back, and the caller's projects stopped because something landed on their default branch that Dev flow did not put there; projects, how many the caller has connected; stale, whether any project is stale or failing, as the waiting list says them; needs_relink, whether the caller's GitHub link has expired; and claude_login, where their Claude login stands, none, ok, due_soon or expired, as GET /devflow/api/claude-login says it. The core calls it with the user's token in the Authorization header. Without a valid token, 401 with an empty body.
+         * @description Read from what Dev flow stored and never from GitHub. waiting, the pull requests that wait for the caller and were not sent back, the runner's and Dev flow's own cards', with Dev flow's own features ready for review or waiting for the caller; stopped, those the runner stopped on, not sent back, and the caller's projects stopped because something landed on their default branch that Dev flow did not put there; projects, how many the caller has connected; stale, whether any project is stale or failing, as the waiting list says them; needs_relink, whether the caller's GitHub link has expired; and claude_login, where their Claude login stands, none, ok, due_soon or expired, as GET /devflow/api/claude-login says it. The core calls it with the user's token in the Authorization header. Without a valid token, 401 with an empty body.
          */
         get: operations["getDisplay"];
         put?: never;
@@ -949,6 +949,35 @@ export interface components {
             run_id: string;
             why: string;
         };
+        FeatureItem: {
+            /** Format: date-time */
+            changed_at: string;
+            /** Format: int32 */
+            number: number;
+            owner: string;
+            /** Format: uuid */
+            project_id: string;
+            project_name: string;
+            /** Format: int32 */
+            pull_request_number: null | number;
+            /** Format: uri */
+            pull_request_url: null | string;
+            reason: null | string;
+            review: null | components["schemas"]["FeatureItemReview"];
+            state: string;
+            title: string;
+            /** Format: int32 */
+            unanswered: number;
+            /** Format: uri */
+            web_url: string;
+        };
+        FeatureItemReview: {
+            /** Format: int32 */
+            blocking: number;
+            commit: string;
+            summary: string;
+            verdict: string;
+        };
         FeatureStoryView: {
             branch: null | components["schemas"]["FeatureBranch"];
             cards: components["schemas"]["FeatureCard"][];
@@ -960,6 +989,7 @@ export interface components {
             output_tokens: number;
             pull_request: null | components["schemas"]["CardPullRequest"];
             reason: null | string;
+            reviews: components["schemas"]["CardReview"][];
             runs: components["schemas"]["CardRun"][];
             state: string;
             title: string;
@@ -1026,6 +1056,7 @@ export interface components {
             to_fix?: null | components["schemas"]["JobFix"];
             to_resolve?: null | components["schemas"]["JobConflict"];
             to_review?: null | components["schemas"]["JobReview"];
+            to_review_feature?: null | components["schemas"]["JobFeatureReview"];
             /** @default  */
             url: string;
         };
@@ -1042,6 +1073,27 @@ export interface components {
         JobConflict: {
             default_commit: string;
             feature_commit: string;
+        };
+        JobFeatureCard: {
+            handover: string;
+            /** Format: int32 */
+            number: number;
+            summary: null | string;
+            title: string;
+            verdict: null | string;
+        };
+        JobFeatureCheck: {
+            command: string;
+            commit: string;
+            /** Format: int32 */
+            exit_code: number;
+            output: string;
+        };
+        JobFeatureReview: {
+            cards: components["schemas"]["JobFeatureCard"][];
+            check: null | components["schemas"]["JobFeatureCheck"];
+            commit: string;
+            remerge_diff: null | string;
         };
         JobFix: {
             commit: string;
@@ -1323,6 +1375,7 @@ export interface components {
             count: number;
             decisions: components["schemas"]["DecisionItem"][];
             failing_projects: components["schemas"]["FailingProject"][];
+            features: components["schemas"]["FeatureItem"][];
             items: components["schemas"]["WaitingItem"][];
             needs_relink: boolean;
             own_items: components["schemas"]["OwnItem"][];

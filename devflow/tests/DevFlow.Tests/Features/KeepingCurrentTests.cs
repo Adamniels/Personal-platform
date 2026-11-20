@@ -4,7 +4,7 @@ using DevFlow.Tests.Jobs;
 namespace DevFlow.Tests.Features;
 
 /// <summary>
-/// A feature kept current while it waits for the owner: each read finds the default branch's
+/// A feature kept current while it waits for the owner, as its review leaves it: each read finds the default branch's
 /// commit, as its watch named it, and brings it in again once it has moved past the one brought in,
 /// never while the feature is worked on; a conflict its agent could not resolve is not tried again
 /// until the default branch moves; and a card added to a feature at its end sends it back to building, its pull request open,
@@ -13,14 +13,20 @@ namespace DevFlow.Tests.Features;
 /// </summary>
 public sealed class KeepingCurrentTests
 {
-    /// <summary>The feature at its end, brought in and waiting for the owner with its pull request
-    /// open; the pull request's number.</summary>
-    private static async Task<int> AtItsEnd(Jobs.Jobs jobs)
+    /// <summary>The feature at its end, brought in with its pull request open and reviewing; then,
+    /// unless <paramref name="waiting"/> is false, waiting for the owner, as a review that asked for
+    /// changes leaves it. The pull request's number.</summary>
+    private static async Task<int> AtItsEnd(Jobs.Jobs jobs, bool waiting = true)
     {
         await Ending.Finished(jobs);
         await Ending.ReadAndEnd(jobs);
         var row = await Ending.Row(jobs);
-        Assert.Equal(("waiting_for_owner", FeatureEnd.NotReviewed), (row.State, row.Reason));
+        Assert.Equal(("reviewing", (string?)null), (row.State, row.Reason));
+        if (waiting)
+        {
+            await Ending.SetState(jobs, "waiting_for_owner", FeatureReview.ChangesAsked);
+        }
+
         return row.PullRequestNumber!.Value;
     }
 
@@ -40,7 +46,7 @@ public sealed class KeepingCurrentTests
         var write = Assert.Single(Ending.BringIns(jobs));
         Assert.Equal(("main", Ending.Branch), (write.Head, write.Base));
         var row = await Ending.Row(jobs);
-        Assert.Equal((moved, "waiting_for_owner", FeatureEnd.NotReviewed, number), (row.BroughtInCommit, row.State, row.Reason, row.PullRequestNumber));
+        Assert.Equal((moved, "reviewing", (string?)null, number), (row.BroughtInCommit, row.State, row.Reason, row.PullRequestNumber));
         Assert.Contains((write.Commit!, (int?)null), await Ending.MergesMade(jobs));
 
         // Read again with nothing new, nothing is brought in, and the watch found the merge fine.
@@ -48,7 +54,9 @@ public sealed class KeepingCurrentTests
         Assert.Single(Ending.BringIns(jobs));
         Assert.False(await Ending.Stopped(jobs));
 
-        // It moves again, and is brought in again, recording the newer commit.
+        // Waiting for the owner again, as its review leaves it, it moves again, and is brought in
+        // again, recording the newer commit.
+        await Ending.SetState(jobs, "waiting_for_owner", FeatureReview.ChangesAsked);
         var again = await Ending.MoveMain(jobs, "Main moves again");
         await Ending.ReadAndEnd(jobs);
         Assert.Equal(2, Ending.BringIns(jobs).Count);
@@ -72,7 +80,7 @@ public sealed class KeepingCurrentTests
         Assert.Equal(state, (await Ending.Row(jobs)).State);
 
         // Once it waits for the owner again, the next read brings the default branch in.
-        await Ending.SetState(jobs, "waiting_for_owner", FeatureEnd.NotReviewed);
+        await Ending.SetState(jobs, "waiting_for_owner", FeatureReview.ChangesAsked);
         await Ending.ReadAndEnd(jobs);
         Assert.Equal(2, Ending.Asked(jobs));
         Assert.Single(Ending.BringIns(jobs));
@@ -123,7 +131,7 @@ public sealed class KeepingCurrentTests
         await Ending.ReadAndEnd(jobs);
         Assert.Equal(2, Ending.Asked(jobs));
         var row = await Ending.Row(jobs);
-        Assert.Equal((moved, null, "waiting_for_owner", FeatureEnd.NotReviewed), (row.BroughtInCommit, row.BringInFailedAt, row.State, row.Reason));
+        Assert.Equal((moved, null, "reviewing", (string?)null), (row.BroughtInCommit, row.BringInFailedAt, row.State, row.Reason));
         Assert.NotNull(row.PullRequestNumber);
     }
 
@@ -131,9 +139,9 @@ public sealed class KeepingCurrentTests
     public async Task ANewCardSendsTheFeatureBackToBuilding()
     {
         await using var jobs = await Ending.Feature(FeatureJobs.Sub(13, "The feature's end"));
-        var number = await AtItsEnd(jobs);
+        var number = await AtItsEnd(jobs, waiting: false);
 
-        // A sub-issue added to the feature waiting for the owner is picked on the next read, and the
+        // A sub-issue added to the feature at its end, reviewing, is picked on the next read, and the
         // feature is building again, its pull request still open and still its.
         Merging.Merged.Issue(jobs, Ending.Parent, parent => parent with { SubIssues = [new(11, null), new(12, null), new(13, null)] });
         await jobs.Routes.Read(jobs.Project, Ending.User);
@@ -148,12 +156,12 @@ public sealed class KeepingCurrentTests
         Assert.Equal(1, Ending.Asked(jobs));
         Assert.Equal("building", (await Ending.Row(jobs)).State);
 
-        // Once it is, the end runs again: brought in, the same pull request, waiting for the owner.
+        // Once it is, the end runs again: brought in, the same pull request, reviewing again.
         await Ending.Done(jobs, 13, 41);
         await Ending.ReadAndEnd(jobs);
         Assert.Equal(2, Ending.Asked(jobs));
         row = await Ending.Row(jobs);
-        Assert.Equal(("waiting_for_owner", FeatureEnd.NotReviewed, number), (row.State, row.Reason, row.PullRequestNumber));
+        Assert.Equal(("reviewing", (string?)null, number), (row.State, row.Reason, row.PullRequestNumber));
         Assert.Single(jobs.Fake.Writes(Ending.User), write => write.Kind == "pull_request" && write.Base == "main");
     }
 }

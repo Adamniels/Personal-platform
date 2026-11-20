@@ -20,9 +20,30 @@ public static class ReviewText
     public static string Comment(UnpostedReview review)
     {
         ArgumentNullException.ThrowIfNull(review);
-        var verdict = review.Verdict;
+        return Comment(
+            string.Create(CultureInfo.InvariantCulture, $"Review of {review.Commit[..7]}: {review.Verdict.Word}"),
+            review.Verdict,
+            string.Create(CultureInfo.InvariantCulture, $"Reviewed by Dev flow for #{review.CardNumber}, run {review.RunId}."));
+    }
+
+    /// <summary>The comment for a whole feature's <paramref name="review"/>, on the feature's pull
+    /// request, with a newline at its end: <c>Review of the feature at abc1234: approve</c>, then the
+    /// same body as a card's, and a last line that leads back to the feature and the run.</summary>
+    public static string FeatureComment(KeptFeatureReview review)
+    {
+        ArgumentNullException.ThrowIfNull(review);
+        return Comment(
+            string.Create(CultureInfo.InvariantCulture, $"Review of the feature at {review.Commit[..7]}: {review.Verdict.Word}"),
+            review.Verdict,
+            string.Create(CultureInfo.InvariantCulture, $"Reviewed by Dev flow for the feature #{review.FeatureNumber}, run {review.RunId}."));
+    }
+
+    /// <summary>A verdict's comment: <paramref name="first"/>, the summary, the findings, the views
+    /// for the owner and <paramref name="last"/>.</summary>
+    private static string Comment(string first, ReviewVerdict verdict, string last)
+    {
         var body = new StringBuilder();
-        body.Append(CultureInfo.InvariantCulture, $"Review of {review.Commit[..7]}: {verdict.Word}\n\n");
+        body.Append(first).Append("\n\n");
         var summary = PullRequestText.Text(verdict.Summary);
         if (summary.Length > 0)
         {
@@ -33,7 +54,7 @@ public static class ReviewText
         List(body, verdict.Findings.OrderByDescending(finding => finding.Blocking).Select(Finding));
         body.Append("## For the owner\n\n");
         List(body, verdict.ForOwner.Select(view => $"{PullRequestText.Text(view.Decision)}: {Sentence(view.View)}"));
-        body.Append(CultureInfo.InvariantCulture, $"Reviewed by Dev flow for #{review.CardNumber}, run {review.RunId}.\n");
+        body.Append(last).Append('\n');
         return body.ToString();
     }
 

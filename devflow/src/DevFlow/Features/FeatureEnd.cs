@@ -16,8 +16,10 @@ public sealed record EndCard(int Number, string State);
 /// for the owner, or ready, moves there again when the default branch, as its watch last named it,
 /// has moved past the commit last brought in and the one bringing in last failed at; and a card not
 /// done sends a feature past building back to <c>building</c>, with the first card that holds its
-/// end named. A feature resolving, reviewing, fixing or bringing in is left as it is: a conflict's
-/// job ends <c>resolving</c>, see <see cref="Jobs.RunStore"/>. The read of a
+/// end named, a reviewing one among them, whose review then reads a branch about to change. A
+/// feature resolving, fixing or bringing in is left as it is, and a reviewing one whose cards are
+/// all done: a conflict's job ends <c>resolving</c>, and a review's <c>reviewing</c>, see
+/// <see cref="Jobs.RunStore"/>. The read of a
 /// project runs it, inside its transaction, and so does the end's minute before it acts, see
 /// <see cref="FeatureEnds"/>, so a feature's end never waits for the next read. It writes nothing
 /// to the code host. See "The end of a feature" in devflow/README.md and
@@ -29,13 +31,9 @@ public static class FeatureEnd
     /// moves it on without the owner.</summary>
     private static readonly string[] Holding = ["stopped", "held", "waiting_for_owner", "ignored"];
 
-    /// <summary>The states of a feature whose end this decides: building, and waiting for the owner
-    /// or ready at its end.</summary>
-    private static readonly string[] Decided = ["building", "waiting_for_owner", "ready"];
-
-    /// <summary>Why a feature waits for the owner once its pull request is open, until the review
-    /// of the whole feature is built.</summary>
-    public const string NotReviewed = "Not reviewed as a whole yet";
+    /// <summary>The states of a feature whose end this decides: building, waiting for the owner or
+    /// ready at its end, and reviewing, which only a card not done moves.</summary>
+    private static readonly string[] Decided = ["building", "waiting_for_owner", "ready", "reviewing"];
 
     /// <summary>What a feature says while an agent resolves the default branch's conflict with its
     /// branch.</summary>
@@ -86,6 +84,12 @@ public static class FeatureEnd
             // nothing moves on without the owner is named, since the end waits for it.
             var holder = cards.FirstOrDefault(card => Holding.Contains(card.State, StringComparer.Ordinal));
             next = ("building", holder is null ? null : HeldBy(holder.Number, holder.State));
+        }
+        else if (state == "reviewing")
+        {
+            // Reviewing with every card done: its review goes on, and the default branch is brought
+            // in again once it waits for the owner.
+            return null;
         }
         else if (state == "building")
         {
