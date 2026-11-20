@@ -2,7 +2,7 @@
 // from the project's Cards panel and from each of its cards' pages: the feature's whole story so
 // far, read from GET /devflow/api/projects/{id}/features/{number}, what Dev flow stored and never
 // the code host. Top to bottom: its title and state, with the reason and a link to its pull request
-// once there is one; the reviews of the whole feature, newest first, each with its findings and
+// once there is one, and "Send the whole feature back" while it is ready or waits for you; the reviews of the whole feature, newest first, each with its findings and
 // whether it covers the head; what the agents want you to know, every decision its cards' latest reports
 // marked for you, each answered "Fine as it is" here and nowhere else; its branch with the command
 // to check it out; every card's screenshots, by card; its cards in order; and its own runs, such as
@@ -17,6 +17,7 @@ import {
 	type TableColumn,
 } from "@platform/ui";
 import { useCallback, useEffect, useState } from "react";
+import type { LinkState } from "./actions";
 import { navigate, plainClick } from "./address";
 import type { components } from "./api/schema";
 import { ReviewRow, RunRow } from "./card";
@@ -27,6 +28,11 @@ import { Inline } from "./format";
 import { Command } from "./project";
 import { cardScreenshot, Screenshots } from "./screenshots";
 import { cardPath } from "./sections";
+import {
+	canSendBack,
+	SendBack,
+	type SendBackFeature,
+} from "./send-back-feature";
 import { linkable } from "./waiting";
 
 export type FeatureStory = components["schemas"]["FeatureStoryView"];
@@ -53,6 +59,9 @@ export type FeatureApi = {
 		run: string,
 		position: number,
 	) => Promise<DecisionAnswer>;
+	/** Sends the whole feature back with the owner's comment, posted as him
+	 * on its pull request. */
+	sendBack: SendBackFeature;
 	/** Copies text to the clipboard, the browser's by default. */
 	copy?: (text: string) => Promise<void>;
 };
@@ -64,6 +73,8 @@ export type FeaturePageProps = FeatureApi & {
 	back: () => void;
 	/** The project page's address, for the way back. */
 	backPath: string;
+	/** The caller's GitHub link, which commenting as him needs. */
+	link?: LinkState;
 };
 
 const DATE_TIME = new Intl.DateTimeFormat("en-GB", {
@@ -89,6 +100,8 @@ export function FeaturePage({
 	backPath,
 	loadFeature,
 	answerFine,
+	sendBack,
+	link,
 	copy = clipboard,
 }: FeaturePageProps) {
 	const [story, setStory] = useState<FeatureStory | null>();
@@ -190,6 +203,15 @@ export function FeaturePage({
 							{done} of {story.cards.length} cards done
 						</span>
 					</p>
+					{canSendBack(story.state, story.pull_request?.number ?? null) ? (
+						<SendBack
+							projectId={project}
+							number={number}
+							link={link}
+							send={sendBack}
+							reload={load}
+						/>
+					) : null}
 				</div>
 			</Panel>
 			{story.reviews.length === 0 ? null : (

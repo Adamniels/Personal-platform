@@ -2,13 +2,16 @@
 // "Features ready for your review": one that is ready, its latest review approving its head and CI
 // passed there, or one that waits for him with why. It leads to its page, where its review, its
 // cards and their decisions are; the item says what the review found and how many decisions he has
-// not answered, and links to its pull request. Every text came from the code host or an agent
-// and is shown as text. See "Reviewing a feature" in devflow/README.md.
+// not answered, links to its pull request, and sends the whole feature back with his comment.
+// Every text came from the code host or an agent and is shown as text. See "Reviewing a feature"
+// and "Fixing a feature" in devflow/README.md.
 import { Card, Status } from "@platform/ui";
+import type { ActionsApi, LinkState } from "./actions";
 import { navigate, plainClick } from "./address";
 import { stateWord } from "./cards";
 import { Inline } from "./format";
 import { featurePath } from "./sections";
+import { canSendBack, SendBack } from "./send-back-feature";
 import { linkable, type WaitingList } from "./waiting";
 import styles from "./waiting.module.css";
 import { ReviewLine } from "./waiting-card";
@@ -24,7 +27,20 @@ export function unanswered(count: number): string {
 		: `${count} decisions its cards marked for you are not answered yet.`;
 }
 
-export function WaitingFeature({ feature }: { feature: FeatureItem }) {
+export type WaitingFeatureProps = {
+	feature: FeatureItem;
+	link: LinkState;
+	api: ActionsApi;
+	/** Reads the list again. */
+	reload: () => Promise<unknown>;
+};
+
+export function WaitingFeature({
+	feature,
+	link,
+	api,
+	reload,
+}: WaitingFeatureProps) {
 	const { word, tone } = stateWord(feature.state);
 	const project = `${feature.owner}/${feature.project_name}`;
 	const page = featurePath(feature.project_id, feature.number);
@@ -34,31 +50,42 @@ export function WaitingFeature({ feature }: { feature: FeatureItem }) {
 			aside={<Status tone={tone}>{word}</Status>}
 			className={styles.item}
 			footer={
-				<div className={styles.actions}>
-					<a
-						className={styles.open}
-						href={page}
-						onClick={(event) => {
-							if (plainClick(event)) {
-								event.preventDefault();
-								navigate(page);
-							}
-						}}
-					>
-						Open the feature
-					</a>
-					{feature.pull_request_url !== null &&
-					linkable(feature.pull_request_url) ? (
+				<>
+					{canSendBack(feature.state, feature.pull_request_number) ? (
+						<SendBack
+							projectId={feature.project_id}
+							number={feature.number}
+							link={link}
+							send={api.sendBackFeature}
+							reload={reload}
+						/>
+					) : null}
+					<div className={styles.actions}>
 						<a
 							className={styles.open}
-							href={feature.pull_request_url}
-							target="_blank"
-							rel="noreferrer"
+							href={page}
+							onClick={(event) => {
+								if (plainClick(event)) {
+									event.preventDefault();
+									navigate(page);
+								}
+							}}
 						>
-							Open on GitHub
+							Open the feature
 						</a>
-					) : null}
-				</div>
+						{feature.pull_request_url !== null &&
+						linkable(feature.pull_request_url) ? (
+							<a
+								className={styles.open}
+								href={feature.pull_request_url}
+								target="_blank"
+								rel="noreferrer"
+							>
+								Open on GitHub
+							</a>
+						) : null}
+					</div>
+				</>
 			}
 		>
 			<div className={styles.body}>

@@ -93,6 +93,7 @@ function open(api: Partial<FeatureApi> = {}) {
 				answered_at: "2026-11-20T09:30:00+00:00",
 			}),
 		),
+		sendBack: vi.fn(() => Promise.resolve()),
 		copy: vi.fn(() => Promise.resolve()),
 		...api,
 	};
@@ -445,5 +446,51 @@ describe("a feature's page", () => {
 				.getByRole("link", { name: "Back to the project" })
 				.getAttribute("href"),
 		).toBe(`/devflow/projects/${PROJECT}`);
+	});
+
+	test("sends the whole feature back with a comment while it waits for you", async () => {
+		const waiting = story({
+			state: "waiting_for_owner",
+			reason: "Review rounds used up",
+			pull_request: {
+				number: 51,
+				url: "https://github.com/Adamniels/Fodr/pull/51",
+			},
+		});
+		const loadFeature = vi.fn(() => Promise.resolve(waiting));
+		const sendBack = vi.fn(() => Promise.resolve());
+		open({ loadFeature, sendBack });
+
+		fireEvent.click(
+			await screen.findByRole("button", {
+				name: "Send the whole feature back",
+			}),
+		);
+		fireEvent.change(
+			screen.getByLabelText(
+				"What should the developer change in the whole feature?",
+			),
+			{ target: { value: "Split the list in two." } },
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+		await waitFor(() =>
+			expect(sendBack).toHaveBeenCalledWith(
+				PROJECT,
+				38,
+				"Split the list in two.",
+			),
+		);
+		// The page is read again, so it shows the feature being fixed.
+		await waitFor(() => expect(loadFeature).toHaveBeenCalledTimes(2));
+	});
+
+	test("offers no send back while the feature is still being built", async () => {
+		open();
+
+		await screen.findByRole("heading", { name: "Feeding plan, version 2" });
+		expect(
+			screen.queryByRole("button", { name: "Send the whole feature back" }),
+		).toBeNull();
 	});
 });

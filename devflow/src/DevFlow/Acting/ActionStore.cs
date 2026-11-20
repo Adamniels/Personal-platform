@@ -51,6 +51,26 @@ public sealed record CardTarget(
     public Repository Repository => new(Installation, RepositoryId, Owner, Name);
 }
 
+/// <summary>A feature of Dev flow's own the caller asked to send back, as stored, with what acting
+/// needs.</summary>
+/// <param name="State">The feature's state; only <c>ready</c> or <c>waiting_for_owner</c> is sent
+/// back.</param>
+/// <param name="PullRequestNumber">Its pull request to the default branch, null before one was
+/// opened.</param>
+public sealed record FeatureTarget(
+    Guid ProjectId,
+    long Installation,
+    long RepositoryId,
+    string Owner,
+    string Name,
+    int Number,
+    string State,
+    int? PullRequestNumber)
+{
+    /// <summary>The repository, as the code host is asked for it.</summary>
+    public Repository Repository => new(Installation, RepositoryId, Owner, Name);
+}
+
 /// <summary>
 /// The items the page acts on, read and changed through the door as the caller, so another user's
 /// item is not found rather than refused. See "Acting from the page" in devflow/README.md.
@@ -84,6 +104,20 @@ public sealed class ActionStore(UserDb database)
                    EXISTS (SELECT 1 FROM project_stops s WHERE s.project_id = p.id) AS Stopped
             FROM cards c JOIN projects p ON p.id = c.project_id
             WHERE p.id = @projectId AND c.number = @number
+            """,
+            new { projectId, number },
+            transaction,
+            cancellationToken: cancellationToken)), cancellationToken);
+
+    /// <summary>The caller's feature with the parent's number in their project, or null when they
+    /// have no such project or feature.</summary>
+    public async Task<FeatureTarget?> FindFeature(Guid userId, Guid projectId, int number, CancellationToken cancellationToken) =>
+        await database.InUserTransaction(userId, transaction => transaction.Connection!.QuerySingleOrDefaultAsync<FeatureTarget>(new CommandDefinition(
+            """
+            SELECT p.id AS ProjectId, p.installation_id AS Installation, p.repository_id AS RepositoryId, p.owner AS Owner,
+                   p.name AS Name, f.number AS Number, f.state AS State, f.pull_request_number AS PullRequestNumber
+            FROM features f JOIN projects p ON p.id = f.project_id
+            WHERE p.id = @projectId AND f.number = @number
             """,
             new { projectId, number },
             transaction,
