@@ -1,0 +1,50 @@
+{
+  "url": "https://api.github.com/repos/Adamniels/Personal-platform/compare/e437065c9ae0bd12e33d638268ef827aacace112...812a7cf8b9afa1482500f8c480ad2b00399af025",
+  "status": "ahead",
+  "ahead_by": 6,
+  "behind_by": 0,
+  "total_commits": 6,
+  "merge_base_commit": {
+    "sha": "e437065c9ae0bd12e33d638268ef827aacace112"
+  },
+  "commits": [
+    {
+      "sha": "f6d36fab35647bbc2612795e7d8bae4c6b0a6d30"
+    }
+  ],
+  "files": [
+    {
+      "sha": "94305a87cc929896dcb51a559da6d91aa2243245",
+      "filename": "contracts/README.md",
+      "status": "modified",
+      "additions": 14,
+      "deletions": 0,
+      "changes": 14,
+      "blob_url": "https://github.com/Adamniels/Personal-platform/blob/812a7cf8b9afa1482500f8c480ad2b00399af025/contracts%2FREADME.md",
+      "raw_url": "https://github.com/Adamniels/Personal-platform/raw/812a7cf8b9afa1482500f8c480ad2b00399af025/contracts%2FREADME.md",
+      "contents_url": "https://api.github.com/repos/Adamniels/Personal-platform/contents/contracts%2FREADME.md?ref=812a7cf8b9afa1482500f8c480ad2b00399af025"
+    },
+    {
+      "sha": "c52031549ab3cb1bd1caa649517d9cc0fccca3d2",
+      "filename": "contracts/github/branch-merge.json",
+      "status": "added",
+      "additions": 55,
+      "deletions": 0,
+      "changes": 55,
+      "blob_url": "https://github.com/Adamniels/Personal-platform/blob/812a7cf8b9afa1482500f8c480ad2b00399af025/contracts%2Fgithub%2Fbranch-merge.json",
+      "raw_url": "https://github.com/Adamniels/Personal-platform/raw/812a7cf8b9afa1482500f8c480ad2b00399af025/contracts%2Fgithub%2Fbranch-merge.json",
+      "contents_url": "https://api.github.com/repos/Adamniels/Personal-platform/contents/contracts%2Fgithub%2Fbranch-merge.json?ref=812a7cf8b9afa1482500f8c480ad2b00399af025"
+    },
+    {
+      "sha": "b28f9a1e2b0949b594e5c8b9c34e68f751329756",
+      "filename": "devflow/README.md",
+      "status": "modified",
+      "additions": 109,
+      "deletions": 9,
+      "changes": 118,
+      "blob_url": "https://github.com/Adamniels/Personal-platform/blob/812a7cf8b9afa1482500f8c480ad2b00399af025/devflow%2FREADME.md",
+      "raw_url": "https://github.com/Adamniels/Personal-platform/raw/812a7cf8b9afa1482500f8c480ad2b00399af025/devflow%2FREADME.md",
+      "contents_url": "https://api.github.com/repos/Adamniels/Personal-platform/contents/devflow%2FREADME.md?ref=812a7cf8b9afa1482500f8c480ad2b00399af025"
+    }
+  ]
+}

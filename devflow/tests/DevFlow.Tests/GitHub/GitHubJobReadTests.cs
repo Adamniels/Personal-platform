@@ -45,6 +45,30 @@ public sealed class GitHubJobReadTests
     }
 
     [Fact]
+    public async Task TheFilesAHeadChangedAreCompared()
+    {
+        const string From = "e437065c9ae0bd12e33d638268ef827aacace112";
+        const string Head = "812a7cf8b9afa1482500f8c480ad2b00399af025";
+        using var host = new GitHubHost();
+        host.Stub.Answer = request => request.Path == $"{Repo}/compare/{From}...{Head}"
+            ? StubGitHub.Json(Fixture.Text("compare.json"))
+            : new HttpResponseMessage(HttpStatusCode.NotFound);
+
+        var files = Results.Value(await host.CodeHost.ChangedFiles(GitHubHost.User, GitHubHost.Platform, From, Head, Ct));
+
+        // Each file's path, as GitHub lists them, read as the app with one commit a page.
+        Assert.Equal([.. Fixture.Node("compare.json")["files"]!.AsArray().Select(file => (string)file!["filename"]!)], files);
+        var read = Assert.Single(host.Stub.Reads);
+        Assert.Equal(HttpMethod.Get, read.Method);
+        Assert.Equal("1", read.Query["per_page"]);
+        Assert.Equal($"Bearer {StubGitHub.FixtureToken}", read.Header("Authorization"));
+
+        // Nothing but two full commit ids is ever sent.
+        await Assert.ThrowsAsync<ArgumentException>(() => host.CodeHost.ChangedFiles(GitHubHost.User, GitHubHost.Platform, "main", Head, Ct));
+        Assert.Single(host.Stub.Reads);
+    }
+
+    [Fact]
     public async Task TheCommitterIsTheAppsBotReadOnce()
     {
         using var host = new GitHubHost();

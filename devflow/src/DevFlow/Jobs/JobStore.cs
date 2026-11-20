@@ -91,6 +91,11 @@ public sealed record ClaimedFix(Guid RunId, int Number, string Title, string Bod
 /// job brings in.</param>
 public sealed record ClaimedConflict(Guid RunId, BriefFeature Feature, string Branch, string Base, string FeatureCommit, string DefaultCommit);
 
+/// <summary>The project's first feature to resolve, as read before it is taken: its id, and the
+/// commits its job would start from and bring in, which the files in conflict are read
+/// between.</summary>
+public sealed record DueConflict(Guid Id, string FeatureCommit, string DefaultCommit);
+
 /// <summary>
 /// Jobs in the database, through the door as the project's user: which kind of job a project has
 /// to hand out, reviews before fixes before conflicts before builds, taking a card or a feature for
@@ -432,18 +437,41 @@ public static class JobStore
         return claimed;
     }
 
+    /// <summary>The project's first feature to resolve, by <see cref="CardStore.QueueOrder"/>, read
+    /// without a lock as the project's user, so the files in conflict can be read from the code host
+    /// before anything is taken; null when there is none.</summary>
+    public static async Task<DueConflict?> ConflictDue(UserDb database, Guid userId, Guid projectId, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(database);
+        return await database.InUserTransaction(userId, transaction => transaction.Connection!.QuerySingleOrDefaultAsync<DueConflict>(new CommandDefinition(
+            $"""
+            SELECT features.id AS Id, {FeatureHeadOf} AS FeatureCommit, {DefaultHeadOf} AS DefaultCommit
+            FROM features
+            WHERE {Resolvable}
+            ORDER BY {CardStore.QueueOrder}
+            LIMIT 1
+            """,
+            new { projectId, watchedSince = Watching.WatchStore.WatchedSince(now) },
+            transaction,
+            cancellationToken: cancellationToken)), cancellationToken);
+    }
+
     /// <summary>
-    /// Takes the project's first feature to resolve, by <see cref="CardStore.QueueOrder"/>, inside
+    /// Takes the feature <paramref name="due"/> names to resolve, while it is still one to resolve at
+    /// the same two commits, inside
     /// <paramref name="transaction"/>, which runs as the project's user, as <see cref="Claim"/> takes
     /// a card: locks its row with <c>FOR UPDATE SKIP LOCKED</c>, and records a conflict run for the
     /// worker, for the feature by its number, on its branch with the default branch,
     /// <paramref name="defaultBranch"/>, as its base, from the commit the feature's branch is at,
     /// bringing in the default branch's, with the <paramref name="check"/> its job carries. The
-    /// feature stays <c>resolving</c>, the run under way holding it. Null when there is none.
+    /// feature stays <c>resolving</c>, the run under way holding it. Null when it is not, when
+    /// another transaction holds it, or when either commit has moved since, so the files read for it
+    /// are never handed out with other commits.
     /// </summary>
-    public static async Task<ClaimedConflict?> ClaimConflict(NpgsqlTransaction transaction, Guid projectId, Guid userId, Guid workerId, string defaultBranch, string check, DateTimeOffset now, CancellationToken cancellationToken)
+    public static async Task<ClaimedConflict?> ClaimConflict(NpgsqlTransaction transaction, Guid projectId, Guid userId, Guid workerId, DueConflict due, string defaultBranch, string check, DateTimeOffset now, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(transaction);
+        ArgumentNullException.ThrowIfNull(due);
         ArgumentException.ThrowIfNullOrEmpty(defaultBranch);
         ArgumentNullException.ThrowIfNull(check);
         var feature = await transaction.Connection!.QuerySingleOrDefaultAsync<ToResolve>(new CommandDefinition(
@@ -452,12 +480,10 @@ public static class JobStore
                    coalesce(features.picked_body, '') AS Body, features.branch AS Branch,
                    {FeatureHeadOf} AS FeatureCommit, {DefaultHeadOf} AS DefaultCommit
             FROM features
-            WHERE {Resolvable}
-            ORDER BY {CardStore.QueueOrder}
-            LIMIT 1
+            WHERE {Resolvable} AND features.id = @id AND {FeatureHeadOf} = @featureCommit AND {DefaultHeadOf} = @defaultCommit
             FOR UPDATE OF features SKIP LOCKED
             """,
-            new { projectId, watchedSince = Watching.WatchStore.WatchedSince(now) },
+            new { projectId, watchedSince = Watching.WatchStore.WatchedSince(now), id = due.Id, featureCommit = due.FeatureCommit, defaultCommit = due.DefaultCommit },
             transaction,
             cancellationToken: cancellationToken));
         if (feature is null)

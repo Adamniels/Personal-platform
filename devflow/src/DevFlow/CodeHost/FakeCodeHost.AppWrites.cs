@@ -293,6 +293,17 @@ public sealed partial class FakeCodeHost : IDisposable
         return (await Git(cancellationToken, "--git-dir", GitPath(userId, repository), "cat-file", "-e", $"{commit}^{{commit}}")).Exit == 0;
     }
 
+    /// <summary>The paths <paramref name="head"/> changed since its merge base with
+    /// <paramref name="from"/>, both commits its git repository holds, sorted; null when git
+    /// fails.</summary>
+    private async Task<IReadOnlyList<string>?> DiffNames(Guid userId, Repository repository, string from, string head, CancellationToken cancellationToken)
+    {
+        var (exit, output) = await Git(cancellationToken, "--git-dir", GitPath(userId, repository), "diff", "--name-only", "--no-renames", $"{from}...{head}");
+        return exit == 0
+            ? [.. output.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Order(StringComparer.Ordinal)]
+            : null;
+    }
+
     /// <summary>The parents of the commit with the full id <paramref name="commit"/> in the
     /// repository's git repository, first parent first; empty when it holds no such commit.</summary>
     internal async Task<IReadOnlyList<string>> Parents(Guid userId, Repository repository, string commit, CancellationToken cancellationToken)

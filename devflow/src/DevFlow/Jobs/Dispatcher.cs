@@ -142,6 +142,21 @@ public sealed partial class Dispatcher(
             return new NextJob.None();
         }
 
+        // A conflict's brief lists the files both sides changed, read as the app outside the lock,
+        // for the feature it would take and the two commits it would merge.
+        DueConflict? due = null;
+        IReadOnlyList<string> files = [];
+        if (kind == Job.Conflict)
+        {
+            due = await JobStore.ConflictDue(database, userId, projectId, time.GetUtcNow(), cancellationToken);
+            if (due is null || await InConflict(projectId, userId, repository, due, cancellationToken) is not { } changed)
+            {
+                return new NextJob.None();
+            }
+
+            files = changed;
+        }
+
         var now = Now();
         var job = await database.InUserTransaction<Job?>(userId, async transaction =>
         {
@@ -154,7 +169,7 @@ public sealed partial class Dispatcher(
             {
                 Job.Review => ReviewJob(await JobStore.ClaimReview(transaction, projectId, userId, workerId, now, cancellationToken), repository, facts, token, key),
                 Job.Fix => FixJob(await JobStore.ClaimFix(transaction, projectId, userId, workerId, facts.Check, now, cancellationToken), repository, facts, token, key),
-                Job.Conflict => ConflictJob(await JobStore.ClaimConflict(transaction, projectId, userId, workerId, facts.DefaultBranch, facts.Check, now, cancellationToken), repository, facts, token, key),
+                Job.Conflict => ConflictJob(await JobStore.ClaimConflict(transaction, projectId, userId, workerId, due!, facts.DefaultBranch, facts.Check, now, cancellationToken), repository, facts, token, key, files),
                 _ => BuildJob(await JobStore.Claim(transaction, projectId, userId, workerId, facts.DefaultBranch, facts.Check, now, cancellationToken), repository, facts, token, key),
             };
         }, cancellationToken);
@@ -205,14 +220,14 @@ public sealed partial class Dispatcher(
     /// <summary>The conflict job for a feature taken to resolve, or null when none was: on the
     /// feature's branch, with the default branch as its base, the feature's parent as its card, the
     /// conflict brief, the report's form, the check, and the two commits it merges.</summary>
-    private static Job? ConflictJob(ClaimedConflict? claimed, Repository repository, RepositoryFacts facts, ClaudeToken token, AppWriteToken key)
+    private static Job? ConflictJob(ClaimedConflict? claimed, Repository repository, RepositoryFacts facts, ClaudeToken token, AppWriteToken key, IReadOnlyList<string> files)
     {
         if (claimed is null)
         {
             return null;
         }
 
-        var brief = Brief.Conflict(claimed.Feature, new ConflictFacts(facts.Check, claimed.Branch, claimed.Base));
+        var brief = Brief.Conflict(claimed.Feature, new ConflictFacts(facts.Check, claimed.Branch, claimed.Base, files));
         return new Job(
             claimed.RunId,
             Job.Conflict,
@@ -368,6 +383,25 @@ public sealed partial class Dispatcher(
         }
 
         return new RepositoryFacts(branch, project.Check, project.Start, project.Url, clone, committer);
+    }
+
+    /// <summary>
+    /// The files in conflict between the feature's branch and the default branch, as their brief
+    /// lists them: those each side changed since they parted, by the code host's comparison of each
+    /// commit against the other, sorted. GitHub cannot say which conflict without merging, which is
+    /// the worker's, so these are where the conflicts are, and the agent's <c>git merge</c> names
+    /// them exactly. Null when the code host did not answer, which is no work now.
+    /// </summary>
+    private async Task<IReadOnlyList<string>?> InConflict(Guid projectId, Guid userId, Repository repository, DueConflict due, CancellationToken cancellationToken)
+    {
+        if (await host.ChangedFiles(userId, repository, due.DefaultCommit, due.FeatureCommit, cancellationToken) is not CodeHostResult<IReadOnlyList<string>>.Found { Value: var feature }
+            || await host.ChangedFiles(userId, repository, due.FeatureCommit, due.DefaultCommit, cancellationToken) is not CodeHostResult<IReadOnlyList<string>>.Found { Value: var landed })
+        {
+            LogNotRead(log, projectId, "the files in conflict");
+            return null;
+        }
+
+        return [.. feature.Intersect(landed, StringComparer.Ordinal).Order(StringComparer.Ordinal)];
     }
 
     /// <summary>A key for the repository, narrowed to <paramref name="purpose"/>,

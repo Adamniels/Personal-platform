@@ -96,6 +96,12 @@ public sealed class ConflictBuildTests
         var job = await bench.NextJob();
         Assert.Equal(Job.Conflict, job.GetProperty("kind").GetString());
 
+        // The brief lists the file both sides changed, read from the code host, and not the
+        // feature's own.
+        var brief = job.GetProperty("brief").GetString()!;
+        Assert.Contains("```text\nREADME.md\n```", brief, StringComparison.Ordinal);
+        Assert.DoesNotContain("feature.txt", brief, StringComparison.Ordinal);
+
         string? started = null;
         string? origin = null;
         var agent = new ScriptedAgent(async (run, _) =>

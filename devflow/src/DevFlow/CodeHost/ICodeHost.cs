@@ -68,6 +68,19 @@ public interface ICodeHost
     Task<CodeHostResult<string>> DefaultBranch(Guid userId, Repository repository, CancellationToken cancellationToken);
 
     /// <summary>
+    /// The paths of the files <paramref name="head"/> changed since its merge base with
+    /// <paramref name="from"/>, both full commit ids, as the host compares them, <c>from...head</c>:
+    /// at most <see cref="MostChangedFiles"/>, the most it lists, each once, a renamed file by its
+    /// new path. Read as the app, for a conflict's brief. Not found when there is no such repository
+    /// or commit.
+    /// </summary>
+    Task<CodeHostResult<IReadOnlyList<string>>> ChangedFiles(Guid userId, Repository repository, string from, string head, CancellationToken cancellationToken);
+
+    /// <summary>The most files <see cref="ChangedFiles"/> lists, GitHub's limit for a
+    /// comparison.</summary>
+    public const int MostChangedFiles = 300;
+
+    /// <summary>
     /// What changed <paramref name="branch"/>, newest first. With <paramref name="since"/> null,
     /// the newest page alone, which is all a watch that has seen nothing needs, since it begins at
     /// the newest. Otherwise every change newer than the one whose id is <paramref name="since"/>,
