@@ -72,8 +72,8 @@ public sealed class AppMerges(UserDb database, ICodeHost host, TimeProvider time
     /// still <c>never</c>, and the card still waits for this merge, due for the merge check with this
     /// pull request; so a send back, a change of the setting or a stop made since the check read is
     /// never overtaken. When the code host merges, the card is recorded <c>done</c> in the same
-    /// transaction as the merge commit, and when it does not the card is left as it was, for the
-    /// caller to say why.
+    /// transaction as the merge commit, with the decisions a card on its own marked for the owner,
+    /// and when it does not the card is left as it was, for the caller to say why.
     /// </summary>
     public Task<AppMergeOutcome> MergeCard(Guid userId, Guid projectId, int card, int number, string commit, CancellationToken cancellationToken) =>
         Merge(userId, projectId, number, commit, card, cancellationToken);
@@ -87,6 +87,11 @@ public sealed class AppMerges(UserDb database, ICodeHost host, TimeProvider time
             {
                 return new AppMergeOutcome.NoSuchProject();
             }
+
+            // Whether the card is one on its own, whose decisions for the owner open attention
+            // issues; a feature's card's are answered on the feature's page, since nothing of a
+            // feature reaches the default branch before the owner merges it.
+            var onItsOwn = false;
 
             if (card is { } held)
             {
@@ -102,19 +107,21 @@ public sealed class AppMerges(UserDb database, ICodeHost host, TimeProvider time
                         return new AppMergeOutcome.ProjectUnwatched();
                 }
 
-                if (await transaction.Connection!.ExecuteScalarAsync<int?>(new CommandDefinition(
+                if (await transaction.Connection!.ExecuteScalarAsync<bool?>(new CommandDefinition(
                         """
-                        SELECT 1 FROM cards c JOIN project_settings s ON s.project_id = c.project_id
+                        SELECT c.feature_id IS NULL FROM cards c JOIN project_settings s ON s.project_id = c.project_id
                         WHERE c.project_id = @projectId AND c.number = @held AND c.state = 'waiting_for_owner' AND c.merge_check_due
                           AND c.pull_request_number = @number AND s.waits_for_owner = 'never'
                         FOR UPDATE OF c
                         """,
                         new { projectId, held, number },
                         transaction,
-                        cancellationToken: cancellationToken)) is null)
+                        cancellationToken: cancellationToken)) is not { } own)
                 {
                     return new AppMergeOutcome.CardMoved();
                 }
+
+                onItsOwn = own;
             }
 
             // The branch the merge goes into, as Dev flow knows it: a card's, the base its newest
@@ -202,9 +209,12 @@ public sealed class AppMerges(UserDb database, ICodeHost host, TimeProvider time
                     new { projectId, done, now = now.AddTicks(-(now.Ticks % 10)) },
                     transaction,
                     cancellationToken: cancellationToken));
-                // Each decision it marked for the owner, recorded with the merge so none is lost;
-                // its issue opens next.
-                await DecisionStore.Record(transaction, projectId, userId, done, number, commit, now.AddTicks(-(now.Ticks % 10)), cancellationToken);
+                // Each decision a card on its own marked for the owner, recorded with the merge so
+                // none is lost; its issue opens next. A feature's card's stay in its reports.
+                if (onItsOwn)
+                {
+                    await DecisionStore.Record(transaction, projectId, userId, done, number, commit, now.AddTicks(-(now.Ticks % 10)), cancellationToken);
+                }
             }
 
             return new AppMergeOutcome.Done(result);

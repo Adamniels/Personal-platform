@@ -237,6 +237,23 @@ public sealed class FeatureLandingTests
         Assert.Empty((await Built.Get(jobs, "/devflow/api/waiting")).Body!["cards"]!.AsArray());
     }
 
+    [Fact]
+    public async Task ADecisionForMeOpensNoIssue()
+    {
+        await using var jobs = await Feature();
+        // Built.Report marks "Show it on every list" for the owner.
+        await Approved(jobs);
+        Assert.Equal("done", (await Built.Card(jobs, First)).State);
+
+        await Merged.OpenDecisions(jobs);
+
+        Assert.Empty(Merged.IssuesOpened(jobs));
+        Assert.Empty((await Built.Get(jobs, "/devflow/api/waiting")).Body!["decisions"]!.AsArray());
+        await using var admin = await jobs.Routes.Database.OpenAdmin(Ct);
+        Assert.Equal(0, await admin.ExecuteScalarAsync<int>(new CommandDefinition(
+            "SELECT count(*)::int FROM decision_issues WHERE project_id = @project", new { project = jobs.Project }, cancellationToken: Ct)));
+    }
+
     [Theory]
     [InlineData("dev flow")]
     [InlineData("the owner from the page")]
