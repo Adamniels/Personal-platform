@@ -654,6 +654,12 @@ does. Its read side:
   repository's default branch, its commit the SHA-256 of its content in hex, since the fake keeps
   no history;
 - `DefaultBranch(user, repository)`: the repository's default branch, as the host says it now;
+- `ChangedFiles(user, repository, from, head)`: the paths of the files `head` changed since its
+  merge base with `from`, both full commit ids, at most 300, each once, a renamed file by its new
+  path. On GitHub it is `GET /repos/{owner}/{repo}/compare/{from}...{head}?per_page=1`, each
+  file's `filename`, the first page holding every file GitHub lists and one commit, which is not
+  read; in the fake, `git diff --name-only from...head` in the repository's git repository, sorted.
+  Handing out a conflict reads it both ways, see "A conflict" under "The end of a feature";
 - `Activity(user, repository, branch, since)`: what changed the branch, newest first, each a
   `BranchActivity` with the host's id, the commit before and after, when, its `ActivityKind`,
   `Push`, `ForcePush`, `BranchCreation`, `BranchDeletion`, `PullRequestMerge` or
@@ -1862,6 +1868,32 @@ and `/work/<job>/`, the agent's, where root writes nothing:
     the link and nothing is removed that the agent could not remove itself. The worker asks for its
     next job. The container, its tools and its caches are kept.
 
+**A conflict job** is carried as a build, see "A conflict" under "The end of a feature", on the
+feature's branch from `to_resolve.feature_commit`, with these differences:
+
+- **The copy.** The branch must be on the remote at `feature_commit`; when it is elsewhere nothing
+  runs, a failure outside the job, since the commit came from the feature's watch, which can lag.
+  `default_commit` must be in the repository, or it fails in the job; root moves its own ref of the
+  default branch to it, in its own repository, which never pushes it, so the bundle carries it and
+  the agent's copy holds it as `origin/<default>`.
+- **The agent** merges it and resolves the conflict, as its brief says. What it leaves uncommitted is
+  not committed for it: the merge commit is the whole of its work, and a second commit would be
+  refused below.
+- **One merge commit.** When the agent succeeded, root reads the fetched head's parents with
+  `git rev-list --parents -n 1`: it must be one new commit on `feature_commit`, a merge of exactly
+  two parents, `feature_commit` first and `default_commit` second. Anything else, no new commit, a
+  second commit on top, a commit that is not a merge, a merge of more, or of another commit, is a
+  failure in the job, and nothing is checked or pushed.
+- **The check** runs on a clean copy of the merge, as a build's. When it fails, nothing is pushed:
+  the feature's branch is the base of every later job of the feature, so it only gets a merge whose
+  check passed, and the result carries the check with `head_commit` null.
+- **The remerge diff**, `git show --remerge-diff --no-color --format= <merge>` as root in its own
+  repository: what the agent chose against what git's own merge would have left, and nothing for
+  the files that merged cleanly, cut beyond 1 MiB with a line saying so. A git that cannot make it
+  is a failure outside the job, before anything is pushed.
+- **The push**, without force, of the merge to the feature's branch, and the result with the
+  remerge diff. No pictures are taken.
+
 Every root git command runs in `repo`, or in `/run/devflow/<job>/` for the clone that makes it,
 with `-c core.hooksPath=/dev/null`, `HOME` that folder and no system or global config, and never in
 the agent's copy. The push key reaches git only in the environment of the clone and the push, as an
@@ -1907,7 +1939,9 @@ that records what it is asked and writes a PNG, and with the process group ended
 `setsid` exists, on Linux, skipped on macOS, which has none; `GitSafetyTests` that root runs git
 only in its own repository, that hooks and an
 `fsmonitor` the agent planted never run, that the push key never reaches anything the agent can
-read, and that a push is never forced or to the default branch; `BuildPartsTests` the branch
+read, and that a push is never forced or to the default branch; `ConflictBuildTests` a conflict job,
+on a feature staged resolving with real conflicting commits, its copy, the one merge commit rule,
+the check, the push and the remerge diff; `BuildPartsTests` the branch
 names refused, the result sent again while Dev flow is away, and the output's tail. The test
 machine has one user, so both users are the test's own there; that the agent cannot read root's
 files or environment is checked on the built image, by `base-image.test.sh`. `WorkerLoopTests` runs the worker against Dev flow in process,
@@ -1976,8 +2010,8 @@ token removes the login.
 
 ## Jobs
 
-A job is one card handed to one worker, with what the worker needs for it and nothing more; a run
-is Dev flow's record of it, from when it was handed out to when its result came back or it was
+A job is one card, or for a conflict one feature, handed to one worker, with what the worker needs
+for it and nothing more; a run is Dev flow's record of it, from when it was handed out to when its result came back or it was
 found lost. Why it is built so is "Handing out work" in `docs/devflow-architecture.md`. It is
 `Dispatcher`, `JobStore`, `RunStore`, `JobEndpoints` and `FakeWorkerEndpoints` in `src/DevFlow/Jobs/`,
 the brief in `src/DevFlow/Briefs/`, and the job's, the result's and the report's types in
@@ -2009,8 +2043,8 @@ queued; moves it to `building`; records a run for the worker; and answers `200` 
 | Field | What it is |
 |---|---|
 | `job_id` | The run's id, which the job's routes take |
-| `kind` | `build`, `review`, see "Review", or `fix`, see "Fixing" |
-| `card` | `number`, `title` and `body`, as the card was picked |
+| `kind` | `build`, `review`, see "Review", `fix`, see "Fixing", or `conflict`, see "A conflict" under "The end of a feature" |
+| `card` | `number`, `title` and `body`, as the card was picked; for a conflict, the feature's parent's |
 | `repository` | `owner`, `name`, `clone_address`, where git fetches and pushes it, and `default_branch` |
 | `branch` | `devflow/<number>-<slug>`: the title lowercased, each run of anything but ASCII letters and digits one hyphen, trimmed, cut to 40 characters; `devflow/<number>` when nothing is left |
 | `base` | The branch the card's branch is made from: the default branch, or the feature's branch for a card of a feature |
@@ -2021,6 +2055,7 @@ queued; moves it to `building`; records a run for the worker; and answers `200` 
 | `push_key`, `push_key_expires_at` | A key the app made for this job, narrowed to fetching and pushing the repository's code, and when it stops working, an hour on |
 | `committer` | `name` and `email`, the app's bot, `<app-slug>[bot]` and `<id>+<app-slug>[bot]@users.noreply.github.com`, read once from GitHub's `GET /users/<app-slug>[bot]` and kept; `devflow-fake[bot]` with a fixed address in the fake mode |
 | `limits` | `turns` 200, `budget_usd` 25 and `minutes` 90, fixed in code until part 5 |
+| `to_resolve` | For a conflict, `feature_commit`, the commit the feature's branch is at, and `default_commit`, the default branch's commit to bring in; null on any other job |
 
 Everything the job needs from the code host is read before the card is taken, so the row lock is
 held for one short transaction and never while GitHub answers; a push key made for a card another
@@ -2035,7 +2070,8 @@ queued, ignored, under way or waiting for the owner, holds it back, and the page
 with no reason of its own as "Waits for #<n>, earlier in the feature", naming the nearest such card,
 computed when the cards are read and never stored. A stopped or held card holds back only itself,
 and what is blocked by it on GitHub, which waits as `waits_for` says. Between features and cards
-on their own the order above stands: reviews, then fixes, then builds, each by priority and age.
+on their own the order above stands: reviews, then fixes, then conflicts, then builds, each by
+priority and age.
 
 **A feature's branch.** Before a build is taken, the dispatcher looks at the card it would take,
 `FeatureBranchStore.Due`; when that is a feature's card and the feature has no branch made, it
@@ -2087,8 +2123,9 @@ Claude's usage limit resets, which must be outside it, null when the answer gave
 "Stops". `check` is null when the
 check did not run, or holds both fields. `branch` must be the job's, `head_commit` null or a full
 commit id, `auth_method` null or at most 255 characters, `usage` an object, empty when Claude gave
-none, `duration_ms` 0 or more, and `stderr` text. A field missing or breaking a rule is `422` naming
-it, and nothing is stored. Everything is stored on the run as it came, the check's output and
+none, `duration_ms` 0 or more, and `stderr` text. `remerge_diff`, a conflict's, is null or text,
+kept on its run cut beyond 1 MiB as `RemergeDiffs.Cut` cuts it, and not kept for any other run. A
+field missing or breaking a rule is `422` naming it, and nothing is stored. Everything is stored on the run as it came, the check's output and
 stderr cut to their last 200 lines and 64 KiB; and the token counts, `total_cost_usd` and
 `num_turns` of `usage` also in columns of their own. Two things are not kept as they came, since
 Postgres cannot hold them and JSON allows both: a NUL, in any text and in any string or name inside
@@ -2180,7 +2217,12 @@ its runs, `worker_id` referencing the project's `workers`, `kind`, `branch`, `ba
 `output_tokens`, `cache_creation_input_tokens`, `cache_read_input_tokens`, `cost_usd`, `turns`,
 `duration_ms` and `stderr`; and, from `migrations/0014_card_pull_requests.sql`, `check_command`,
 the check the job carried, null for a run handed out before it. A unique index allows one run under
-way per card, a second guard beside the lock.
+way per card, a second guard beside the lock. From `migrations/0030_conflict_runs.sql`, a run is
+for a card or for a feature: `card_number` is null for a feature's, and `feature_number`, its
+parent's number, is set instead, exactly one of the two by a check; `kind` takes `conflict`, which
+also needs `from_commit`, the feature's head it starts from, and `default_commit`, the default
+branch's commit it brings in; `remerge_diff` is a conflict's, see "A conflict"; and a second unique
+index allows one run under way per feature.
 
 ## The pull request Dev flow opens
 
@@ -2427,7 +2469,10 @@ pages never disagree, in the report's order, each `run_id`, the run whose report
 `reviewer_view`, the reviewer's view of it in the newest review of the commit that run left,
 matched by `chosen` as the merge check matches them, null with none, and `answer`,
 `{"answer", "answered_at"}` or null. A project or feature the caller does not have is `404` "No
-such feature". It is `FeatureStory` and `FeatureEndpoints` in `src/DevFlow/Features/`.
+such feature". It is `FeatureStory` and `FeatureEndpoints` in `src/DevFlow/Features/`. It also
+answers `runs`, the feature's own runs, none of its cards', a conflict's among them, newest first,
+each as "A card's page" answers a run, and `input_tokens` and `output_tokens`, summed over them,
+0 before any.
 
 **Answering.** `POST /devflow/api/projects/{id}/features/{number}/decisions/{run}/{position}/fine`
 keeps the answer `fine`, "Fine as it is", to that decision, in one transaction with what it checks,
@@ -2472,6 +2517,9 @@ package's `Card`s, top to bottom:
 - "Cards": the table "Cards of the feature", each card's number and title linked to its page, its
   state, its fix rounds, its tokens and how many decisions it has for the owner, the numbers folded
   under the card at phone width.
+- "Runs", only when the feature has a run of its own: the list "Runs of the feature", each run as a
+  card's page shows one, its kind "Conflict", a failure's cause said to lie in the job, "so the
+  feature waits for you", or outside it, "so it runs again".
 
 Every text from the code host or an agent goes through `src/format.tsx`, as everywhere in Dev flow.
 "Merge into main", "Send the whole feature back" and "Send back" arrive with their slices and are
@@ -2865,7 +2913,8 @@ and opens the feature's pull request to the default branch; while the feature wa
 each change on the default branch is brought in again, and a card added to it sends it back to
 building. Why it is built so is "The end of a feature" in `docs/devflow-architecture.md`. It is
 `FeatureEnd`, the decision, `FeatureEnds`, the writes, and `FeatureText`, the body, in
-`src/DevFlow/Features/`, and `BringIn` and `EditPullRequestBody` in `ICodeHost`.
+`src/DevFlow/Features/`, and `BringIn` and `EditPullRequestBody` in `ICodeHost`; a conflict is a job,
+see "A conflict" below.
 
 **When.** `FeatureEnd.Advance`, in every read of the project, inside its transaction, and again at
 the start of the end's minute, from what Dev flow stored and nothing else. For each feature whose
@@ -2893,13 +2942,13 @@ answers. A feature already brought in at the default branch's commit asks nothin
 |---|---|
 | `201`, the merge commit | written to `merges_made` with the feature's branch and `number` null, in the same transaction; `brought_in_commit` is the answer's second parent, the default branch's commit merged, or its watch's commit when the answer names none; then the pull request |
 | `204`, nothing to bring in | `brought_in_commit` is the watch's commit when it has one; then the pull request |
-| `409`, a conflict | `waiting_for_owner`, "<default> conflicts with the feature's branch", `bring_in_failed_at` the watch's commit, so it is tried again only once the default branch has moved |
+| `409`, a conflict | `resolving`, "<default> conflicts with the feature's branch; an agent resolves it", for a conflict job, see "A conflict" below |
 | any other status | `waiting_for_owner`, "GitHub refused to bring <default> into the feature's branch, with <status>", the same way |
 | no answer | left `bringing_in`, tried again on the next minute |
 
 The watch takes a push on a feature's branch that left it at a commit in `merges_made` for that
 branch as fine, since GitHub lists a merge through this endpoint as a push by the app, see "Watching
-branches". A conflict waits for the owner until "Resolving a conflict" hands it to an agent.
+branches".
 
 **The feature's pull request**, once the default branch is in: the app's own open pull request from
 the feature's branch into the default branch is the feature's, or, while the feature has none
@@ -2934,6 +2983,56 @@ minute it did not answer for leaves the feature `bringing_in`, already brought i
 feature moves to `building`, its pull request stays open, and its end runs again once that card is
 done, adding the card to the body.
 
+**A conflict** is resolved by an agent, in a job of its own on one of the project's workers, a run
+for the feature rather than for a card. It is `JobStore.ClaimConflict`, `Dispatcher` and
+`RunStore.JudgeConflict` in `src/DevFlow/Jobs/`, `Briefs/conflict.md`, and the worker's side in
+"The worker".
+
+- **Handed out** after reviews and fixes and before builds, see "Jobs", for a feature
+  `resolving` whose branch is made, with no run of its own under way, and whose branch's watch has
+  read it in the last five minutes and since the feature began resolving, so the commit the watch
+  last named holds the card merged there just before. The job starts from that commit, the feature
+  branch's head, `from_commit` on the run, and brings in the default branch's as its watch last named
+  it, `default_commit`. Before the feature is taken, the files in conflict are read as the app,
+  `ChangedFiles` both ways between the two commits, and those both sides changed are listed in the
+  brief, sorted: GitHub cannot say which files conflict without merging, so these are where the
+  conflicts are, and the agent's `git merge` names them exactly. The feature is then taken only at
+  those two commits, with `FOR UPDATE SKIP LOCKED`, as a card is. A code host that does not answer
+  is no work now. The job's `card` is the feature's parent, its `branch` the feature's branch, its
+  `base` the default branch, its key a `Push` key, its check the project's, and its `to_resolve`
+  the two commits.
+- **The brief**, `src/DevFlow/Briefs/conflict.md`, the same for every project, filled by
+  `Brief.Conflict`: bring the default branch in with `git merge origin/<default>`, never a rebase,
+  and resolve each conflict so both sides' intent holds, the feature's work and what landed on the
+  default branch; change nothing that is not in conflict; commit the merge, run the check and fix
+  what the resolution broke in the merge commit itself; exactly one new commit, which the worker
+  checks; never push or touch the code host; decide and record each choice, `for_owner` where one
+  side gives way, never ask, and report `stopped` when it cannot be resolved; the parent as picked,
+  each done card's handover note and the files in conflict, under "What is information", each
+  fenced; and the report in its usual form, `replies` empty.
+- **Its result**, judged in this order, moves the feature only while it is `resolving`:
+
+  | What came back | The run's `result` | The feature |
+  |---|---|---|
+  | A failure outside the job | `failed_outside_card` | Stays `resolving`, handed out again after the project's wait, see "Stops", nothing counted |
+  | A failure in the job | `failed_in_card` | `waiting_for_owner`, "Dev flow could not resolve the conflict with <default>: The run failed: <reason>" |
+  | A report out of its form, one that stopped, no check, a check that failed | as a build's | `waiting_for_owner`, "Dev flow could not resolve the conflict with <default>: <the run's reason>" |
+  | A success that names no commit, or the one it was handed | `failed_in_card` | `waiting_for_owner`, "…: No merge commit was pushed" |
+  | Anything else | `succeeded` | `bringing_in`, `brought_in_commit` the run's `default_commit`, `bring_in_failed_at` null |
+
+  Waiting for the owner, `bring_in_failed_at` is the run's `default_commit`, so bringing in is not
+  tried again until the default branch moves: there are no rounds for a conflict. Once it moves, a
+  read brings it in again, and a conflict then is a new job. A success goes on as after a clean
+  merge: the end's minute finds it brought in at the default branch's commit and opens or updates
+  the feature's pull request, or brings in again when the default branch has moved meanwhile. A run
+  found lost leaves the feature `resolving`, and the project waits, as for a card's.
+- **Its push is Dev flow's own.** The worker pushes the merge to the feature's branch with the job's
+  key, while its run is under way, so the watch keeps it in `pushes_awaited`; its result writes the
+  commit to `pushes_made`, in the same transaction, and the watch finds it fine, as "Watching
+  branches" has it for every job on a feature's branch.
+- **The remerge diff** is kept on the run, `remerge_diff`, as text, cut beyond 1 MiB with a line
+  saying so, and it is data. "Reviewing the whole feature" hands it to the reviewer.
+
 **The columns**, from `migrations/0029_feature_end.sql`: `merges_made.number` is null for a merge
 that merged no pull request, and `features` gains `bring_in_failed_at`, the default branch's commit
 at which bringing in last met a conflict or a refusal, null otherwise. `brought_in_commit`,
@@ -2943,7 +3042,11 @@ at which bringing in last met a conflict or a refusal, null otherwise. `brought_
 tree and the base's and head's commits as its parents, recorded as the app's write `branch_merge`
 and listed on the base as a push by the app; nothing to bring in when the base holds the head
 already; a conflict for a base the repository's `conflicts` lists; `404` for a base or head its git
-repository does not have. Editing a body is recorded as `pull_request_edited`. See "The fake".
+repository does not have. Editing a body is recorded as `pull_request_edited`. The fake worker
+answers a conflict job with a merge commit on the feature's branch, the feature's head and the
+default branch's commit its parents, with the feature's tree, listed on the branch as a push by the
+app, when the prepared result succeeded with a passing check, and with the prepared
+`remerge_diff`; with anything else it pushes nothing, as a worker does. See "The fake".
 
 ## Stops
 

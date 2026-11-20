@@ -3315,3 +3315,144 @@ def test_a_finished_feature_gets_its_pull_request(
     link = feature.get_by_role("link", name=f"Pull request #{pull['number']}")
     expect(link).to_have_attribute("href", pull["url"])
     _look(page, "devflow-feature-pull-request")
+
+
+def test_a_conflict_is_resolved_by_an_agent(
+    page: Page, invite_code: str, base_url: str, viewport: str, devflow_world
+):
+    register_and_log_in(page, invite_code, base_url)
+    # A labelled feature of one card, the project's .devflow/project.json, and
+    # main conflicting with the feature's branch when it is brought in.
+    world = one_repository()
+    add_issue(world, 60, "The feature's branch", labels=["devflow"], sub_issues=[61])
+    add_issue(world, 61, "Bring main in")
+    add_file(
+        world,
+        ".devflow/project.json",
+        json.dumps({"version": 1, "check": CHECK, "start": "", "url": ""}).encode(),
+    )
+    repository(world)["conflicts"] = [FEATURE_BRANCH]
+    _open_project(page, base_url, devflow_world, world)
+    project = page.url.rsplit("/", 1)[1]
+    given = page.request.put(
+        "/devflow/api/claude-login",
+        data={"token": CLAUDE_TOKEN},
+        headers={"Origin": base_url},
+    )
+    assert given.status == 200, given.text()
+    refreshed = page.request.post(
+        f"/devflow/api/projects/{project}/refresh", headers={"Origin": base_url}
+    )
+    assert refreshed.status == 204, refreshed.text()
+
+    # The fake worker builds the one card; meanwhile I push to main, and the
+    # project is read, so the watch judges my push fine.
+    ran = page.request.post(
+        "/devflow/api/fake/worker/run",
+        data={
+            "project_id": project,
+            "result": {
+                "outcome": "succeeded",
+                "report": _report(),
+                "failure": None,
+                "check": {"exit_code": 0, "output": "Tests: 12 passed"},
+                "auth_method": "oauth_token",
+                "usage": {
+                    "usage": {"input_tokens": 41, "output_tokens": 6113},
+                    "num_turns": 23,
+                },
+                "duration_ms": 184213,
+                "stderr": "",
+            },
+        },
+        headers={"Origin": base_url},
+    )
+    assert ran.status == 200, ran.text()
+    pushed = page.request.post(
+        "/devflow/api/fake/push",
+        data={"repository": REPOSITORY, "branch": "main", "message": "Main moves on"},
+        headers={"Origin": base_url},
+    )
+    assert pushed.status == 200, pushed.text()
+    refreshed = page.request.post(
+        f"/devflow/api/projects/{project}/refresh", headers={"Origin": base_url}
+    )
+    assert refreshed.status == 204, refreshed.text()
+
+    # CI green and the reviewer's approve: the card lands, which ends the
+    # feature, and bringing main in conflicts. Nothing is brought in, and the
+    # feature is resolving, an agent's job.
+    _stage_ci(page, devflow_world, ran.json()["head_commit"], [check_run("test")])
+    _fake_review(page, base_url, project, _verdict("approve"))
+    assert [write for write in _writes(page) if write["kind"] == "branch_merge"] == []
+    page.goto(f"/devflow/projects/{project}/features/60")
+    feature = page.get_by_role("article", name="The feature")
+    expect(feature).to_contain_text("Resolving a conflict")
+    expect(feature).to_contain_text(
+        "main conflicts with the feature's branch; an agent resolves it"
+    )
+
+    # The project's next read reads the feature's branch, so the conflict job
+    # starts from its head. The fake worker takes it and answers a resolved
+    # merge, a merge commit of main on the feature's branch, with its remerge
+    # diff.
+    refreshed = page.request.post(
+        f"/devflow/api/projects/{project}/refresh", headers={"Origin": base_url}
+    )
+    assert refreshed.status == 204, refreshed.text()
+    resolved = page.request.post(
+        "/devflow/api/fake/worker/run",
+        data={
+            "project_id": project,
+            "result": {
+                "outcome": "succeeded",
+                "report": _report(),
+                "failure": None,
+                "check": {"exit_code": 0, "output": "Tests: 13 passed"},
+                "auth_method": "oauth_token",
+                "usage": {
+                    "usage": {"input_tokens": 12, "output_tokens": 3400},
+                    "num_turns": 9,
+                },
+                "duration_ms": 720000,
+                "stderr": "",
+                "remerge_diff": "diff --git a/README.md b/README.md\n",
+            },
+        },
+        headers={"Origin": base_url},
+    )
+    assert resolved.status == 200, resolved.text()
+    assert (resolved.json()["kind"], resolved.json()["card"]) == ("conflict", 60)
+    assert resolved.json()["branch"] == FEATURE_BRANCH
+
+    # The feature goes on as after a clean bringing in: its pull request into
+    # main is opened, and it waits for me; the watch finds the push fine.
+    opened = [
+        write
+        for write in _writes(page)
+        if write["kind"] == "pull_request" and write.get("base") == "main"
+    ]
+    assert len(opened) == 1, opened
+    refreshed = page.request.post(
+        f"/devflow/api/projects/{project}/refresh", headers={"Origin": base_url}
+    )
+    assert refreshed.status == 204, refreshed.text()
+    workers = page.request.get(f"/devflow/api/projects/{project}/workers")
+    assert workers.status == 200, workers.text()
+    assert workers.json()["held"] is None
+
+    # Its page shows the run that resolved it.
+    page.goto(f"/devflow/projects/{project}/features/60")
+    feature = page.get_by_role("article", name="The feature")
+    expect(feature).to_contain_text("Waiting for you")
+    expect(feature).to_contain_text("Not reviewed as a whole yet")
+    runs = page.get_by_role("article", name="Runs").get_by_role(
+        "list", name="Runs of the feature"
+    )
+    run = runs.get_by_role("listitem")
+    expect(run).to_have_count(1)
+    expect(run).to_contain_text("Conflict")
+    expect(run).to_contain_text("Succeeded")
+    expect(run).to_contain_text(f"on {resolved.json()['head_commit'][:7]}")
+    expect(run).to_contain_text("Tokens 12 in, 3,400 out")
+    _look(page, "devflow-feature-conflict-resolved")

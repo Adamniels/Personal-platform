@@ -23,7 +23,7 @@ import { featurePath } from "./sections";
 import { linkable } from "./waiting";
 
 export type CardStory = components["schemas"]["CardStoryView"];
-type Run = CardStory["runs"][number];
+export type Run = CardStory["runs"][number];
 type Report = NonNullable<CardStory["report"]>;
 type Review = CardStory["reviews"][number];
 type Round = CardStory["rounds"][number];
@@ -61,6 +61,7 @@ const KINDS: Record<string, string> = {
 	build: "Build",
 	review: "Review",
 	fix: "Fix",
+	conflict: "Conflict",
 };
 
 /** What the review of a fix's commit said of it, after "the review of it". */
@@ -295,10 +296,30 @@ function Link({ url, label }: { url: string; label: string }) {
 	);
 }
 
+/** Where a failed run's cause lay, said after its reason: a card's run's in
+ * the card or outside it, and a feature's in its job or outside it. */
+const LAY = {
+	card: {
+		in: " It lay in the card, which has to change.",
+		outside: " It lay outside the card, so it goes back in the queue.",
+	},
+	feature: {
+		in: " It lay in the job, so the feature waits for you.",
+		outside: " It lay outside the job, so it runs again.",
+	},
+};
+
 /** One run on an inset: its kind and outcome, who ran it and when, for a
  * failure why and where it lay, how it logged in and what it used, and the
- * check with its output behind Show. */
-function RunRow({ run }: { run: Run }) {
+ * check with its output behind Show. A card's runs and a feature's are shown
+ * alike, `of` saying whose it is. */
+export function RunRow({
+	run,
+	of = "card",
+}: {
+	run: Run;
+	of?: keyof typeof LAY;
+}) {
 	const [showing, setShowing] = useState(false);
 	const outputId = useId();
 	const result =
@@ -332,8 +353,8 @@ function RunRow({ run }: { run: Run }) {
 					{run.in_card === null
 						? null
 						: run.in_card
-							? " It lay in the card, which has to change."
-							: " It lay outside the card, so it goes back in the queue."}
+							? LAY[of].in
+							: LAY[of].outside}
 				</span>
 			)}
 			{run.auth_method === null &&

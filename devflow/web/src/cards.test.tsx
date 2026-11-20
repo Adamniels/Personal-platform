@@ -254,4 +254,11 @@ describe("the cards panel", () => {
 			tone: "running",
 		});
 	});
+
+	test("a feature whose conflict an agent resolves says so", () => {
+		expect(stateWord("resolving")).toEqual({
+			word: "Resolving a conflict",
+			tone: "running",
+		});
+	});
 });

@@ -284,6 +284,77 @@ describe("a feature's page", () => {
 		).toBeNull();
 	});
 
+	test("shows its own runs, a conflict resolved among them", async () => {
+		open({
+			loadFeature: () =>
+				Promise.resolve(
+					story({
+						state: "resolving",
+						reason:
+							"main conflicts with the feature's branch; an agent resolves it",
+						runs: [
+							{
+								id: "01a3185c-5000-7000-8000-000000000009",
+								kind: "conflict",
+								worker: "fodr-worker",
+								started_at: "2026-11-20T09:00:00+00:00",
+								finished_at: "2026-11-20T09:12:00+00:00",
+								duration_ms: 720000,
+								result: "succeeded",
+								reason: null,
+								in_card: null,
+								auth_method: "oauth_token",
+								input_tokens: 12,
+								output_tokens: 3400,
+								check: { exit_code: 0, output: "Tests: 40 passed" },
+								head_commit: COMMIT,
+							},
+							{
+								id: "01a3185c-5000-7000-8000-000000000008",
+								kind: "conflict",
+								worker: "fodr-worker",
+								started_at: "2026-11-20T08:40:00+00:00",
+								finished_at: "2026-11-20T08:41:00+00:00",
+								duration_ms: 60000,
+								result: "failed_outside_card",
+								reason: "Claude's API did not answer",
+								in_card: false,
+								auth_method: null,
+								input_tokens: null,
+								output_tokens: null,
+								check: null,
+								head_commit: null,
+							},
+						],
+					}),
+				),
+		});
+
+		const feature = await screen.findByRole("article", { name: "The feature" });
+		expect(within(feature).getByText("Resolving a conflict")).toBeTruthy();
+		const runs = within(
+			screen.getByRole("article", { name: "Runs" }),
+		).getByRole("list", { name: "Runs of the feature" });
+		const items = within(runs).getAllByRole("listitem");
+		expect(items).toHaveLength(2);
+		const [resolved, failed] = items as [HTMLElement, HTMLElement];
+		expect(within(resolved).getByText("Conflict")).toBeTruthy();
+		expect(resolved.textContent).toContain(
+			`Check exit 0 on ${COMMIT.slice(0, 7)}`,
+		);
+		expect(resolved.textContent).toContain("Tokens 12 in, 3,400 out");
+		// A feature's run says where its failure lay in its own words.
+		expect(failed.textContent).toContain(
+			"Claude's API did not answer It lay outside the job, so it runs again.",
+		);
+	});
+
+	test("a feature with no run of its own shows no runs", async () => {
+		open();
+		await screen.findByRole("article", { name: "The feature" });
+		expect(screen.queryByRole("article", { name: "Runs" })).toBeNull();
+	});
+
 	test("a feature the caller does not have is not found", async () => {
 		open({ loadFeature: () => Promise.resolve(null) });
 		expect(await screen.findByText("There is no such feature")).toBeTruthy();
