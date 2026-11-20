@@ -247,4 +247,11 @@ describe("the cards panel", () => {
 		// A state a later Dev flow adds is shown as it is named.
 		expect(stateWord("paused").word).toBe("paused");
 	});
+
+	test("a feature bringing the default branch in says so", () => {
+		expect(stateWord("bringing_in")).toEqual({
+			word: "Bringing in the default branch",
+			tone: "running",
+		});
+	});
 });

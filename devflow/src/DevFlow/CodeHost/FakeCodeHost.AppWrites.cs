@@ -197,6 +197,36 @@ public sealed partial class FakeCodeHost : IDisposable
         }
     }
 
+    /// <summary>
+    /// A push by <paramref name="actor"/> of one commit on top of <paramref name="branch"/>, as
+    /// <see cref="CommitOnBranch"/> makes it, and listed in the branch's changes as that push, as
+    /// GitHub lists one: what a test stages to move a branch, such as the default branch moving on
+    /// under a feature. Its id, or null when the repository is not the world's or git fails.
+    /// </summary>
+    internal async Task<string?> Push(Guid userId, Repository repository, string branch, string message, string actor, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(actor);
+        var before = await BranchCommit(userId, repository, branch, cancellationToken);
+        if (await CommitOnBranch(userId, repository, branch, branch, message, new Committer(actor, $"{actor}@users.noreply.github.com"), cancellationToken) is not { } after)
+        {
+            return null;
+        }
+
+        var at = _time.GetUtcNow();
+        Change(userId, account => Find(account.World, repository) is { } found
+            ? account with
+            {
+                World = WithRepository(account.World, repository, found with
+                {
+                    Activity = [.. found.Activity ?? [], new FakeActivity(
+                        (found.Activity ?? []).Select(each => each.Id).DefaultIfEmpty(0).Max() + 1,
+                        branch, before ?? new string('0', after.Length), after, at, ActivityKind.Push, actor)],
+                }),
+            }
+            : account);
+        return after;
+    }
+
     /// <summary>Whether the repository's git repository holds the commit with the full id
     /// <paramref name="commit"/>; false before its git repository is made, and for anything that is
     /// not a full id, so nothing else reaches git as an argument.</summary>
@@ -267,6 +297,27 @@ public sealed partial class FakeCodeHost : IDisposable
             return (new WriteResult<PullRequest>.Written(pull), found with { PullRequests = [.. found.PullRequests, pull] },
                 new FakeWrite("pull_request", repository.Id, number, head, null, body, AppLogin, Post, Title: title, Head: headBranch, Base: baseBranch));
         });
+    }
+
+    /// <summary>Refused with <c>404</c> for a number with no pull request; otherwise its body
+    /// replaced, whatever its state, as GitHub edits one, and recorded as
+    /// <c>pull_request_edited</c>.</summary>
+    public Task<WriteResult<PullRequest>> EditPullRequestBody(Guid userId, AppWriteToken token, Repository repository, int number, string body, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(token);
+        token.Require(WritePurpose.Post, repository);
+        ArgumentNullException.ThrowIfNull(body);
+        return Task.FromResult(AsApp<WriteResult<PullRequest>>(userId, token, repository, Unavailable<PullRequest>(), Refused<PullRequest>, found =>
+        {
+            if (found.PullRequests.FirstOrDefault(pull => pull.Number == number) is not { } pull)
+            {
+                return (Refused<PullRequest>(StatusCodes.Status404NotFound, NotFoundMessage), null, null);
+            }
+
+            var edited = pull with { Body = body, UpdatedAt = _time.GetUtcNow() };
+            return (new WriteResult<PullRequest>.Written(edited), found with { PullRequests = [.. found.PullRequests.Select(each => each.Number == number ? edited : each)] },
+                new FakeWrite("pull_request_edited", repository.Id, number, null, null, body, AppLogin, Post));
+        }));
     }
 
     /// <summary>Refused with <c>404</c> for a number with neither a pull request, an issue nor a
@@ -376,6 +427,108 @@ public sealed partial class FakeCodeHost : IDisposable
         }
 
         return result;
+    }
+
+    /// <summary>What GitHub says with <c>404</c> for bringing in a base that is not there.</summary>
+    public const string NoBase = "Base does not exist";
+
+    /// <summary>What GitHub says with <c>404</c> for bringing in a head that is not there.</summary>
+    public const string NoHead = "Head does not exist";
+
+    /// <summary>
+    /// As GitHub brings a branch in: unavailable when the account says so, refused with <c>401</c>
+    /// for a key it did not issue for merging in this repository, with <c>404</c> for a repository
+    /// the world does not hold or a base or head its git repository does not have; a conflict when
+    /// the world lists the base among the repository's <see cref="FakeRepository.Conflicts"/>, since
+    /// the fake's commits never change a tree and so never conflict by themselves; nothing to bring
+    /// in when the base holds the head's commit already; and otherwise a merge commit in its git
+    /// repository, with the base's tree, by GitHub's committer, with the base's commit and the
+    /// head's as its parents, the base moved to it only from the commit it was made on. The merge is
+    /// recorded as the app's write, <c>branch_merge</c>, with the merging key's purpose, and listed
+    /// in the base's changes as a push by the app, as GitHub lists one made through this endpoint.
+    /// </summary>
+    public async Task<BringInResult> BringIn(Guid userId, AppWriteToken token, Repository repository, string baseBranch, string head, string message, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(token);
+        token.Require(WritePurpose.Merge, repository);
+        ArgumentException.ThrowIfNullOrEmpty(baseBranch);
+        ArgumentException.ThrowIfNullOrEmpty(head);
+        ArgumentNullException.ThrowIfNull(message);
+        var account = Of(userId);
+        if (account.Unavailable)
+        {
+            return new BringInResult.Unavailable(RetryAt: null);
+        }
+
+        if (!TakesKey(account, token, repository))
+        {
+            return new BringInResult.Refused(StatusCodes.Status401Unauthorized, BadCredentials);
+        }
+
+        if (Find(account.World, repository) is not { } found)
+        {
+            return new BringInResult.Refused(StatusCodes.Status404NotFound, NotFoundMessage);
+        }
+
+        var into = await BranchCommit(userId, repository, baseBranch, cancellationToken);
+        var from = await BranchCommit(userId, repository, head, cancellationToken);
+        if (into is null || from is null)
+        {
+            return new BringInResult.Refused(StatusCodes.Status404NotFound, into is null ? NoBase : NoHead);
+        }
+
+        if ((found.Conflicts ?? []).Contains(baseBranch, StringComparer.Ordinal))
+        {
+            return new BringInResult.Conflict();
+        }
+
+        string merge;
+        await _git.WaitAsync(cancellationToken);
+        try
+        {
+            string[] who = ["-c", $"user.name={MergeCommitter.Name}", "-c", $"user.email={MergeCommitter.Email}", "--git-dir", GitPath(userId, repository)];
+            if ((await Git(cancellationToken, [.. who, "merge-base", "--is-ancestor", from, into])).Exit == 0)
+            {
+                return new BringInResult.NothingToBringIn();
+            }
+
+            var tree = await Git(cancellationToken, [.. who, "rev-parse", $"{into}^{{tree}}"]);
+            var made = tree.Exit == 0 ? await Git(cancellationToken, [.. who, "commit-tree", tree.Output.Trim(), "-p", into, "-p", from, "-m", message]) : tree;
+            if (made.Exit != 0 || (await Git(cancellationToken, [.. who, "update-ref", $"refs/heads/{baseBranch}", made.Output.Trim(), into])).Exit != 0)
+            {
+                return new BringInResult.Unavailable(RetryAt: null);
+            }
+
+            merge = made.Output.Trim();
+        }
+        finally
+        {
+            _git.Release();
+        }
+
+        var at = _time.GetUtcNow();
+        Change(userId, changed =>
+        {
+            changed = changed with
+            {
+                Writes = [.. changed.Writes, new FakeWrite("branch_merge", repository.Id, 0, merge, "merge", message, AppLogin, "merge", Head: head, Base: baseBranch)],
+            };
+            if (Find(changed.World, repository) is not { } current)
+            {
+                return changed;
+            }
+
+            var activity = current.Activity ?? [];
+            var id = activity.Select(each => each.Id).DefaultIfEmpty(0).Max() + 1;
+            return changed with
+            {
+                World = WithRepository(changed.World, repository, current with
+                {
+                    Activity = [.. activity, new FakeActivity(id, baseBranch, into, merge, at, ActivityKind.Push, AppLogin)],
+                }),
+            };
+        });
+        return new BringInResult.Merged(merge, from);
     }
 
     /// <summary>A merge commit made in git, not yet on its branch: the branch it goes on, the

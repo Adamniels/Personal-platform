@@ -64,9 +64,11 @@ public sealed partial class BranchWatch(UserDb database, ICodeHost host, TimePro
 
     /// <summary>
     /// Whether a change to an open feature's branch is one the project may take without its user
-    /// looking: what <see cref="IsFine"/> takes on the default branch, and a push that left the
-    /// branch at a commit in <paramref name="pushesMade"/>, those Dev flow's own jobs pushed there
-    /// and their runs' results recorded; but never the branch's deletion, by anyone, since the
+    /// looking: what <see cref="IsFine"/> takes on the default branch; a push that left the branch
+    /// at a commit in <paramref name="pushesMade"/>, those Dev flow's own jobs pushed there and their
+    /// runs' results recorded; and a push that left it at a commit in <paramref name="mergesMade"/>,
+    /// the merge commit Dev flow made bringing the default branch in, which the code host lists as a
+    /// push since it merged no pull request; but never the branch's deletion, by anyone, since the
     /// feature's work is on it.
     /// </summary>
     public static bool IsFineOnFeature(BranchActivity activity, string? owner, IReadOnlySet<string> mergesMade, IReadOnlySet<string> pushesMade)
@@ -78,7 +80,8 @@ public sealed partial class BranchWatch(UserDb database, ICodeHost host, TimePro
             return false;
         }
 
-        return (activity.Kind == ActivityKind.Push && pushesMade.Contains(activity.After)) || IsFine(activity, owner, mergesMade);
+        return (activity.Kind == ActivityKind.Push && (pushesMade.Contains(activity.After) || mergesMade.Contains(activity.After)))
+            || IsFine(activity, owner, mergesMade);
     }
 
     /// <summary>

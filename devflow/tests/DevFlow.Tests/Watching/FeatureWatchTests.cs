@@ -218,6 +218,23 @@ public sealed class FeatureWatchTests
             Assert.Equal((Branch, Commit(22), run), pushed);
         }
 
+        // The default branch brought in by Dev flow, recorded with no pull request, which GitHub
+        // lists as a push by the app.
+        await using (var admin = await jobs.Routes.Database.OpenAdmin(Ct))
+        {
+            await admin.ExecuteAsync(new CommandDefinition(
+                """
+                INSERT INTO merges_made (project_id, user_id, branch, commit, number, merged_at)
+                VALUES (@project, @user, @branch, @commit, NULL, @now)
+                """,
+                new { project = jobs.Project, user = User, branch = Branch, commit = Commit(25), now = jobs.Routes.Time.GetUtcNow() },
+                cancellationToken: Ct));
+        }
+
+        Land(jobs, ActivityKind.Push, FakeCodeHost.AppLogin, Commit(25));
+        await Read(jobs);
+        Assert.Null(await Stop(jobs));
+
         // A change by the owner's linked login, whatever its case.
         Land(jobs, ActivityKind.Push, Jobs.Jobs.Owner, Commit(23));
         Land(jobs, ActivityKind.PullRequestMerge, "Octo-Owner", Commit(24));

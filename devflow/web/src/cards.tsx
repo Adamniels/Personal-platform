@@ -30,6 +30,7 @@ const STATES: Record<string, { word: string; tone: StatusTone }> = {
 	held: { word: "Held", tone: "idle" },
 	ignored: { word: "Ignored", tone: "failed" },
 	building: { word: "Building", tone: "running" },
+	bringing_in: { word: "Bringing in the default branch", tone: "running" },
 	checking: { word: "Checking", tone: "running" },
 	reviewing: { word: "Reviewing", tone: "running" },
 	fixing: { word: "Fixing", tone: "running" },

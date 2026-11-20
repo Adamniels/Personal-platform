@@ -72,7 +72,10 @@ check merges it as the app when every condition holds, opening an issue for each
 marked for the owner, or has it wait for him on "Waiting for you" with why, where he merges it as
 himself, see "The merge check" below; each card has a page with its whole story so far, see "How a card reaches
 its pull request" below, and each feature one with its cards, its branch and the decisions its cards
-marked for the owner, answered there, see "A feature's page" below. A card that cannot be made to work stops, is marked on its issue and
+marked for the owner, answered there, see "A feature's page" below. When every card of a feature is
+done, the default branch is brought into its branch as the app and its pull request to the default
+branch opened, kept up to the default branch while it waits for the owner, see "The end of a
+feature" below. A card that cannot be made to work stops, is marked on its issue and
 shows under "Stopped", and his comment runs it again; a failure outside the card makes its project
 wait instead, see "Stops" below.
 
@@ -1094,6 +1097,84 @@ from an older report is refused as `409`, so a page read before a newer run is r
 answering what the card no longer says. "Send back", the other answer, arrives with "Sending a card
 back", and the confirmation of "Merging a feature into main" counts the decisions not answered.
 
+## The end of a feature
+
+When every card of a feature is done, the default branch is brought into the feature's branch and
+the feature's pull request to the default branch is opened, as the spec's "Clarified after the
+builder check" has it for "A feature's branch", and as the feature issue, "Dev flow: features",
+decides for "The end of a feature". Until "Reviewing the whole feature" lands, the feature then
+waits for the owner, not reviewed as a whole, and he merges it on GitHub. The routes, states and
+tables are "The end of a feature" in `devflow/README.md`.
+
+**Decided from what Dev flow stored.** Whether a feature's end is due is one pure function,
+`FeatureEnd.Next`, over the feature's state, its cards' states, the default branch's commit last
+brought in and the one bringing in last failed at, and the default branch's commit as its watch last
+judged it. The read runs it, as the slice has it, and the end's minute runs it again before acting,
+so the end follows the last card's merge within the same minute rather than on the next read; both
+read the same stored state, so they never disagree. The default branch's commit is the watch's,
+`branch_watches.last_commit`, not a read of GitHub of its own: it costs nothing more per read, and
+the end never sets out to bring in a commit the watch has not seen and judged.
+
+**A merge commit, never a rebase.** Every card's pull request, its review and the commit the merge
+check approved name commits on the feature's branch. A rebase would rewrite them, needing a force
+push, which the watch stops on by anyone, and would leave each review naming a commit no longer on
+the branch. A merge commit keeps every reviewed commit as it was and adds one, which the watch tells
+as Dev flow's by its record. GitHub's `POST /repos/{owner}/{repo}/merges` only ever makes a merge
+commit and moves the base forward, so the code here cannot rebase or force a branch even by mistake;
+it is asked with a `Merge` key, whose `contents: write` it needs, the same purpose as merging a card.
+
+**Recorded before the watch can see it.** As a merge of a card's pull request is, see "Watching the
+default branch": the project's lock is taken, the holds read under it, the code host asked while it
+is held, and the merge commit written to `merges_made` with the feature's branch before it is let
+go, so the watch, which takes the same lock before it judges, finds it recorded. It merges no pull
+request, so its `number` is null and GitHub lists it as a push, not a pull request's merge: on a
+feature's branch, a push that left it at a commit in `merges_made` for that branch is fine too.
+The default branch is never brought in anywhere else, so the default branch's own rule is
+unchanged. A merge GitHub made but whose commit its answer did not name is not recorded, and the
+watch stops the project on it, erring towards asking the owner.
+
+**Which commit was brought in.** GitHub is asked with the default branch's name, as the slice has
+it, and merges the branch as it is at that moment, which may be newer than the commit the watch
+last judged. The answer's second parent says which commit it merged, and that is recorded as
+`brought_in_commit`; nothing to bring in records the watch's commit, which the branch then holds. A
+default branch that moved in the gap is brought in again on a later read, and answers nothing to
+bring in: one request more, never one missed.
+
+**A conflict waits for the owner**, with the default branch's commit it met remembered, so it is not
+asked again every minute while nothing has changed, and is asked again once the default branch
+moves, since a change there may resolve it. "Resolving a conflict" replaces the wait with an agent.
+A refusal waits the same way, since asking again unchanged would be refused again.
+
+**The pull request is opened at the end, not as a draft from the first card.** The spec opens a
+draft pull request for the feature from its first card. Draft pull requests on a private repository
+need GitHub Team, and Fodr's repository is private, so the feature issue decided otherwise: it is
+opened, not a draft, once the default branch is brought in, and the feature's progress before then
+shows on the parent issue, which counts its closed sub-issues, and on the feature's page. This is a
+difference from the spec.
+
+**Its body is the feature's, and its titles are data.** It names the feature, lists each card with
+the pull request it landed in, and closes the parent on a line of its own, which GitHub honours once
+the pull request merges into the default branch, so an open parent means a feature not yet there.
+The titles are the issues', written as a card's report is in its body, so a title cannot add a
+heading, hide what follows or add a second closing line. It is opened once: the app's own open one
+from the branch is reused, as a card's is, and a body that no longer matches the feature's cards is
+replaced, so a card added later is listed when the end runs again. A pull request recorded and no
+longer open is not opened again here, since closing a feature's pull request is the owner's act,
+which "Merging a feature into main" and "Sending a card back" answer.
+
+**Why the default branch is kept in a feature that waits.** The owner merges a feature when he has
+looked at it, which may be days later. A feature's branch behind the default branch shows him a
+diff that is not only the feature's, runs CI on a base that is gone, and lets conflicts grow until
+the merge. Bringing each change in while the feature waits keeps his merge one step and what he
+reviewed close to what lands. It is not done while the feature is worked on, resolving, reviewing or
+fixing, since a job on the branch would then push onto a branch that moved under it; it is brought
+in once the feature waits again.
+
+**A card added sends it back to building.** A sub-issue added to a feature at its end is picked on
+the next read, as every sub-issue is, and is one more card to build: the feature is `building` again,
+its pull request stays open, since the owner's view of it stays useful, and the end runs again once
+the card is done.
+
 ## Stops
 
 A card stops only when the program cannot produce a working result, and a problem outside the
@@ -1244,8 +1325,10 @@ and its first card is handed out at once rather than a minute later. It ends whe
 `merged` or `closed`: the branch is then the owner's to delete, and nothing more is built on it.
 
 **What is fine** is what is fine on the default branch, with each merge fine only on the branch
-Dev flow recorded it into, and one more: a push one of Dev flow's own jobs made there, recorded by
-the commit its run's result named. No card's job pushes to a feature's branch, its own branch is a
+Dev flow recorded it into, and two more: a push one of Dev flow's own jobs made there, recorded by
+the commit its run's result named, and the default branch brought in by Dev flow at the feature's
+end, which GitHub lists as a push and Dev flow records in `merges_made`, see "The end of a
+feature". No card's job pushes to a feature's branch, its own branch is a
 card's; the later jobs that do are resolving a conflict and fixing a feature.
 
 **What stops the project** is what stops it on the default branch, and the branch deleted while its

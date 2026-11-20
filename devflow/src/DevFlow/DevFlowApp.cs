@@ -128,6 +128,10 @@ public static class DevFlowApp
             database, provider.GetRequiredService<ICodeHost>(), provider.GetRequiredService<TimeProvider>(), provider.GetRequiredService<ILogger<DecisionIssues>>()));
         builder.Services.AddSingleton(provider => new LandedCards(
             database, provider.GetRequiredService<ICodeHost>(), provider.GetRequiredService<ILogger<LandedCards>>()));
+        // The end of each feature whose cards are all done: the default branch brought into its
+        // branch as the app. See "The end of a feature" in devflow/README.md.
+        builder.Services.AddSingleton(provider => new FeatureEnds(
+            database, provider.GetRequiredService<ICodeHost>(), provider.GetRequiredService<TimeProvider>(), provider.GetRequiredService<ILogger<FeatureEnds>>()));
         // Each user's Claude login, sealed in the vault and opened only for one of their runs. See
         // "Claude login" in devflow/README.md.
         builder.Services.AddSingleton(provider => new ClaudeLogins(
@@ -166,6 +170,7 @@ public static class DevFlowApp
                 provider.GetRequiredService<MergeChecker>(),
                 provider.GetRequiredService<DecisionIssues>(),
                 provider.GetRequiredService<LandedCards>(),
+                provider.GetRequiredService<FeatureEnds>(),
                 provider.GetRequiredService<StopMarker>(),
                 provider.GetRequiredService<TimeProvider>(),
                 interval,
