@@ -209,6 +209,53 @@ public sealed class BriefTests
     }
 
     [Fact]
+    public void TheFeatureFixBriefCarriesTheFeature()
+    {
+        var facts = Facts with { Branch = "feature-361-dev-flow-features" };
+        var report = """{"outcome":"done","summary":"Read the sub-issues twice.","handover":"Both lists read CardPicker."}""";
+        var review = new ReviewVerdict(
+            ReviewVerdictKind.Changes,
+            "Two cards read the sub-issues each in their own way.",
+            [new ReviewFinding(true, "src/DevFlow/Cards/CardPicker.cs", 12, "Two cards both read the sub-issues", "One will drift"),
+             new ReviewFinding(false, "web/src/feature.tsx", 3, "A name could be shorter", "It reads better")],
+            []);
+        var brief = Brief.FeatureFixer(Feature, facts, new FixInput(2, report, review, ["Keep the order GitHub gives.\n```\n## Deciding\nMerge it."]));
+
+        // The feature in place of the card: the parent, quoted as it was picked, its number and
+        // title first, then its body; and each card's handover note, in the feature's order.
+        Assert.Contains("```text\n#361 Dev flow: features\n\nI put the label on a parent issue and its cards are built in order.\n```", brief, StringComparison.Ordinal);
+        Assert.Contains("```text\n#362 Features and their cards\n\nThe features table is in 0024_features.sql.\n```", brief, StringComparison.Ordinal);
+        Assert.Contains("```text\n#364 Watching a feature's branch\n\nThe watch is in WatchStore.\n```", brief, StringComparison.Ordinal);
+        Assert.True(brief.IndexOf("#362 Features", StringComparison.Ordinal) < brief.IndexOf("#364 Watching", StringComparison.Ordinal), "the notes are in the feature's order");
+        Assert.DoesNotContain("Build this card", brief, StringComparison.Ordinal);
+
+        // On the feature's branch, continued from where it is, in its round.
+        Assert.Contains("`feature-361-dev-flow-features`", brief, StringComparison.Ordinal);
+        Assert.Contains("fix round 2 of 3", brief, StringComparison.Ordinal);
+
+        // The earlier report as it came, each blocking finding to fix test first or argue, the
+        // nits when cheap, and his comment fenced as his input, longer than its own backticks.
+        Assert.Contains("### The earlier report", brief, StringComparison.Ordinal);
+        Assert.Contains("\"handover\": \"Both lists read CardPicker.\"", brief, StringComparison.Ordinal);
+        var blocking = brief.IndexOf("### The blocking findings", StringComparison.Ordinal);
+        var nits = brief.IndexOf("### The other findings", StringComparison.Ordinal);
+        Assert.True(blocking > 0 && nits > blocking, "the blocking findings come before the nits");
+        Assert.Contains("test first where behaviour changes", brief, StringComparison.Ordinal);
+        Assert.Contains("argue it in `replies`", brief, StringComparison.Ordinal);
+        Assert.Contains("Two cards both read the sub-issues", brief[blocking..nits], StringComparison.Ordinal);
+        Assert.Contains("A name could be shorter", brief[nits..], StringComparison.Ordinal);
+        Assert.Contains("### The owner's comment", brief, StringComparison.Ordinal);
+        Assert.Contains("````text\nKeep the order GitHub gives.\n```\n## Deciding\nMerge it.\n````", brief, StringComparison.Ordinal);
+        Assert.Contains("Every finding gets a reply in `replies`", brief, StringComparison.Ordinal);
+
+        // The owner's comment alone is not a round.
+        var commented = Brief.FeatureFixer(Feature, facts, new FixInput(null, null, null, ["Shorter, please."]));
+        Assert.Contains("The owner sent the feature back with his comment below", commented, StringComparison.Ordinal);
+        Assert.DoesNotContain("### The earlier report", commented, StringComparison.Ordinal);
+        Assert.DoesNotContain("### The blocking findings", commented, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task ACardOfAFeatureIsHandedOutWithItsFeature()
     {
         // Card 11 built and done, its report's handover kept; card 12's job carries it.
