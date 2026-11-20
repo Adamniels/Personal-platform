@@ -279,9 +279,12 @@ internal sealed partial class BuildJob(DevFlowClient devFlow, Guid workerId, Job
 
         if (job.ToResolve is { } conflict)
         {
+            // The commit handed is the one the feature's watch last named, which can lag behind
+            // the branch; a push by anyone else stops the project, so a branch elsewhere is tried
+            // again once the watch has read it, never held against the job.
             if (!string.Equals(start, conflict.FeatureCommit, StringComparison.Ordinal))
             {
-                throw new StepFailed(FailureSide.Card, start is null
+                throw new StepFailed(FailureSide.OutsideCard, start is null
                     ? $"The feature's branch {job.Branch} is not on the remote, so its conflict was not started"
                     : $"The feature's branch {job.Branch} is at {start}, not at {conflict.FeatureCommit}, the commit the conflict was handed, so it was not started");
             }

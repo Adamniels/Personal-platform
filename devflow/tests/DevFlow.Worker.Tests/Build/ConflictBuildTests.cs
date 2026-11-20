@@ -49,12 +49,14 @@ public sealed class ConflictBuildTests
         await using var admin = await jobs.Routes.Database.OpenAdmin(Ct);
         await admin.ExecuteAsync(new CommandDefinition(
             """
-            UPDATE features SET state = 'resolving', reason = NULL, branch = @branch, branch_base_commit = @first
+            UPDATE features SET state = 'resolving', reason = NULL, branch = @branch, branch_base_commit = @first, changed_at = @now
             WHERE project_id = @project AND number = @parent;
             UPDATE cards SET state = 'done' WHERE project_id = @project AND number = 11;
             """,
-            new { project = jobs.Project, parent = Parent, branch = Branch, first },
+            new { project = jobs.Project, parent = Parent, branch = Branch, first, now = jobs.Routes.Time.GetUtcNow() },
             cancellationToken: Ct));
+        // The project's next minute reads the feature's branch, after it began resolving.
+        jobs.Routes.Time.Advance(TimeSpan.FromSeconds(1));
         await jobs.Routes.Read(jobs.Project, Jobs.User);
         await admin.ExecuteAsync(new CommandDefinition(
             """
@@ -242,6 +244,8 @@ public sealed class ConflictBuildTests
             cancellationToken: Ct)));
     }
 
+    /// <summary>The commit handed is the feature watch's, which can lag behind the branch, so a
+    /// branch elsewhere is tried again rather than held against the job.</summary>
     [Fact]
     public async Task ABranchThatMovedIsNotResolved()
     {
@@ -254,13 +258,15 @@ public sealed class ConflictBuildTests
 
         await bench.Build(agent).Run(job, Ct);
 
-        // Nothing ran on a commit Dev flow did not hand out, and nothing was pushed.
+        // Nothing ran on a commit Dev flow did not hand out, and nothing was pushed; the failure
+        // lies outside the job, so the feature is resolving still.
         Assert.Null(agent.Given);
         Assert.Equal(moved, await bench.RemoteHead(Branch));
         var sent = bench.SentResult(job.GetProperty("job_id").GetGuid());
         Assert.Equal("failed", (string)sent["outcome"]!);
-        Assert.True((bool)sent["failure"]!["in_card"]!);
+        Assert.False((bool)sent["failure"]!["in_card"]!);
         Assert.Contains($"is at {moved}", (string)sent["failure"]!["reason"]!, StringComparison.Ordinal);
+        Assert.Equal("resolving", (await FeatureState(bench)).State);
     }
 
     [Fact]

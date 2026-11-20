@@ -31,15 +31,29 @@ public sealed class ConflictJobTests
 
     /// <summary>The feature's two cards done, the default branch moved on by the owner and
     /// conflicting with the feature's branch, and the project read and its end's minute run, so
-    /// the feature is resolving. The default branch's commit and the feature branch's.</summary>
-    private static async Task<(string Default, string Feature)> Conflicting(Jobs.Jobs jobs)
+    /// the feature is resolving; then, unless <paramref name="readAfter"/> is false, the project
+    /// read again a second later, as its next minute reads it, so the feature's watch has read
+    /// since. The default branch's commit and the feature branch's.</summary>
+    private static async Task<(string Default, string Feature)> Conflicting(Jobs.Jobs jobs, bool readAfter = true)
     {
         await FeaturePage.Landed(jobs);
         var moved = await Ending.MoveMain(jobs);
         Merging.Merged.Change(jobs, repository => repository with { Conflicts = [Ending.Branch] });
         await Ending.Done(jobs);
         await Ending.ReadAndEnd(jobs);
+        if (readAfter)
+        {
+            await ReadAgain(jobs);
+        }
+
         return (moved, await FeaturePage.MergeCommit(jobs));
+    }
+
+    /// <summary>The project read a second later, as its next minute reads it.</summary>
+    private static async Task ReadAgain(Jobs.Jobs jobs)
+    {
+        jobs.Routes.Time.Advance(TimeSpan.FromSeconds(1));
+        await jobs.Routes.Read(jobs.Project, Ending.User);
     }
 
     /// <summary>A prepared result of a conflict job, as <see cref="Built.Prepared"/>, with the
@@ -55,7 +69,7 @@ public sealed class ConflictJobTests
     public async Task AConflictBecomesAJob()
     {
         await using var jobs = await Ending.Feature();
-        var (moved, head) = await Conflicting(jobs);
+        var (moved, head) = await Conflicting(jobs, readAfter: false);
 
         // Bringing in answered a conflict: the feature is resolving, nothing was brought in, and
         // nothing waits for the owner.
@@ -63,6 +77,11 @@ public sealed class ConflictJobTests
         Assert.Equal("resolving", row.State);
         Assert.Null(row.BroughtInCommit);
         Assert.Empty(Ending.BringIns(jobs));
+
+        // Not before the feature's watch has read its branch since, so the commit it names holds
+        // what Dev flow merged there last.
+        Assert.Equal(StatusCodes.Status204NoContent, (await jobs.Next()).Response.StatusCode);
+        await ReadAgain(jobs);
 
         // A job of its own, for the feature: on the feature's branch at its head, with the default
         // branch at its head, a key that pushes, the check and the brief.

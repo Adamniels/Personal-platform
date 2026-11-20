@@ -106,6 +106,8 @@ public sealed class KeepingCurrentTests
         Assert.Equal(1, Ending.Asked(jobs));
 
         // The agent could not resolve it, so the feature waits for the owner.
+        jobs.Routes.Time.Advance(TimeSpan.FromSeconds(1));
+        await jobs.Routes.Read(jobs.Project, Ending.User);
         await PullRequests.Built.Run(jobs, PullRequests.Built.PreparedFailure(inCard: true, "The agent ran out of turns"));
         Assert.Equal("waiting_for_owner", (await Ending.Row(jobs)).State);
 

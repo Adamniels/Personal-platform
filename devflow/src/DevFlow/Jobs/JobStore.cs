@@ -198,9 +198,10 @@ public static class JobStore
     /// <summary>
     /// What makes a feature one to resolve, as SQL over <c>features</c>: <c>resolving</c>, its
     /// branch made and picked with its body kept, no run of the feature under way, and its branch's
-    /// watch read since <c>@watchedSince</c>; the commits the job starts from and brings in are its
-    /// watch's and the default branch's, <see cref="FeatureHeadOf"/> and <see cref="DefaultHeadOf"/>,
-    /// each known.
+    /// watch read since <c>@watchedSince</c> and since the feature began resolving, so the commit it
+    /// last named holds what Dev flow merged there just before, the card that ended the feature
+    /// among it; the commits the job starts from and brings in are that watch's and the default
+    /// branch's, <see cref="FeatureHeadOf"/> and <see cref="DefaultHeadOf"/>, each known.
     /// </summary>
     private const string Resolvable = $"""
         features.project_id = @projectId AND features.state = 'resolving' AND features.branch IS NOT NULL
@@ -208,7 +209,8 @@ public static class JobStore
         AND NOT EXISTS (SELECT 1 FROM runs
                         WHERE runs.project_id = features.project_id AND runs.feature_number = features.number AND runs.finished_at IS NULL)
         AND EXISTS (SELECT 1 FROM branch_watches wb
-                    WHERE wb.project_id = features.project_id AND wb.feature_id = features.id AND wb.last_read_at >= @watchedSince)
+                    WHERE wb.project_id = features.project_id AND wb.feature_id = features.id AND wb.last_read_at >= @watchedSince
+                      AND wb.last_read_at > features.changed_at)
         AND {FeatureHeadOf} IS NOT NULL
         AND {DefaultHeadOf} IS NOT NULL
         """;
