@@ -101,8 +101,8 @@ public static class FeatureBranchStore
     /// <summary>
     /// Records the commit the feature's branch was made at, while the claim is still this branch's
     /// with none recorded, and begins the branch's watch in the same transaction, read as of now,
-    /// with no change judged yet: its first read begins at the branch's creation, see
-    /// <see cref="Watching.BranchWatch"/>. So a feature whose branch is made is never without a
+    /// with no change judged yet and the branch at the commit it was made at: its first read begins
+    /// at the branch's creation, see <see cref="Watching.BranchWatch"/>. So a feature whose branch is made is never without a
     /// watch, and its first card is handed out at once.
     /// </summary>
     public static async Task Made(UserDb database, Guid userId, Guid featureId, string branch, string commit, DateTimeOffset now, CancellationToken cancellationToken)
@@ -115,10 +115,10 @@ public static class FeatureBranchStore
                 WHERE id = @featureId AND state = 'building' AND branch = @branch AND branch_base_commit IS NULL
                 RETURNING project_id, user_id, id, branch
             )
-            INSERT INTO branch_watches (project_id, user_id, feature_id, branch, last_activity_id, began_at, last_read_at, last_attempt_at, last_error)
-            SELECT project_id, user_id, id, branch, NULL, @now, @now, @now, NULL FROM made
+            INSERT INTO branch_watches (project_id, user_id, feature_id, branch, last_activity_id, last_commit, began_at, last_read_at, last_attempt_at, last_error)
+            SELECT project_id, user_id, id, branch, NULL, @commit, @now, @now, @now, NULL FROM made
             ON CONFLICT ON CONSTRAINT branch_watches_one_per_branch DO UPDATE
-            SET branch = EXCLUDED.branch, last_activity_id = NULL, began_at = EXCLUDED.began_at, last_read_at = EXCLUDED.last_read_at,
+            SET branch = EXCLUDED.branch, last_activity_id = NULL, last_commit = EXCLUDED.last_commit, began_at = EXCLUDED.began_at, last_read_at = EXCLUDED.last_read_at,
                 last_attempt_at = EXCLUDED.last_attempt_at, last_error = NULL
             """,
             new { featureId, branch, commit, now },

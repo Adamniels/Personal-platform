@@ -7,6 +7,7 @@ using DevFlow.ClaudeLogin;
 using DevFlow.CodeHost;
 using DevFlow.CodeHost.GitHub;
 using DevFlow.Decisions;
+using DevFlow.Features;
 using DevFlow.Health;
 using DevFlow.Jobs;
 using DevFlow.Link;
@@ -209,6 +210,7 @@ public static class DevFlowApp
         app.MapJobs();
         app.MapCards();
         app.MapCardScreenshots();
+        app.MapFeatures();
         app.MapRecipe();
         app.MapClaudeLogin();
         app.MapPages(webRoot);

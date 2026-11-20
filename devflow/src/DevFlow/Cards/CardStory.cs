@@ -321,7 +321,7 @@ public static class CardStory
 
     /// <summary>A stored report read into its form, or null when there is none or it does not
     /// read, which the run then says.</summary>
-    private static Report? Read(string? stored)
+    internal static Report? Read(string? stored)
     {
         if (stored is null)
         {

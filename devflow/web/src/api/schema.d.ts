@@ -278,6 +278,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/devflow/api/projects/{id}/features/{number}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A feature's whole story so far
+         * @description The feature as last read, its number, title, web_url, state and reason, null when there is nothing to say; its branch, the name and the commit it was at after the newest change its watch judged, or the one it was made at before any, null before the branch is made; its pull_request to the default branch, number and url, null before one is opened; and its cards in their sub-issue order, each with its number, title, web_url, state, reason, fix_rounds, the input_tokens and output_tokens of all its runs, the screenshots of its head commit as getCard has them, read through getCardScreenshot, and the decisions its latest report marked for the owner, each with the run_id of that report's run, its position among the report's decisions, what was chosen, the alternative, why, the reviewer_view from the newest review of the commit that run left, null without one, and the answer, null before one. Read from what Dev flow stored, never from GitHub; every text from GitHub or an agent is to be shown as text. 404 for a project or a feature the caller does not have. Without a valid token, 401 with an empty body.
+         */
+        get: operations["getFeature"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/devflow/api/projects/{id}/refresh": {
         parameters: {
             query?: never;
@@ -811,6 +831,11 @@ export interface components {
             name: string;
             owner: string;
         };
+        DecisionAnswer: {
+            answer: string;
+            /** Format: date-time */
+            answered_at: string;
+        };
         DecisionItem: {
             alternative: null | string;
             /** Format: int32 */
@@ -866,6 +891,48 @@ export interface components {
             since: string;
             /** Format: date-time */
             wait_until: string;
+        };
+        FeatureBranch: {
+            commit: null | string;
+            name: string;
+        };
+        FeatureCard: {
+            decisions: components["schemas"]["FeatureDecision"][];
+            /** Format: int32 */
+            fix_rounds: number;
+            /** Format: int64 */
+            input_tokens: number;
+            /** Format: int32 */
+            number: number;
+            /** Format: int64 */
+            output_tokens: number;
+            reason: null | string;
+            screenshots: null | components["schemas"]["CardScreenshots"];
+            state: string;
+            title: string;
+            web_url: string;
+        };
+        FeatureDecision: {
+            alternative: string;
+            answer: null | components["schemas"]["DecisionAnswer"];
+            chosen: string;
+            /** Format: int32 */
+            position: number;
+            reviewer_view: null | string;
+            /** Format: uuid */
+            run_id: string;
+            why: string;
+        };
+        FeatureStoryView: {
+            branch: null | components["schemas"]["FeatureBranch"];
+            cards: components["schemas"]["FeatureCard"][];
+            /** Format: int32 */
+            number: number;
+            pull_request: null | components["schemas"]["CardPullRequest"];
+            reason: null | string;
+            state: string;
+            title: string;
+            web_url: string;
         };
         FeatureView: {
             cards: components["schemas"]["CardView"][];
@@ -1932,6 +1999,45 @@ export interface operations {
             };
             /** @description Service Unavailable */
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    getFeature: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                number: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeatureStoryView"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not Found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
