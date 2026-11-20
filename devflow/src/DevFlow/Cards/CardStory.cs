@@ -143,6 +143,8 @@ public sealed record CardRound(
 /// that succeeded tried none.</param>
 /// <param name="Merge">The merge Dev flow made of its pull request as the app, null when it made
 /// none, the owner's own merge among them.</param>
+/// <param name="Feature">The feature it is a card of, whose page links back to it; null for a card
+/// on its own.</param>
 public sealed record CardStoryView(
     int Number,
     string Title,
@@ -155,7 +157,11 @@ public sealed record CardStoryView(
     IReadOnlyList<CardReview> Reviews,
     IReadOnlyList<CardRound> Rounds,
     CardScreenshots? Screenshots,
-    CardMerge? Merge);
+    CardMerge? Merge,
+    CardFeature? Feature);
+
+/// <summary>The feature a card is a card of, by its parent's number and title as last read.</summary>
+public sealed record CardFeature(int Number, string Title);
 
 /// <summary>A merge Dev flow made of a card's pull request, as the app, by the merge check.</summary>
 /// <param name="Commit">The merge commit, as the code host answered it and Dev flow recorded it.</param>
@@ -188,9 +194,11 @@ public static class CardStory
         {
             var card = await transaction.Connection!.QuerySingleOrDefaultAsync<CardRow>(new CommandDefinition(
                 $"""
-                SELECT number AS Number, title AS Title, web_url AS WebUrl, state AS State, {CardStore.ShownReason} AS Reason,
-                       pull_request_number AS PullRequestNumber, pull_request_url AS PullRequestUrl
-                FROM cards WHERE project_id = @projectId AND number = @number
+                SELECT cards.number AS Number, cards.title AS Title, cards.web_url AS WebUrl, cards.state AS State,
+                       {CardStore.ShownReason} AS Reason, cards.pull_request_number AS PullRequestNumber,
+                       cards.pull_request_url AS PullRequestUrl, f.number AS FeatureNumber, f.title AS FeatureTitle
+                FROM cards LEFT JOIN features f ON f.project_id = cards.project_id AND f.id = cards.feature_id
+                WHERE cards.project_id = @projectId AND cards.number = @number
                 """,
                 new { projectId, number },
                 transaction,
@@ -255,7 +263,8 @@ public static class CardStory
                     string.Equals(review.Commit, head, StringComparison.Ordinal)))],
                 [.. runs.Where(run => run.Kind == Job.Fix).Select(run => Round(run, reviews))],
                 CardScreenshots.Of(head, built?.Screenshots, built?.ScreenshotsNote),
-                merge is null || head is null ? null : new CardMerge(merge.Commit, head, merge.Base ?? "", new DateTimeOffset(DateTime.SpecifyKind(merge.MergedAt, DateTimeKind.Utc))));
+                merge is null || head is null ? null : new CardMerge(merge.Commit, head, merge.Base ?? "", new DateTimeOffset(DateTime.SpecifyKind(merge.MergedAt, DateTimeKind.Utc))),
+                card.FeatureNumber is { } feature && card.FeatureTitle is { } featureTitle ? new CardFeature(feature, featureTitle) : null);
         }, cancellationToken);
     }
 
@@ -321,7 +330,7 @@ public static class CardStory
 
     /// <summary>A stored report read into its form, or null when there is none or it does not
     /// read, which the run then says.</summary>
-    private static Report? Read(string? stored)
+    internal static Report? Read(string? stored)
     {
         if (stored is null)
         {
@@ -336,7 +345,8 @@ public static class CardStory
 
     private sealed record MergeRow(string Commit, DateTime MergedAt, string? Base);
 
-    private sealed record CardRow(int Number, string Title, string WebUrl, string State, string? Reason, int? PullRequestNumber, string? PullRequestUrl);
+    private sealed record CardRow(
+        int Number, string Title, string WebUrl, string State, string? Reason, int? PullRequestNumber, string? PullRequestUrl, int? FeatureNumber, string? FeatureTitle);
 
     private sealed record RunRow(
         Guid Id,

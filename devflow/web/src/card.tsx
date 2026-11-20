@@ -1,9 +1,9 @@
 // A card's page, /devflow/projects/{project}/cards/{number}, under the Projects tab, opened from the
-// project's Cards panel: the card's whole story so far, read from GET
+// project's Cards panel and from its feature's page: the card's whole story so far, read from GET
 // /devflow/api/projects/{id}/cards/{number}, what Dev flow stored and never the code host. Its state
-// and why, links to its issue and its pull request, each round it was sent back for, newest
-// first, each review with its verdict, newest first, each run, newest first, and the latest
-// report.
+// and why, links to its issue, its feature's page and its pull request, each round it was sent back
+// for, newest first, each review with its verdict, newest first, each run, newest first, and the
+// latest report.
 // Every text came from the code host, a worker or an agent and is shown as text. See "The pages"
 // and "A card's page" in devflow/README.md.
 import {
@@ -13,12 +13,13 @@ import {
 	type StatusTone,
 } from "@platform/ui";
 import { useEffect, useId, useState } from "react";
-import { plainClick } from "./address";
+import { navigate, plainClick } from "./address";
 import type { components } from "./api/schema";
 import styles from "./card.module.css";
 import { stateWord } from "./cards";
 import { Inline } from "./format";
 import { cardScreenshot, Screenshots } from "./screenshots";
+import { featurePath } from "./sections";
 import { linkable } from "./waiting";
 
 export type CardStory = components["schemas"]["CardStoryView"];
@@ -180,6 +181,20 @@ export function CardPage({
 					</p>
 					<p className={styles.links}>
 						<Link url={story.web_url} label={`Issue #${story.number}`} />
+						{story.feature === null ? null : (
+							<a
+								className={styles.link}
+								href={featurePath(project, story.feature.number)}
+								onClick={(event) => {
+									if (plainClick(event) && story.feature) {
+										event.preventDefault();
+										navigate(featurePath(project, story.feature.number));
+									}
+								}}
+							>
+								Feature #{story.feature.number}: {story.feature.title}
+							</a>
+						)}
 						{story.pull_request === null ? null : (
 							<Link
 								url={story.pull_request.url}

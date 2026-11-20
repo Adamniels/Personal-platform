@@ -285,7 +285,8 @@ public sealed partial class BranchWatch(UserDb database, ICodeHost host, TimePro
     /// just made and recorded is always found. One not fine stops the project by
     /// <see cref="RecordStop"/>; one that cannot be recorded, since the project is stopped by
     /// another branch already, is left unjudged with every change after it, to be read again once
-    /// that stop is resumed. The watch moves on to the newest judged, or stays at
+    /// that stop is resumed. The watch moves on to the newest judged, keeping the commit the branch
+    /// was at after it, which a feature's page shows, or stays at
     /// <paramref name="from"/> or where it was when none was, read now; nothing when the project is
     /// gone. On a feature's branch, a push by <paramref name="app"/>, the app's login, while a run of
     /// Dev flow's on the branch is under way, read under the lock, is awaited rather than judged,
@@ -327,6 +328,7 @@ public sealed partial class BranchWatch(UserDb database, ICodeHost host, TimePro
             }
 
             var newest = from;
+            string? commit = null;
             foreach (var activity in listed.Reverse())
             {
                 var fine = watched.FeatureId is null ? IsFine(activity, owner, made) : IsFineOnFeature(activity, owner, made, pushed);
@@ -343,6 +345,7 @@ public sealed partial class BranchWatch(UserDb database, ICodeHost host, TimePro
                 }
 
                 newest = activity.Id;
+                commit = activity.After;
             }
 
             if (watched.FeatureId is not null)
@@ -352,13 +355,14 @@ public sealed partial class BranchWatch(UserDb database, ICodeHost host, TimePro
 
             return await transaction.Connection!.ExecuteAsync(new CommandDefinition(
                 """
-                INSERT INTO branch_watches (project_id, user_id, feature_id, branch, last_activity_id, began_at, last_read_at, last_attempt_at, last_error)
-                VALUES (@projectId, @userId, @featureId, @branch, @newest, @now, @now, @now, NULL)
+                INSERT INTO branch_watches (project_id, user_id, feature_id, branch, last_activity_id, last_commit, began_at, last_read_at, last_attempt_at, last_error)
+                VALUES (@projectId, @userId, @featureId, @branch, @newest, @commit, @now, @now, @now, NULL)
                 ON CONFLICT ON CONSTRAINT branch_watches_one_per_branch DO UPDATE
                 SET last_activity_id = coalesce(EXCLUDED.last_activity_id, branch_watches.last_activity_id),
+                    last_commit = coalesce(EXCLUDED.last_commit, branch_watches.last_commit),
                     last_read_at = EXCLUDED.last_read_at, last_attempt_at = EXCLUDED.last_attempt_at, last_error = NULL
                 """,
-                new { projectId, userId, featureId = watched.FeatureId, branch = watched.Branch, newest, now },
+                new { projectId, userId, featureId = watched.FeatureId, branch = watched.Branch, newest, commit, now },
                 transaction,
                 cancellationToken: cancellationToken));
         }, cancellationToken);

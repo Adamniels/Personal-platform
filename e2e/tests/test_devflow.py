@@ -2985,3 +2985,210 @@ def test_a_features_card_lands_in_its_branch(
         check(page)
     assert _axe_violations(page) == []
     capture(page, "devflow-feature-card-landed")
+
+
+def _landed_feature(page: Page, base_url: str, devflow_world) -> str:
+    """Connects a repository with a labelled feature of three cards, 61, 62 and
+    63 under 60, and the project's .devflow/project.json; the fake worker
+    builds 61 with `_report()`, which marks a decision for the owner, and two
+    pictures of one page, CI passes on it and the reviewer approves, so Dev
+    flow merges it into the feature's branch; then 62 is handed out and kept
+    running. The project's id."""
+    world = one_repository()
+    add_issue(
+        world, 60, "The feature's branch", labels=["devflow"], sub_issues=[61, 62, 63]
+    )
+    add_issue(world, 61, "Read the sub-issues")
+    add_issue(world, 62, "Show each feature")
+    add_issue(world, 63, "The feature's page")
+    add_file(
+        world,
+        ".devflow/project.json",
+        json.dumps({"version": 1, "check": CHECK, "start": "", "url": ""}).encode(),
+    )
+    _open_project(page, base_url, devflow_world, world)
+    project = page.url.rsplit("/", 1)[1]
+    given = page.request.put(
+        "/devflow/api/claude-login",
+        data={"token": CLAUDE_TOKEN},
+        headers={"Origin": base_url},
+    )
+    assert given.status == 200, given.text()
+    refreshed = page.request.post(
+        f"/devflow/api/projects/{project}/refresh", headers={"Origin": base_url}
+    )
+    assert refreshed.status == 204, refreshed.text()
+
+    pictures = {
+        "plan-desktop": png(640, 400, (96, 140, 200)),
+        "plan-phone": png(195, 422, (200, 150, 90)),
+    }
+    ran = page.request.post(
+        "/devflow/api/fake/worker/run",
+        data={
+            "project_id": project,
+            "result": {
+                "outcome": "succeeded",
+                "report": _report(),
+                "failure": None,
+                "check": {"exit_code": 0, "output": "Tests: 12 passed"},
+                "auth_method": "oauth_token",
+                "usage": {
+                    "usage": {"input_tokens": 41, "output_tokens": 6113},
+                    "num_turns": 23,
+                },
+                "duration_ms": 184213,
+                "stderr": "",
+                "screenshots": {"names": list(pictures), "note": None},
+            },
+            "pictures": {
+                name: base64.b64encode(content).decode()
+                for name, content in pictures.items()
+            },
+        },
+        headers={"Origin": base_url},
+    )
+    assert ran.status == 200, ran.text()
+    assert ran.json()["card"] == 61
+    refreshed = page.request.post(
+        f"/devflow/api/projects/{project}/refresh", headers={"Origin": base_url}
+    )
+    assert refreshed.status == 204, refreshed.text()
+    _stage_ci(page, devflow_world, ran.json()["head_commit"], [check_run("test")])
+    _fake_review(page, base_url, project, _verdict("approve"))
+    assert len([write for write in _writes(page) if write["kind"] == "merge"]) == 1
+    refreshed = page.request.post(
+        f"/devflow/api/projects/{project}/refresh", headers={"Origin": base_url}
+    )
+    assert refreshed.status == 204, refreshed.text()
+
+    taken = page.request.post(
+        "/devflow/api/fake/worker/run",
+        data={"project_id": project, "keep_running": True},
+        headers={"Origin": base_url},
+    )
+    assert taken.status == 200, taken.text()
+    assert taken.json()["card"] == 62
+    return project
+
+
+def _look(page: Page, name: str) -> None:
+    """The look checks every page is held to, the accessibility check, and its
+    screenshot."""
+    page.evaluate("document.fonts.ready.then(() => null)")
+    for check in (
+        assert_headings_are_capitals,
+        assert_nothing_scrolls_sideways,
+        assert_active_is_inverted,
+        assert_nothing_active_is_amber,
+    ):
+        check(page)
+    assert _axe_violations(page) == []
+    capture(page, name)
+
+
+def test_a_features_page_shows_its_cards_and_decisions(
+    page: Page, invite_code: str, base_url: str, viewport: str, devflow_world
+):
+    register_and_log_in(page, invite_code, base_url)
+    page.context.grant_permissions(
+        ["clipboard-read", "clipboard-write"], origin=base_url
+    )
+    project = _landed_feature(page, base_url, devflow_world)
+
+    # From the project's page to the feature's, by its title.
+    page.goto(f"/devflow/projects/{project}")
+    page.get_by_role("list", name="Features", exact=True).get_by_role(
+        "link", name="The feature's branch"
+    ).click()
+    expect(page).to_have_url(f"{base_url}/devflow/projects/{project}/features/60")
+    expect(page.get_by_role("heading", name="The feature's branch")).to_be_visible()
+    expect(page.get_by_role("tab", name="Projects", selected=True)).to_be_visible()
+    feature = page.get_by_role("article", name="The feature")
+    expect(feature).to_contain_text("Building")
+    expect(feature).to_contain_text("1 of 3 cards done")
+
+    # The decision the first card's report marked for me, with the
+    # reviewer's view, and the one not marked left out.
+    wants = page.get_by_role("article", name="What the agents want you to know")
+    decisions = wants.get_by_role("list", name="Decisions for you").get_by_role(
+        "listitem"
+    )
+    expect(decisions).to_have_count(1)
+    expect(decisions.first).to_contain_text("#61: Show it on every list")
+    expect(decisions.first).to_contain_text("Instead of Only on habits")
+    expect(decisions.first).to_contain_text("Because The lists look the same")
+    expect(decisions.first).to_contain_text(
+        "Reviewer: Agreed: the lists share one component."
+    )
+    expect(wants).not_to_contain_text("A plain sentence")
+
+    # The branch and the command to check it out, copied with one tap.
+    command = f"git fetch origin {FEATURE_BRANCH} && git switch {FEATURE_BRANCH}"
+    checkout = page.get_by_role("region", name="Check out the branch")
+    expect(checkout).to_contain_text(command)
+    checkout.get_by_role("button", name="Copy the command").click()
+    expect(checkout.get_by_role("button", name="Copied")).to_be_visible()
+    assert page.evaluate("navigator.clipboard.readText()") == command
+
+    # The first card's screenshots, read from Dev flow through the card's
+    # route.
+    shots = page.get_by_role("region", name="Screenshots of #61")
+    for name in ("plan-desktop", "plan-phone"):
+        thumbnail = shots.get_by_role("img", name=name)
+        expect(thumbnail).to_be_visible()
+        assert thumbnail.get_attribute("src") == (
+            f"/devflow/api/projects/{project}/cards/61/screenshots/{name}"
+        )
+        page.wait_for_function(
+            "img => img.complete && img.naturalWidth > 0",
+            arg=thumbnail.element_handle(),
+        )
+
+    # The cards in order, each with its state and a link to its page.
+    rows = page.get_by_role("table", name="Cards of the feature").get_by_role("row")
+    expect(rows).to_have_count(4)
+    expect(rows.nth(1)).to_contain_text("#61 Read the sub-issues")
+    expect(rows.nth(1)).to_contain_text("Done")
+    expect(rows.nth(2)).to_contain_text("#62 Show each feature")
+    expect(rows.nth(2)).to_contain_text("Building")
+    expect(rows.nth(3)).to_contain_text("#63 The feature's page")
+    expect(rows.nth(3)).to_contain_text("Queued")
+    _look(page, "devflow-feature-page")
+
+    # A card's page links back to its feature.
+    rows.nth(1).get_by_role("link", name="#61 Read the sub-issues").click()
+    expect(page).to_have_url(f"{base_url}/devflow/projects/{project}/cards/61")
+    page.get_by_role("link", name="Feature #60: The feature's branch").click()
+    expect(page).to_have_url(f"{base_url}/devflow/projects/{project}/features/60")
+    expect(page.get_by_role("heading", name="The feature's branch")).to_be_visible()
+
+
+def test_i_answer_a_decision_fine_as_it_is(
+    page: Page, invite_code: str, base_url: str, viewport: str, devflow_world
+):
+    register_and_log_in(page, invite_code, base_url)
+    project = _landed_feature(page, base_url, devflow_world)
+    world_before = page.request.get("/devflow/api/fake/world").json()
+    writes_before = _writes(page)
+
+    page.goto(f"/devflow/projects/{project}/features/60")
+    wants = page.get_by_role("article", name="What the agents want you to know")
+    expect(wants).to_contain_text("Show it on every list")
+    wants.get_by_role("button", name="Fine as it is").click()
+
+    # Answered in place: no button left, and it says when.
+    expect(wants.get_by_role("button")).to_have_count(0)
+    expect(wants.get_by_text("Fine as it is", exact=True)).to_be_visible()
+    expect(wants).to_contain_text("answered")
+
+    # Kept: a reload shows it answered still.
+    page.reload()
+    wants = page.get_by_role("article", name="What the agents want you to know")
+    expect(wants.get_by_text("Fine as it is", exact=True)).to_be_visible()
+    expect(wants.get_by_role("button")).to_have_count(0)
+
+    # Nothing of it reached the code host.
+    assert page.request.get("/devflow/api/fake/world").json() == world_before
+    assert _writes(page) == writes_before
+    _look(page, "devflow-feature-decision-answered")

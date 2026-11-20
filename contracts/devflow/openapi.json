@@ -35,6 +35,22 @@
         ],
         "type": "object"
       },
+      "CardFeature": {
+        "properties": {
+          "number": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "number",
+          "title"
+        ],
+        "type": "object"
+      },
       "CardItem": {
         "properties": {
           "base": {
@@ -475,6 +491,16 @@
       },
       "CardStoryView": {
         "properties": {
+          "feature": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CardFeature"
+              }
+            ]
+          },
           "merge": {
             "oneOf": [
               {
@@ -565,7 +591,8 @@
           "reviews",
           "rounds",
           "screenshots",
-          "merge"
+          "merge",
+          "feature"
         ],
         "type": "object"
       },
@@ -786,6 +813,22 @@
         ],
         "type": "object"
       },
+      "DecisionAnswer": {
+        "properties": {
+          "answer": {
+            "type": "string"
+          },
+          "answered_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "answer",
+          "answered_at"
+        ],
+        "type": "object"
+      },
       "DecisionItem": {
         "properties": {
           "alternative": {
@@ -964,6 +1007,195 @@
           "failures",
           "since",
           "wait_until"
+        ],
+        "type": "object"
+      },
+      "FeatureBranch": {
+        "properties": {
+          "commit": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "commit"
+        ],
+        "type": "object"
+      },
+      "FeatureCard": {
+        "properties": {
+          "decisions": {
+            "items": {
+              "$ref": "#/components/schemas/FeatureDecision"
+            },
+            "type": "array"
+          },
+          "fix_rounds": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "input_tokens": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "number": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "output_tokens": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "reason": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "screenshots": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CardScreenshots"
+              }
+            ]
+          },
+          "state": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "web_url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "number",
+          "title",
+          "web_url",
+          "state",
+          "reason",
+          "fix_rounds",
+          "input_tokens",
+          "output_tokens",
+          "screenshots",
+          "decisions"
+        ],
+        "type": "object"
+      },
+      "FeatureDecision": {
+        "properties": {
+          "alternative": {
+            "type": "string"
+          },
+          "answer": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DecisionAnswer"
+              }
+            ]
+          },
+          "chosen": {
+            "type": "string"
+          },
+          "position": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "reviewer_view": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "run_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "why": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id",
+          "position",
+          "chosen",
+          "alternative",
+          "why",
+          "reviewer_view",
+          "answer"
+        ],
+        "type": "object"
+      },
+      "FeatureStoryView": {
+        "properties": {
+          "branch": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/FeatureBranch"
+              }
+            ]
+          },
+          "cards": {
+            "items": {
+              "$ref": "#/components/schemas/FeatureCard"
+            },
+            "type": "array"
+          },
+          "number": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "pull_request": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CardPullRequest"
+              }
+            ]
+          },
+          "reason": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "state": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "web_url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "number",
+          "title",
+          "web_url",
+          "state",
+          "reason",
+          "branch",
+          "pull_request",
+          "cards"
         ],
         "type": "object"
       },
@@ -2997,7 +3229,7 @@
     },
     "/devflow/api/projects/{id}/cards/{number}": {
       "get": {
-        "description": "The card as last read, its number, title, web_url, state and reason, and its pull_request, number and url, null before one was opened; each of its runs, newest first, with its kind, the worker it was handed to, when it started and finished, how long it took, its result and, for a failure, its reason and whether it lay in the card, the auth method, the tokens in and out, the check's exit code and the last lines of its output, null when it did not run, and the commit it left; the latest report in its form, the latest build's, null when no build has handed one back; and each review, newest first, with the commit the worker reviewed, its verdict, summary, findings, each blocking or not with its file, line, what and why, the reviewer's view on each decision for the owner, when it was recorded, whether its copy is posted, and whether it is current, for the card's head commit; and the screenshots of its head commit, the commit, the pictures' names paired desktop and phone by page, read through getCardScreenshot, and the worker's note, null when its newest build that succeeded tried none. Read from what Dev flow stored, never from GitHub; every text from GitHub or an agent is to be shown as text. 404 for a project or a card the caller does not have. Without a valid token, 401 with an empty body.",
+        "description": "The card as last read, its number, title, web_url, state and reason, and its pull_request, number and url, null before one was opened; each of its runs, newest first, with its kind, the worker it was handed to, when it started and finished, how long it took, its result and, for a failure, its reason and whether it lay in the card, the auth method, the tokens in and out, the check's exit code and the last lines of its output, null when it did not run, and the commit it left; the latest report in its form, the latest build's, null when no build has handed one back; and each review, newest first, with the commit the worker reviewed, its verdict, summary, findings, each blocking or not with its file, line, what and why, the reviewer's view on each decision for the owner, when it was recorded, whether its copy is posted, and whether it is current, for the card's head commit; and the screenshots of its head commit, the commit, the pictures' names paired desktop and phone by page, read through getCardScreenshot, and the worker's note, null when its newest build that succeeded tried none. And the feature it is a card of, its number and title, null for a card on its own. Read from what Dev flow stored, never from GitHub; every text from GitHub or an agent is to be shown as text. 404 for a project or a card the caller does not have. Without a valid token, 401 with an empty body.",
         "operationId": "getCard",
         "parameters": [
           {
@@ -3306,6 +3538,144 @@
         "summary": "Send a card of Dev flow's own back, with a comment as the caller",
         "tags": [
           "ActionEndpoints"
+        ]
+      }
+    },
+    "/devflow/api/projects/{id}/features/{number}": {
+      "get": {
+        "description": "The feature as last read, its number, title, web_url, state and reason, null when there is nothing to say; its branch, the name and the commit it was at after the newest change its watch judged, or the one it was made at before any, null before the branch is made; its pull_request to the default branch, number and url, null before one is opened; and its cards in their sub-issue order, each with its number, title, web_url, state, reason, fix_rounds, the input_tokens and output_tokens of all its runs, the screenshots of its head commit as getCard has them, read through getCardScreenshot, and the decisions its latest report marked for the owner, each with the run_id of that report's run, its position among the report's decisions, what was chosen, the alternative, why, the reviewer_view from the newest review of the commit that run left, null without one, and the answer, null before one. Read from what Dev flow stored, never from GitHub; every text from GitHub or an agent is to be shown as text. 404 for a project or a feature the caller does not have. Without a valid token, 401 with an empty body.",
+        "operationId": "getFeature",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "number",
+            "required": true,
+            "schema": {
+              "format": "int32",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeatureStoryView"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Not Found"
+          }
+        },
+        "summary": "A feature's whole story so far",
+        "tags": [
+          "DevFlow"
+        ]
+      }
+    },
+    "/devflow/api/projects/{id}/features/{number}/decisions/{run}/{position}/fine": {
+      "post": {
+        "description": "Keeps the answer fine to the decision at position among the decisions of the report of run, a build or fix of a card of the feature, when that decision is marked for the owner and that report is still the card's latest, the one getFeature shows. Kept once, as first given: answering again changes nothing and answers the answer kept, with its answered_at. Never written to GitHub. 404 for a project, feature, run or decision the caller does not have, or one not marked for the owner; 409 when the card has a newer report than that run's, so the page is to be read again. Without a valid token, 401 with an empty body.",
+        "operationId": "answerDecisionFine",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "number",
+            "required": true,
+            "schema": {
+              "format": "int32",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "run",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "position",
+            "required": true,
+            "schema": {
+              "format": "int32",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DecisionAnswer"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Conflict"
+          }
+        },
+        "summary": "Answers a decision of a feature's card \"Fine as it is\", in Dev flow alone",
+        "tags": [
+          "FeatureEndpoints"
         ]
       }
     },
@@ -4299,6 +4669,9 @@
     },
     {
       "name": "CardScreenshotEndpoints"
+    },
+    {
+      "name": "FeatureEndpoints"
     },
     {
       "name": "RecipeEndpoints"

@@ -169,12 +169,16 @@ describe("the cards panel", () => {
 		if (held === undefined || queued === undefined)
 			throw new Error("two features");
 
-		// The feature's number links to its issue; its title is text until the
-		// feature has a page of its own.
+		// The feature's number links to its issue, and its title to the
+		// feature's own page, in Dev flow.
 		expect(held.getByRole("link", { name: "#40" }).getAttribute("href")).toBe(
 			"https://github.com/Adamniels/Personal-platform/issues/40",
 		);
-		expect(held.getByText("Feature 40").closest("a")).toBeNull();
+		const page = held.getByRole("link", { name: "Feature 40" });
+		expect(page.getAttribute("href")).toBe(
+			`/devflow/projects/${ID}/features/40`,
+		);
+		expect(page.getAttribute("target")).toBeNull();
 		expect(held.getAllByText("Held").length).toBe(3);
 		expect(held.getByText("Held by the label devflow-hold")).toBeTruthy();
 

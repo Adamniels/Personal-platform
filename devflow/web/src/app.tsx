@@ -13,11 +13,13 @@ import {
 	type ClaudeLoginApi,
 	type ClaudeLoginStatus,
 } from "./claude-login";
+import { type FeatureApi, FeaturePage } from "./feature";
 import { type ProjectApi, ProjectPage } from "./project";
 import { type Project, Projects, type ProjectsApi } from "./projects";
 import { GitHubLink } from "./projects-link";
 import {
 	cardAt,
+	featureAt,
 	projectAt,
 	projectPath,
 	SECTIONS,
@@ -52,6 +54,9 @@ export type AppProps = {
 	/** How a card's page reads its card, the service's by default; a test
 	 * passes its own. */
 	card?: CardApi;
+	/** How a feature's page reads its feature and answers a decision, the
+	 * service's by default; a test passes its own. */
+	feature?: FeatureApi;
 	/** The time, in milliseconds since the epoch, the page says how old the
 	 * picture is by; a test passes its own. */
 	now?: () => number;
@@ -115,6 +120,27 @@ const cardApi: CardApi = {
 			throw error;
 		}
 	},
+};
+
+/** A feature's story and its answers, through Dev flow's API; a feature the
+ * caller does not have answers 404, which the page shows as none. */
+const featureApi: FeatureApi = {
+	loadFeature: async (project, number) => {
+		try {
+			return await client.get(
+				`/projects/${encodeURIComponent(project)}/features/${number}` as "/projects/{id}/features/{number}",
+			);
+		} catch (error) {
+			if (error instanceof ApiError && error.problem.status === 404)
+				return null;
+			throw error;
+		}
+	},
+	answerFine: (project, number, run, position) =>
+		client.send<components["schemas"]["DecisionAnswer"]>(
+			"POST",
+			`/projects/${encodeURIComponent(project)}/features/${number}/decisions/${encodeURIComponent(run)}/${position}/fine`,
+		),
 };
 
 /** The Claude login, through Dev flow's API. The token is sent, never
@@ -201,15 +227,17 @@ function Frame({
 	waiting = waitingApi,
 	actions = actionsApi,
 	card = cardApi,
+	feature = featureApi,
 	now = Date.now,
 }: AppProps) {
 	const pathname = usePathname();
-	// A project's page, and a card's page under it, are under the Projects
-	// tab, which stays selected there.
+	// A project's page, and a card's page and a feature's page under it, are
+	// under the Projects tab, which stays selected there.
 	const projectId = projectAt(pathname);
 	const cardOf = cardAt(pathname);
+	const featureOf = featureAt(pathname);
 	const current =
-		projectId || cardOf
+		projectId || cardOf || featureOf
 			? SECTIONS.find((section) => section.key === "projects")
 			: sectionAt(pathname);
 	useCrumb(current);
@@ -270,6 +298,15 @@ function Frame({
 								backPath={projectPath(cardOf.project)}
 								back={() => navigate(projectPath(cardOf.project))}
 								{...card}
+							/>
+						) : section.key === "projects" && featureOf ? (
+							<FeaturePage
+								key={`${featureOf.project}/${featureOf.number}`}
+								project={featureOf.project}
+								number={featureOf.number}
+								backPath={projectPath(featureOf.project)}
+								back={() => navigate(projectPath(featureOf.project))}
+								{...feature}
 							/>
 						) : section.key === "projects" && projectId ? (
 							<ProjectPage

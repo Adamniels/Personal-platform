@@ -1,15 +1,15 @@
 // A project's Cards panel, under its Settings: the project's features as its last read found
-// them, each with its number, linked to its parent issue on GitHub, its title, its state and why
-// it is there, and its cards in their order; then every card on its own, newest change first. A
-// card shows its number, linked to the issue on GitHub, its title, a link to the card's own page,
-// its state and why it is there. Read from what Dev flow stored, never from GitHub. See "Cards"
+// them, each with its number, linked to its parent issue on GitHub, its title, linked to the
+// feature's page, its state and why it is there, and its cards in their order; then every card on
+// its own, newest change first. A card shows its number, linked to the issue on GitHub, its title,
+// a link to the card's own page, its state and why it is there. Read from what Dev flow stored, never from GitHub. See "Cards"
 // and "Features" in devflow/README.md.
 import { Card as Panel, Status, type StatusTone } from "@platform/ui";
 import { useEffect, useState } from "react";
 import { navigate, plainClick } from "./address";
 import type { components } from "./api/schema";
 import styles from "./cards.module.css";
-import { cardPath } from "./sections";
+import { cardPath, featurePath } from "./sections";
 import { linkable } from "./waiting";
 
 export type Card = components["schemas"]["CardView"];
@@ -117,9 +117,8 @@ function IssueNumber({ number, url }: { number: number; url: string }) {
 }
 
 /** A feature as an inset row: its number, linked to its parent issue, its
- * title as text until the feature has a page of its own, its state, its
- * reason under them, and then its cards in their order, each a row of its
- * own. */
+ * title, linked to the feature's page, its state, its reason under them, and
+ * then its cards in their order, each a row of its own. */
 function FeatureRow({
 	project,
 	feature,
@@ -128,11 +127,23 @@ function FeatureRow({
 	feature: Feature;
 }) {
 	const { word, tone } = stateWord(feature.state);
+	const page = featurePath(project, feature.number);
 	return (
 		<li className={styles.row}>
 			<div className={styles.head}>
 				<IssueNumber number={feature.number} url={feature.web_url} />
-				<span className={styles.title}>{feature.title}</span>
+				<a
+					className={styles.title}
+					href={page}
+					onClick={(event) => {
+						if (plainClick(event)) {
+							event.preventDefault();
+							navigate(page);
+						}
+					}}
+				>
+					{feature.title}
+				</a>
 				<Status tone={tone} className={styles.state}>
 					{word}
 				</Status>
