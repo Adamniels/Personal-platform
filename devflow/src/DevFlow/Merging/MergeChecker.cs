@@ -45,7 +45,7 @@ public sealed partial class MergeChecker(UserDb database, ICodeHost host, AppMer
                 if (hold != ProjectHold.None)
                 {
                     // A project that holds merges nothing, so nothing is asked of the code host.
-                    facts = Facts(project, card, hold, Unread<PullRequest>(), Unread<IReadOnlyList<CommitStatus>>(), Unread<IReadOnlyList<CheckRun>>(), Unread<IReadOnlyList<Issue>>(), Unread<IReadOnlyList<IssueEdit>>());
+                    facts = Facts(project, card, hold, Unread<PullRequest>(), Unread<IReadOnlyList<CommitStatus>>(), Unread<IReadOnlyList<CheckRun>>(), Unread<IReadOnlyList<Issue>>(), Unread<IReadOnlyList<IssueEdit>>(), Unread<IReadOnlyList<SubIssue>>(), Unread<IReadOnlyList<IssueEdit>>());
                 }
                 else
                 {
@@ -55,7 +55,10 @@ public sealed partial class MergeChecker(UserDb database, ICodeHost host, AppMer
                     var checkRuns = head is null ? Unread<IReadOnlyList<CheckRun>>() : await host.CheckRuns(userId, repository, head, cancellationToken);
                     labelled ??= await host.LabelledIssues(userId, repository, project.PickupLabel, cancellationToken);
                     var edits = await host.Edits(userId, repository, card.Number, cancellationToken);
-                    facts = Facts(project, card, hold, pull, statuses, checkRuns, labelled, edits);
+                    // A card of a feature is read as its parent lists it, and the parent as a card.
+                    var subIssues = card.FeatureNumber is { } feature ? await host.SubIssues(userId, repository, feature, cancellationToken) : Unread<IReadOnlyList<SubIssue>>();
+                    var featureEdits = card.FeatureNumber is { } parent ? await host.Edits(userId, repository, parent, cancellationToken) : Unread<IReadOnlyList<IssueEdit>>();
+                    facts = Facts(project, card, hold, pull, statuses, checkRuns, labelled, edits, subIssues, featureEdits);
                 }
 
                 switch (MergeCheck.Decide(facts))
@@ -148,7 +151,9 @@ public sealed partial class MergeChecker(UserDb database, ICodeHost host, AppMer
         CodeHostResult<IReadOnlyList<CommitStatus>> statuses,
         CodeHostResult<IReadOnlyList<CheckRun>> checkRuns,
         CodeHostResult<IReadOnlyList<Issue>> labelled,
-        CodeHostResult<IReadOnlyList<IssueEdit>> edits) => new(
+        CodeHostResult<IReadOnlyList<IssueEdit>> edits,
+        CodeHostResult<IReadOnlyList<SubIssue>> subIssues,
+        CodeHostResult<IReadOnlyList<IssueEdit>> featureEdits) => new(
         time.GetUtcNow(),
         hold,
         project.WaitsForOwner,
@@ -157,13 +162,23 @@ public sealed partial class MergeChecker(UserDb database, ICodeHost host, AppMer
         project.OwnerLogin,
         card.Number,
         new CardRecord(card.BodySha256, card.Title, card.NewestEdit),
-        card.HeadCommit is { } commit && card.PushedAt is { } pushed ? new CheckedHead(commit, card.CheckExitCode, Utc(pushed)) : null,
+        card.HeadCommit is { } commit && card.PushedAt is { } pushed && card.Base is { } ran ? new CheckedHead(commit, card.CheckExitCode, Utc(pushed), ran) : null,
         card.Verdict is { } verdict && card.ReviewedCommit is { } reviewed ? new LatestReview(verdict, reviewed) : null,
         pull,
         statuses,
         checkRuns,
         labelled,
-        edits);
+        edits,
+        card.FeatureNumber is { } feature
+            ? new FeatureFacts(
+                feature,
+                card.FeatureUnwatched,
+                card.FeatureBodySha256 is { } sha && card.FeatureTitle is { } title ? new CardRecord(sha, title, card.FeatureNewestEdit) : null,
+                project.Owner,
+                project.Name,
+                subIssues,
+                featureEdits)
+            : null);
 
     /// <summary>A read that was not made, which the check takes as one that could not be.</summary>
     private static CodeHostResult<T> Unread<T>() => new CodeHostResult<T>.Unavailable(RetryAt: null);
@@ -172,30 +187,34 @@ public sealed partial class MergeChecker(UserDb database, ICodeHost host, AppMer
 
     /// <summary>The project as the check reads it, with whether it holds, and its cards due for the
     /// check, each with the record of what was picked, what its newest build or fix that succeeded
-    /// left, and its latest review; read in one transaction as the user. Null for a project the user
-    /// does not have.</summary>
+    /// left and the base it ran on, its latest review, and for a card of a feature the parent's
+    /// number and record and whether the feature's branch was read lately; read in one transaction
+    /// as the user. Null for a project the user does not have.</summary>
     private async Task<(ProjectRow? Project, IReadOnlyList<DueCard> Due)> Due(Guid projectId, Guid userId, CancellationToken cancellationToken) =>
         await database.InUserTransaction<(ProjectRow?, IReadOnlyList<DueCard>)>(userId, async transaction =>
         {
             var due = (await transaction.Connection!.QueryAsync<DueCard>(new CommandDefinition(
-                """
-                SELECT c.number AS Number, c.pull_request_number AS PullRequest, c.picked_body_sha256 AS BodySha256,
-                       c.picked_title AS Title, c.picked_edit AS NewestEdit,
-                       h.head_commit AS HeadCommit, h.check_exit_code AS CheckExitCode, h.finished_at AS PushedAt,
-                       v.verdict AS Verdict, v.reviewed_commit AS ReviewedCommit
-                FROM cards c
-                LEFT JOIN LATERAL (SELECT head_commit, check_exit_code, finished_at FROM runs
-                                   WHERE runs.project_id = c.project_id AND runs.card_number = c.number
+                $"""
+                SELECT cards.number AS Number, cards.pull_request_number AS PullRequest, cards.picked_body_sha256 AS BodySha256,
+                       cards.picked_title AS Title, cards.picked_edit AS NewestEdit,
+                       h.head_commit AS HeadCommit, h.check_exit_code AS CheckExitCode, h.finished_at AS PushedAt, h.base AS Base,
+                       v.verdict AS Verdict, v.reviewed_commit AS ReviewedCommit,
+                       f.number AS FeatureNumber, f.picked_body_sha256 AS FeatureBodySha256, f.picked_title AS FeatureTitle,
+                       f.picked_edit AS FeatureNewestEdit, NOT {WatchStore.FeatureWatchedSql} AS FeatureUnwatched
+                FROM cards
+                LEFT JOIN features f ON f.id = cards.feature_id
+                LEFT JOIN LATERAL (SELECT head_commit, check_exit_code, finished_at, base FROM runs
+                                   WHERE runs.project_id = cards.project_id AND runs.card_number = cards.number
                                      AND runs.kind IN ('build', 'fix') AND runs.result = 'succeeded'
                                    ORDER BY started_at DESC, id DESC LIMIT 1) h ON true
                 LEFT JOIN LATERAL (SELECT verdict, reviewed_commit FROM reviews
-                                   WHERE reviews.project_id = c.project_id AND reviews.card_number = c.number
+                                   WHERE reviews.project_id = cards.project_id AND reviews.card_number = cards.number
                                    ORDER BY reviewed_at DESC, run_id DESC LIMIT 1) v ON true
-                WHERE c.project_id = @projectId AND c.state = 'waiting_for_owner' AND c.merge_check_due
-                  AND c.pull_request_number IS NOT NULL AND c.picked_body_sha256 IS NOT NULL
-                ORDER BY c.number
+                WHERE cards.project_id = @projectId AND cards.state = 'waiting_for_owner' AND cards.merge_check_due
+                  AND cards.pull_request_number IS NOT NULL AND cards.picked_body_sha256 IS NOT NULL
+                ORDER BY cards.number
                 """,
-                new { projectId },
+                new { projectId, watchedSince = WatchStore.WatchedSince(time.GetUtcNow()) },
                 transaction,
                 cancellationToken: cancellationToken))).ToList();
             if (due.Count == 0)
@@ -264,5 +283,17 @@ public sealed partial class MergeChecker(UserDb database, ICodeHost host, AppMer
         public string? Verdict { get; init; }
 
         public string? ReviewedCommit { get; init; }
+
+        public string? Base { get; init; }
+
+        public int? FeatureNumber { get; init; }
+
+        public byte[]? FeatureBodySha256 { get; init; }
+
+        public string? FeatureTitle { get; init; }
+
+        public string? FeatureNewestEdit { get; init; }
+
+        public bool FeatureUnwatched { get; init; }
     }
 }

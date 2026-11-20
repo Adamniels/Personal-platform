@@ -40,7 +40,7 @@ public sealed class DecideTests
         "octo-owner",
         1,
         new CardRecord(SHA256.HashData(Encoding.UTF8.GetBytes(Body)), "Card 1", null),
-        new CheckedHead(Head, 0, Pushed),
+        new CheckedHead(Head, 0, Pushed, "main"),
         new LatestReview("approve", Head),
         Found(Pull),
         Found<IReadOnlyList<CommitStatus>>([new CommitStatus("deploy/preview", StatusState.Success, null)]),
@@ -84,6 +84,8 @@ public sealed class DecideTests
         { "no run succeeded", MergeCheck.NotChecked, false },
         { "check failed", MergeCheck.CheckFailed, false },
         { "check did not run", MergeCheck.CheckFailed, false },
+        { "goes into another branch", MergeCheck.IntoAnother("release", "main"), false },
+        { "base differs only in case", MergeCheck.IntoAnother("Main", "main"), false },
         { "no review", MergeCheck.NotApproved, false },
         { "review of an older commit", MergeCheck.NotApproved, false },
         { "review asked for changes", MergeCheck.ChangesAsked, false },
@@ -131,8 +133,10 @@ public sealed class DecideTests
         "pull request closed" => Good with { PullRequest = Found(Pull with { State = PullRequestState.Closed }) },
         "head moved" => Good with { PullRequest = Found(Pull with { HeadCommit = Older }) },
         "no run succeeded" => Good with { Head = null },
-        "check failed" => Good with { Head = new CheckedHead(Head, 1, Pushed) },
-        "check did not run" => Good with { Head = new CheckedHead(Head, null, Pushed) },
+        "check failed" => Good with { Head = new CheckedHead(Head, 1, Pushed, "main") },
+        "check did not run" => Good with { Head = new CheckedHead(Head, null, Pushed, "main") },
+        "goes into another branch" => Good with { PullRequest = Found(Pull with { BaseBranch = "release" }) },
+        "base differs only in case" => Good with { PullRequest = Found(Pull with { BaseBranch = "Main" }) },
         "no review" => Good with { Review = null },
         "review of an older commit" => Good with { Review = new LatestReview("approve", Older) },
         "review asked for changes" => Good with { Review = new LatestReview("changes", Head) },
@@ -173,4 +177,87 @@ public sealed class DecideTests
         },
         _ => throw new ArgumentOutOfRangeException(nameof(condition), condition, "not a condition"),
     };
+
+    private const string Branch = "feature-10-dev-flow-features";
+    private const string ParentBody = "The whole of feature 10.";
+
+    private static readonly Issue ParentIssue = new(10, "Dev flow: features", "octo-owner", ["devflow"], ParentBody,
+        new Uri("https://github.com/Adamniels/Personal-platform/issues/10"), Pushed.AddDays(-2), IsPullRequest: false);
+
+    private static readonly SubIssue CardSub = new(1, "Card 1", Body, Open: true, "octo-owner", [], Pushed.AddDays(-1), "Adamniels", "Personal-platform",
+        new Uri("https://github.com/Adamniels/Personal-platform/issues/1"), IsPullRequest: false);
+
+    /// <summary>Facts where every condition holds for card 1 of feature 10, whose parent alone
+    /// carries the pick-up label, its pull request into the feature's branch.</summary>
+    private static readonly MergeFacts GoodFeature = Good with
+    {
+        Head = new CheckedHead(Head, 0, Pushed, Branch),
+        PullRequest = Found(Pull with { BaseBranch = Branch }),
+        Labelled = Found<IReadOnlyList<Issue>>([ParentIssue]),
+        Feature = new FeatureFacts(
+            10,
+            BranchUnwatched: false,
+            new CardRecord(SHA256.HashData(Encoding.UTF8.GetBytes(ParentBody)), "Dev flow: features", null),
+            "Adamniels",
+            "Personal-platform",
+            Found<IReadOnlyList<SubIssue>>([CardSub]),
+            Found<IReadOnlyList<IssueEdit>>([])),
+    };
+
+    [Fact]
+    public void AFeaturesCardMergesIntoItsBranch() =>
+        Assert.Equal(new MergeDecision.Merge(Head), MergeCheck.Decide(GoodFeature));
+
+    /// <summary>Each condition of a feature's card, and of its parent, changed alone.</summary>
+    public static TheoryData<string, string, bool> FeatureCases() => new()
+    {
+        { "feature's branch unwatched", MergeCheck.FeatureUnwatched, true },
+        { "sub-issues unread", MergeCheck.CouldNotRead("the card"), true },
+        { "parent's edits unread", MergeCheck.CouldNotRead("the card"), true },
+        { "parent unlabelled", MergeCheck.FeatureNotLabelled(10, "devflow"), false },
+        { "only the card labelled", MergeCheck.FeatureNotLabelled(10, "devflow"), false },
+        { "parent never picked", CardPicker.FeatureNotPicked(10), false },
+        { "parent written by someone else", MergeCheck.FeatureWrittenBy(10, "mallory"), false },
+        { "parent held", MergeCheck.FeatureHeld(10, "devflow-hold"), false },
+        { "parent edited by someone else", MergeCheck.FeatureEditedBy(10, "mallory"), false },
+        { "parent changed with no history", MergeCheck.FeatureChangedUnseen(10), false },
+        { "no longer a sub-issue", MergeCheck.NotSubIssue(10), false },
+        { "sub-issue closed", MergeCheck.NotSubIssue(10), false },
+        { "sub-issue of another repository", MergeCheck.NotSubIssue(10), false },
+        { "card written by someone else", MergeCheck.WrittenBy("mallory"), false },
+        { "card held", MergeCheck.Held("devflow-hold"), false },
+        { "card changed with no history", MergeCheck.ChangedUnseen, false },
+        { "into the default branch", MergeCheck.IntoAnother("main", Branch), false },
+    };
+
+    [Theory]
+    [MemberData(nameof(FeatureCases))]
+    public void EachConditionAloneRefusesAFeaturesCard(string condition, string reason, bool tryAgain) =>
+        Assert.Equal(new MergeDecision.Wait(reason, tryAgain), MergeCheck.Decide(BreakFeature(condition)));
+
+    private static MergeFacts BreakFeature(string condition)
+    {
+        var feature = GoodFeature.Feature!;
+        return condition switch
+        {
+            "feature's branch unwatched" => GoodFeature with { Feature = feature with { BranchUnwatched = true } },
+            "sub-issues unread" => GoodFeature with { Feature = feature with { SubIssues = Down<IReadOnlyList<SubIssue>>() } },
+            "parent's edits unread" => GoodFeature with { Feature = feature with { Edits = new CodeHostResult<IReadOnlyList<IssueEdit>>.NotFound() } },
+            "parent unlabelled" => GoodFeature with { Labelled = Found<IReadOnlyList<Issue>>([]) },
+            "only the card labelled" => GoodFeature with { Labelled = Found<IReadOnlyList<Issue>>([CardIssue]) },
+            "parent never picked" => GoodFeature with { Feature = feature with { Record = null } },
+            "parent written by someone else" => GoodFeature with { Labelled = Found<IReadOnlyList<Issue>>([ParentIssue with { Author = "mallory" }]) },
+            "parent held" => GoodFeature with { Labelled = Found<IReadOnlyList<Issue>>([ParentIssue with { Labels = ["devflow", "devflow-hold"] }]) },
+            "parent edited by someone else" => GoodFeature with { Feature = feature with { Edits = Found<IReadOnlyList<IssueEdit>>([new IssueEdit("UCE_3", "mallory", Pushed, EditKind.Body)]) } },
+            "parent changed with no history" => GoodFeature with { Labelled = Found<IReadOnlyList<Issue>>([ParentIssue with { Body = "Something else." }]) },
+            "no longer a sub-issue" => GoodFeature with { Feature = feature with { SubIssues = Found<IReadOnlyList<SubIssue>>([]) } },
+            "sub-issue closed" => GoodFeature with { Feature = feature with { SubIssues = Found<IReadOnlyList<SubIssue>>([CardSub with { Open = false }]) } },
+            "sub-issue of another repository" => GoodFeature with { Feature = feature with { SubIssues = Found<IReadOnlyList<SubIssue>>([CardSub with { Name = "Other" }]) } },
+            "card written by someone else" => GoodFeature with { Feature = feature with { SubIssues = Found<IReadOnlyList<SubIssue>>([CardSub with { Author = "mallory" }]) } },
+            "card held" => GoodFeature with { Feature = feature with { SubIssues = Found<IReadOnlyList<SubIssue>>([CardSub with { Labels = ["devflow-hold"] }]) } },
+            "card changed with no history" => GoodFeature with { Feature = feature with { SubIssues = Found<IReadOnlyList<SubIssue>>([CardSub with { Body = "Something else." }]) } },
+            "into the default branch" => GoodFeature with { PullRequest = Found(Pull with { BaseBranch = "main" }) },
+            _ => throw new ArgumentOutOfRangeException(nameof(condition), condition, "not a condition"),
+        };
+    }
 }
