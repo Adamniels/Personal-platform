@@ -2862,3 +2862,126 @@ def test_a_decision_for_me_becomes_an_issue(
     assert refreshed.status == 204, refreshed.text()
     page.reload()
     expect(decisions.get_by_role("article")).to_have_count(0)
+
+
+def test_a_features_card_lands_in_its_branch(
+    page: Page, invite_code: str, base_url: str, viewport: str, devflow_world
+):
+    register_and_log_in(page, invite_code, base_url)
+    # A labelled feature of two cards, and the project's .devflow/project.json.
+    world = one_repository()
+    add_issue(
+        world, 60, "The feature's branch", labels=["devflow"], sub_issues=[61, 62]
+    )
+    add_issue(world, 61, "Make the feature's branch")
+    add_issue(world, 62, "Close a landed card's issue")
+    add_file(
+        world,
+        ".devflow/project.json",
+        json.dumps({"version": 1, "check": CHECK, "start": "", "url": ""}).encode(),
+    )
+    _open_project(page, base_url, devflow_world, world)
+    project = page.url.rsplit("/", 1)[1]
+    given = page.request.put(
+        "/devflow/api/claude-login",
+        data={"token": CLAUDE_TOKEN},
+        headers={"Origin": base_url},
+    )
+    assert given.status == 200, given.text()
+    refreshed = page.request.post(
+        f"/devflow/api/projects/{project}/refresh", headers={"Origin": base_url}
+    )
+    assert refreshed.status == 204, refreshed.text()
+
+    # The fake worker builds the first card with a passing check, on a branch
+    # of its own from the feature's, and its pull request goes into the
+    # feature's branch. The project is read, so the feature's branch is watched.
+    ran = page.request.post(
+        "/devflow/api/fake/worker/run",
+        data={
+            "project_id": project,
+            "result": {
+                "outcome": "succeeded",
+                "report": _report(),
+                "failure": None,
+                "check": {"exit_code": 0, "output": "Tests: 12 passed"},
+                "auth_method": "oauth_token",
+                "usage": {
+                    "usage": {"input_tokens": 41, "output_tokens": 6113},
+                    "num_turns": 23,
+                },
+                "duration_ms": 184213,
+                "stderr": "",
+            },
+        },
+        headers={"Origin": base_url},
+    )
+    assert ran.status == 200, ran.text()
+    assert ran.json()["card"] == 61
+    pull = _opened(page)
+    assert pull["base_branch"] == FEATURE_BRANCH
+    refreshed = page.request.post(
+        f"/devflow/api/projects/{project}/refresh", headers={"Origin": base_url}
+    )
+    assert refreshed.status == 204, refreshed.text()
+
+    # CI green and the reviewer's approve: with the project on never, Dev flow
+    # merges it into the feature's branch as the app.
+    _stage_ci(page, devflow_world, ran.json()["head_commit"], [check_run("test")])
+    _fake_review(page, base_url, project, _verdict("approve"))
+    merges = [write for write in _writes(page) if write["kind"] == "merge"]
+    assert len(merges) == 1, merges
+    assert (merges[0]["by"], merges[0]["purpose"]) == (APP_LOGIN, "merge")
+    assert merges[0]["commit"] == ran.json()["head_commit"]
+
+    # Its issue is closed in the fake world, after the app's one comment
+    # saying where it landed.
+    staged = repository(page.request.get("/devflow/api/fake/world").json())
+    card = next(issue for issue in staged["issues"] if issue["number"] == 61)
+    assert card["open"] is False
+    said = [
+        comment["body"]
+        for conversation in staged["conversations"]
+        if conversation["number"] == 61
+        for comment in conversation["comments"]
+        if comment["author"] == APP_LOGIN
+    ]
+    landed = (
+        f"Built and merged into the feature's branch `{FEATURE_BRANCH}` in "
+        f"#{pull['number']}. It reaches `main` with its feature, #60."
+    )
+    assert said == [landed]
+
+    # The second card is handed out next, from the feature's branch.
+    taken = page.request.post(
+        "/devflow/api/fake/worker/run",
+        data={"project_id": project, "keep_running": True},
+        headers={"Origin": base_url},
+    )
+    assert taken.status == 200, taken.text()
+    assert taken.json()["card"] == 62
+
+    # The project's page shows the first card Done and the second Building.
+    page.goto(f"/devflow/projects/{project}")
+    feature = page.get_by_role("list", name="Features", exact=True).locator(
+        ":scope > li"
+    )
+    rows = feature.get_by_role("list", name="Cards of #60", exact=True).get_by_role(
+        "listitem"
+    )
+    expect(rows).to_have_count(2)
+    expect(rows.nth(0)).to_contain_text("#61")
+    expect(rows.nth(0)).to_contain_text("Done")
+    expect(rows.nth(1)).to_contain_text("#62")
+    expect(rows.nth(1)).to_contain_text("Building")
+
+    page.evaluate("document.fonts.ready.then(() => null)")
+    for check in (
+        assert_headings_are_capitals,
+        assert_nothing_scrolls_sideways,
+        assert_active_is_inverted,
+        assert_nothing_active_is_amber,
+    ):
+        check(page)
+    assert _axe_violations(page) == []
+    capture(page, "devflow-feature-card-landed")

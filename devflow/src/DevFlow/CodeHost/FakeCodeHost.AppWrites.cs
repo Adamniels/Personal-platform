@@ -299,6 +299,26 @@ public sealed partial class FakeCodeHost : IDisposable
     public Task<WriteResult<IReadOnlyList<string>>> RemoveLabel(Guid userId, AppWriteToken token, Repository repository, int number, string label, CancellationToken cancellationToken) =>
         Label(userId, token, repository, number, label, add: false);
 
+    /// <summary>Refused with <c>404</c> for a number with no issue, a pull request's included, as
+    /// the world holds them; otherwise the issue is closed, or opened again, by the app, as it
+    /// already was included, and recorded as <c>issue_closed</c> or <c>issue_opened</c>.</summary>
+    public Task<WriteResult<Issue>> SetIssueState(Guid userId, AppWriteToken token, Repository repository, int number, bool open, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(token);
+        token.Require(WritePurpose.Post, repository);
+        return Task.FromResult(AsApp<WriteResult<Issue>>(userId, token, repository, Unavailable<Issue>(), Refused<Issue>, found =>
+        {
+            if (found.Issues.FirstOrDefault(issue => issue.Number == number) is not { } issue)
+            {
+                return (Refused<Issue>(StatusCodes.Status404NotFound, NotFoundMessage), null, null);
+            }
+
+            return (new WriteResult<Issue>.Written(new Issue(issue.Number, issue.Title, issue.Author, issue.Labels, issue.Body, issue.Url, issue.CreatedAt, IsPullRequest: false)),
+                found with { Issues = [.. found.Issues.Select(each => each.Number == number ? each with { Open = open } : each)] },
+                new FakeWrite(open ? "issue_opened" : "issue_closed", repository.Id, number, null, null, null, AppLogin, Post));
+        }));
+    }
+
     /// <summary>Opened by the app with the next number and the labels, open, blocked by nothing and
     /// never edited, in the world's issues.</summary>
     public Task<WriteResult<Issue>> OpenIssue(Guid userId, AppWriteToken token, Repository repository, string title, string body, IReadOnlyList<string> labels, CancellationToken cancellationToken)
@@ -321,13 +341,15 @@ public sealed partial class FakeCodeHost : IDisposable
     /// <summary>As the owner's <see cref="Merge"/>: refused with <c>404</c> for a pull request the
     /// world does not hold, not mergeable unless it is open, head moved unless its head is
     /// <paramref name="commit"/>, and otherwise merged, by the app, landing on its base as
-    /// <see cref="WithMerge"/> says. Its git repository is not changed.</summary>
-    public Task<MergeResult> MergeAsApp(Guid userId, AppWriteToken token, Repository repository, int number, string commit, CancellationToken cancellationToken)
+    /// <see cref="WithMerge"/> says, with a merge commit in its git repository when it holds the
+    /// base and the head, see <see cref="PrepareMerge"/>.</summary>
+    public async Task<MergeResult> MergeAsApp(Guid userId, AppWriteToken token, Repository repository, int number, string commit, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(token);
         token.Require(WritePurpose.Merge, repository);
         ArgumentNullException.ThrowIfNull(commit);
-        return Task.FromResult(AsApp<MergeResult>(userId, token, repository, new MergeResult.Unavailable(RetryAt: null), (status, message) => new MergeResult.Refused(status, message), found =>
+        var prepared = await PrepareMerge(userId, repository, number, commit, cancellationToken);
+        var result = AsApp<MergeResult>(userId, token, repository, new MergeResult.Unavailable(RetryAt: null), (status, message) => new MergeResult.Refused(status, message), found =>
         {
             if (found.PullRequests.FirstOrDefault(pull => pull.Number == number) is not { } pull)
             {
@@ -344,10 +366,84 @@ public sealed partial class FakeCodeHost : IDisposable
                 return (new MergeResult.HeadMoved(), null, null);
             }
 
-            var (changed, mergeCommit) = WithMerge(found, number, AppLogin);
+            var (changed, mergeCommit) = WithMerge(found, number, AppLogin, prepared?.Commit);
             return (new MergeResult.Merged(mergeCommit), changed,
                 new FakeWrite("merge", repository.Id, number, commit, "merge", null, AppLogin, "merge"));
-        }));
+        });
+        if (result is MergeResult.Merged && prepared is not null)
+        {
+            await Land(userId, repository, prepared, cancellationToken);
+        }
+
+        return result;
+    }
+
+    /// <summary>A merge commit made in git, not yet on its branch: the branch it goes on, the
+    /// commit the branch was at, and the merge commit.</summary>
+    private sealed record PreparedMerge(string Branch, string Before, string Commit);
+
+    /// <summary>The committer GitHub names on a merge it makes.</summary>
+    private static readonly Committer MergeCommitter = new("GitHub", "noreply@github.com");
+
+    /// <summary>
+    /// The merge commit of the pull request with the number, made in the repository's git
+    /// repository as GitHub's merge makes one, but on no branch yet: when the git repository holds
+    /// its base branch and <paramref name="head"/>, a commit with the base's tree, the fake's
+    /// commits never changing one, by GitHub's committer, with the base's commit and the head as its
+    /// parents. Null when it does not, which leaves the merge the world's alone, with a commit made
+    /// up, as a test that never built anything has it. <see cref="Land"/> moves the base to it once
+    /// the merge is made, so a build after it starts from the merge.
+    /// </summary>
+    private async Task<PreparedMerge?> PrepareMerge(Guid userId, Repository repository, int number, string head, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(repository);
+        if (_gitRoot is null || !FullId().IsMatch(head) || !Directory.Exists(GitPath(userId, repository))
+            || Find(Of(userId).World, repository) is not { } found
+            || found.PullRequests.FirstOrDefault(pull => pull.Number == number) is not { } pull)
+        {
+            return null;
+        }
+
+        var into = pull.BaseBranch is { Length: > 0 } named ? named : found.Default;
+        await _git.WaitAsync(cancellationToken);
+        try
+        {
+            string[] who = ["-c", $"user.name={MergeCommitter.Name}", "-c", $"user.email={MergeCommitter.Email}", "--git-dir", GitPath(userId, repository)];
+            if (await BranchCommit(userId, repository, into, cancellationToken) is not { } before
+                || (await Git(cancellationToken, [.. who, "cat-file", "-e", $"{head}^{{commit}}"])).Exit != 0)
+            {
+                return null;
+            }
+
+            var tree = await Git(cancellationToken, [.. who, "rev-parse", $"{before}^{{tree}}"]);
+            var message = string.Create(CultureInfo.InvariantCulture, $"Merge pull request #{number} from {pull.HeadBranch}");
+            if (tree.Exit != 0)
+            {
+                return null;
+            }
+
+            var merge = await Git(cancellationToken, [.. who, "commit-tree", tree.Output.Trim(), "-p", before, "-p", head, "-m", message]);
+            return merge.Exit == 0 ? new PreparedMerge(into, before, merge.Output.Trim()) : null;
+        }
+        finally
+        {
+            _git.Release();
+        }
+    }
+
+    /// <summary>Moves the merge's branch to its merge commit, only from the commit it was made
+    /// on.</summary>
+    private async Task Land(Guid userId, Repository repository, PreparedMerge merge, CancellationToken cancellationToken)
+    {
+        await _git.WaitAsync(cancellationToken);
+        try
+        {
+            await Git(cancellationToken, "--git-dir", GitPath(userId, repository), "update-ref", $"refs/heads/{merge.Branch}", merge.Commit, merge.Before);
+        }
+        finally
+        {
+            _git.Release();
+        }
     }
 
     /// <summary>

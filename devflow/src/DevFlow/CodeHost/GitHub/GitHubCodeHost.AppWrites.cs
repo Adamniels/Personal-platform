@@ -79,6 +79,17 @@ public sealed partial class GitHubCodeHost
         return Written<IssueAnswer, Issue>(answer, HttpStatusCode.Created, ToIssue);
     }
 
+    /// <summary><c>PATCH /repos/{owner}/{repo}/issues/{number}</c> with <c>state</c>
+    /// <c>closed</c> and <c>state_reason</c> <c>completed</c>, or <c>open</c> and
+    /// <c>reopened</c>; <c>200</c> is written, with the issue.</summary>
+    public async Task<WriteResult<Issue>> SetIssueState(Guid userId, AppWriteToken token, Repository repository, int number, bool open, CancellationToken cancellationToken)
+    {
+        Require(token, WritePurpose.Post, repository);
+        var state = open ? new IssueStateBody("open", "reopened") : new IssueStateBody("closed", "completed");
+        var answer = await Send(HttpMethod.Patch, Invariant($"{Repo(repository)}/issues/{number}"), state, token.Value, cancellationToken);
+        return Written<IssueAnswer, Issue>(answer, HttpStatusCode.OK, ToIssue);
+    }
+
     /// <summary><c>PUT /repos/{owner}/{repo}/pulls/{number}/merge</c> with <c>sha</c> and
     /// <c>merge_method</c> <c>merge</c>, as the owner's merge is, answered alike.</summary>
     public async Task<MergeResult> MergeAsApp(Guid userId, AppWriteToken token, Repository repository, int number, string commit, CancellationToken cancellationToken)
@@ -186,6 +197,9 @@ public sealed partial class GitHubCodeHost
 
     /// <summary>What opening an issue sends.</summary>
     private sealed record IssueBody(string Title, string Body, IReadOnlyList<string> Labels);
+
+    /// <summary>What setting an issue's state sends: the state and why.</summary>
+    private sealed record IssueStateBody(string State, string StateReason);
 
     /// <summary>What making a branch sends: its full ref and the commit it is made at.</summary>
     private sealed record RefBody(string Ref, string Sha);

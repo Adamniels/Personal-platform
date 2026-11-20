@@ -2,7 +2,7 @@
 
 Status: exploratory. The walking skeleton is being built.
 
-Last updated: 2026 11 19
+Last updated: 2026 11 20
 
 These are planning notes, not specifications. Everything here is the current best idea with the
 reasoning attached, and it is expected to change as building teaches things planning could not.
@@ -126,7 +126,8 @@ features" in `High-level/docs/platform-architecture.md`.
   its pages before it reports, a card's page, and
   fixing, with its rounds, the owner's comment as the one input read and sending a card back, the
   merge check, with its conditions in order, merging as the app and the issues for decisions marked
-  for the owner, stops, with what stops a card, its mark on GitHub, running it again on the owner's
+  for the owner, a feature's card checked through its parent and its issue closed by the app once it
+  lands, stops, with what stops a card, its mark on GitHub, running it again on the owner's
   comment and a project's wait after failures outside its cards, starting a worker, with the base
   image, the format of `.devflow/`, the recipe route, the
   two commands, the memory rule and when a worker needs a rebuild, the worker program with its
@@ -155,7 +156,8 @@ features" in `High-level/docs/platform-architecture.md`.
   how the waiting list reads Dev flow's own cards beside the runner's, why the report decides nothing, where a failure
   lies and when a run is lost, the worker's pictures and why they never decide a merge, why the developer looks at its own pages too, the review and why its verdict lives in the database tied to its
   commit, fixing, why rounds are limited and why the owner's comment is the one input read from
-  GitHub, the merge check, each condition and why it fails closed, stops, with what lies in the card
+  GitHub, the merge check, each condition and why it fails closed, a card of a feature, why the app
+  closes its issue and why its decisions open no issue, stops, with what lies in the card
   and what outside it, why a failure outside never counts, why one failure in the card is tried
   again, why a stop is marked on the card, running it again on his comment and reading the usage
   limit's reset, and its security decisions and accepted risks, kept for an audit,

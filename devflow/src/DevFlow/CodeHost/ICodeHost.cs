@@ -135,6 +135,12 @@ public interface ICodeHost
     /// with <c>404</c> when it did not carry it.</summary>
     Task<WriteResult<IReadOnlyList<string>>> RemoveLabel(Guid userId, AppWriteToken token, Repository repository, int number, string label, CancellationToken cancellationToken);
 
+    /// <summary>Closes the issue with the number, as completed, or opens it again when
+    /// <paramref name="open"/>, as the app, with a <see cref="WritePurpose.Post"/> key; answers the
+    /// issue as the host has it after. A card of a feature is closed this way when it lands in the
+    /// feature's branch.</summary>
+    Task<WriteResult<Issue>> SetIssueState(Guid userId, AppWriteToken token, Repository repository, int number, bool open, CancellationToken cancellationToken);
+
     /// <summary>Opens an issue with the labels, as the app, with a
     /// <see cref="WritePurpose.Post"/> key.</summary>
     Task<WriteResult<Issue>> OpenIssue(Guid userId, AppWriteToken token, Repository repository, string title, string body, IReadOnlyList<string> labels, CancellationToken cancellationToken);

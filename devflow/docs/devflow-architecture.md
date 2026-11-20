@@ -1015,6 +1015,45 @@ card itself.
 written, which the reviewer judges by the card's acceptance; and the agent's report, which never
 decides. Branch protection is not relied on either, as for the watch.
 
+### A card of a feature
+
+A card of a feature lands in the feature's branch, not the default branch, through the same check,
+"Where a finished card lands is a setting, and it follows the card" in the spec's round 2. Nothing
+of a feature reaches the default branch before the owner merges the feature himself.
+
+**The same function, with the feature's branch as the base.** `Decide` is not forked for features:
+the facts gain the card's feature, and the base the card's run used stands wherever the default
+branch did. The feature's branch not read for five minutes waits beside the default branch's, since
+nothing merges into a branch whose changes are not being judged. A pull request is merged only into
+the branch its card was built on, for a card on its own too: a base changed on GitHub since would
+land the card where nobody built or reviewed it to land, a feature's card in the default branch
+around the owner's own merge of the feature, so that is the owner's.
+
+**The card rules, read through the parent.** A feature's cards carry no label of their own, so "open
+with the pick-up label" is the parent's: the parent is open with the label, written by the owner,
+not held and edited by nobody else since it was picked, as picking checks it, and the card is an
+open sub-issue of it in this repository, written by the owner, not held and edited by nobody else.
+The parent is held to the rules because its body is in every brief of the feature, so a stranger's
+edit there reaches the agent as surely as one on the card.
+
+**Its issue is closed by the app, not by a closing keyword.** GitHub closes an issue from a closing
+keyword only when the pull request merges into the default branch, so a card landing in its
+feature's branch would stay open, and the parent, which counts its closed sub-issues, would show no
+progress. `LandedCards` closes it as the app once the card is `done`, whoever merged it, after one
+comment saying where it landed and that it reaches the default branch with its feature. It runs
+after the merge and on the minute, never in the reading code, so a merge by the owner from the page
+or on GitHub is told too. It reads the pull request first and tells only one merged into the
+feature's branch, since the comment would not be true of one merged elsewhere. It looks for its own
+comment before posting, as the stop's mark does, so an answer that was lost never posts it twice,
+and it records the pull request it told, not a flag, so a card sent back and landing again is told
+again without anything clearing it.
+
+**Its decisions open no attention issue.** The attention issues exist so a decision on something
+already in the default branch is not merged unseen. A feature's card's decisions are not in the
+default branch until the owner merges the feature, and the feature's page shows them with an
+answer, so they stay in the card's reports, with `never` and with `always`. A card on its own keeps
+its attention issues.
+
 ## Stops
 
 A card stops only when the program cannot produce a working result, and a problem outside the

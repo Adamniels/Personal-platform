@@ -191,6 +191,38 @@ public sealed class FakeAppWriteTests
         Assert.Single(fake.Writes(Owner));
     }
 
+    [Fact]
+    public async Task AnIssueIsClosedAndOpenedAgainAsTheApp()
+    {
+        using var fake = new FakeCodeHost(new FakeTimeProvider(At));
+        var card = new FakeIssue(272, "The vault", "octo-owner", [], "Seal the secrets.", new Uri("https://github.com/Adamniels/Personal-platform/issues/272"), At, Open: true, BlockedBy: [], Edits: []);
+        fake.Replace(Owner, World with
+        {
+            Installations = [.. World.Installations.Select(installation => installation with
+            {
+                Repositories = [.. installation.Repositories.Select(repository => repository with { Issues = [card] })],
+            })],
+        });
+        var post = await Key(fake, WritePurpose.Post);
+        bool Open() => fake.World(Owner).Installations.Single().Repositories.Single().Issues.Single().Open;
+
+        var closed = Assert.IsType<WriteResult<Issue>.Written>(await fake.SetIssueState(Owner, post, Platform, 272, open: false, Ct)).Value;
+        Assert.Equal((272, "The vault"), (closed.Number, closed.Title));
+        Assert.False(Open());
+        Assert.IsType<WriteResult<Issue>.Written>(await fake.SetIssueState(Owner, post, Platform, 272, open: true, Ct));
+        Assert.True(Open());
+        Assert.Equal(
+            [("issue_closed", 272, FakeCodeHost.AppLogin, "post"), ("issue_opened", 272, FakeCodeHost.AppLogin, "post")],
+            fake.Writes(Owner).Select(write => (write.Kind, write.Number, write.By, write.Purpose)));
+
+        // A pull request is not an issue to close here, nor is a number the world does not hold,
+        // and a key for another write is refused before anything is done.
+        Assert.Equal(404, Assert.IsType<WriteResult<Issue>.Refused>(await fake.SetIssueState(Owner, post, Platform, 304, open: false, Ct)).Status);
+        Assert.Equal(404, Assert.IsType<WriteResult<Issue>.Refused>(await fake.SetIssueState(Owner, post, Platform, 999, open: false, Ct)).Status);
+        await Assert.ThrowsAsync<ArgumentException>(async () => await fake.SetIssueState(Owner, await Key(fake, WritePurpose.Merge), Platform, 272, open: false, Ct));
+        Assert.Equal(2, fake.Writes(Owner).Count);
+    }
+
     /// <summary>git, as a worker runs it, in a folder of its own.</summary>
     private static class Git
     {

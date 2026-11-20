@@ -492,6 +492,12 @@ internal sealed class CountingCodeHost(ICodeHost inner) : ICodeHost
         return inner.RemoveLabel(userId, token, repository, number, label, cancellationToken);
     }
 
+    public Task<WriteResult<Issue>> SetIssueState(Guid userId, AppWriteToken token, CodeHost.Repository repository, int number, bool open, CancellationToken cancellationToken)
+    {
+        Record("SetIssueState", userId, repository, $"{number} {(open ? "open" : "closed")}");
+        return inner.SetIssueState(userId, token, repository, number, open, cancellationToken);
+    }
+
     public async Task<WriteResult<Issue>> OpenIssue(Guid userId, AppWriteToken token, CodeHost.Repository repository, string title, string body, IReadOnlyList<string> labels, CancellationToken cancellationToken)
     {
         Record("OpenIssue", userId, repository, "");

@@ -12,13 +12,36 @@ namespace DevFlow.Merging;
 public sealed record CardRecord(byte[] BodySha256, string Title, string? NewestEdit);
 
 /// <summary>The commit the card's newest build or fix that succeeded left, as Dev flow recorded
-/// it: the commit, how the worker's check ended on it, and when the worker pushed it, which is when
-/// its result came back.</summary>
-public sealed record CheckedHead(string Commit, int? CheckExitCode, DateTimeOffset PushedAt);
+/// it: the commit, how the worker's check ended on it, when the worker pushed it, which is when its
+/// result came back, and the branch it ran on, the default branch or its feature's, which the pull
+/// request must go into.</summary>
+public sealed record CheckedHead(string Commit, int? CheckExitCode, DateTimeOffset PushedAt, string Base);
 
 /// <summary>The card's latest review in Dev flow's own <c>reviews</c>: <c>approve</c> or
 /// <c>changes</c>, and the commit it is for.</summary>
 public sealed record LatestReview(string Verdict, string Commit);
+
+/// <summary>
+/// What the merge check reads of a card's feature, for a card of one: the parent's number, whether
+/// the feature's branch was not read within five minutes, the record of what was picked of the
+/// parent, null for a parent never picked, the repository a card must be in, and as the app the
+/// parent's sub-issues and its edits, each as it answered.
+/// </summary>
+/// <param name="Number">The parent's issue number.</param>
+/// <param name="BranchUnwatched">Whether the feature's branch was not read within five minutes.</param>
+/// <param name="Record">What was picked of the parent.</param>
+/// <param name="Owner">The owner of the project's repository, which its cards are in.</param>
+/// <param name="Name">The name of the project's repository.</param>
+/// <param name="SubIssues">The parent's sub-issues.</param>
+/// <param name="Edits">The parent's edit history.</param>
+public sealed record FeatureFacts(
+    int Number,
+    bool BranchUnwatched,
+    CardRecord? Record,
+    string Owner,
+    string Name,
+    CodeHostResult<IReadOnlyList<SubIssue>> SubIssues,
+    CodeHostResult<IReadOnlyList<IssueEdit>> Edits);
 
 /// <summary>
 /// Everything the merge check decides on, read fresh by its caller: Dev flow's own records of the
@@ -39,6 +62,7 @@ public sealed record LatestReview(string Verdict, string Commit);
 /// <param name="CheckRuns">The check runs on it.</param>
 /// <param name="Labelled">The repository's open issues carrying the pick-up label.</param>
 /// <param name="Edits">The card's edit history.</param>
+/// <param name="Feature">The card's feature, null for a card on its own.</param>
 public sealed record MergeFacts(
     DateTimeOffset Now,
     ProjectHold Hold,
@@ -54,7 +78,8 @@ public sealed record MergeFacts(
     CodeHostResult<IReadOnlyList<CommitStatus>> Statuses,
     CodeHostResult<IReadOnlyList<CheckRun>> CheckRuns,
     CodeHostResult<IReadOnlyList<Issue>> Labelled,
-    CodeHostResult<IReadOnlyList<IssueEdit>> Edits);
+    CodeHostResult<IReadOnlyList<IssueEdit>> Edits,
+    FeatureFacts? Feature = null);
 
 /// <summary>What the merge check answers. A closed set.</summary>
 public abstract record MergeDecision
@@ -123,15 +148,31 @@ public static class MergeCheck
 
     public static string CiFailed(string name) => $"CI failed: {name}";
 
+    public static string IntoAnother(string into, string built) => $"Its pull request goes into {into}, not {built}";
+
+    public static string NotSubIssue(int feature) => Invariant($"The card is no longer an open sub-issue of its feature, #{feature}");
+
+    public static string FeatureNotLabelled(int feature, string label) => Invariant($"Its feature, #{feature}, is no longer open with the label {label}");
+
+    public static string FeatureWrittenBy(int feature, string login) => Invariant($"Its feature, #{feature}, was written by {login}, not by you");
+
+    public static string FeatureHeld(int feature, string label) => Invariant($"Its feature, #{feature}, is held by the label {label}");
+
+    public static string FeatureEditedBy(int feature, string login) => Invariant($"Its feature, #{feature}, was edited by {login} since it was picked");
+
+    public static string FeatureChangedUnseen(int feature) => Invariant($"Its feature, #{feature}, changed since it was picked, and its history does not say by whom");
+
     /// <summary>
     /// Merge, or why not, the first that holds deciding, in this order: the project is stopped, or
-    /// its default branch unread; the pull request unread or not open; its head not the commit the
-    /// worker checked, or the check failed on it; the latest review not an approve of exactly that
-    /// commit; the card not still valid, written by the owner, open with the pick-up label, not
-    /// held, and edited by nobody else since it was picked; the setting not <c>never</c>; and CI,
-    /// every check run and status on the commit completed and succeeded. Only a wait that can clear
-    /// by itself is tried again: the branch unread, a read that failed, CI running or not reported
-    /// yet. Everything else is the owner's.
+    /// its default branch unread, or for a card of a feature its feature's branch unread; the pull
+    /// request unread or not open; its head not the commit the worker checked, the check failed on
+    /// it, or the pull request going into another branch than the one it ran on; the latest review not
+    /// an approve of exactly that commit; the card not still valid, written by the owner, open with
+    /// the pick-up label, not held, and edited by nobody else since it was picked, where for a card
+    /// of a feature the parent is held to all of it and the card is an open sub-issue of it with no
+    /// label of its own; the setting not <c>never</c>; and CI, every check run and status on the
+    /// commit completed and succeeded. Only a wait that can clear by itself is tried again: a branch
+    /// unread, a read that failed, CI running or not reported yet. Everything else is the owner's.
     /// </summary>
     public static MergeDecision Decide(MergeFacts facts)
     {
@@ -142,6 +183,11 @@ public static class MergeCheck
                 return Final(Stopped);
             case ProjectHold.Unwatched:
                 return Again(Unwatched);
+        }
+
+        if (facts.Feature is { BranchUnwatched: true })
+        {
+            return Again(FeatureUnwatched);
         }
 
         if (facts.PullRequest is not CodeHostResult<PullRequest>.Found { Value: var pull })
@@ -163,6 +209,14 @@ public static class MergeCheck
         if (checkedHead.CheckExitCode != 0)
         {
             return Final(CheckFailed);
+        }
+
+        // Git's branch names are case sensitive, so is this: a pull request whose base was changed
+        // since would merge where the card was never built to land, a feature's card into the
+        // default branch among it.
+        if (!string.Equals(pull.BaseBranch, checkedHead.Base, StringComparison.Ordinal))
+        {
+            return Final(IntoAnother(pull.BaseBranch, checkedHead.Base));
         }
 
         if (facts.Review is not { } review || !string.Equals(review.Commit, head, StringComparison.Ordinal))
@@ -189,11 +243,14 @@ public static class MergeCheck
         return (MergeDecision?)Ci(facts, checkedHead) ?? new MergeDecision.Merge(head);
     }
 
-    /// <summary>Why the card is no longer one a run merges from, or null when it still is.</summary>
+    /// <summary>Why the card is no longer one a run merges from, or null when it still is: a card on
+    /// its own as listed with the pick-up label, a card of a feature as its parent lists it, with
+    /// the parent held to the same rules first.</summary>
     private static MergeDecision.Wait? Card(MergeFacts facts)
     {
         if (facts.Labelled is not CodeHostResult<IReadOnlyList<Issue>>.Found { Value: var labelled }
-            || facts.Edits is not CodeHostResult<IReadOnlyList<IssueEdit>>.Found { Value: var edits })
+            || facts.Edits is not CodeHostResult<IReadOnlyList<IssueEdit>>.Found { Value: var edits }
+            || facts.Feature is { } unread && (unread.SubIssues is not CodeHostResult<IReadOnlyList<SubIssue>>.Found || unread.Edits is not CodeHostResult<IReadOnlyList<IssueEdit>>.Found))
         {
             return Again(CouldNotRead("the card"));
         }
@@ -203,32 +260,79 @@ public static class MergeCheck
             return Final(CardPicker.NotLinked);
         }
 
-        if (labelled.FirstOrDefault(issue => !issue.IsPullRequest && issue.Number == facts.Card) is not { } card)
+        if (facts.Feature is not { } feature)
         {
-            return Final(NotLabelled(facts.PickupLabel));
+            return labelled.FirstOrDefault(issue => !issue.IsPullRequest && issue.Number == facts.Card) is { } card
+                ? Valid(new Read(card.Author, card.Labels, card.Body, card.Title), edits, facts.Record, owner, facts.HoldLabel, CardWords)
+                : Final(NotLabelled(facts.PickupLabel));
         }
 
-        if (!IsOwner(card.Author, owner))
+        if (labelled.FirstOrDefault(issue => !issue.IsPullRequest && issue.Number == feature.Number) is not { } parent)
         {
-            return Final(WrittenBy(card.Author));
+            return Final(FeatureNotLabelled(feature.Number, facts.PickupLabel));
         }
 
-        if (card.Labels.Contains(facts.HoldLabel, StringComparer.OrdinalIgnoreCase))
+        // Read above: both answered.
+        var subIssues = ((CodeHostResult<IReadOnlyList<SubIssue>>.Found)feature.SubIssues).Value;
+        var parentEdits = ((CodeHostResult<IReadOnlyList<IssueEdit>>.Found)feature.Edits).Value;
+        if (feature.Record is not { } parentRecord)
         {
-            return Final(Held(facts.HoldLabel));
+            return Final(CardPicker.FeatureNotPicked(feature.Number));
+        }
+
+        var words = FeatureWords(feature.Number);
+        if (Valid(new Read(parent.Author, parent.Labels, parent.Body, parent.Title), parentEdits, parentRecord, owner, facts.HoldLabel, words) is { } invalid)
+        {
+            return invalid;
+        }
+
+        if (subIssues.FirstOrDefault(sub => !sub.IsPullRequest && sub.Open && sub.Number == facts.Card
+                && string.Equals(sub.Owner, feature.Owner, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(sub.Name, feature.Name, StringComparison.OrdinalIgnoreCase)) is not { } own)
+        {
+            return Final(NotSubIssue(feature.Number));
+        }
+
+        return Valid(new Read(own.Author, own.Labels, own.Body, own.Title), edits, facts.Record, owner, facts.HoldLabel, CardWords);
+    }
+
+    /// <summary>An issue as the card rules read it.</summary>
+    private sealed record Read(string Author, IReadOnlyList<string> Labels, string Body, string Title);
+
+    /// <summary>The reasons the card rules give, of the card or of its feature.</summary>
+    private sealed record Words(Func<string, string> WrittenBy, Func<string, string> Held, Func<string, string> EditedBy, string ChangedUnseen);
+
+    private static readonly Words CardWords = new(WrittenBy, Held, EditedBy, ChangedUnseen);
+
+    private static Words FeatureWords(int feature) =>
+        new(login => FeatureWrittenBy(feature, login), label => FeatureHeld(feature, label), login => FeatureEditedBy(feature, login), FeatureChangedUnseen(feature));
+
+    /// <summary>Why the issue is no longer one a run merges from, or null when it still is: written
+    /// by the owner, not held, and edited by nobody else since it was picked, with any change to it
+    /// explained by an edit of his.</summary>
+    private static MergeDecision.Wait? Valid(Read issue, IReadOnlyList<IssueEdit> edits, CardRecord record, string owner, string holdLabel, Words words)
+    {
+        if (!IsOwner(issue.Author, owner))
+        {
+            return Final(words.WrittenBy(issue.Author));
+        }
+
+        if (issue.Labels.Contains(holdLabel, StringComparer.OrdinalIgnoreCase))
+        {
+            return Final(words.Held(holdLabel));
         }
 
         if (edits.Where(edit => !IsOwner(edit.Editor, owner)).OrderBy(edit => edit.At).FirstOrDefault() is { } stranger)
         {
-            return Final(EditedBy(stranger.Editor));
+            return Final(words.EditedBy(stranger.Editor));
         }
 
         // Every edit is the owner's, so a change since the record is his, which is allowed; one the
         // history does not explain is not.
         var newest = edits.OrderByDescending(edit => edit.At).Select(edit => edit.Id).FirstOrDefault();
-        var same = SHA256.HashData(Encoding.UTF8.GetBytes(card.Body)).AsSpan().SequenceEqual(facts.Record.BodySha256)
-            && string.Equals(card.Title, facts.Record.Title, StringComparison.Ordinal);
-        return !same && string.Equals(newest, facts.Record.NewestEdit, StringComparison.Ordinal) ? Final(ChangedUnseen) : null;
+        var same = SHA256.HashData(Encoding.UTF8.GetBytes(issue.Body)).AsSpan().SequenceEqual(record.BodySha256)
+            && string.Equals(issue.Title, record.Title, StringComparison.Ordinal);
+        return !same && string.Equals(newest, record.NewestEdit, StringComparison.Ordinal) ? Final(words.ChangedUnseen) : null;
     }
 
     /// <summary>Why CI holds the merge, or null when every check run and status on the commit
@@ -268,6 +372,8 @@ public static class MergeCheck
 
     /// <summary>Logins are one account whatever their case, as GitHub's are.</summary>
     private static bool IsOwner(string login, string owner) => string.Equals(login, owner, StringComparison.OrdinalIgnoreCase);
+
+    private static string Invariant(FormattableString text) => FormattableString.Invariant(text);
 
     private static MergeDecision.Wait Final(string reason) => new(reason, TryAgain: false);
 

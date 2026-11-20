@@ -9,8 +9,8 @@ namespace DevFlow.CodeHost;
 /// after <paramref name="By"/> are left out of the JSON when null, so a person's write reads as it
 /// always has.</summary>
 /// <param name="Kind"><c>merge</c> or <c>comment</c>, by a person or the app; or, by the app
-/// alone, <c>pull_request</c>, <c>issue</c>, <c>label_added</c>, <c>label_removed</c> or
-/// <c>branch</c>.</param>
+/// alone, <c>pull_request</c>, <c>issue</c>, <c>issue_closed</c>, <c>issue_opened</c>,
+/// <c>label_added</c>, <c>label_removed</c> or <c>branch</c>.</param>
 /// <param name="Repository">The repository's id.</param>
 /// <param name="Number">The issue's or pull request's number, the new one for what was
 /// opened; 0 for a branch made.</param>
@@ -69,12 +69,27 @@ public sealed partial class FakeCodeHost
 
     /// <summary>Not found for a repository or pull request the world does not hold, not
     /// mergeable unless it is open, head moved unless its head is <paramref name="commit"/>, and
-    /// otherwise merged, as the person.</summary>
-    public Task<MergeResult> Merge(Guid userId, UserAccessToken token, Repository repository, int number, string commit, CancellationToken cancellationToken)
+    /// otherwise merged, as the person, with a merge commit in its git repository when it holds
+    /// the base and the head, see <see cref="PrepareMerge"/>.</summary>
+    public async Task<MergeResult> Merge(Guid userId, UserAccessToken token, Repository repository, int number, string commit, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(token);
         ArgumentNullException.ThrowIfNull(repository);
         ArgumentNullException.ThrowIfNull(commit);
+        var prepared = await PrepareMerge(userId, repository, number, commit, cancellationToken);
+        var result = MergeAs(userId, token, repository, number, commit, prepared);
+        if (result is MergeResult.Merged && prepared is not null)
+        {
+            await Land(userId, repository, prepared, cancellationToken);
+        }
+
+        return result;
+    }
+
+    /// <summary>The person's merge, under the lock, with the merge commit
+    /// <paramref name="prepared"/> made when there is one.</summary>
+    private MergeResult MergeAs(Guid userId, UserAccessToken token, Repository repository, int number, string commit, PreparedMerge? prepared)
+    {
         lock (_changing)
         {
             var account = Of(userId);
@@ -102,7 +117,7 @@ public sealed partial class FakeCodeHost
             }
             else
             {
-                var (changed, mergeCommit) = WithMerge(found, number, person.Login);
+                var (changed, mergeCommit) = WithMerge(found, number, person.Login, prepared?.Commit);
                 _accounts[userId] = account with
                 {
                     World = WithRepository(account.World, repository, changed),
@@ -111,7 +126,7 @@ public sealed partial class FakeCodeHost
                 result = new MergeResult.Merged(mergeCommit);
             }
 
-            return Task.FromResult(result);
+            return result;
         }
     }
 
@@ -174,16 +189,16 @@ public sealed partial class FakeCodeHost
     /// The repository with the pull request merged, now, and the merge landed on its base, the
     /// default branch unless it names another, as a change by <paramref name="actor"/>, as GitHub
     /// lists one: after the branch's last change, from the commit that left it at, or forty zeros
-    /// before any, to a new merge commit, random; and that commit. Its git repository is not
-    /// changed.
+    /// before any, to <paramref name="mergeCommit"/>, the one made in its git repository, or a new
+    /// one, random, without; and that commit. Its git repository is not changed here.
     /// </summary>
-    private (FakeRepository Changed, string Commit) WithMerge(FakeRepository found, int number, string actor)
+    private (FakeRepository Changed, string Commit) WithMerge(FakeRepository found, int number, string actor, string? mergeCommit)
     {
         var now = _time.GetUtcNow();
         var activity = found.Activity ?? [];
         var into = found.PullRequests.FirstOrDefault(each => each.Number == number)?.BaseBranch is { Length: > 0 } named ? named : found.Default;
         var before = activity.LastOrDefault(each => each.Branch == into)?.After ?? new string('0', 40);
-        var commit = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(20));
+        var commit = mergeCommit ?? Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(20));
         var id = activity.Select(each => each.Id).DefaultIfEmpty(0).Max() + 1;
         return (found with
         {
