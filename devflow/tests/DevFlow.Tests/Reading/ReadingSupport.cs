@@ -222,6 +222,7 @@ internal sealed class CountingCodeHost(ICodeHost inner) : ICodeHost
     private readonly ConcurrentQueue<UserAccessToken> _writeTokens = new();
     private Func<Task>? _beforeCommitter;
     private Func<Task>? _beforeMergeAsApp;
+    private Func<Task>? _beforeBringIn;
     private int _listing;
     private int _mostAtOnce;
 
@@ -260,6 +261,15 @@ internal sealed class CountingCodeHost(ICodeHost inner) : ICodeHost
     {
         get => Volatile.Read(ref _beforeMergeAsApp);
         set => Volatile.Write(ref _beforeMergeAsApp, value);
+    }
+
+    /// <summary>When set, run once as the app next brings a branch in, before the code host is
+    /// asked: so a test can read the project, the watch among it, while the bring in is under
+    /// way.</summary>
+    public Func<Task>? BeforeBringIn
+    {
+        get => Volatile.Read(ref _beforeBringIn);
+        set => Volatile.Write(ref _beforeBringIn, value);
     }
 
     /// <summary>When set, opening a pull request answers that the host did not answer, and opens
@@ -514,6 +524,17 @@ internal sealed class CountingCodeHost(ICodeHost inner) : ICodeHost
         }
 
         return await inner.MergeAsApp(userId, token, repository, number, commit, cancellationToken);
+    }
+
+    public async Task<BringInResult> BringIn(Guid userId, AppWriteToken token, CodeHost.Repository repository, string baseBranch, string head, string message, CancellationToken cancellationToken)
+    {
+        Record("BringIn", userId, repository, $"{baseBranch} {head}");
+        if (Interlocked.Exchange(ref _beforeBringIn, null) is { } step)
+        {
+            await step();
+        }
+
+        return await inner.BringIn(userId, token, repository, baseBranch, head, message, cancellationToken);
     }
 
     public Uri InstallAddress(Uri origin) => inner.InstallAddress(origin);

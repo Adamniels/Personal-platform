@@ -223,6 +223,53 @@ public sealed class FakeAppWriteTests
         Assert.Equal(2, fake.Writes(Owner).Count);
     }
 
+    [Fact]
+    public async Task ABranchIsBroughtInAsGitHubBringsOneIn()
+    {
+        using var fake = new FakeCodeHost(new FakeTimeProvider(At));
+        fake.Replace(Owner, World);
+        var app = new Committer(FakeCodeHost.AppLogin, FakeCodeHost.AppEmail);
+        var first = await fake.CommitOnBranch(Owner, Platform, "main", "main", "The first commit", app, Ct);
+        var push = await Key(fake, WritePurpose.Push);
+        Assert.IsType<BranchResult.Made>(await fake.MakeBranch(Owner, push, Platform, "feature-10", "main", Ct));
+        var merge = await Key(fake, WritePurpose.Merge);
+
+        // The feature's branch holds main's head: nothing to bring in, and nothing written.
+        Assert.IsType<BringInResult.NothingToBringIn>(await fake.BringIn(Owner, merge, Platform, "feature-10", "main", "Bring main in", Ct));
+        Assert.DoesNotContain(fake.Writes(Owner), write => write.Kind == "branch_merge");
+
+        // Main moves on: a merge commit on the feature's branch with both as its parents.
+        var moved = await fake.CommitOnBranch(Owner, Platform, "main", "main", "Main moves on", app, Ct);
+        var made = Assert.IsType<BringInResult.Merged>(await fake.BringIn(Owner, merge, Platform, "feature-10", "main", "Bring main in", Ct));
+        Assert.Equal(moved, made.BroughtIn);
+        var write = Assert.Single(fake.Writes(Owner), each => each.Kind == "branch_merge");
+        Assert.Equal((made.Commit, "merge", "Bring main in", FakeCodeHost.AppLogin, "merge", "main", "feature-10"),
+            (write.Commit, write.Method, write.Body, write.By, write.Purpose, write.Head, write.Base));
+        Assert.True(await fake.HasCommit(Owner, Platform, made.Commit!, Ct));
+
+        // Listed on the feature's branch as a push by the app, from where it was to the merge.
+        var listed = Assert.IsType<CodeHostResult<IReadOnlyList<BranchActivity>>.Found>(await fake.Activity(Owner, Platform, "feature-10", 0, Ct)).Value;
+        Assert.Equal((CodeHost.ActivityKind.Push, FakeCodeHost.AppLogin, first, made.Commit), (listed[0].Kind, listed[0].Actor, listed[0].Before, listed[0].After));
+
+        // Brought in again, nothing; a staged conflict, a conflict; a branch not there, refused.
+        Assert.IsType<BringInResult.NothingToBringIn>(await fake.BringIn(Owner, merge, Platform, "feature-10", "main", "Bring main in", Ct));
+        await fake.CommitOnBranch(Owner, Platform, "main", "main", "Main moves again", app, Ct);
+        fake.Replace(Owner, fake.World(Owner) with
+        {
+            Installations = [.. fake.World(Owner).Installations.Select(installation => installation with
+            {
+                Repositories = [.. installation.Repositories.Select(repository => repository with { Conflicts = ["feature-10"] })],
+            })],
+        });
+        Assert.IsType<BringInResult.Conflict>(await fake.BringIn(Owner, merge, Platform, "feature-10", "main", "Bring main in", Ct));
+        Assert.Equal(new BringInResult.Refused(404, FakeCodeHost.NoBase), await fake.BringIn(Owner, merge, Platform, "feature-gone", "main", "Bring main in", Ct));
+        Assert.Equal(new BringInResult.Refused(404, FakeCodeHost.NoHead), await fake.BringIn(Owner, merge, Platform, "feature-10", "gone", "Bring main in", Ct));
+
+        // Only with a key the fake issued for merging.
+        await Assert.ThrowsAsync<ArgumentException>(() => fake.BringIn(Owner, push, Platform, "feature-10", "main", "Bring main in", Ct));
+        Assert.Single(fake.Writes(Owner), each => each.Kind == "branch_merge");
+    }
+
     /// <summary>git, as a worker runs it, in a folder of its own.</summary>
     private static class Git
     {

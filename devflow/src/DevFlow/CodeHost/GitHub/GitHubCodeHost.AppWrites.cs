@@ -99,6 +99,40 @@ public sealed partial class GitHubCodeHost
         return ToMergeResult(await Send(HttpMethod.Put, Invariant($"{Repo(repository)}/pulls/{number}/merge"), new MergeBody(commit, "merge"), token.Value, cancellationToken));
     }
 
+    /// <summary>
+    /// <c>POST /repos/{owner}/{repo}/merges</c> with <c>base</c>, <c>head</c> and
+    /// <c>commit_message</c>, with the merging key, which GitHub files under contents. <c>201</c> is
+    /// merged, with the commit's <c>sha</c> and its second parent's, the head it brought in;
+    /// <c>204</c> nothing to bring in; <c>409</c> a conflict; any other status refused with
+    /// GitHub's words, and no answer unavailable. The endpoint only ever makes a merge commit, so
+    /// nothing here can rebase or force a branch.
+    /// </summary>
+    public async Task<BringInResult> BringIn(Guid userId, AppWriteToken token, Repository repository, string baseBranch, string head, string message, CancellationToken cancellationToken)
+    {
+        Require(token, WritePurpose.Merge, repository);
+        ArgumentException.ThrowIfNullOrEmpty(baseBranch);
+        ArgumentException.ThrowIfNullOrEmpty(head);
+        ArgumentNullException.ThrowIfNull(message);
+        var answer = await Send(HttpMethod.Post, $"{Repo(repository)}/merges", new BranchMergeBody(baseBranch, head, message), token.Value, cancellationToken);
+        if (answer is null)
+        {
+            return new BringInResult.Unavailable(RetryAt: null);
+        }
+
+        return answer.Status switch
+        {
+            HttpStatusCode.Created => Parse<MergeCommitAnswer>(answer.Body) is { } made
+                ? new BringInResult.Merged(Full(made.Sha), Full(made.Parents is [_, { Sha: var brought }, ..] ? brought : null))
+                : new BringInResult.Merged(null, null),
+            HttpStatusCode.NoContent => new BringInResult.NothingToBringIn(),
+            HttpStatusCode.Conflict => new BringInResult.Conflict(),
+            _ => new BringInResult.Refused((int)answer.Status, Message(answer.Body)),
+        };
+    }
+
+    /// <summary>The id when it reads as a full commit id, and null otherwise.</summary>
+    private static string? Full(string? commit) => commit is not null && CommitId().IsMatch(commit) ? commit : null;
+
     /// <summary>What GitHub says with <c>422</c> for a ref whose name is taken.</summary>
     internal const string ReferenceExists = "Reference already exists";
 
@@ -200,6 +234,15 @@ public sealed partial class GitHubCodeHost
 
     /// <summary>What setting an issue's state sends: the state and why.</summary>
     private sealed record IssueStateBody(string State, string StateReason);
+
+    /// <summary>What bringing a branch in sends.</summary>
+    private sealed record BranchMergeBody(string Base, string Head, string CommitMessage);
+
+    /// <summary>A commit as GitHub answers one, of which only its id and its parents' are read.</summary>
+    private sealed record MergeCommitAnswer(string? Sha = null, IReadOnlyList<CommitParent>? Parents = null);
+
+    /// <summary>A commit's parent.</summary>
+    private sealed record CommitParent(string? Sha = null);
 
     /// <summary>What making a branch sends: its full ref and the commit it is made at.</summary>
     private sealed record RefBody(string Ref, string Sha);

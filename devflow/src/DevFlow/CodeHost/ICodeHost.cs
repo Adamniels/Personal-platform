@@ -153,6 +153,15 @@ public interface ICodeHost
     /// </summary>
     Task<BranchResult> MakeBranch(Guid userId, AppWriteToken token, Repository repository, string name, string from, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Brings <paramref name="head"/>, a branch, into <paramref name="baseBranch"/> with a merge
+    /// commit saying <paramref name="message"/>, as the app, with a <see cref="WritePurpose.Merge"/>
+    /// key, whose <c>contents: write</c> it needs. Always a merge commit, never a rebase, and the base
+    /// only ever moves forward. A feature's end brings the default branch into the feature's branch
+    /// this way.
+    /// </summary>
+    Task<BringInResult> BringIn(Guid userId, AppWriteToken token, Repository repository, string baseBranch, string head, string message, CancellationToken cancellationToken);
+
     /// <summary>Merges the pull request with a merge commit, as the app, with a
     /// <see cref="WritePurpose.Merge"/> key, and only while its head is
     /// <paramref name="commit"/>, which the host checks; answers as <see cref="Merge"/> does.</summary>

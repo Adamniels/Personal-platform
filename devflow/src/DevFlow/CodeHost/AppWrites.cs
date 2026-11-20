@@ -117,6 +117,37 @@ public abstract record WriteResult<T>
     public sealed record Unavailable(DateTimeOffset? RetryAt) : WriteResult<T>;
 }
 /// <summary>
+/// What bringing one branch into another answers. A closed set, as <see cref="WriteResult{T}"/>
+/// is, so a <c>switch</c> over the five is complete. Nothing is retried in a code host; the caller
+/// decides.
+/// </summary>
+public abstract record BringInResult
+{
+    private BringInResult()
+    {
+    }
+
+    /// <summary>Brought in, with a merge commit on the base. <paramref name="Commit"/> is the merge
+    /// commit's full id and <paramref name="BroughtIn"/> the head's commit it merged, its second
+    /// parent; each null when the host's answer did not give one that reads as a commit id.</summary>
+    public sealed record Merged(string? Commit, string? BroughtIn) : BringInResult;
+
+    /// <summary>The base holds the head already, so nothing was made.</summary>
+    public sealed record NothingToBringIn : BringInResult;
+
+    /// <summary>The two conflict, so nothing was made.</summary>
+    public sealed record Conflict : BringInResult;
+
+    /// <summary>The host refused it, with its HTTP <paramref name="Status"/> and its own words,
+    /// data, or null when it gave none: a key it does not take, a base or head it does not know, or
+    /// a rule of the repository.</summary>
+    public sealed record Refused(int Status, string? Message) : BringInResult;
+
+    /// <summary>The host did not answer, so whether it was made is not known.</summary>
+    public sealed record Unavailable(DateTimeOffset? RetryAt) : BringInResult;
+}
+
+/// <summary>
 /// What making a branch answers. A closed set, as <see cref="WriteResult{T}"/> is, so a
 /// <c>switch</c> over the four is complete. Nothing is retried in a code host; the caller decides.
 /// </summary>

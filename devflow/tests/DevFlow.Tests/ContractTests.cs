@@ -141,6 +141,13 @@ public sealed class ContractTests
 
         Has(Recorded("merge.json"), "merge.json", ("sha", JsonValueKind.String), ("merged", JsonValueKind.True), ("message", JsonValueKind.String));
 
+        // Bringing a branch in answers a merge commit: its id, and its two parents, the base's head
+        // and the head brought in, of which the second is read.
+        var brought = Recorded("branch-merge.json");
+        Has(brought, "branch-merge.json", ("sha", JsonValueKind.String), ("parents", JsonValueKind.Array));
+        Assert.Equal(2, brought["parents"]!.AsArray().Count);
+        Assert.All(brought["parents"]!.AsArray(), parent => Has(parent!, "branch-merge.json", ("sha", JsonValueKind.String)));
+
         // No recorded answer holds a token, made up or not, but the token fixture's own.
         foreach (var name in new[] { "pull-opened.json", "labels.json", "issue.json", "merge.json" })
         {

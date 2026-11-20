@@ -45,11 +45,13 @@ public sealed record FakeInstallation(long Id, string Account, IReadOnlyList<Fak
 /// listed is not found.</param>
 /// <param name="Issues">Its issues, by number, which pull requests' numbers are not.</param>
 /// <param name="DefaultBranch">Its default branch, <see cref="FakeCodeHost.DefaultBranchName"/> when it
-/// is left out; one of the two fields a repository may leave out, and left out when it is written
+/// is left out; one of the fields a repository may leave out, and left out when it is written
 /// back.</param>
 /// <param name="Activity">What changed its branches, oldest first, as
-/// <see cref="ICodeHost.Activity"/> answers it newest first; none when it is left out, the other
-/// field a repository may leave out. A merge the fake takes adds one.</param>
+/// <see cref="ICodeHost.Activity"/> answers it newest first; none when it is left out, as it may
+/// be. A merge the fake takes adds one.</param>
+/// <param name="Conflicts">The branches that bringing another branch into answers a conflict, see
+/// <see cref="FakeCodeHost.BringIn"/>; none when it is left out, as it may be.</param>
 public sealed record FakeRepository(
     long Id,
     string Owner,
@@ -60,7 +62,8 @@ public sealed record FakeRepository(
     IReadOnlyList<FakeFile> Files,
     IReadOnlyList<FakeIssue> Issues,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? DefaultBranch = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<FakeActivity>? Activity = null)
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<FakeActivity>? Activity = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<string>? Conflicts = null)
 {
     /// <summary>Its default branch, as the world says or the fake's own.</summary>
     [JsonIgnore]

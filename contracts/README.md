@@ -224,6 +224,20 @@ What making a feature's branch sends and reads, for the slice "The feature's bra
   this repository. `422` with the `message` "Reference already exists", GitHub's answer for a name
   that is taken, is stubbed in the test rather than kept as a file.
 
+What bringing one branch into another answers, for the slice "Bringing main in, and the feature's
+pull request", read by `devflow/tests/DevFlow.Tests/GitHub/GitHubBranchMergeTests.cs`; see "The end
+of a feature" in `devflow/README.md`:
+
+- `branch-merge.json`, written by hand on 2026 11 20 from GitHub's documented `201` answer to
+  `POST /repos/{owner}/{repo}/merges`, a commit, since recording it would make a merge commit in
+  this repository: `main` brought into `feature-361-dev-flow-features` with the message Dev flow
+  writes, by the app, its two `parents` the feature branch's head and `main` at `e437065c`. The ids
+  of the merge commit, its tree and the first parent are made up. The adapter reads `sha` and
+  `parents[1].sha`, the commit brought in, and
+  `ContractTests.TheRecordedWriteAnswersHoldWhatTheAdapterReads` checks both are there. `204`,
+  nothing to bring in, and `409`, a conflict, have no body worth keeping and are stubbed in the
+  test.
+
 The answer to commenting as the app is the first entry of `issue-comments.json`, the same shape.
 
 What watching a project's default branch reads was recorded on 2026 11 17, as the bot, read by

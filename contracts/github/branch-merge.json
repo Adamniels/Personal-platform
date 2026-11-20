@@ -1,0 +1,55 @@
+{
+  "sha": "7638417db6d59f3c431d3e1f261cc637155684cd",
+  "node_id": "C_kwDOUMYTddoAKDc2Mzg0MTdkYjZkNTlmM2M0MzFkM2UxZjI2MWNjNjM3MTU1Njg0Y2Q",
+  "commit": {
+    "author": {
+      "name": "devflow[bot]",
+      "email": "70000099+devflow[bot]@users.noreply.github.com",
+      "date": "2026-11-20T09:12:44Z"
+    },
+    "committer": {
+      "name": "GitHub",
+      "email": "noreply@github.com",
+      "date": "2026-11-20T09:12:44Z"
+    },
+    "message": "Bring main into feature-361-dev-flow-features",
+    "tree": {
+      "url": "https://api.github.com/repos/Adamniels/Personal-platform/git/trees/827efc6d56897b048c772eb4087f854f46256132",
+      "sha": "827efc6d56897b048c772eb4087f854f46256132"
+    },
+    "url": "https://api.github.com/repos/Adamniels/Personal-platform/git/commits/7638417db6d59f3c431d3e1f261cc637155684cd",
+    "comment_count": 0,
+    "verification": {
+      "verified": false,
+      "reason": "unsigned",
+      "signature": null,
+      "payload": null,
+      "verified_at": null
+    }
+  },
+  "url": "https://api.github.com/repos/Adamniels/Personal-platform/commits/7638417db6d59f3c431d3e1f261cc637155684cd",
+  "html_url": "https://github.com/Adamniels/Personal-platform/commit/7638417db6d59f3c431d3e1f261cc637155684cd",
+  "comments_url": "https://api.github.com/repos/Adamniels/Personal-platform/commits/7638417db6d59f3c431d3e1f261cc637155684cd/comments",
+  "author": {
+    "login": "devflow[bot]",
+    "id": 70000099,
+    "type": "Bot"
+  },
+  "committer": {
+    "login": "web-flow",
+    "id": 19864447,
+    "type": "User"
+  },
+  "parents": [
+    {
+      "sha": "553c2077f0edc3d5dc5d17262f6aa498e69d6f8e",
+      "url": "https://api.github.com/repos/Adamniels/Personal-platform/commits/553c2077f0edc3d5dc5d17262f6aa498e69d6f8e",
+      "html_url": "https://github.com/Adamniels/Personal-platform/commit/553c2077f0edc3d5dc5d17262f6aa498e69d6f8e"
+    },
+    {
+      "sha": "e437065c9ae0bd12e33d638268ef827aacace112",
+      "url": "https://api.github.com/repos/Adamniels/Personal-platform/commits/e437065c9ae0bd12e33d638268ef827aacace112",
+      "html_url": "https://github.com/Adamniels/Personal-platform/commit/e437065c9ae0bd12e33d638268ef827aacace112"
+    }
+  ]
+}

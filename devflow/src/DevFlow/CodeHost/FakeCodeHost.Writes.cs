@@ -10,23 +10,27 @@ namespace DevFlow.CodeHost;
 /// always has.</summary>
 /// <param name="Kind"><c>merge</c> or <c>comment</c>, by a person or the app; or, by the app
 /// alone, <c>pull_request</c>, <c>issue</c>, <c>issue_closed</c>, <c>issue_opened</c>,
-/// <c>label_added</c>, <c>label_removed</c> or <c>branch</c>.</param>
+/// <c>label_added</c>, <c>label_removed</c>, <c>branch</c> or <c>branch_merge</c>, a branch
+/// brought into another.</param>
 /// <param name="Repository">The repository's id.</param>
 /// <param name="Number">The issue's or pull request's number, the new one for what was
 /// opened; 0 for a branch made.</param>
 /// <param name="Commit">For a merge, the commit its head had to be; for a pull request opened, its
-/// head commit; for a branch made, the commit it was made at; otherwise null.</param>
-/// <param name="Method">For a merge, how it merged, always <c>merge</c>, a merge commit; otherwise
-/// null.</param>
-/// <param name="Body">For a comment, a pull request or an issue, its text exactly; otherwise
-/// null.</param>
+/// head commit; for a branch made, the commit it was made at; for a branch brought in, the merge
+/// commit made; otherwise null.</param>
+/// <param name="Method">For a merge or a branch brought in, how it merged, always <c>merge</c>, a
+/// merge commit; otherwise null.</param>
+/// <param name="Body">For a comment, a pull request or an issue, its text exactly; for a branch
+/// brought in, its merge commit's message; otherwise null.</param>
 /// <param name="By">The login GitHub would show: the person's whose access token made it, or the
 /// app's, <see cref="FakeCodeHost.AppLogin"/>.</param>
 /// <param name="Purpose">For the app's write, the purpose of the key that made it, <c>post</c>,
 /// <c>merge</c> or <c>push</c>; null for a person's, which is how a test tells the two apart.</param>
 /// <param name="Title">For a pull request or an issue opened, its title.</param>
-/// <param name="Head">For a pull request opened, the branch it merges from.</param>
-/// <param name="Base">For a pull request opened, the branch it merges into.</param>
+/// <param name="Head">For a pull request opened or a branch brought in, the branch it merges
+/// from.</param>
+/// <param name="Base">For a pull request opened or a branch brought in, the branch it merges
+/// into.</param>
 /// <param name="Label">For a label added or removed, its name.</param>
 /// <param name="Branch">For a branch made, its name.</param>
 public sealed record FakeWrite(
