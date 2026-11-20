@@ -11,7 +11,8 @@ namespace DevFlow.Features;
 /// The end of each feature whose cards are all done, as the app, on the project's minute: first
 /// <see cref="FeatureEnd.Advance"/>, so an end due since the last read starts now; then, for each
 /// feature <c>bringing_in</c>, the default branch brought into its branch with a merge commit, as
-/// the app with a <see cref="WritePurpose.Merge"/> key, never a rebase and never a force push.
+/// the app with a <see cref="WritePurpose.Merge"/> key, never a rebase and never a force push,
+/// and then the feature's pull request to the default branch, see <see cref="Publish"/>.
 /// Bringing in is asked only while the project is not stopped, its default branch's watch and the
 /// feature's branch's are current, and the feature still waits for it, all read under the
 /// project's lock, which is held while the code host answers: the merge commit it made is written
@@ -48,7 +49,7 @@ public sealed partial class FeatureEnds(UserDb database, ICodeHost host, TimePro
             {
                 if (await BringIn(projectId, userId, repository, feature, cancellationToken))
                 {
-                    await Finish(userId, feature, cancellationToken);
+                    await Publish(projectId, userId, repository, feature, cancellationToken);
                 }
             }
             catch (Exception error) when (error is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
@@ -186,16 +187,108 @@ public sealed partial class FeatureEnds(UserDb database, ICodeHost host, TimePro
             transaction,
             cancellationToken: cancellationToken));
 
-    /// <summary>The feature, brought in, waits for the owner, while it still waits for its end.</summary>
-    private async Task Finish(Guid userId, Due feature, CancellationToken cancellationToken)
+    /// <summary>
+    /// The feature's pull request, once the default branch is in: the app's own open one from the
+    /// feature's branch into the default branch is reused, and otherwise, while the feature has
+    /// none recorded, one is opened, not a draft, as the app with a
+    /// <see cref="WritePurpose.Post"/> key, titled with the parent's title as picked; its body,
+    /// <see cref="FeatureText.Body"/> over the feature's cards, is brought in step when it differs.
+    /// Then it is recorded and the feature waits for the owner, <see cref="FeatureEnd.NotReviewed"/>,
+    /// only while it still waits for its end. Nothing is held while the code host answers; a minute
+    /// it did not answer for leaves the feature bringing in, already brought in, to be published on
+    /// the next. A pull request recorded that is no longer open is never opened again here.
+    /// </summary>
+    private async Task Publish(Guid projectId, Guid userId, Repository repository, Due feature, CancellationToken cancellationToken)
     {
+        if (await host.AppCommitter(userId, repository, cancellationToken) is not CodeHostResult<Committer>.Found { Value: var app }
+            || await host.OpenPullRequests(userId, repository, cancellationToken) is not CodeHostResult<IReadOnlyList<PullRequest>>.Found { Value: var open })
+        {
+            LogNotNow(log, projectId, "the feature's pull request");
+            return;
+        }
+
+        var body = FeatureText.Body(feature.Number, await Cards(userId, feature, cancellationToken));
+        PullRequest? Theirs(IReadOnlyList<PullRequest> listed) => listed
+            .Where(pull => pull.State == PullRequestState.Open
+                && (feature.PullRequestNumber is { } recorded
+                    ? pull.Number == recorded
+                    : string.Equals(pull.HeadBranch, feature.Branch, StringComparison.Ordinal)
+                      && string.Equals(pull.BaseBranch, feature.DefaultBranch, StringComparison.Ordinal)
+                      && string.Equals(pull.Author, app.Name, StringComparison.OrdinalIgnoreCase)))
+            .OrderBy(pull => pull.Number)
+            .FirstOrDefault();
+
+        AppWriteToken? key = null;
+        async Task<AppWriteToken?> Key() =>
+            key ??= await host.ForWrite(userId, repository, WritePurpose.Post, cancellationToken) is CodeHostResult<AppWriteToken>.Found { Value: var made } ? made : null;
+
+        var pull = Theirs(open);
+        if (pull is null && feature.PullRequestNumber is null)
+        {
+            if (await Key() is not { } post)
+            {
+                LogNotNow(log, projectId, "a key to post with");
+                return;
+            }
+
+            switch (await host.OpenPullRequest(userId, post, repository, feature.Branch, feature.DefaultBranch, feature.Title, body, cancellationToken))
+            {
+                case WriteResult<PullRequest>.Written { Value: var opened }:
+                    pull = opened;
+                    LogOpened(log, projectId, feature.Number, opened.Number);
+                    break;
+                case WriteResult<PullRequest>.Refused { Status: var status }:
+                    // GitHub refuses a second one from the same branch into the same base, so one may
+                    // have been opened meanwhile, by an opening whose answer was lost.
+                    pull = await host.OpenPullRequests(userId, repository, cancellationToken) is CodeHostResult<IReadOnlyList<PullRequest>>.Found { Value: var again } ? Theirs(again) : null;
+                    if (pull is null)
+                    {
+                        LogOpenRefused(log, projectId, feature.Number, status);
+                        return;
+                    }
+
+                    break;
+                case WriteResult<PullRequest>.Unavailable:
+                    LogNotNow(log, projectId, "opening the feature's pull request");
+                    return;
+                default:
+                    throw new InvalidOperationException("a write result that is not one of the three");
+            }
+        }
+
+        if (pull is not null && !string.Equals(pull.Body, body, StringComparison.Ordinal))
+        {
+            if (await Key() is not { } post
+                || await host.EditPullRequestBody(userId, post, repository, pull.Number, body, cancellationToken) is not WriteResult<PullRequest>.Written)
+            {
+                LogNotNow(log, projectId, "the feature's pull request's body");
+                return;
+            }
+        }
+
         var now = Now();
         await database.InUserTransaction(userId, transaction => transaction.Connection!.ExecuteAsync(new CommandDefinition(
-            "UPDATE features SET state = 'waiting_for_owner', reason = @reason, changed_at = @now WHERE id = @id AND state = 'bringing_in'",
-            new { id = feature.Id, reason = FeatureEnd.NotReviewed, now },
+            """
+            UPDATE features SET state = 'waiting_for_owner', reason = @reason, changed_at = @now,
+                                pull_request_number = coalesce(@number, pull_request_number), pull_request_url = coalesce(@url, pull_request_url)
+            WHERE id = @id AND state = 'bringing_in'
+            """,
+            new { id = feature.Id, reason = FeatureEnd.NotReviewed, now, number = pull?.Number, url = pull?.Url.ToString() },
             transaction,
             cancellationToken: cancellationToken)), cancellationToken);
     }
+
+    /// <summary>The feature's cards in its order, each with its title as picked and the pull
+    /// request it landed in.</summary>
+    private async Task<IReadOnlyList<FeatureText.Card>> Cards(Guid userId, Due feature, CancellationToken cancellationToken) =>
+        [.. await database.InUserTransaction(userId, transaction => transaction.Connection!.QueryAsync<FeatureText.Card>(new CommandDefinition(
+            """
+            SELECT number AS Number, coalesce(picked_title, title) AS Title, pull_request_number AS PullRequest
+            FROM cards WHERE feature_id = @id ORDER BY position
+            """,
+            new { id = feature.Id },
+            transaction,
+            cancellationToken: cancellationToken)), cancellationToken)];
 
     /// <summary>
     /// The project's repository and its features whose end is due, after moving each as
@@ -219,7 +312,9 @@ public sealed partial class FeatureEnds(UserDb database, ICodeHost host, TimePro
             await FeatureEnd.Advance(transaction, projectId, Now(), cancellationToken);
             var pending = (await transaction.Connection!.QueryAsync<Due>(new CommandDefinition(
                 """
-                SELECT f.id AS Id, f.number AS Number, f.brought_in_commit AS BroughtIn, b.last_commit AS DefaultHead
+                SELECT f.id AS Id, f.number AS Number, f.branch AS Branch, coalesce(f.picked_title, f.title) AS Title,
+                       f.brought_in_commit AS BroughtIn, f.pull_request_number AS PullRequestNumber,
+                       b.branch AS DefaultBranch, b.last_commit AS DefaultHead
                 FROM features f JOIN branch_watches b ON b.project_id = f.project_id AND b.feature_id IS NULL
                 WHERE f.project_id = @projectId AND f.state = 'bringing_in' AND f.branch IS NOT NULL
                 ORDER BY f.number
@@ -240,6 +335,12 @@ public sealed partial class FeatureEnds(UserDb database, ICodeHost host, TimePro
     [LoggerMessage(Level = LogLevel.Information, Message = "Brought {Default} into the branch of feature #{Feature} of project {Project}")]
     private static partial void LogBrought(ILogger logger, Guid project, int feature, string @default);
 
+    [LoggerMessage(Level = LogLevel.Information, Message = "Opened pull request {Pull} for feature #{Feature} of project {Project}")]
+    private static partial void LogOpened(ILogger logger, Guid project, int feature, int pull);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "The code host refused to open the pull request of feature #{Feature} of project {Project}, with {Status}; it is tried again on a later minute")]
+    private static partial void LogOpenRefused(ILogger logger, Guid project, int feature, int status);
+
     [LoggerMessage(Level = LogLevel.Information, Message = "Bringing the default branch into feature #{Feature} of project {Project} waits: {Hold}")]
     private static partial void LogHeld(ILogger logger, Guid project, int feature, ProjectHold hold);
 
@@ -258,7 +359,7 @@ public sealed partial class FeatureEnds(UserDb database, ICodeHost host, TimePro
     private sealed record ProjectRow(long Installation, long RepositoryId, string Owner, string Name);
 
     /// <summary>A feature whose end is due, as read before its lock.</summary>
-    private sealed record Due(Guid Id, int Number, string? BroughtIn, string? DefaultHead);
+    private sealed record Due(Guid Id, int Number, string Branch, string Title, string? BroughtIn, int? PullRequestNumber, string DefaultBranch, string? DefaultHead);
 
     /// <summary>A feature bringing in, read under the lock, with the default branch.</summary>
     private sealed record Current(string Branch, string DefaultBranch, string? DefaultHead);

@@ -10,8 +10,8 @@ namespace DevFlow.CodeHost;
 /// always has.</summary>
 /// <param name="Kind"><c>merge</c> or <c>comment</c>, by a person or the app; or, by the app
 /// alone, <c>pull_request</c>, <c>issue</c>, <c>issue_closed</c>, <c>issue_opened</c>,
-/// <c>label_added</c>, <c>label_removed</c>, <c>branch</c> or <c>branch_merge</c>, a branch
-/// brought into another.</param>
+/// <c>pull_request_edited</c>, <c>label_added</c>, <c>label_removed</c>, <c>branch</c> or
+/// <c>branch_merge</c>, a branch brought into another.</param>
 /// <param name="Repository">The repository's id.</param>
 /// <param name="Number">The issue's or pull request's number, the new one for what was
 /// opened; 0 for a branch made.</param>
@@ -20,7 +20,7 @@ namespace DevFlow.CodeHost;
 /// commit made; otherwise null.</param>
 /// <param name="Method">For a merge or a branch brought in, how it merged, always <c>merge</c>, a
 /// merge commit; otherwise null.</param>
-/// <param name="Body">For a comment, a pull request or an issue, its text exactly; for a branch
+/// <param name="Body">For a comment, a pull request, its body edited, or an issue, its text exactly; for a branch
 /// brought in, its merge commit's message; otherwise null.</param>
 /// <param name="By">The login GitHub would show: the person's whose access token made it, or the
 /// app's, <see cref="FakeCodeHost.AppLogin"/>.</param>

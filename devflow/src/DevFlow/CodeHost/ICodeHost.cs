@@ -122,6 +122,11 @@ public interface ICodeHost
     /// the app, with a <see cref="WritePurpose.Post"/> key; answers it as the host made it.</summary>
     Task<WriteResult<PullRequest>> OpenPullRequest(Guid userId, AppWriteToken token, Repository repository, string headBranch, string baseBranch, string title, string body, CancellationToken cancellationToken);
 
+    /// <summary>Replaces the body of the pull request with the number by <paramref name="body"/>,
+    /// exactly, as the app, with a <see cref="WritePurpose.Post"/> key; answers it as the host has it
+    /// after. A feature's pull request is kept in step with its cards this way.</summary>
+    Task<WriteResult<PullRequest>> EditPullRequestBody(Guid userId, AppWriteToken token, Repository repository, int number, string body, CancellationToken cancellationToken);
+
     /// <summary>Writes <paramref name="body"/>, exactly, in the conversation of the issue or pull
     /// request with the number, as the app, with a <see cref="WritePurpose.Post"/> key.</summary>
     Task<WriteResult<Comment>> CommentOnIssue(Guid userId, AppWriteToken token, Repository repository, int number, string body, CancellationToken cancellationToken);

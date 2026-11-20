@@ -526,6 +526,12 @@ internal sealed class CountingCodeHost(ICodeHost inner) : ICodeHost
         return await inner.MergeAsApp(userId, token, repository, number, commit, cancellationToken);
     }
 
+    public Task<WriteResult<PullRequest>> EditPullRequestBody(Guid userId, AppWriteToken token, CodeHost.Repository repository, int number, string body, CancellationToken cancellationToken)
+    {
+        Record("EditPullRequestBody", userId, repository, number.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        return inner.EditPullRequestBody(userId, token, repository, number, body, cancellationToken);
+    }
+
     public async Task<BringInResult> BringIn(Guid userId, AppWriteToken token, CodeHost.Repository repository, string baseBranch, string head, string message, CancellationToken cancellationToken)
     {
         Record("BringIn", userId, repository, $"{baseBranch} {head}");

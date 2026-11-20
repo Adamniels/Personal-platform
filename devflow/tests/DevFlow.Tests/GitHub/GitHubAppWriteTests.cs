@@ -142,6 +142,34 @@ public sealed class GitHubAppWriteTests
     }
 
     [Fact]
+    public async Task EditingABodyAnswersThePullRequest()
+    {
+        // PATCH /repos/{owner}/{repo}/pulls/{number} with body alone answers 200 with the pull
+        // request, the shape opening one answers.
+        using var host = new GitHubHost();
+        host.Stub.Answer = request => (request.Method.Method, request.Path) switch
+        {
+            ("PATCH", $"{Repo}/pulls/352") => StubGitHub.Json(Fixture.Text("pull-opened.json")),
+            _ => new HttpResponseMessage(HttpStatusCode.NotFound),
+        };
+        var post = await Key(host, WritePurpose.Post);
+
+        var edited = await host.CodeHost.EditPullRequestBody(GitHubHost.User, post, GitHubHost.Platform, 352, "Feature #361.\n\nCloses #361\n", Ct);
+
+        Assert.Equal((int)Fixture.Node("pull-opened.json")["number"]!, Assert.IsType<WriteResult<PullRequest>.Written>(edited).Value.Number);
+        var request = Assert.Single(host.Stub.Reads);
+        Expect(request, HttpMethod.Patch, $"{Repo}/pulls/352", new JsonObject { ["body"] = "Feature #361.\n\nCloses #361\n" });
+        Assert.Equal($"Bearer {StubGitHub.FixtureToken}", request.Header("Authorization"));
+
+        // Refused as any write is, and only with a key for posting.
+        host.Stub.Answer = _ => Message(HttpStatusCode.Forbidden, "Resource not accessible by integration");
+        Assert.Equal(new WriteResult<PullRequest>.Refused(403, "Resource not accessible by integration"),
+            await host.CodeHost.EditPullRequestBody(GitHubHost.User, post, GitHubHost.Platform, 352, "b", Ct));
+        await Assert.ThrowsAsync<ArgumentException>(async () =>
+            await host.CodeHost.EditPullRequestBody(GitHubHost.User, await Key(host, WritePurpose.Merge), GitHubHost.Platform, 352, "b", Ct));
+    }
+
+    [Fact]
     public async Task ALabelIsEscapedInTheAddress()
     {
         using var host = new GitHubHost();

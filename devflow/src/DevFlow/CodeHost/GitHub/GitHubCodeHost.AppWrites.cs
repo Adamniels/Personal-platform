@@ -36,6 +36,16 @@ public sealed partial class GitHubCodeHost
         return Written<PullAnswer, PullRequest>(answer, HttpStatusCode.Created, ToPullRequest);
     }
 
+    /// <summary><c>PATCH /repos/{owner}/{repo}/pulls/{number}</c> with <c>body</c> alone, the text
+    /// exactly; <c>200</c> is written, with the pull request GitHub answers.</summary>
+    public async Task<WriteResult<PullRequest>> EditPullRequestBody(Guid userId, AppWriteToken token, Repository repository, int number, string body, CancellationToken cancellationToken)
+    {
+        Require(token, WritePurpose.Post, repository);
+        ArgumentNullException.ThrowIfNull(body);
+        var answer = await Send(HttpMethod.Patch, Invariant($"{Repo(repository)}/pulls/{number}"), new BodyEdit(body), token.Value, cancellationToken);
+        return Written<PullAnswer, PullRequest>(answer, HttpStatusCode.OK, ToPullRequest);
+    }
+
     /// <summary><c>POST /repos/{owner}/{repo}/issues/{number}/comments</c> with <c>body</c>, the
     /// text exactly; <c>201</c> is written, with the comment.</summary>
     public async Task<WriteResult<Comment>> CommentOnIssue(Guid userId, AppWriteToken token, Repository repository, int number, string body, CancellationToken cancellationToken)
@@ -234,6 +244,10 @@ public sealed partial class GitHubCodeHost
 
     /// <summary>What setting an issue's state sends: the state and why.</summary>
     private sealed record IssueStateBody(string State, string StateReason);
+
+    /// <summary>What editing a pull request's body sends: the body alone, so nothing else of it
+    /// changes.</summary>
+    private sealed record BodyEdit(string Body);
 
     /// <summary>What bringing a branch in sends.</summary>
     private sealed record BranchMergeBody(string Base, string Head, string CommitMessage);

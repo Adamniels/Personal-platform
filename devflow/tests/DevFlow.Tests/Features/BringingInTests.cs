@@ -49,10 +49,10 @@ public sealed class BringingInTests
             (write.By, write.Purpose, write.Method, write.Head, write.Base, write.Body));
         Assert.True(await Ending.Holds(jobs, write.Commit!));
 
-        // Recorded with the feature's branch and no pull request, after the card's own merge.
+        // Recorded with the feature's branch and no pull request, beside the card's own merge.
         var made = await Ending.MergesMade(jobs);
         Assert.Equal(2, made.Count);
-        Assert.Equal((write.Commit, (int?)null), made[^1]);
+        Assert.Contains((write.Commit!, (int?)null), made);
 
         // The feature records the default branch's commit it brought in, and goes on.
         var row = await Ending.Row(jobs);

@@ -299,6 +299,27 @@ public sealed partial class FakeCodeHost : IDisposable
         });
     }
 
+    /// <summary>Refused with <c>404</c> for a number with no pull request; otherwise its body
+    /// replaced, whatever its state, as GitHub edits one, and recorded as
+    /// <c>pull_request_edited</c>.</summary>
+    public Task<WriteResult<PullRequest>> EditPullRequestBody(Guid userId, AppWriteToken token, Repository repository, int number, string body, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(token);
+        token.Require(WritePurpose.Post, repository);
+        ArgumentNullException.ThrowIfNull(body);
+        return Task.FromResult(AsApp<WriteResult<PullRequest>>(userId, token, repository, Unavailable<PullRequest>(), Refused<PullRequest>, found =>
+        {
+            if (found.PullRequests.FirstOrDefault(pull => pull.Number == number) is not { } pull)
+            {
+                return (Refused<PullRequest>(StatusCodes.Status404NotFound, NotFoundMessage), null, null);
+            }
+
+            var edited = pull with { Body = body, UpdatedAt = _time.GetUtcNow() };
+            return (new WriteResult<PullRequest>.Written(edited), found with { PullRequests = [.. found.PullRequests.Select(each => each.Number == number ? edited : each)] },
+                new FakeWrite("pull_request_edited", repository.Id, number, null, null, body, AppLogin, Post));
+        }));
+    }
+
     /// <summary>Refused with <c>404</c> for a number with neither a pull request, an issue nor a
     /// conversation; otherwise posted by the app at the end of the conversation.</summary>
     public Task<WriteResult<Comment>> CommentOnIssue(Guid userId, AppWriteToken token, Repository repository, int number, string body, CancellationToken cancellationToken)
