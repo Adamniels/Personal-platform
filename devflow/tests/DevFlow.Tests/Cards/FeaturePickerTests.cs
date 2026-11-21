@@ -83,8 +83,8 @@ public sealed class FeaturePickerTests
 
         Assert.Equal(
         [
-            (21, "ignored", $"Written by {Stranger}: only your own cards are picked", false),
-            (22, "ignored", $"Edited by {Stranger}: only cards nobody else has edited are picked", false),
+            (21, "ignored", $"{Stranger} is not a trusted account of this project", false),
+            (22, "ignored", $"Edited by {Stranger}, who is not a trusted account of this project", false),
             (23, "queued", (string?)null, true),
             (24, "held", "Held by the label devflow-hold", true),
         ], (await StoredCards(reading, project)).Select(card => (card.Number, card.State, card.Reason, card.Picked)));
@@ -112,8 +112,8 @@ public sealed class FeaturePickerTests
         var features = await StoredFeatures(reading, project);
         Assert.Equal(
         [
-            (30, "ignored", $"Written by {Stranger}: only your own cards are picked"),
-            (40, "ignored", $"Edited by {Stranger}: only cards nobody else has edited are picked"),
+            (30, "ignored", $"{Stranger} is not a trusted account of this project"),
+            (40, "ignored", $"Edited by {Stranger}, who is not a trusted account of this project"),
         ], features.Select(feature => (feature.Number, feature.State, feature.Reason)));
         Assert.All(features, feature => Assert.Null(feature.PickedBodySha256));
         Assert.Equal(
@@ -199,7 +199,7 @@ public sealed class FeaturePickerTests
         [
             (61, "held", "The feature is held by the label devflow-hold"),
             (62, "held", "The feature is held by the label devflow-hold"),
-            (63, "ignored", $"Written by {Stranger}: only your own cards are picked"),
+            (63, "ignored", $"{Stranger} is not a trusted account of this project"),
         ], (await StoredCards(reading, project)).Select(card => (card.Number, card.State, card.Reason)));
 
         // The hold taken off, the feature and its cards are queued again.

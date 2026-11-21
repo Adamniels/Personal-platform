@@ -63,7 +63,7 @@ describe("the cards panel", () => {
 					card(
 						15,
 						"ignored",
-						"Written by octo-stranger: only your own cards are picked",
+						"octo-stranger is not a trusted account of this project",
 					),
 				],
 			}),
@@ -94,7 +94,7 @@ describe("the cards panel", () => {
 		expect(ignored.getByText("Ignored")).toBeTruthy();
 		expect(
 			ignored.getByText(
-				"Written by octo-stranger: only your own cards are picked",
+				"octo-stranger is not a trusted account of this project",
 			),
 		).toBeTruthy();
 

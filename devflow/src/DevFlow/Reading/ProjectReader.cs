@@ -156,15 +156,15 @@ public sealed partial class ProjectReader(UserDb database, ICodeHost host, TimeP
 
     /// <summary>What reading the project needs, through the door as the user: its repository, the
     /// bot whose pull requests are read, the owner's login from his link, whatever its state, or
-    /// null when he has none, and the labels its cards are picked by. Null when the user has no
-    /// such project.</summary>
+    /// null when he has none, the labels its cards are picked by and its other trusted accounts.
+    /// Null when the user has no such project.</summary>
     private async Task<ProjectTarget?> Find(Guid projectId, Guid userId, CancellationToken cancellationToken) =>
         await database.InUserTransaction(userId, transaction => transaction.Connection!.QuerySingleOrDefaultAsync<ProjectTarget>(new CommandDefinition(
             """
             SELECT p.installation_id AS Installation, p.repository_id AS RepositoryId, p.owner AS Owner, p.name AS Name,
                    p.bot_login AS Bot, a.login AS OwnerLogin,
                    s.pickup_label AS PickupLabel, s.hold_label AS HoldLabel, s.attention_label AS AttentionLabel,
-                   s.waits_for_owner AS WaitsForOwner
+                   s.waits_for_owner AS WaitsForOwner, s.trusted_logins AS TrustedLogins
             FROM projects p
             JOIN project_settings s ON s.project_id = p.id
             LEFT JOIN github_accounts a ON a.user_id = p.user_id
@@ -186,10 +186,11 @@ public sealed partial class ProjectReader(UserDb database, ICodeHost host, TimeP
             return ([], NothingPicked, [], [], [], [], failure);
         }
 
-        var settings = new ProjectSettings(target.PickupLabel, target.HoldLabel, target.AttentionLabel, target.WaitsForOwner, []);
+        var trusted = target.Trusted;
+        var settings = new ProjectSettings(target.PickupLabel, target.HoldLabel, target.AttentionLabel, target.WaitsForOwner, trusted.Listed);
         var repository = new Repository(target.Installation, target.RepositoryId, target.Owner, target.Name);
         PickedProject cards;
-        switch (await CardPicker.Pick(host, userId, repository, settings, target.OwnerLogin, cancellationToken))
+        switch (await CardPicker.Pick(host, userId, repository, settings, trusted, cancellationToken))
         {
             case CodeHostResult<PickedProject>.Found { Value: var found }:
                 cards = found;
@@ -627,15 +628,33 @@ public sealed partial class ProjectReader(UserDb database, ICodeHost host, TimeP
     /// <summary>The issues the code host lists open with an attention label.</summary>
     private sealed record OpenDecisions(string Label, IReadOnlyList<int> Open);
 
-    private sealed record ProjectTarget(
-        long Installation,
-        long RepositoryId,
-        string Owner,
-        string Name,
-        string Bot,
-        string? OwnerLogin,
-        string PickupLabel,
-        string HoldLabel,
-        string AttentionLabel,
-        string WaitsForOwner);
+    /// <summary>A project as reading needs it, set by property, since Dapper maps an array column
+    /// only to a property.</summary>
+    private sealed class ProjectTarget
+    {
+        public long Installation { get; init; }
+
+        public long RepositoryId { get; init; }
+
+        public string Owner { get; init; } = "";
+
+        public string Name { get; init; } = "";
+
+        public string Bot { get; init; } = "";
+
+        public string? OwnerLogin { get; init; }
+
+        public string PickupLabel { get; init; } = "";
+
+        public string HoldLabel { get; init; } = "";
+
+        public string AttentionLabel { get; init; } = "";
+
+        public string WaitsForOwner { get; init; } = "";
+
+        public string[] TrustedLogins { get; init; } = [];
+
+        /// <summary>The project's trusted accounts, the owner's linked login among them.</summary>
+        public TrustedAccounts Trusted => TrustedAccounts.Of(OwnerLogin, TrustedLogins);
+    }
 }

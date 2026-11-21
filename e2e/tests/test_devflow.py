@@ -1400,11 +1400,11 @@ def test_a_card_i_label_shows_as_queued(
     expect(row(14)).to_contain_text("Waits for #15")
     expect(row(16)).to_contain_text("Ignored")
     expect(row(16)).to_contain_text(
-        "Written by octo-stranger: only your own cards are picked"
+        "octo-stranger is not a trusted account of this project"
     )
     expect(row(17)).to_contain_text("Ignored")
     expect(row(17)).to_contain_text(
-        "Edited by octo-stranger: only cards nobody else has edited are picked"
+        "Edited by octo-stranger, who is not a trusted account of this project"
     )
     expect(cards.get_by_text("#18", exact=True)).to_have_count(0)
 

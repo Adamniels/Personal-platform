@@ -65,7 +65,7 @@ public sealed class CardListTests
         Assert.Equal("none", (string)held["priority"]!);
         Assert.Equal(routes.Time.GetUtcNow(), DateTimeOffset.Parse((string)held["changed_at"]!, System.Globalization.CultureInfo.InvariantCulture));
         Assert.Equal("ignored", (string)cards[1]!["state"]!);
-        Assert.Equal("Written by octo-stranger: only your own cards are picked", (string)cards[1]!["reason"]!);
+        Assert.Equal("octo-stranger is not a trusted account of this project", (string)cards[1]!["reason"]!);
     }
 
     [Fact]

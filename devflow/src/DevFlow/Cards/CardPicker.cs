@@ -7,8 +7,8 @@ using DevFlow.Projects;
 
 namespace DevFlow.Cards;
 
-/// <summary>Where picking puts a card: queued, held by the hold label, or ignored as not the
-/// owner's.</summary>
+/// <summary>Where picking puts a card: queued, held by the hold label, or ignored as not a
+/// trusted account's.</summary>
 public enum Verdict
 {
     Queued,
@@ -80,10 +80,10 @@ public sealed record PickedProject(IReadOnlyList<PickedFeature> Features, IReadO
 /// issues carrying the pick-up label, never a pull request among them, and each one's sub-issues.
 /// One with sub-issues is a feature, whose direct sub-issues in this repository are its cards;
 /// one without is a card on its own. Each card, and a feature's parent, is checked by the same
-/// rules: then, only for one the owner's linked login wrote, its edits; then, only for a card
-/// nobody else edited and that is not held, what it is blocked by. The only account whose cards
-/// count is the owner's, fixed until part 5. See "Cards" and "Features and their cards" in
-/// devflow/docs/devflow-architecture.md.
+/// rules: then, only for one a trusted account of the project wrote, its edits; then, only for a
+/// card nobody outside the list edited and that is not held, what it is blocked by. The accounts
+/// whose cards count are the project's trusted accounts, see <see cref="TrustedAccounts"/>. See
+/// "Cards" and "Features and their cards" in devflow/docs/devflow-architecture.md.
 /// </summary>
 public static class CardPicker
 {
@@ -100,6 +100,12 @@ public static class CardPicker
     /// <summary>Why each card of a feature that is not picked is ignored.</summary>
     public static string FeatureNotPicked(int feature) => string.Create(CultureInfo.InvariantCulture, $"Its feature, #{feature}, is not picked");
 
+    /// <summary>Why a card written by a login that is not on the project's list is ignored.</summary>
+    public static string NotTrusted(string login) => $"{login} is not a trusted account of this project";
+
+    /// <summary>Why a card edited by a login that is not on the project's list is ignored.</summary>
+    public static string EditedByUntrusted(string login) => $"Edited by {login}, who is not a trusted account of this project";
+
     /// <summary>Why a sub-issue of an issue that started as a card on its own is not a card.</summary>
     public static string ParentIsACard(int parent) => string.Create(CultureInfo.InvariantCulture, $"Its parent, #{parent}, is being built as a card");
 
@@ -109,15 +115,16 @@ public static class CardPicker
     /// half a picture is never stored. An issue that is gone between the list and a later read of
     /// it is left out, as it would be from the next list.
     /// </summary>
-    /// <param name="ownerLogin">The owner's linked login, whatever the link's state; null without
-    /// one, when no card is his.</param>
+    /// <param name="trusted">The project's trusted accounts, with the owner's linked login
+    /// whatever the link's state; without one, no card is picked.</param>
     public static async Task<CodeHostResult<PickedProject>> Pick(
-        ICodeHost host, Guid userId, Repository repository, ProjectSettings settings, string? ownerLogin, CancellationToken cancellationToken)
+        ICodeHost host, Guid userId, Repository repository, ProjectSettings settings, TrustedAccounts trusted, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(host);
         ArgumentNullException.ThrowIfNull(repository);
         ArgumentNullException.ThrowIfNull(settings);
-        var check = new Checks(host, userId, repository, settings, ownerLogin, cancellationToken);
+        ArgumentNullException.ThrowIfNull(trusted);
+        var check = new Checks(host, userId, repository, settings, trusted, cancellationToken);
 
         IReadOnlyList<Issue> found;
         switch (await host.LabelledIssues(userId, repository, settings.PickupLabel, cancellationToken))
@@ -301,25 +308,25 @@ public static class CardPicker
     }
 
     /// <summary>The card rules, as one read of one project applies them.</summary>
-    private sealed record Checks(ICodeHost Host, Guid UserId, Repository Repository, ProjectSettings Settings, string? OwnerLogin, CancellationToken CancellationToken)
+    private sealed record Checks(ICodeHost Host, Guid UserId, Repository Repository, ProjectSettings Settings, TrustedAccounts Trusted, CancellationToken CancellationToken)
     {
         /// <summary>
-        /// The card rules, in order, the first that holds deciding: no link, another author,
-        /// another editor, a held feature, its own hold label, and then, when
+        /// The card rules, in order, the first that holds deciding: no link, an author who is not
+        /// trusted, an editor who is not, a held feature, its own hold label, and then, when
         /// <paramref name="readBlockers"/>, what it is blocked by. A card costs only what decides
         /// it. Not found when the issue is gone since the list.
         /// </summary>
         public async Task<CodeHostResult<PickedCard>> Card(Candidate issue, string priority, int? feature, bool featureHeld, bool readBlockers = true)
         {
             var card = new PickedCard(issue.Number, issue.Title, issue.Url, issue.CreatedAt, priority, Verdict.Ignored, null, [], null, feature);
-            if (OwnerLogin is null)
+            if (Trusted.Mine is null)
             {
                 return new CodeHostResult<PickedCard>.Found(card with { Reason = NotLinked });
             }
 
-            if (!IsOwner(issue.Author, OwnerLogin))
+            if (!Trusted.Trusts(issue.Author))
             {
-                return new CodeHostResult<PickedCard>.Found(card with { Reason = $"Written by {issue.Author}: only your own cards are picked" });
+                return new CodeHostResult<PickedCard>.Found(card with { Reason = NotTrusted(issue.Author) });
             }
 
             IReadOnlyList<IssueEdit> edits;
@@ -336,9 +343,9 @@ public static class CardPicker
                     throw new InvalidOperationException("a code host result that is not one of the three");
             }
 
-            if (edits.Where(edit => !IsOwner(edit.Editor, OwnerLogin)).OrderBy(edit => edit.At).FirstOrDefault() is { } stranger)
+            if (edits.Where(edit => !Trusted.Trusts(edit.Editor)).OrderBy(edit => edit.At).FirstOrDefault() is { } stranger)
             {
-                return new CodeHostResult<PickedCard>.Found(card with { Reason = $"Edited by {stranger.Editor}: only cards nobody else has edited are picked" });
+                return new CodeHostResult<PickedCard>.Found(card with { Reason = EditedByUntrusted(stranger.Editor) });
             }
 
             var record = new PickedRecord(
@@ -385,9 +392,6 @@ public static class CardPicker
             });
         }
     }
-
-    /// <summary>Logins are one account whatever their case, as GitHub's are.</summary>
-    private static bool IsOwner(string login, string ownerLogin) => string.Equals(login, ownerLogin, StringComparison.OrdinalIgnoreCase);
 
     /// <summary><c>high</c> with the high label, else <c>low</c> with the low one, else
     /// <c>none</c>; labels matched whatever their case.</summary>
