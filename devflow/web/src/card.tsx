@@ -406,7 +406,13 @@ export function RunRow({
 /** One round on an inset: a fix round or the owner's comment, how its fix
  * went, what sent the card back, his words as he wrote them, the developer's
  * reply to each finding, and the commit the fix left with the review of it. */
-function RoundRow({ round, reviews }: { round: Round; reviews: Review[] }) {
+export function RoundRow({
+	round,
+	reviews,
+}: {
+	round: Round;
+	reviews: Review[];
+}) {
 	const name =
 		round.round === null
 			? "Your comment"

@@ -85,6 +85,7 @@ function open(decisions: DecisionItem[]) {
 				resume: () => Promise.resolve(),
 				mergeCard: () => Promise.resolve(),
 				sendBackCard: () => Promise.resolve(),
+				sendBackFeature: () => Promise.resolve(),
 			}}
 			now={() => NOW}
 		/>,

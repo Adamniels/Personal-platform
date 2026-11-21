@@ -1,4 +1,5 @@
 using DevFlow.CodeHost;
+using DevFlow.Fixing;
 using DevFlow.Merging;
 
 namespace DevFlow.Features;
@@ -19,15 +20,19 @@ public sealed record ReviewOfFeature(string Commit, string Verdict);
 /// <param name="CleanMerges">Each merge commit Dev flow made bringing the default branch in, and the
 /// feature branch's commit it merged into, from <c>merges_made</c>; a conflict's resolution is
 /// never among them, since an agent made it.</param>
-public sealed record ReadyFacts(string Head, string? FailedAt, ReviewOfFeature? Latest, IReadOnlyDictionary<string, string> CleanMerges);
+/// <param name="FixFailedAt">The commit its last fix that failed in the job was handed, null
+/// otherwise.</param>
+/// <param name="RoundsUsed">The fix rounds its reviews have started, 0 to
+/// <see cref="FixRounds.Most"/>.</param>
+public sealed record ReadyFacts(string Head, string? FailedAt, ReviewOfFeature? Latest, IReadOnlyDictionary<string, string> CleanMerges, string? FixFailedAt = null, int RoundsUsed = 0);
 
 /// <summary>CI on the feature's head, as the code host answered it at <paramref name="Now"/>, and
 /// when the head was pushed.</summary>
 public sealed record ReadyCi(CodeHostResult<IReadOnlyList<CheckRun>> CheckRuns, CodeHostResult<IReadOnlyList<CommitStatus>> Statuses, DateTimeOffset Now, DateTimeOffset PushedAt);
 
-/// <summary>Where a feature moves: its state, its reason, and the commit to review when it is to be
-/// reviewed.</summary>
-public sealed record ReadyDecision(string State, string? Reason, string? ReviewCommit);
+/// <summary>Where a feature moves: its state, its reason, the commit to review when it is to be
+/// reviewed, and the fix round its covering review starts when it is to be fixed.</summary>
+public sealed record ReadyDecision(string State, string? Reason, string? ReviewCommit, int? FixRound = null);
 
 /// <summary>
 /// Whether a feature whose pull request is open needs a review of the whole feature, and whether it
@@ -35,8 +40,9 @@ public sealed record ReadyDecision(string State, string? Reason, string? ReviewC
 /// network or clock in it, as the merge check's is. A review covers the head when it is for it, or
 /// when the head differs from it only by merges of the default branch Dev flow made cleanly, so a
 /// clean bringing in needs CI again and no new review, and a conflict an agent resolved, which no
-/// such merge is, needs both. See "Reviewing a feature" in devflow/README.md and
-/// devflow/docs/devflow-architecture.md.
+/// such merge is, needs both. A covering review that asked for changes starts a fix round, at most
+/// <see cref="FixRounds.Most"/>, and a feature is never stopped by its review. See "Reviewing a
+/// feature" and "Fixing a feature" in devflow/README.md and devflow/docs/devflow-architecture.md.
 /// </summary>
 public static class FeatureReady
 {
@@ -73,8 +79,10 @@ public static class FeatureReady
     /// <summary>
     /// Where the feature moves, or null when it stays as it is, in this order: a head no review
     /// covers is to be reviewed, unless its review failed there in the job, when it waits for the
-    /// owner as that failure left it; a head the covering review asked changes on waits for the owner,
-    /// until "Fixing a feature" lands; and a head it approved is ready when CI passed there, read as
+    /// owner as that failure left it; a head its fix failed at in the job stays as that failure left
+    /// it too, until the branch moves or the owner comments; a head the covering review asked
+    /// changes on starts the next fix round, or, with every round used, waits for the owner with
+    /// <see cref="FeatureFix.UsedUp"/>; and a head it approved is ready when CI passed there, read as
     /// the merge check reads it by <see cref="MergeCheck.Ci"/>, and otherwise waits with CI's reason,
     /// <paramref name="ci"/> null being CI that could not be read.
     /// </summary>
@@ -88,9 +96,16 @@ public static class FeatureReady
                 : new ReadyDecision("reviewing", FeatureReview.ToReview, facts.Head);
         }
 
+        if (string.Equals(facts.Head, facts.FixFailedAt, StringComparison.Ordinal))
+        {
+            return null;
+        }
+
         if (review.Verdict != "approve")
         {
-            return new ReadyDecision("waiting_for_owner", FeatureReview.ChangesAsked, null);
+            return facts.RoundsUsed >= FixRounds.Most
+                ? new ReadyDecision("waiting_for_owner", FeatureFix.UsedUp, null)
+                : new ReadyDecision("fixing", FeatureFix.Asked(facts.RoundsUsed + 1), null, facts.RoundsUsed + 1);
         }
 
         if (ci is null)

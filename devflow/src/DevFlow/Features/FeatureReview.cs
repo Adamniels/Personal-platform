@@ -15,7 +15,4 @@ public static class FeatureReview
     /// <summary>Why a feature waits for the owner when its review failed in the job:
     /// <paramref name="reason"/> is its run's.</summary>
     public static string Failed(string reason) => $"Dev flow could not review the whole feature: {reason}";
-
-    /// <summary>A feature whose review asked for changes, until "Fixing a feature" lands.</summary>
-    public const string ChangesAsked = "The review of the whole feature asked for changes";
 }

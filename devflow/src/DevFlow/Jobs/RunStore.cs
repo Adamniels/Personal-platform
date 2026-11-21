@@ -234,6 +234,40 @@ public static class RunStore
     }
 
     /// <summary>
+    /// How a whole feature's fix ends its run, in this order: a failure outside the job leaves the
+    /// feature <c>fixing</c>, to be fixed again in the same round, counting nothing; a failure in the
+    /// job, a report that does not match its form, a check that did not run or failed, which the
+    /// worker pushes nothing for, and a branch left at <paramref name="fromCommit"/>,
+    /// <see cref="FixRounds.NoNewCommit"/>, each run it again once and leave it
+    /// <c>waiting_for_owner</c> as the second in a row from the same commit, see
+    /// <see cref="RunEnding.Retry"/>; a time limit and a report that stopped leave it waiting at once;
+    /// anything else succeeded, and the feature goes back to <c>reviewing</c>, for a fresh review of
+    /// its new head. A feature is never stopped by its fix: the owner reviews it anyway.
+    /// </summary>
+    public static RunEnding JudgeFeatureFix(RunResult result, string fromCommit)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        if (!result.Succeeded)
+        {
+            var why = Cut(result.FailureReason ?? "");
+            return result.FailureInCard
+                ? new RunEnding("failed_in_card", Cut($"The fix failed: {why}"), "waiting_for_owner", Retry: !result.TimedOut)
+                : new RunEnding("failed_outside_card", why, "fixing");
+        }
+
+        var built = Judge(result);
+        if (built.Result != "succeeded")
+        {
+            // A check that failed is judged before the commit, since the worker pushes nothing then.
+            return built with { CardState = "waiting_for_owner", CardReason = null, Retry = built.Result != "stopped" };
+        }
+
+        return result.HeadCommit is null || string.Equals(result.HeadCommit, fromCommit, StringComparison.Ordinal)
+            ? new RunEnding("failed_in_card", FixRounds.NoNewCommit, "waiting_for_owner", Retry: true)
+            : new RunEnding("succeeded", null, "reviewing");
+    }
+
+    /// <summary>
     /// How a build's result ends its run, in this order: a failure outside the card puts the card back in
     /// <c>queued</c>, counting nothing against it; a failure in the card, a report that does not
     /// match its form, a report that stopped, a check that did not run or failed, each stop it with
@@ -327,7 +361,8 @@ public static class RunStore
     /// with the figures the usage page reads, judges it by <see cref="Judge"/> for a build,
     /// <see cref="JudgeReview"/> for a review or <see cref="JudgeFix"/> for a fix and moves the card,
     /// with the round a review's changes starts, or by <see cref="JudgeConflict"/> for a conflict,
-    /// which moves its feature, in one transaction; only when the
+    /// <see cref="JudgeFeatureReview"/> for a whole feature's review or <see cref="JudgeFeatureFix"/>
+    /// for a whole feature's fix, which move its feature, in one transaction; only when the
     /// worker holds the run under way, the result names the job's branch, and for a review the
     /// commit it was handed, or none on a failure. A run on a feature's branch itself records the
     /// commit it names in <c>pushes_made</c>, and the pushes the watch awaited are judged, see
@@ -386,6 +421,7 @@ public static class RunStore
                 Job.Fix => JudgeFix(result, run.FromCommit!),
                 Job.Conflict => JudgeConflict(result, run.FromCommit!),
                 Job.FeatureReview => JudgeFeatureReview(result),
+                Job.FeatureFix => JudgeFeatureFix(result, run.FromCommit!),
                 _ => Judge(result),
             };
             var usage = result.Usage;
@@ -436,14 +472,15 @@ public static class RunStore
                 cancellationToken: cancellationToken));
             // A run on a feature's branch itself pushed there, before it sent this: the commit it
             // names is recorded as Dev flow's own push, and what the watch read meanwhile is judged.
-            // A review, of a whole feature among them, names the commit it read and pushed nothing.
+            // A review, of a whole feature among them, names the commit it read and pushed nothing,
+            // and a fix that names the commit it was handed pushed nothing new.
             if (await transaction.Connection!.ExecuteScalarAsync<bool>(new CommandDefinition(
                     "SELECT EXISTS (SELECT 1 FROM features WHERE project_id = @projectId AND branch = @branch)",
                     new { projectId, branch = run.Branch },
                     transaction,
                     cancellationToken: cancellationToken)))
             {
-                if (!review && result.HeadCommit is { } pushed)
+                if (!review && result.HeadCommit is { } pushed && !string.Equals(pushed, run.FromCommit, StringComparison.Ordinal))
                 {
                     await transaction.Connection!.ExecuteAsync(new CommandDefinition(
                         """
@@ -483,6 +520,12 @@ public static class RunStore
                     }
 
                     await EndFeatureReview(transaction, projectId, feature, run.HeadCommit!, ending, now, cancellationToken);
+                    return Recorded.Stored;
+                }
+
+                if (run.Kind == Job.FeatureFix)
+                {
+                    await EndFeatureFix(transaction, projectId, feature, run.FromCommit!, run.FixRound, ending, now, cancellationToken);
                     return Recorded.Stored;
                 }
 
@@ -565,7 +608,7 @@ public static class RunStore
     /// and its card put back, counting nothing against it: a build's in <c>queued</c>, a review's in
     /// <c>reviewing</c>, a fix's in <c>fixing</c>, in the same round; and the pushes the watch
     /// awaited of them are judged, with no result to record them. A feature's run lost leaves its
-    /// feature where it was, to be handed out again. Called on each read of the project, as its
+    /// feature where it was, to be handed out again, a fix's in the same round. Called on each read of the project, as its
     /// user. How many were lost.
     /// </summary>
     public static async Task<int> SweepLost(UserDb database, Guid userId, Guid projectId, DateTimeOffset now, CancellationToken cancellationToken)
@@ -601,6 +644,10 @@ public static class RunStore
                     if (kind == Job.FeatureReview && feature is { } parent)
                     {
                         await EndFeatureReview(transaction, projectId, parent, null, new RunEnding("lost", LostReason, "reviewing"), now, cancellationToken);
+                    }
+                    else if (kind == Job.FeatureFix && feature is { } fixedOne)
+                    {
+                        await EndFeatureFix(transaction, projectId, fixedOne, null, round, new RunEnding("lost", LostReason, "fixing"), now, cancellationToken);
                     }
 
                     continue;
@@ -803,6 +850,53 @@ public static class RunStore
                 commit,
                 now,
             },
+            transaction,
+            cancellationToken: cancellationToken));
+    }
+
+    /// <summary>
+    /// Moves a feature whose fix has just ended, only while it is still <c>fixing</c>: on a success
+    /// to <c>reviewing</c>, <see cref="Features.FeatureFix.Fixed"/>, for the minute to queue a review
+    /// of its new head once its watch has read it, with what the fix answered cleared; on a failure
+    /// outside the job, or a run lost, it stays there in the same round, to be fixed again; on a
+    /// failure in the job that runs it again, the first from <paramref name="fromCommit"/>, it stays
+    /// there with <see cref="Features.FeatureFix.Again"/> and remembers the commit; on the second in a
+    /// row from that commit, or one that never runs again, it waits for the owner with why, and the
+    /// commit is remembered, so its readiness leaves it so until its branch moves.
+    /// </summary>
+    private static async Task EndFeatureFix(NpgsqlTransaction transaction, Guid projectId, int number, string? fromCommit, int? round, RunEnding ending, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        var failedAt = await transaction.Connection!.QuerySingleOrDefaultAsync<(string State, string? FailedAt)?>(new CommandDefinition(
+            "SELECT state, fix_failed_at FROM features WHERE project_id = @projectId AND number = @number FOR UPDATE",
+            new { projectId, number },
+            transaction,
+            cancellationToken: cancellationToken));
+        if (failedAt is not { State: "fixing" } feature)
+        {
+            return;
+        }
+
+        var reason = ending.Reason ?? "";
+        var (state, said, remember) = ending switch
+        {
+            { Result: "succeeded" } => ("reviewing", Features.FeatureFix.Fixed, (string?)null),
+            { CardState: "fixing" } => ("fixing", Features.FeatureFix.Waiting(round), feature.FailedAt),
+            { Retry: true } when !string.Equals(feature.FailedAt, fromCommit, StringComparison.Ordinal)
+                => ("fixing", Features.FeatureFix.Again(reason), fromCommit),
+            { Retry: true } => ("waiting_for_owner", Features.FeatureFix.Failed(Twice(reason)), fromCommit),
+            _ => ("waiting_for_owner", Features.FeatureFix.Failed(reason), fromCommit),
+        };
+        var succeeded = state == "reviewing";
+        await transaction.Connection!.ExecuteAsync(new CommandDefinition(
+            """
+            UPDATE features SET state = @state, reason = @said, changed_at = @now, fix_failed_at = @remember,
+                next_fix_round = CASE WHEN @succeeded THEN NULL ELSE next_fix_round END,
+                fix_review_id = CASE WHEN @succeeded THEN NULL ELSE fix_review_id END,
+                fix_comments = CASE WHEN @succeeded THEN NULL ELSE fix_comments END,
+                review_commit = CASE WHEN @succeeded THEN NULL ELSE review_commit END
+            WHERE project_id = @projectId AND number = @number AND state = 'fixing'
+            """,
+            new { projectId, number, state, said, remember, succeeded, now },
             transaction,
             cancellationToken: cancellationToken));
     }

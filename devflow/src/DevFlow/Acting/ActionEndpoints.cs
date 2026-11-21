@@ -87,7 +87,76 @@ public static class ActionEndpoints
             .ProducesValidationProblem(StatusCodes.Status422UnprocessableEntity)
             .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
+        routes.MapPost("/devflow/api/projects/{id:guid}/features/{number:int}/send-back", SendBackFeature)
+            .RequireAuthorization(PlatformAuthPolicies.Api)
+            .WithName("sendBackFeature")
+            .WithSummary("Send a whole feature of Dev flow's own back, with a comment as the caller")
+            .WithDescription("Posts comment, trimmed and with nothing added, as the caller's linked GitHub account and never as the app, on the feature's pull request to the default branch, which the read of the project that follows takes, as any comment of his past the newest already taken, and starts a fix of the whole feature with, which is not one of its review's rounds. In order: 404 for a project or feature the caller does not have; 422 when comment is missing, empty once trimmed, or longer than 10,000 characters; 409 when the feature is neither ready nor waiting for the caller with its pull request; 409 when GitHub is not linked or the link has expired; then GitHub is asked. 204 once posted and the project read again. 409 when GitHub refuses, with its reason; 503 when GitHub did not answer. Without a valid token, 401 with an empty body; a change from another origin, 403.")
+            .Produces(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesValidationProblem(StatusCodes.Status422UnprocessableEntity)
+            .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
+
         return routes;
+    }
+
+    /// <summary>
+    /// The owner's "Send the whole feature back": his comment, posted as him on the feature's pull
+    /// request, as part 1's sending back is, which the read that follows takes as the one comment
+    /// read there as an input and starts a fix of the whole feature with. Only for a feature ready
+    /// or waiting for him with its pull request. Dev flow itself writes nothing to the feature here,
+    /// so the comment on GitHub is the one record of it. See "Fixing a feature" in
+    /// devflow/README.md.
+    /// </summary>
+    private static async Task<Results<NoContent, ProblemHttpResult>> SendBackFeature(
+        Guid id,
+        int number,
+        SendBackRequest request,
+        HttpContext context,
+        [FromServices] ActionStore store,
+        [FromServices] UserTokens tokens,
+        [FromServices] ICodeHost host,
+        [FromServices] ProjectRefresher refresher,
+        [FromServices] TimeProvider time)
+    {
+        var userId = context.UserId();
+        var cancellationToken = context.RequestAborted;
+        if (await store.FindFeature(userId, id, number, cancellationToken) is not { } feature)
+        {
+            return TypedResults.Problem(statusCode: StatusCodes.Status404NotFound, title: "No such feature", detail: "You have no feature with that number in that project.");
+        }
+
+        if (Comment(request.Comment, "write what the developer should change") is { } invalid)
+        {
+            return invalid;
+        }
+
+        if (feature.State is not ("ready" or "waiting_for_owner") || feature.PullRequestNumber is not { } pull)
+        {
+            return Conflict("This feature cannot be sent back now", "A feature is sent back while it is ready or waits for you, with its pull request open.");
+        }
+
+        var userToken = await tokens.For(userId, cancellationToken);
+        if (userToken is not UserToken.Usable { Token: var access })
+        {
+            return TokenProblem(userToken, context, time);
+        }
+
+        switch (await host.Comment(userId, access, feature.Repository, pull, request.Comment!.Trim(), cancellationToken))
+        {
+            case CommentResult.Posted:
+                await ReadAgain(refresher, feature.ProjectId, userId, time, cancellationToken);
+                return TypedResults.NoContent();
+            case CommentResult.Refused { Status: var status, Message: var message }:
+                return Conflict("GitHub refused the comment", HostSaid(status, message));
+            case CommentResult.Unavailable { RetryAt: var retryAt }:
+                // It may have been posted before the answer was lost, so the project is read again.
+                await ReadAgain(refresher, feature.ProjectId, userId, time, cancellationToken);
+                return Unavailable(context, time, retryAt, "It is not known whether the comment was posted; the project was read again.");
+            default:
+                throw new InvalidOperationException("a comment result that is not one of the three");
+        }
     }
 
     /// <summary>

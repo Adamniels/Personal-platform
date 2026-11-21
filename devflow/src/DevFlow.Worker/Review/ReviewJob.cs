@@ -204,7 +204,8 @@ internal sealed partial class ReviewJob(DevFlowClient devFlow, Guid workerId, Jo
     /// feature's own changes, the diff from where its branch and the default branch last met to the
     /// commit, so what was brought in from the default branch is not read as the feature's; the
     /// parent as it was picked; each card with its latest verdict and its handover note; the newest
-    /// check Dev flow holds on the feature's branch, with the commit it ran on; and, when there is
+    /// check Dev flow holds on the feature's branch, with the commit it ran on; its earlier fix
+    /// rounds; and, when there is
     /// one, the remerge diff of each conflict resolved since the feature's last review, apart. See
     /// "Reviewing a feature" in devflow/README.md.
     /// </summary>
@@ -221,6 +222,8 @@ internal sealed partial class ReviewJob(DevFlowClient devFlow, Guid workerId, Jo
             files.Add(("remerge.patch", Line(remerge)));
         }
 
+        // The feature's earlier fix rounds, as Dev flow sent them; an empty list on a first review.
+        files.Add(("earlier.json", Line(JsonSerializer.Serialize(toReview.Earlier ?? [], WorkerApi.Json))));
         files.Add(("check.txt", FeatureCheckText(job, toReview)));
         return new Evidence(files, []);
     }

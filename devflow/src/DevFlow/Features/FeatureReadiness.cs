@@ -30,7 +30,7 @@ public sealed partial class FeatureReadiness(UserDb database, ICodeHost host, Ti
         {
             try
             {
-                var facts = new ReadyFacts(feature.Head, feature.ReviewFailedAt, feature.Latest, feature.CleanMerges);
+                var facts = new ReadyFacts(feature.Head, feature.ReviewFailedAt, feature.Latest, feature.CleanMerges, feature.FixFailedAt, feature.RoundsUsed);
                 // CI is read only for a head an approve covers, and with the time it was read at.
                 var ci = FeatureReady.Covering(facts) is { Verdict: "approve" } && repository is not null
                     ? new ReadyCi(
@@ -77,14 +77,14 @@ public sealed partial class FeatureReadiness(UserDb database, ICodeHost host, Ti
             var rows = (await transaction.Connection!.QueryAsync<DueRow>(new CommandDefinition(
                 """
                 SELECT f.id AS Id, f.number AS Number, f.branch AS Branch, f.state AS State, f.reason AS Reason, f.review_commit AS ReviewCommit,
-                       f.review_failed_at AS ReviewFailedAt, wb.last_commit AS Head,
+                       f.review_failed_at AS ReviewFailedAt, f.fix_failed_at AS FixFailedAt, f.fix_round AS RoundsUsed, wb.last_commit AS Head,
                        coalesce((SELECT m.merged_at FROM merges_made m WHERE m.project_id = f.project_id AND m.commit = wb.last_commit),
                                 (SELECT p.recorded_at FROM pushes_made p WHERE p.project_id = f.project_id AND p.branch = f.branch AND p.commit = wb.last_commit),
                                 f.changed_at) AS PushedAt,
-                       v.reviewed_commit AS ReviewedCommit, v.verdict AS Verdict
+                       v.run_id AS ReviewRunId, v.reviewed_commit AS ReviewedCommit, v.verdict AS Verdict
                 FROM features f
                 JOIN branch_watches wb ON wb.project_id = f.project_id AND wb.feature_id = f.id
-                LEFT JOIN LATERAL (SELECT reviewed_commit, verdict FROM feature_reviews
+                LEFT JOIN LATERAL (SELECT run_id, reviewed_commit, verdict FROM feature_reviews
                                    WHERE feature_reviews.project_id = f.project_id AND feature_reviews.feature_number = f.number
                                    ORDER BY reviewed_at DESC, run_id DESC LIMIT 1) v ON true
                 WHERE f.project_id = @projectId AND f.state IN ('reviewing', 'waiting_for_owner', 'ready')
@@ -111,7 +111,7 @@ public sealed partial class FeatureReadiness(UserDb database, ICodeHost host, Ti
                     transaction,
                     cancellationToken: cancellationToken))).ToList();
             return (new Repository(project.Installation, project.RepositoryId, project.Owner, project.Name), [.. rows.Select(row => new Due(
-                row.Id, row.Number, row.State, row.Reason, row.ReviewCommit, row.ReviewFailedAt, row.Head,
+                row.Id, row.Number, row.State, row.Reason, row.ReviewCommit, row.ReviewFailedAt, row.FixFailedAt, row.RoundsUsed, row.ReviewRunId, row.Head,
                 new DateTimeOffset(DateTime.SpecifyKind(row.PushedAt, DateTimeKind.Utc)),
                 row.ReviewedCommit is { } commit && row.Verdict is { } verdict ? new ReviewOfFeature(commit, verdict) : null,
                 merges.Where(merge => merge.Branch == row.Branch).ToDictionary(merge => merge.Commit, merge => merge.Parent, StringComparer.Ordinal)))]);
@@ -119,7 +119,8 @@ public sealed partial class FeatureReadiness(UserDb database, ICodeHost host, Ti
 
     /// <summary>Moves the feature as <paramref name="decision"/> says, only while it is still in the
     /// state it was read in and nothing of its own runs, and only when something changes; its
-    /// <c>changed_at</c> moves only with its state or its reason.</summary>
+    /// <c>changed_at</c> moves only with its state or its reason. A decision to fix starts its round:
+    /// the round counted, and what the fix answers, the latest review and no comment, set.</summary>
     private async Task Move(Guid userId, Due feature, ReadyDecision decision, CancellationToken cancellationToken)
     {
         if (decision.State == feature.State && decision.Reason == feature.Reason && decision.ReviewCommit == feature.ReviewCommit)
@@ -131,11 +132,16 @@ public sealed partial class FeatureReadiness(UserDb database, ICodeHost host, Ti
         await database.InUserTransaction(userId, transaction => transaction.Connection!.ExecuteAsync(new CommandDefinition(
             """
             UPDATE features SET state = @state, reason = @reason, review_commit = @reviewCommit,
-                                changed_at = CASE WHEN state IS DISTINCT FROM @state OR reason IS DISTINCT FROM @reason THEN @now ELSE changed_at END
+                                changed_at = CASE WHEN state IS DISTINCT FROM @state OR reason IS DISTINCT FROM @reason THEN @now ELSE changed_at END,
+                                fix_round = coalesce(@round, fix_round),
+                                next_fix_round = CASE WHEN @round IS NULL THEN next_fix_round ELSE @round END,
+                                fix_review_id = CASE WHEN @round IS NULL THEN fix_review_id ELSE @reviewId END,
+                                fix_comments = CASE WHEN @round IS NULL THEN fix_comments END,
+                                fix_failed_at = CASE WHEN @round IS NULL THEN fix_failed_at END
             WHERE id = @id AND state = @before
               AND NOT EXISTS (SELECT 1 FROM runs r WHERE r.project_id = features.project_id AND r.feature_number = features.number AND r.finished_at IS NULL)
             """,
-            new { id = feature.Id, before = feature.State, state = decision.State, reason = decision.Reason, reviewCommit = decision.ReviewCommit, now },
+            new { id = feature.Id, before = feature.State, state = decision.State, reason = decision.Reason, reviewCommit = decision.ReviewCommit, round = decision.FixRound, reviewId = feature.ReviewRunId, now },
             transaction,
             cancellationToken: cancellationToken)), cancellationToken);
         LogMoved(log, feature.Number, decision.State, decision.Reason ?? "");
@@ -156,12 +162,12 @@ public sealed partial class FeatureReadiness(UserDb database, ICodeHost host, Ti
 
     /// <summary>A feature whose review or readiness is due, as read.</summary>
     private sealed record Due(
-        Guid Id, int Number, string State, string? Reason, string? ReviewCommit, string? ReviewFailedAt, string Head, DateTimeOffset PushedAt,
-        ReviewOfFeature? Latest, IReadOnlyDictionary<string, string> CleanMerges);
+        Guid Id, int Number, string State, string? Reason, string? ReviewCommit, string? ReviewFailedAt, string? FixFailedAt, int RoundsUsed, Guid? ReviewRunId,
+        string Head, DateTimeOffset PushedAt, ReviewOfFeature? Latest, IReadOnlyDictionary<string, string> CleanMerges);
 
     private sealed record DueRow(
-        Guid Id, int Number, string Branch, string State, string? Reason, string? ReviewCommit, string? ReviewFailedAt, string Head, DateTime PushedAt,
-        string? ReviewedCommit, string? Verdict);
+        Guid Id, int Number, string Branch, string State, string? Reason, string? ReviewCommit, string? ReviewFailedAt, string? FixFailedAt, int RoundsUsed,
+        string Head, DateTime PushedAt, Guid? ReviewRunId, string? ReviewedCommit, string? Verdict);
 
     private sealed record ProjectRow(long Installation, long RepositoryId, string Owner, string Name);
 }

@@ -27,6 +27,8 @@ function story(overrides: Partial<FeatureStory> = {}): FeatureStory {
 		reason: null,
 		branch: { name: BRANCH, commit: COMMIT },
 		pull_request: null,
+		fix_rounds: 0,
+		rounds: [],
 		cards: [
 			{
 				number: 39,
@@ -93,6 +95,7 @@ function open(api: Partial<FeatureApi> = {}) {
 				answered_at: "2026-11-20T09:30:00+00:00",
 			}),
 		),
+		sendBack: vi.fn(() => Promise.resolve()),
 		copy: vi.fn(() => Promise.resolve()),
 		...api,
 	};
@@ -445,5 +448,118 @@ describe("a feature's page", () => {
 				.getByRole("link", { name: "Back to the project" })
 				.getAttribute("href"),
 		).toBe(`/devflow/projects/${PROJECT}`);
+	});
+
+	test("sends the whole feature back with a comment while it waits for you", async () => {
+		const waiting = story({
+			state: "waiting_for_owner",
+			reason: "Review rounds used up",
+			pull_request: {
+				number: 51,
+				url: "https://github.com/Adamniels/Fodr/pull/51",
+			},
+		});
+		const loadFeature = vi.fn(() => Promise.resolve(waiting));
+		const sendBack = vi.fn(() => Promise.resolve());
+		open({ loadFeature, sendBack });
+
+		fireEvent.click(
+			await screen.findByRole("button", {
+				name: "Send the whole feature back",
+			}),
+		);
+		fireEvent.change(
+			screen.getByLabelText(
+				"What should the developer change in the whole feature?",
+			),
+			{ target: { value: "Split the list in two." } },
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+		await waitFor(() =>
+			expect(sendBack).toHaveBeenCalledWith(
+				PROJECT,
+				38,
+				"Split the list in two.",
+			),
+		);
+		// The page is read again, so it shows the feature being fixed.
+		await waitFor(() => expect(loadFeature).toHaveBeenCalledTimes(2));
+	});
+
+	test("offers no send back while the feature is still being built", async () => {
+		open();
+
+		await screen.findByRole("heading", { name: "Feeding plan, version 2" });
+		expect(
+			screen.queryByRole("button", { name: "Send the whole feature back" }),
+		).toBeNull();
+	});
+
+	test("shows each fix round of the whole feature", async () => {
+		const asked = "019a0000-0000-7000-8000-0000000000f0";
+		open({
+			loadFeature: () =>
+				Promise.resolve(
+					story({
+						state: "fixing",
+						reason: "Round 1 of 3: the developer is fixing the feature",
+						pull_request: {
+							number: 51,
+							url: "https://github.com/Adamniels/Fodr/pull/51",
+						},
+						fix_rounds: 1,
+						reviews: [
+							{
+								run_id: asked,
+								commit: "8".repeat(40),
+								verdict: "changes",
+								summary: "The page reads the plan twice.",
+								findings: [
+									{
+										blocking: true,
+										file: "src/plan.ts",
+										line: 12,
+										what: "Two cards read the plan",
+										why: "One will drift",
+									},
+								],
+								for_owner: [],
+								reviewed_at: "2026-11-20T09:00:00+00:00",
+								posted: true,
+								current: true,
+							},
+						],
+						rounds: [
+							{
+								run_id: "019a0000-0000-7000-8000-0000000000f2",
+								round: 1,
+								review_run_id: asked,
+								comments: [],
+								result: "succeeded",
+								replies: [
+									{
+										finding: "Two cards read the plan",
+										answer: "Fixed: one reader.",
+									},
+								],
+								fixed_commit: COMMIT,
+								review_after_run_id: null,
+							},
+						],
+					}),
+				),
+		});
+
+		const rounds = await screen.findByRole("list", {
+			name: "Fix rounds of the feature",
+		});
+		expect(screen.getByText("Fix rounds, 1 of 3 used")).toBeTruthy();
+		const round = within(
+			within(rounds).getByRole("listitem", { name: "Round 1 of 3" }),
+		);
+		expect(round.getByText("8888888")).toBeTruthy();
+		expect(round.getByText("Fixed: one reader.")).toBeTruthy();
+		expect(round.getByText(COMMIT.slice(0, 7))).toBeTruthy();
 	});
 });

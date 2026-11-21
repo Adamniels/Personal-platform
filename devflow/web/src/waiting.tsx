@@ -386,6 +386,9 @@ function GroupSection({
 				<WaitingFeature
 					key={`${feature.project_id}/${feature.number}`}
 					feature={feature}
+					link={act.link}
+					api={act.api}
+					reload={act.reload}
 				/>
 			))}
 			{(group.decided ?? []).map((decision) => (

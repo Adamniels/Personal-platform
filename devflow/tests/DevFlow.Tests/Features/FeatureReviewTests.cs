@@ -100,9 +100,9 @@ public sealed class FeatureReviewTests
         Assert.EndsWith($"Reviewed by Dev flow for the feature #{Ending.Parent}, run {run.Id}.\n", posted.Body, StringComparison.Ordinal);
         Assert.NotNull((await Reviewing.Reviews(jobs))[0].PostedAt);
 
-        // Until "Fixing a feature" lands, changes leaves the feature waiting for the owner.
+        // Changes starts the feature's first fix round, see FeatureFixTests.
         await Reviewing.Decide(jobs);
-        Assert.Equal(("waiting_for_owner", FeatureReview.ChangesAsked), ((await Ending.Row(jobs)).State, (await Ending.Row(jobs)).Reason));
+        Assert.Equal(("fixing", FeatureFix.Asked(1)), ((await Ending.Row(jobs)).State, (await Ending.Row(jobs)).Reason));
 
         // A comment saying otherwise, by the app's name or anyone's, is never read back: the
         // verdict stays the one kept, and the feature where it was.
@@ -116,7 +116,7 @@ public sealed class FeatureReviewTests
         });
         await Reviewing.Minute(jobs);
         Assert.Equal("changes", Assert.Single(await Reviewing.Reviews(jobs)).Verdict);
-        Assert.Equal(("waiting_for_owner", FeatureReview.ChangesAsked), ((await Ending.Row(jobs)).State, (await Ending.Row(jobs)).Reason));
+        Assert.Equal(("fixing", FeatureFix.Asked(1)), ((await Ending.Row(jobs)).State, (await Ending.Row(jobs)).Reason));
         Assert.Single(jobs.Fake.Writes(Ending.User), write => write.Kind == "comment" && write.Number == pull);
     }
 }

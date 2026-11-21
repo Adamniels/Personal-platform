@@ -1496,7 +1496,9 @@ each guarded like every scoped table and following its project:
   feature's watch has judged nothing yet, `last_commit`, the commit the branch was at after the
   newest change judged, fine or not, and for a feature's branch the one it was made at until then,
   null for a watch that began before the column until its next judged change, which a feature's
-  page shows, `began_at`, `last_read_at`, `last_attempt_at` and `last_error`.
+  page shows, `began_at`, `last_read_at`, when the read that last succeeded listed the branch's
+  changes, taken before the code host was asked and never moved back, so a change that landed
+  while a read was under way is never counted as read, `last_attempt_at` and `last_error`.
 - `merges_made`: `project_id`, `user_id`, `branch`, the branch it merged into, `commit`, `number`
   and `merged_at`, its primary key `(project_id, commit)`.
 - `pushes_made`: `project_id`, `user_id`, `branch`, `commit`, `run_id`, the run whose result named
@@ -1873,6 +1875,15 @@ and `/work/<job>/`, the agent's, where root writes nothing:
     the link and nothing is removed that the agent could not remove itself. The worker asks for its
     next job. The container, its tools and its caches are kept.
 
+**A whole feature's fix** is carried as a card's fix, see "Fixing a feature" under "Reviewing a
+feature", on the feature's branch from `to_fix.commit`, with three differences: a branch that is
+elsewhere on the remote runs nothing and fails outside the job, since the commit came from the
+feature's watch, which can lag; its commit is pushed only when the agent succeeded with a report
+that `Report.TryRead` reads as `done` and its check passed, since the feature's branch is shared and
+is the head of its pull request to the default branch, so a fix that failed, stopped or reported out
+of its form pushes nothing and names no commit, and for a report stopped or out of form the check is
+not run; and it takes no pictures, since nobody reads them.
+
 **A conflict job** is carried as a build, see "A conflict" under "The end of a feature", on the
 feature's branch from `to_resolve.feature_commit`, with these differences:
 
@@ -2015,7 +2026,7 @@ token removes the login.
 
 ## Jobs
 
-A job is one card, or for a conflict or a whole feature's review one feature, handed to one worker, with what the worker needs
+A job is one card, or for a conflict or a whole feature's review or fix one feature, handed to one worker, with what the worker needs
 for it and nothing more; a run is Dev flow's record of it, from when it was handed out to when its result came back or it was
 found lost. Why it is built so is "Handing out work" in `docs/devflow-architecture.md`. It is
 `Dispatcher`, `JobStore`, `RunStore`, `JobEndpoints` and `FakeWorkerEndpoints` in `src/DevFlow/Jobs/`,
@@ -2048,8 +2059,8 @@ queued; moves it to `building`; records a run for the worker; and answers `200` 
 | Field | What it is |
 |---|---|
 | `job_id` | The run's id, which the job's routes take |
-| `kind` | `build`, `review`, see "Review", `fix`, see "Fixing", `conflict`, see "A conflict" under "The end of a feature", or `feature_review`, see "Reviewing a feature" |
-| `card` | `number`, `title` and `body`, as the card was picked; for a conflict or a whole feature's review, the feature's parent's |
+| `kind` | `build`, `review`, see "Review", `fix`, see "Fixing", `conflict`, see "A conflict" under "The end of a feature", `feature_review`, see "Reviewing a feature", or `feature_fix`, see "Fixing a feature" there |
+| `card` | `number`, `title` and `body`, as the card was picked; for a conflict or a whole feature's review or fix, the feature's parent's |
 | `repository` | `owner`, `name`, `clone_address`, where git fetches and pushes it, and `default_branch` |
 | `branch` | `devflow/<number>-<slug>`: the title lowercased, each run of anything but ASCII letters and digits one hyphen, trimmed, cut to 40 characters; `devflow/<number>` when nothing is left |
 | `base` | The branch the card's branch is made from: the default branch, or the feature's branch for a card of a feature |
@@ -2230,7 +2241,9 @@ also needs `from_commit`, the feature's head it starts from, and `default_commit
 branch's commit it brings in; `remerge_diff` is a conflict's, see "A conflict"; and a second unique
 index allows one run under way per feature. From `migrations/0031_feature_reviews.sql`, `kind` takes
 `feature_review` too, a feature's run that needs `head_commit`, the commit it reviews, see
-"Reviewing a feature".
+"Reviewing a feature". From `migrations/0032_feature_fixes.sql`, `kind` takes `feature_fix`, a
+feature's run that needs `from_commit`, the feature's head it starts from, see "Fixing a feature"
+under "Reviewing a feature".
 
 ## The pull request Dev flow opens
 
@@ -2480,8 +2493,9 @@ matched by `chosen` as the merge check matches them, null with none, and `answer
 such feature". It is `FeatureStory` and `FeatureEndpoints` in `src/DevFlow/Features/`. It also
 answers `runs`, the feature's own runs, none of its cards', a conflict's among them, newest first,
 each as "A card's page" answers a run, a whole feature's review among them, and `input_tokens` and
-`output_tokens`, summed over them, 0 before any; and `reviews`, the reviews of the whole feature,
-newest first, each as "A card's page" answers a review, see "Reviewing a feature".
+`output_tokens`, summed over them, 0 before any; `reviews`, the reviews of the whole feature,
+newest first, each as "A card's page" answers a review, see "Reviewing a feature"; and
+`fix_rounds` and `rounds`, its fix rounds, see "Fixing a feature" under "Reviewing a feature".
 
 **Answering.** `POST /devflow/api/projects/{id}/features/{number}/decisions/{run}/{position}/fine`
 keeps the answer `fine`, "Fine as it is", to that decision, in one transaction with what it checks,
@@ -2509,11 +2523,16 @@ package's `Card`s, top to bottom:
 
 - "The feature": its state, as the Cards panel says a state, with its reason beside it; the links
   "Issue #<number>" and, once there is one, "Pull request #<number>", in a new tab with
-  `rel="noreferrer"` when their address is https and plain text otherwise; and "<done> of <all>
-  cards done".
+  `rel="noreferrer"` when their address is https and plain text otherwise; "<done> of <all>
+  cards done"; and, while it is `ready` or `waiting_for_owner` with its pull request, "Send the whole
+  feature back", which opens a comment box, see "Fixing a feature" under "Reviewing a feature".
 - "The review of the whole feature", once it has a review: the list "Reviews of the feature",
   newest first, each as a card's page shows a review, its commit, its verdict, whether it covers the
   pull request's head, its summary, its findings and its views for the owner.
+- "Fix rounds, <n> of 3 used", once a fix of the whole feature has run: the list "Fix rounds of the
+  feature", newest first, each as a card's page shows a round, "Round <n> of 3" or "Your comment",
+  how its fix went, the review that started it, his words, the developer's replies and the commit
+  it left with the review of it.
 - "What the agents want you to know", only when a card has a decision for the owner, in attention
   while any is not answered: the list "Decisions for you", each "#<card>: <chosen>", "Instead of
   <alternative>", "Because <why>" and "Reviewer: <view>", or "Reviewer: gave no view on it.", then a
@@ -2551,7 +2570,8 @@ It is `ClaimReview` in `JobStore`, `JudgeReview` in `RunStore`, `Brief.Reviewer`
 body kept, with no run under way, and its head commit, the one its newest build that succeeded
 left, has no review in `reviews`. Opening its pull request moves it there. `jobs/next` hands out a
 project's reviews before its fixes, see "Fixing", a whole feature's review between the two, see
-"Reviewing a feature", and those before its builds, each by the cards'
+"Reviewing a feature", a whole feature's fix after a card's, see "Fixing a feature" there, and
+those before its builds, each by the cards'
 order, so work in progress finishes before new work starts. The kind is read first, the key is made
 for it, and only a card of that kind is then taken, with the same `FOR UPDATE SKIP LOCKED` lock.
 The card stays `reviewing`, "The reviewer is reading it", and the run, `kind` `review`, is recorded
@@ -3091,8 +3111,11 @@ request moves the feature to `reviewing`, with no reason, for it to decide. For 
 - **No review covers the head**: `reviewing`, "To be reviewed as a whole", with `review_commit`
   the head, and its review is a job, below; unless its review failed in the job at that commit,
   `review_failed_at`, when it stays waiting for the owner with why, until the branch moves.
-- **The covering review asked for changes**: `waiting_for_owner`, "The review of the whole feature
-  asked for changes", with its findings on its page, until "Fixing a feature" lands.
+- **A fix of the head failed in the job**, `fix_failed_at`: it stays as that failure left it,
+  waiting for the owner, until the branch moves or he comments, see "Fixing a feature" below.
+- **The covering review asked for changes**: `fixing`, its next round, see "Fixing a feature"
+  below; or, with all three rounds used, `waiting_for_owner`, "Review rounds used up", with its
+  findings on its page and on "Waiting for you".
 - **The covering review approved**: CI on the head, read as the app, every check run and status,
   by `MergeCheck.Ci` as "The merge check" reads it: a failure first, by name, "CI failed: <name>";
   anything running, "CI is still running on its commit"; nothing at all, "Waiting for CI to report
@@ -3112,7 +3135,7 @@ fails later, or whose branch moves, moves with it; nothing is written while noth
 `changed_at` moves only with the state or the reason.
 
 **Handed out** with the reviews of cards, first: `jobs/next` hands out a card's review, then a whole
-feature's, then a fix, a conflict and a build, see "Jobs". A feature is reviewable when it is
+feature's, then a card's fix, a whole feature's fix, a conflict and a build, see "Jobs". A feature is reviewable when it is
 `reviewing` with its pull request, its branch made and its parent picked with its body kept, no run
 of its own under way, its `review_commit` still the commit its watch names and not the one its
 review failed at, no review in `feature_reviews` for that commit, and its branch watched in the
@@ -3199,15 +3222,123 @@ many decisions its cards' latest reports marked for the owner have no answer, co
 counts them, in the same transaction. Each is counted in `count`, in the nav's dot, `attention`,
 and in the front page's `waiting`, as every item is. The page shows its title, its state, why it
 waits, the review's verdict and summary, the decisions left to answer, "Open the feature", its page
-inside the app, and "Open on GitHub", its pull request.
+inside the app, "Send the whole feature back", see "Fixing a feature" below, and "Open on
+GitHub", its pull request.
 
 **On its page**, `reviews` in the feature's story, newest first, each as a card's page shows a
 review, its `current` true for the newest when it covers the head; the page shows them under "The
-review of the whole feature", after the feature's state.
+review of the whole feature", after the feature's state, and its fix rounds after them, see
+"Fixing a feature" below.
 
 **In the fake**, the fake worker answers a feature's review as it answers a card's, naming the
 commit it was handed and changing nothing, then posts the copy and decides readiness, as the minute
 would; and bringing in answers the base's commit it merged into as the first parent.
+
+### Fixing a feature
+
+A `changes` verdict on a feature sends it to a fresh developer agent on the feature's branch with
+the findings, for at most three rounds, each followed by a new review of the whole feature; the
+owner's comment on the feature's pull request, written on GitHub or sent back from its page or its
+item on "Waiting for you", starts a fix too, without counting as a round. With the rounds used up
+the feature waits for him; it is never stopped. Why it is built so is "Fixing a feature" in
+`docs/devflow-architecture.md`. It is `FeatureFix` and `FeatureComments` in `src/DevFlow/Features/`,
+the round's start in `FeatureReady.Decide` and `FeatureReadiness`, `ClaimFeatureFix` and
+`FeatureEarlier` in `JobStore`, `JudgeFeatureFix` in `RunStore`, `Brief.FeatureFixer` and
+`Briefs/feature-fixer.md`, `SendBackFeature` in `ActionEndpoints`, and the fix in the worker's
+`BuildJob`.
+
+**A round** starts on the minute, `FeatureReady.Decide`, when the latest review covers the head and
+asked for changes: the feature moves to `fixing`, "Round <n> of 3: the review of the whole feature
+asked for changes; a fix runs next", counts the round in `fix_round`, and records what its fix
+answers, `next_fix_round`, the round, and `fix_review_id`, that review. A `changes` covering the
+head after round 3 leaves it `waiting_for_owner`, "Review rounds used up", with the findings on its
+page and on "Waiting for you"; nothing more is handed out until the branch moves or he comments.
+
+**Handed out** by `jobs/next` after the project's card fixes and before its conflicts, see "Jobs":
+a feature that is `fixing`, with its pull request, its branch made and its parent picked with its
+body kept, no run of its own under way, and its branch's watch read in the last five minutes and
+since Dev flow's last merge or push there. It is taken by `CardStore.QueueOrder` with
+`FOR UPDATE SKIP LOCKED`, says "Round <n> of 3: the developer is fixing the feature", or "The
+developer is answering your comment", while its run is under way, and the run, `kind`
+`feature_fix`, names the feature by `feature_number`, its branch, the default branch as its `base`,
+the commit its watch names as `from_commit`, its round, the review it answers and the owner's
+comments. The job is a fix's, a `Job` of `kind` `feature_fix` with the parent as its `card`, the
+feature's branch as its `branch`, the default branch as its `base`, a push key, the project's check,
+`start` and `url`, the report's form and `to_fix`, `{"commit", "round"}`, `round` null for his
+comment.
+
+**The brief**, `Briefs/feature-fixer.md`, filled by `Brief.FeatureFixer`: the parent fenced as
+picked, each done card's handover note in the feature's order as information, and the section "What
+to fix" a card's fix brief has, see "Fixing": its round or his comment, the earlier report, the
+newest feature fix's that succeeded, the blocking findings of the review it answers to fix, test
+first where behaviour changes, or argue in `replies`, the nits when cheap, and each of his comments
+fenced as his input. Every finding and every comment gets a reply.
+
+**On the worker** it is carried as a card's fix, "The worker" says with what differences: pushed to
+the feature's branch, never forced, only once the agent succeeded with a `done` report and its
+check passed.
+
+**Judged**, `RunStore.JudgeFeatureFix`, only while the feature is `fixing`:
+
+| What came back | The run's `result` | The feature |
+|---|---|---|
+| A failure outside the job | `failed_outside_card` | Stays `fixing` in the same round, handed out again after the project's wait, see "Stops" |
+| A failure in the job, a report out of its form, a check that did not run or failed, or no new commit, "The fix left no new commit on the branch" | `failed_in_card`, `report_invalid` or `check_failed` | The first from a commit stays `fixing`, "Failed once in the job, so it runs again: <reason>", with `fix_failed_at` that commit; the second in a row from it `waiting_for_owner`, "Dev flow could not fix the whole feature: Failed twice in a row with no new commit: <reason>" |
+| A time limit, or a report that stopped | `failed_in_card` or `stopped` | `waiting_for_owner`, "Dev flow could not fix the whole feature: <reason>", at once |
+| A new commit, its check passed | `succeeded` | `reviewing`, "Fixed; the reviewer reads the whole feature again next" |
+
+A success records its commit in `pushes_made`, as every run on a feature's branch does, and the
+minute queues a new review of it once the watch has read the branch since; a run that names the
+commit it was handed records nothing. A feature waiting with `fix_failed_at` its head stays so until
+the branch moves or he comments. A lost fix leaves the feature `fixing` in the same round.
+
+**The re-review** is the review of the new head, as above, with `to_review_feature.earlier`, each
+earlier round oldest first as a card's re-review has them, see "Fixing": `round`,
+`reviewed_commit`, `verdict`, `summary` and `findings` of the review it answered, `comments`, his
+words, `replies`, the fix's, and `fixed_commit`. The worker writes them to `review/earlier.json`, an
+empty list on a first review, and the brief says whether this is the feature's first review, and
+that a later one judges the whole feature again from where its branch and the default branch last
+met, so a finding that still holds is still blocking.
+
+**The owner's comment.** Each read of a project, `ProjectReader.Read`, reads the comments of the
+pull request of every feature that has one still open, is `reviewing`, `fixing`,
+`waiting_for_owner` or `ready`, and has no run of its own under way, and takes those by the owner's
+linked login, whatever its case, that are new by the rule a card's are, see "Fixing": past
+`comments_read_through`, the id of the newest of his already taken, and every one of his before any
+was, no time compared. They are taken in the read's transaction, `FeatureComments.Take`, the
+feature's row locked first: it moves to `fixing`, "You commented on its pull request; a fix runs
+next", with no round, answering his comments and its latest review if no fix has succeeded since
+it; a feature already waiting for a round's fix keeps the round and adds them. It is the only
+comment read there as an input: anyone else's, the app's review copies among them, is neither a
+trigger nor in the brief.
+
+**Sending the whole feature back**:
+`POST /devflow/api/projects/{id}/features/{number}/send-back`, with `{"comment"}`, under the `Api`
+policy and the origin check, posts the comment, trimmed and with nothing added, as the owner with
+his linked token, never as the app, on the feature's pull request, and reads the project again,
+which takes it as above. In this order: `404` "No such feature"; `422` for a comment missing, empty
+once trimmed or longer than 10,000 characters; `409` "This feature cannot be sent back now" for a
+feature neither `ready` nor `waiting_for_owner` with its pull request; `409` without a usable link;
+then GitHub is asked to post: `204` once posted, `409` "GitHub refused the comment" with its
+reason, and `503` when GitHub did not answer, after the project is read again. The page offers it,
+"Send the whole feature back" with a comment box, on the feature's page and on its item on
+"Waiting for you".
+
+**On its page**, the feature's story answers `fix_rounds`, the rounds its reviews started, and
+`rounds`, each fix newest first as a card's page answers its rounds: `run_id`, `round`,
+`review_run_id`, `comments`, `result`, `replies`, `fixed_commit` and `review_after_run_id`. The
+page shows them under "Fix rounds, <n> of 3 used", after its reviews.
+
+**The tables**, from `migrations/0032_feature_fixes.sql`: `runs` gains `kind` `feature_fix`, which
+needs `feature_number` and `from_commit`, and uses `fix_round`, `fix_review_id`, the review in
+`feature_reviews`, and `owner_comments`; `features` uses `fix_round`, from 0024, as the rounds its
+reviews started, and gains `next_fix_round`, `fix_review_id` and `fix_comments`, what its next fix
+answers, set as it moves to `fixing`, `comments_read_through`, and `fix_failed_at`.
+
+**In the fake**, the fake worker answers a feature's fix as a worker would: it pushes a commit by
+the app on the feature's branch only when the prepared result succeeded with a `done` report and its
+check passed,
+names the commit it was handed with `leave_no_commit`, and decides readiness after.
 
 ## Stops
 

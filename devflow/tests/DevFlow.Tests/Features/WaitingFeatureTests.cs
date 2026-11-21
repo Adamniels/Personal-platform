@@ -60,16 +60,14 @@ public sealed class WaitingFeatureTests
         (_, list) = await Built.Get(jobs, "/devflow/api/waiting");
         Assert.Equal(0, (int)Assert.Single(list!["features"]!.AsArray())!["unanswered"]!);
 
-        // My own push on its branch, then a review that asks for changes: it waits for me, in the
-        // same group, with why.
+        // My own push on its branch, then a review that asks for changes: its fix round runs, which
+        // is the developer's turn, not mine, so it leaves the list.
         await Reviewing.PushOnFeature(jobs);
         await Reviewing.Minute(jobs);
         await Reviewing.Review(jobs, Built.Verdict("changes"));
         await Reviewing.Minute(jobs);
         (_, list) = await Built.Get(jobs, "/devflow/api/waiting");
-        item = Assert.Single(list!["features"]!.AsArray())!;
-        Assert.Equal(("waiting_for_owner", DevFlow.Features.FeatureReview.ChangesAsked, "changes"),
-            ((string)item["state"]!, (string)item["reason"]!, (string)item["review"]!["verdict"]!));
-        Assert.Equal(1, (int)list["count"]!);
+        Assert.Empty(list!["features"]!.AsArray());
+        Assert.Equal(0, (int)list["count"]!);
     }
 }

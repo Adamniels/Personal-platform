@@ -141,6 +141,13 @@ const featureApi: FeatureApi = {
 			"POST",
 			`/projects/${encodeURIComponent(project)}/features/${number}/decisions/${encodeURIComponent(run)}/${position}/fine`,
 		),
+	sendBack: async (project, number, comment) => {
+		await client.send(
+			"POST",
+			`/projects/${encodeURIComponent(project)}/features/${number}/send-back`,
+			{ comment },
+		);
+	},
 };
 
 /** The Claude login, through Dev flow's API. The token is sent, never
@@ -192,6 +199,13 @@ const actionsApi: ActionsApi = {
 		await client.send(
 			"POST",
 			`/projects/${encodeURIComponent(projectId)}/cards/${number}/send-back`,
+			{ comment },
+		);
+	},
+	sendBackFeature: async (projectId, number, comment) => {
+		await client.send(
+			"POST",
+			`/projects/${encodeURIComponent(projectId)}/features/${number}/send-back`,
 			{ comment },
 		);
 	},
@@ -306,6 +320,7 @@ function Frame({
 								number={featureOf.number}
 								backPath={projectPath(featureOf.project)}
 								back={() => navigate(projectPath(featureOf.project))}
+								link={status?.github.state}
 								{...feature}
 							/>
 						) : section.key === "projects" && projectId ? (

@@ -8,6 +8,7 @@ import { Button, Dialog, TextArea, useToast } from "@platform/ui";
 import { type FormEvent, type ReactNode, useId, useState } from "react";
 import { ApiError } from "./api/client";
 import { askNavAgain } from "./nav-attention";
+import type { SendBackFeature } from "./send-back-feature";
 import type { Status } from "./status";
 import type { WaitingItem } from "./waiting";
 import styles from "./waiting.module.css";
@@ -32,6 +33,9 @@ export type ActionsApi = {
 		number: number,
 		comment: string,
 	) => Promise<void>;
+	/** Sends a whole feature back with the owner's comment, posted as him on
+	 * its pull request, which starts its fix. */
+	sendBackFeature: SendBackFeature;
 };
 
 /** The caller's GitHub link, undefined until the status has been read. */
