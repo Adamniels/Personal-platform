@@ -47,7 +47,8 @@ public sealed class DecideTests
         Found<IReadOnlyList<CommitStatus>>([new CommitStatus("deploy/preview", StatusState.Success, null)]),
         Found<IReadOnlyList<CheckRun>>([new CheckRun("test", CheckStatus.Completed, CheckConclusion.Success, "github-actions")]),
         Found<IReadOnlyList<Issue>>([CardIssue]),
-        Found<IReadOnlyList<IssueEdit>>([]));
+        Found<IReadOnlyList<IssueEdit>>([]),
+        Found<IReadOnlyList<LabelEvent>>([new LabelEvent("devflow", LabelChange.Added, "octo-owner", Pushed.AddDays(-1))]));
 
     [Fact]
     public void EverythingHoldsAndItMergesTheHead() =>
@@ -92,6 +93,7 @@ public sealed class DecideTests
         { "review asked for changes", MergeCheck.ChangesAsked, false },
         { "issues unread", MergeCheck.CouldNotRead("the card"), true },
         { "edits unread", MergeCheck.CouldNotRead("the card"), true },
+        { "label events unread", MergeCheck.CouldNotRead("the card"), true },
         { "not linked", CardPicker.NotLinked, false },
         { "closed or unlabelled", MergeCheck.NotLabelled("devflow"), false },
         { "listed only as a pull request", MergeCheck.NotLabelled("devflow"), false },
@@ -143,6 +145,7 @@ public sealed class DecideTests
         "review asked for changes" => Good with { Review = new LatestReview("changes", Head) },
         "issues unread" => Good with { Labelled = Down<IReadOnlyList<Issue>>() },
         "edits unread" => Good with { Edits = new CodeHostResult<IReadOnlyList<IssueEdit>>.NotFound() },
+        "label events unread" => Good with { LabelEvents = Down<IReadOnlyList<LabelEvent>>() },
         "not linked" => Good with { Trusted = TrustedAccounts.Of(null, ["octo-owner", "octo-friend"]) },
         "closed or unlabelled" => Good with { Labelled = Found<IReadOnlyList<Issue>>([]) },
         "listed only as a pull request" => Good with { Labelled = Found<IReadOnlyList<Issue>>([CardIssue with { IsPullRequest = true }]) },
@@ -202,8 +205,59 @@ public sealed class DecideTests
             "Adamniels",
             "Personal-platform",
             Found<IReadOnlyList<SubIssue>>([CardSub]),
-            Found<IReadOnlyList<IssueEdit>>([])),
+            Found<IReadOnlyList<IssueEdit>>([]),
+            Found<IReadOnlyList<LabelEvent>>([new LabelEvent("devflow", LabelChange.Added, "octo-owner", Pushed.AddDays(-2))])),
+        // A card of a feature carries no pick-up label of its own.
+        LabelEvents = Found<IReadOnlyList<LabelEvent>>([]),
     };
+
+    private static CodeHostResult<IReadOnlyList<LabelEvent>> Events(params LabelEvent[] events) => Found<IReadOnlyList<LabelEvent>>(events);
+
+    private static LabelEvent Added(string label, string actor, int minute) => new(label, LabelChange.Added, actor, Pushed.AddMinutes(minute));
+
+    private static LabelEvent Removed(string label, string actor, int minute) => new(label, LabelChange.Removed, actor, Pushed.AddMinutes(minute));
+
+    /// <summary>Condition 4 reads labels by who changed them, as picking does: the hold label a
+    /// trusted account put on and only someone untrusted took off still holds the card, its
+    /// feature's parent and a feature's card; taken off by a trusted account, it merges.</summary>
+    [Fact]
+    public void AHoldTakenOffByAStrangerIsNotMerged()
+    {
+        Assert.Equal(
+            new MergeDecision.Wait("The card is held by the label devflow-hold, taken off by mallory, who is not a trusted account of this project", TryAgain: false),
+            MergeCheck.Decide(Good with { LabelEvents = Events(Added("devflow", "octo-owner", 0), Added("devflow-hold", "octo-owner", 1), Removed("devflow-hold", "mallory", 2)) }));
+        Assert.Equal(
+            new MergeDecision.Wait("Its feature, #10, is held by the label devflow-hold, taken off by mallory, who is not a trusted account of this project", TryAgain: false),
+            MergeCheck.Decide(GoodFeature with
+            {
+                Feature = GoodFeature.Feature! with { LabelEvents = Events(Added("devflow", "octo-owner", 0), Added("devflow-hold", "octo-friend", 1), Removed("devflow-hold", "mallory", 2)) },
+            }));
+        Assert.Equal(
+            new MergeDecision.Wait("The card is held by the label devflow-hold, taken off by mallory, who is not a trusted account of this project", TryAgain: false),
+            MergeCheck.Decide(GoodFeature with { LabelEvents = Events(Added("devflow-hold", "octo-owner", 1), Removed("devflow-hold", "mallory", 2)) }));
+
+        // Taken off by me, or by an account I trust, it merges.
+        Assert.Equal(new MergeDecision.Merge(Head), MergeCheck.Decide(Good with
+        {
+            LabelEvents = Events(Added("devflow", "octo-owner", 0), Added("devflow-hold", "octo-owner", 1), Removed("devflow-hold", "mallory", 2), Removed("devflow-hold", "Octo-Friend", 3)),
+        }));
+    }
+
+    /// <summary>A pick-up label no trusted account put on, on the card or its feature's parent, is
+    /// not merged from, naming who put it on.</summary>
+    [Fact]
+    public void APickUpLabelByAStrangerIsNotMerged()
+    {
+        Assert.Equal(
+            new MergeDecision.Wait("The card's pick-up label devflow was added by mallory, who is not a trusted account of this project", TryAgain: false),
+            MergeCheck.Decide(Good with { LabelEvents = Events(Added("devflow", "octo-owner", 0), Removed("devflow", "octo-owner", 1), Added("devflow", "mallory", 2)) }));
+        Assert.Equal(
+            new MergeDecision.Wait("The pick-up label devflow on its feature, #10, was added by mallory, who is not a trusted account of this project", TryAgain: false),
+            MergeCheck.Decide(GoodFeature with { Feature = GoodFeature.Feature! with { LabelEvents = Events(Added("devflow", "mallory", 0)) } }));
+        Assert.Equal(
+            new MergeDecision.Wait("The card's pick-up label devflow was not added by a trusted account of this project", TryAgain: false),
+            MergeCheck.Decide(Good with { LabelEvents = Events() }));
+    }
 
     /// <summary>Condition 4 reads the project's trusted accounts: a card, a feature's parent and
     /// a feature's card written and edited by any of them merge, whatever the case GitHub answers
@@ -264,6 +318,8 @@ public sealed class DecideTests
         { "feature's branch unwatched", MergeCheck.FeatureUnwatched, true },
         { "sub-issues unread", MergeCheck.CouldNotRead("the card"), true },
         { "parent's edits unread", MergeCheck.CouldNotRead("the card"), true },
+        { "parent's label events unread", MergeCheck.CouldNotRead("the card"), true },
+        { "card's label events unread", MergeCheck.CouldNotRead("the card"), true },
         { "parent unlabelled", MergeCheck.FeatureNotLabelled(10, "devflow"), false },
         { "only the card labelled", MergeCheck.FeatureNotLabelled(10, "devflow"), false },
         { "parent never picked", CardPicker.FeatureNotPicked(10), false },
@@ -293,6 +349,8 @@ public sealed class DecideTests
             "feature's branch unwatched" => GoodFeature with { Feature = feature with { BranchUnwatched = true } },
             "sub-issues unread" => GoodFeature with { Feature = feature with { SubIssues = Down<IReadOnlyList<SubIssue>>() } },
             "parent's edits unread" => GoodFeature with { Feature = feature with { Edits = new CodeHostResult<IReadOnlyList<IssueEdit>>.NotFound() } },
+            "parent's label events unread" => GoodFeature with { Feature = feature with { LabelEvents = Down<IReadOnlyList<LabelEvent>>() } },
+            "card's label events unread" => GoodFeature with { LabelEvents = new CodeHostResult<IReadOnlyList<LabelEvent>>.NotFound() },
             "parent unlabelled" => GoodFeature with { Labelled = Found<IReadOnlyList<Issue>>([]) },
             "only the card labelled" => GoodFeature with { Labelled = Found<IReadOnlyList<Issue>>([CardIssue]) },
             "parent never picked" => GoodFeature with { Feature = feature with { Record = null } },
