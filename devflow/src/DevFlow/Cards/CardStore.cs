@@ -38,7 +38,9 @@ public static class CardStore
     /// <item>A new card is inserted where picking put it.</item>
     /// <item>A card that has not started is put where picking put it now.</item>
     /// <item>A card that has started stays where it is, unless picking ignores it now, when it
-    /// is ignored with the reason; its record is replaced when the owner changed it.</item>
+    /// is ignored with the reason; its record is replaced when the owner changed it. A landed card
+    /// whose issue is found open after the app closed it says only his comment sends it back,
+    /// <see cref="Features.SendingBack.OpenAgain"/>, and nothing once it is closed again.</item>
     /// </list>
     /// Every card found takes the feature and the position picking gave it, 1 first among the
     /// feature's cards kept. An ignored card keeps the record it had, null when it was never
@@ -51,9 +53,10 @@ public static class CardStore
         ArgumentNullException.ThrowIfNull(transaction);
         ArgumentNullException.ThrowIfNull(found);
         var stored = (await transaction.Connection!.QueryAsync<StoredCard>(new CommandDefinition(
-            """
+            $"""
             SELECT number AS Number, state AS State, reason AS Reason, waits_for AS WaitsFor, unlabelled AS Unlabelled,
-                   pull_request_number AS PullRequestNumber, feature_id AS FeatureId, sent_backs AS SentBacks
+                   pull_request_number AS PullRequestNumber, feature_id AS FeatureId, sent_backs AS SentBacks,
+                   coalesce({Features.SendingBack.Sendable} AND landing_told_for = pull_request_number, false) AS ToldLanded
             FROM cards WHERE project_id = @projectId
             """,
             new { projectId },
@@ -120,12 +123,16 @@ public static class CardStore
             {
                 // A closed card kept is one Dev flow built: it is stored, and stays where its run
                 // put it, with the record it had; only where it is in its feature moves.
+                // A landed card whose issue was open again without his comment says nothing more
+                // once it is closed again.
                 await transaction.Connection!.ExecuteAsync(new CommandDefinition(
                     """
-                    UPDATE cards SET title = @title, web_url = @webUrl, feature_id = @feature, position = @position, unlabelled = false, read_at = @now
+                    UPDATE cards SET title = @title, web_url = @webUrl, feature_id = @feature, position = @position, unlabelled = false, read_at = @now,
+                                     reason = CASE WHEN reason = @openAgain THEN NULL ELSE reason END,
+                                     changed_at = CASE WHEN reason = @openAgain THEN @now ELSE changed_at END
                     WHERE project_id = @projectId AND number = @number
                     """,
-                    new { projectId, number = card.Number, title = card.Title, webUrl = card.Url.ToString(), feature, position, now },
+                    new { projectId, number = card.Number, title = card.Title, webUrl = card.Url.ToString(), feature, position, now, openAgain = Features.SendingBack.OpenAgain },
                     transaction,
                     cancellationToken: cancellationToken));
                 continue;
@@ -134,7 +141,7 @@ public static class CardStore
             var before = stored.GetValueOrDefault(card.Number);
             var started = before is not null && HasStarted(before);
             var (state, reason, waitsFor) = started && card.Verdict != Verdict.Ignored
-                ? (before!.State, before.Reason, before.WaitsFor)
+                ? (before!.State, before.ToldLanded ? Features.SendingBack.OpenAgain : before.Reason, before.WaitsFor)
                 : (State(card.Verdict), card.Reason, card.WaitsFor.ToArray());
             var changed = before is null
                 || before.State != state
@@ -491,6 +498,11 @@ public static class CardStore
         public Guid? FeatureId { get; init; }
 
         public int SentBacks { get; init; }
+
+        /// <summary>Whether it landed in an open feature's branch and its issue was told and closed,
+        /// by <see cref="Features.SendingBack.Sendable"/>, so an open issue was opened again by
+        /// someone.</summary>
+        public bool ToldLanded { get; init; }
     }
 
     /// <summary>A feature as stored, what merging it needs.</summary>
