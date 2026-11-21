@@ -70,7 +70,7 @@ picked, its number and title first, then its body:
 
 {{notes}}
 
-### The files in conflict
+{{touches}}### The files in conflict
 
 {{files}}
 

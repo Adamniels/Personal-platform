@@ -210,7 +210,8 @@ public sealed partial class Dispatcher(
             new BriefFacts(facts.Check, claimed.Branch, claimed.Base, claimed.RunId, facts.Start, facts.Url),
             claimed.Comments,
             claimed.Feature,
-            claimed.SentBack);
+            claimed.SentBack,
+            claimed.Reading);
         return new Job(
             claimed.RunId,
             Job.Build,
@@ -372,7 +373,8 @@ public sealed partial class Dispatcher(
             new BriefCard(claimed.Number, claimed.Title, claimed.Body),
             new BriefFacts(facts.Check, claimed.Branch, claimed.Base, claimed.RunId, facts.Start, facts.Url),
             new FixInput(claimed.Round, claimed.Report, claimed.Review?.Verdict, claimed.Comments, run.FixRoundsCard),
-            claimed.Feature);
+            claimed.Feature,
+            claimed.Reading);
         return new Job(
             claimed.RunId,
             Job.Fix,
@@ -405,7 +407,7 @@ public sealed partial class Dispatcher(
         }
 
         var card = new BriefCard(claimed.Number, claimed.Title, claimed.Body);
-        var brief = Brief.Reviewer(card, new ReviewFacts(claimed.Commit, claimed.Branch, claimed.Base, claimed.Earlier.Count), claimed.Feature);
+        var brief = Brief.Reviewer(card, new ReviewFacts(claimed.Commit, claimed.Branch, claimed.Base, claimed.Earlier.Count), claimed.Feature, claimed.Reading);
         using var report = JsonDocument.Parse(claimed.Report);
         return new Job(
             claimed.RunId,

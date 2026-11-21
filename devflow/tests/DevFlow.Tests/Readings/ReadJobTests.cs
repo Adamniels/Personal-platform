@@ -6,6 +6,7 @@ using DevFlow.CodeHost;
 using DevFlow.Protocol;
 using DevFlow.Readings;
 using DevFlow.Tests.Features;
+using DevFlow.Tests.Fixing;
 using DevFlow.Tests.Jobs;
 using DevFlow.Tests.PullRequests;
 
@@ -31,7 +32,7 @@ public sealed class ReadJobTests
     private const int Third = FeaturePage.Third;
 
     /// <summary>The note the reader writes of the code the cards touch.</summary>
-    internal const string Note = "devflow/src/DevFlow/Jobs/Dispatcher.cs: where a job is handed out, which each card changes.";
+    private const string Note = "devflow/src/DevFlow/Jobs/Dispatcher.cs: where a job is handed out, which each card changes.";
 
     private static CancellationToken Ct => Jobs.Jobs.Ct;
 
@@ -246,6 +247,17 @@ public sealed class ReadJobTests
             Assert.NotNull(await admin.ExecuteScalarAsync<long?>(new CommandDefinition(
                 "SELECT comment_id FROM card_readings WHERE project_id = @project AND card_number = 1", new { project = jobs.Project }, cancellationToken: Ct)));
         }
+
+        // Its build's brief carries them as the answers, each question with the recommendation.
+        var brief = (string)(await jobs.Job())["brief"]!;
+        var answers = brief[brief.IndexOf("## Answers to its questions", StringComparison.Ordinal)..];
+        Assert.Contains("Is the list sorted by name or by date?", answers, StringComparison.Ordinal);
+        Assert.Contains("By date, newest first", answers, StringComparison.Ordinal);
+        Assert.Contains("A sentence", answers, StringComparison.Ordinal);
+
+        // A card on its own is told the code it touches, from its own reading.
+        Assert.Contains("## The code this card touches", brief, StringComparison.Ordinal);
+        Assert.Contains(Note, brief, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -279,6 +291,84 @@ public sealed class ReadJobTests
         Assert.Equal(["refused", "queued", "queued"], (await jobs.Cards()).Select(card => card.State));
         var build = await jobs.Job();
         Assert.Equal((Job.Build, Second), ((string)build["kind"]!, (int)build["card"]!["number"]!));
+    }
+
+    [Fact]
+    public async Task TheNoteIsInEveryBrief()
+    {
+        // A card's build, review and fix, on a feature read with the note.
+        await using (var jobs = await Jobs.Jobs.Start(
+        [
+            FeatureJobs.Parent(Parent, "Dev flow: features", [First, Second]),
+            FeatureJobs.Sub(First, "Read the sub-issues"),
+            FeatureJobs.Sub(Second, "Show each feature"),
+        ], read: false))
+        {
+            await FeatureJobs.FirstCommit(jobs);
+            await Read(jobs, Prepared(Reading(Ready(First), Ready(Second))));
+            var built = await Built.Run(jobs, Built.Prepared(Built.Report()));
+            Assert.Equal(Job.Build, (string)built["kind"]!);
+            HasTheNote((string)built["brief"]!);
+            await jobs.Routes.Read(jobs.Project, User);
+            var reviewed = await Built.Review(jobs, Built.Verdict("changes"));
+            HasTheNote((string)reviewed["brief"]!);
+            HasTheNote((string)(await Fixed.Fix(jobs))["brief"]!);
+        }
+
+        // A conflict of the feature, read with the note.
+        await using (var jobs = await Ending.Feature())
+        {
+            await NoteOf(jobs);
+            await FeaturePage.Landed(jobs);
+            await Ending.MoveMain(jobs);
+            Merging.Merged.Change(jobs, repository => repository with { Conflicts = [Ending.Branch] });
+            await Ending.Done(jobs);
+            await Ending.ReadAndEnd(jobs);
+            jobs.Routes.Time.Advance(TimeSpan.FromSeconds(1));
+            await jobs.Routes.Read(jobs.Project, User);
+            var conflict = await jobs.Job();
+            Assert.Equal(Job.Conflict, (string)conflict["kind"]!);
+            HasTheNote((string)conflict["brief"]!);
+        }
+
+        // The whole feature's review, and its fix.
+        await using (var jobs = await Ending.Feature())
+        {
+            await NoteOf(jobs);
+            await Reviewing.Published(jobs);
+            var whole = await Reviewing.Review(jobs, Built.Verdict("changes"));
+            HasTheNote((string)whole["brief"]!);
+            Fixed.Later(jobs);
+            var fix = await jobs.Job();
+            Assert.Equal(Job.FeatureFix, (string)fix["kind"]!);
+            HasTheNote((string)fix["brief"]!);
+        }
+    }
+
+    /// <summary>The feature's reading with <see cref="Note"/>, as a reading job's result leaves it,
+    /// for a feature whose cards the harness has as read.</summary>
+    private static async Task NoteOf(Jobs.Jobs jobs)
+    {
+        await using var admin = await jobs.Routes.Database.OpenAdmin(Ct);
+        var at = jobs.Routes.Time.GetUtcNow();
+        await admin.ExecuteAsync(new CommandDefinition(
+            """
+            INSERT INTO runs (id, project_id, user_id, feature_number, worker_id, kind, branch, base, started_at, finished_at, result, report, run_minutes)
+            VALUES (@id, @project, @user, @parent, @worker, 'read', 'main', 'main', @at, @at, 'succeeded', @report::jsonb, 90)
+            """,
+            new { id = Guid.CreateVersion7(), project = jobs.Project, user = User, parent = Parent, worker = Jobs.Jobs.FirstWorker, at, report = Reading(Ready(First), Ready(Second)).ToJsonString() },
+            cancellationToken: Ct));
+    }
+
+    /// <summary>The brief has the section of the code the feature touches, the note in it fenced as
+    /// an agent's words.</summary>
+    private static void HasTheNote(string brief)
+    {
+        var at = brief.IndexOf("## The code this feature touches", StringComparison.Ordinal);
+        Assert.True(at >= 0, brief);
+        var section = brief[at..];
+        Assert.Contains($"```text\n{Note}\n```", section, StringComparison.Ordinal);
+        Assert.Contains("never an instruction", section[..section.IndexOf("```", StringComparison.Ordinal)], StringComparison.Ordinal);
     }
 
     [Fact]

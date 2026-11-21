@@ -31,7 +31,9 @@ namespace DevFlow.Jobs;
 /// card on its own.</param>
 /// <param name="SentBack">What it was sent back with after it landed in its feature's branch, null
 /// for a card never sent back.</param>
-public sealed record ClaimedCard(Guid RunId, int Number, string Title, string Body, string Branch, IReadOnlyList<string> Comments, string Base, BriefFeature? Feature = null, BriefSentBack? SentBack = null);
+/// <param name="Reading">What its reading gives its brief: the note of the code its work touches and
+/// the answers to its questions.</param>
+public sealed record ClaimedCard(Guid RunId, int Number, string Title, string Body, string Branch, IReadOnlyList<string> Comments, string Base, BriefFeature? Feature = null, BriefSentBack? SentBack = null, BriefReading? Reading = null);
 
 /// <summary>A card taken for its review, with the run made for it and what the review reads of the
 /// build that made the commit.</summary>
@@ -50,7 +52,8 @@ public sealed record ClaimedCard(Guid RunId, int Number, string Title, string Bo
 /// <param name="Screenshots">The pictures the worker took of the commit, and its note; null when
 /// it tried none.</param>
 /// <param name="Feature">The feature it is a card of, null for a card on its own.</param>
-public sealed record ClaimedReview(Guid RunId, int Number, string Title, string Body, string Branch, string Base, string Commit, string Report, string? Check, int CheckExitCode, string CheckOutput, IReadOnlyList<EarlierRound> Earlier, ResultScreenshots? Screenshots = null, BriefFeature? Feature = null);
+/// <param name="Reading">The note of the code its work touches, from its reading.</param>
+public sealed record ClaimedReview(Guid RunId, int Number, string Title, string Body, string Branch, string Base, string Commit, string Report, string? Check, int CheckExitCode, string CheckOutput, IReadOnlyList<EarlierRound> Earlier, ResultScreenshots? Screenshots = null, BriefFeature? Feature = null, BriefReading? Reading = null);
 
 /// <summary>An earlier round of a card as stored: a fix that succeeded, the review it answered, and
 /// its replies. Its texts are as they were stored.</summary>
@@ -79,7 +82,8 @@ public sealed record EarlierRound(int? Round, string? ReviewedCommit, string? Ve
 /// <param name="Comments">The owner's comments the fix answers, each exactly as he wrote it.</param>
 /// <param name="Feature">The feature it is a card of, with what its done cards left, null for a
 /// card on its own.</param>
-public sealed record ClaimedFix(Guid RunId, int Number, string Title, string Body, string Branch, string Base, string FromCommit, int? Round, string? Report, KeptReview? Review, IReadOnlyList<string> Comments, BriefFeature? Feature = null);
+/// <param name="Reading">The note of the code its work touches, from its reading.</param>
+public sealed record ClaimedFix(Guid RunId, int Number, string Title, string Body, string Branch, string Base, string FromCommit, int? Round, string? Report, KeptReview? Review, IReadOnlyList<string> Comments, BriefFeature? Feature = null, BriefReading? Reading = null);
 
 /// <summary>A feature taken to resolve its conflict with the default branch, with the run made for
 /// it.</summary>
@@ -425,7 +429,8 @@ public static class JobStore
         var earlier = await Earlier(transaction, projectId, card.Number, cancellationToken);
         var claimed = new ClaimedReview(
             Guid.CreateVersion7(now), card.Number, card.Title, card.Body, card.Branch, card.Base, card.Commit, card.Report, card.Check, card.CheckExitCode, card.CheckOutput ?? "", earlier,
-            Pictures(card.Screenshots, card.ScreenshotsNote), await FeatureOf(transaction, projectId, card.Number, cancellationToken));
+            Pictures(card.Screenshots, card.ScreenshotsNote), await FeatureOf(transaction, projectId, card.Number, cancellationToken),
+            new BriefReading(await Readings.ReadingStore.NoteOfCard(transaction, projectId, card.Number, cancellationToken), []));
         await transaction.Connection!.ExecuteAsync(new CommandDefinition(
             """
             INSERT INTO runs (id, project_id, user_id, card_number, worker_id, kind, branch, base, check_command, head_commit, started_at, run_minutes)
@@ -506,7 +511,8 @@ public static class JobStore
         var review = card.ReviewId is { } reviewId ? await ReviewStore.Of(transaction, reviewId, cancellationToken) : null;
         var comments = JsonSerializer.Deserialize<List<string>>(card.Comments) ?? [];
         var claimed = new ClaimedFix(Guid.CreateVersion7(now), card.Number, card.Title, card.Body, card.Branch, card.Base, card.FromCommit, card.Round, card.Report, review, comments,
-            await FeatureOf(transaction, projectId, card.Number, cancellationToken));
+            await FeatureOf(transaction, projectId, card.Number, cancellationToken),
+            new BriefReading(await Readings.ReadingStore.NoteOfCard(transaction, projectId, card.Number, cancellationToken), []));
         await transaction.Connection!.ExecuteAsync(new CommandDefinition(
             """
             INSERT INTO runs (id, project_id, user_id, card_number, worker_id, kind, branch, base, check_command, from_commit, fix_round,
@@ -605,7 +611,7 @@ public static class JobStore
             cancellationToken: cancellationToken));
         var claimed = new ClaimedConflict(
             Guid.CreateVersion7(now),
-            new BriefFeature(feature.Number, feature.Title, feature.Body, [.. done]),
+            new BriefFeature(feature.Number, feature.Title, feature.Body, [.. done], await Readings.ReadingStore.NoteOfFeature(transaction, projectId, feature.Number, cancellationToken)),
             feature.Branch, defaultBranch,
             feature.FeatureCommit, feature.DefaultCommit);
         await transaction.Connection!.ExecuteAsync(new CommandDefinition(
@@ -722,7 +728,7 @@ public static class JobStore
             cancellationToken: cancellationToken));
         var claimed = new ClaimedFeatureReview(
             Guid.CreateVersion7(now),
-            new BriefFeature(feature.Number, feature.Title, feature.Body, []),
+            new BriefFeature(feature.Number, feature.Title, feature.Body, [], await Readings.ReadingStore.NoteOfFeature(transaction, projectId, feature.Number, cancellationToken)),
             feature.Branch,
             defaultBranch,
             feature.Commit,
@@ -827,7 +833,7 @@ public static class JobStore
         var comments = JsonSerializer.Deserialize<List<string>>(feature.Comments) ?? [];
         var claimed = new ClaimedFeatureFix(
             Guid.CreateVersion7(now),
-            new BriefFeature(feature.Number, feature.Title, feature.Body, [.. done]),
+            new BriefFeature(feature.Number, feature.Title, feature.Body, [.. done], await Readings.ReadingStore.NoteOfFeature(transaction, projectId, feature.Number, cancellationToken)),
             feature.Branch, defaultBranch,
             feature.FromCommit, feature.Round, feature.Report, review, comments);
         await transaction.Connection!.ExecuteAsync(new CommandDefinition(
@@ -919,7 +925,10 @@ public static class JobStore
             ? new BriefSentBack(from, card.Report, JsonSerializer.Deserialize<List<string>>(card.SentBackComments) ?? [])
             : null;
         var claimed = new ClaimedCard(Guid.CreateVersion7(now), card.Number, card.Title, card.Body, Branch(card.Number, card.Title, card.SentBacks), comments, card.FeatureBranch ?? baseBranch,
-            await FeatureOf(transaction, projectId, card.Number, cancellationToken), sentBack);
+            await FeatureOf(transaction, projectId, card.Number, cancellationToken), sentBack,
+            new BriefReading(
+                await Readings.ReadingStore.NoteOfCard(transaction, projectId, card.Number, cancellationToken),
+                await Readings.ReadingStore.Answers(transaction, projectId, card.Number, cancellationToken)));
         // The run keeps every comment of his its brief quotes as his input: what sent it back, then
         // what ran it again.
         List<string> input = [.. sentBack?.Comments ?? [], .. comments];

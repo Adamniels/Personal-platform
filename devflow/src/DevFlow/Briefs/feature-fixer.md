@@ -16,7 +16,7 @@ exactly as it was picked, its number and title first, then its body:
 ## What its cards built
 
 {{notes}}
-{{fix}}## Where the project's facts are
+{{touches}}{{fix}}## Where the project's facts are
 
 What is particular to this project is in the repository, not here:
 
