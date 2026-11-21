@@ -1262,7 +1262,8 @@ and the ranges.
 **A changed setting takes effect at the next decision.** Each job carries the model and the limits
 read when it was handed out, and its run keeps them while it runs, so a run under way is never
 shortened or moved to another model; the next job, the next verdict, a feature's next readiness and
-the next search for lost runs read the settings fresh. The page's "Round n of m" lines count against
+the next search for lost runs read the settings fresh, the search judging each run by the minutes
+its own job carried, which the run records. The page's "Round n of m" lines count against
 the setting as it is now.
 
 **Paths.** `wait_paths` is a list of glob patterns, as `Microsoft.Extensions.FileSystemGlobbing`'s
@@ -1318,7 +1319,8 @@ holding a null, whose pattern rules are the route's. The migration gives a proje
 named a label `devflow-review` the review label `devflow-review-1`. From
 `migrations/0037_models_and_limits.sql`, the three models, `text`, `opus` by default, checked to be
 one of the three, and the four limits, `int`, with the defaults and ranges above as checks; the
-migration also raises the checks on the rounds a card, a feature and a run record from 3 to 10. A
+migration also raises the checks on the rounds a card, a feature and a run record from 3 to 10, and
+gives each run its `run_minutes`, see "Jobs". A
 trigger on `projects`
 makes a project's row when the project is made, running as the caller, and the migration made one
 for every project before it.
@@ -2212,7 +2214,7 @@ queued; moves it to `building`; records a run for the worker; and answers `200` 
 
 The model and the limits are read from the project's settings in the transaction that takes the
 card, so the job carries them as they are then, and the run keeps them whatever is changed after;
-the run records its `run_minutes`, from `migrations/0038_run_minutes.sql`.
+the run records its `run_minutes`, from `migrations/0037_models_and_limits.sql`.
 
 Everything the job needs from the code host is read before the card is taken, so the row lock is
 held for one short transaction and never while GitHub answers; a push key made for a card another
