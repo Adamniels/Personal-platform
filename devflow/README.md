@@ -2273,15 +2273,17 @@ Why is "Reading a card" in `docs/devflow-architecture.md`. It is `ReadingStore`,
 
 - **When.** A card is due a reading, `ReadingStore.Due`, when it would be free to start, as above,
   and has no reading that came back in its form, `ReadingStore.IsRead`; a build takes only a card
-  that has one. A reading is handed out after conflicts and before builds, since it is short and
-  frees work. The first card due by the queue's order decides what is read: a card on its own is
-  read alone, in a run for it by its number; a card of a feature is read with every card of its
-  feature that has not started, `queued` or held, and has no reading, in the feature's order, in a
-  run for the feature by its parent's number, only while no run of the feature itself is under way,
-  so one reading of a feature runs at a time. A feature is so read once, when its first card would
-  be handed out, and later only for a card it gains. Each queued card read moves to `reading`, "An
-  agent reads it before anything is built", until the result; a held card is read with its feature
-  and stays held.
+  whose newest such reading is `ready` or `questions`, `ReadingStore.ReadToBuild`, so a card read
+  as too thin is never built, however it comes to be queued again. A reading is handed out after
+  conflicts and before builds, since it is short and frees work. The first card due by the queue's
+  order decides what is read: a card on its own is read alone, in a run for it by its number; a
+  card of a feature is read with every queued card of its feature that has no reading, in the
+  feature's order, in a run for the feature by its parent's number, only while no run of the
+  feature itself is under way, so one reading of a feature runs at a time. A feature is so read
+  once, when its first card would be handed out, and later only for a card it gains or one released
+  from a hold, each read when its turn comes. A held card is left out, since it would not be handed
+  out. Each card read moves to `reading`, "An agent reads it before anything is built", until the
+  result.
 - **The job** is a `read`: its `card` the feature's parent or the card on its own, `branch` the
   feature's branch where it is made and otherwise the default branch, `base` the default branch,
   the reader's brief, the reading's form, an empty `check`, the project's `model_reading` and

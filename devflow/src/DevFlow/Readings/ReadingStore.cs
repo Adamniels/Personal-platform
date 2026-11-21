@@ -72,6 +72,17 @@ public static class ReadingStore
                 WHERE cr.project_id = cards.project_id AND cr.card_number = cards.number AND cr.outcome IS NOT NULL)
         """;
 
+    /// <summary>Whether a card may be built by its reading, as SQL over <c>cards</c>: its newest
+    /// reading that came back in its form found it ready or with questions. A card read as too thin
+    /// is never built, however it came to be queued again; reading it again after it changes is
+    /// "Reading again".</summary>
+    public const string ReadToBuild = """
+        (SELECT cr.outcome FROM card_readings cr
+         WHERE cr.project_id = cards.project_id AND cr.card_number = cards.number AND cr.outcome IS NOT NULL
+         ORDER BY cr.read_at DESC, cr.run_id DESC
+         LIMIT 1) IN ('ready', 'questions')
+        """;
+
     /// <summary>What makes a card due a reading, as SQL over <c>cards</c>: free to start, as
     /// <see cref="Jobs.JobStore.FreeToStart"/> says, and not read; with <c>@projectId</c> and
     /// <c>@watchedSince</c>.</summary>
@@ -87,13 +98,15 @@ public static class ReadingStore
     /// <summary>
     /// Takes the project's first card due a reading, by <see cref="CardStore.QueueOrder"/>, inside
     /// <paramref name="transaction"/>, which runs as the project's user: <see cref="Due"/>; locks it with <c>FOR UPDATE SKIP LOCKED</c>. A
-    /// card on its own is read alone. A card of a feature is read with every card of its feature that
-    /// has not started and is not read, held ones among them, in the feature's order, while no run of
+    /// card on its own is read alone. A card of a feature is read with every queued card of its
+    /// feature that is not read, in the feature's order, while no run of
     /// the feature itself is under way, its row locked as well, so one reading of a feature runs at a
     /// time; the code read is the feature's branch where it is made, and otherwise
     /// <paramref name="defaultBranch"/>. Records the reading's run and a row of
     /// <c>card_readings</c> for each card read, with its body's SHA-256 and title as handed, and moves
-    /// each queued one to <c>reading</c>. Null when there is none.
+    /// each to <c>reading</c>. A held card is left out, since it would not be handed out: it is read
+    /// once released, when its turn comes, so no reading's outcome waits on a card it cannot move.
+    /// Null when there is none.
     /// </summary>
     public static async Task<ClaimedRead?> Claim(NpgsqlTransaction transaction, Guid projectId, Guid userId, Guid workerId, RunSettings run, string defaultBranch, DateTimeOffset now, CancellationToken cancellationToken)
     {
@@ -140,11 +153,11 @@ public static class ReadingStore
 
         var cards = (await transaction.Connection!.QueryAsync<ToRead>(new CommandDefinition(
             feature is null
-                ? "SELECT number AS Number, picked_title AS Title, picked_body AS Body, picked_body_sha256 AS BodySha256, state AS State FROM cards WHERE project_id = @projectId AND number = @number"
+                ? "SELECT number AS Number, picked_title AS Title, picked_body AS Body, picked_body_sha256 AS BodySha256 FROM cards WHERE project_id = @projectId AND number = @number"
                 : $"""
-                  SELECT number AS Number, picked_title AS Title, picked_body AS Body, picked_body_sha256 AS BodySha256, state AS State
+                  SELECT number AS Number, picked_title AS Title, picked_body AS Body, picked_body_sha256 AS BodySha256
                   FROM cards
-                  WHERE project_id = @projectId AND feature_id = @featureId AND state IN ('queued', 'held') AND picked_body IS NOT NULL
+                  WHERE project_id = @projectId AND feature_id = @featureId AND state = 'queued' AND picked_body IS NOT NULL
                     AND NOT {IsRead}
                     AND NOT EXISTS (SELECT 1 FROM runs r WHERE r.project_id = cards.project_id AND r.card_number = cards.number AND r.finished_at IS NULL)
                   ORDER BY position
@@ -210,8 +223,8 @@ public static class ReadingStore
     /// answer is kept on its row, and each card still <c>reading</c> moves on, a ready card and one
     /// with questions to <c>queued</c>, on the recommendations, and one too thin to <c>refused</c>, with
     /// what is missing as its reason, <see cref="TooThin"/>. A card whose label was taken off while it
-    /// was read is removed instead, as any card whose run ends is. A held card read with its feature
-    /// keeps its state and its reading. The count of failures in the card starts afresh for each.
+    /// was read is removed instead, as any card whose run ends is. The count of failures in the card
+    /// starts afresh for each.
     /// </summary>
     public static async Task Read(NpgsqlTransaction transaction, Guid projectId, Guid runId, ReadingForm reading, DateTimeOffset now, CancellationToken cancellationToken)
     {
@@ -426,7 +439,7 @@ public static class ReadingStore
 
     private sealed record FeatureRow(int Number, string Title, string Body, string? Branch);
 
-    private sealed record ToRead(int Number, string Title, string Body, byte[] BodySha256, string State);
+    private sealed record ToRead(int Number, string Title, string Body, byte[] BodySha256);
 
     private sealed record ReadingRow(string Outcome, string Questions, string Missing, DateTime ReadAt, long? CommentId);
 

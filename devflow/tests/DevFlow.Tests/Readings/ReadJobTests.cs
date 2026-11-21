@@ -294,6 +294,68 @@ public sealed class ReadJobTests
     }
 
     [Fact]
+    public async Task AHeldCardIsReadOnceReleasedAndNotBuiltWhenTooThin()
+    {
+        static FakeIssue[] Issues(bool held) =>
+        [
+            FeatureJobs.Parent(Parent, "Dev flow: features", [First, Second, Third]),
+            FeatureJobs.Sub(First, "Read the sub-issues"),
+            FeatureJobs.Sub(Second, "Show each feature") with { Labels = held ? ["devflow-hold"] : [] },
+            FeatureJobs.Sub(Third, "The feature's page"),
+        ];
+
+        await using var jobs = await Jobs.Jobs.Start(Issues(held: true), read: false);
+        await FeatureJobs.FirstCommit(jobs);
+
+        // The feature's reading leaves the held card out: it would not be handed out, so it is not
+        // read, and it stays held with no reading of its own.
+        Assert.Equal([First, Third], await Answer(jobs, Reading(Ready(First), Ready(Third))));
+        Assert.Equal(["queued", "held", "queued"], (await jobs.Cards()).Select(card => card.State));
+        Assert.Null((await Story(jobs, Second))["reading"]);
+
+        // Released by the owner, it is queued and not read, so not built; the first card is.
+        jobs.Fake.Replace(User, Jobs.Jobs.World(Issues(held: false), Jobs.Jobs.ProjectFile()));
+        await jobs.Routes.Read(jobs.Project, User);
+        Assert.Equal("queued", (await jobs.Card(Second)).State);
+        var build = await jobs.Job();
+        Assert.Equal((Job.Build, First), ((string)build["kind"]!, (int)build["card"]!["number"]!));
+
+        // Its turn come, it is read alone, before the card after it is built; read as too thin, it
+        // is refused and never built, and the feature goes on past it.
+        await FeatureJobs.Finish(jobs, First, "done");
+        Assert.Equal([Second], await Answer(jobs, Reading(Thin(Second, "What each feature shows"))));
+        Assert.Equal("refused", (await jobs.Card(Second)).State);
+        var next = await jobs.Job();
+        Assert.Equal((Job.Build, Third), ((string)next["kind"]!, (int)next["card"]!["number"]!));
+        Assert.DoesNotContain(await jobs.Runs(), run => run.Kind == Job.Build && run.CardNumber == Second);
+    }
+
+    /// <summary>The first worker takes the project's next job, a reading, and sends back
+    /// <paramref name="reading"/> as its result; the numbers of the cards it was handed.</summary>
+    private static async Task<List<int>> Answer(Jobs.Jobs jobs, JsonObject reading)
+    {
+        var job = await jobs.Job();
+        Assert.Equal(Job.Read, (string)job["kind"]!);
+        var result = Jobs.Jobs.Result(Jobs.Jobs.FirstWorker, (string)job["branch"]!, reading, checkExit: null);
+        result["head_commit"] = null;
+        Assert.Equal(StatusCodes.Status204NoContent, (await jobs.Post(WorkerApi.ResultPath((Guid)job["job_id"]!), result)).Response.StatusCode);
+        jobs.Routes.Time.Advance(TimeSpan.FromMinutes(1));
+        return [.. job["to_read"]!["cards"]!.AsArray().Select(card => (int)card!["number"]!)];
+    }
+
+    [Fact]
+    public async Task ACardWhoseReadingWasTooThinIsNeverBuilt()
+    {
+        await using var jobs = await Jobs.Jobs.Start(read: false);
+        await Read(jobs, Prepared(Reading(Thin(1, "Which page shows the list"))));
+
+        // Queued again by whatever path, its newest reading still says too thin: nothing is built.
+        await FeatureJobs.SetState(jobs, 1, "queued");
+        Assert.Equal(StatusCodes.Status204NoContent, (await jobs.Next()).Response.StatusCode);
+        Assert.DoesNotContain(await jobs.Runs(), run => run.Kind == Job.Build);
+    }
+
+    [Fact]
     public async Task TheNoteIsInEveryBrief()
     {
         // A card's build, review and fix, on a feature read with the note.

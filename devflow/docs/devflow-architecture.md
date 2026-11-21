@@ -865,7 +865,12 @@ code it changes, but no longer has to search for it. A reading is one run for th
 parent's number, so the index that allows one run under way per feature holds one reading of a
 feature at a time, and no card of the feature starts while it runs. A card on its own is read alone,
 since it has nothing to be read with. A card added to a feature later is read when its turn comes,
-with whatever else of the feature is still unread.
+with whatever else of the feature is still unread, and so is a held card once it is released: a
+held card is left out of its feature's reading, since it would not be handed out, and a reading of
+it could move nothing while it is held, so a too thin answer would sit on a card that the owner's
+release then queues. Reading it on release keeps the rule simple, every card's reading moves that
+card. As a second line, a build takes only a card whose newest reading is ready or has questions,
+so a card read as too thin is never built however it comes to be queued again.
 
 **Why reading comes before every build.** The kinds of job are handed out work in progress first, and
 a reading goes after conflicts and before builds: it is short and it frees work, since a build can

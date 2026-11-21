@@ -182,9 +182,10 @@ public static class JobStore
         AND {Watching.WatchStore.FeatureWatchedSql}
         """;
 
-    /// <summary>What makes a card one to build, as SQL over <c>cards</c>: free to start and read,
-    /// <see cref="Readings.ReadingStore.IsRead"/>, since nothing is built before its card is read.</summary>
-    internal const string Buildable = $"{FreeToStart} AND {Readings.ReadingStore.IsRead}";
+    /// <summary>What makes a card one to build, as SQL over <c>cards</c>: free to start and read as
+    /// one to build, <see cref="Readings.ReadingStore.ReadToBuild"/>, since nothing is built before
+    /// its card is read, and a card read as too thin never is.</summary>
+    internal const string Buildable = $"{FreeToStart} AND {Readings.ReadingStore.ReadToBuild}";
 
     /// <summary>What makes a card one to hand out, as SQL over <c>cards</c>: one to build, and,
     /// for a card of a feature, its feature's branch made, which <see cref="FeatureBranchStore"/>
