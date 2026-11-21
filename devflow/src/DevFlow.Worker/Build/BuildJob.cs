@@ -34,7 +34,7 @@ internal sealed partial class BuildJob(DevFlowClient devFlow, Guid workerId, Job
     public static readonly TimeSpan CheckLimit = TimeSpan.FromMinutes(30);
 
     /// <summary>How often the worker says again that the check runs, which marks it seen: under
-    /// Dev flow's 10 minutes, after which a run handed out 100 minutes ago is lost.</summary>
+    /// Dev flow's 10 minutes, after which a run handed out its minutes and 10 more ago is lost.</summary>
     public static readonly TimeSpan SeenEvery = TimeSpan.FromMinutes(5);
 
     /// <summary>Runs the job <paramref name="answer"/> holds to its end and sends its result. Only

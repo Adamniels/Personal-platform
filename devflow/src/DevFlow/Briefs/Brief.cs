@@ -42,12 +42,14 @@ public sealed record ReviewFacts(string Commit, string Branch, string Base, int 
 
 /// <summary>What a fix brief answers: the round, the report of the run before it, the review that
 /// sent the card back and the owner's comments, each exactly as stored.</summary>
-/// <param name="Round">The fix round, 1 to 3, or null when the owner's comment started it.</param>
+/// <param name="Round">The fix round, or null when the owner's comment started it.</param>
 /// <param name="Report">The report the developer before handed back, as it was stored; null
 /// without one.</param>
 /// <param name="Review">The review the fix answers; null when there is none.</param>
 /// <param name="Comments">The owner's comments the fix answers, each exactly as he wrote it.</param>
-public sealed record FixInput(int? Round, string? Report, ReviewVerdict? Review, IReadOnlyList<string> Comments);
+/// <param name="Rounds">The most rounds the project gives, as the job was handed out, which the
+/// round is counted against.</param>
+public sealed record FixInput(int? Round, string? Report, ReviewVerdict? Review, IReadOnlyList<string> Comments, int Rounds);
 
 /// <summary>The facts a conflict brief names: the check from the project's
 /// <c>.devflow/project.json</c>, the feature's branch the merge goes on, the default branch it
@@ -172,7 +174,7 @@ public static class Brief
         ArgumentNullException.ThrowIfNull(fix);
         var opening = "This card was built before, and its pull request is open. You continue its branch from where the last run left it: fix what is asked below, and do not start the card again. "
             + (fix.Round is { } round
-                ? string.Create(CultureInfo.InvariantCulture, $"This is fix round {round} of {FixRounds.Most}: the reviewer asked for changes.\n\n")
+                ? string.Create(CultureInfo.InvariantCulture, $"This is fix round {round} of {fix.Rounds}: the reviewer asked for changes.\n\n")
                 : "The owner sent it back with his comment below, which is not one of the review's rounds.\n\n");
         return Developer(card, facts, feature, WhatToFix(fix, opening, "card"));
     }
@@ -195,7 +197,7 @@ public static class Brief
         ArgumentNullException.ThrowIfNull(fix);
         var opening = "The feature was built and reviewed as a whole, and its pull request is open. You continue its branch from where it is: fix what is asked below, and do not build its cards again. "
             + (fix.Round is { } round
-                ? string.Create(CultureInfo.InvariantCulture, $"This is fix round {round} of {FixRounds.Most}: the review of the whole feature asked for changes.\n\n")
+                ? string.Create(CultureInfo.InvariantCulture, $"This is fix round {round} of {fix.Rounds}: the review of the whole feature asked for changes.\n\n")
                 : "The owner sent the feature back with his comment below, which is not one of the review's rounds.\n\n");
         return Fill(FeatureFixerTemplate.Value, new Dictionary<string, string>(StringComparer.Ordinal)
         {

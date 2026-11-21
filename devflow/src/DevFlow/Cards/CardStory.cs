@@ -107,7 +107,7 @@ public sealed record CardScreenshotSource(Repository Repository, string Folder, 
 /// is tried again in the same round, so a round may show more than once. Every text is shown as
 /// text.</summary>
 /// <param name="RunId">The fix run, among the runs.</param>
-/// <param name="Round">The fix round, 1 to 3, or null when the owner's comment started it.</param>
+/// <param name="Round">The fix round, 1 to the project's fix rounds, or null when the owner's comment started it.</param>
 /// <param name="ReviewRunId">The review it answered, among the reviews: the one whose changes
 /// started its round, or the card's latest when the owner's comment did; null when there was
 /// none.</param>

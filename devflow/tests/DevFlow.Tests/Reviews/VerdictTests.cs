@@ -207,9 +207,9 @@ public sealed class VerdictTests
             await admin.ExecuteAsync(new CommandDefinition(
                 """
                 INSERT INTO runs (id, project_id, user_id, card_number, worker_id, kind, branch, base, check_command, started_at,
-                                  finished_at, result, report, check_exit_code, check_output, head_commit)
+                                  finished_at, result, report, check_exit_code, check_output, head_commit, run_minutes)
                 SELECT gen_random_uuid(), project_id, user_id, card_number, worker_id, 'build', branch, base, check_command, @now,
-                       @now, 'succeeded', report, 0, 'Tests: 12 passed', @second
+                       @now, 'succeeded', report, 0, 'Tests: 12 passed', @second, run_minutes
                 FROM runs WHERE project_id = @project AND kind = 'build'
                 """,
                 new { project = jobs.Project, now = jobs.Routes.Time.GetUtcNow(), second },

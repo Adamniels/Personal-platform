@@ -96,8 +96,8 @@ public sealed class FeatureReviewBuildTests
         await admin.ExecuteAsync(new CommandDefinition(
             """
             INSERT INTO runs (id, project_id, user_id, feature_number, worker_id, kind, branch, base, check_command, from_commit, default_commit,
-                              head_commit, started_at, finished_at, result, remerge_diff)
-            VALUES (@id, @project, @user, @parent, @worker, 'conflict', @branch, 'main', 'true', @head, @head, @head, @at, @at, 'succeeded', @remerge)
+                              head_commit, started_at, finished_at, result, remerge_diff, run_minutes)
+            VALUES (@id, @project, @user, @parent, @worker, 'conflict', @branch, 'main', 'true', @head, @head, @head, @at, @at, 'succeeded', @remerge, 90)
             """,
             new { id = Guid.CreateVersion7(at), project = bench.Jobs.Project, user = Jobs.User, parent = Parent, worker = Jobs.FirstWorker, branch = Branch, head, at, remerge },
             cancellationToken: Ct));
@@ -112,8 +112,9 @@ public sealed class FeatureReviewBuildTests
         var id = Guid.CreateVersion7(at);
         await admin.ExecuteAsync(new CommandDefinition(
             """
-            INSERT INTO runs (id, project_id, user_id, feature_number, worker_id, kind, branch, base, head_commit, started_at, finished_at, result)
-            VALUES (@id, @project, @user, @parent, @worker, 'feature_review', @branch, 'main', @commit, @at, @at, 'succeeded');
+            INSERT INTO runs (id, project_id, user_id, feature_number, worker_id, kind, branch, base, head_commit, started_at, finished_at, result,
+                              run_minutes)
+            VALUES (@id, @project, @user, @parent, @worker, 'feature_review', @branch, 'main', @commit, @at, @at, 'succeeded', 90);
             INSERT INTO feature_reviews (run_id, project_id, user_id, feature_number, reviewed_commit, verdict, summary, findings, for_owner,
                                          pull_request_number, reviewed_at, posted_at)
             VALUES (@id, @project, @user, @parent, @commit, 'approve', 'Fine.', '[]', '[]', 5, @at, @at);

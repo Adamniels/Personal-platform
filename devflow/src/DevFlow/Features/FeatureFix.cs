@@ -6,7 +6,7 @@ namespace DevFlow.Features;
 
 /// <summary>
 /// What a feature says while its whole review's fix rounds run: a <c>changes</c> verdict on the
-/// feature starts a round, at most <see cref="FixRounds.Most"/> of them, and the owner's comment on
+/// feature starts a round, at most the project's <c>fix_rounds_feature</c> of them, and the owner's comment on
 /// its pull request starts a fix that is not one. A feature is never stopped by its review: with its
 /// rounds used up, or its fix failing twice in a row, it waits for the owner. See "Fixing a feature"
 /// in devflow/README.md, and in devflow/docs/devflow-architecture.md for why.
@@ -25,18 +25,18 @@ public static class FeatureFix
     public const string Fixed = "Fixed; the reviewer reads the whole feature again next";
 
     /// <summary>What a feature says when its review asked for changes and round
-    /// <paramref name="round"/> is next.</summary>
-    public static string Asked(int round) =>
-        string.Create(CultureInfo.InvariantCulture, $"Round {round} of {FixRounds.Most}: the review of the whole feature asked for changes; a fix runs next");
+    /// <paramref name="round"/> of <paramref name="most"/> is next.</summary>
+    public static string Asked(int round, int most) =>
+        string.Create(CultureInfo.InvariantCulture, $"Round {round} of {most}: the review of the whole feature asked for changes; a fix runs next");
 
     /// <summary>What a feature says while its fix waits to be handed out: round
     /// <paramref name="round"/>'s line, or <see cref="Commented"/> for the owner's comment.</summary>
-    public static string Waiting(int? round) => round is { } r ? Asked(r) : Commented;
+    public static string Waiting(int? round, int most) => round is { } r ? Asked(r, most) : Commented;
 
-    /// <summary>What a feature says while its fix runs: round <paramref name="round"/>, or null for
-    /// the owner's comment.</summary>
-    public static string Fixing(int? round) => round is { } r
-        ? string.Create(CultureInfo.InvariantCulture, $"Round {r} of {FixRounds.Most}: the developer is fixing the feature")
+    /// <summary>What a feature says while its fix runs: round <paramref name="round"/> of
+    /// <paramref name="most"/>, or a line of its own for the owner's comment.</summary>
+    public static string Fixing(int? round, int most) => round is { } r
+        ? string.Create(CultureInfo.InvariantCulture, $"Round {r} of {most}: the developer is fixing the feature")
         : "The developer is answering your comment";
 
     /// <summary>What a feature says when one failure in its fix runs it again.</summary>

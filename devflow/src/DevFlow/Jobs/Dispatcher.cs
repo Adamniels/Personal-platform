@@ -173,12 +173,12 @@ public sealed partial class Dispatcher(
 
             return kind switch
             {
-                Job.Review => ReviewJob(await JobStore.ClaimReview(transaction, projectId, userId, workerId, now, cancellationToken), repository, facts, run, token, key),
-                Job.FeatureReview => FeatureReviewJob(await JobStore.ClaimFeatureReview(transaction, projectId, userId, workerId, facts.DefaultBranch, facts.Check, now, cancellationToken), repository, facts, run, token, key),
-                Job.Fix => FixJob(await JobStore.ClaimFix(transaction, projectId, userId, workerId, facts.Check, now, cancellationToken), repository, facts, run, token, key),
-                Job.FeatureFix => FeatureFixJob(await JobStore.ClaimFeatureFix(transaction, projectId, userId, workerId, facts.DefaultBranch, facts.Check, now, cancellationToken), repository, facts, run, token, key),
-                Job.Conflict => ConflictJob(await JobStore.ClaimConflict(transaction, projectId, userId, workerId, due!, facts.DefaultBranch, facts.Check, now, cancellationToken), repository, facts, run, token, key, files),
-                _ => BuildJob(await JobStore.Claim(transaction, projectId, userId, workerId, facts.DefaultBranch, facts.Check, now, cancellationToken), repository, facts, run, token, key),
+                Job.Review => ReviewJob(await JobStore.ClaimReview(transaction, projectId, userId, workerId, run, now, cancellationToken), repository, facts, run, token, key),
+                Job.FeatureReview => FeatureReviewJob(await JobStore.ClaimFeatureReview(transaction, projectId, userId, workerId, run, facts.DefaultBranch, facts.Check, now, cancellationToken), repository, facts, run, token, key),
+                Job.Fix => FixJob(await JobStore.ClaimFix(transaction, projectId, userId, workerId, run, facts.Check, now, cancellationToken), repository, facts, run, token, key),
+                Job.FeatureFix => FeatureFixJob(await JobStore.ClaimFeatureFix(transaction, projectId, userId, workerId, run, facts.DefaultBranch, facts.Check, now, cancellationToken), repository, facts, run, token, key),
+                Job.Conflict => ConflictJob(await JobStore.ClaimConflict(transaction, projectId, userId, workerId, run, due!, facts.DefaultBranch, facts.Check, now, cancellationToken), repository, facts, run, token, key, files),
+                _ => BuildJob(await JobStore.Claim(transaction, projectId, userId, workerId, run, facts.DefaultBranch, facts.Check, now, cancellationToken), repository, facts, run, token, key),
             };
         }, cancellationToken);
         if (job is null)
@@ -301,7 +301,7 @@ public sealed partial class Dispatcher(
         var brief = Brief.FeatureFixer(
             claimed.Feature,
             new BriefFacts(facts.Check, claimed.Branch, claimed.Base, claimed.RunId, facts.Start, facts.Url),
-            new FixInput(claimed.Round, claimed.Report, claimed.Review?.Verdict, claimed.Comments));
+            new FixInput(claimed.Round, claimed.Report, claimed.Review?.Verdict, claimed.Comments, run.FixRoundsFeature));
         return new Job(
             claimed.RunId,
             Job.FeatureFix,
@@ -336,7 +336,7 @@ public sealed partial class Dispatcher(
         var brief = Brief.Fixer(
             new BriefCard(claimed.Number, claimed.Title, claimed.Body),
             new BriefFacts(facts.Check, claimed.Branch, claimed.Base, claimed.RunId, facts.Start, facts.Url),
-            new FixInput(claimed.Round, claimed.Report, claimed.Review?.Verdict, claimed.Comments),
+            new FixInput(claimed.Round, claimed.Report, claimed.Review?.Verdict, claimed.Comments, run.FixRoundsCard),
             claimed.Feature);
         return new Job(
             claimed.RunId,

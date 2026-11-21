@@ -13,8 +13,9 @@ namespace DevFlow.Tests.Projects;
 /// <summary>
 /// A project's models and limits: the model that reads, builds and reviews its cards, the minutes
 /// and turns a run may take, and the fix rounds a card and a feature get, through
-/// <c>PUT /devflow/api/projects/{id}/settings</c> against a real Postgres. See "Settings" in
-/// devflow/README.md.
+/// <c>PUT /devflow/api/projects/{id}/settings</c> against a real Postgres; and a change taking
+/// effect at the next decision, a run under way keeping what its job carried. See "Settings" and
+/// "Jobs" in devflow/README.md.
 /// </summary>
 public sealed class RunSettingsTests
 {
@@ -86,6 +87,20 @@ public sealed class RunSettingsTests
         var errors = problem["errors"]!.AsObject();
         Assert.True(errors.ContainsKey(field), $"{body.ToJsonString()} names {field}");
         Assert.Single(errors);
+    }
+
+    /// <summary>The settings as <paramref name="jobs"/>'s project has them now, changed by
+    /// <paramref name="changes"/> and saved through the route, as the panel saves them.</summary>
+    private static async Task Change(Jobs.Jobs jobs, params (string Field, JsonNode? Value)[] changes)
+    {
+        var current = await Get(jobs.Routes, jobs.Project);
+        current["trusted_logins"] = new JsonArray([.. current["trusted_logins"]!.AsArray().Select(entry => (JsonNode)(string)entry!["login"]!)]);
+        foreach (var (field, value) in changes)
+        {
+            current[field] = value;
+        }
+
+        Assert.Equal(StatusCodes.Status200OK, (await Put(jobs.Routes, jobs.Project, current)).Response.StatusCode);
     }
 
     [Fact]
@@ -163,5 +178,34 @@ public sealed class RunSettingsTests
             await Assert.ThrowsAsync<Npgsql.PostgresException>(() => admin.ExecuteAsync(new CommandDefinition(
                 $"UPDATE project_settings SET {change} WHERE project_id = @project", new { project }, cancellationToken: Ct)));
         }
+    }
+
+    [Fact]
+    public async Task AChangeTakesEffectAtTheNextDecision()
+    {
+        await using var jobs = await Jobs.Jobs.Start([Jobs.Jobs.Card(1), Jobs.Jobs.Card(2)]);
+
+        // The first card's job carries the settings as they were when it was handed out.
+        var first = await jobs.Job();
+        Assert.Equal((1, "opus", 90, 200), ((int)first["card"]!["number"]!, (string)first["model"]!, (int)first["limits"]!["minutes"]!, (int)first["limits"]!["turns"]!));
+
+        // The owner changes them while it runs: the next job carries the new ones.
+        await Change(jobs, ("model_building", "sonnet"), ("run_minutes", 30), ("run_turns", 50));
+        await jobs.SayHello(Jobs.Jobs.SecondWorker);
+        var second = await jobs.Job(Jobs.Jobs.SecondWorker);
+        Assert.Equal((2, "sonnet", 30, 50), ((int)second["card"]!["number"]!, (string)second["model"]!, (int)second["limits"]!["minutes"]!, (int)second["limits"]!["turns"]!));
+
+        // 41 minutes on, both workers gone: the second run is lost after its own 30 minutes and the
+        // margin, while the first keeps the 90 its job carried, and runs on.
+        jobs.Routes.Time.Advance(TimeSpan.FromMinutes(41));
+        await jobs.Routes.Read(jobs.Project, Jobs.Jobs.User);
+        Assert.Equal(("building", "queued"), ((await jobs.Card(1)).State, (await jobs.Card(2)).State));
+        var runs = await jobs.Runs();
+        Assert.Equal((null, "lost"), (runs.Single(run => run.CardNumber == 1).Result, runs.Single(run => run.CardNumber == 2).Result));
+
+        // The first is lost only after its own 90 minutes and the margin.
+        jobs.Routes.Time.Advance(TimeSpan.FromMinutes(59));
+        await jobs.Routes.Read(jobs.Project, Jobs.Jobs.User);
+        Assert.Equal("lost", (await jobs.Runs()).Single(run => run.CardNumber == 1).Result);
     }
 }

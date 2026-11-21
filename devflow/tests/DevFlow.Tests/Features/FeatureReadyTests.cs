@@ -28,7 +28,7 @@ public sealed class FeatureReadyTests
     {
         { "approved, CI passed", "ready", null },
         { "an older commit approved", "reviewing", FeatureReview.ToReview },
-        { "changes", "fixing", FeatureFix.Asked(1) },
+        { "changes", "fixing", FeatureFix.Asked(1, 3) },
         { "CI pending", "waiting_for_owner", MergeCheck.CiRunning },
         { "CI failed", "waiting_for_owner", MergeCheck.CiFailed("test") },
         { "no CI yet", "waiting_for_owner", MergeCheck.CiNotYet },

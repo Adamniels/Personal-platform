@@ -57,7 +57,7 @@ internal static class FeatureMerging
             await using var admin = await jobs.Routes.Database.OpenAdmin(Ct);
             await admin.ExecuteAsync(new CommandDefinition(
                 "UPDATE features SET fix_round = @most WHERE project_id = @project AND number = @number",
-                new { most = FixRounds.Most, project = jobs.Project, number = Ending.Parent },
+                new { most = DevFlow.Projects.RunSettings.Defaults.FixRoundsFeature, project = jobs.Project, number = Ending.Parent },
                 cancellationToken: Ct));
         }
 

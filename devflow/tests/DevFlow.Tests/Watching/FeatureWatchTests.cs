@@ -131,8 +131,8 @@ public sealed class FeatureWatchTests
         await using var admin = await jobs.Routes.Database.OpenAdmin(Ct);
         await admin.ExecuteAsync(new CommandDefinition(
             """
-            INSERT INTO runs (id, project_id, user_id, card_number, worker_id, kind, branch, base, started_at)
-            VALUES (@id, @project, @user, 12, @worker, 'build', @branch, 'main', @now)
+            INSERT INTO runs (id, project_id, user_id, card_number, worker_id, kind, branch, base, started_at, run_minutes)
+            VALUES (@id, @project, @user, 12, @worker, 'build', @branch, 'main', @now, 90)
             """,
             new { id, project = jobs.Project, user = User, worker = Jobs.Jobs.FirstWorker, branch = Branch, now = jobs.Routes.Time.GetUtcNow() },
             cancellationToken: Ct));

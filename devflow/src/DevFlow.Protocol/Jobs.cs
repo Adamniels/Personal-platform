@@ -119,7 +119,7 @@ public sealed record JobReview(string Commit, JsonElement Report, CheckResult Ch
 /// asked for changes or the owner's comment, the developer's reply to each finding, and the commit
 /// its fix left. Every text is the reviewer's, the owner's or the developer's, and data.
 /// </summary>
-/// <param name="Round">The fix round, 1 to 3, or null when the owner's comment started it.</param>
+/// <param name="Round">The fix round, 1 to the project's fix rounds, or null when the owner's comment started it.</param>
 /// <param name="ReviewedCommit">The commit the review it answered was for, null when it answered
 /// none.</param>
 /// <param name="Verdict">That review's verdict, null when it answered none.</param>
@@ -145,7 +145,7 @@ public sealed record JobRound(
 /// which the worker checks before anything runs, and the round.
 /// </summary>
 /// <param name="Commit">The full id of the commit the branch is at, which the fix builds on.</param>
-/// <param name="Round">The fix round, 1 to 3, or null when the owner's comment started it, which
+/// <param name="Round">The fix round, 1 to the project's fix rounds, or null when the owner's comment started it, which
 /// is not a round.</param>
 public sealed record JobFix(string Commit, int? Round);
 
