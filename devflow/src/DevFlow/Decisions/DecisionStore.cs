@@ -30,6 +30,25 @@ public sealed record UnopenedDecision(
 public static class DecisionStore
 {
     /// <summary>
+    /// The decisions marked <c>for_owner</c>, with something chosen, in the reports of the builds
+    /// and fixes that succeeded of the card numbered <paramref name="card"/> in the project
+    /// <paramref name="project"/>, both SQL expressions of the caller's: a <c>FROM</c> and
+    /// <c>WHERE</c> over <c>runs r</c> and each decision <c>d</c>, with its place in its report as
+    /// <c>d.ordinality</c>. The one rule for what is a decision for the owner, which recording them
+    /// and the merge check of "sometimes" both read, so the two cannot drift apart.
+    /// </summary>
+    public static string MarkedFrom(string project, string card) =>
+        $"""
+        FROM runs r
+        CROSS JOIN LATERAL jsonb_array_elements(
+            CASE WHEN jsonb_typeof(r.report->'decisions') = 'array' THEN r.report->'decisions' ELSE '[]'::jsonb END
+        ) WITH ORDINALITY d
+        WHERE r.project_id = {project} AND r.card_number = {card} AND r.kind IN ('build', 'fix') AND r.result = 'succeeded'
+          AND jsonb_typeof(d.value) = 'object' AND d.value->'for_owner' = 'true'::jsonb
+          AND btrim(coalesce(d.value->>'chosen', '')) <> ''
+        """;
+
+    /// <summary>
     /// Records, inside the merge's <paramref name="transaction"/>, each decision marked
     /// <c>for_owner</c> in the reports of the card's builds and fixes that succeeded, once each by
     /// what was chosen, whatever its case and surrounding space, the newest run's words winning and
@@ -43,17 +62,11 @@ public static class DecisionStore
     {
         ArgumentNullException.ThrowIfNull(transaction);
         var decisions = await transaction.Connection!.QueryAsync<RecordedRow>(new CommandDefinition(
-            """
+            $"""
             WITH marked AS (
                 SELECT btrim(d.value->>'chosen') AS chosen, btrim(coalesce(d.value->>'alternative', '')) AS alternative,
                        btrim(coalesce(d.value->>'why', '')) AS why, r.started_at, r.id AS run_id, d.ordinality
-                FROM runs r
-                CROSS JOIN LATERAL jsonb_array_elements(
-                    CASE WHEN jsonb_typeof(r.report->'decisions') = 'array' THEN r.report->'decisions' ELSE '[]'::jsonb END
-                ) WITH ORDINALITY d
-                WHERE r.project_id = @projectId AND r.card_number = @card AND r.kind IN ('build', 'fix') AND r.result = 'succeeded'
-                  AND jsonb_typeof(d.value) = 'object' AND d.value->'for_owner' = 'true'::jsonb
-                  AND btrim(coalesce(d.value->>'chosen', '')) <> ''
+                {MarkedFrom("@projectId", "@card")}
             ), newest AS (
                 SELECT DISTINCT ON (lower(chosen)) chosen, alternative, why FROM marked
                 ORDER BY lower(chosen), started_at DESC, run_id DESC, ordinality

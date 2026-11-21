@@ -36,6 +36,9 @@ public sealed class FeatureWatchTests
 
     private static readonly string NoCommit = new('0', 40);
 
+    /// <summary>The project's setting as a new project has it, which the merge reads again.</summary>
+    private static readonly WaitSetting Never = new("never", WaitConditions.Defaults);
+
     /// <summary>A feature of two cards, 11 and 12, and card 20 on its own, younger than the
     /// feature, with <paramref name="before"/> already on the branches.</summary>
     private static async Task<Jobs.Jobs> Feature(params FakeActivity[] before)
@@ -488,12 +491,12 @@ public sealed class FeatureWatchTests
         }
 
         var merges = jobs.Routes.App.Services.GetRequiredService<AppMerges>();
-        Assert.IsNotType<AppMergeOutcome.Done>(await merges.MergeCard(User, jobs.Project, 12, 71, head, Ct));
+        Assert.IsNotType<AppMergeOutcome.Done>(await merges.MergeCard(User, jobs.Project, 12, 71, head, Never, Ct));
         Assert.DoesNotContain(jobs.Routes.Host.Calls, call => call.Operation == "MergeAsApp");
 
         // Read again, it merges into the feature's branch, and the watch finds the merge fine.
         await Read(jobs);
-        var merged = Assert.IsType<AppMergeOutcome.Done>(await merges.MergeCard(User, jobs.Project, 12, 71, head, Ct));
+        var merged = Assert.IsType<AppMergeOutcome.Done>(await merges.MergeCard(User, jobs.Project, 12, 71, head, Never, Ct));
         Assert.IsType<MergeResult.Merged>(merged.Result);
         await Read(jobs);
         Assert.Null(await Stop(jobs));
