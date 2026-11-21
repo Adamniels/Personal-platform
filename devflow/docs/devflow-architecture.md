@@ -806,11 +806,12 @@ drives handing out, the result and what later parts build on it without a contai
 
 **A feature's cards, one at a time.** Inside a feature one card runs at a time, as the spec's
 round 2 has it, since its cards build on each other in one branch: a card is let start only while
-no card of its feature has a run under way and every card before it is done, stopped or held. A
+no card of its feature has a run under way, nor the feature itself, its reading among them, and
+every card before it is done, stopped, refused or held. A
 card before it in any other state holds it back, whatever that state is, queued and waiting on
 GitHub, ignored, or waiting for the owner, because its work is what the later card builds on: a
 card that is not finished might still change the code under it, and one that is ignored or waits
-for its own blockers is still meant to come first. A stopped or held card is the exception, since
+for its own blockers is still meant to come first. A stopped, refused or held card is the exception, since
 the spec's "A card stops only when..." has a stop hold back only that card and the cards depending
 on it, and the owner's hold label says the same of one card: the rest of the feature goes on, and
 a card that does depend on it says so with a blocked by link on GitHub, which holds it as any
@@ -836,6 +837,56 @@ worker never came back is taken over after two minutes, longer than the two requ
 **A stopped project**, or one whose default branch has not been read for five minutes, hands out
 nothing, ahead of everything above, and the transaction that takes the card reads that again under
 the project's lock, see "Watching the default branch" below.
+
+### Reading a card
+
+Before anything is built, a fresh agent reads the cards with the code they touch and answers for
+each whether it is ready, has questions, or is too thin, as the spec's round 2 has it and the
+feature's decisions keep whatever the project's settings. How it is handed out, its form, its result
+and its table are "Reading a card" under "Jobs" in `devflow/README.md`.
+
+**Why every card is read.** A run that builds from a card the owner left unclear spends a whole
+build on a guess, and the guess is found at the review or by him, when it is dearest to undo. Asking
+before is cheap: a reading reads and writes nothing, so it costs a fraction of a build, and it is
+the one moment a choice that is his can reach him while he is still there, as the feature's "What I
+want" puts it, rather than after the night's work. A card read as ready costs one short run; one
+with questions is built on the reader's recommendations, which Dev flow posts on the card so the
+owner sees what was chosen for him; and one too thin is not built at all, `refused` with what it
+lacks, rather than built badly. Its marking on GitHub and "Waiting for you" are the slice "Refusing
+a thin card", and answering the questions himself is "Questions before starting".
+
+**Why a feature's cards are read together.** The spec's round 2 reads all of a feature's cards at
+once, not each as its turn comes, and this keeps it: the owner gets every question of the feature in
+one batch, a refusal comes before the first card is built rather than halfway through, and only
+cards read side by side show that they contradict each other, which the reading asks as a question
+on each card involved. The note of the code the feature touches is written once, with the whole
+feature in view, and goes into every brief of it, the spec's round 4b: each agent still reads the
+code it changes, but no longer has to search for it. A reading is one run for the feature, by its
+parent's number, so the index that allows one run under way per feature holds one reading of a
+feature at a time, and no card of the feature starts while it runs. A card on its own is read alone,
+since it has nothing to be read with. A card added to a feature later is read when its turn comes,
+with whatever else of the feature is still unread.
+
+**Why reading comes before every build.** The kinds of job are handed out work in progress first, and
+a reading goes after conflicts and before builds: it is short and it frees work, since a build can
+only take a card that was read, and a project with one worker would otherwise build the cards it
+already read while the rest wait unread, and their questions with them. Builds wait for nothing but
+the reading of their own card; the rest of the order stands as above. A failure is judged as any
+run's is, "Stops": outside the cards, the reading is put back and the project waits; in them, or a
+reading out of its form, it is run once more, and the second in a row stops every card it read with
+why, counted per card as a build's failures are, since a reader that cannot answer twice will not
+answer the third time either.
+
+**Why a reading only fetches.** It reads the code and decides nothing in it, so it is given what a
+review is given and no more: a key that only fetches, a copy it can read, search and list and not
+write, and no check to run. It cannot push, so nothing a reading does reaches the repository, and
+its note and questions, an agent's words, reach the other briefs only fenced as information. Its
+answer is a form, `Reading`, whose schema is written from its type, as the report's and the
+verdict's are, and read with a field missing, unknown or mistyped refused, and with every card it
+was handed answered exactly once, so a reading that skips a card or names another is a failure, not
+an answer. The cards a reading was handed are recorded when it is handed out, with each card's body
+SHA-256 and title as it was, which "Reading again" compares against; and the note lives on the run's
+report, as a card's handover note does on its run's.
 
 ## How a card reaches its pull request
 

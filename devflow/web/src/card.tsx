@@ -1,9 +1,9 @@
 // A card's page, /devflow/projects/{project}/cards/{number}, under the Projects tab, opened from the
 // project's Cards panel and from its feature's page: the card's whole story so far, read from GET
 // /devflow/api/projects/{id}/cards/{number}, what Dev flow stored and never the code host. Its state
-// and why, links to its issue, its feature's page and its pull request, each round it was sent back
-// for, newest first, each review with its verdict, newest first, each run, newest first, and the
-// latest report.
+// and why, links to its issue, its feature's page and its pull request, what it was read as before
+// it was built, each round it was sent back for, newest first, each review with its verdict, newest
+// first, each run, newest first, and the latest report.
 // Every text came from the code host, a worker or an agent and is shown as text. See "The pages"
 // and "A card's page" in devflow/README.md.
 import {
@@ -27,6 +27,7 @@ export type Run = CardStory["runs"][number];
 type Report = NonNullable<CardStory["report"]>;
 type Review = CardStory["reviews"][number];
 type Round = CardStory["rounds"][number];
+type CardReading = NonNullable<CardStory["reading"]>;
 
 export const NOT_READ = "The card could not be read. Try again.";
 
@@ -63,6 +64,16 @@ const KINDS: Record<string, string> = {
 	fix: "Fix",
 	conflict: "Conflict",
 	feature_review: "Review of the feature",
+	feature_fix: "Fix of the feature",
+	read: "Reading",
+};
+
+/** What a reading answered for the card, as a word and a tone; one the page
+ * does not know yet is shown as it is named. */
+const OUTCOMES: Record<string, { word: string; tone: StatusTone }> = {
+	ready: { word: "Ready to build", tone: "done" },
+	questions: { word: "Built on the recommendations", tone: "idle" },
+	too_thin: { word: "Too thin to build", tone: "failed" },
 };
 
 /** What the review of a fix's commit said of it, after "the review of it". */
@@ -203,6 +214,7 @@ export function CardPage({
 					</p>
 				</div>
 			</Panel>
+			{story.reading === null ? null : <Reading reading={story.reading} />}
 			{story.merge === null ? null : (
 				<Panel title="The merge" className={styles.panel}>
 					<div className={styles.body}>
@@ -540,6 +552,56 @@ export function ReviewRow({ review }: { review: Review }) {
 				)}
 			</Section>
 		</li>
+	);
+}
+
+/** What the card was read as before it was built: the outcome and when, each
+ * question with the answer it is built on and why, and what it lacks when it
+ * is too thin. Every text is the reader's, shown as text. */
+function Reading({ reading }: { reading: CardReading }) {
+	const { word, tone } = OUTCOMES[reading.outcome] ?? {
+		word: reading.outcome,
+		tone: "idle",
+	};
+	return (
+		<Panel title="The reading" className={styles.panel}>
+			<div className={styles.body}>
+				<p className={styles.state}>
+					<Status tone={tone}>{word}</Status>
+					<span className={styles.reason}>
+						Read on {DATE_TIME.format(new Date(reading.read_at))}
+					</span>
+				</p>
+				{reading.questions.length === 0 ? null : (
+					<p className={styles.muted}>
+						The card leaves choices open that it does not settle, so it is built
+						on the reader's recommendations.{" "}
+						{reading.commented
+							? "Dev flow posted them on the card."
+							: "Dev flow posts them on the card."}
+					</p>
+				)}
+				<Section label="Questions" items={reading.questions}>
+					{(question) => (
+						<>
+							<Inline text={question.question} />
+							<span className={styles.sub}>
+								<span className={styles.mark}>Answer</span>{" "}
+								<Inline text={question.answer} />
+							</span>
+							{question.why.trim() === "" ? null : (
+								<span className={styles.sub}>
+									Because <Inline text={question.why} />
+								</span>
+							)}
+						</>
+					)}
+				</Section>
+				<Section label="Missing" items={reading.missing}>
+					{(missing) => <Inline text={missing} />}
+				</Section>
+			</div>
+		</Panel>
 	);
 }
 

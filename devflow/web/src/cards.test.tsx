@@ -228,6 +228,7 @@ describe("the cards panel", () => {
 	test("every state has a word of its own", () => {
 		const states = [
 			"queued",
+			"reading",
 			"building",
 			"checking",
 			"reviewing",
@@ -235,6 +236,7 @@ describe("the cards panel", () => {
 			"waiting_for_owner",
 			"done",
 			"stopped",
+			"refused",
 			"held",
 			"ignored",
 		];
@@ -243,6 +245,12 @@ describe("the cards panel", () => {
 		expect(stateWord("waiting_for_owner")).toEqual({
 			word: "Waiting for you",
 			tone: "needs-you",
+		});
+		// A card read before anything is built, and one read as too thin.
+		expect(stateWord("reading")).toEqual({ word: "Reading", tone: "running" });
+		expect(stateWord("refused")).toEqual({
+			word: "Too thin to build",
+			tone: "failed",
 		});
 		// A state a later Dev flow adds is shown as it is named.
 		expect(stateWord("paused").word).toBe("paused");
