@@ -2,6 +2,7 @@ using System.Net;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.Json.Serialization;
 
 namespace DevFlow.CodeHost.GitHub;
 
@@ -31,6 +32,29 @@ public sealed partial class GitHubCodeHost
               timelineItems(first: 100, after: $renames, itemTypes: [RENAMED_TITLE_EVENT]) @include(if: $withRenames) {
                 pageInfo { hasNextPage endCursor }
                 nodes { ... on RenamedTitleEvent { id createdAt actor { login } } }
+              }
+            }
+          }
+        }
+        """;
+
+    /// <summary>
+    /// Every label put on an issue or taken off it, from its timeline, oldest first as GitHub lists
+    /// it, each with the label's name and who did it; a hundred a page, asked for again from the
+    /// cursor while there are more. contracts/github/issue-label-events.json was recorded with
+    /// exactly this query.
+    /// </summary>
+    public const string LabelEventsQuery = """
+        query($owner: String!, $name: String!, $number: Int!, $after: String) {
+          repository(owner: $owner, name: $name) {
+            issue(number: $number) {
+              timelineItems(first: 100, after: $after, itemTypes: [LABELED_EVENT, UNLABELED_EVENT]) {
+                pageInfo { hasNextPage endCursor }
+                nodes {
+                  __typename
+                  ... on LabeledEvent { createdAt actor { login } label { name } }
+                  ... on UnlabeledEvent { createdAt actor { login } label { name } }
+                }
               }
             }
           }
@@ -172,6 +196,74 @@ public sealed partial class GitHubCodeHost
         return new CodeHostResult<IReadOnlyList<IssueEdit>>.Found([.. bodyEdits, .. renames]);
     }
 
+    /// <summary>
+    /// <see cref="LabelEventsQuery"/>, posted to GraphQL as many times as the timeline has pages,
+    /// at most <see cref="MostPages"/>, failing as <see cref="Edits"/> does: not found for an issue
+    /// that is not there, and unavailable for any other error, an answer that does not parse, or
+    /// any page that is, so half a history is never answered as the whole. An event of a type the
+    /// query did not ask for, or one without its label, does not parse either: an event the
+    /// adapter cannot name could be the one that decides.
+    /// </summary>
+    public async Task<CodeHostResult<IReadOnlyList<LabelEvent>>> LabelEvents(Guid userId, Repository repository, int number, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(repository);
+        var events = new List<LabelEvent>();
+        string? after = null;
+        for (var pages = 0; ; pages++)
+        {
+            if (pages == MostPages)
+            {
+                return new CodeHostResult<IReadOnlyList<LabelEvent>>.Unavailable(RetryAt: null);
+            }
+
+            var variables = new JsonObject
+            {
+                ["owner"] = repository.Owner,
+                ["name"] = repository.Name,
+                ["number"] = number,
+                ["after"] = after,
+            };
+            var answer = await GraphQl<LabelEventsData>(repository, LabelEventsQuery, variables, cancellationToken);
+            if (answer is not CodeHostResult<LabelEventsData>.Found { Value: var data })
+            {
+                return Fail<LabelEventsData, IReadOnlyList<LabelEvent>>(answer);
+            }
+
+            if (data.Repository?.Issue is not { } issue)
+            {
+                return new CodeHostResult<IReadOnlyList<LabelEvent>>.NotFound();
+            }
+
+            if (issue.TimelineItems is not { } timeline || Broken(timeline.PageInfo))
+            {
+                return new CodeHostResult<IReadOnlyList<LabelEvent>>.Unavailable(RetryAt: null);
+            }
+
+            foreach (var node in timeline.Nodes)
+            {
+                LabelChange? change = node.Typename switch
+                {
+                    "LabeledEvent" => LabelChange.Added,
+                    "UnlabeledEvent" => LabelChange.Removed,
+                    _ => null,
+                };
+                if (change is not { } known || node.Label is not { } label || node.CreatedAt is not { } at)
+                {
+                    return new CodeHostResult<IReadOnlyList<LabelEvent>>.Unavailable(RetryAt: null);
+                }
+
+                events.Add(new LabelEvent(label.Name, known, Login(node.Actor), at));
+            }
+
+            bool more;
+            (more, after) = Next(timeline.PageInfo);
+            if (!more)
+            {
+                return new CodeHostResult<IReadOnlyList<LabelEvent>>.Found(events);
+            }
+        }
+    }
+
     /// <summary>Whether a list has another page, and the cursor it starts after.</summary>
     private static (bool More, string? After) Next(PageInfoAnswer page) =>
         page.HasNextPage ? (true, page.EndCursor) : (false, null);
@@ -293,4 +385,22 @@ public sealed partial class GitHubCodeHost
     private sealed record EditsRepositoryAnswer(EditsIssueAnswer? Issue);
 
     private sealed record EditsData(EditsRepositoryAnswer? Repository);
+
+    private sealed record LabelNameAnswer(string Name);
+
+    /// <summary>A label event; every field may be left out by a node of another type, which the
+    /// read refuses rather than this record.</summary>
+    private sealed record LabelEventNodeAnswer(
+        [property: JsonPropertyName("__typename")] string? Typename = null,
+        DateTimeOffset? CreatedAt = null,
+        UserAnswer? Actor = null,
+        LabelNameAnswer? Label = null);
+
+    private sealed record LabelEventsConnectionAnswer(PageInfoAnswer PageInfo, IReadOnlyList<LabelEventNodeAnswer> Nodes);
+
+    private sealed record LabelEventsIssueAnswer(LabelEventsConnectionAnswer? TimelineItems = null);
+
+    private sealed record LabelEventsRepositoryAnswer(LabelEventsIssueAnswer? Issue);
+
+    private sealed record LabelEventsData(LabelEventsRepositoryAnswer? Repository);
 }

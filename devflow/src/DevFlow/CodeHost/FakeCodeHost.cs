@@ -167,6 +167,11 @@ public sealed partial class FakeCodeHost : ICodeHost, ICodeHostSignIn
                 ? [.. edited.Edits.Where(edit => edit.Kind == EditKind.Body), .. edited.Edits.Where(edit => edit.Kind == EditKind.Title)]
                 : null);
 
+    /// <summary>The issue's label events, as <see cref="FakeIssue.LabelHistory"/> answers
+    /// them.</summary>
+    public Task<CodeHostResult<IReadOnlyList<LabelEvent>>> LabelEvents(Guid userId, Repository repository, int number, CancellationToken cancellationToken) =>
+        Answer<IReadOnlyList<LabelEvent>>(userId, repository, found => found.Issues.FirstOrDefault(issue => issue.Number == number)?.LabelHistory());
+
     /// <summary>The repository's default branch, as its world says, <see cref="DefaultBranchName"/>
     /// when it does not.</summary>
     public Task<CodeHostResult<string>> DefaultBranch(Guid userId, Repository repository, CancellationToken cancellationToken) =>

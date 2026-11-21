@@ -224,6 +224,35 @@ public sealed class FakeAppWriteTests
     }
 
     [Fact]
+    public async Task TheAppsLabelChangesAreOnTheIssuesTimeline()
+    {
+        using var fake = new FakeCodeHost(new FakeTimeProvider(At));
+        var card = new FakeIssue(272, "The vault", "octo-owner", ["devflow"], "Seal the secrets.", new Uri("https://github.com/Adamniels/Personal-platform/issues/272"), At.AddDays(-1), Open: true, BlockedBy: [], Edits: []);
+        fake.Replace(Owner, World with
+        {
+            Installations = [.. World.Installations.Select(installation => installation with
+            {
+                Repositories = [.. installation.Repositories.Select(repository => repository with { Issues = [card] })],
+            })],
+        });
+        var post = await Key(fake, WritePurpose.Post);
+
+        Assert.IsType<WriteResult<IReadOnlyList<string>>.Written>(await fake.AddLabel(Owner, post, Platform, 272, "devflow-attention", Ct));
+        // Adding a label it carries changes nothing, on the timeline either.
+        Assert.IsType<WriteResult<IReadOnlyList<string>>.Written>(await fake.AddLabel(Owner, post, Platform, 272, "devflow-attention", Ct));
+        Assert.IsType<WriteResult<IReadOnlyList<string>>.Written>(await fake.RemoveLabel(Owner, post, Platform, 272, "devflow-attention", Ct));
+
+        // The author's own label first, as the world left it unstaged, then the app's two changes.
+        Assert.Equal(
+            [
+                new LabelEvent("devflow", LabelChange.Added, "octo-owner", At.AddDays(-1)),
+                new LabelEvent("devflow-attention", LabelChange.Added, FakeCodeHost.AppLogin, At),
+                new LabelEvent("devflow-attention", LabelChange.Removed, FakeCodeHost.AppLogin, At),
+            ],
+            Assert.IsType<CodeHostResult<IReadOnlyList<LabelEvent>>.Found>(await fake.LabelEvents(Owner, Platform, 272, Ct)).Value);
+    }
+
+    [Fact]
     public async Task ABranchIsBroughtInAsGitHubBringsOneIn()
     {
         using var fake = new FakeCodeHost(new FakeTimeProvider(At));

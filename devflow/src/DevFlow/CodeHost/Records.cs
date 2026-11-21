@@ -189,6 +189,21 @@ public enum EditKind
 /// <param name="Kind">Whether it changed the body or the title.</param>
 public sealed record IssueEdit(string Id, string Editor, DateTimeOffset At, EditKind Kind);
 
+/// <summary>Whether a label was put on an issue or taken off it.</summary>
+public enum LabelChange
+{
+    Added,
+    Removed,
+}
+
+/// <summary>One label put on an issue or taken off it, as the issue's timeline lists it.</summary>
+/// <param name="Label">The label's name.</param>
+/// <param name="Change">Whether it was put on or taken off.</param>
+/// <param name="Actor">The login of the account that did it, <c>ghost</c> when that account is
+/// gone.</param>
+/// <param name="At">When it was done.</param>
+public sealed record LabelEvent(string Label, LabelChange Change, string Actor, DateTimeOffset At);
+
 /// <summary>What changed a branch, as the code host lists a repository's activity.</summary>
 public enum ActivityKind
 {

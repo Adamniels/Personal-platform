@@ -792,11 +792,23 @@ public sealed partial class FakeCodeHost : IDisposable
                 : [.. labels.Where(each => each != label)];
             var changed = pull is not null
                 ? found with { PullRequests = [.. found.PullRequests.Select(each => each.Number == number ? each with { Labels = after } : each)] }
-                : found with { Issues = [.. found.Issues.Select(each => each.Number == number ? each with { Labels = after } : each)] };
+                : found with { Issues = [.. found.Issues.Select(each => each.Number == number ? Relabelled(each, after, label, add) : each)] };
             return (new WriteResult<IReadOnlyList<string>>.Written(after), changed,
                 new FakeWrite(add ? "label_added" : "label_removed", repository.Id, number, null, null, null, AppLogin, Post, Label: label));
         }));
     }
+
+    /// <summary>The issue with <paramref name="after"/> its labels, and the change on its
+    /// timeline as the app's when it changed them, as GitHub records it; adding a label it carries
+    /// changes nothing.</summary>
+    private FakeIssue Relabelled(FakeIssue issue, IReadOnlyList<string> after, string label, bool add) =>
+        add && issue.Labels.Contains(label, StringComparer.Ordinal)
+            ? issue
+            : issue with
+            {
+                Labels = after,
+                LabelEvents = [.. issue.LabelHistory(), new LabelEvent(label, add ? LabelChange.Added : LabelChange.Removed, AppLogin, _time.GetUtcNow())],
+            };
 
     /// <summary>
     /// One of the app's writes, under the lock: unavailable when the account says so, refused as

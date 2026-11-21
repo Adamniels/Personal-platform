@@ -82,8 +82,12 @@ public sealed record FakeActivity(long Id, string Branch, string Before, string 
 /// <param name="Edits">Its edits, as <see cref="ICodeHost.Edits"/> answers them; empty when it was
 /// never edited.</param>
 /// <param name="SubIssues">Its sub-issues, in their order, each an issue or a pull request listed
-/// in this repository or another of the same installation; none when it is left out, the one field
-/// an issue may leave out, and left out when it is written back.</param>
+/// in this repository or another of the same installation; none when it is left out, which it may
+/// be, and left out when it is written back unset.</param>
+/// <param name="LabelEvents">Every label put on it or taken off it, as
+/// <see cref="ICodeHost.LabelEvents"/> answers them, oldest first by when; left out, each label it
+/// carries was put on by its author as it was written, which is what most worlds mean. Left out
+/// when it is written back unset.</param>
 public sealed record FakeIssue(
     int Number,
     string Title,
@@ -95,7 +99,16 @@ public sealed record FakeIssue(
     bool Open,
     IReadOnlyList<int> BlockedBy,
     IReadOnlyList<IssueEdit> Edits,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<FakeSubIssue>? SubIssues = null);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<FakeSubIssue>? SubIssues = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<LabelEvent>? LabelEvents = null)
+{
+    /// <summary>Its label events as staged, oldest first, ties in the order staged; or, when none
+    /// are, each label it carries put on by its author as it was written.</summary>
+    public IReadOnlyList<LabelEvent> LabelHistory() =>
+        LabelEvents is { } staged
+            ? [.. staged.OrderBy(change => change.At)]
+            : [.. Labels.Select(label => new LabelEvent(label, LabelChange.Added, Author, CreatedAt))];
+}
 
 /// <summary>A sub-issue, by its number in <paramref name="Repository"/>, the id of another
 /// repository of the same installation, or this one when null.</summary>

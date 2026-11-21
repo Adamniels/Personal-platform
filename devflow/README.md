@@ -897,12 +897,17 @@ and no check runs, as GitHub answers for a commit nothing was posted on. An issu
 `blocked_by` names issues listed in the same repository, by number. An issue may also have
 `sub_issues`, its sub-issues in their order, each `{"number", "repository"}`, the id of another
 repository of the same installation or null for this one, naming an issue or a pull request listed
-there and never the issue itself; it is the one field an issue may leave out, and is left out when
-the world is written back. `ICodeHost.SubIssues` answers them in that order, each from its own
+there and never the issue itself; it and `label_events` are the two fields an issue may leave out,
+and each is left out when the world is written back unset. `ICodeHost.SubIssues` answers them in that order, each from its own
 repository, a pull request marked. Listing issues by label answers
 the open issues carrying it, whatever its case, and the open pull requests carrying it, marked as
 pull requests, as GitHub lists them; an issue's edits are answered as staged, its body's first and
-then its title's, `kind` `body` or `title`.
+then its title's, `kind` `body` or `title`. An issue may also have `label_events`, each
+`{"label", "change", "actor", "at"}`, `change` `added` or `removed`, answered by
+`ICodeHost.LabelEvents` oldest first by `at`; left out, each label the issue carries was put on by
+its author at `created_at`, which is what most worlds mean, and it is left out when the world is
+written back unset. The app's own `AddLabel` and `RemoveLabel` on an issue add theirs to it, by the
+app's login, as GitHub's timeline would.
 
 The fake signs a person in too, in `FakeCodeHost.SignIn.cs`, per account and apart from its world,
 so staging a world again signs nobody out. Its sign in page, `GET /devflow/fake-github/authorize`,
