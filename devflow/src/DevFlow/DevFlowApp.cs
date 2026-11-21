@@ -181,6 +181,7 @@ public static class DevFlowApp
                 provider.GetRequiredService<LandedCards>(),
                 provider.GetRequiredService<FeatureEnds>(),
                 provider.GetRequiredService<FeatureReadiness>(),
+                provider.GetRequiredService<FeatureOutcomes>(),
                 provider.GetRequiredService<StopMarker>(),
                 provider.GetRequiredService<TimeProvider>(),
                 interval,

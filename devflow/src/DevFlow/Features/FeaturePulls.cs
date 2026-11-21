@@ -15,7 +15,8 @@ public sealed record FollowedFeature(int Feature, int PullRequest, bool Merged);
 /// <summary>
 /// A feature's pull request to the default branch, followed by each read of its project as a card's
 /// is: one that left the open pull requests is read on its own, and merged, by the owner from the
-/// page or by anyone on GitHub, the feature is <c>merged</c>. It writes nothing to the code host.
+/// page or by anyone on GitHub, the feature is <c>merged</c>; closed without merging, it is
+/// <c>closed</c>. It writes nothing to the code host.
 /// See "Merging a feature" in devflow/README.md.
 /// </summary>
 public static class FeaturePulls
@@ -41,8 +42,10 @@ public static class FeaturePulls
     /// still has that pull request and is neither merged nor closed: merged, it is <c>merged</c>,
     /// with no reason, and each decision its cards marked for the owner that has no answer is
     /// answered <c>merged</c>, confirmed by merging, as merging a pull request on GitHub confirms
-    /// the decisions in it, whoever merged it; and its branch is no longer watched, since the
-    /// watch reads only the branches of features that are neither.
+    /// the decisions in it, whoever merged it; closed without merging, it is <c>closed</c>, with
+    /// no reason. Either way its branch is no longer watched, since the watch reads only the
+    /// branches of features that are neither, and <see cref="FeatureOutcomes"/> tells its cards on
+    /// the next minute.
     /// </summary>
     public static async Task Follow(NpgsqlTransaction transaction, Guid projectId, FollowedFeature pull, DateTimeOffset now, CancellationToken cancellationToken)
     {
@@ -50,6 +53,14 @@ public static class FeaturePulls
         ArgumentNullException.ThrowIfNull(pull);
         if (!pull.Merged)
         {
+            await transaction.Connection!.ExecuteAsync(new CommandDefinition(
+                """
+                UPDATE features SET state = 'closed', reason = NULL, changed_at = @now
+                WHERE project_id = @projectId AND number = @feature AND pull_request_number = @pullRequest AND state NOT IN ('merged', 'closed')
+                """,
+                new { projectId, feature = pull.Feature, pullRequest = pull.PullRequest, now },
+                transaction,
+                cancellationToken: cancellationToken));
             return;
         }
 

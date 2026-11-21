@@ -711,4 +711,19 @@ describe("merging the feature", () => {
 			),
 		).toBeTruthy();
 	});
+
+	test("a feature closed without merging says so", async () => {
+		open({ loadFeature: () => Promise.resolve(story({ state: "closed" })) });
+
+		const feature = within(
+			await screen.findByRole("article", { name: "The feature" }),
+		);
+		expect(feature.getByText("Closed")).toBeTruthy();
+		expect(
+			screen.getByText(
+				/Its pull request was closed without merging, so the feature is not in main\./,
+			),
+		).toBeTruthy();
+		expect(screen.queryByRole("button", { name: /^Merge into/ })).toBeNull();
+	});
 });

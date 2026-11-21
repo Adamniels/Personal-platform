@@ -263,7 +263,10 @@ export function FeaturePage({
 					) : (
 						<>
 							<p className={styles.text}>
-								The feature is not in main yet. To try it, check out its branch
+								{story.state === "closed"
+									? "Its pull request was closed without merging, so the feature is not in main. "
+									: "The feature is not in main yet. "}
+								To try it, check out its branch
 								{story.branch.commit === null ? null : (
 									<>
 										, at{" "}

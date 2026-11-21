@@ -21,14 +21,16 @@ namespace DevFlow.PullRequests;
 /// the issue of each card that landed in its feature's branch, whoever merged it,
 /// <see cref="FeatureEnds"/> to bring the default branch into each feature whose cards are all
 /// done, <see cref="FeatureReadiness"/> to decide each finished feature's review and whether it is
-/// ready, and <see cref="StopMarker"/> to mark each stopped
+/// ready, <see cref="FeatureOutcomes"/> to tell the cards of each feature that merged or closed how
+/// it ended, and <see cref="StopMarker"/> to mark each stopped
 /// card on its issue. A worker's result is answered without waiting for GitHub, so all of it
 /// happens here, within a minute, and what GitHub did not answer for is tried again. Its own loop
 /// rather than the reading loop's, since the reading code can never reach a write key. Not run with
 /// <c>DEVFLOW_POLL_SECONDS=0</c>. See "The pull request Dev flow opens", "The merge check" and
-/// "Stops", "The end of a feature" and "Reviewing a feature" in devflow/README.md.
+/// "Stops", "The end of a feature", "Reviewing a feature" and "Merging a feature" in
+/// devflow/README.md.
 /// </summary>
-public sealed partial class OpeningLoop(UserDb database, PullRequestOpener opener, ReviewPoster poster, MergeChecker merger, DecisionIssues decisions, LandedCards landed, FeatureEnds ends, FeatureReadiness readiness, StopMarker marker, TimeProvider time, TimeSpan interval, ILogger<OpeningLoop> log) : BackgroundService
+public sealed partial class OpeningLoop(UserDb database, PullRequestOpener opener, ReviewPoster poster, MergeChecker merger, DecisionIssues decisions, LandedCards landed, FeatureEnds ends, FeatureReadiness readiness, FeatureOutcomes outcomes, StopMarker marker, TimeProvider time, TimeSpan interval, ILogger<OpeningLoop> log) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -75,6 +77,7 @@ public sealed partial class OpeningLoop(UserDb database, PullRequestOpener opene
                 await landed.TellPending(target.ProjectId, target.UserId, stoppingToken);
                 await ends.EndPending(target.ProjectId, target.UserId, stoppingToken);
                 await readiness.DecidePending(target.ProjectId, target.UserId, stoppingToken);
+                await outcomes.TellPending(target.ProjectId, target.UserId, stoppingToken);
                 await marker.MarkPending(target.ProjectId, target.UserId, stoppingToken);
             }
             catch (Exception failed) when (failed is not OperationCanceledException || !stoppingToken.IsCancellationRequested)

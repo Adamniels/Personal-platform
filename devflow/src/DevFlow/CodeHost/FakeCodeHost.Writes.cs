@@ -1,5 +1,7 @@
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 
 namespace DevFlow.CodeHost;
 
@@ -194,22 +196,38 @@ public sealed partial class FakeCodeHost
     /// default branch unless it names another, as a change by <paramref name="actor"/>, as GitHub
     /// lists one: after the branch's last change, from the commit that left it at, or forty zeros
     /// before any, to <paramref name="mergeCommit"/>, the one made in its git repository, or a new
-    /// one, random, without; and that commit. Its git repository is not changed here.
+    /// one, random, without; and that commit. Merged into the default branch, each issue of the
+    /// repository its body names with a closing keyword is closed, as GitHub closes it, see
+    /// <see cref="Closes"/>. Its git repository is not changed here.
     /// </summary>
     private (FakeRepository Changed, string Commit) WithMerge(FakeRepository found, int number, string actor, string? mergeCommit)
     {
         var now = _time.GetUtcNow();
         var activity = found.Activity ?? [];
-        var into = found.PullRequests.FirstOrDefault(each => each.Number == number)?.BaseBranch is { Length: > 0 } named ? named : found.Default;
+        var pull = found.PullRequests.FirstOrDefault(each => each.Number == number);
+        var into = pull?.BaseBranch is { Length: > 0 } named ? named : found.Default;
         var before = activity.LastOrDefault(each => each.Branch == into)?.After ?? new string('0', 40);
         var commit = mergeCommit ?? Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(20));
         var id = activity.Select(each => each.Id).DefaultIfEmpty(0).Max() + 1;
+        var closed = into == found.Default ? Closes(pull?.Body) : new HashSet<int>();
         return (found with
         {
             PullRequests = [.. found.PullRequests.Select(each => each.Number == number ? each with { State = PullRequestState.Merged, UpdatedAt = now } : each)],
+            Issues = [.. found.Issues.Select(each => closed.Contains(each.Number) ? each with { Open = false } : each)],
             Activity = [.. activity, new FakeActivity(id, into, before, commit, now, ActivityKind.PullRequestMerge, actor)],
         }, commit);
     }
+
+    /// <summary>The numbers of the issues in the same repository that <paramref name="body"/>
+    /// names after one of GitHub's closing keywords, <c>close</c>, <c>fix</c> and <c>resolve</c>
+    /// in any of their forms and any case, as <c>Closes #12</c> or <c>fixes: #12</c>.</summary>
+    internal static IReadOnlySet<int> Closes(string? body) =>
+        body is null
+            ? new HashSet<int>()
+            : ClosingKeyword().Matches(body).Select(match => int.Parse(match.Groups["number"].Value, CultureInfo.InvariantCulture)).ToHashSet();
+
+    [GeneratedRegex(@"\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?):?\s+#(?<number>[0-9]{1,9})\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex ClosingKeyword();
 
     /// <summary>The world with <paramref name="repository"/>'s entry, found by installation and
     /// id, replaced by <paramref name="changed"/>.</summary>
