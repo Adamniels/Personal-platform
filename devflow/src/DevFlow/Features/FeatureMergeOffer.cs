@@ -8,6 +8,55 @@ namespace DevFlow.Features;
 /// to the code host, so a branch that moved since is never merged unseen.</param>
 public sealed record FeatureMergeOffer(string Into, string HeadCommit);
 
+/// <summary>What the confirmation of a feature's merge says, as
+/// <c>GET /devflow/api/projects/{id}/features/{number}/merge</c> answers it. Every text is the code
+/// host's or the reviewer's and shown as text.</summary>
+/// <param name="Number">The parent's number.</param>
+/// <param name="Title">The parent's title as last read.</param>
+/// <param name="Into">The default branch it merges into.</param>
+/// <param name="PullRequest">The feature's pull request.</param>
+/// <param name="HeadCommit">The head CI passed on, which the merge names.</param>
+/// <param name="Review"><c>approved</c> when the newest review approved a commit that covers the
+/// head; <c>changes</c> when the newest review asked for changes; <c>not_reviewed</c>
+/// otherwise.</param>
+/// <param name="OpenFindings">With <c>changes</c>, the blocking findings of that review, in its
+/// order; empty otherwise.</param>
+/// <param name="Unanswered">How many decisions its cards' latest reports marked for the owner have
+/// no answer, as its page counts them, each of which merging confirms.</param>
+public sealed record FeatureMergeConfirmation(
+    int Number,
+    string Title,
+    string Into,
+    Cards.CardPullRequest PullRequest,
+    string HeadCommit,
+    string Review,
+    IReadOnlyList<Protocol.ReviewFinding> OpenFindings,
+    int Unanswered)
+{
+    /// <summary>The confirmation of <paramref name="story"/>'s merge into <paramref name="into"/> at
+    /// <paramref name="head"/>, from its reviews and its decisions as its page reads them.</summary>
+    public static FeatureMergeConfirmation Of(FeatureStoryView story, string into, int pullRequest, string pullRequestUrl, string head)
+    {
+        ArgumentNullException.ThrowIfNull(story);
+        var newest = story.Reviews.Count > 0 ? story.Reviews[0] : null;
+        var review = newest switch
+        {
+            { Current: true, Verdict: "approve" } => "approved",
+            { Verdict: "changes" } => "changes",
+            _ => "not_reviewed",
+        };
+        return new FeatureMergeConfirmation(
+            story.Number,
+            story.Title,
+            into,
+            new Cards.CardPullRequest(pullRequest, pullRequestUrl),
+            head,
+            review,
+            review == "changes" ? [.. newest!.Findings.Where(finding => finding.Blocking)] : [],
+            story.Cards.Sum(card => card.Decisions.Count(decision => decision.Answer is null)));
+    }
+}
+
 /// <summary>
 /// When a feature is offered for merging into the default branch, decided from what Dev flow stored
 /// alone, so the page, the waiting list and the route agree and nothing asks the code host for it:

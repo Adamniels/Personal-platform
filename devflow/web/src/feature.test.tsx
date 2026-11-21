@@ -7,9 +7,11 @@ import {
 	within,
 } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
+import { ApiError } from "./api/client";
 import { App } from "./app";
 import type { DecisionAnswer, FeatureApi, FeatureStory } from "./feature";
 import { checkout, NOT_ANSWERED } from "./feature";
+import type { FeatureMergeConfirmation } from "./feature-merge";
 import { cardPath, featureAt, featurePath } from "./sections";
 import type { Status } from "./status";
 
@@ -94,6 +96,8 @@ function open(api: Partial<FeatureApi> = {}) {
 				answered_at: "2026-11-20T09:30:00+00:00",
 			}),
 		),
+		loadFeatureMerge: vi.fn(() => Promise.reject(new Error("not offered"))),
+		mergeFeature: vi.fn(() => Promise.resolve()),
 		copy: vi.fn(() => Promise.resolve()),
 		...api,
 	};
@@ -109,6 +113,18 @@ function open(api: Partial<FeatureApi> = {}) {
 	);
 	return feature;
 }
+
+// jsdom has HTMLDialogElement and its `open` attribute, but neither showModal
+// nor close. These stand in for the browser's, as projects-link.test.tsx's do.
+HTMLDialogElement.prototype.showModal ??= function (this: HTMLDialogElement) {
+	this.open = true;
+	this.querySelector("button")?.focus();
+};
+HTMLDialogElement.prototype.close ??= function (this: HTMLDialogElement) {
+	if (!this.open) return;
+	this.open = false;
+	this.dispatchEvent(new Event("close"));
+};
 
 afterEach(cleanup);
 
@@ -446,5 +462,253 @@ describe("a feature's page", () => {
 				.getByRole("link", { name: "Back to the project" })
 				.getAttribute("href"),
 		).toBe(`/devflow/projects/${PROJECT}`);
+	});
+});
+
+/** What merging the feature confirms, approved with nothing open unless
+ * overridden. */
+function confirmation(
+	overrides: Partial<FeatureMergeConfirmation> = {},
+): FeatureMergeConfirmation {
+	return {
+		number: 38,
+		title: "Feeding plan, version 2",
+		into: "main",
+		pull_request: {
+			number: 51,
+			url: "https://github.com/Adamniels/Fodr/pull/51",
+		},
+		head_commit: COMMIT,
+		review: "approved",
+		open_findings: [],
+		unanswered: 0,
+		...overrides,
+	};
+}
+
+/** A feature ready for the owner, offered for merging at COMMIT. */
+function ready(): FeatureStory {
+	return story({
+		state: "ready",
+		pull_request: {
+			number: 51,
+			url: "https://github.com/Adamniels/Fodr/pull/51",
+		},
+		merge: { into: "main", head_commit: COMMIT },
+	});
+}
+
+describe("merging the feature", () => {
+	test("is not offered when the feature is not offered for merging", async () => {
+		open();
+		await screen.findByRole("article", { name: "The feature" });
+		expect(screen.queryByRole("button", { name: /^Merge into/ })).toBeNull();
+	});
+
+	test("asks first, naming the pull request, its commit and what it confirms", async () => {
+		const merged = story({ state: "merged", merge: null });
+		const loadFeature = vi
+			.fn<FeatureApi["loadFeature"]>()
+			.mockResolvedValueOnce(ready())
+			.mockResolvedValue(merged);
+		const api = open({
+			loadFeature,
+			loadFeatureMerge: vi.fn(() =>
+				Promise.resolve(confirmation({ unanswered: 2 })),
+			),
+		});
+
+		const feature = within(
+			await screen.findByRole("article", { name: "The feature" }),
+		);
+		fireEvent.click(feature.getByRole("button", { name: "Merge into main" }));
+
+		const dialog = within(
+			await screen.findByRole("dialog", {
+				name: "Merge feature #38 into main?",
+			}),
+		);
+		expect(api.loadFeatureMerge).toHaveBeenCalledWith(PROJECT, 38);
+		expect(dialog.getByText(/Pull request #51 at/)).toBeTruthy();
+		expect(dialog.getByText("abc1234")).toBeTruthy();
+		expect(dialog.getByText("The review approved this commit.")).toBeTruthy();
+		expect(
+			dialog.getByText("Merging confirms 2 decisions you have not answered."),
+		).toBeTruthy();
+		expect(dialog.queryByRole("list", { name: "Open findings" })).toBeNull();
+
+		fireEvent.click(dialog.getByRole("button", { name: "Merge" }));
+
+		await waitFor(() =>
+			expect(api.mergeFeature).toHaveBeenCalledWith(PROJECT, 38, COMMIT),
+		);
+		expect(await screen.findByText("Merged feature #38")).toBeTruthy();
+		// Read again: merged, and offered no more.
+		expect(await screen.findByText("Merged")).toBeTruthy();
+		expect(
+			screen.queryByRole("button", { name: "Merge into main" }),
+		).toBeNull();
+	});
+
+	test("says when the review asked for changes, and lists its open findings", async () => {
+		open({
+			loadFeature: () => Promise.resolve(ready()),
+			loadFeatureMerge: () =>
+				Promise.resolve(
+					confirmation({
+						review: "changes",
+						open_findings: [
+							{
+								blocking: true,
+								file: "src/plan.ts",
+								line: 12,
+								what: "Rounds twice",
+								why: "The page rounds again",
+							},
+							{
+								blocking: true,
+								file: "src/page.tsx",
+								line: 0,
+								what: "**Shows** the old plan",
+								why: "",
+							},
+						],
+						unanswered: 1,
+					}),
+				),
+		});
+
+		fireEvent.click(
+			await screen.findByRole("button", { name: "Merge into main" }),
+		);
+		const dialog = within(await screen.findByRole("dialog"));
+		expect(
+			dialog.getByText("The review asked for changes: 2 open findings"),
+		).toBeTruthy();
+		const listed = within(dialog.getByRole("list", { name: "Open findings" }));
+		const [first, second] = listed.getAllByRole("listitem");
+		expect(listed.getAllByRole("listitem")).toHaveLength(2);
+		if (!first || !second) throw new Error("two findings");
+		expect(within(first).getByText("src/plan.ts:12")).toBeTruthy();
+		expect(within(first).getByText(/The page rounds again/)).toBeTruthy();
+		expect(within(second).getByText("src/page.tsx")).toBeTruthy();
+		// The reviewer's words are formatted as text, never markup of theirs.
+		expect(within(second).getByText("Shows").tagName).toBe("STRONG");
+		expect(
+			dialog.getByText("Merging confirms 1 decision you have not answered."),
+		).toBeTruthy();
+	});
+
+	test("says when the feature was not reviewed as a whole", async () => {
+		open({
+			loadFeature: () => Promise.resolve(ready()),
+			loadFeatureMerge: () =>
+				Promise.resolve(confirmation({ review: "not_reviewed" })),
+		});
+
+		fireEvent.click(
+			await screen.findByRole("button", { name: "Merge into main" }),
+		);
+		const dialog = within(await screen.findByRole("dialog"));
+		expect(dialog.getByText("Not reviewed as a whole")).toBeTruthy();
+		expect(dialog.queryByText(/Merging confirms/)).toBeNull();
+	});
+
+	test("cancelled, nothing is merged", async () => {
+		const api = open({
+			loadFeature: () => Promise.resolve(ready()),
+			loadFeatureMerge: () => Promise.resolve(confirmation()),
+		});
+
+		fireEvent.click(
+			await screen.findByRole("button", { name: "Merge into main" }),
+		);
+		const dialog = await screen.findByRole("dialog");
+		fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+
+		await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+		expect(api.mergeFeature).not.toHaveBeenCalled();
+	});
+
+	test("a refused merge is said on the page, and the feature read again", async () => {
+		const loadFeature = vi.fn(() => Promise.resolve(ready()));
+		open({
+			loadFeature,
+			loadFeatureMerge: () => Promise.resolve(confirmation()),
+			mergeFeature: () =>
+				Promise.reject(
+					new ApiError({
+						status: 409,
+						title: "The pull request has changed since this was shown",
+						detail: "It was read again. Look at it before you merge.",
+					}),
+				),
+		});
+
+		fireEvent.click(
+			await screen.findByRole("button", { name: "Merge into main" }),
+		);
+		const dialog = within(await screen.findByRole("dialog"));
+		fireEvent.click(dialog.getByRole("button", { name: "Merge" }));
+
+		expect((await screen.findByRole("alert")).textContent).toBe(
+			"The pull request has changed since this was shown. It was read again. Look at it before you merge.",
+		);
+		expect(loadFeature).toHaveBeenCalledTimes(2);
+	});
+
+	test("cannot be pressed without a usable GitHub link", async () => {
+		window.history.pushState(null, "", featurePath(PROJECT, 38));
+		render(
+			<App
+				loadStatus={() =>
+					Promise.resolve<Status>({
+						code_host: "fake",
+						github: { state: "none", login: null },
+					})
+				}
+				waiting={{
+					loadWaiting: () => new Promise(() => {}),
+					refresh: () => Promise.resolve(),
+				}}
+				feature={{
+					loadFeature: () => Promise.resolve(ready()),
+					answerFine: () => new Promise(() => {}),
+					loadFeatureMerge: () => Promise.resolve(confirmation()),
+					mergeFeature: () => Promise.resolve(),
+				}}
+			/>,
+		);
+
+		const button = await screen.findByRole("button", {
+			name: "Merge into main",
+		});
+		await waitFor(() => expect(button).toHaveProperty("disabled", true));
+		expect(
+			screen.getByText(
+				"Link GitHub on the Projects tab to merge or comment as yourself.",
+			),
+		).toBeTruthy();
+	});
+
+	test("a decision confirmed by merging says so", async () => {
+		const merged = story({ state: "merged" });
+		const decision = merged.cards[0]?.decisions[0];
+		if (!decision) throw new Error("a decision");
+		decision.answer = {
+			answer: "merged",
+			answered_at: "2026-11-20T09:30:00+00:00",
+		};
+		open({ loadFeature: () => Promise.resolve(merged) });
+
+		const decisions = within(
+			await screen.findByRole("list", { name: "Decisions for you" }),
+		);
+		expect(decisions.getByText("Confirmed by merging")).toBeTruthy();
+		expect(
+			screen.getByText(
+				"The feature is merged, and its branch is no longer watched.",
+			),
+		).toBeTruthy();
 	});
 });

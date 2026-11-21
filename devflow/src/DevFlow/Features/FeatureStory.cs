@@ -18,7 +18,8 @@ namespace DevFlow.Features;
 public sealed record FeatureBranch(string Name, string? Commit);
 
 /// <summary>Your answer to a decision, kept in Dev flow and never written to the code host.</summary>
-/// <param name="Answer"><c>fine</c>, "Fine as it is", the one this part gives.</param>
+/// <param name="Answer"><c>fine</c>, "Fine as it is", given on the feature's page, or
+/// <c>merged</c>, confirmed by merging the feature.</param>
 /// <param name="AnsweredAt">When it was first given.</param>
 public sealed record DecisionAnswer(string Answer, DateTimeOffset AnsweredAt);
 

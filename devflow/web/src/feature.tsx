@@ -17,12 +17,14 @@ import {
 	type TableColumn,
 } from "@platform/ui";
 import { useCallback, useEffect, useState } from "react";
+import type { LinkState } from "./actions";
 import { navigate, plainClick } from "./address";
 import type { components } from "./api/schema";
 import { ReviewRow, RunRow } from "./card";
 import styles from "./card.module.css";
 import { stateWord } from "./cards";
 import own from "./feature.module.css";
+import { type FeatureMergeApi, MergeFeature } from "./feature-merge";
 import { Inline } from "./format";
 import { Command } from "./project";
 import { cardScreenshot, Screenshots } from "./screenshots";
@@ -38,9 +40,9 @@ export const NOT_READ = "The feature could not be read. Try again.";
 export const NOT_ANSWERED =
 	"The answer could not be kept. Read the page again and try once more.";
 
-/** How the page reads a feature and answers a decision, Dev flow's API in
- * the page and a test's own in a test. */
-export type FeatureApi = {
+/** How the page reads a feature, answers a decision and merges the feature,
+ * Dev flow's API in the page and a test's own in a test. */
+export type FeatureApi = FeatureMergeApi & {
 	/** The feature, or null when the caller has no such feature. */
 	loadFeature: (
 		project: string,
@@ -64,6 +66,8 @@ export type FeaturePageProps = FeatureApi & {
 	back: () => void;
 	/** The project page's address, for the way back. */
 	backPath: string;
+	/** The caller's GitHub link, which merging needs; undefined until read. */
+	link: LinkState;
 };
 
 const DATE_TIME = new Intl.DateTimeFormat("en-GB", {
@@ -89,6 +93,9 @@ export function FeaturePage({
 	backPath,
 	loadFeature,
 	answerFine,
+	loadFeatureMerge,
+	mergeFeature,
+	link,
 	copy = clipboard,
 }: FeaturePageProps) {
 	const [story, setStory] = useState<FeatureStory | null>();
@@ -190,6 +197,17 @@ export function FeaturePage({
 							{done} of {story.cards.length} cards done
 						</span>
 					</p>
+					{story.merge === null ? null : (
+						<MergeFeature
+							project={project}
+							number={number}
+							offer={story.merge}
+							link={link}
+							api={{ loadFeatureMerge, mergeFeature }}
+							reload={load}
+							primary
+						/>
+					)}
 				</div>
 			</Panel>
 			{story.reviews.length === 0 ? null : (
@@ -237,6 +255,10 @@ export function FeaturePage({
 					{story.branch === null ? (
 						<p className={styles.muted}>
 							Its branch is made when its first card starts.
+						</p>
+					) : story.state === "merged" ? (
+						<p className={styles.text}>
+							The feature is merged, and its branch is no longer watched.
 						</p>
 					) : (
 						<>
@@ -435,7 +457,11 @@ function DecisionRow({
 			) : null}
 			{decision.answer ? (
 				<span className={styles.meta}>
-					<Status tone="done">Fine as it is</Status>
+					<Status tone="done">
+						{decision.answer.answer === "merged"
+							? "Confirmed by merging"
+							: "Fine as it is"}
+					</Status>
 					<span>
 						answered{" "}
 						<time dateTime={decision.answer.answered_at}>

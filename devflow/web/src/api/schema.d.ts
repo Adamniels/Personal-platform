@@ -325,7 +325,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * What merging a feature confirms, for the dialog that asks first
+         * @description The feature's number and title, the default branch it merges into, its pull_request, number and url, the head_commit the merge names, review, approved when its newest review approved a commit that covers the head, changes when its newest review asked for changes, with its blocking findings as open_findings, and not_reviewed otherwise, and unanswered, how many decisions its cards marked for the caller have no answer, each of which merging confirms. Read from what Dev flow stored, never from GitHub; every text from GitHub or the reviewer is to be shown as text. In order: 404 for a project or feature the caller does not have; 409 as mergeFeature refuses, when it is not ready or waiting for the caller with its pull request, the project is stopped, or CI has not passed on its head. Without a valid token, 401 with an empty body.
+         */
+        get: operations["getFeatureMerge"];
         put?: never;
         /**
          * Merge a feature into the default branch, as the caller
@@ -998,6 +1002,18 @@ export interface components {
             commit: string;
             summary: string;
             verdict: string;
+        };
+        FeatureMergeConfirmation: {
+            head_commit: string;
+            into: string;
+            /** Format: int32 */
+            number: number;
+            open_findings: components["schemas"]["ReviewFinding"][];
+            pull_request: components["schemas"]["CardPullRequest"];
+            review: string;
+            title: string;
+            /** Format: int32 */
+            unanswered: number;
         };
         FeatureMergeOffer: {
             head_commit: string;
@@ -2184,6 +2200,54 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DecisionAnswer"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    getFeatureMerge: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                number: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeatureMergeConfirmation"];
                 };
             };
             /** @description Unauthorized */

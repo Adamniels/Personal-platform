@@ -91,6 +91,15 @@ public static class ActionEndpoints
             .ProducesValidationProblem(StatusCodes.Status422UnprocessableEntity)
             .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
+        routes.MapGet("/devflow/api/projects/{id:guid}/features/{number:int}/merge", ConfirmFeature)
+            .RequireAuthorization(PlatformAuthPolicies.Api)
+            .WithName("getFeatureMerge")
+            .WithSummary("What merging a feature confirms, for the dialog that asks first")
+            .WithDescription("The feature's number and title, the default branch it merges into, its pull_request, number and url, the head_commit the merge names, review, approved when its newest review approved a commit that covers the head, changes when its newest review asked for changes, with its blocking findings as open_findings, and not_reviewed otherwise, and unanswered, how many decisions its cards marked for the caller have no answer, each of which merging confirms. Read from what Dev flow stored, never from GitHub; every text from GitHub or the reviewer is to be shown as text. In order: 404 for a project or feature the caller does not have; 409 as mergeFeature refuses, when it is not ready or waiting for the caller with its pull request, the project is stopped, or CI has not passed on its head. Without a valid token, 401 with an empty body.")
+            .Produces(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict);
+
         routes.MapPost("/devflow/api/projects/{id:guid}/features/{number:int}/merge", MergeFeature)
             .RequireAuthorization(PlatformAuthPolicies.Api)
             .WithName("mergeFeature")
@@ -154,6 +163,33 @@ public static class ActionEndpoints
         }
 
         return await Merged(await host.Merge(userId, access, feature.Repository, feature.PullRequestNumber!.Value, feature.Head!, cancellationToken), refresher, feature.ProjectId, userId, context, time, cancellationToken);
+    }
+
+    /// <summary>What the dialog that asks before a feature's merge shows, read from what Dev flow
+    /// stored: the same refusals as the merge's own, before it, and otherwise the review's state
+    /// and the decisions merging confirms, counted as the feature's page counts them.</summary>
+    private static async Task<Results<Ok<FeatureMergeConfirmation>, ProblemHttpResult>> ConfirmFeature(
+        Guid id,
+        int number,
+        HttpContext context,
+        [FromServices] ActionStore store,
+        [FromServices] PlatformData.UserDb database)
+    {
+        var userId = context.UserId();
+        var cancellationToken = context.RequestAborted;
+        if (await store.FindFeature(userId, id, number, cancellationToken) is not { } feature)
+        {
+            return NoSuchFeature();
+        }
+
+        if (NotMergeable(feature) is { } refused)
+        {
+            return refused;
+        }
+
+        return await FeatureStory.Of(database, userId, id, number, cancellationToken) is { } story
+            ? TypedResults.Ok(FeatureMergeConfirmation.Of(story, feature.Into!, feature.PullRequestNumber!.Value, feature.PullRequestUrl!, feature.Head!))
+            : NoSuchFeature();
     }
 
     /// <summary>Why the feature cannot be merged now, from what Dev flow stored, or null when it

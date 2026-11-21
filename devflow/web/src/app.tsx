@@ -14,6 +14,7 @@ import {
 	type ClaudeLoginStatus,
 } from "./claude-login";
 import { type FeatureApi, FeaturePage } from "./feature";
+import type { FeatureMergeApi } from "./feature-merge";
 import { type ProjectApi, ProjectPage } from "./project";
 import { type Project, Projects, type ProjectsApi } from "./projects";
 import { GitHubLink } from "./projects-link";
@@ -122,9 +123,25 @@ const cardApi: CardApi = {
 	},
 };
 
+/** A feature's merge, as the caller, from its page and from Waiting for you. */
+const featureMergeApi: FeatureMergeApi = {
+	loadFeatureMerge: (project, number) =>
+		client.get(
+			`/projects/${encodeURIComponent(project)}/features/${number}/merge` as "/projects/{id}/features/{number}/merge",
+		),
+	mergeFeature: async (project, number, headCommit) => {
+		await client.send(
+			"POST",
+			`/projects/${encodeURIComponent(project)}/features/${number}/merge`,
+			{ head_commit: headCommit },
+		);
+	},
+};
+
 /** A feature's story and its answers, through Dev flow's API; a feature the
  * caller does not have answers 404, which the page shows as none. */
 const featureApi: FeatureApi = {
+	...featureMergeApi,
 	loadFeature: async (project, number) => {
 		try {
 			return await client.get(
@@ -164,6 +181,7 @@ const waitingApi: WaitingApi = {
 
 /** Merging and sending back, through Dev flow's API, as the caller. */
 const actionsApi: ActionsApi = {
+	...featureMergeApi,
 	merge: async (id, headCommit) => {
 		await client.send("POST", `/waiting/${encodeURIComponent(id)}/merge`, {
 			head_commit: headCommit,
@@ -306,6 +324,7 @@ function Frame({
 								number={featureOf.number}
 								backPath={projectPath(featureOf.project)}
 								back={() => navigate(projectPath(featureOf.project))}
+								link={status?.github.state}
 								{...feature}
 							/>
 						) : section.key === "projects" && projectId ? (

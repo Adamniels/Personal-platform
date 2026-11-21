@@ -38,6 +38,7 @@ const STATES: Record<string, { word: string; tone: StatusTone }> = {
 	waiting_for_owner: { word: "Waiting for you", tone: "needs-you" },
 	ready: { word: "Ready for you", tone: "needs-you" },
 	done: { word: "Done", tone: "done" },
+	merged: { word: "Merged", tone: "done" },
 	stopped: { word: "Stopped", tone: "failed" },
 };
 

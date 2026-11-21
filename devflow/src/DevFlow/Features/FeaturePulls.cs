@@ -39,8 +39,10 @@ public static class FeaturePulls
     /// <summary>
     /// Moves the feature on as its pull request went, inside the read's transaction, only while it
     /// still has that pull request and is neither merged nor closed: merged, it is <c>merged</c>,
-    /// with no reason, and its branch is no longer watched, since the watch reads only the branches
-    /// of features that are neither.
+    /// with no reason, and each decision its cards marked for the owner that has no answer is
+    /// answered <c>merged</c>, confirmed by merging, as merging a pull request on GitHub confirms
+    /// the decisions in it, whoever merged it; and its branch is no longer watched, since the
+    /// watch reads only the branches of features that are neither.
     /// </summary>
     public static async Task Follow(NpgsqlTransaction transaction, Guid projectId, FollowedFeature pull, DateTimeOffset now, CancellationToken cancellationToken)
     {
@@ -51,13 +53,34 @@ public static class FeaturePulls
             return;
         }
 
-        await transaction.Connection!.ExecuteAsync(new CommandDefinition(
+        var user = await transaction.Connection!.QuerySingleOrDefaultAsync<Guid?>(new CommandDefinition(
             """
             UPDATE features SET state = 'merged', reason = NULL, changed_at = @now
             WHERE project_id = @projectId AND number = @feature AND pull_request_number = @pullRequest AND state NOT IN ('merged', 'closed')
+            RETURNING user_id
             """,
             new { projectId, feature = pull.Feature, pullRequest = pull.PullRequest, now },
             transaction,
             cancellationToken: cancellationToken));
+        if (user is not { } userId || await FeatureStory.Read(transaction, projectId, pull.Feature, cancellationToken) is not { } story)
+        {
+            return;
+        }
+
+        foreach (var card in story.Cards)
+        {
+            foreach (var decision in card.Decisions.Where(decision => decision.Answer is null))
+            {
+                await transaction.Connection!.ExecuteAsync(new CommandDefinition(
+                    """
+                    INSERT INTO decision_answers (project_id, user_id, card_number, run_id, position, answer, answered_at)
+                    VALUES (@projectId, @userId, @card, @run, @position, 'merged', @now)
+                    ON CONFLICT (project_id, run_id, position) DO NOTHING
+                    """,
+                    new { projectId, userId, card = card.Number, run = decision.RunId, position = decision.Position, now },
+                    transaction,
+                    cancellationToken: cancellationToken));
+            }
+        }
     }
 }
