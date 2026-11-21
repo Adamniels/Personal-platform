@@ -534,6 +534,10 @@
               }
             ]
           },
+          "most_rounds": {
+            "format": "int32",
+            "type": "integer"
+          },
           "number": {
             "format": "int32",
             "type": "integer"
@@ -615,7 +619,8 @@
           "rounds",
           "screenshots",
           "merge",
-          "feature"
+          "feature",
+          "most_rounds"
         ],
         "type": "object"
       },
@@ -1389,6 +1394,10 @@
               }
             ]
           },
+          "most_rounds": {
+            "format": "int32",
+            "type": "integer"
+          },
           "number": {
             "format": "int32",
             "type": "integer"
@@ -1456,7 +1465,8 @@
           "reviews",
           "fix_rounds",
           "rounds",
-          "merge"
+          "merge",
+          "most_rounds"
         ],
         "type": "object"
       },

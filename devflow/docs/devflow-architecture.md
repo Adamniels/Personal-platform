@@ -77,7 +77,7 @@ marked for the owner, answered there, see "A feature's page" below. When every c
 done, the default branch is brought into its branch as the app and its pull request to the default
 branch opened, kept up to the default branch while it waits for the owner, a conflict resolved by an
 agent in a job of its own, and the whole feature reviewed by a fresh reviewer, fixed on its branch
-in up to three rounds when that review asks for changes or on the owner's comment, and ready for the
+in up to the project's fix rounds, three by default, when that review asks for changes or on the owner's comment, and ready for the
 owner once a review approves its head and CI passed there, see "The end of a feature", "A
 conflict", "Reviewing a feature" and "Fixing a feature" below. The owner merges a feature into the
 default branch himself, from its page or from "Waiting for you", once CI passed on its head; then
@@ -699,9 +699,9 @@ starting from the base. A push without force, of the fetched head to the job's o
 history the agent rewrote is refused at the fetch, and a branch someone else moved meanwhile at
 the push, rather than overwritten.
 
-**A worker running a check stays seen.** A run is lost once it was handed out 100 minutes ago and
-its worker has not been seen for 10, see "Handing out work"; the agent's 90 minutes and the check's
-30 can pass the 100. So while the check runs the worker says `progress` `checking` again every 5
+**A worker running a check stays seen.** A run is lost once it was handed out its job's minutes and
+10 more ago and its worker has not been seen for 10, see "Handing out work"; the agent's minutes and
+the check's 30 can pass that. So while the check runs the worker says `progress` `checking` again every 5
 minutes, which the route takes as often as it comes and which marks the worker seen, so a worker
 that is still working is never taken for gone.
 
@@ -774,13 +774,27 @@ report that stopped, or a check that did not run or failed is the card's to answ
 with why, at once for a report that stopped or a run past its time limit, and otherwise when it
 is the second in a row with nothing new. See "Stops" below.
 
-**A run that never returns is lost after 100 minutes, and only once its worker is gone.** 100
-minutes is the 90 minute limit on a run and a margin for the check and the push. A worker not seen
-for 10 minutes is the second condition, so a slow worker that is still there is not robbed of its
-card. The search runs on each project's read, before the code host is asked anything, so GitHub
-being away holds no card. A worker that is still seen keeps its card, and one running a check says
-so every 5 minutes, see "A worker running a check stays seen" under "Workers", since the agent's 90
-minutes and the check's 30 can pass the 100.
+**A run that never returns is lost after its time limit and a margin, and only once its worker is
+gone.** The time is the minutes its job carried, the project's `run_minutes` when it was handed
+out, 90 by default, and 10 more, the margin the old fixed 100 minutes held for the check and the
+push. It is the run's own minutes, recorded on it, and not the setting as it is now, since a change
+takes effect at the next decision: a run handed out with 90 that the owner lowers to 30 meanwhile is
+still allowed its 90 by the worker, and finding it lost at 40 would hand its card out again while it
+still runs. A worker not seen for 10 minutes is the second condition, so a slow worker that is still
+there is not robbed of its card. The search runs on each project's read, before the code host is
+asked anything, so GitHub being away holds no card. A worker that is still seen keeps its card, and
+one running a check says so every 5 minutes, see "A worker running a check stays seen" under
+"Workers", since the agent's minutes and the check's 30 can pass the time.
+
+**The model and the limits are the project's, carried by the job.** Which model reads, builds and
+reviews, and the minutes and turns a run takes, are settings, as the spec's round 4b has them per
+job per project, each starting on the strongest model; the values are Claude Code's aliases, which
+follow the newest model of each family, where a pinned id would need a release for each new model.
+They are read in the transaction that takes the work and handed to the worker in the job, so a run
+keeps what it started with and the worker holds no model of its own: one setting on the worker
+would have been a second place to change, and could disagree with the project's. A job without a
+model is a protocol error the worker refuses, outside the card, rather than guessing one.
+
 
 **Every run is measured from the first day**, as the spec's round 3 has it: Claude's usage is kept
 as it came, and its token counts, cost and turns in columns of their own, with the job's duration,
@@ -923,8 +937,10 @@ and the owner sends work back the same way, by commenting where the work is. How
 out, run, judged and reviewed again, and how a comment is read, is "Fixing" in
 `devflow/README.md`.
 
-**Three rounds, then a stop.** Each `changes` verdict starts a round, at most three, round 3 of the
-spec; a fourth stops the card with "Fix rounds used up", so a card the developer and the reviewer
+**The project's rounds, then a stop.** Each `changes` verdict starts a round, at most the project's
+`fix_rounds_card`, 3 by default, round 3 of the spec, read when the verdict is judged so a change
+counts at the next one; one more stops the card with "Fix rounds used up", and with 0 the first
+does, so a card the developer and the reviewer
 cannot agree on reaches the owner instead of costing runs forever. The owner's comment is not a
 round: he decides when his own input is worth another run, so it never uses one up.
 
@@ -1475,14 +1491,15 @@ failure outside the job is tried again as a card's is.
 ### Fixing a feature
 
 A review of the whole feature that asks for changes sends it to a fresh developer agent on the
-feature's branch, for at most three rounds, each followed by a new review, and the owner sends a
+feature's branch, for at most the project's `fix_rounds_feature`, 3 by default, each followed by a
+new review, and the owner sends a
 feature back by commenting on its pull request, as the feature issue, "Dev flow: features", decides
 for "The review of the whole feature". With the rounds used up the feature waits for him with the
 findings. The job, its brief, its tables and its routes are "Fixing a feature" under "Reviewing a
 feature" in `devflow/README.md`.
 
 **Its rounds end with the owner, not a stop.** A card whose developer and reviewer cannot agree
-stops after three rounds, see "Fixing", because a stop is how a card reaches him. A feature reaches
+stops after its rounds, see "Fixing", because a stop is how a card reaches him. A feature reaches
 him anyway: he reviews every feature before he merges it, its pull request is open, and its page
 already shows the review's findings beside each round. Stopping it would add nothing he does not
 see, and would hold back what does not need him: the default branch is still brought in while it
@@ -1525,7 +1542,7 @@ feature's runs, and never by comparing its time with a run's. The slice says a c
 the feature's last run starts a round; read as a time, that would drop a comment written in the
 seconds between one read and a run claimed before the next, since the comment is then older than
 the run that did not see it. Taken by id, every comment of his is answered exactly once, which is
-what "newer than the last run" is for. It does not count against the three rounds: he decides when
+what "newer than the last run" is for. It does not count against the rounds: he decides when
 his own input is worth another run. "Send the whole feature back" posts his comment as him and lets
 the next read take it, so the comment on GitHub is the one record and there is one way in.
 

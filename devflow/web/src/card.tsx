@@ -71,9 +71,6 @@ const AFTER: Record<string, string> = {
 	changes: "asked for changes",
 };
 
-/** The most rounds reviews start for a card. */
-const MOST_ROUNDS = 3;
-
 /** A verdict as a word and a tone; one the page does not know yet is shown
  * as it is named. */
 const VERDICTS: Record<string, { word: string; tone: StatusTone }> = {
@@ -255,6 +252,7 @@ export function CardPage({
 								key={round.run_id}
 								round={round}
 								reviews={story.reviews}
+								most={story.most_rounds}
 							/>
 						))}
 					</ul>
@@ -409,14 +407,15 @@ export function RunRow({
 export function RoundRow({
 	round,
 	reviews,
+	most,
 }: {
 	round: Round;
 	reviews: Review[];
+	/** The rounds the project gives, which a round is counted against. */
+	most: number;
 }) {
 	const name =
-		round.round === null
-			? "Your comment"
-			: `Round ${round.round} of ${MOST_ROUNDS}`;
+		round.round === null ? "Your comment" : `Round ${round.round} of ${most}`;
 	const result =
 		round.result === null
 			? { word: "Running", tone: "running" as StatusTone }

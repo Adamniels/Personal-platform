@@ -146,6 +146,8 @@ public sealed record CardRound(
 /// none, the owner's own merge among them.</param>
 /// <param name="Feature">The feature it is a card of, whose page links back to it; null for a card
 /// on its own.</param>
+/// <param name="MostRounds">The fix rounds the project gives a card, as its settings are now, which
+/// the page counts each round against.</param>
 public sealed record CardStoryView(
     int Number,
     string Title,
@@ -159,7 +161,8 @@ public sealed record CardStoryView(
     IReadOnlyList<CardRound> Rounds,
     CardScreenshots? Screenshots,
     CardMerge? Merge,
-    CardFeature? Feature);
+    CardFeature? Feature,
+    int MostRounds);
 
 /// <summary>The feature a card is a card of, by its parent's number and title as last read.</summary>
 public sealed record CardFeature(int Number, string Title);
@@ -255,7 +258,8 @@ public static class CardStory
                 [.. runs.Where(run => run.Kind == Job.Fix).Select(run => Round(run, reviews))],
                 CardScreenshots.Of(head, built?.Screenshots, built?.ScreenshotsNote),
                 merge is null || head is null ? null : new CardMerge(merge.Commit, head, merge.Base ?? "", new DateTimeOffset(DateTime.SpecifyKind(merge.MergedAt, DateTimeKind.Utc))),
-                card.FeatureNumber is { } feature && card.FeatureTitle is { } featureTitle ? new CardFeature(feature, featureTitle) : null);
+                card.FeatureNumber is { } feature && card.FeatureTitle is { } featureTitle ? new CardFeature(feature, featureTitle) : null,
+                (await Projects.RunSettings.Read(transaction, projectId, cancellationToken))?.FixRoundsCard ?? Projects.RunSettings.Defaults.FixRoundsCard);
         }, cancellationToken);
     }
 

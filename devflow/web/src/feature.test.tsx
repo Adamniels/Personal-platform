@@ -32,6 +32,7 @@ function story(overrides: Partial<FeatureStory> = {}): FeatureStory {
 		fix_rounds: 0,
 		rounds: [],
 		merge: null,
+		most_rounds: 3,
 		cards: [
 			{
 				number: 39,

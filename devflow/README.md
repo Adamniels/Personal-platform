@@ -259,7 +259,7 @@ between them for a card of a feature, "Feature #<number>: <title>", to the featu
 "The merge", once Dev flow merged its pull request as the app, "Dev flow merged #<pull request>
 into <base> as the app, once every condition of the merge check held." and, muted, "Merge commit
 <commit> of the approved <commit>, on <time>.", both commits in the mono font; "Rounds", once the card has been sent back, the list "Rounds", newest first, each fix an inset row
-named "Round <n> of 3", or "Your comment" for one the owner's comment started, with its outcome as
+named "Round <n> of <m>", `m` the project's `fix_rounds_card` as it is now, or "Your comment" for one the owner's comment started, with its outcome as
 a status, "The review of <commit> asked for changes." or "You sent it back with a comment.", his
 words under "What you wrote" with their line breaks, the developer's answer to each finding under
 "Replies", and "It left <commit>", with what the review of it said, "not reviewed yet", or nothing
@@ -1227,7 +1227,8 @@ in `src/DevFlow/Cards/`.
 
 ### Settings
 
-Ten, and only the ten something reads:
+Seventeen, and only the seventeen something reads, or the next slice of part 5 reads,
+`model_reading`:
 
 | Setting | Default | What it does |
 |---|---|---|
@@ -1241,12 +1242,28 @@ Ten, and only the ten something reads:
 | `wait_when_decision` | ticked | On `sometimes`, a card whose agent marked a decision for the owner in any build's or fix's report waits |
 | `wait_paths` | none | The paths the owner wants to see, glob patterns, see "Paths" below |
 | `trusted_logins` | the owner's linked login alone | The GitHub logins whose cards, edits and comments are instructions, see "Trusted accounts" below |
+| `model_reading` | `opus` | The model the reading job runs on, "Dev flow: reading, questions and settings"'s next slice |
+| `model_building` | `opus` | The model of a build, a fix, a conflict and a feature's fix, see "Jobs" |
+| `model_reviewing` | `opus` | The model of a card's review and a feature's review |
+| `run_minutes` | 90 | The longest a run may take, 10 to 240; the worker ends it then, and a run is lost once it was handed out its minutes and 10 more ago, see "Jobs" |
+| `run_turns` | 200 | The most turns a run may take, 20 to 1000, which Claude Code enforces |
+| `fix_rounds_card` | 3 | The fix rounds a card's reviews may start, 0 to 10; a `changes` verdict after them stops the card, see "Fixing" |
+| `fix_rounds_feature` | 3 | The fix rounds a whole feature's reviews may start, 0 to 10; a `changes` verdict after them has it wait for the owner, see "Fixing a feature" |
 
 A label is written, at most 50 characters, GitHub's limit, with no space at either end, no comma,
 since GitHub's list of issues by label takes a comma separated list, and no control character; and
 the four are different names whatever their case, as GitHub's label names are. The three
 conditions are read only on `sometimes`, where at least one is ticked, since `sometimes` with none
-would wait for nothing.
+would wait for nothing. A model is `opus`, `sonnet` or `haiku`, exactly: Claude Code's aliases,
+which follow the newest model of each family, so a new model needs no change here, where a pinned
+model id would need a release for each. `RunSettings` in `src/DevFlow/Projects/` holds the values
+and the ranges.
+
+**A changed setting takes effect at the next decision.** Each job carries the model and the limits
+read when it was handed out, and its run keeps them while it runs, so a run under way is never
+shortened or moved to another model; the next job, the next verdict, a feature's next readiness and
+the next search for lost runs read the settings fresh. The page's "Round n of m" lines count against
+the setting as it is now.
 
 **Paths.** `wait_paths` is a list of glob patterns, as `Microsoft.Extensions.FileSystemGlobbing`'s
 `Matcher` reads them, each from the repository's top: `*` within one folder, so `*.sql` is a file
@@ -1270,17 +1287,20 @@ not; without a link nobody is known to be him, and nothing is trusted. A login i
 letters, digits and single hyphens, with no hyphen at either end, GitHub's rule. Who changes a label
 is read by the list too, see "Cards" below.
 
-- `GET /devflow/api/projects/{id}/settings` answers the ten,
+- `GET /devflow/api/projects/{id}/settings` answers the seventeen,
   `{"pickup_label", "hold_label", "attention_label", "review_label", "waits_for_owner",
-  "wait_when_marked", "wait_when_paths", "wait_when_decision", "wait_paths", "trusted_logins"}`,
-  the three conditions booleans, `wait_paths` a list of patterns in their order, and the last a
-  list of `{"login", "mine"}`, the caller's linked login first with `mine` true, then the others in
-  the order they were given. Another user's project, or none, is `404`.
-- `PUT /devflow/api/projects/{id}/settings` takes all ten, `trusted_logins` as a list of logins,
+  "wait_when_marked", "wait_when_paths", "wait_when_decision", "wait_paths", "trusted_logins",
+  "model_reading", "model_building", "model_reviewing", "run_minutes", "run_turns",
+  "fix_rounds_card", "fix_rounds_feature"}`, the three conditions booleans, `wait_paths` a list of
+  patterns in their order, `trusted_logins` a list of `{"login", "mine"}`, the caller's linked login
+  first with `mine` true, then the others in the order they were given, and the four limits whole
+  numbers. Another user's project, or none, is `404`.
+- `PUT /devflow/api/projects/{id}/settings` takes all seventeen, `trusted_logins` as a list of logins,
   and answers them as saved. One that breaks a rule, or is missing, is `422`, a validation problem
   whose `errors` names each field, and nothing changes: a label that is another's whatever its case,
   named on the later of the two, `sometimes` with no condition ticked, under `waits_for_owner`, a
-  pattern that breaks a rule, under `wait_paths` with the first one named, `trusted_logins` without
+  pattern that breaks a rule, under `wait_paths` with the first one named, a model outside the three
+  or a limit outside its range, each under its own name, `trusted_logins` without
   the caller's linked login, whatever its case, or with a login that is not GitHub's shape, among
   them. A login given twice whatever its case is kept once, in its first spelling, and the caller's
   own is never stored. Another user's project, or none, is `404`. From another origin, `403`.
@@ -1295,7 +1315,11 @@ condition ticked, `wait_when_marked`, `wait_when_paths` and `wait_when_decision`
 default, `review_label`, `text`, `devflow-review` by default, held to the other labels' checks and
 different from each whatever the case, and `wait_paths`, a `text[]`, empty by default and never
 holding a null, whose pattern rules are the route's. The migration gives a project that already
-named a label `devflow-review` the review label `devflow-review-1`. A trigger on `projects`
+named a label `devflow-review` the review label `devflow-review-1`. From
+`migrations/0037_models_and_limits.sql`, the three models, `text`, `opus` by default, checked to be
+one of the three, and the four limits, `int`, with the defaults and ranges above as checks; the
+migration also raises the checks on the rounds a card, a feature and a run record from 3 to 10. A
+trigger on `projects`
 makes a project's row when the project is made, running as the caller, and the migration made one
 for every project before it.
 
@@ -1859,8 +1883,8 @@ first, on standard output; nothing is logged while there is no work.
 Anything else is a crash, with .NET's own code and message.
 
 **The agent interface.** `IAgent`, in `src/DevFlow.Worker/Agents/`, has one method: given the
-working copy, the brief as text, the report's JSON Schema, the limits and the credential, it
-answers a result, a success with the report, an object, or a failure with its reason and which
+working copy, the brief as text, the report's JSON Schema, the model, the limits and the
+credential, it answers a result, a success with the report, an object, or a failure with its reason and which
 side it lies on, in the card or outside it; and either way the usage as the agent gave it, its
 standard error, and how it was logged in. Two implementations:
 
@@ -1871,8 +1895,8 @@ standard error, and how it was logged in. Two implementations:
   the card; the method is recorded either way. Then, in the working copy:
 
   ```zsh
-  claude -p <brief> --model claude-opus-5-5 --permission-mode bypassPermissions --output-format json \
-    --json-schema <schema> --max-turns 200 --max-budget-usd 25
+  claude -p <brief> --model <the job's model> --permission-mode bypassPermissions --output-format json \
+    --json-schema <schema> --max-turns <the job's turns> --max-budget-usd 25
   ```
 
   for a build, the `Write` access of `AgentRun`. A review's reviewer, `ReadOnly`, runs in the job's
@@ -1909,9 +1933,15 @@ Outside the card means another try may well succeed and the card is not to blame
 API or the machine. The usage is taken as Claude Code gives it: `usage`, `modelUsage`,
 `total_cost_usd`, `duration_ms` and `num_turns`.
 
-**The limits for now**, fixed in code as `AgentLimits.Default` until Dev flow's settings hold them:
-200 turns and 25 USD, which Claude Code enforces, overshooting by about a turn, and 90 minutes,
-which the worker enforces by ending the process and every process still in its tree. One the agent
+**The model and the limits** are the job's, from its project's settings as they were when it was
+handed out, see "Jobs"; the worker has no model or limit of its own. The turns, 200 by default, and
+the spend, 25 USD for every job until part 8's budget, Claude Code enforces, overshooting by about a
+turn; the minutes, 90 by default, the worker enforces by ending the process and every process still
+in its tree. A job without a model, or with one that is not a model's name, lowercase letters and
+digits with single dots or hyphens between, is a protocol error: the worker refuses it before
+anything runs and sends it back failed outside the card, "The job carries no model the worker can
+pass to Claude Code, so Dev flow and the worker disagree on the protocol", so no value given as
+`--model` is read as another option. One the agent
 detached from that tree, by forking twice, keeps running as `agent`; the accepted risk under "The
 agent's copy has no credentials" in `docs/devflow-architecture.md` covers it.
 
@@ -1948,9 +1978,9 @@ and `/work/<job>/`, the agent's, where root writes nothing:
    bot, in the copy's config; the bundle is removed, so the copy's remote is a path that no longer
    exists and holds no credentials.
 4. **The agent** runs there as `agent`, through `IAgent`, with the job's brief, report schema,
-   limits and Claude token. The worker ends it at the job's `minutes`, 90 for now, whatever it is
+   model, limits and Claude token. The worker ends it at the job's `minutes`, whatever it is
    doing, by cancelling it, which ends its process and every process still in its tree; that is a
-   failure in the card, "it ran past the time limit of 90 minutes and was ended".
+   failure in the card, "it ran past the time limit of <minutes> minutes and was ended".
 5. **What it left uncommitted**, tracked or new and not ignored, is committed in the copy, as
    `agent`, "Work the agent left uncommitted". Ignored files, such as a build's output, stay out.
 6. **Back to the worker.** Root fetches the branch from the copy into its own repository, without
@@ -2175,9 +2205,14 @@ queued; moves it to `building`; records a run for the worker; and answers `200` 
 | `claude_token` | The run's user's Claude token, see "Claude login" |
 | `push_key`, `push_key_expires_at` | A key the app made for this job, narrowed to fetching and pushing the repository's code, and when it stops working, an hour on |
 | `committer` | `name` and `email`, the app's bot, `<app-slug>[bot]` and `<id>+<app-slug>[bot]@users.noreply.github.com`, read once from GitHub's `GET /users/<app-slug>[bot]` and kept; `devflow-fake[bot]` with a fixed address in the fake mode |
-| `limits` | `turns` 200, `budget_usd` 25 and `minutes` 90, fixed in code until part 5 |
+| `limits` | `turns` and `minutes`, the project's `run_turns` and `run_minutes` when the job was handed out, 200 and 90 by default, and `budget_usd`, 25 for every job until part 8's budget |
+| `model` | The model Claude Code runs on, given as `--model`: the project's `model_building` for a build, a fix, a conflict and a feature's fix, its `model_reviewing` for a review of a card or of a feature, `opus` by default; read when the job was handed out |
 | `to_resolve` | For a conflict, `feature_commit`, the commit the feature's branch is at, and `default_commit`, the default branch's commit to bring in; null on any other job |
 | `to_review_feature` | For a whole feature's review, what it reads besides the code, see "Reviewing a feature"; null on any other job |
+
+The model and the limits are read from the project's settings in the transaction that takes the
+card, so the job carries them as they are then, and the run keeps them whatever is changed after;
+the run records its `run_minutes`, from `migrations/0038_run_minutes.sql`.
 
 Everything the job needs from the code host is read before the card is taken, so the row lock is
 held for one short transaction and never while GitHub answers; a push key made for a card another
@@ -2273,7 +2308,8 @@ the card above but a time limit and a report that stopped runs the card again on
 outside the card makes its project wait, see "Stops".
 
 **A lost run.** Each read of a project, before it asks the code host anything, ends every run of it
-handed out at least 100 minutes ago with no result whose worker has not been seen for 10 minutes:
+handed out at least its job's minutes and 10 more ago, its `run_minutes` and the margin, 100 minutes
+for the default 90, with no result, whose worker has not been seen for 10 minutes:
 the run is `lost`, "No result came back, and its worker was not seen for 10 minutes", and its card
 goes back to `queued`, nothing counted against it, and its project waits as after any failure
 outside the card, see "Stops". A result that comes after is for a finished job,
@@ -2562,7 +2598,7 @@ and `head_commit`, for a review the commit it reviewed; `report`, the latest bui
 report that reads in its form, or null; `reviews`, newest first, each `run_id`, `commit`,
 `verdict`, `summary`, `findings`, `for_owner`, `reviewed_at`, `posted`, and `current`, whether it
 is for the card's head commit, so it counts; `rounds`, newest first, each fix as "Fixing" says:
-`run_id`, `round`, 1 to 3 or null for the owner's comment, `review_run_id`, the review it
+`run_id`, `round`, from 1, or null for the owner's comment, `review_run_id`, the review it
 answered, `comments`, his words, `result`, `replies`, from its report, `fixed_commit`, and
 `review_after_run_id`, the newest review of that commit. A fix that failed outside the card is
 tried again in the same round, so a round may show more than once; `screenshots`, the
@@ -2645,8 +2681,9 @@ package's `Card`s, top to bottom:
 - "The review of the whole feature", once it has a review: the list "Reviews of the feature",
   newest first, each as a card's page shows a review, its commit, its verdict, whether it covers the
   pull request's head, its summary, its findings and its views for the owner.
-- "Fix rounds, <n> of 3 used", once a fix of the whole feature has run: the list "Fix rounds of the
-  feature", newest first, each as a card's page shows a round, "Round <n> of 3" or "Your comment",
+- "Fix rounds, <n> of <m> used", `m` the project's `fix_rounds_feature` as it is now, once a fix of
+  the whole feature has run: the list "Fix rounds of the feature", newest first, each as a card's
+  page shows a round, "Round <n> of <m>" or "Your comment",
   how its fix went, the review that started it, his words, the developer's replies and the commit
   it left with the review of it.
 - "What the agents want you to know", only when a card has a decision for the owner, in attention
@@ -2769,7 +2806,8 @@ on the build's branch and base with the commit as its `head_commit` from the sta
 `commit`, the commit to review, `report`, the build's report as it came, and `check`, its
 `exit_code` and `output` on that commit. Its `push_key` is a key narrowed to `Fetch`,
 `contents: read` and `metadata: read`, and the push key route answers a review `404`, so a
-reviewer's worker never holds a key that pushes. The model is `claude-opus-5-5`, as for every job.
+reviewer's worker never holds a key that pushes. The model is the project's `model_reviewing`, see
+"Settings".
 
 **On the worker**, `ReviewJob`: root clones the repository with the key into its own bare
 repository, as a build's does; checks the commit is there, or fails the run in the card, since a
@@ -2859,7 +2897,8 @@ fake worker posts it before it answers, as it opens a pull request.
 ## Fixing
 
 A `changes` verdict sends the card back to a fresh developer agent on the same branch, with the
-findings, for at most three rounds, each followed by a new review; and a comment by the owner on
+findings, for at most the project's `fix_rounds_card`, 3 by default, each followed by a new review;
+and a comment by the owner on
 the card's open pull request, written on GitHub or sent back from "Waiting for you", starts a fix
 too, without counting as a round. Why it is built so is "Fixing" in `docs/devflow-architecture.md`.
 It is `ClaimFix` and `Earlier` in `JobStore`, `JudgeFix` and the rounds in `RunStore.JudgeReview`,
@@ -2867,9 +2906,10 @@ It is `ClaimFix` and `Earlier` in `JobStore`, `JudgeFix` and the rounds in `RunS
 `ProjectReader`, `SendBackCard` in `ActionEndpoints`, and the fix in the worker's `BuildJob`.
 
 **A round** starts on a `changes` verdict on the card's head: the card moves to `fixing`,
-"Round <n> of 3: the reviewer asked for changes; a fix runs next", and records the round, `n`, and
-the review it answers. A `changes` verdict after round 3 moves the card to `stopped`, "Fix rounds
-used up", for "Stops" to mark; an `approve` has it wait for the owner, as "Review" says.
+"Round <n> of <m>: the reviewer asked for changes; a fix runs next", `m` its project's
+`fix_rounds_card` read when the verdict is judged, and records the round, `n`, and the review it
+answers. A `changes` verdict with every round used moves the card to `stopped`, "Fix rounds used
+up", for "Stops" to mark, so with 0 its first `changes` does; an `approve` has it wait for the owner, as "Review" says.
 
 **Handed out** by `jobs/next`, after the project's reviews and before its builds, each by the cards'
 order: a card that is `fixing`, with its pull request, picked with its body kept, no run under way,
@@ -2879,7 +2919,7 @@ brief as `brief`, the report's form, and `to_fix`, null on any other kind: `comm
 commit a build or a fix of the card left on its branch, whatever its result, since a worker pushes
 what its agent made even when the check failed, and `round`, null for the owner's comment. The run
 records the commit as `from_commit`, its round, the review it answers and his comments, and the
-card says "Round <n> of 3: the developer is fixing it" or "The developer is answering your comment"
+card says "Round <n> of <m>: the developer is fixing it" or "The developer is answering your comment"
 while it runs.
 
 **On the worker** a fix is carried as a build, "The worker" says how, with one difference: the
@@ -2889,7 +2929,8 @@ so it was not started", since it would build on a commit Dev flow did not hand o
 on the new commit, which is pushed to the same branch, never forced.
 
 **The brief**, `Brief.Fixer`, is the developer's, "The brief" under "Jobs", with a section after
-the card, `## What to fix`: that the card's branch is continued, its round of 3 or that the owner
+the card, `## What to fix`: that the card's branch is continued, its round of the project's rounds
+as the job was handed out, or that the owner
 sent it back; `### The earlier report`, the newest build's or fix's report that succeeded, as it
 came; `### The blocking findings`, to be fixed, test first where behaviour changes, or argued in
 `replies`; `### The other findings`, the nits, fixed when cheap; and a `### The owner's comment`
@@ -3326,7 +3367,8 @@ request moves the feature to `reviewing`, with no reason, for it to decide. For 
 - **A fix of the head failed in the job**, `fix_failed_at`: it stays as that failure left it,
   waiting for the owner, until the branch moves or he comments, see "Fixing a feature" below.
 - **The covering review asked for changes**: `fixing`, its next round, see "Fixing a feature"
-  below; or, with all three rounds used, `waiting_for_owner`, "Review rounds used up", with its
+  below; or, with every one of the project's `fix_rounds_feature` used, none at all with 0,
+  `waiting_for_owner`, "Review rounds used up", with its
   findings on its page and on "Waiting for you".
 - **The covering review approved**: CI on the head, read as the app, every check run and status,
   by `MergeCheck.Ci` as "The merge check" reads it: a failure first, by name, "CI failed: <name>";
@@ -3374,7 +3416,7 @@ feature reviewer's brief as `brief`, the verdict's form, `contracts/devflow/verd
 | `remerge_diff` | The `remerge_diff` of each conflict run of the feature that succeeded and started since its newest review, oldest first, each under a line naming its run and its two commits, cut beyond 1 MiB as `RemergeDiffs.Cut` cuts one; null when there is none |
 
 Its `push_key` is a key narrowed to `Fetch`, as a card's review's, and the push key route answers it
-`404`. The model is `claude-opus-5-5`, as for every job.
+`404`. The model is the project's `model_reviewing`, as for a card's review.
 
 **On the worker**, `ReviewJob`, as a card's review is fetched: root's bare clone with the key, the
 commit checked to be there, the feature's branch pointed at it in root's own repository, never
@@ -3456,7 +3498,8 @@ would; and bringing in answers the base's commit it merged into as the first par
 ### Fixing a feature
 
 A `changes` verdict on a feature sends it to a fresh developer agent on the feature's branch with
-the findings, for at most three rounds, each followed by a new review of the whole feature; the
+the findings, for at most the project's `fix_rounds_feature`, 3 by default, each followed by a new
+review of the whole feature; the
 owner's comment on the feature's pull request, written on GitHub or sent back from its page or its
 item on "Waiting for you", starts a fix too, without counting as a round. With the rounds used up
 the feature waits for him; it is never stopped. Why it is built so is "Fixing a feature" in
@@ -3467,17 +3510,18 @@ the round's start in `FeatureReady.Decide` and `FeatureReadiness`, `ClaimFeature
 `BuildJob`.
 
 **A round** starts on the minute, `FeatureReady.Decide`, when the latest review covers the head and
-asked for changes: the feature moves to `fixing`, "Round <n> of 3: the review of the whole feature
-asked for changes; a fix runs next", counts the round in `fix_round`, and records what its fix
+asked for changes: the feature moves to `fixing`, "Round <n> of <m>: the review of the whole
+feature asked for changes; a fix runs next", `m` its project's `fix_rounds_feature` as it is then,
+counts the round in `fix_round`, and records what its fix
 answers, `next_fix_round`, the round, and `fix_review_id`, that review. A `changes` covering the
-head after round 3 leaves it `waiting_for_owner`, "Review rounds used up", with the findings on its
+head with every round used, or with 0 rounds its first, leaves it `waiting_for_owner`, "Review rounds used up", with the findings on its
 page and on "Waiting for you"; nothing more is handed out until the branch moves or he comments.
 
 **Handed out** by `jobs/next` after the project's card fixes and before its conflicts, see "Jobs":
 a feature that is `fixing`, with its pull request, its branch made and its parent picked with its
 body kept, no run of its own under way, and its branch's watch read in the last five minutes and
 since Dev flow's last merge or push there. It is taken by `CardStore.QueueOrder` with
-`FOR UPDATE SKIP LOCKED`, says "Round <n> of 3: the developer is fixing the feature", or "The
+`FOR UPDATE SKIP LOCKED`, says "Round <n> of <m>: the developer is fixing the feature", or "The
 developer is answering your comment", while its run is under way, and the run, `kind`
 `feature_fix`, names the feature by `feature_number`, its branch, the default branch as its `base`,
 the commit its watch names as `from_commit`, its round, the review it answers and the owner's
@@ -3546,7 +3590,9 @@ reason, and `503` when GitHub did not answer, after the project is read again. T
 **On its page**, the feature's story answers `fix_rounds`, the rounds its reviews started, and
 `rounds`, each fix newest first as a card's page answers its rounds: `run_id`, `round`,
 `review_run_id`, `comments`, `result`, `replies`, `fixed_commit` and `review_after_run_id`. The
-page shows them under "Fix rounds, <n> of 3 used", after its reviews.
+page shows them under "Fix rounds, <n> of <m> used", after its reviews, `m` being `most_rounds`, the
+project's `fix_rounds_feature` as it is now; a card's story answers its `fix_rounds_card` as
+`most_rounds` too.
 
 **The tables**, from `migrations/0032_feature_fixes.sql`: `runs` gains `kind` `feature_fix`, which
 needs `feature_number` and `from_commit`, and uses `fix_round`, `fix_review_id`, the review in

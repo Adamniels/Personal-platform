@@ -100,12 +100,14 @@ public sealed record FeatureCard(
 /// <param name="Reviews">The reviews of the whole feature, newest first, each as a card's page shows
 /// one; <c>current</c> is whether it is the newest and covers the feature branch's head, its own
 /// commit or one that differs from it only by clean merges of the default branch.</param>
-/// <param name="FixRounds">The fix rounds its reviews have started, 0 to 3.</param>
+/// <param name="FixRounds">The fix rounds its reviews have started.</param>
 /// <param name="Rounds">Each fix of the whole feature, newest first, as a card's page shows a round:
 /// the review that started it or the owner's comment, the run, its replies and the review of the
 /// commit it left.</param>
 /// <param name="Merge">"Merge into &lt;default&gt;" when the feature is offered for merging, by
 /// <see cref="FeatureMergeOffers"/>, with the head the merge names; null when it is not.</param>
+/// <param name="MostRounds">The fix rounds the project gives a whole feature, as its settings are
+/// now, which the page counts its rounds against.</param>
 public sealed record FeatureStoryView(
     int Number,
     string Title,
@@ -121,7 +123,8 @@ public sealed record FeatureStoryView(
     IReadOnlyList<CardReview> Reviews,
     int FixRounds,
     IReadOnlyList<CardRound> Rounds,
-    FeatureMergeOffer? Merge);
+    FeatureMergeOffer? Merge,
+    int MostRounds);
 
 /// <summary>
 /// A feature's story, read from what Dev flow stored and never from the code host, through the
@@ -252,7 +255,8 @@ public static class FeatureStory
                 feature.Number,
                 [.. featureReviews.Select(review => new KeptReview(review.RunId, review.Commit, review.Verdict, review.ReviewedAt, review.PostedAt))],
                 cancellationToken),
-            FeatureMergeOffers.Of(feature.MergeInto, feature.Head));
+            FeatureMergeOffers.Of(feature.MergeInto, feature.Head),
+            (await Projects.RunSettings.Read(transaction, projectId, cancellationToken))?.FixRoundsFeature ?? Projects.RunSettings.Defaults.FixRoundsFeature);
     }
 
     /// <summary>Each merge of the default branch Dev flow made cleanly on the feature's branch, by its

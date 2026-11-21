@@ -859,6 +859,8 @@ export interface components {
             feature: null | components["schemas"]["CardFeature"];
             merge: null | components["schemas"]["CardMerge"];
             /** Format: int32 */
+            most_rounds: number;
+            /** Format: int32 */
             number: number;
             pull_request: null | components["schemas"]["CardPullRequest"];
             reason: null | string;
@@ -1075,6 +1077,8 @@ export interface components {
             /** Format: int64 */
             input_tokens: number;
             merge: null | components["schemas"]["FeatureMergeOffer"];
+            /** Format: int32 */
+            most_rounds: number;
             /** Format: int32 */
             number: number;
             /** Format: int64 */

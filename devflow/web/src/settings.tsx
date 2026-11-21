@@ -1,8 +1,8 @@
 // A project's Settings panel, under its page's header: the labels that pick and hold its cards and
 // mark what needs the owner, whether a card's pull request waits for him, with what "sometimes"
-// waits for, and the trusted accounts whose cards, edits and comments count. All ten are saved
-// together, and a value Dev flow refuses is named under its field. See "Settings" in
-// devflow/README.md.
+// waits for, the trusted accounts whose cards, edits and comments count, and the models and limits
+// its runs get. All seventeen are saved together, and a value Dev flow refuses is named under its
+// field. See "Settings" in devflow/README.md.
 import {
 	Badge,
 	Button,
@@ -29,7 +29,7 @@ export const SAVED = "Saved.";
  * the page and a test's own in a test. */
 export type SettingsApi = {
 	loadSettings: (id: string) => Promise<ProjectSettings>;
-	/** Saves all ten and answers them as saved. */
+	/** Saves all seventeen and answers them as saved. */
 	saveSettings: (
 		id: string,
 		settings: SettingsRequest,
@@ -75,6 +75,101 @@ const CONDITIONS: { field: ConditionField; label: string }[] = [
 	{ field: "wait_when_decision", label: "The agent made a decision for you" },
 ];
 
+type ModelField = "model_reading" | "model_building" | "model_reviewing";
+
+type LimitField =
+	| "run_minutes"
+	| "run_turns"
+	| "fix_rounds_card"
+	| "fix_rounds_feature";
+
+/** The three models, in the order a card meets them, with which jobs each
+ * runs. */
+const MODELS: { field: ModelField; label: string; help: string }[] = [
+	{
+		field: "model_reading",
+		label: "Reading model",
+		help: "Reads each card before anything is built.",
+	},
+	{
+		field: "model_building",
+		label: "Building model",
+		help: "Builds and fixes a card, resolves a conflict and fixes a whole feature.",
+	},
+	{
+		field: "model_reviewing",
+		label: "Reviewing model",
+		help: "Reviews a card, and a whole feature.",
+	},
+];
+
+/** Claude Code's aliases, which follow the newest model of each family. */
+const MODEL_NAMES: { value: string; name: string }[] = [
+	{ value: "opus", name: "Opus" },
+	{ value: "sonnet", name: "Sonnet" },
+	{ value: "haiku", name: "Haiku" },
+];
+
+/** The four limits, each with the range Dev flow takes, which the field
+ * offers too. */
+const LIMITS: {
+	field: LimitField;
+	label: string;
+	help: string;
+	min: number;
+	max: number;
+}[] = [
+	{
+		field: "run_minutes",
+		label: "Minutes a run may take",
+		help: "From 10 to 240. A run still going then is ended.",
+		min: 10,
+		max: 240,
+	},
+	{
+		field: "run_turns",
+		label: "Turns a run may take",
+		help: "From 20 to 1000.",
+		min: 20,
+		max: 1000,
+	},
+	{
+		field: "fix_rounds_card",
+		label: "Fix rounds a card gets",
+		help: "From 0 to 10. A card is stopped when its review asks for changes after these.",
+		min: 0,
+		max: 10,
+	},
+	{
+		field: "fix_rounds_feature",
+		label: "Fix rounds a feature gets",
+		help: "From 0 to 10. A feature waits for you when its review asks for changes after these.",
+		min: 0,
+		max: 10,
+	},
+];
+
+/** Why a limit's text is not sent: it is not a whole number. */
+export const NOT_A_NUMBER = "must be a whole number";
+
+/** The limits as their fields show them, as text, so a field emptied while
+ * it is edited stays empty rather than becoming 0. */
+type LimitTexts = Record<LimitField, string>;
+
+const asTexts = (settings: ProjectSettings): LimitTexts => ({
+	run_minutes: String(settings.run_minutes),
+	run_turns: String(settings.run_turns),
+	fix_rounds_card: String(settings.fix_rounds_card),
+	fix_rounds_feature: String(settings.fix_rounds_feature),
+});
+
+/** A limit's text as a whole number, or undefined when it is none. Whether
+ * it is in range is Dev flow's to judge when it is saved. */
+const asNumber = (text: string): number | undefined => {
+	const trimmed = text.trim();
+	return /^-?\d+$/.test(trimmed) ? Number(trimmed) : undefined;
+};
+
 /** The list of paths as the box shows it, one pattern a line. */
 const asLines = (paths: string[]) => paths.join("\n");
 
@@ -101,6 +196,7 @@ export function SettingsPanel({
 	const [invalid, setInvalid] = useState<Partial<Record<Field, string>>>({});
 	const [adding, setAdding] = useState("");
 	const [lines, setLines] = useState("");
+	const [limits, setLimits] = useState<LimitTexts>();
 
 	useEffect(() => {
 		let current = true;
@@ -109,6 +205,7 @@ export function SettingsPanel({
 				if (!current) return;
 				setValues(answer);
 				setLines(asLines(answer.wait_paths));
+				setLimits(asTexts(answer));
 			},
 			() => {
 				if (current) setReadFailed(true);
@@ -120,10 +217,15 @@ export function SettingsPanel({
 	}, [id, loadSettings]);
 
 	const change = (
-		field: LabelField | "review_label" | "waits_for_owner",
+		field: LabelField | ModelField | "review_label" | "waits_for_owner",
 		value: string,
 	) => {
 		setValues((before) => (before ? { ...before, [field]: value } : before));
+		setSaved(false);
+	};
+
+	const type = (field: LimitField, text: string) => {
+		setLimits((before) => (before ? { ...before, [field]: text } : before));
 		setSaved(false);
 	};
 
@@ -176,16 +278,35 @@ export function SettingsPanel({
 
 	const save = async (event: FormEvent) => {
 		event.preventDefault();
-		if (values === undefined) return;
+		if (values === undefined || limits === undefined) return;
+		// A limit that is not a whole number is named under its field, and
+		// nothing is sent.
+		const numbers: Partial<Record<LimitField, number>> = {};
+		const wrong: LimitField[] = [];
+		for (const { field } of LIMITS) {
+			const number = asNumber(limits[field]);
+			if (number === undefined) wrong.push(field);
+			else numbers[field] = number;
+		}
+		if (wrong.length > 0) {
+			setInvalid(
+				Object.fromEntries(wrong.map((field) => [field, NOT_A_NUMBER])),
+			);
+			setError(null);
+			setSaved(false);
+			return;
+		}
 		setSaving(true);
 		try {
 			const answer = await saveSettings(id, {
 				...values,
+				...(numbers as Record<LimitField, number>),
 				wait_paths: asPaths(lines),
 				trusted_logins: values.trusted_logins.map((entry) => entry.login),
 			});
 			setValues(answer);
 			setLines(asLines(answer.wait_paths));
+			setLimits(asTexts(answer));
 			setInvalid({});
 			setError(null);
 			setSaved(true);
@@ -214,8 +335,10 @@ export function SettingsPanel({
 				<p className={styles.error} role="alert">
 					{NOT_READ}
 				</p>
-			) : values === undefined ? null : (
-				<form className={styles.form} onSubmit={save}>
+			) : values === undefined || limits === undefined ? null : (
+				// The browser's own checks are off, so a value out of range is named
+				// under its field as Dev flow judges it, as every other field is.
+				<form className={styles.form} onSubmit={save} noValidate>
 					<p className={styles.line}>
 						Dev flow picks up the open issues your trusted accounts wrote that
 						carry the pick-up label, as cards.
@@ -341,6 +464,50 @@ export function SettingsPanel({
 							<Button kind="secondary" onClick={add}>
 								Add
 							</Button>
+						</div>
+					</section>
+					<section className={styles.runs} aria-labelledby={`runs-${id}`}>
+						<h3 id={`runs-${id}`} className={styles.heading}>
+							Models and limits
+						</h3>
+						<p className={styles.help}>
+							A change counts from the next job; a run under way keeps the model
+							and limits it started with.
+						</p>
+						<div className={styles.fields}>
+							{MODELS.map(({ field, label, help }) => (
+								<Select
+									key={field}
+									label={label}
+									help={help}
+									value={values[field]}
+									error={invalid[field]}
+									onChange={(event) => change(field, event.target.value)}
+								>
+									{MODEL_NAMES.map(({ value, name }) => (
+										<option key={value} value={value}>
+											{name}
+										</option>
+									))}
+								</Select>
+							))}
+						</div>
+						<div className={styles.fields}>
+							{LIMITS.map(({ field, label, help, min, max }) => (
+								<TextField
+									key={field}
+									label={label}
+									help={help}
+									type="number"
+									inputMode="numeric"
+									min={min}
+									max={max}
+									step={1}
+									value={limits[field]}
+									error={invalid[field]}
+									onChange={(event) => type(field, event.target.value)}
+								/>
+							))}
 						</div>
 					</section>
 					<div className={styles.actions}>
