@@ -7,15 +7,16 @@
 import { Button, Dialog, TextArea, useToast } from "@platform/ui";
 import { type FormEvent, type ReactNode, useId, useState } from "react";
 import { ApiError } from "./api/client";
+import type { FeatureMergeApi } from "./feature-merge";
 import { askNavAgain } from "./nav-attention";
 import type { SendBackFeature } from "./send-back-feature";
 import type { Status } from "./status";
 import type { WaitingItem } from "./waiting";
 import styles from "./waiting.module.css";
 
-/** How an item is merged and sent back, and a stopped project resumed, Dev
- * flow's API in the page and a test's own in a test. */
-export type ActionsApi = {
+/** How an item is merged and sent back, a stopped project resumed, and a
+ * feature merged, Dev flow's API in the page and a test's own in a test. */
+export type ActionsApi = FeatureMergeApi & {
 	merge: (id: string, headCommit: string) => Promise<void>;
 	sendBack: (id: string, comment: string) => Promise<void>;
 	/** Resumes a stopped project, accepting the commit the page showed. */

@@ -143,6 +143,28 @@
 	overflow-wrap: anywhere;
 }
 
+/* A feature's open findings in its merge's confirmation, each on its own
+ * lines, a small step apart. */
+.findings {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-2);
+	margin: 0;
+	padding-left: var(--space-4);
+}
+
+.finding {
+	overflow-wrap: anywhere;
+}
+
+/* Why the reviewer found it, quiet on a line of its own. */
+.because {
+	display: block;
+	color: var(--text-2);
+	font-size: var(--text-small-size);
+	line-height: var(--text-small-line);
+}
+
 /* The commit in the confirmation, hard rule 8: the mono font. */
 .commit {
 	font-family: var(--font-mono);

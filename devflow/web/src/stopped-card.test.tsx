@@ -125,6 +125,8 @@ function open(
 				resume: () => Promise.resolve(),
 				mergeCard: () => Promise.resolve(),
 				sendBackCard,
+				loadFeatureMerge: () => Promise.reject(new Error("not offered")),
+				mergeFeature: () => Promise.resolve(),
 				sendBackFeature: () => Promise.resolve(),
 			}}
 			now={() => NOW}

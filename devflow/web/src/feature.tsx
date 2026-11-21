@@ -2,16 +2,17 @@
 // from the project's Cards panel and from each of its cards' pages: the feature's whole story so
 // far, read from GET /devflow/api/projects/{id}/features/{number}, what Dev flow stored and never
 // the code host. Top to bottom: its title and state, with the reason and a link to its pull request
-// once there is one, and "Send the whole feature back" while it is ready or waits for you; the
-// reviews of the whole feature, newest first, each with its findings and whether it covers the
-// head; its fix rounds, each with the review that started it or your comment, the developer's
-// replies and the review after it; what the agents want you to know, every decision its cards'
-// latest reports marked for you, each answered "Fine as it is" here and nowhere else, or sent back
-// with its card; its branch with the command to check it out; every card's screenshots, by card; its
-// cards in order, "Send back" on each that has landed while the feature is open, and those you sent
-// back with your words; and its own runs, such as an agent resolving a conflict, as a card's page
-// shows its runs. Every text came from the code host or an agent and is shown as text. See "A
-// feature's page" and "Sending a card back" in devflow/README.md.
+// once there is one, "Merge into <default>" while it is offered, and "Send the whole feature back"
+// while it is ready or waits for you; the reviews of the whole feature, newest first, each with its
+// findings and whether it covers the head; its fix rounds, each with the review that started it or
+// your comment, the developer's replies and the review after it; what the agents want you to know,
+// every decision its cards' latest reports marked for you, each answered "Fine as it is" here and
+// nowhere else, sent back with its card, or confirmed by merging the feature; its branch with the
+// command to check it out; every card's screenshots, by card; its cards in order, "Send back" on
+// each that has landed while the feature is open, and those you sent back with your words; and its
+// own runs, such as an agent resolving a conflict, as a card's page shows its runs. Every text came
+// from the code host or an agent and is shown as text. See "A feature's page", "Sending a card
+// back" and "Merging a feature" in devflow/README.md.
 import {
 	Button,
 	EmptyState,
@@ -30,6 +31,7 @@ import styles from "./card.module.css";
 import { stateWord } from "./cards";
 import { CommentBox } from "./comment-box";
 import own from "./feature.module.css";
+import { type FeatureMergeApi, MergeFeature } from "./feature-merge";
 import { Inline } from "./format";
 import { askNavAgain } from "./nav-attention";
 import { Command } from "./project";
@@ -51,9 +53,9 @@ export const NOT_READ = "The feature could not be read. Try again.";
 export const NOT_ANSWERED =
 	"The answer could not be kept. Read the page again and try once more.";
 
-/** How the page reads a feature and answers a decision, Dev flow's API in
- * the page and a test's own in a test. */
-export type FeatureApi = {
+/** How the page reads a feature, answers a decision and merges the feature,
+ * Dev flow's API in the page and a test's own in a test. */
+export type FeatureApi = FeatureMergeApi & {
 	/** The feature, or null when the caller has no such feature. */
 	loadFeature: (
 		project: string,
@@ -96,7 +98,8 @@ export type FeaturePageProps = FeatureApi & {
 	back: () => void;
 	/** The project page's address, for the way back. */
 	backPath: string;
-	/** The caller's GitHub link, which commenting as him needs. */
+	/** The caller's GitHub link, which merging and commenting as him need;
+	 * undefined until read. */
 	link?: LinkState;
 };
 
@@ -123,6 +126,8 @@ export function FeaturePage({
 	backPath,
 	loadFeature,
 	answerFine,
+	loadFeatureMerge,
+	mergeFeature,
 	sendBack,
 	sendBackCard,
 	sendBackDecision,
@@ -131,6 +136,8 @@ export function FeaturePage({
 }: FeaturePageProps) {
 	const [story, setStory] = useState<FeatureStory | null>();
 	const [failed, setFailed] = useState(false);
+	// Merging and sending back share the line saying why neither can be pressed.
+	const linkLineId = useId();
 
 	const load = useCallback(
 		() =>
@@ -228,6 +235,18 @@ export function FeaturePage({
 							{done} of {story.cards.length} cards done
 						</span>
 					</p>
+					{story.merge === null ? null : (
+						<MergeFeature
+							project={project}
+							number={number}
+							offer={story.merge}
+							link={link}
+							api={{ loadFeatureMerge, mergeFeature }}
+							reload={load}
+							primary
+							lineId={linkLineId}
+						/>
+					)}
 					{canSendBack(story.state, story.pull_request?.number ?? null) ? (
 						<SendBack
 							projectId={project}
@@ -235,6 +254,7 @@ export function FeaturePage({
 							link={link}
 							send={sendBack}
 							reload={load}
+							lineShownAt={story.merge === null ? undefined : linkLineId}
 						/>
 					) : null}
 				</div>
@@ -315,10 +335,17 @@ export function FeaturePage({
 						<p className={styles.muted}>
 							Its branch is made when its first card starts.
 						</p>
+					) : story.state === "merged" ? (
+						<p className={styles.text}>
+							The feature is merged, and its branch is no longer watched.
+						</p>
 					) : (
 						<>
 							<p className={styles.text}>
-								The feature is not in main yet. To try it, check out its branch
+								{story.state === "closed"
+									? "Its pull request was closed without merging, so the feature is not in main. "
+									: "The feature is not in main yet. "}
+								To try it, check out its branch
 								{story.branch.commit === null ? null : (
 									<>
 										, at{" "}
@@ -497,7 +524,11 @@ function DecisionRow({
 	const [refusal, setRefusal] = useState<string | null>(null);
 	const line = linkLine(link);
 	const word =
-		decision.answer?.answer === "sent_back" ? "Sent back" : "Fine as it is";
+		decision.answer?.answer === "sent_back"
+			? "Sent back"
+			: decision.answer?.answer === "merged"
+				? "Confirmed by merging"
+				: "Fine as it is";
 	return (
 		<li className={`${styles.run} ${styles.review}`}>
 			<span className={styles.kind}>

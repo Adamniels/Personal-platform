@@ -45,8 +45,10 @@ public static class CardStore
     /// Every card found takes the feature and the position picking gave it, 1 first among the
     /// feature's cards kept. An ignored card keeps the record it had, null when it was never
     /// picked, so a run on it is still checked against what was picked. <c>changed_at</c> moves only
-    /// when the state, the reason or what it waits for does. Last, a feature not found any more is
-    /// deleted once no card refers to it, and marked unlabelled until then.
+    /// when the state, the reason or what it waits for does. A feature <c>closed</c> without merging
+    /// whose cards were told, not found any more, gives up the cards it kept. Last, a feature not
+    /// found any more is deleted once no card refers to it, and marked unlabelled until then, so a
+    /// closed feature labelled again later is a new one.
     /// </summary>
     public static async Task Store(NpgsqlTransaction transaction, Guid projectId, Guid userId, PickedProject found, DateTimeOffset now, CancellationToken cancellationToken)
     {
@@ -101,15 +103,27 @@ public static class CardStore
         placed.AddRange(onTheirOwn.Select(card => (card, (Guid?)null, (int?)null)));
         placed = [.. placed.DistinctBy(entry => entry.Card.Number)];
 
+        // A feature whose pull request was closed without merging, its cards told, that is no
+        // longer found gives its cards up, so labelled again later it starts afresh: what was built
+        // for it never reached the default branch.
+        var givenUp = (await transaction.Connection!.QueryAsync<Guid>(new CommandDefinition(
+            """
+            SELECT id FROM features
+            WHERE project_id = @projectId AND state = 'closed' AND outcome_told_at IS NOT NULL AND NOT (number = ANY (@kept))
+            """,
+            new { projectId, kept = features.Select(feature => feature.Number).ToArray() },
+            transaction,
+            cancellationToken: cancellationToken))).ToHashSet();
+
         var numbers = placed.Select(entry => entry.Card.Number).ToHashSet();
         foreach (var gone in stored.Values.Where(card => !numbers.Contains(card.Number)))
         {
             // A card Dev flow carried to a merged pull request is kept: the pull request's Closes
             // line closed its issue as it merged, which takes it off the list, and the card is the
-            // story of what was built.
+            // story of what was built; unless its feature gave it up.
             var command = Running.Contains(gone.State, StringComparer.Ordinal)
                 ? (gone.Unlabelled ? null : "UPDATE cards SET unlabelled = true, changed_at = @now WHERE project_id = @projectId AND number = @number")
-                : gone.State == "done" && gone.PullRequestNumber is not null ? null
+                : gone.State == "done" && gone.PullRequestNumber is not null && !(gone.FeatureId is { } feature && givenUp.Contains(feature)) ? null
                 : "DELETE FROM cards WHERE project_id = @projectId AND number = @number";
             if (command is not null)
             {

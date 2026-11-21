@@ -78,7 +78,10 @@ branch opened, kept up to the default branch while it waits for the owner, a con
 agent in a job of its own, and the whole feature reviewed by a fresh reviewer, fixed on its branch
 in up to three rounds when that review asks for changes or on the owner's comment, and ready for the
 owner once a review approves its head and CI passed there, see "The end of a feature", "A
-conflict", "Reviewing a feature" and "Fixing a feature" below. A card that cannot be made to work stops, is marked on its issue and
+conflict", "Reviewing a feature" and "Fixing a feature" below. The owner merges a feature into the
+default branch himself, from its page or from "Waiting for you", once CI passed on its head; then
+its cards are closed, or, when its pull request is closed without merging, opened again, see
+"Merging a feature" below. A card that cannot be made to work stops, is marked on its issue and
 shows under "Stopped", and his comment runs it again; a failure outside the card makes its project
 wait instead, see "Stops" below.
 
@@ -513,6 +516,10 @@ confirmation, since a comment can be answered.
 **The page never writes what the runner owns.** No label, no status, no board column: after a
 comment the runner sees the owner's input on its next turn and moves the label itself, and a merge
 is the merge the runner's gate would make, a merge commit on a head with both checks green.
+
+**A whole feature is merged the same way**, as the owner, with his token, naming the commit the page
+showed, and asking first; what it adds, and why it is offered without the review's approval but
+never without CI, is "Merging a feature" below.
 
 ## Workers
 
@@ -1348,8 +1355,10 @@ the watch has read the branch since Dev flow's own last merge or push there, so 
 asked for a commit the watch has not seen and judged, and a bringing in that just happened is not
 missed. CI is read as "The merge check" reads it, by the same `MergeCheck.Ci`: pending waits,
 nothing for 30 minutes is "CI did not report", any other conclusion is "CI failed". It is read
-again each minute while a feature is ready or waits, so a ready feature whose CI later fails, or
-whose branch moves, stops being ready on the next minute.
+again each minute while a feature is ready, so a ready feature whose CI later fails, or whose
+branch moves, stops being ready on the next minute; and for the head of a feature that waits for the
+owner whatever its review, until CI has passed there, since he may merge it, see "Merging a
+feature".
 
 **A failure in the job waits for the owner, at that commit.** A review that failed in its own work,
 its time limit or a verdict out of its form, is not handed out again for the same commit, as a
@@ -1415,6 +1424,74 @@ the run that did not see it. Taken by id, every comment of his is answered exact
 what "newer than the last run" is for. It does not count against the three rounds: he decides when
 his own input is worth another run. "Send the whole feature back" posts his comment as him and lets
 the next read take it, so the comment on GitHub is the one record and there is one way in.
+
+### Merging a feature
+
+The owner merges a feature into the default branch himself, as the spec's round 2 has it in every
+setting, from its page or from its item under "Features ready for your review", and GitHub's own
+button works too. It is the one way part 4 reaches the default branch. The routes, the refusals,
+the dialog and what follows are "Merging a feature" and "Acting from the page" in
+`devflow/README.md`.
+
+**As him, as part 1's merge is.** The merge is `ICodeHost.Merge` with his token from
+`UserTokens.For`, a merge commit, so GitHub records it as his and the watch on the default branch
+finds it fine as a change by his login, without anything recorded for it; and nothing the program
+holds as the app can make it, see the security entry "A feature reaches the default branch only by
+the owner's own merge".
+
+**Offered without the review's approval, never without CI.** The feature issue decides it: "It is
+offered only when CI has passed on its head, and it warns me when the review has not approved it."
+The review of the whole feature is advice to the owner, who reviews the feature himself anyway: a
+review that asked for changes three times, or one that could not be made, leaves the feature
+waiting for him, and he may judge the findings wrong or not worth another round, so the confirmation
+says the review's state, lists its blocking findings, or says it was not reviewed as a whole, and
+lets him merge. CI is different: a failing or missing check is not a judgement to weigh but a fact
+that the default branch would break, and testing is not something he clicks past. So CI on the head
+is a condition, and the review's verdict a warning.
+
+**Decided from what Dev flow stored, so it refuses before GitHub is asked.** Whether a merge is
+offered is read from the feature's state, its pull request, the head its branch's watch named, the
+head the minute last read CI as passed on, `features.ci_passed_commit`, and whether the project is
+stopped. The page, the waiting list and the route read the same rule, `FeatureMergeOffers`, so a
+button is never shown that the route refuses, and the route refuses a head CI has not passed on, a
+stopped project or a feature not his turn without a request to GitHub. The minute reads CI for a
+head that waits for him whatever its review, and only until it has passed there, so a feature
+waiting for days costs no reads once it is mergeable; CI that could not be read is no pass. As for
+part 1's merge, the snapshot is never trusted for the act itself: the merge names the head the page
+showed as `sha`, which GitHub refuses once the branch moved on, and the project is read again either
+way. A stale page can cost a click, never a wrong merge. A project that is stopped merges nothing,
+since something on one of its branches is not what Dev flow put there.
+
+**Merging confirms what he did not answer.** A decision a feature's card marked for him that he left
+unanswered on the feature's page is kept as `merged`, confirmed by merging, as merging a pull request
+on GitHub confirms the decisions in it. It is written by the read that finds the feature merged,
+whoever merged it, so GitHub's button confirms them too, and the confirmation counts them first.
+
+**The read follows the feature's pull request as it follows a card's.** One that left the open pull
+requests is read on its own: merged, the feature is `merged`; closed without merging, `closed`.
+Either way its branch is no longer watched, since nothing more of the feature lands there, and the
+features table keeps it, as a merged card is kept, as the story of what was built.
+
+**After a merge, the cards are closed by the app.** The parent closes by its pull request's
+`Closes` line, which is why the feature issue says an open parent means the feature is not in the
+default branch yet. Each card was closed by the app as it landed in the feature's branch, but one
+may have been opened again since, so on the next minute Dev flow reads the parent's sub-issues and
+closes, as the app with a comment, any still open. It reads them from GitHub rather than from its
+own cards, since a read that no longer finds the parent stops keeping cards that are not done.
+
+**A pull request closed without merging gives the cards back.** What was built for them never
+reached the default branch, so each card Dev flow kept for the feature is opened again by the app,
+with a comment saying why, and the feature is `closed`. It stays closed while its label stays on,
+so closing the pull request is never undone by Dev flow. Labelled again later, after the label was
+taken off, it starts afresh: a closed feature not found by a read gives up the cards it kept, and is
+then removed as any feature no card refers to is, so the next read with the label picks a new
+feature, queued, with its cards queued. Its old runs and reviews stay, by the parent's number. Its
+old branch is not deleted by Dev flow, so a new branch of the same name answers that it exists and
+the feature waits for the owner, as any feature whose branch name is taken does, until he deletes
+it.
+
+**Deleting the branch is left to GitHub.** After a merge, the feature's branch is GitHub's to delete,
+by the repository's own setting; Dev flow never deletes a branch.
 
 ## Stops
 
@@ -2100,6 +2177,14 @@ the owner's parent never makes a stranger's sub-issue an instruction. A card's t
 - **A worker's `resets_at` is believed within limits.** A worker could send a reset far off and
   hold its own project's work back; it can only hold back the project whose key it has, which it
   could as well by asking for no work, and Dev flow believes a reset only in the next 8 days.
+- **A feature reaches the default branch only by the owner's own merge.** The program merges a
+  feature's cards into its branch as the app, but never the feature into the default branch: the
+  only code that asks for that merge is the route the owner's page calls, which merges with his
+  token from `UserTokens.For`, so it is typed as his and recorded on GitHub as his, and the app's
+  keys cannot make it. It is refused, before GitHub is asked, while CI has not passed on the head,
+  while the project is stopped, and for a feature that is not his turn; and it names the head the
+  page showed, which GitHub must match. `FeatureMergeTests.MergingIsMine` checks that the merge is
+  his, never the app's, and with the head shown.
 - **The only job that pushes a merge of the default branch is held to one merge commit with known
   parents.** A conflict job pushes to a feature's branch, which every later job of the feature builds
   on and whose pull request goes to the default branch. The worker takes the agent's work only when

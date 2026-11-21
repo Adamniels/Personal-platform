@@ -338,6 +338,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/devflow/api/projects/{id}/features/{number}/merge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What merging a feature confirms, for the dialog that asks first
+         * @description The feature's number and title, the default branch it merges into, its pull_request, number and url, the head_commit the merge names, review, approved when its newest review approved a commit that covers the head, changes when its newest review asked for changes, with its blocking findings as open_findings, and not_reviewed otherwise, and unanswered, how many decisions its cards marked for the caller have no answer, each of which merging confirms. Read from what Dev flow stored, never from GitHub; every text from GitHub or the reviewer is to be shown as text. In order: 404 for a project or feature the caller does not have; 409 as mergeFeature refuses, when it is not ready or waiting for the caller with its pull request, the project is stopped, or CI has not passed on its head. Without a valid token, 401 with an empty body.
+         */
+        get: operations["getFeatureMerge"];
+        put?: never;
+        /**
+         * Merge a feature into the default branch, as the caller
+         * @description Merges the feature's pull request into the default branch with a merge commit, as the caller's linked GitHub account and never as the app, only while its head is head_commit, the commit the page showed. In order: 404 for a project or feature the caller does not have; 422 without head_commit; 409 when the feature is not ready or waiting for the caller with its pull request; 409 when the project is stopped; 409 when CI has not passed on the feature's head, as the minute last read it; 409 when head_commit is not that head, after the project is read again; 409 when GitHub is not linked or the link has expired; then GitHub is asked. 204 once merged and the project read again, which makes the feature merged. 409 when GitHub says the head moved, after the project is read again, and when GitHub will not merge it or refuses, with its reason; 503 when GitHub did not answer. The review's verdict is not among the refusals: the confirmation says it. Without a valid token, 401 with an empty body; a change from another origin, 403.
+         */
+        post: operations["mergeFeature"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/devflow/api/projects/{id}/features/{number}/send-back": {
         parameters: {
             query?: never;
@@ -1000,6 +1024,7 @@ export interface components {
         FeatureItem: {
             /** Format: date-time */
             changed_at: string;
+            merge: null | components["schemas"]["FeatureMergeOffer"];
             /** Format: int32 */
             number: number;
             owner: string;
@@ -1026,6 +1051,22 @@ export interface components {
             summary: string;
             verdict: string;
         };
+        FeatureMergeConfirmation: {
+            head_commit: string;
+            into: string;
+            /** Format: int32 */
+            number: number;
+            open_findings: components["schemas"]["ReviewFinding"][];
+            pull_request: components["schemas"]["CardPullRequest"];
+            review: string;
+            title: string;
+            /** Format: int32 */
+            unanswered: number;
+        };
+        FeatureMergeOffer: {
+            head_commit: string;
+            into: string;
+        };
         FeatureStoryView: {
             branch: null | components["schemas"]["FeatureBranch"];
             cards: components["schemas"]["FeatureCard"][];
@@ -1033,6 +1074,7 @@ export interface components {
             fix_rounds: number;
             /** Format: int64 */
             input_tokens: number;
+            merge: null | components["schemas"]["FeatureMergeOffer"];
             /** Format: int32 */
             number: number;
             /** Format: int64 */
@@ -2254,6 +2296,122 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["SendBackRequest"];
+            };
+        };
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    getFeatureMerge: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                number: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeatureMergeConfirmation"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    mergeFeature: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                number: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MergeRequest"];
             };
         };
         responses: {

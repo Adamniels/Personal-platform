@@ -244,6 +244,8 @@ public sealed record FeatureItemReview(string Verdict, string Summary, int Block
 /// <param name="Unanswered">How many decisions its cards' latest reports marked for the owner he has
 /// not answered on its page.</param>
 /// <param name="ChangedAt">When it came to be where it is.</param>
+/// <param name="Merge">"Merge into &lt;default&gt;" when it is offered for merging, as on its page;
+/// null when it is not.</param>
 public sealed record FeatureItem(
     Guid ProjectId,
     string ProjectName,
@@ -257,7 +259,8 @@ public sealed record FeatureItem(
     Uri? PullRequestUrl,
     FeatureItemReview? Review,
     int Unanswered,
-    DateTimeOffset ChangedAt);
+    DateTimeOffset ChangedAt,
+    Features.FeatureMergeOffer? Merge);
 
 /// <summary>What <c>GET /devflow/api/waiting</c> answers.</summary>
 /// <param name="Count">The items not sent back, Dev flow's own items, cards, decisions to look at
@@ -385,12 +388,13 @@ public sealed class WaitingStore(UserDb database, TimeProvider time)
                 transaction: transaction,
                 cancellationToken: cancellationToken));
             var featureRows = await transaction.Connection!.QueryAsync<FeatureRow>(new CommandDefinition(
-                """
+                $"""
                 SELECT f.project_id AS ProjectId, p.name AS ProjectName, p.owner AS Owner, f.number AS Number, f.title AS Title,
                        f.web_url AS WebUrl, f.state AS State, f.reason AS Reason, f.pull_request_number AS PullRequestNumber,
                        f.pull_request_url AS PullRequestUrl, f.changed_at AS ChangedAt, v.verdict AS Verdict, v.summary AS VerdictSummary,
                        v.reviewed_commit AS ReviewedCommit,
-                       (SELECT count(*) FROM jsonb_array_elements(v.findings) e WHERE e->>'blocking' = 'true')::int AS Blocking
+                       (SELECT count(*) FROM jsonb_array_elements(v.findings) e WHERE e->>'blocking' = 'true')::int AS Blocking,
+                       {Features.FeatureMergeOffers.IntoSql} AS MergeInto, {Features.FeatureMergeOffers.HeadSql} AS Head
                 FROM features f
                 JOIN projects p ON p.id = f.project_id
                 LEFT JOIN LATERAL (SELECT * FROM feature_reviews
@@ -496,7 +500,8 @@ public sealed class WaitingStore(UserDb database, TimeProvider time)
         row.PullRequestUrl is { } address ? new Uri(address) : null,
         row.Verdict is { } verdict && row.ReviewedCommit is { } commit ? new FeatureItemReview(verdict, row.VerdictSummary?.Trim() ?? "", row.Blocking, commit) : null,
         unanswered,
-        GitHubLink.Utc(row.ChangedAt));
+        GitHubLink.Utc(row.ChangedAt),
+        Features.FeatureMergeOffers.Of(row.MergeInto, row.Head));
 
     /// <summary>A waiting card as the list answers it, from its row and its run's report, read into
     /// its form; a report that does not read, which a waiting card's run never has, says
@@ -672,7 +677,9 @@ public sealed class WaitingStore(UserDb database, TimeProvider time)
         string? Verdict,
         string? VerdictSummary,
         string? ReviewedCommit,
-        int Blocking);
+        int Blocking,
+        string? MergeInto,
+        string? Head);
 
     private sealed record StopRow(Guid ProjectId, string Name, string Owner, string Branch, string ActivityType, string? Actor, string Commit, DateTime LandedAt, DateTime StoppedAt);
 }

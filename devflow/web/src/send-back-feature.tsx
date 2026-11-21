@@ -36,6 +36,10 @@ export type SendBackProps = {
 	send: SendBackFeature;
 	/** Reads again what shows the feature. */
 	reload: () => Promise<unknown>;
+	/** The id of a line beside it that already says why the button cannot be
+	 * pressed, the merge's; when given, it points at that line and shows none
+	 * of its own, so the line is not said twice. */
+	lineShownAt?: string;
 };
 
 /** The button, and the comment box once it is pressed, with what went wrong
@@ -46,9 +50,11 @@ export function SendBack({
 	link,
 	send,
 	reload,
+	lineShownAt,
 }: SendBackProps) {
 	const toast = useToast();
-	const lineId = useId();
+	const ownLineId = useId();
+	const lineId = lineShownAt ?? ownLineId;
 	const [writing, setWriting] = useState(false);
 	const [refusal, setRefusal] = useState<string | null>(null);
 	// Nothing to say while the link's state is still being read.
@@ -95,7 +101,7 @@ export function SendBack({
 					</Button>
 				</div>
 			)}
-			{line === null ? null : (
+			{line === null || lineShownAt !== undefined ? null : (
 				<p id={lineId} className={styles.why}>
 					{line}
 				</p>

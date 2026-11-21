@@ -36,6 +36,7 @@ function feature(overrides: Partial<FeatureItem> = {}): FeatureItem {
 		},
 		unanswered: 2,
 		changed_at: new Date(NOW - 60_000).toISOString(),
+		merge: null,
 		...overrides,
 	};
 }
@@ -120,6 +121,8 @@ function openLinked(
 				resume: () => Promise.resolve(),
 				mergeCard: () => Promise.resolve(),
 				sendBackCard: () => Promise.resolve(),
+				loadFeatureMerge: () => Promise.reject(new Error("not offered")),
+				mergeFeature: () => Promise.resolve(),
 				sendBackFeature,
 			}}
 			now={() => NOW}
@@ -127,6 +130,55 @@ function openLinked(
 	);
 	return waiting;
 }
+
+/** The list with `answer`, read as `answers` says after the first read, the
+ * caller's GitHub linked, merging as `actions` does. */
+function openActing(
+	answer: WaitingList,
+	after: WaitingList,
+	actions: Partial<ActionsApi>,
+) {
+	const loadWaiting = vi
+		.fn<WaitingApi["loadWaiting"]>()
+		.mockResolvedValueOnce(answer)
+		.mockResolvedValue(after);
+	window.history.pushState(null, "", "/devflow");
+	render(
+		<App
+			loadStatus={() =>
+				Promise.resolve({
+					code_host: "fake",
+					github: { state: "linked", login: "octo-owner" },
+				})
+			}
+			waiting={{ loadWaiting, refresh: () => Promise.resolve() }}
+			actions={{
+				merge: () => Promise.resolve(),
+				sendBack: () => Promise.resolve(),
+				resume: () => Promise.resolve(),
+				mergeCard: () => Promise.resolve(),
+				sendBackCard: () => Promise.resolve(),
+				loadFeatureMerge: () => Promise.reject(new Error("not offered")),
+				mergeFeature: () => Promise.resolve(),
+				sendBackFeature: () => Promise.resolve(),
+				...actions,
+			}}
+			now={() => NOW}
+		/>,
+	);
+}
+
+// jsdom has HTMLDialogElement and its `open` attribute, but neither showModal
+// nor close. These stand in for the browser's, as projects-link.test.tsx's do.
+HTMLDialogElement.prototype.showModal ??= function (this: HTMLDialogElement) {
+	this.open = true;
+	this.querySelector("button")?.focus();
+};
+HTMLDialogElement.prototype.close ??= function (this: HTMLDialogElement) {
+	if (!this.open) return;
+	this.open = false;
+	this.dispatchEvent(new Event("close"));
+};
 
 function panel() {
 	return within(screen.getByRole("tabpanel"));
@@ -244,6 +296,71 @@ describe("features ready for your review", () => {
 		});
 		expect(item.querySelector("img")).toBeNull();
 		expect(within(item).getByText(`Why ${hostile}`)).toBeTruthy();
+	});
+
+	test("a feature offered for merging is merged from its item, after a confirmation", async () => {
+		const mergeFeature = vi.fn<ActionsApi["mergeFeature"]>(() =>
+			Promise.resolve(),
+		);
+		openActing(
+			list([feature({ merge: { into: "trunk", head_commit: HEAD } })]),
+			list([]),
+			{
+				loadFeatureMerge: () =>
+					Promise.resolve({
+						number: 38,
+						title: "Feeding plan, version 2",
+						into: "trunk",
+						pull_request: {
+							number: 51,
+							url: "https://github.com/Adamniels/Fodr/pull/51",
+						},
+						head_commit: HEAD,
+						review: "approved",
+						open_findings: [],
+						unanswered: 2,
+					}),
+				mergeFeature,
+			},
+		);
+
+		const item = within(
+			await panel().findByRole("article", { name: "Feeding plan, version 2" }),
+		);
+		// Named with the default branch, beside the item's links.
+		const button = item.getByRole("button", { name: "Merge into trunk" });
+		expect(item.getByRole("link", { name: "Open the feature" })).toBeTruthy();
+		fireEvent.click(button);
+
+		const dialog = within(
+			await screen.findByRole("dialog", {
+				name: "Merge feature #38 into trunk?",
+			}),
+		);
+		expect(
+			dialog.getByText("Merging confirms 2 decisions you have not answered."),
+		).toBeTruthy();
+		fireEvent.click(dialog.getByRole("button", { name: "Merge" }));
+
+		await waitFor(() =>
+			expect(mergeFeature).toHaveBeenCalledWith(PROJECT, 38, HEAD),
+		);
+		expect(await screen.findByText("Merged feature #38")).toBeTruthy();
+		await waitFor(() =>
+			expect(
+				panel().queryByRole("article", { name: "Feeding plan, version 2" }),
+			).toBeNull(),
+		);
+	});
+
+	test("a feature not offered for merging has no Merge", async () => {
+		openWith(list([feature({ state: "waiting_for_owner", merge: null })]));
+
+		const item = within(
+			await panel().findByRole("article", { name: "Feeding plan, version 2" }),
+		);
+		expect(item.queryByRole("button", { name: /^Merge into/ })).toBeNull();
+		expect(item.getByRole("link", { name: "Open the feature" })).toBeTruthy();
 	});
 
 	test("a feature is sent back from the list with a comment", async () => {
