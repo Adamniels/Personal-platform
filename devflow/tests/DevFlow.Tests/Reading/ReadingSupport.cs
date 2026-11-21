@@ -223,6 +223,7 @@ internal sealed class CountingCodeHost(ICodeHost inner) : ICodeHost
     private Func<Task>? _beforeCommitter;
     private Func<Task>? _beforeMergeAsApp;
     private Func<Task>? _beforeBringIn;
+    private Func<Task>? _afterFeatureActivity;
     private int _listing;
     private int _mostAtOnce;
 
@@ -261,6 +262,15 @@ internal sealed class CountingCodeHost(ICodeHost inner) : ICodeHost
     {
         get => Volatile.Read(ref _beforeMergeAsApp);
         set => Volatile.Write(ref _beforeMergeAsApp, value);
+    }
+
+    /// <summary>When set, run once after a feature's branch's changes are next listed, before they
+    /// are answered: so a test can change the world between a watch listing the branch and storing
+    /// what it read.</summary>
+    public Func<Task>? AfterFeatureActivity
+    {
+        get => Volatile.Read(ref _afterFeatureActivity);
+        set => Volatile.Write(ref _afterFeatureActivity, value);
     }
 
     /// <summary>When set, run once as the app next brings a branch in, before the code host is
@@ -413,15 +423,21 @@ internal sealed class CountingCodeHost(ICodeHost inner) : ICodeHost
         return inner.ChangedFiles(userId, repository, from, head, cancellationToken);
     }
 
-    public Task<CodeHostResult<IReadOnlyList<BranchActivity>>> Activity(Guid userId, CodeHost.Repository repository, string branch, long? since, CancellationToken cancellationToken)
+    public async Task<CodeHostResult<IReadOnlyList<BranchActivity>>> Activity(Guid userId, CodeHost.Repository repository, string branch, long? since, CancellationToken cancellationToken)
     {
         Record("Activity", userId, repository, $"{branch} {since}");
         if (UnavailableBranches.ContainsKey(branch))
         {
-            return Task.FromResult<CodeHostResult<IReadOnlyList<BranchActivity>>>(new CodeHostResult<IReadOnlyList<BranchActivity>>.Unavailable(RetryAt: null));
+            return new CodeHostResult<IReadOnlyList<BranchActivity>>.Unavailable(RetryAt: null);
         }
 
-        return inner.Activity(userId, repository, branch, since, cancellationToken);
+        var listed = await inner.Activity(userId, repository, branch, since, cancellationToken);
+        if (branch.StartsWith("feature-", StringComparison.Ordinal) && Interlocked.Exchange(ref _afterFeatureActivity, null) is { } step)
+        {
+            await step();
+        }
+
+        return listed;
     }
 
     public async Task<CodeHostResult<Committer>> AppCommitter(Guid userId, CodeHost.Repository repository, CancellationToken cancellationToken)

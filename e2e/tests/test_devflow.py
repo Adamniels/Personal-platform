@@ -2987,13 +2987,16 @@ def test_a_features_card_lands_in_its_branch(
     capture(page, "devflow-feature-card-landed")
 
 
-def _landed_feature(page: Page, base_url: str, devflow_world) -> str:
+def _landed_feature(
+    page: Page, base_url: str, devflow_world, next_running: bool = True
+) -> str:
     """Connects a repository with a labelled feature of three cards, 61, 62 and
     63 under 60, and the project's .devflow/project.json; the fake worker
     builds 61 with `_report()`, which marks a decision for the owner, and two
     pictures of one page, CI passes on it and the reviewer approves, so Dev
     flow merges it into the feature's branch; then 62 is handed out and kept
-    running. The project's id."""
+    running, unless `next_running` is false, when it stays queued. The
+    project's id."""
     world = one_repository()
     add_issue(
         world, 60, "The feature's branch", labels=["devflow"], sub_issues=[61, 62, 63]
@@ -3061,6 +3064,8 @@ def _landed_feature(page: Page, base_url: str, devflow_world) -> str:
         f"/devflow/api/projects/{project}/refresh", headers={"Origin": base_url}
     )
     assert refreshed.status == 204, refreshed.text()
+    if not next_running:
+        return project
 
     taken = page.request.post(
         "/devflow/api/fake/worker/run",
@@ -3192,6 +3197,62 @@ def test_i_answer_a_decision_fine_as_it_is(
     assert page.request.get("/devflow/api/fake/world").json() == world_before
     assert _writes(page) == writes_before
     _look(page, "devflow-feature-decision-answered")
+
+
+def test_i_send_a_card_back_from_the_features_page(
+    page: Page, invite_code: str, base_url: str, viewport: str, devflow_world
+):
+    register_and_log_in(page, invite_code, base_url)
+    project = _landed_feature(page, base_url, devflow_world, next_running=False)
+
+    # From the feature's page, on the card that landed, with a comment.
+    page.goto(f"/devflow/projects/{project}/features/60")
+    cards = page.get_by_role("article", name="Cards")
+    expect(cards.get_by_role("button", name="Send back #62")).to_have_count(0)
+    cards.get_by_role("button", name="Send back #61").click()
+    said = "Read the sub-issues a hundred at a time, not all at once."
+    cards.get_by_role("textbox", name="What should the developer change in #61?").fill(
+        said
+    )
+    cards.get_by_role("button", name="Send", exact=True).click()
+    expect(page.get_by_text("Sent back #61")).to_be_visible()
+
+    # Posted as me on the card's issue, never as the app.
+    mine = [
+        write
+        for write in _writes(page)
+        if write["kind"] == "comment" and write["by"] == "octo-owner"
+    ]
+    assert len(mine) == 1, mine
+    assert (mine[0]["number"], mine[0]["body"]) == (61, said)
+
+    # The read that followed took it: the card is queued with my words, and
+    # the feature builds again.
+    rows = page.get_by_role("table", name="Cards of the feature").get_by_role("row")
+    expect(rows.nth(1)).to_contain_text("Queued")
+    expect(page.get_by_role("article", name="The feature")).to_contain_text("Building")
+    sent = cards.get_by_role("list", name="Cards you sent back")
+    expect(sent).to_contain_text("#61 Read the sub-issues")
+    expect(sent).to_contain_text("Sent back from pull request #")
+    expect(sent).to_contain_text(said)
+    _look(page, "devflow-feature-card-sent-back")
+
+    # The fake worker takes it next, on a new branch from the feature's, and
+    # it is building.
+    taken = page.request.post(
+        "/devflow/api/fake/worker/run",
+        data={"project_id": project, "keep_running": True},
+        headers={"Origin": base_url},
+    )
+    assert taken.status == 200, taken.text()
+    assert (taken.json()["card"], taken.json()["branch"]) == (
+        61,
+        "devflow/61-read-the-sub-issues-2",
+    )
+    page.reload()
+    rows = page.get_by_role("table", name="Cards of the feature").get_by_role("row")
+    expect(rows.nth(1)).to_contain_text("Building")
+    expect(page.get_by_role("article", name="The feature")).to_contain_text("Building")
 
 
 def test_a_finished_feature_gets_its_pull_request(
@@ -3458,10 +3519,12 @@ def test_a_conflict_is_resolved_by_an_agent(
     _look(page, "devflow-feature-conflict-resolved")
 
 
-def test_a_reviewed_feature_is_ready_for_me(
-    page: Page, invite_code: str, base_url: str, viewport: str, devflow_world
-):
-    register_and_log_in(page, invite_code, base_url)
+def _published_feature(page: Page, base_url: str, devflow_world) -> tuple[str, int]:
+    """A feature of one card, 61 under the parent 60, built, reviewed and
+    landed by the fake worker while main moves on, so its end brings main in
+    and opens its pull request; then read again, so its branch is watched at
+    the merge and its whole review is the next job. The project's id and the
+    feature's pull request."""
     # A labelled feature of one card, and the project's .devflow/project.json.
     world = one_repository()
     add_issue(world, 60, "The feature's branch", labels=["devflow"], sub_issues=[61])
@@ -3530,12 +3593,52 @@ def test_a_reviewed_feature_is_ready_for_me(
     assert len(opened) == 1, opened
     pull = opened[0]["number"]
 
-    # Read again, so the feature's branch is watched at the merge; the fake
-    # worker takes the next job, the whole feature's review, and approves it.
+    # Read again, so the feature's branch is watched at the merge, and the
+    # whole feature's review is the next job.
     refreshed = page.request.post(
         f"/devflow/api/projects/{project}/refresh", headers={"Origin": base_url}
     )
     assert refreshed.status == 204, refreshed.text()
+    return project, pull
+
+
+def _fake_job(
+    page: Page, base_url: str, project: str, report: dict | None, check: dict | None
+) -> dict:
+    """The fake worker takes the project's next job and ends it with
+    `report`, and `check` when a check ran; its answer."""
+    ran = page.request.post(
+        "/devflow/api/fake/worker/run",
+        data={
+            "project_id": project,
+            "result": {
+                "outcome": "succeeded",
+                "report": report,
+                "failure": None,
+                "check": check,
+                "auth_method": "oauth_token",
+                "usage": {
+                    "usage": {"input_tokens": 30, "output_tokens": 1200},
+                    "num_turns": 11,
+                },
+                "duration_ms": 95000,
+                "stderr": "",
+            },
+        },
+        headers={"Origin": base_url},
+    )
+    assert ran.status == 200, ran.text()
+    return ran.json()
+
+
+def test_a_reviewed_feature_is_ready_for_me(
+    page: Page, invite_code: str, base_url: str, viewport: str, devflow_world
+):
+    register_and_log_in(page, invite_code, base_url)
+    project, pull = _published_feature(page, base_url, devflow_world)
+
+    # The fake worker takes the next job, the whole feature's review, and
+    # approves it.
     whole = _verdict(
         "approve",
         [
@@ -3630,6 +3733,142 @@ def test_a_reviewed_feature_is_ready_for_me(
     _look(page, "devflow-feature-review")
 
 
+def test_a_feature_is_fixed_after_its_review(
+    page: Page, invite_code: str, base_url: str, viewport: str, devflow_world
+):
+    register_and_log_in(page, invite_code, base_url)
+    project, _ = _published_feature(page, base_url, devflow_world)
+
+    # The whole feature's review asks for changes: round 1 starts.
+    changes = _verdict(
+        "changes",
+        [
+            {
+                "blocking": True,
+                "file": "devflow/src/DevFlow/Features/FeatureReady.cs",
+                "line": 12,
+                "what": "The card and the end both read the branch's head",
+                "why": "Two readers will drift apart",
+            }
+        ],
+    )
+    reviewed = _fake_job(page, base_url, project, changes, None)
+    assert (reviewed["kind"], reviewed["card"]) == ("feature_review", 60)
+    reviewed_head = reviewed["head_commit"]
+
+    page.goto(f"/devflow/projects/{project}/features/60")
+    feature = page.get_by_role("article", name="The feature")
+    expect(feature).to_contain_text("Fixing")
+    expect(feature).to_contain_text(
+        "Round 1 of 3: the review of the whole feature asked for changes; a fix runs next"
+    )
+    latest = (
+        page.get_by_role("list", name="Reviews of the feature")
+        .get_by_role("listitem")
+        .first
+    )
+    expect(latest).to_contain_text("The card and the end both read the branch's head")
+    _look(page, "devflow-feature-fixing")
+
+    # The fix is the next job, on the feature's branch, and leaves a new commit
+    # there that Dev flow recorded as its own.
+    fix = _fix_report()
+    fix["replies"] = [
+        {
+            "finding": "The card and the end both read the branch's head",
+            "answer": "Fixed: one reader, in FeatureReady.",
+        }
+    ]
+    fixed = _fake_job(
+        page, base_url, project, fix, {"exit_code": 0, "output": "Tests: 13 passed"}
+    )
+    assert (fixed["kind"], fixed["card"], fixed["branch"]) == (
+        "feature_fix",
+        60,
+        FEATURE_BRANCH,
+    )
+    assert fixed["head_commit"] != reviewed_head
+
+    # Read again, so the watch finds the push its own; the new review reads the
+    # fix's commit and approves it, and with CI green the feature is ready.
+    refreshed = page.request.post(
+        f"/devflow/api/projects/{project}/refresh", headers={"Origin": base_url}
+    )
+    assert refreshed.status == 204, refreshed.text()
+    again = _fake_job(page, base_url, project, _verdict("approve"), None)
+    assert (again["kind"], again["head_commit"]) == (
+        "feature_review",
+        fixed["head_commit"],
+    )
+    _stage_ci(page, devflow_world, again["head_commit"], [check_run("ci")])
+    asked = page.request.post(
+        "/devflow/api/fake/worker/run",
+        data={"project_id": project, "keep_running": True},
+        headers={"Origin": base_url},
+    )
+    assert asked.status == 204, asked.text()
+
+    # Its page shows the round: the review that started it, the reply, the
+    # commit it left and the review of it.
+    page.reload()
+    expect(page.get_by_role("article", name="The feature")).to_contain_text(
+        "Ready for you"
+    )
+    expect(page.get_by_text("Fix rounds, 1 of 3 used")).to_be_visible()
+    round_one = page.get_by_role("list", name="Fix rounds of the feature").get_by_role(
+        "listitem", name="Round 1 of 3"
+    )
+    expect(round_one).to_contain_text(reviewed_head[:7])
+    expect(round_one).to_contain_text("Fixed: one reader, in FeatureReady.")
+    expect(round_one).to_contain_text(fixed["head_commit"][:7])
+    expect(round_one).to_contain_text("the review of it approved it")
+
+
+def test_i_send_the_whole_feature_back(
+    page: Page, invite_code: str, base_url: str, viewport: str, devflow_world
+):
+    register_and_log_in(page, invite_code, base_url)
+    project, pull = _published_feature(page, base_url, devflow_world)
+    _fake_job(page, base_url, project, _verdict("approve"), None)
+
+    # From the feature's page, with a comment.
+    page.goto(f"/devflow/projects/{project}/features/60")
+    feature = page.get_by_role("article", name="The feature")
+    expect(feature).to_contain_text("Waiting for you")
+    feature.get_by_role("button", name="Send the whole feature back").click()
+    said = "Read the branch's head in one place for the card and the end."
+    feature.get_by_role(
+        "textbox", name="What should the developer change in the whole feature?"
+    ).fill(said)
+    _look(page, "devflow-feature-send-back")
+    feature.get_by_role("button", name="Send", exact=True).click()
+    expect(page.get_by_text("Sent back feature #60")).to_be_visible()
+
+    # Posted as me on the feature's pull request, never as the app.
+    mine = [
+        write
+        for write in _writes(page)
+        if write["kind"] == "comment" and write["by"] == "octo-owner"
+    ]
+    assert len(mine) == 1, mine
+    assert (mine[0]["number"], mine[0]["body"]) == (pull, said)
+
+    # The read that followed took it: the feature is being fixed, and its fix
+    # is the next job, with my comment in its brief.
+    expect(feature).to_contain_text("Fixing")
+    expect(feature).to_contain_text(
+        "You commented on its pull request; a fix runs next"
+    )
+    fixed = _fake_job(
+        page,
+        base_url,
+        project,
+        _fix_report(),
+        {"exit_code": 0, "output": "Tests: 13 passed"},
+    )
+    assert (fixed["kind"], fixed["card"]) == ("feature_fix", 60)
+
+
 # Merging a feature into main, as the owner, from its item under "Features
 # ready for your review" or from its page. See "Merging a feature" in
 # devflow/README.md.
@@ -3641,7 +3880,10 @@ def _reviewed_feature(
     """A labelled feature of one card carried to its end: the card built and
     landed, main brought in and the feature's pull request opened, its whole
     review answered `whole`, and CI green on its head, decided on the next
-    minute. The project, the feature's pull request and its head."""
+    minute. A verdict other than approve comes after every fix round is used,
+    each a review asking for changes and its fix, so the feature waits for me,
+    the one way one its review did not approve does. The project, the
+    feature's pull request and its head."""
     world = one_repository()
     add_issue(world, 60, "The feature's branch", labels=["devflow"], sub_issues=[61])
     add_issue(world, 61, "Merge the feature")
@@ -3712,30 +3954,33 @@ def _reviewed_feature(
     )
     assert refreshed.status == 204, refreshed.text()
 
+    # Short of an approve, the three fix rounds are used first: each review
+    # asks for changes, its fix runs, and the project is read again so the
+    # watch finds the fix's push its own.
+    if whole["verdict"] != "approve":
+        for _ in range(3):
+            asked_changes = _fake_job(
+                page, base_url, project, _verdict("changes"), None
+            )
+            assert asked_changes["kind"] == "feature_review", asked_changes
+            fixed = _fake_job(
+                page,
+                base_url,
+                project,
+                _fix_report(),
+                {"exit_code": 0, "output": "Tests: 12 passed"},
+            )
+            assert fixed["kind"] == "feature_fix", fixed
+            refreshed = page.request.post(
+                f"/devflow/api/projects/{project}/refresh",
+                headers={"Origin": base_url},
+            )
+            assert refreshed.status == 204, refreshed.text()
+
     # The fake worker takes the whole feature's review and answers `whole`.
-    reviewed = page.request.post(
-        "/devflow/api/fake/worker/run",
-        data={
-            "project_id": project,
-            "result": {
-                "outcome": "succeeded",
-                "report": whole,
-                "failure": None,
-                "check": None,
-                "auth_method": "oauth_token",
-                "usage": {
-                    "usage": {"input_tokens": 30, "output_tokens": 1200},
-                    "num_turns": 11,
-                },
-                "duration_ms": 95000,
-                "stderr": "",
-            },
-        },
-        headers={"Origin": base_url},
-    )
-    assert reviewed.status == 200, reviewed.text()
-    assert reviewed.json()["kind"] == "feature_review", reviewed.json()
-    head = reviewed.json()["head_commit"]
+    reviewed = _fake_job(page, base_url, project, whole, None)
+    assert reviewed["kind"] == "feature_review", reviewed
+    head = reviewed["head_commit"]
 
     # CI passes on the head; the next minute decides, here as the fake worker
     # asks for work, which there is none of.
@@ -3835,12 +4080,12 @@ def test_merging_warns_when_the_review_did_not_approve(
         page, base_url, devflow_world, _verdict("changes", findings)
     )
 
-    # It waits for me, since the review asked for changes, and CI passed, so
-    # Merge into main is offered on its page.
+    # It waits for me, since the review asked for changes with every round
+    # used, and CI passed, so Merge into main is offered on its page.
     page.goto(f"/devflow/projects/{project}/features/60")
     feature = page.get_by_role("article", name="The feature")
     expect(feature).to_contain_text("Waiting for you")
-    expect(feature).to_contain_text("The review of the whole feature asked for changes")
+    expect(feature).to_contain_text("Review rounds used up")
     feature.get_by_role("button", name="Merge into main").click()
 
     # The confirmation says the review asked for changes and lists the open

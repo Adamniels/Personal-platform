@@ -285,6 +285,23 @@ public static class CardStory
         return [.. runs.Select(Run)];
     }
 
+    /// <summary>
+    /// The fix rounds of the project's feature with the number, newest first, each as a card's page
+    /// shows a round: what it answered among <paramref name="reviews"/>, the feature's reviews, its
+    /// replies, and the newest of those reviews of the commit it left; read inside
+    /// <paramref name="transaction"/>, as the project's user.
+    /// </summary>
+    internal static async Task<IReadOnlyList<CardRound>> FeatureRounds(Npgsql.NpgsqlTransaction transaction, Guid projectId, int feature, IReadOnlyList<KeptReview> reviews, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(transaction);
+        var runs = await transaction.Connection!.QueryAsync<RunRow>(new CommandDefinition(
+            $"{SelectRuns} WHERE r.project_id = @projectId AND r.feature_number = @feature AND r.kind = 'feature_fix' ORDER BY r.started_at DESC, r.id DESC",
+            new { projectId, feature },
+            transaction,
+            cancellationToken: cancellationToken));
+        return [.. runs.Select(run => Round(run, reviews))];
+    }
+
     /// <summary>A fix run as a round: what it answered, its replies, and the newest review of the
     /// commit it left, recorded after it started.</summary>
     private static CardRound Round(RunRow run, IReadOnlyList<KeptReview> reviews) => new(

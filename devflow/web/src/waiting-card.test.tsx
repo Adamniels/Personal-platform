@@ -135,6 +135,7 @@ function open(
 				sendBackCard: sends,
 				loadFeatureMerge: () => Promise.reject(new Error("not offered")),
 				mergeFeature: () => Promise.resolve(),
+				sendBackFeature: () => Promise.resolve(),
 			}}
 			now={() => NOW}
 		/>,

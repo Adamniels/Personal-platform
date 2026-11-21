@@ -89,6 +89,48 @@ function openWith(answer: WaitingList) {
 	);
 }
 
+/** The list with the owner's GitHub linked, and `sendBackFeature` as the
+ * actions' way to send a feature back. */
+function openLinked(
+	answer: WaitingList,
+	sendBackFeature: ActionsApi["sendBackFeature"],
+) {
+	const waiting: WaitingApi = {
+		loadWaiting: vi.fn(() => Promise.resolve(answer)),
+		refresh: () => Promise.resolve(),
+	};
+	window.history.pushState(null, "", "/devflow");
+	render(
+		<App
+			loadStatus={() =>
+				Promise.resolve({
+					code_host: "fake",
+					github: { state: "linked", login: "octo-owner" },
+				})
+			}
+			projects={{
+				loadProjects: () => Promise.resolve([]),
+				loadRepositories: () => new Promise(() => {}),
+				connect: () => Promise.resolve(),
+				disconnect: () => Promise.resolve(),
+			}}
+			waiting={waiting}
+			actions={{
+				merge: () => Promise.resolve(),
+				sendBack: () => Promise.resolve(),
+				resume: () => Promise.resolve(),
+				mergeCard: () => Promise.resolve(),
+				sendBackCard: () => Promise.resolve(),
+				loadFeatureMerge: () => Promise.reject(new Error("not offered")),
+				mergeFeature: () => Promise.resolve(),
+				sendBackFeature,
+			}}
+			now={() => NOW}
+		/>,
+	);
+	return waiting;
+}
+
 /** The list with `answer`, read as `answers` says after the first read, the
  * caller's GitHub linked, merging as `actions` does. */
 function openActing(
@@ -118,6 +160,7 @@ function openActing(
 				sendBackCard: () => Promise.resolve(),
 				loadFeatureMerge: () => Promise.reject(new Error("not offered")),
 				mergeFeature: () => Promise.resolve(),
+				sendBackFeature: () => Promise.resolve(),
 				...actions,
 			}}
 			now={() => NOW}
@@ -318,5 +361,58 @@ describe("features ready for your review", () => {
 		);
 		expect(item.queryByRole("button", { name: /^Merge into/ })).toBeNull();
 		expect(item.getByRole("link", { name: "Open the feature" })).toBeTruthy();
+	});
+
+	test("a feature is sent back from the list with a comment", async () => {
+		const sendBackFeature = vi.fn<ActionsApi["sendBackFeature"]>(() =>
+			Promise.resolve(),
+		);
+		const waiting = openLinked(
+			list([
+				feature({
+					state: "waiting_for_owner",
+					reason: "Review rounds used up",
+				}),
+			]),
+			sendBackFeature,
+		);
+
+		const item = within(
+			await panel().findByRole("article", { name: "Feeding plan, version 2" }),
+		);
+		fireEvent.click(
+			await item.findByRole("button", { name: "Send the whole feature back" }),
+		);
+		fireEvent.change(
+			item.getByLabelText(
+				"What should the developer change in the whole feature?",
+			),
+			{ target: { value: "Round the portions once." } },
+		);
+		fireEvent.click(item.getByRole("button", { name: "Send" }));
+
+		await waitFor(() =>
+			expect(sendBackFeature).toHaveBeenCalledWith(
+				PROJECT,
+				38,
+				"Round the portions once.",
+			),
+		);
+		await waitFor(() => expect(waiting.loadWaiting).toHaveBeenCalledTimes(2));
+	});
+
+	test("sending back waits for the GitHub link", async () => {
+		openWith(list([feature()]));
+
+		const item = within(
+			await panel().findByRole("article", { name: "Feeding plan, version 2" }),
+		);
+		expect(
+			(
+				item.getByRole("button", {
+					name: "Send the whole feature back",
+				}) as HTMLButtonElement
+			).disabled,
+		).toBe(true);
 	});
 });

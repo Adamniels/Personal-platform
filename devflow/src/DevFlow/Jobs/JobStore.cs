@@ -28,7 +28,9 @@ namespace DevFlow.Jobs;
 /// and otherwise the default branch.</param>
 /// <param name="Feature">The feature it is a card of, with what its done cards left, null for a
 /// card on its own.</param>
-public sealed record ClaimedCard(Guid RunId, int Number, string Title, string Body, string Branch, IReadOnlyList<string> Comments, string Base, BriefFeature? Feature = null);
+/// <param name="SentBack">What it was sent back with after it landed in its feature's branch, null
+/// for a card never sent back.</param>
+public sealed record ClaimedCard(Guid RunId, int Number, string Title, string Body, string Branch, IReadOnlyList<string> Comments, string Base, BriefFeature? Feature = null, BriefSentBack? SentBack = null);
 
 /// <summary>A card taken for its review, with the run made for it and what the review reads of the
 /// build that made the commit.</summary>
@@ -104,7 +106,26 @@ public sealed record ClaimedConflict(Guid RunId, BriefFeature Feature, string Br
 /// <param name="Check">The newest check a worker ran on the feature's branch, null without one.</param>
 /// <param name="RemergeDiff">The conflicts' remerge diffs since the feature's last review, null
 /// without one.</param>
-public sealed record ClaimedFeatureReview(Guid RunId, BriefFeature Feature, string Branch, string Base, string Commit, IReadOnlyList<JobFeatureCard> Cards, JobFeatureCheck? Check, string? RemergeDiff);
+/// <param name="Earlier">The feature's earlier fix rounds, oldest first, empty on its first
+/// review.</param>
+public sealed record ClaimedFeatureReview(Guid RunId, BriefFeature Feature, string Branch, string Base, string Commit, IReadOnlyList<JobFeatureCard> Cards, JobFeatureCheck? Check, string? RemergeDiff, IReadOnlyList<EarlierRound> Earlier);
+
+/// <summary>A feature taken for a fix of the whole feature, with the run made for it and what the
+/// fix answers.</summary>
+/// <param name="RunId">The fix run's id, the job's.</param>
+/// <param name="Feature">The feature's parent as it was picked, and the handover note of each of its
+/// done cards, in its order.</param>
+/// <param name="Branch">The feature's branch, which the fix is pushed to.</param>
+/// <param name="Base">The default branch, which the feature's branch was made from.</param>
+/// <param name="FromCommit">The commit the feature's branch is at, as its watch last named it,
+/// which the fix starts from.</param>
+/// <param name="Round">The round, 1 to 3, or null when the owner's comment started it.</param>
+/// <param name="Report">The report of the feature's newest fix that succeeded, as it was stored,
+/// null without one.</param>
+/// <param name="Review">The review of the whole feature the fix answers, null when there is
+/// none.</param>
+/// <param name="Comments">The owner's comments the fix answers, each exactly as he wrote it.</param>
+public sealed record ClaimedFeatureFix(Guid RunId, BriefFeature Feature, string Branch, string Base, string FromCommit, int? Round, string? Report, KeptFeatureReview? Review, IReadOnlyList<string> Comments);
 
 /// <summary>The project's first feature to resolve, as read before it is taken: its id, and the
 /// commits its job would start from and bring in, which the files in conflict are read
@@ -113,7 +134,8 @@ public sealed record DueConflict(Guid Id, string FeatureCommit, string DefaultCo
 
 /// <summary>
 /// Jobs in the database, through the door as the project's user: which kind of job a project has
-/// to hand out, reviews before fixes before conflicts before builds, taking a card or a feature for
+/// to hand out, reviews before fixes, a card's before a feature's, before conflicts before builds,
+/// taking a card or a feature for
 /// one with its lock, and which run a worker holds. See "Jobs", "Review" and "A conflict" in
 /// devflow/README.md.
 /// </summary>
@@ -251,6 +273,27 @@ public static class JobStore
                     WHERE wb.project_id = features.project_id AND wb.feature_id = features.id AND wb.last_read_at >= @watchedSince)
         """;
 
+    /// <summary>
+    /// What makes a feature one to fix as a whole, as SQL over <c>features</c>: <c>fixing</c>, with
+    /// its pull request, its branch made and picked with its body kept, no run of the feature under
+    /// way, and its branch's watch read since <c>@watchedSince</c> and since Dev flow's last merge or
+    /// push there, so the commit it names, <see cref="FeatureHeadOf"/>, which the fix starts from,
+    /// holds what Dev flow put there. See "Fixing a feature" in devflow/README.md.
+    /// </summary>
+    private const string FeatureFixable = """
+        features.project_id = @projectId AND features.state = 'fixing' AND features.pull_request_number IS NOT NULL
+        AND features.branch IS NOT NULL AND features.branch_base_commit IS NOT NULL AND features.picked_body_sha256 IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM runs
+                        WHERE runs.project_id = features.project_id AND runs.feature_number = features.number AND runs.finished_at IS NULL)
+        AND EXISTS (SELECT 1 FROM branch_watches wb
+                    WHERE wb.project_id = features.project_id AND wb.feature_id = features.id AND wb.last_read_at >= @watchedSince
+                      AND wb.last_commit IS NOT NULL
+                      AND NOT EXISTS (SELECT 1 FROM merges_made m
+                                      WHERE m.project_id = features.project_id AND m.branch = features.branch AND m.merged_at >= wb.last_read_at)
+                      AND NOT EXISTS (SELECT 1 FROM pushes_made p
+                                      WHERE p.project_id = features.project_id AND p.branch = features.branch AND p.recorded_at >= wb.last_read_at))
+        """;
+
     /// <summary>The commit a feature's branch is at, as SQL over <c>features</c>: the one its watch
     /// judged last, or the one it was made at before its watch recorded any.</summary>
     internal const string FeatureHeadOf = """
@@ -268,14 +311,18 @@ public static class JobStore
     /// The branch a card's work goes on, <c>devflow/&lt;number&gt;-&lt;slug&gt;</c>: the slug is the
     /// title lowercased, each run of anything but ASCII letters and digits one hyphen, trimmed of
     /// hyphens, cut to <see cref="MaxSlug"/> characters and trimmed again; <c>devflow/&lt;number&gt;</c>
-    /// when nothing is left.
+    /// when nothing is left. A card sent back <paramref name="sentBacks"/> times after it landed
+    /// takes <c>-&lt;k&gt;</c> after it, <c>k</c> 2 for the first time, 3 for the second, so a branch
+    /// that already merged is never used again.
     /// </summary>
-    public static string Branch(int number, string title)
+    public static string Branch(int number, string title, int sentBacks = 0)
     {
+        ArgumentOutOfRangeException.ThrowIfNegative(sentBacks);
         var slug = Slug(title);
-        return slug.Length == 0
+        var branch = slug.Length == 0
             ? string.Create(CultureInfo.InvariantCulture, $"devflow/{number}")
             : string.Create(CultureInfo.InvariantCulture, $"devflow/{number}-{slug}");
+        return sentBacks == 0 ? branch : string.Create(CultureInfo.InvariantCulture, $"{branch}-{sentBacks + 1}");
     }
 
     /// <summary>The slug a branch takes from a title, by <see cref="Branch"/>'s rules; empty when
@@ -302,7 +349,7 @@ public static class JobStore
 
     /// <summary>The kind of job the project has to hand out now, <see cref="DevFlow.Protocol.Job.Review"/>,
     /// then <see cref="DevFlow.Protocol.Job.FeatureReview"/>, then <see cref="DevFlow.Protocol.Job.Fix"/>,
-    /// then <see cref="DevFlow.Protocol.Job.Conflict"/>,
+    /// then <see cref="DevFlow.Protocol.Job.FeatureFix"/>, then <see cref="DevFlow.Protocol.Job.Conflict"/>,
     /// then <see cref="DevFlow.Protocol.Job.Build"/>, so work in progress finishes before new work
     /// starts; null when it has none. A build counts a
     /// card of a feature whose branch is still to be made, which the dispatcher makes first; a card
@@ -317,6 +364,7 @@ public static class JobStore
             SELECT CASE WHEN EXISTS (SELECT 1 FROM cards WHERE {Reviewable}) THEN 'review'
                         WHEN EXISTS (SELECT 1 FROM features WHERE {FeatureReviewable}) THEN 'feature_review'
                         WHEN EXISTS (SELECT 1 FROM cards WHERE {Fixable}) THEN 'fix'
+                        WHEN EXISTS (SELECT 1 FROM features WHERE {FeatureFixable}) THEN 'feature_fix'
                         WHEN EXISTS (SELECT 1 FROM features WHERE {Resolvable}) THEN 'conflict'
                         WHEN EXISTS (SELECT 1 FROM cards WHERE {FreeToStart}) THEN 'build' END
             """,
@@ -583,6 +631,7 @@ public static class JobStore
     /// the handover note of its newest build or fix that succeeded; the newest check a worker ran on
     /// the feature's branch, a card's build or fix that succeeded, which ran on what then landed, or a
     /// conflict's; and the remerge diff of each conflict resolved since the feature's last review.
+    /// The feature's earlier fix rounds are read too, by <see cref="FeatureEarlier"/>.
     /// The feature stays <c>reviewing</c>, the run under way holding it. Null when there is none.
     /// </summary>
     public static async Task<ClaimedFeatureReview?> ClaimFeatureReview(NpgsqlTransaction transaction, Guid projectId, Guid userId, Guid workerId, string defaultBranch, string check, DateTimeOffset now, CancellationToken cancellationToken)
@@ -651,6 +700,7 @@ public static class JobStore
             transaction,
             cancellationToken: cancellationToken))).ToList();
 
+        var earlier = await FeatureEarlier(transaction, projectId, feature.Number, cancellationToken);
         await transaction.Connection!.ExecuteAsync(new CommandDefinition(
             "UPDATE features SET reason = @reason, changed_at = @now WHERE id = @id",
             new { id = feature.Id, reason = Features.FeatureReview.BeingReviewed, now },
@@ -664,13 +714,129 @@ public static class JobStore
             feature.Commit,
             [.. cards],
             checkRun is null ? null : new JobFeatureCheck(checkRun.Command, checkRun.Commit, checkRun.ExitCode, checkRun.Output),
-            remerges.Count == 0 ? null : RemergeDiffs.Cut(string.Concat(remerges.Select(Remerge))));
+            remerges.Count == 0 ? null : RemergeDiffs.Cut(string.Concat(remerges.Select(Remerge))),
+            earlier);
         await transaction.Connection!.ExecuteAsync(new CommandDefinition(
             """
             INSERT INTO runs (id, project_id, user_id, feature_number, worker_id, kind, branch, base, check_command, head_commit, started_at)
             VALUES (@id, @projectId, @userId, @number, @workerId, 'feature_review', @branch, @baseBranch, @check, @commit, @now)
             """,
             new { id = claimed.RunId, projectId, userId, number = feature.Number, workerId, branch = claimed.Branch, baseBranch = claimed.Base, check, commit = claimed.Commit, now },
+            transaction,
+            cancellationToken: cancellationToken));
+        return claimed;
+    }
+
+    /// <summary>
+    /// A feature's earlier fix rounds, oldest first, read inside <paramref name="transaction"/>,
+    /// which runs as the feature's user: each fix of the whole feature that succeeded, with the
+    /// review of the whole feature it answered, if any, and its report's replies, as
+    /// <see cref="Earlier"/> reads a card's.
+    /// </summary>
+    public static async Task<IReadOnlyList<EarlierRound>> FeatureEarlier(NpgsqlTransaction transaction, Guid projectId, int number, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(transaction);
+        return [.. await transaction.Connection!.QueryAsync<EarlierRound>(new CommandDefinition(
+            """
+            SELECT f.fix_round AS Round, v.reviewed_commit AS ReviewedCommit, v.verdict AS Verdict, v.summary AS Summary,
+                   v.findings::text AS Findings, coalesce(f.owner_comments, '[]'::jsonb)::text AS Comments,
+                   coalesce(f.report->'replies', '[]'::jsonb)::text AS Replies, f.head_commit AS FixedCommit
+            FROM runs f
+            LEFT JOIN feature_reviews v ON v.project_id = f.project_id AND v.run_id = f.fix_review_id
+            WHERE f.project_id = @projectId AND f.feature_number = @number AND f.kind = 'feature_fix' AND f.result = 'succeeded'
+            ORDER BY f.started_at, f.id
+            """,
+            new { projectId, number },
+            transaction,
+            cancellationToken: cancellationToken))];
+    }
+
+    /// <summary>
+    /// Takes the project's first feature to fix as a whole, by <see cref="CardStore.QueueOrder"/>,
+    /// inside <paramref name="transaction"/>, which runs as the project's user, as
+    /// <see cref="ClaimFix"/> takes a card: locks its row with <c>FOR UPDATE SKIP LOCKED</c>, and
+    /// records a fix run for the worker, for the feature by its number, on its branch with the
+    /// default branch, <paramref name="defaultBranch"/>, as its base, from the commit its watch last
+    /// named, with the round, the review and the owner's comments the feature's move to fixing set,
+    /// and the <paramref name="check"/> its job carries. What the fix reads is read in the same
+    /// transaction: the parent as picked, each done card's handover note in the feature's order, the
+    /// report of the feature's newest fix that succeeded and the review it answers. The feature stays
+    /// <c>fixing</c>, the run under way holding it. Null when there is none.
+    /// </summary>
+    public static async Task<ClaimedFeatureFix?> ClaimFeatureFix(NpgsqlTransaction transaction, Guid projectId, Guid userId, Guid workerId, string defaultBranch, string check, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(transaction);
+        ArgumentException.ThrowIfNullOrEmpty(defaultBranch);
+        ArgumentNullException.ThrowIfNull(check);
+        var feature = await transaction.Connection!.QuerySingleOrDefaultAsync<ToFixFeature>(new CommandDefinition(
+            $"""
+            SELECT features.id AS Id, features.number AS Number, coalesce(features.picked_title, features.title) AS Title,
+                   coalesce(features.picked_body, '') AS Body, features.branch AS Branch, {FeatureHeadOf} AS FromCommit,
+                   features.next_fix_round AS Round, features.fix_review_id AS ReviewId,
+                   coalesce(features.fix_comments, '[]'::jsonb)::text AS Comments,
+                   (SELECT r.report::text FROM runs r
+                    WHERE r.project_id = features.project_id AND r.feature_number = features.number AND r.kind = 'feature_fix' AND r.result = 'succeeded'
+                    ORDER BY r.started_at DESC, r.id DESC LIMIT 1) AS Report
+            FROM features
+            WHERE {FeatureFixable}
+            ORDER BY {CardStore.QueueOrder}
+            LIMIT 1
+            FOR UPDATE OF features SKIP LOCKED
+            """,
+            new { projectId, watchedSince = Watching.WatchStore.WatchedSince(now) },
+            transaction,
+            cancellationToken: cancellationToken));
+        if (feature is null)
+        {
+            return null;
+        }
+
+        var done = await transaction.Connection!.QueryAsync<BriefHandover>(new CommandDefinition(
+            """
+            SELECT c.number AS Number, coalesce(c.picked_title, c.title) AS Title,
+                   coalesce((SELECT r.report->>'handover' FROM runs r
+                             WHERE r.project_id = c.project_id AND r.card_number = c.number AND r.kind IN ('build', 'fix') AND r.result = 'succeeded'
+                             ORDER BY r.started_at DESC, r.id DESC LIMIT 1), '') AS Note
+            FROM cards c
+            WHERE c.project_id = @projectId AND c.feature_id = @id AND c.state = 'done'
+            ORDER BY c.position
+            """,
+            new { projectId, id = feature.Id },
+            transaction,
+            cancellationToken: cancellationToken));
+        await transaction.Connection!.ExecuteAsync(new CommandDefinition(
+            "UPDATE features SET reason = @reason, changed_at = @now WHERE id = @id",
+            new { id = feature.Id, reason = Features.FeatureFix.Fixing(feature.Round), now },
+            transaction,
+            cancellationToken: cancellationToken));
+        var review = feature.ReviewId is { } reviewId ? await FeatureReviewStore.Of(transaction, reviewId, cancellationToken) : null;
+        var comments = JsonSerializer.Deserialize<List<string>>(feature.Comments) ?? [];
+        var claimed = new ClaimedFeatureFix(
+            Guid.CreateVersion7(now), new BriefFeature(feature.Number, feature.Title, feature.Body, [.. done]), feature.Branch, defaultBranch,
+            feature.FromCommit, feature.Round, feature.Report, review, comments);
+        await transaction.Connection!.ExecuteAsync(new CommandDefinition(
+            """
+            INSERT INTO runs (id, project_id, user_id, feature_number, worker_id, kind, branch, base, check_command, from_commit, fix_round,
+                              fix_review_id, owner_comments, started_at)
+            VALUES (@id, @projectId, @userId, @number, @workerId, 'feature_fix', @branch, @baseBranch, @check, @fromCommit, @round, @reviewId,
+                    @comments::jsonb, @now)
+            """,
+            new
+            {
+                id = claimed.RunId,
+                projectId,
+                userId,
+                number = feature.Number,
+                workerId,
+                branch = claimed.Branch,
+                baseBranch = claimed.Base,
+                check,
+                fromCommit = claimed.FromCommit,
+                round = claimed.Round,
+                reviewId = feature.ReviewId,
+                comments = comments.Count == 0 ? null : feature.Comments,
+                now,
+            },
             transaction,
             cancellationToken: cancellationToken));
         return claimed;
@@ -695,7 +861,9 @@ public static class JobStore
     /// with the <paramref name="check"/> its job carries, made from its feature's branch for a card
     /// of a feature and from <paramref name="baseBranch"/>, the default branch, for one on its own.
     /// Null when there is none, a card another transaction holds included, so two workers asking at
-    /// once never get the same card and neither waits for the other.
+    /// once never get the same card and neither waits for the other. A card sent back after it
+    /// landed goes on a new branch, by <see cref="Branch"/>, and carries the pull request it landed
+    /// in, the report it landed with and the owner's comments that sent it back.
     /// </summary>
     public static async Task<ClaimedCard?> Claim(NpgsqlTransaction transaction, Guid projectId, Guid userId, Guid workerId, string baseBranch, string check, DateTimeOffset now, CancellationToken cancellationToken)
     {
@@ -705,7 +873,11 @@ public static class JobStore
         var card = await transaction.Connection!.QuerySingleOrDefaultAsync<Picked>(new CommandDefinition(
             $"""
             SELECT number AS Number, picked_title AS Title, picked_body AS Body, coalesce(fix_comments, '[]'::jsonb)::text AS Comments,
-                   (SELECT f.branch FROM features f WHERE f.id = cards.feature_id) AS FeatureBranch
+                   (SELECT f.branch FROM features f WHERE f.id = cards.feature_id) AS FeatureBranch,
+                   sent_backs AS SentBacks, sent_back_from AS SentBackFrom, coalesce(sent_back_comments, '[]'::jsonb)::text AS SentBackComments,
+                   (SELECT r.report::text FROM runs r
+                    WHERE r.project_id = cards.project_id AND r.card_number = cards.number AND r.kind IN ('build', 'fix') AND r.result = 'succeeded'
+                    ORDER BY r.started_at DESC, r.id DESC LIMIT 1) AS Report
             FROM cards
             WHERE {Takeable}
             ORDER BY {CardStore.QueueOrder}
@@ -726,14 +898,20 @@ public static class JobStore
             transaction,
             cancellationToken: cancellationToken));
         var comments = JsonSerializer.Deserialize<List<string>>(card.Comments) ?? [];
-        var claimed = new ClaimedCard(Guid.CreateVersion7(now), card.Number, card.Title, card.Body, Branch(card.Number, card.Title), comments, card.FeatureBranch ?? baseBranch,
-            await FeatureOf(transaction, projectId, card.Number, cancellationToken));
+        var sentBack = card is { SentBacks: > 0, SentBackFrom: { } from }
+            ? new BriefSentBack(from, card.Report, JsonSerializer.Deserialize<List<string>>(card.SentBackComments) ?? [])
+            : null;
+        var claimed = new ClaimedCard(Guid.CreateVersion7(now), card.Number, card.Title, card.Body, Branch(card.Number, card.Title, card.SentBacks), comments, card.FeatureBranch ?? baseBranch,
+            await FeatureOf(transaction, projectId, card.Number, cancellationToken), sentBack);
+        // The run keeps every comment of his its brief quotes as his input: what sent it back, then
+        // what ran it again.
+        List<string> input = [.. sentBack?.Comments ?? [], .. comments];
         await transaction.Connection!.ExecuteAsync(new CommandDefinition(
             """
             INSERT INTO runs (id, project_id, user_id, card_number, worker_id, kind, branch, base, check_command, owner_comments, started_at)
             VALUES (@id, @projectId, @userId, @number, @workerId, 'build', @branch, @baseBranch, @check, @comments::jsonb, @now)
             """,
-            new { id = claimed.RunId, projectId, userId, number = claimed.Number, workerId, branch = claimed.Branch, baseBranch = claimed.Base, check, comments = comments.Count == 0 ? null : card.Comments, now },
+            new { id = claimed.RunId, projectId, userId, number = claimed.Number, workerId, branch = claimed.Branch, baseBranch = claimed.Base, check, comments = input.Count == 0 ? null : JsonSerializer.Serialize(input), now },
             transaction,
             cancellationToken: cancellationToken));
         return claimed;
@@ -779,7 +957,7 @@ public static class JobStore
         return new BriefFeature(parent.Number, parent.Title, parent.Body, [.. done]);
     }
 
-    /// <summary>Whether <paramref name="runId"/> is a build, a fix or a conflict run of the project,
+    /// <summary>Whether <paramref name="runId"/> is a build, a fix, a conflict or a feature's fix run of the project,
     /// under way, held by <paramref name="workerId"/>, the kinds of run a push key is made for; read
     /// as the project's user, so another user's run is never found.</summary>
     public static async Task<bool> HoldsBuild(UserDb database, Guid userId, Guid projectId, Guid runId, Guid workerId, CancellationToken cancellationToken)
@@ -788,7 +966,7 @@ public static class JobStore
         return await database.InUserTransaction(userId, transaction => transaction.Connection!.ExecuteScalarAsync<bool>(new CommandDefinition(
             """
             SELECT EXISTS (SELECT 1 FROM runs
-                           WHERE id = @runId AND project_id = @projectId AND worker_id = @workerId AND kind IN ('build', 'fix', 'conflict')
+                           WHERE id = @runId AND project_id = @projectId AND worker_id = @workerId AND kind IN ('build', 'fix', 'conflict', 'feature_fix')
                              AND finished_at IS NULL)
             """,
             new { runId, projectId, workerId },
@@ -799,9 +977,11 @@ public static class JobStore
     /// <summary>What a card under review says while its run is under way.</summary>
     public const string BeingReviewed = "The reviewer is reading it";
 
-    private sealed record Picked(int Number, string Title, string Body, string Comments, string? FeatureBranch);
+    private sealed record Picked(int Number, string Title, string Body, string Comments, string? FeatureBranch, int SentBacks, int? SentBackFrom, string SentBackComments, string? Report);
 
     private sealed record FeatureParent(int Number, string Title, string Body);
+
+    private sealed record ToFixFeature(Guid Id, int Number, string Title, string Body, string Branch, string FromCommit, int? Round, Guid? ReviewId, string Comments, string? Report);
 
     private sealed record ToReviewFeature(Guid Id, int Number, string Title, string Body, string Branch, string Commit);
 

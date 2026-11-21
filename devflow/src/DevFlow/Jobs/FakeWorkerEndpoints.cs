@@ -42,7 +42,8 @@ public sealed record FakeWorkerRan(Guid JobId, string Kind, int Card, string Bra
 /// The fake worker, in the fake mode only, under the <c>Api</c> policy and the origin check, acting
 /// on the caller's own project: one call says hello in the project as a worker on the image
 /// expected, takes its next job through the same <see cref="Dispatcher"/> a real worker asks, makes
-/// a commit on the job's branch in the fake code host for a build, on its head for a fix, a merge
+/// a commit on the job's branch in the fake code host for a build, on its head for a fix, of a card
+/// or of a whole feature, the second only when its result passed, a merge
 /// commit of the default branch's on a feature's branch for a conflict, or none for a review of a
 /// card or of a whole feature, which names the commit it was handed, and completes the job with the prepared result through the same code a
 /// real worker's result goes through. So an acceptance test drives the whole chain without a
@@ -196,6 +197,30 @@ public static class FakeWorkerEndpoints
                     fake.PutFile(userId, repository, $"{PageShots.Folder(job.Card.Number, commit)}/{name}.png", PageShots.Branch, bytes);
                 }
             }
+        }
+
+        if (job.ToFix is { } feature && job.Kind == Job.FeatureFix)
+        {
+            // A feature's fix continues the feature's branch from the commit it was handed, pushed
+            // by the app, listed among the branch's changes as GitHub lists a push, only when the agent succeeded with a done report and
+            // its check passed; with leave_no_commit it names the commit it was handed, as an agent that changed nothing.
+            var passed = prepared.Outcome == ResultRequest.Succeeded
+                && prepared.Report is { } report && Report.TryRead(report, out var read, out _) && read.Outcome == ReportOutcome.Done
+                && prepared.Check is { ExitCode: 0 };
+            var pushed = request.LeaveNoCommit == true ? feature.Commit
+                : passed ? await fake.Push(userId, repository, job.Branch, string.Create(CultureInfo.InvariantCulture, $"Fix the feature #{job.Card.Number}, by the fake worker"), FakeCodeHost.AppLogin, cancellationToken)
+                : null;
+            var lost = passed && request.LeaveNoCommit != true && pushed is null;
+            var answered = lost
+                ? prepared with { WorkerId = WorkerId, Outcome = ResultRequest.Failed, Report = null, Failure = new RunFailure(NoCommit, false), Check = null, Branch = job.Branch, HeadCommit = null }
+                : prepared with { WorkerId = WorkerId, Branch = job.Branch, HeadCommit = pushed };
+            await JobEndpoints.Complete(database, caller, job.JobId, WorkerId, JobEndpoints.Read(answered)!, now, cancellationToken);
+            // Whether the feature is reviewed again is decided on the minute, once its watch has
+            // read the push; the fake worker runs it, as for a review.
+            await readiness.DecidePending(projectId, userId, cancellationToken);
+            return lost
+                ? TypedResults.Problem(statusCode: StatusCodes.Status503ServiceUnavailable, title: "The fake's git failed", detail: "no commit was made on the feature's branch, so the job ended as a failure outside it and the feature is fixing again")
+                : TypedResults.Ok(new FakeWorkerRan(job.JobId, job.Kind, job.Card.Number, job.Branch, pushed));
         }
 
         if (job.ToFix is { } toFix)

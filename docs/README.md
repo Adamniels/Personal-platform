@@ -2,7 +2,7 @@
 
 Status: exploratory. The walking skeleton is being built.
 
-Last updated: 2026 11 20
+Last updated: 2026 11 21
 
 These are planning notes, not specifications. Everything here is the current best idea with the
 reasoning attached, and it is expected to change as building teaches things planning could not.
@@ -123,7 +123,8 @@ features" in `High-level/docs/platform-architecture.md`.
   means, a project's worker key, the worker scheme and the worker API with their routes and
   tables, the pull request Dev flow opens for a built card, with its body, the screenshots the worker
   takes of a built card's pages, with `start`, `url` and `DEVFLOW=1`, and the developer's own look at
-  its pages before it reports, a card's page, and
+  its pages before it reports, a card's page, a feature's page with sending a landed card back
+  from it, and
   fixing, with its rounds, the owner's comment as the one input read and sending a card back, the
   merge check, with its conditions in order, merging as the app and the issues for decisions marked
   for the owner, a feature's card checked through its parent and its issue closed by the app once it
@@ -131,8 +132,10 @@ features" in `High-level/docs/platform-architecture.md`.
   keeping it current and a conflict resolved by an agent in a job of its own, reviewing a whole
   feature, with when it is reviewed, its job, the diff from the merge base and the remerge diff
   apart, its brief, its verdict kept and posted, when it is ready and its group on Waiting for you,
-  merging a feature, with when it is offered, its confirmation, and what follows a merge or a pull
-  request closed without merging, stops, with what stops a card, its mark on GitHub, running it again on the owner's
+  fixing a feature, with its rounds, its job and brief, the re-review, the owner's comment on
+  its pull request and sending the whole feature back, merging a feature, with when it is offered,
+  its confirmation, and what follows a merge or a pull request closed without merging,
+  stops, with what stops a card, its mark on GitHub, running it again on the owner's
   comment and a project's wait after failures outside its cards, starting a worker, with the base
   image, the format of `.devflow/`, the recipe route, the
   two commands, the memory rule and when a worker needs a rebuild, the worker program with its
@@ -162,16 +165,19 @@ features" in `High-level/docs/platform-architecture.md`.
   lies and when a run is lost, the worker's pictures and why they never decide a merge, why the developer looks at its own pages too, the review and why its verdict lives in the database tied to its
   commit, fixing, why rounds are limited and why the owner's comment is the one input read from
   GitHub, the merge check, each condition and why it fails closed, a card of a feature, why the app
-  closes its issue and why its decisions open no issue, the end of a feature, with why it is a merge
+  closes its issue and why its decisions open no issue, sending a card back, with why only his
+  comment sends it back and why it gets a new branch, the end of a feature, with why it is a merge
   and never a rebase, why its pull request is opened at the end, not as a draft as the spec has it,
   and why the default branch is kept in a feature that waits, a conflict, with a run for a feature,
   why the files in conflict are those both sides changed, why the worker accepts exactly one merge
   commit and pushes it only once its check passed, and why the resolution is kept apart for the
   review, reviewing a feature, which the spec has not, with why its diff is from the merge base, why
   a clean bringing in needs no new review and a resolved conflict does, and why its readiness is
-  decided each minute from what Dev flow stored, merging a feature, with why it is offered without
-  the review's approval but never without CI, and why a closed pull request gives the cards back,
-  stops, with what lies in the card
+  decided each minute from what Dev flow stored, fixing a feature, with why its rounds end with the
+  owner rather than a stop, why its fix is pushed only once its check passed, and why his comment is
+  taken by id and not by time, merging a feature, with why it is offered without the review's
+  approval but never without CI, and why a closed pull request gives the cards back, stops, with
+  what lies in the card
   and what outside it, why a failure outside never counts, why one failure in the card is tried
   again, why a stop is marked on the card, running it again on his comment and reading the usage
   limit's reset, and its security decisions and accepted risks, kept for an audit,

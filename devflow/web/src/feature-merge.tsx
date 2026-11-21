@@ -46,6 +46,9 @@ export type MergeFeatureProps = {
 	primary: boolean;
 	/** What follows the button in its row, such as Open on GitHub. */
 	after?: ReactNode;
+	/** The id of the line saying why the button cannot be pressed, so another
+	 * button beside it can point at the same line; its own when not given. */
+	lineId?: string;
 };
 
 /** "1 open finding", "2 open findings". */
@@ -80,9 +83,11 @@ export function MergeFeature({
 	reload,
 	primary,
 	after,
+	lineId: givenLineId,
 }: MergeFeatureProps) {
 	const toast = useToast();
-	const lineId = useId();
+	const ownLineId = useId();
+	const lineId = givenLineId ?? ownLineId;
 	const [reading, setReading] = useState(false);
 	const [confirmation, setConfirmation] =
 		useState<FeatureMergeConfirmation | null>(null);

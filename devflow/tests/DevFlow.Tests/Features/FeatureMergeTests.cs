@@ -134,13 +134,14 @@ public sealed class FeatureMergeTests
             Assert.Equal(1, (int)confirm["unanswered"]!);
         }
 
-        // The review asked for changes and CI passed: offered, with its blocking findings open.
+        // The review asked for changes with every round used, and CI passed: offered, with its
+        // blocking findings open.
         await using (var jobs = await FeatureMerging.Feature())
         {
             await FeatureMerging.Reviewed(jobs, "changes", null,
                 Built.Finding(blocking: true, what: "The two cards read the branch twice", why: "One read would do"),
                 Built.Finding(blocking: false, what: "A name could be shorter"));
-            Assert.Equal(("waiting_for_owner", FeatureReview.ChangesAsked), ((await Ending.Row(jobs)).State, (await Ending.Row(jobs)).Reason));
+            Assert.Equal(("waiting_for_owner", FeatureFix.UsedUp), ((await Ending.Row(jobs)).State, (await Ending.Row(jobs)).Reason));
             var (status, confirm) = await Built.Get(jobs, FeatureMerging.MergePath(jobs.Project));
             Assert.Equal(StatusCodes.Status200OK, status);
             Assert.Equal("changes", (string)confirm!["review"]!);

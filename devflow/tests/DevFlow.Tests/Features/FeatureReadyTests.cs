@@ -28,7 +28,7 @@ public sealed class FeatureReadyTests
     {
         { "approved, CI passed", "ready", null },
         { "an older commit approved", "reviewing", FeatureReview.ToReview },
-        { "changes", "waiting_for_owner", FeatureReview.ChangesAsked },
+        { "changes", "fixing", FeatureFix.Asked(1) },
         { "CI pending", "waiting_for_owner", MergeCheck.CiRunning },
         { "CI failed", "waiting_for_owner", MergeCheck.CiFailed("test") },
         { "no CI yet", "waiting_for_owner", MergeCheck.CiNotYet },
@@ -77,6 +77,13 @@ public sealed class FeatureReadyTests
             var job = await jobs.Job();
             Assert.Equal(Job.FeatureReview, (string)job["kind"]!);
             Assert.Equal(await Reviewing.Head(jobs), (string)job["to_review_feature"]!["commit"]!);
+        }
+        else if (how == "changes")
+        {
+            // Its first fix round is next, on the head the review asked changes on.
+            var job = await jobs.Job();
+            Assert.Equal((Job.FeatureFix, head), ((string)job["kind"]!, (string)job["to_fix"]!["commit"]!));
+            Assert.Single(await Reviewing.Reviews(jobs));
         }
         else
         {

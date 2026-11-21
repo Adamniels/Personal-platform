@@ -12,6 +12,8 @@ using Microsoft.AspNetCore.Mvc;
 
 using PlatformAuth;
 
+using PlatformData;
+
 namespace DevFlow.Acting;
 
 /// <summary>What <c>POST /devflow/api/waiting/{id}/merge</c> takes.</summary>
@@ -84,7 +86,29 @@ public static class ActionEndpoints
             .RequireAuthorization(PlatformAuthPolicies.Api)
             .WithName("sendBackCard")
             .WithSummary("Send a card of Dev flow's own back, with a comment as the caller")
-            .WithDescription("Posts comment, trimmed and with nothing added, as the caller's linked GitHub account and never as the app: on the card's pull request for a card that waits for the caller, which the read of the project that follows takes, as any comment of his past the newest already taken, and starts a fix run with, which is not a review round; on the card's issue for a card that has stopped, which that read takes as a comment newer than the stop and runs the card again with. In order: 404 for a project or card the caller does not have; 422 when comment is missing, empty once trimmed, or longer than 10,000 characters; 409 when the card neither waits for the caller with its pull request nor has stopped; 409 when GitHub is not linked or the link has expired; then GitHub is asked. 204 once posted and the project read again. 409 when GitHub refuses, with its reason; 503 when GitHub did not answer. Without a valid token, 401 with an empty body; a change from another origin, 403.")
+            .WithDescription("Posts comment, trimmed and with nothing added, as the caller's linked GitHub account and never as the app: on the card's pull request for a card that waits for the caller, which the read of the project that follows takes, as any comment of his past the newest already taken, and starts a fix run with, which is not a review round; on the card's issue for a card that has stopped, which that read takes as a comment newer than the stop and runs the card again with; and on the card's issue for a card of a feature that has landed in the feature's branch, of a feature neither merged nor closed, which that read takes as a comment newer than the card's last run and sends the card back with, to be built again on a new branch. In order: 404 for a project or card the caller does not have; 422 when comment is missing, empty once trimmed, or longer than 10,000 characters; 409 when the card neither waits for the caller with its pull request, nor has stopped, nor has landed in an open feature; 409 when GitHub is not linked or the link has expired; then GitHub is asked. 204 once posted and the project read again. 409 when GitHub refuses, with its reason; 503 when GitHub did not answer. Without a valid token, 401 with an empty body; a change from another origin, 403.")
+            .Produces(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesValidationProblem(StatusCodes.Status422UnprocessableEntity)
+            .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
+
+        routes.MapPost("/devflow/api/projects/{id:guid}/features/{number:int}/send-back", SendBackFeature)
+            .RequireAuthorization(PlatformAuthPolicies.Api)
+            .WithName("sendBackFeature")
+            .WithSummary("Send a whole feature of Dev flow's own back, with a comment as the caller")
+            .WithDescription("Posts comment, trimmed and with nothing added, as the caller's linked GitHub account and never as the app, on the feature's pull request to the default branch, which the read of the project that follows takes, as any comment of his past the newest already taken, and starts a fix of the whole feature with, which is not one of its review's rounds. In order: 404 for a project or feature the caller does not have; 422 when comment is missing, empty once trimmed, or longer than 10,000 characters; 409 when the feature is neither ready nor waiting for the caller with its pull request; 409 when GitHub is not linked or the link has expired; then GitHub is asked. 204 once posted and the project read again. 409 when GitHub refuses, with its reason; 503 when GitHub did not answer. Without a valid token, 401 with an empty body; a change from another origin, 403.")
+            .Produces(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesValidationProblem(StatusCodes.Status422UnprocessableEntity)
+            .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
+
+        routes.MapPost("/devflow/api/projects/{id:guid}/features/{number:int}/decisions/{run:guid}/{position:int}/send-back", SendBackDecision)
+            .RequireAuthorization(PlatformAuthPolicies.Api)
+            .WithName("sendBackDecision")
+            .WithSummary("Send a feature's card back from one of its decisions, with a comment as the caller")
+            .WithDescription("Posts a comment as the caller's linked GitHub account and never as the app, on the issue of the card whose report holds the decision at position of the report of run: the decision quoted, what was chosen and the alternative, then comment, trimmed. The read of the project that follows takes it as a comment newer than the card's last run and sends the card back with all of it, to be built again on a new branch, and the decision is kept answered sent_back. In order: 404 for a project, feature, run or decision the caller does not have, or one not marked for the owner; 422 when comment is missing, empty once trimmed, or longer than 10,000 characters; 409 when the card has a newer report than that run's; 409 when the decision is already answered; 409 when its card has not landed in the feature's branch, or the feature is merged or closed; 409 when GitHub is not linked or the link has expired; then GitHub is asked. 204 once posted, the answer kept and the project read again. 409 when GitHub refuses, with its reason; 503 when GitHub did not answer, with no answer kept. Without a valid token, 401 with an empty body; a change from another origin, 403.")
             .Produces(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status409Conflict)
@@ -213,12 +237,147 @@ public static class ActionEndpoints
     }
 
     /// <summary>
+    /// The owner's "Send back" on a decision of a feature's card: the card's send back, with the
+    /// decision quoted above his comment, posted as him on the card's issue, which the read that
+    /// follows takes; and the decision kept answered <c>sent_back</c> once it is posted, never
+    /// before, so a comment GitHub refused leaves it unanswered. Only for a decision the feature's
+    /// page shows unanswered, of a card that can be sent back. See "Sending a card back" in
+    /// devflow/README.md.
+    /// </summary>
+    private static async Task<Results<NoContent, ProblemHttpResult>> SendBackDecision(
+        Guid id,
+        int number,
+        Guid run,
+        int position,
+        SendBackRequest request,
+        HttpContext context,
+        [FromServices] UserDb database,
+        [FromServices] ActionStore store,
+        [FromServices] UserTokens tokens,
+        [FromServices] ICodeHost host,
+        [FromServices] ProjectRefresher refresher,
+        [FromServices] TimeProvider time)
+    {
+        var userId = context.UserId();
+        var cancellationToken = context.RequestAborted;
+        var found = await DecisionAnswers.ToSendBack(database, userId, id, number, run, position, cancellationToken);
+        if (found is DecisionFound.NoSuchDecision)
+        {
+            return TypedResults.Problem(statusCode: StatusCodes.Status404NotFound, title: "No such decision", detail: "You have no decision marked for you by that number in that run of the feature.");
+        }
+
+        if (Comment(request.Comment, "write what the developer should do") is { } invalid)
+        {
+            return invalid;
+        }
+
+        if (found is not DecisionFound.Shown decision)
+        {
+            return Conflict("A newer report", "The card has a newer report than the one this decision is from. Read the page again.");
+        }
+
+        if (decision.Answered)
+        {
+            return Conflict("This decision is answered", "An answer is kept as first given.");
+        }
+
+        if (!decision.Sendable || await store.FindCard(userId, id, decision.Card, cancellationToken) is not { Sendable: true } card)
+        {
+            return Conflict("This card cannot be sent back now", "A card is sent back once it has landed in a feature that is not merged or closed.");
+        }
+
+        var userToken = await tokens.For(userId, cancellationToken);
+        if (userToken is not UserToken.Usable { Token: var access })
+        {
+            return TokenProblem(userToken, context, time);
+        }
+
+        var body = SendingBack.DecisionComment(decision.Chosen, decision.Alternative, request.Comment!.Trim());
+        switch (await host.Comment(userId, access, card.Repository, card.Number, body, cancellationToken))
+        {
+            case CommentResult.Posted:
+                await DecisionAnswers.SentBack(database, userId, id, card.Number, run, position, time.GetUtcNow(), cancellationToken);
+                await ReadAgain(refresher, card.ProjectId, userId, time, cancellationToken);
+                return TypedResults.NoContent();
+            case CommentResult.Refused { Status: var status, Message: var message }:
+                return Conflict("GitHub refused the comment", HostSaid(status, message));
+            case CommentResult.Unavailable { RetryAt: var retryAt }:
+                // It may have been posted before the answer was lost, so the project is read again,
+                // which sends the card back if it was; the decision is left unanswered.
+                await ReadAgain(refresher, card.ProjectId, userId, time, cancellationToken);
+                return Unavailable(context, time, retryAt, "It is not known whether the comment was posted; the project was read again.");
+            default:
+                throw new InvalidOperationException("a comment result that is not one of the three");
+        }
+    }
+
+    /// <summary>
+    /// The owner's "Send the whole feature back": his comment, posted as him on the feature's pull
+    /// request, as part 1's sending back is, which the read that follows takes as the one comment
+    /// read there as an input and starts a fix of the whole feature with. Only for a feature ready
+    /// or waiting for him with its pull request. Dev flow itself writes nothing to the feature here,
+    /// so the comment on GitHub is the one record of it. See "Fixing a feature" in
+    /// devflow/README.md.
+    /// </summary>
+    private static async Task<Results<NoContent, ProblemHttpResult>> SendBackFeature(
+        Guid id,
+        int number,
+        SendBackRequest request,
+        HttpContext context,
+        [FromServices] ActionStore store,
+        [FromServices] UserTokens tokens,
+        [FromServices] ICodeHost host,
+        [FromServices] ProjectRefresher refresher,
+        [FromServices] TimeProvider time)
+    {
+        var userId = context.UserId();
+        var cancellationToken = context.RequestAborted;
+        if (await store.FindFeature(userId, id, number, cancellationToken) is not { } feature)
+        {
+            return NoSuchFeature();
+        }
+
+        if (Comment(request.Comment, "write what the developer should change") is { } invalid)
+        {
+            return invalid;
+        }
+
+        if (feature.State is not ("ready" or "waiting_for_owner") || feature.PullRequestNumber is not { } pull)
+        {
+            return Conflict("This feature cannot be sent back now", "A feature is sent back while it is ready or waits for you, with its pull request open.");
+        }
+
+        var userToken = await tokens.For(userId, cancellationToken);
+        if (userToken is not UserToken.Usable { Token: var access })
+        {
+            return TokenProblem(userToken, context, time);
+        }
+
+        switch (await host.Comment(userId, access, feature.Repository, pull, request.Comment!.Trim(), cancellationToken))
+        {
+            case CommentResult.Posted:
+                await ReadAgain(refresher, feature.ProjectId, userId, time, cancellationToken);
+                return TypedResults.NoContent();
+            case CommentResult.Refused { Status: var status, Message: var message }:
+                return Conflict("GitHub refused the comment", HostSaid(status, message));
+            case CommentResult.Unavailable { RetryAt: var retryAt }:
+                // It may have been posted before the answer was lost, so the project is read again.
+                await ReadAgain(refresher, feature.ProjectId, userId, time, cancellationToken);
+                return Unavailable(context, time, retryAt, "It is not known whether the comment was posted; the project was read again.");
+            default:
+                throw new InvalidOperationException("a comment result that is not one of the three");
+        }
+    }
+
+    /// <summary>
     /// The owner's send back of a card of Dev flow's own, part 1's send back: his comment, posted
     /// as him, which the read that follows takes as the one input Dev flow reads from GitHub. For a
     /// card waiting for him it goes on its pull request and starts a fix; for a stopped one it goes
     /// on its issue, which always exists whatever became of its pull request, and runs it again, as
-    /// "Comment to run again". Dev flow itself writes nothing to the card here, so the comment on
-    /// GitHub is the one record of it. See "Fixing" and "Stops" in devflow/README.md.
+    /// "Comment to run again"; for a card landed in an open feature's branch it goes on its issue
+    /// too, closed or not, and sends it back, "Send back" on the feature's page. Dev flow itself
+    /// writes nothing to the card here, so the comment on GitHub is the one record of it. See
+    /// "Fixing", "Stops" and "Sending a card back" in devflow/README.md.
     /// </summary>
     private static async Task<Results<NoContent, ProblemHttpResult>> SendBackCard(
         Guid id,
@@ -243,10 +402,10 @@ public static class ActionEndpoints
             return invalid;
         }
 
-        // A stopped card runs again on his comment on its issue; one waiting for him is sent back on
-        // its pull request.
+        // A stopped card runs again on his comment on its issue, and a card landed in an open
+        // feature's branch is sent back there; one waiting for him is sent back on its pull request.
         int conversation;
-        if (card.State == "stopped")
+        if (card.State == "stopped" || card.Sendable)
         {
             conversation = card.Number;
         }
@@ -256,7 +415,7 @@ public static class ActionEndpoints
         }
         else
         {
-            return Conflict("This card cannot be sent back now", "A card is sent back while it waits for you, or run again once it has stopped.");
+            return Conflict("This card cannot be sent back now", "A card is sent back while it waits for you, or once it has landed in a feature that is not merged or closed, or run again once it has stopped.");
         }
 
         var userToken = await tokens.For(userId, cancellationToken);

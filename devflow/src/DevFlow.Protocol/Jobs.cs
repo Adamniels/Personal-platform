@@ -32,7 +32,8 @@ namespace DevFlow.Protocol;
 /// <param name="Committer">Who the worker's commits are made as; a review makes none.</param>
 /// <param name="Limits">When the run is stopped.</param>
 /// <param name="ToReview">What a review reads besides the code, null on a build or a fix.</param>
-/// <param name="ToFix">Where a fix starts and which round it is, null on a build or a review.</param>
+/// <param name="ToFix">Where a fix, of a card or of a whole feature, starts and which round it is,
+/// null on any other job.</param>
 /// <param name="Start">For a build or a fix, the command that starts the project for its pictures,
 /// from the same <c>.devflow/project.json</c> as <paramref name="Check"/>; empty when it has none,
 /// and on a review.</param>
@@ -82,6 +83,12 @@ public sealed record Job(
     /// is then the feature's parent, and <see cref="Branch"/> the feature's branch.</summary>
     public const string FeatureReview = "feature_review";
 
+    /// <summary>Fixing a whole feature on its branch, from its head, after its review asked for
+    /// changes or the owner commented on its pull request; <see cref="Card"/> is then the feature's
+    /// parent, <see cref="Branch"/> the feature's branch and <see cref="Base"/> the default
+    /// branch.</summary>
+    public const string FeatureFix = "feature_fix";
+
     /// <summary>Its kind and card, never the token or the key.</summary>
     public override string ToString() =>
         string.Create(CultureInfo.InvariantCulture, $"Job {{ JobId = {JobId}, Kind = {Kind}, Card = {Card.Number}, Branch = {Branch} }}");
@@ -128,7 +135,8 @@ public sealed record JobRound(
 
 /// <summary>
 /// Where a fix job starts: the commit the card's branch must be at, the newest one a build or a fix
-/// of the card left there, which the worker checks before anything runs, and the round.
+/// of the card left there, or for a whole feature's fix the commit the feature's watch last named,
+/// which the worker checks before anything runs, and the round.
 /// </summary>
 /// <param name="Commit">The full id of the commit the branch is at, which the fix builds on.</param>
 /// <param name="Round">The fix round, 1 to 3, or null when the owner's comment started it, which
@@ -160,7 +168,10 @@ public sealed record JobConflict(string FeatureCommit, string DefaultCommit);
 /// <param name="RemergeDiff">The remerge diffs of the conflicts resolved since the feature's last
 /// review, each under a line naming its run, cut as <see cref="RemergeDiffs.Cut"/> cuts one; null
 /// when there is none.</param>
-public sealed record JobFeatureReview(string Commit, IReadOnlyList<JobFeatureCard> Cards, JobFeatureCheck? Check, string? RemergeDiff);
+/// <param name="Earlier">Each earlier fix round of the whole feature, oldest first, as a card's
+/// re-review reads its rounds; empty on its first review, and null from a Dev flow that sends
+/// none.</param>
+public sealed record JobFeatureReview(string Commit, IReadOnlyList<JobFeatureCard> Cards, JobFeatureCheck? Check, string? RemergeDiff, IReadOnlyList<JobRound>? Earlier = null);
 
 /// <summary>A card of a feature, as its whole review reads it: its number and title as picked, its
 /// latest review's verdict and summary, each null when it has none, and the handover note of its

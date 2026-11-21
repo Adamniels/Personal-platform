@@ -5,6 +5,7 @@ using Dapper;
 
 using DevFlow.CodeHost;
 using DevFlow.Features;
+using DevFlow.Fixing;
 using DevFlow.Tests.Jobs;
 using DevFlow.Tests.PullRequests;
 
@@ -44,10 +45,22 @@ internal static class FeatureMerging
 
     /// <summary>The feature finished, its pull request opened and its whole review answered
     /// <paramref name="verdict"/>, or failed in the job when null; then CI staged on its head as
-    /// <paramref name="checkRuns"/>, green when null, and the next minute. The head.</summary>
+    /// <paramref name="checkRuns"/>, green when null, and the next minute. The head. A verdict other
+    /// than approve comes with every fix round already used, so the review leaves the feature
+    /// waiting for the owner, the one way a feature it did not approve reaches him; going through
+    /// the rounds is <see cref="FeatureFixTests"/>'s.</summary>
     public static async Task<string> Reviewed(Jobs.Jobs jobs, string? verdict = "approve", IReadOnlyList<CheckRun>? checkRuns = null, params JsonObject[] findings)
     {
         var head = await Reviewing.Published(jobs);
+        if (verdict is not (null or "approve"))
+        {
+            await using var admin = await jobs.Routes.Database.OpenAdmin(Ct);
+            await admin.ExecuteAsync(new CommandDefinition(
+                "UPDATE features SET fix_round = @most WHERE project_id = @project AND number = @number",
+                new { most = FixRounds.Most, project = jobs.Project, number = Ending.Parent },
+                cancellationToken: Ct));
+        }
+
         if (verdict is null)
         {
             jobs.Routes.Time.Advance(TimeSpan.FromMinutes(1));

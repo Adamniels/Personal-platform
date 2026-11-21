@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 using Dapper;
 
 using DevFlow.Cards;
@@ -18,8 +20,8 @@ namespace DevFlow.Features;
 public sealed record FeatureBranch(string Name, string? Commit);
 
 /// <summary>Your answer to a decision, kept in Dev flow and never written to the code host.</summary>
-/// <param name="Answer"><c>fine</c>, "Fine as it is", given on the feature's page, or
-/// <c>merged</c>, confirmed by merging the feature.</param>
+/// <param name="Answer"><c>fine</c>, "Fine as it is", <c>sent_back</c>, when the card was sent
+/// back from it, or <c>merged</c>, confirmed by merging the feature.</param>
 /// <param name="AnsweredAt">When it was first given.</param>
 public sealed record DecisionAnswer(string Answer, DateTimeOffset AnsweredAt);
 
@@ -43,6 +45,12 @@ public sealed record FeatureDecision(
     string? ReviewerView,
     DecisionAnswer? Answer);
 
+/// <summary>The owner's last send back of a card that had landed in its feature's branch.</summary>
+/// <param name="Times">How many times it was sent back, from 1.</param>
+/// <param name="PullRequest">The pull request it had landed in when it was last sent back.</param>
+/// <param name="Comments">His comments that sent it back, each exactly as he wrote it.</param>
+public sealed record CardSentBack(int Times, CardPullRequest PullRequest, IReadOnlyList<string> Comments);
+
 /// <summary>One card of a feature, as its page lists it.</summary>
 /// <param name="Number">The issue's number.</param>
 /// <param name="Title">The issue's title as last read.</param>
@@ -57,6 +65,9 @@ public sealed record FeatureDecision(
 /// none.</param>
 /// <param name="Decisions">The decisions its latest report marked for the owner, in the report's
 /// order.</param>
+/// <param name="CanSendBack">Whether it can be sent back now: it landed in the feature's branch, and
+/// the feature is neither merged nor closed, by <see cref="SendingBack.Sendable"/>.</param>
+/// <param name="SentBack">Its last send back, null when it was never sent back.</param>
 public sealed record FeatureCard(
     int Number,
     string Title,
@@ -67,7 +78,9 @@ public sealed record FeatureCard(
     long InputTokens,
     long OutputTokens,
     CardScreenshots? Screenshots,
-    IReadOnlyList<FeatureDecision> Decisions);
+    IReadOnlyList<FeatureDecision> Decisions,
+    bool CanSendBack,
+    CardSentBack? SentBack);
 
 /// <summary>What <c>GET /devflow/api/projects/{id}/features/{number}</c> answers: a feature's whole
 /// story so far.</summary>
@@ -87,6 +100,10 @@ public sealed record FeatureCard(
 /// <param name="Reviews">The reviews of the whole feature, newest first, each as a card's page shows
 /// one; <c>current</c> is whether it is the newest and covers the feature branch's head, its own
 /// commit or one that differs from it only by clean merges of the default branch.</param>
+/// <param name="FixRounds">The fix rounds its reviews have started, 0 to 3.</param>
+/// <param name="Rounds">Each fix of the whole feature, newest first, as a card's page shows a round:
+/// the review that started it or the owner's comment, the run, its replies and the review of the
+/// commit it left.</param>
 /// <param name="Merge">"Merge into &lt;default&gt;" when the feature is offered for merging, by
 /// <see cref="FeatureMergeOffers"/>, with the head the merge names; null when it is not.</param>
 public sealed record FeatureStoryView(
@@ -102,6 +119,8 @@ public sealed record FeatureStoryView(
     long InputTokens,
     long OutputTokens,
     IReadOnlyList<CardReview> Reviews,
+    int FixRounds,
+    IReadOnlyList<CardRound> Rounds,
     FeatureMergeOffer? Merge);
 
 /// <summary>
@@ -130,7 +149,7 @@ public static class FeatureStory
             SELECT f.id AS Id, f.number AS Number, f.title AS Title, f.web_url AS WebUrl, f.state AS State, f.reason AS Reason,
                    CASE WHEN f.branch_base_commit IS NULL THEN NULL ELSE f.branch END AS Branch,
                    coalesce(b.last_commit, f.branch_base_commit) AS BranchCommit,
-                   f.pull_request_number AS PullRequestNumber, f.pull_request_url AS PullRequestUrl,
+                   f.pull_request_number AS PullRequestNumber, f.pull_request_url AS PullRequestUrl, f.fix_round AS FixRounds,
                    {FeatureMergeOffers.IntoSql} AS MergeInto, {FeatureMergeOffers.HeadSql} AS Head
             FROM features f
             LEFT JOIN branch_watches b ON b.project_id = f.project_id AND b.feature_id = f.id
@@ -147,7 +166,8 @@ public static class FeatureStory
         var cards = (await transaction.Connection!.QueryAsync<CardRow>(new CommandDefinition(
             $"""
             SELECT number AS Number, title AS Title, web_url AS WebUrl, state AS State, {CardStore.ShownReason} AS Reason,
-                   fix_rounds AS FixRounds
+                   fix_rounds AS FixRounds, {SendingBack.Sendable} AS CanSendBack, sent_backs AS SentBacks,
+                   sent_back_from AS SentBackFrom, sent_back_from_url AS SentBackFromUrl, sent_back_comments::text AS SentBackComments
             FROM cards WHERE project_id = @projectId AND feature_id = @feature
             ORDER BY position
             """,
@@ -191,7 +211,11 @@ public static class FeatureStory
                 ofCard.Sum(run => run.InputTokens ?? 0),
                 ofCard.Sum(run => run.OutputTokens ?? 0),
                 CardScreenshots.Of(built?.HeadCommit, built?.Screenshots, built?.ScreenshotsNote),
-                Decisions(ofCard, reviews, answers)));
+                Decisions(ofCard, reviews, answers),
+                card.CanSendBack,
+                card is { SentBacks: > 0, SentBackFrom: { } from, SentBackFromUrl: { } fromUrl }
+                    ? new CardSentBack(card.SentBacks, new CardPullRequest(from, fromUrl), JsonSerializer.Deserialize<List<string>>(card.SentBackComments ?? "[]") ?? [])
+                    : null));
         }
 
         var own = await CardStory.FeatureRuns(transaction, projectId, feature.Number, cancellationToken);
@@ -221,6 +245,13 @@ public static class FeatureStory
                 review.ReviewedAt,
                 review.PostedAt is not null,
                 at == 0 && covering is not null))],
+            feature.FixRounds,
+            await CardStory.FeatureRounds(
+                transaction,
+                projectId,
+                feature.Number,
+                [.. featureReviews.Select(review => new KeptReview(review.RunId, review.Commit, review.Verdict, review.ReviewedAt, review.PostedAt))],
+                cancellationToken),
             FeatureMergeOffers.Of(feature.MergeInto, feature.Head));
     }
 
@@ -274,12 +305,13 @@ public static class FeatureStory
         string.Equals(one.Trim(), other.Trim(), StringComparison.OrdinalIgnoreCase);
 
     private sealed record FeatureRow(
-        Guid Id, int Number, string Title, string WebUrl, string State, string? Reason, string? Branch, string? BranchCommit, int? PullRequestNumber, string? PullRequestUrl,
+        Guid Id, int Number, string Title, string WebUrl, string State, string? Reason, string? Branch, string? BranchCommit, int? PullRequestNumber, string? PullRequestUrl, int FixRounds,
         string? MergeInto, string? Head);
 
     private sealed record AnswerRow(Guid RunId, int Position, string Answer, DateTime AnsweredAt);
 
-    private sealed record CardRow(int Number, string Title, string WebUrl, string State, string? Reason, int FixRounds);
+    private sealed record CardRow(
+        int Number, string Title, string WebUrl, string State, string? Reason, int FixRounds, bool CanSendBack, int SentBacks, int? SentBackFrom, string? SentBackFromUrl, string? SentBackComments);
 
     private sealed record RunRow(
         Guid Id, int CardNumber, string Kind, string? Result, string? HeadCommit, string? Report, long? InputTokens, long? OutputTokens, string? Screenshots, string? ScreenshotsNote);

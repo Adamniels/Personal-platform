@@ -147,6 +147,8 @@ public sealed partial class BranchWatch(UserDb database, ICodeHost host, TimePro
         // A watch that has not begun, or began on a branch that is no longer the default, begins at
         // the branch's newest change and judges nothing before it.
         var since = current is not null && current.Branch == branch ? current.LastActivityId ?? 0 : (long?)null;
+        // Taken before the code host is asked, so the read never counts as newer than what it saw.
+        var listedAt = Now();
         IReadOnlyList<BranchActivity> listed;
         switch (await host.Activity(userId, repository, branch, since, cancellationToken))
         {
@@ -163,7 +165,7 @@ public sealed partial class BranchWatch(UserDb database, ICodeHost host, TimePro
         }
         else
         {
-            await Judge(projectId, userId, new Watched(null, branch), listed, null, owner, null, cancellationToken);
+            await Judge(projectId, userId, new Watched(null, branch), listed, null, owner, null, listedAt, cancellationToken);
         }
 
         return null;
@@ -178,6 +180,8 @@ public sealed partial class BranchWatch(UserDb database, ICodeHost host, TimePro
     /// </summary>
     private async Task<string?> ReadFeature(Guid projectId, Guid userId, Repository repository, FeatureWatch feature, string? owner, CancellationToken cancellationToken)
     {
+        // Taken before the code host is asked, so the read never counts as newer than what it saw.
+        var listedAt = Now();
         IReadOnlyList<BranchActivity> listed;
         switch (await host.Activity(userId, repository, feature.Branch, feature.LastActivityId ?? 0, cancellationToken))
         {
@@ -212,7 +216,7 @@ public sealed partial class BranchWatch(UserDb database, ICodeHost host, TimePro
             }
         }
 
-        await Judge(projectId, userId, new Watched(feature.Id, feature.Branch), listed, from, owner, app, cancellationToken);
+        await Judge(projectId, userId, new Watched(feature.Id, feature.Branch), listed, from, owner, app, listedAt, cancellationToken);
         return null;
     }
 
@@ -294,9 +298,13 @@ public sealed partial class BranchWatch(UserDb database, ICodeHost host, TimePro
     /// gone. On a feature's branch, a push by <paramref name="app"/>, the app's login, while a run of
     /// Dev flow's on the branch is under way, read under the lock, is awaited rather than judged,
     /// since the worker pushes before it sends its result, see <see cref="JudgeAwaited"/>; and the
-    /// project's awaited pushes whose run has ended are judged.
+    /// project's awaited pushes whose run has ended are judged. The read counts as made at
+    /// <paramref name="listedAt"/>, when the changes were listed, never when they are stored, and
+    /// never moves back: a change landing between the two is not in <paramref name="listed"/>, so
+    /// a later time would claim the read had seen it, and what waits for a read since Dev flow's own
+    /// push, a feature's review or fix, would act on a commit the branch has left.
     /// </summary>
-    private async Task Judge(Guid projectId, Guid userId, Watched watched, IReadOnlyList<BranchActivity> listed, long? from, string? owner, string? app, CancellationToken cancellationToken)
+    private async Task Judge(Guid projectId, Guid userId, Watched watched, IReadOnlyList<BranchActivity> listed, long? from, string? owner, string? app, DateTimeOffset listedAt, CancellationToken cancellationToken)
     {
         var now = Now();
         await database.InUserTransaction(userId, async transaction =>
@@ -359,13 +367,14 @@ public sealed partial class BranchWatch(UserDb database, ICodeHost host, TimePro
             return await transaction.Connection!.ExecuteAsync(new CommandDefinition(
                 """
                 INSERT INTO branch_watches (project_id, user_id, feature_id, branch, last_activity_id, last_commit, began_at, last_read_at, last_attempt_at, last_error)
-                VALUES (@projectId, @userId, @featureId, @branch, @newest, @commit, @now, @now, @now, NULL)
+                VALUES (@projectId, @userId, @featureId, @branch, @newest, @commit, @now, @listedAt, @now, NULL)
                 ON CONFLICT ON CONSTRAINT branch_watches_one_per_branch DO UPDATE
                 SET last_activity_id = coalesce(EXCLUDED.last_activity_id, branch_watches.last_activity_id),
                     last_commit = coalesce(EXCLUDED.last_commit, branch_watches.last_commit),
-                    last_read_at = EXCLUDED.last_read_at, last_attempt_at = EXCLUDED.last_attempt_at, last_error = NULL
+                    last_read_at = greatest(EXCLUDED.last_read_at, branch_watches.last_read_at),
+                    last_attempt_at = EXCLUDED.last_attempt_at, last_error = NULL
                 """,
-                new { projectId, userId, featureId = watched.FeatureId, branch = watched.Branch, newest, commit, now },
+                new { projectId, userId, featureId = watched.FeatureId, branch = watched.Branch, newest, commit, now, listedAt },
                 transaction,
                 cancellationToken: cancellationToken));
         }, cancellationToken);

@@ -2,15 +2,19 @@
 // "Features ready for your review": one that is ready, its latest review approving its head and CI
 // passed there, or one that waits for him with why. It leads to its page, where its review, its
 // cards and their decisions are; the item says what the review found and how many decisions he has
-// not answered, and links to its pull request. Every text came from the code host or an agent
-// and is shown as text. See "Reviewing a feature" in devflow/README.md.
+// not answered, links to its pull request, merges it into the default branch once CI passed on its
+// head, after a confirmation, and sends the whole feature back with his comment. Every text came
+// from the code host or an agent and is shown as text. See "Reviewing a feature", "Fixing a
+// feature" and "Merging a feature" in devflow/README.md.
 import { Card, Status } from "@platform/ui";
+import { useId } from "react";
 import type { ActionsApi, LinkState } from "./actions";
 import { navigate, plainClick } from "./address";
 import { stateWord } from "./cards";
 import { MergeFeature } from "./feature-merge";
 import { Inline } from "./format";
 import { featurePath } from "./sections";
+import { canSendBack, SendBack } from "./send-back-feature";
 import { linkable, type WaitingList } from "./waiting";
 import styles from "./waiting.module.css";
 import { ReviewLine } from "./waiting-card";
@@ -43,6 +47,8 @@ export function WaitingFeature({
 	const { word, tone } = stateWord(feature.state);
 	const project = `${feature.owner}/${feature.project_name}`;
 	const page = featurePath(feature.project_id, feature.number);
+	// Merging and sending back share the line saying why neither can be pressed.
+	const linkLineId = useId();
 	const links = (
 		<>
 			<a
@@ -76,20 +82,33 @@ export function WaitingFeature({
 			aside={<Status tone={tone}>{word}</Status>}
 			className={styles.item}
 			footer={
-				feature.merge === null ? (
-					<div className={styles.actions}>{links}</div>
-				) : (
-					<MergeFeature
-						project={feature.project_id}
-						number={feature.number}
-						offer={feature.merge}
-						link={link}
-						api={api}
-						reload={reload}
-						primary={false}
-						after={links}
-					/>
-				)
+				<>
+					{feature.merge === null ? (
+						<div className={styles.actions}>{links}</div>
+					) : (
+						<MergeFeature
+							project={feature.project_id}
+							number={feature.number}
+							offer={feature.merge}
+							link={link}
+							api={api}
+							reload={reload}
+							primary={false}
+							after={links}
+							lineId={linkLineId}
+						/>
+					)}
+					{canSendBack(feature.state, feature.pull_request_number) ? (
+						<SendBack
+							projectId={feature.project_id}
+							number={feature.number}
+							link={link}
+							send={api.sendBackFeature}
+							reload={reload}
+							lineShownAt={feature.merge === null ? undefined : linkLineId}
+						/>
+					) : null}
+				</>
 			}
 		>
 			<div className={styles.body}>
