@@ -45,6 +45,13 @@ public sealed class SometimesSettingsTests
             ["wait_when_decision"] = decision,
             ["wait_paths"] = patterns ?? [],
             ["trusted_logins"] = new JsonArray(),
+            ["model_reading"] = "opus",
+            ["model_building"] = "opus",
+            ["model_reviewing"] = "opus",
+            ["run_minutes"] = 90,
+            ["run_turns"] = 200,
+            ["fix_rounds_card"] = 3,
+            ["fix_rounds_feature"] = 3,
         };
 
     private static JsonArray Patterns(params string[] patterns) => new([.. patterns.Select(pattern => (JsonNode)pattern)]);

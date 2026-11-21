@@ -22,8 +22,7 @@ public sealed record ReviewOfFeature(string Commit, string Verdict);
 /// never among them, since an agent made it.</param>
 /// <param name="FixFailedAt">The commit its last fix that failed in the job was handed, null
 /// otherwise.</param>
-/// <param name="RoundsUsed">The fix rounds its reviews have started, 0 to
-/// <see cref="FixRounds.Most"/>.</param>
+/// <param name="RoundsUsed">The fix rounds its reviews have started.</param>
 public sealed record ReadyFacts(string Head, string? FailedAt, ReviewOfFeature? Latest, IReadOnlyDictionary<string, string> CleanMerges, string? FixFailedAt = null, int RoundsUsed = 0);
 
 /// <summary>CI on the feature's head, as the code host answered it at <paramref name="Now"/>, and
@@ -41,7 +40,7 @@ public sealed record ReadyDecision(string State, string? Reason, string? ReviewC
 /// when the head differs from it only by merges of the default branch Dev flow made cleanly, so a
 /// clean bringing in needs CI again and no new review, and a conflict an agent resolved, which no
 /// such merge is, needs both. A covering review that asked for changes starts a fix round, at most
-/// <see cref="FixRounds.Most"/>, and a feature is never stopped by its review. See "Reviewing a
+/// the project's <c>fix_rounds_feature</c>, and a feature is never stopped by its review. See "Reviewing a
 /// feature" and "Fixing a feature" in devflow/README.md and devflow/docs/devflow-architecture.md.
 /// </summary>
 public static class FeatureReady
@@ -81,12 +80,13 @@ public static class FeatureReady
     /// covers is to be reviewed, unless its review failed there in the job, when it waits for the
     /// owner as that failure left it; a head its fix failed at in the job stays as that failure left
     /// it too, until the branch moves or the owner comments; a head the covering review asked
-    /// changes on starts the next fix round, or, with every round used, waits for the owner with
+    /// changes on starts the next fix round, or, with every one of <paramref name="mostRounds"/>
+    /// used, none at all when it is 0, waits for the owner with
     /// <see cref="FeatureFix.UsedUp"/>; and a head it approved is ready when CI passed there, read as
     /// the merge check reads it by <see cref="MergeCheck.Ci"/>, and otherwise waits with CI's reason,
     /// <paramref name="ci"/> null being CI that could not be read.
     /// </summary>
-    public static ReadyDecision? Decide(ReadyFacts facts, ReadyCi? ci)
+    public static ReadyDecision? Decide(ReadyFacts facts, ReadyCi? ci, int mostRounds)
     {
         ArgumentNullException.ThrowIfNull(facts);
         if (Covering(facts) is not { } review)
@@ -103,9 +103,9 @@ public static class FeatureReady
 
         if (review.Verdict != "approve")
         {
-            return facts.RoundsUsed >= FixRounds.Most
+            return facts.RoundsUsed >= mostRounds
                 ? new ReadyDecision("waiting_for_owner", FeatureFix.UsedUp, null)
-                : new ReadyDecision("fixing", FeatureFix.Asked(facts.RoundsUsed + 1), null, facts.RoundsUsed + 1);
+                : new ReadyDecision("fixing", FeatureFix.Asked(facts.RoundsUsed + 1, mostRounds), null, facts.RoundsUsed + 1);
         }
 
         if (ci is null)

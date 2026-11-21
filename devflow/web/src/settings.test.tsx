@@ -9,6 +9,7 @@ import {
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { ApiError } from "./api/client";
 import {
+	NOT_A_NUMBER,
 	NOT_READ,
 	NOT_SAVED,
 	type ProjectSettings,
@@ -32,6 +33,13 @@ const DEFAULTS: ProjectSettings = {
 	wait_when_decision: true,
 	wait_paths: [],
 	trusted_logins: [{ login: "octo-owner", mine: true }],
+	model_reading: "opus",
+	model_building: "opus",
+	model_reviewing: "opus",
+	run_minutes: 90,
+	run_turns: 200,
+	fix_rounds_card: 3,
+	fix_rounds_feature: 3,
 };
 
 /** What saving answers: the request, with the owner's login marked. */
@@ -49,6 +57,13 @@ const answered = (settings: SettingsRequest): ProjectSettings => ({
 		login,
 		mine: login === "octo-owner",
 	})),
+	model_reading: settings.model_reading ?? "",
+	model_building: settings.model_building ?? "",
+	model_reviewing: settings.model_reviewing ?? "",
+	run_minutes: settings.run_minutes ?? 0,
+	run_turns: settings.run_turns ?? 0,
+	fix_rounds_card: settings.fix_rounds_card ?? 0,
+	fix_rounds_feature: settings.fix_rounds_feature ?? 0,
 });
 
 function renderPanel(
@@ -76,6 +91,106 @@ const panel = async () =>
 	within(await screen.findByRole("article", { name: "Settings" }));
 
 describe("the settings panel", () => {
+	test("shows the models and limits and saves them with the rest", async () => {
+		const { saveSettings } = renderPanel();
+		const settings = await panel();
+		const runs = within(
+			settings.getByRole("region", { name: "Models and limits" }),
+		);
+		const value = (label: string) =>
+			(runs.getByLabelText(label) as HTMLInputElement | HTMLSelectElement)
+				.value;
+
+		// A new project's: opus for each, 90 minutes, 200 turns, 3 rounds each.
+		expect(
+			[
+				"Reading model",
+				"Building model",
+				"Reviewing model",
+				"Minutes a run may take",
+				"Turns a run may take",
+				"Fix rounds a card gets",
+				"Fix rounds a feature gets",
+			].map(value),
+		).toEqual(["opus", "opus", "opus", "90", "200", "3", "3"]);
+		const building = runs.getByLabelText("Building model") as HTMLSelectElement;
+		expect([...building.options].map((option) => option.textContent)).toEqual([
+			"Opus",
+			"Sonnet",
+			"Haiku",
+		]);
+
+		fireEvent.change(building, { target: { value: "sonnet" } });
+		fireEvent.change(runs.getByLabelText("Reviewing model"), {
+			target: { value: "haiku" },
+		});
+		fireEvent.change(runs.getByLabelText("Minutes a run may take"), {
+			target: { value: "45" },
+		});
+		fireEvent.change(runs.getByLabelText("Fix rounds a card gets"), {
+			target: { value: "0" },
+		});
+		fireEvent.click(settings.getByRole("button", { name: "Save" }));
+
+		expect(await settings.findByText(SAVED)).toBeTruthy();
+		expect(saveSettings).toHaveBeenCalledWith(ID, {
+			...DEFAULTS,
+			model_building: "sonnet",
+			model_reviewing: "haiku",
+			run_minutes: 45,
+			fix_rounds_card: 0,
+			trusted_logins: ["octo-owner"],
+		});
+		expect(value("Fix rounds a card gets")).toBe("0");
+	});
+
+	test("a limit that is not a whole number is named, and nothing is sent", async () => {
+		const { saveSettings } = renderPanel();
+		const settings = await panel();
+		const runs = within(
+			settings.getByRole("region", { name: "Models and limits" }),
+		);
+		const turns = runs.getByLabelText(
+			"Turns a run may take",
+		) as HTMLInputElement;
+
+		// Emptied while editing, it stays empty rather than becoming 0.
+		fireEvent.change(turns, { target: { value: "" } });
+		expect(turns.value).toBe("");
+		fireEvent.click(settings.getByRole("button", { name: "Save" }));
+
+		expect(await runs.findByText(`Error: ${NOT_A_NUMBER}`)).toBeTruthy();
+		expect(turns.getAttribute("aria-invalid")).toBe("true");
+		expect(saveSettings).not.toHaveBeenCalled();
+	});
+
+	test("a limit Dev flow refuses is named under its field", async () => {
+		renderPanel({
+			saveSettings: () =>
+				Promise.reject(
+					new ApiError({
+						status: 422,
+						title: "The settings break a rule",
+						detail: "run_minutes must be from 10 to 240",
+						errors: { run_minutes: ["must be from 10 to 240"] },
+					}),
+				),
+		});
+		const settings = await panel();
+		const minutes = settings.getByLabelText(
+			"Minutes a run may take",
+		) as HTMLInputElement;
+		fireEvent.change(minutes, { target: { value: "300" } });
+		fireEvent.click(settings.getByRole("button", { name: "Save" }));
+
+		expect(
+			await settings.findByText("Error: must be from 10 to 240"),
+		).toBeTruthy();
+		expect(minutes.getAttribute("aria-invalid")).toBe("true");
+		expect(minutes.value).toBe("300");
+		expect(settings.queryByText(SAVED)).toBeNull();
+	});
+
 	test("sometimes shows its three conditions, the review label and the paths", async () => {
 		const { saveSettings } = renderPanel({
 			loadSettings: () =>

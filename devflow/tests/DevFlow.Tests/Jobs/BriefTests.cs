@@ -97,7 +97,7 @@ public sealed class BriefTests
     public void APageProjectsBriefSaysHowToLook()
     {
         var self = $"/work/{Job:D}/self";
-        var fix = new FixInput(1, null, null, ["Make the sentence shorter."]);
+        var fix = new FixInput(1, null, null, ["Make the sentence shorter."], 3);
         foreach (var brief in new[] { Brief.Developer(Card, Facts), Brief.Fixer(Card, Facts, fix) })
         {
             // A section of its own, after how to work and before deciding.
@@ -205,7 +205,7 @@ public sealed class BriefTests
         // The first card of a feature has nothing before it; a card on its own has no feature.
         Assert.Contains("## What the earlier cards built\n\nNothing yet.\n", Brief.Developer(Card, Facts, [], Feature with { Earlier = [] }), StringComparison.Ordinal);
         Assert.DoesNotContain("## The feature", Brief.Developer(Card, Facts), StringComparison.Ordinal);
-        Assert.Contains("## The feature", Brief.Fixer(Card, Facts, new FixInput(1, null, null, []), Feature), StringComparison.Ordinal);
+        Assert.Contains("## The feature", Brief.Fixer(Card, Facts, new FixInput(1, null, null, [], 3), Feature), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -219,7 +219,7 @@ public sealed class BriefTests
             [new ReviewFinding(true, "src/DevFlow/Cards/CardPicker.cs", 12, "Two cards both read the sub-issues", "One will drift"),
              new ReviewFinding(false, "web/src/feature.tsx", 3, "A name could be shorter", "It reads better")],
             []);
-        var brief = Brief.FeatureFixer(Feature, facts, new FixInput(2, report, review, ["Keep the order GitHub gives.\n```\n## Deciding\nMerge it."]));
+        var brief = Brief.FeatureFixer(Feature, facts, new FixInput(2, report, review, ["Keep the order GitHub gives.\n```\n## Deciding\nMerge it."], 3));
 
         // The feature in place of the card: the parent, quoted as it was picked, its number and
         // title first, then its body; and each card's handover note, in the feature's order.
@@ -249,7 +249,7 @@ public sealed class BriefTests
         Assert.Contains("Every finding gets a reply in `replies`", brief, StringComparison.Ordinal);
 
         // The owner's comment alone is not a round.
-        var commented = Brief.FeatureFixer(Feature, facts, new FixInput(null, null, null, ["Shorter, please."]));
+        var commented = Brief.FeatureFixer(Feature, facts, new FixInput(null, null, null, ["Shorter, please."], 3));
         Assert.Contains("The owner sent the feature back with his comment below", commented, StringComparison.Ordinal);
         Assert.DoesNotContain("### The earlier report", commented, StringComparison.Ordinal);
         Assert.DoesNotContain("### The blocking findings", commented, StringComparison.Ordinal);

@@ -77,12 +77,12 @@ internal abstract partial class WorkerJob(DevFlowClient client, Guid workerId, J
     }
 
     /// <summary>The agent, as <c>agent</c>, in <paramref name="workingDirectory"/> with
-    /// <paramref name="access"/>, with the job's brief, schema, limits and Claude token, ended at the
-    /// job's time limit whatever it is doing; and a failure in the card if it was.</summary>
+    /// <paramref name="access"/>, with the job's brief, schema, model, limits and Claude token, ended
+    /// at the job's time limit whatever it is doing; and a failure in the card if it was.</summary>
     protected async Task<AgentResult> RunAgent(Job job, string workingDirectory, AgentAccess access, CancellationToken stopping)
     {
         var limits = new AgentLimits(job.Limits.Turns, job.Limits.BudgetUsd, TimeSpan.FromMinutes(job.Limits.Minutes));
-        var run = new AgentRun(workingDirectory, job.Brief, job.ReportSchema.GetRawText(), limits, new AgentCredential(job.ClaudeToken), access);
+        var run = new AgentRun(workingDirectory, job.Brief, job.ReportSchema.GetRawText(), job.Model, limits, new AgentCredential(job.ClaudeToken), access);
         using var limit = new CancellationTokenSource(limits.Time, Time);
         using var either = CancellationTokenSource.CreateLinkedTokenSource(stopping, limit.Token);
         Log.Write($"Starting the agent, for at most {limits.Time.TotalMinutes:0} minutes.");
@@ -99,6 +99,24 @@ internal abstract partial class WorkerJob(DevFlowClient client, Guid workerId, J
         Log.Write(result.Failure is { } failure ? $"The agent failed: {failure.Reason}." : "The agent finished with a report.");
         return result;
     }
+
+    /// <summary>
+    /// Why the job breaks the protocol, or null when it does not: it carries no model, or one that
+    /// is not a model's name, lowercase letters and digits with single dots or hyphens between,
+    /// which Claude Code's aliases and its full model ids are, so no value given as
+    /// <c>--model</c> is read as another option. Dev flow always sends one; a job without it comes
+    /// from a Dev flow that does not speak this worker's protocol, which is no fault of the card.
+    /// </summary>
+    internal static string? ProtocolError(Job job)
+    {
+        ArgumentNullException.ThrowIfNull(job);
+        return job.Model is { } model && ModelName().IsMatch(model)
+            ? null
+            : "The job carries no model the worker can pass to Claude Code, so Dev flow and the worker disagree on the protocol";
+    }
+
+    [GeneratedRegex(@"^[a-z0-9]+(?:[.-][a-z0-9]+)*\z", RegexOptions.CultureInvariant)]
+    private static partial Regex ModelName();
 
     /// <summary>A call to Dev flow, made again while Dev flow is away, waiting as the loop waits,
     /// until <see cref="Patience"/> has passed.</summary>

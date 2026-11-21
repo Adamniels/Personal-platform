@@ -18,7 +18,7 @@ namespace DevFlow.Tests.Features;
 
 /// <summary>
 /// Fixing a whole feature: a <c>changes</c> verdict on it sends it to a fresh developer agent on the
-/// feature's branch with the findings, in a job of kind <c>feature_fix</c>, for at most three rounds,
+/// feature's branch with the findings, in a job of kind <c>feature_fix</c>, for at most the project's fix rounds, three by default,
 /// each followed by a new review of the whole feature; the owner's comment on the feature's pull
 /// request, or "Send the whole feature back" on its page, starts a round that does not count; and
 /// with the rounds used up the feature waits for him, never stopped. Against real Postgres and the
@@ -36,7 +36,7 @@ public sealed class FeatureFixTests
 
         // The changes start round 1: the feature is fixing, and counts the round.
         var row = await FeatureFixing.Row(jobs);
-        Assert.Equal(("fixing", FeatureFix.Asked(1), 1), (row.State, row.Reason, row.FixRound));
+        Assert.Equal(("fixing", FeatureFix.Asked(1, 3), 1), (row.State, row.Reason, row.FixRound));
 
         // A job of kind feature_fix, on the feature's branch at its head, from main, with the parent
         // as its card, the developer's form, and a key that pushes.
@@ -54,7 +54,7 @@ public sealed class FeatureFixTests
         var run = Assert.Single(await FeatureFixing.Runs(jobs));
         Assert.Equal((null, Ending.Parent, Ending.Branch, "main", head, 1, review.RunId),
             (run.CardNumber, run.FeatureNumber, run.Branch, run.Base, run.FromCommit, run.FixRound, run.FixReviewId));
-        Assert.Equal(FeatureFix.Fixing(1), (await FeatureFixing.Row(jobs)).Reason);
+        Assert.Equal(FeatureFix.Fixing(1, 3), (await FeatureFixing.Row(jobs)).Reason);
 
         // The worker pushes the fix to the feature's branch, without force, and says so.
         var fixedCommit = await FeatureFixing.PushFix(jobs);
@@ -94,7 +94,7 @@ public sealed class FeatureFixTests
     {
         await using var jobs = await Ending.Feature();
         await Reviewing.Published(jobs);
-        for (var round = 1; round <= FixRounds.Most; round++)
+        for (var round = 1; round <= DevFlow.Projects.RunSettings.Defaults.FixRoundsFeature; round++)
         {
             await Reviewing.Review(jobs, Built.Verdict("changes"));
             Assert.Equal(("fixing", round), ((await FeatureFixing.Row(jobs)).State, (await FeatureFixing.Row(jobs)).FixRound));
@@ -107,9 +107,9 @@ public sealed class FeatureFixTests
         // stopped, nor is its project.
         await Reviewing.Review(jobs, Built.Verdict("changes", Built.Finding(what: "Still read twice")));
         var row = await FeatureFixing.Row(jobs);
-        Assert.Equal(("waiting_for_owner", FeatureFix.UsedUp, FixRounds.Most), (row.State, row.Reason, row.FixRound));
+        Assert.Equal(("waiting_for_owner", FeatureFix.UsedUp, DevFlow.Projects.RunSettings.Defaults.FixRoundsFeature), (row.State, row.Reason, row.FixRound));
         Assert.False(await Ending.Stopped(jobs));
-        Assert.Equal(FixRounds.Most, (await FeatureFixing.Runs(jobs)).Count);
+        Assert.Equal(DevFlow.Projects.RunSettings.Defaults.FixRoundsFeature, (await FeatureFixing.Runs(jobs)).Count);
 
         // No fourth round is handed out, on this minute or the next.
         await Reviewing.Minute(jobs);
@@ -122,6 +122,43 @@ public sealed class FeatureFixTests
         Assert.Equal(StatusCodes.Status200OK, status);
         var item = Assert.Single(waiting!["features"]!.AsArray());
         Assert.Equal((FeatureFix.UsedUp, "changes", 1), ((string)item!["reason"]!, (string)item["review"]!["verdict"]!, (int)item["review"]!["blocking"]!));
+    }
+
+    [Fact]
+    public async Task AFeatureWaitsAfterItsProjectsRounds()
+    {
+        // One round: the first changes starts it, the second has the feature wait for the owner,
+        // never stopped.
+        await using (var jobs = await Ending.Feature())
+        {
+            await Merging.Merged.Sql(jobs, "UPDATE project_settings SET fix_rounds_feature = 1 WHERE project_id = @project");
+            await Reviewing.Published(jobs);
+            await Reviewing.Review(jobs, Built.Verdict("changes"));
+            var row = await FeatureFixing.Row(jobs);
+            Assert.Equal(("fixing", FeatureFix.Asked(1, 1), 1), (row.State, row.Reason, row.FixRound));
+            Assert.Equal("Round 1 of 1: the review of the whole feature asked for changes; a fix runs next", row.Reason);
+            await FeatureFixing.Fix(jobs);
+            await Reviewing.Minute(jobs);
+            await Reviewing.Review(jobs, Built.Verdict("changes"));
+            row = await FeatureFixing.Row(jobs);
+            Assert.Equal(("waiting_for_owner", FeatureFix.UsedUp, 1), (row.State, row.Reason, row.FixRound));
+            Assert.False(await Ending.Stopped(jobs));
+        }
+
+        // None: the first changes has it wait, and no fix runs.
+        await using (var jobs = await Ending.Feature())
+        {
+            await Merging.Merged.Sql(jobs, "UPDATE project_settings SET fix_rounds_feature = 0 WHERE project_id = @project");
+            await Reviewing.Published(jobs);
+            await Reviewing.Review(jobs, Built.Verdict("changes"));
+            var row = await FeatureFixing.Row(jobs);
+            Assert.Equal(("waiting_for_owner", FeatureFix.UsedUp, 0), (row.State, row.Reason, row.FixRound));
+            Assert.False(await Ending.Stopped(jobs));
+            Assert.Empty(await FeatureFixing.Runs(jobs));
+            await Reviewing.Minute(jobs);
+            Fixed.Later(jobs);
+            Assert.Equal(StatusCodes.Status204NoContent, (await jobs.Next()).Response.StatusCode);
+        }
     }
 
     [Fact]
@@ -165,7 +202,7 @@ public sealed class FeatureFixTests
         await Reviewing.Minute(jobs);
         await Reviewing.Review(jobs, Built.Verdict("changes"));
         row = await FeatureFixing.Row(jobs);
-        Assert.Equal(("fixing", FeatureFix.Asked(1), 1), (row.State, row.Reason, row.FixRound));
+        Assert.Equal(("fixing", FeatureFix.Asked(1, 3), 1), (row.State, row.Reason, row.FixRound));
         Fixed.Later(jobs);
         var next = await jobs.Job();
         Assert.Equal(1, (int?)next["to_fix"]!["round"]);

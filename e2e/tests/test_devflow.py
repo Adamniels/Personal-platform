@@ -3008,6 +3008,112 @@ def test_a_card_marked_for_my_review_waits(
     expect(page.get_by_text("Done", exact=True).first).to_be_visible()
 
 
+def test_i_set_the_models_and_limits(
+    page: Page,
+    invite_code: str,
+    base_url: str,
+    viewport: str,
+    devflow_world,
+    playwright,
+):
+    register_and_log_in(page, invite_code, base_url)
+    _card_project(page, base_url, devflow_world)
+    settings = page.get_by_role("article", name="Settings")
+    runs = settings.get_by_role("region", name="Models and limits")
+
+    # A new project's: opus for each job, 90 minutes, 200 turns, and 3 fix
+    # rounds a card and 3 a feature.
+    for label, value in (
+        ("Reading model", "opus"),
+        ("Building model", "opus"),
+        ("Reviewing model", "opus"),
+        ("Minutes a run may take", "90"),
+        ("Turns a run may take", "200"),
+        ("Fix rounds a card gets", "3"),
+        ("Fix rounds a feature gets", "3"),
+    ):
+        expect(runs.get_by_label(label)).to_have_value(value)
+
+    # A time Dev flow refuses is named under its field, and nothing is saved.
+    runs.get_by_label("Minutes a run may take").fill("5")
+    settings.get_by_role("button", name="Save").click()
+    expect(runs.get_by_label("Minutes a run may take")).to_have_attribute(
+        "aria-invalid", "true"
+    )
+    expect(runs.get_by_text("must be from 10 to 240")).to_be_visible()
+
+    runs.get_by_label("Building model").select_option("sonnet")
+    runs.get_by_label("Reviewing model").select_option("haiku")
+    runs.get_by_label("Minutes a run may take").fill("45")
+    runs.get_by_label("Turns a run may take").fill("300")
+    runs.get_by_label("Fix rounds a card gets").fill("1")
+    runs.get_by_label("Fix rounds a feature gets").fill("0")
+    settings.get_by_role("button", name="Save").click()
+    expect(settings.get_by_text("Saved.")).to_be_visible()
+    expect(runs.get_by_label("Minutes a run may take")).not_to_have_attribute(
+        "aria-invalid", "true"
+    )
+    page.evaluate("document.fonts.ready.then(() => null)")
+    for check in (assert_headings_are_capitals, assert_nothing_scrolls_sideways):
+        check(page)
+    assert _axe_violations(page) == []
+    runs.scroll_into_view_if_needed()
+    capture(page, "devflow-settings-runs")
+
+    # Kept: a fresh load reads them back.
+    page.reload()
+    runs = page.get_by_role("article", name="Settings").get_by_role(
+        "region", name="Models and limits"
+    )
+    for label, value in (
+        ("Reading model", "opus"),
+        ("Building model", "sonnet"),
+        ("Reviewing model", "haiku"),
+        ("Minutes a run may take", "45"),
+        ("Turns a run may take", "300"),
+        ("Fix rounds a card gets", "1"),
+        ("Fix rounds a feature gets", "0"),
+    ):
+        expect(runs.get_by_label(label)).to_have_value(value)
+
+    # The next job carries them: a worker on the image released asks for work
+    # and is handed the card's build on the building model, with the time and
+    # the turns set, and the spend every run is given.
+    key = _make_key(page)
+    command = (
+        page.get_by_role("region", name="Build and start the worker")
+        .locator("code")
+        .inner_text()
+    )
+    image = re.search(r"--build-arg DEVFLOW_BASE=(\S+) ", command).group(1)
+    worker = playwright.request.new_context(base_url=base_url, ignore_https_errors=True)
+    try:
+        worker_id = "0190a8f0-0000-7000-8000-0000000000f3"
+        hello = worker.post(
+            "/devflow/api/worker/hello",
+            data={
+                "worker_id": worker_id,
+                "name": "platform-worker-1",
+                "recipe_version": "1",
+                "base_image": image,
+            },
+            headers={"Authorization": f"Bearer {key}"},
+        )
+        assert hello.status == 204, hello.text()
+        asked = worker.post(
+            "/devflow/api/worker/jobs/next",
+            data={"worker_id": worker_id},
+            headers={"Authorization": f"Bearer {key}"},
+        )
+        assert asked.status == 200, asked.text()
+        job = asked.json()
+    finally:
+        worker.dispose()
+    assert (job["kind"], job["card"]["number"]) == ("build", CARD)
+    assert job["model"] == "sonnet"
+    assert job["limits"] == {"turns": 300, "budget_usd": 25, "minutes": 45}
+
+
 def test_i_set_sometimes(
     page: Page, invite_code: str, base_url: str, viewport: str, devflow_world
 ):

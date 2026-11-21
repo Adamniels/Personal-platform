@@ -238,7 +238,8 @@ public sealed class ResultTests
         Assert.Equal(ReadResult.Read, await jobs.Routes.Read(jobs.Project, Jobs.User));
         Assert.Equal("building", (await jobs.Card(1)).State);
 
-        // 100 minutes, with the worker seen 5 minutes ago: it is still there, so not lost.
+        // 100 minutes, its job's 90 and the margin, with the worker seen 5 minutes ago: it is still
+        // there, so not lost.
         jobs.Routes.Time.Advance(TimeSpan.FromMinutes(1));
         await jobs.Routes.Door.InUserTransaction(Jobs.User, transaction => Dapper.SqlMapper.ExecuteAsync(
             transaction.Connection!, "UPDATE workers SET last_seen_at = @at", new { at = jobs.Routes.Time.GetUtcNow().AddMinutes(-5) }, transaction), Jobs.Ct);

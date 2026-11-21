@@ -23,7 +23,7 @@ public sealed class FakeAgentTests : IDisposable
             ["old.txt"] = null,
         });
 
-        var result = await agent.Run(new AgentRun(_work.FullName, "brief", "{}", AgentLimits.Default, new AgentCredential("unused")), Ct);
+        var result = await agent.Run(new AgentRun(_work.FullName, "brief", "{}", "opus", Limits, new AgentCredential("unused")), Ct);
 
         Assert.True(result.Succeeded);
         Assert.True(JsonNode.DeepEquals(report, result.Report));
@@ -45,7 +45,7 @@ public sealed class FakeAgentTests : IDisposable
         var agent = new FakeAgent(new JsonObject(), new Dictionary<string, string?> { [path] = "x" });
 
         await Assert.ThrowsAsync<ArgumentException>(() =>
-            agent.Run(new AgentRun(_work.FullName, "brief", "{}", AgentLimits.Default, new AgentCredential("unused")), Ct));
+            agent.Run(new AgentRun(_work.FullName, "brief", "{}", "opus", Limits, new AgentCredential("unused")), Ct));
     }
 
     public void Dispose() => _work.Delete(recursive: true);

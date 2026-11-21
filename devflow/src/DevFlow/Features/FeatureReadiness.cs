@@ -37,7 +37,7 @@ public sealed partial class FeatureReadiness(UserDb database, ICodeHost host, Ti
                 var ci = FeatureReady.Covering(facts) is { Verdict: "approve" } && repository is not null
                     ? await Ci(userId, repository, feature, cancellationToken)
                     : null;
-                var decision = FeatureReady.Decide(facts, ci) ?? new ReadyDecision(feature.State, feature.Reason, feature.ReviewCommit);
+                var decision = FeatureReady.Decide(facts, ci, feature.MostRounds) ?? new ReadyDecision(feature.State, feature.Reason, feature.ReviewCommit);
 
                 // And for a head that waits for the owner whatever its review, since the owner may
                 // merge it once CI passed there; read until it has, and not again for that head.
@@ -100,6 +100,7 @@ public sealed partial class FeatureReadiness(UserDb database, ICodeHost host, Ti
                 """
                 SELECT f.id AS Id, f.number AS Number, f.branch AS Branch, f.state AS State, f.reason AS Reason, f.review_commit AS ReviewCommit,
                        f.review_failed_at AS ReviewFailedAt, f.fix_failed_at AS FixFailedAt, f.fix_round AS RoundsUsed, f.ci_passed_commit AS CiPassed,
+                       (SELECT s.fix_rounds_feature FROM project_settings s WHERE s.project_id = f.project_id) AS MostRounds,
                        wb.last_commit AS Head,
                        coalesce((SELECT m.merged_at FROM merges_made m WHERE m.project_id = f.project_id AND m.commit = wb.last_commit),
                                 (SELECT p.recorded_at FROM pushes_made p WHERE p.project_id = f.project_id AND p.branch = f.branch AND p.commit = wb.last_commit),
@@ -134,7 +135,7 @@ public sealed partial class FeatureReadiness(UserDb database, ICodeHost host, Ti
                     transaction,
                     cancellationToken: cancellationToken))).ToList();
             return (new Repository(project.Installation, project.RepositoryId, project.Owner, project.Name), [.. rows.Select(row => new Due(
-                row.Id, row.Number, row.State, row.Reason, row.ReviewCommit, row.ReviewFailedAt, row.FixFailedAt, row.RoundsUsed, row.ReviewRunId, row.CiPassed, row.Head,
+                row.Id, row.Number, row.State, row.Reason, row.ReviewCommit, row.ReviewFailedAt, row.FixFailedAt, row.RoundsUsed, row.MostRounds, row.ReviewRunId, row.CiPassed, row.Head,
                 new DateTimeOffset(DateTime.SpecifyKind(row.PushedAt, DateTimeKind.Utc)),
                 row.ReviewedCommit is { } commit && row.Verdict is { } verdict ? new ReviewOfFeature(commit, verdict) : null,
                 merges.Where(merge => merge.Branch == row.Branch).ToDictionary(merge => merge.Commit, merge => merge.Parent, StringComparer.Ordinal)))]);
@@ -190,12 +191,12 @@ public sealed partial class FeatureReadiness(UserDb database, ICodeHost host, Ti
 
     /// <summary>A feature whose review or readiness is due, as read.</summary>
     private sealed record Due(
-        Guid Id, int Number, string State, string? Reason, string? ReviewCommit, string? ReviewFailedAt, string? FixFailedAt, int RoundsUsed, Guid? ReviewRunId,
+        Guid Id, int Number, string State, string? Reason, string? ReviewCommit, string? ReviewFailedAt, string? FixFailedAt, int RoundsUsed, int MostRounds, Guid? ReviewRunId,
         string? CiPassed, string Head, DateTimeOffset PushedAt, ReviewOfFeature? Latest, IReadOnlyDictionary<string, string> CleanMerges);
 
     private sealed record DueRow(
         Guid Id, int Number, string Branch, string State, string? Reason, string? ReviewCommit, string? ReviewFailedAt, string? FixFailedAt, int RoundsUsed,
-        string? CiPassed, string Head, DateTime PushedAt, Guid? ReviewRunId, string? ReviewedCommit, string? Verdict);
+        string? CiPassed, int MostRounds, string Head, DateTime PushedAt, Guid? ReviewRunId, string? ReviewedCommit, string? Verdict);
 
     private sealed record ProjectRow(long Installation, long RepositoryId, string Owner, string Name);
 }

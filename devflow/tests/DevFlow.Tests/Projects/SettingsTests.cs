@@ -35,6 +35,13 @@ public sealed class SettingsTests
         ["wait_when_decision"] = true,
         ["wait_paths"] = new JsonArray(),
         ["trusted_logins"] = new JsonArray(),
+        ["model_reading"] = "opus",
+        ["model_building"] = "opus",
+        ["model_reviewing"] = "opus",
+        ["run_minutes"] = 90,
+        ["run_turns"] = 200,
+        ["fix_rounds_card"] = 3,
+        ["fix_rounds_feature"] = 3,
     };
 
     private static JsonObject Without(JsonObject settings, string field)

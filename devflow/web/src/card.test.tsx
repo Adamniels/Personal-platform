@@ -90,6 +90,7 @@ function story(overrides: Partial<CardStory> = {}): CardStory {
 		rounds: [],
 		merge: null,
 		feature: null,
+		most_rounds: 3,
 		...overrides,
 	};
 }
@@ -505,6 +506,15 @@ describe("a card's page", () => {
 
 		await screen.findByRole("heading", { name: "Add the empty state" });
 		expect(screen.queryByRole("article", { name: "Screenshots" })).toBeNull();
+	});
+
+	test("counts each round against the project's fix rounds", async () => {
+		open(() => Promise.resolve(story({ ...inRoundTwo(), most_rounds: 5 })));
+
+		const rounds = within(await screen.findByRole("list", { name: "Rounds" }));
+		expect(rounds.getByText("Round 2 of 5")).toBeTruthy();
+		expect(rounds.getByText("Round 1 of 5")).toBeTruthy();
+		expect(rounds.queryByText(/of 3$/)).toBeNull();
 	});
 
 	test("shows each round: what sent it back, the fix, its replies and the review after it", async () => {

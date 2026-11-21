@@ -18,7 +18,7 @@ namespace DevFlow.Tests.Fixing;
 
 /// <summary>
 /// A <c>changes</c> verdict sends the card back to a fresh developer on the same branch, with the
-/// findings, for at most three rounds, each followed by a new review; and the owner's comment on the
+/// findings, for at most the project's fix rounds, three by default, each followed by a new review; and the owner's comment on the
 /// card's open pull request, or sent back from the list, starts a fix too, without counting as a
 /// round. Against the fake, the fake worker and a real Postgres. See "Fixing" in
 /// devflow/README.md.
@@ -36,7 +36,7 @@ public sealed class FixTests
         // The changes verdict moves the card to fixing, round 1.
         var card = await Built.Card(jobs, 4);
         Assert.Equal("fixing", card.State);
-        Assert.Equal(FixRounds.Asked(1), card.Reason);
+        Assert.Equal(FixRounds.Asked(1, 3), card.Reason);
         Assert.Equal(1, await Fixed.RoundsUsed(jobs, 4));
 
         // The next job is its fix, before card 5's build, on the card's branch from its head.
@@ -63,7 +63,7 @@ public sealed class FixTests
         Assert.Equal((string)built["branch"]!, runs[2].Branch);
         Assert.Equal(((string)built["head_commit"]!, 1), await Fixed.FixRun(jobs, runs[2].Id));
         Assert.Equal("fixing", (await jobs.Card(4)).State);
-        Assert.Equal(FixRounds.Fixing(1), (await jobs.Card(4)).Reason);
+        Assert.Equal(FixRounds.Fixing(1, 3), (await jobs.Card(4)).Reason);
         Assert.Equal("queued", (await jobs.Card(5)).State);
     }
 
@@ -216,7 +216,7 @@ public sealed class FixTests
         // Three rounds, each a fix and a review that asks for changes again.
         for (var round = 1; round <= 3; round++)
         {
-            Assert.Equal(FixRounds.Asked(round), (await jobs.Card(4)).Reason);
+            Assert.Equal(FixRounds.Asked(round, 3), (await jobs.Card(4)).Reason);
             var ran = await Fixed.Fix(jobs);
             Assert.Equal(round, (await Fixed.FixRun(jobs, (Guid)ran["job_id"]!)).Round);
             await Built.Review(jobs, Built.Verdict("changes"));
@@ -269,7 +269,7 @@ public sealed class FixTests
         result["head_commit"] = await NewCommit(jobs, (string)job["branch"]!);
         Assert.Equal(StatusCodes.Status204NoContent, (await jobs.Post(WorkerApi.ResultPath((Guid)job["job_id"]!), result)).Response.StatusCode);
         await Built.Review(jobs, Built.Verdict("changes"));
-        Assert.Equal(FixRounds.Asked(1), (await jobs.Card(4)).Reason);
+        Assert.Equal(FixRounds.Asked(1, 3), (await jobs.Card(4)).Reason);
         Assert.Equal(1, await Fixed.RoundsUsed(jobs, 4));
 
         // And his comment is taken once: a read after it starts nothing more.
@@ -350,7 +350,7 @@ public sealed class FixTests
         var commit = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var claim = door.InUserTransaction(Jobs.Jobs.User, async transaction =>
         {
-            var fix = await DevFlow.Jobs.JobStore.ClaimFix(transaction, jobs.Project, Jobs.Jobs.User, Jobs.Jobs.FirstWorker, Jobs.Jobs.Check, jobs.Routes.Time.GetUtcNow(), Ct);
+            var fix = await DevFlow.Jobs.JobStore.ClaimFix(transaction, jobs.Project, Jobs.Jobs.User, Jobs.Jobs.FirstWorker, DevFlow.Projects.RunSettings.Defaults, Jobs.Jobs.Check, jobs.Routes.Time.GetUtcNow(), Ct);
             claimedIt.SetResult(fix);
             await commit.Task;
             return fix;

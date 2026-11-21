@@ -212,8 +212,10 @@ public sealed class CardPageTests
         {
             await Dapper.SqlMapper.ExecuteAsync(admin, new Dapper.CommandDefinition(
                 """
-                INSERT INTO runs (id, project_id, user_id, card_number, worker_id, kind, branch, base, started_at, finished_at, result, head_commit)
-                SELECT gen_random_uuid(), project_id, user_id, card_number, worker_id, 'build', branch, base, @now, @now, 'succeeded', @head
+                INSERT INTO runs (id, project_id, user_id, card_number, worker_id, kind, branch, base, started_at, finished_at, result, head_commit,
+                                  run_minutes)
+                SELECT gen_random_uuid(), project_id, user_id, card_number, worker_id, 'build', branch, base, @now, @now, 'succeeded', @head,
+                       run_minutes
                 FROM runs WHERE project_id = @project AND kind = 'build'
                 """,
                 new { project = jobs.Project, now = jobs.Routes.Time.GetUtcNow(), head = new string('b', 40) },

@@ -125,6 +125,14 @@
 	gap: var(--space-2);
 }
 
+/* The models and limits, under the trusted accounts: a heading, a line on
+ * when a change counts, the three models, then the four limits. */
+.runs {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-3);
+}
+
 /* Patterns are paths, read in the mono font. */
 .paths {
 	font-family: var(--font-mono);

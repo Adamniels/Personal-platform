@@ -83,7 +83,8 @@ public sealed class ProtocolTests
             "ghs_key",
             new DateTimeOffset(2026, 11, 18, 9, 0, 0, TimeSpan.Zero),
             new JobCommitter("devflow[bot]", "1+devflow[bot]@users.noreply.github.com"),
-            JobLimits.Default);
+            new JobLimits(200, 25m, 90),
+            "sonnet");
 
         // The same document, whatever each escapes.
         var written = JsonSerializer.Serialize(job, devFlowJson);

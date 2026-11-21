@@ -16,6 +16,10 @@ internal static class Support
 
     public static CancellationToken Ct => TestContext.Current.CancellationToken;
 
+    /// <summary>A run's limits as a new project's settings give them: 200 turns, the 25 USD every
+    /// job carries until part 8's budget, and 90 minutes.</summary>
+    public static AgentLimits Limits { get; } = new(200, 25m, TimeSpan.FromMinutes(90));
+
     /// <summary>An environment holding exactly <paramref name="variables"/>.</summary>
     public static Func<string, string?> Environment(params (string Name, string? Value)[] variables) =>
         name => variables.FirstOrDefault(pair => pair.Name == name).Value;

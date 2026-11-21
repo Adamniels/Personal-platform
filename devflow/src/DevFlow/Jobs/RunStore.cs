@@ -5,6 +5,7 @@ using Dapper;
 
 using DevFlow.Fixing;
 using DevFlow.Merging;
+using DevFlow.Projects;
 using DevFlow.Protocol;
 using DevFlow.PullRequests;
 using DevFlow.Reviews;
@@ -105,8 +106,9 @@ public static class RunStore
     /// <summary>The longest a reason from a worker is kept, so a card's line stays a line.</summary>
     public const int MostReason = 1000;
 
-    /// <summary>How long after it was handed out a run with no result may be lost.</summary>
-    public static readonly TimeSpan LostAfter = TimeSpan.FromMinutes(100);
+    /// <summary>How long past its job's time limit a run with no result may be lost: the margin
+    /// that made the 100 minutes of the old fixed 90.</summary>
+    public static readonly TimeSpan LostMargin = TimeSpan.FromMinutes(10);
 
     /// <summary>How long its worker must not have been seen for it to be lost.</summary>
     public static readonly TimeSpan QuietFor = TimeSpan.FromMinutes(10);
@@ -116,11 +118,12 @@ public static class RunStore
     /// back in <c>reviewing</c>, to be reviewed again; a failure in the card, or a verdict that does
     /// not match its form, which is a failure in the run and never a verdict, stops it with why;
     /// anything else succeeded. Then <c>changes</c> moves the card to <c>fixing</c> for its next
-    /// round, or, with <paramref name="roundsUsed"/> already <see cref="FixRounds.Most"/>, stops it
+    /// round, or, with <paramref name="roundsUsed"/> already <paramref name="mostRounds"/>, the
+    /// project's <c>fix_rounds_card</c> as it is when the verdict is judged, stops it
     /// with <see cref="FixRounds.UsedUp"/>; and <c>approve</c> has it wait for the owner, due for
     /// the merge check, which merges it or says why not.
     /// </summary>
-    public static RunEnding JudgeReview(RunResult result, int roundsUsed = 0)
+    public static RunEnding JudgeReview(RunResult result, int roundsUsed, int mostRounds)
     {
         ArgumentNullException.ThrowIfNull(result);
         if (!result.Succeeded)
@@ -137,8 +140,8 @@ public static class RunStore
         }
 
         return verdict.Verdict != ReviewVerdictKind.Changes ? new RunEnding("succeeded", null, "waiting_for_owner")
-            : roundsUsed >= FixRounds.Most ? new RunEnding("succeeded", null, "stopped", FixRounds.UsedUp)
-            : new RunEnding("succeeded", null, "fixing", FixRounds.Asked(roundsUsed + 1));
+            : roundsUsed >= mostRounds ? new RunEnding("succeeded", null, "stopped", FixRounds.UsedUp)
+            : new RunEnding("succeeded", null, "fixing", FixRounds.Asked(roundsUsed + 1, mostRounds));
     }
 
     /// <summary>
@@ -379,7 +382,8 @@ public static class RunStore
             // The project's row first, as the watch and Dev flow's own merges take it, before the
             // run's and its card's, so a run ending on a feature's branch judges what was pushed
             // there in the order every other writer locks in.
-            if (!await Watching.BranchWatch.Lock(transaction, projectId, cancellationToken))
+            if (!await Watching.BranchWatch.Lock(transaction, projectId, cancellationToken)
+                || await RunSettings.Read(transaction, projectId, cancellationToken) is not { } settings)
             {
                 return Recorded.NotHeld;
             }
@@ -417,7 +421,8 @@ public static class RunStore
 
             var ending = run.Kind switch
             {
-                Job.Review => JudgeReview(result, run.RoundsUsed),
+                // The rounds as the project has them now, so a change takes effect at this verdict.
+                Job.Review => JudgeReview(result, run.RoundsUsed, settings.FixRoundsCard),
                 Job.Fix => JudgeFix(result, run.FromCommit!),
                 Job.Conflict => JudgeConflict(result, run.FromCommit!),
                 Job.FeatureReview => JudgeFeatureReview(result),
@@ -525,7 +530,7 @@ public static class RunStore
 
                 if (run.Kind == Job.FeatureFix)
                 {
-                    await EndFeatureFix(transaction, projectId, feature, run.FromCommit!, run.FixRound, ending, now, cancellationToken);
+                    await EndFeatureFix(transaction, projectId, feature, run.FromCommit!, run.FixRound, settings.FixRoundsFeature, ending, now, cancellationToken);
                     return Recorded.Stored;
                 }
 
@@ -565,7 +570,7 @@ public static class RunStore
                 "checking" => Built,
                 "reviewing" => PullRequestOpener.ToReview,
                 "waiting_for_owner" => MergeCheck.Checking,
-                "fixing" => FixRounds.Waiting(run.FixRound),
+                "fixing" => FixRounds.Waiting(run.FixRound, settings.FixRoundsCard),
                 _ => ending.Reason,
             };
             var running = run.Kind switch
@@ -603,8 +608,10 @@ public static class RunStore
     }
 
     /// <summary>
-    /// Ends the project's runs that never returned: handed out at least <see cref="LostAfter"/>
-    /// ago, with no result, and a worker not seen for <see cref="QuietFor"/>. Each is recorded lost
+    /// Ends the project's runs that never returned: handed out at least the minutes their job
+    /// carried and <see cref="LostMargin"/> ago, so a run keeps the limit it was handed out with
+    /// whatever the setting is now, with no result, and a worker not seen for
+    /// <see cref="QuietFor"/>. Each is recorded lost
     /// and its card put back, counting nothing against it: a build's in <c>queued</c>, a review's in
     /// <c>reviewing</c>, a fix's in <c>fixing</c>, in the same round; and the pushes the watch
     /// awaited of them are judged, with no result to record them. A feature's run lost leaves its
@@ -617,7 +624,8 @@ public static class RunStore
         return await database.InUserTransaction(userId, async transaction =>
         {
             // The project's row first, as Record takes it, since a lost run ends as a result does.
-            if (!await Watching.BranchWatch.Lock(transaction, projectId, cancellationToken))
+            if (!await Watching.BranchWatch.Lock(transaction, projectId, cancellationToken)
+                || await RunSettings.Read(transaction, projectId, cancellationToken) is not { } settings)
             {
                 return 0;
             }
@@ -626,11 +634,12 @@ public static class RunStore
                 """
                 UPDATE runs r SET finished_at = @now, result = 'lost', reason = @reason
                 FROM workers w
-                WHERE r.project_id = @projectId AND r.finished_at IS NULL AND r.started_at <= @handedBefore
+                WHERE r.project_id = @projectId AND r.finished_at IS NULL
+                  AND r.started_at + make_interval(mins => r.run_minutes) + @margin <= @now
                   AND w.project_id = r.project_id AND w.id = r.worker_id AND w.last_seen_at <= @seenBefore
                 RETURNING r.card_number, r.kind, r.fix_round, r.feature_number
                 """,
-                new { projectId, now, reason = LostReason, handedBefore = now - LostAfter, seenBefore = now - QuietFor },
+                new { projectId, now, reason = LostReason, margin = LostMargin, seenBefore = now - QuietFor },
                 transaction,
                 cancellationToken: cancellationToken))).ToList();
             foreach (var (card, kind, round, feature) in lost)
@@ -647,7 +656,7 @@ public static class RunStore
                     }
                     else if (kind == Job.FeatureFix && feature is { } fixedOne)
                     {
-                        await EndFeatureFix(transaction, projectId, fixedOne, null, round, new RunEnding("lost", LostReason, "fixing"), now, cancellationToken);
+                        await EndFeatureFix(transaction, projectId, fixedOne, null, round, settings.FixRoundsFeature, new RunEnding("lost", LostReason, "fixing"), now, cancellationToken);
                     }
 
                     continue;
@@ -656,7 +665,7 @@ public static class RunStore
                 var (running, state, reason) = kind switch
                 {
                     Job.Review => (UnderReview, "reviewing", PullRequestOpener.ToReview),
-                    Job.Fix => (Fixing, "fixing", FixRounds.Waiting(round)),
+                    Job.Fix => (Fixing, "fixing", FixRounds.Waiting(round, settings.FixRoundsCard)),
                     _ => (Building, "queued", (string?)null),
                 };
                 await EndCard(transaction, projectId, number, running, state, reason, now, cancellationToken);
@@ -864,7 +873,7 @@ public static class RunStore
     /// row from that commit, or one that never runs again, it waits for the owner with why, and the
     /// commit is remembered, so its readiness leaves it so until its branch moves.
     /// </summary>
-    private static async Task EndFeatureFix(NpgsqlTransaction transaction, Guid projectId, int number, string? fromCommit, int? round, RunEnding ending, DateTimeOffset now, CancellationToken cancellationToken)
+    private static async Task EndFeatureFix(NpgsqlTransaction transaction, Guid projectId, int number, string? fromCommit, int? round, int mostRounds, RunEnding ending, DateTimeOffset now, CancellationToken cancellationToken)
     {
         var failedAt = await transaction.Connection!.QuerySingleOrDefaultAsync<(string State, string? FailedAt)?>(new CommandDefinition(
             "SELECT state, fix_failed_at FROM features WHERE project_id = @projectId AND number = @number FOR UPDATE",
@@ -880,7 +889,7 @@ public static class RunStore
         var (state, said, remember) = ending switch
         {
             { Result: "succeeded" } => ("reviewing", Features.FeatureFix.Fixed, (string?)null),
-            { CardState: "fixing" } => ("fixing", Features.FeatureFix.Waiting(round), feature.FailedAt),
+            { CardState: "fixing" } => ("fixing", Features.FeatureFix.Waiting(round, mostRounds), feature.FailedAt),
             { Retry: true } when !string.Equals(feature.FailedAt, fromCommit, StringComparison.Ordinal)
                 => ("fixing", Features.FeatureFix.Again(reason), fromCommit),
             { Retry: true } => ("waiting_for_owner", Features.FeatureFix.Failed(Twice(reason)), fromCommit),

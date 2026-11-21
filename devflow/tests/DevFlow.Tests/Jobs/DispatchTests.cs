@@ -72,8 +72,8 @@ public sealed class DispatchTests
         // fixed.
         var (first, second) = await door.InUserTransaction(Jobs.User, async transaction =>
         {
-            var taken = await JobStore.Claim(transaction, jobs.Project, Jobs.User, Jobs.FirstWorker, "main", Jobs.Check, now, Ct);
-            var other = await door.InUserTransaction(Jobs.User, inner => JobStore.Claim(inner, jobs.Project, Jobs.User, Jobs.SecondWorker, "main", Jobs.Check, now, Ct), Ct);
+            var taken = await JobStore.Claim(transaction, jobs.Project, Jobs.User, Jobs.FirstWorker, DevFlow.Projects.RunSettings.Defaults, "main", Jobs.Check, now, Ct);
+            var other = await door.InUserTransaction(Jobs.User, inner => JobStore.Claim(inner, jobs.Project, Jobs.User, Jobs.SecondWorker, DevFlow.Projects.RunSettings.Defaults, "main", Jobs.Check, now, Ct), Ct);
             return (taken, other);
         }, Ct);
 
@@ -82,7 +82,7 @@ public sealed class DispatchTests
         Assert.Null(second);
 
         // Once the first has committed, there is still nothing: the card is building.
-        Assert.Null(await door.InUserTransaction(Jobs.User, transaction => JobStore.Claim(transaction, jobs.Project, Jobs.User, Jobs.SecondWorker, "main", Jobs.Check, now, Ct), Ct));
+        Assert.Null(await door.InUserTransaction(Jobs.User, transaction => JobStore.Claim(transaction, jobs.Project, Jobs.User, Jobs.SecondWorker, DevFlow.Projects.RunSettings.Defaults, "main", Jobs.Check, now, Ct), Ct));
         Assert.Equal(StatusCodes.Status204NoContent, (await jobs.Next(Jobs.SecondWorker)).Response.StatusCode);
         var run = Assert.Single(await jobs.Runs());
         Assert.Equal(Jobs.FirstWorker, run.WorkerId);
@@ -208,7 +208,7 @@ public sealed class DispatchTests
         var job = await jobs.Job();
 
         Assert.Equal(
-            ["base", "branch", "brief", "card", "check", "claude_token", "committer", "job_id", "kind", "limits", "push_key", "push_key_expires_at", "report_schema", "repository", "start", "to_fix", "to_resolve", "to_review", "to_review_feature", "url"],
+            ["base", "branch", "brief", "card", "check", "claude_token", "committer", "job_id", "kind", "limits", "model", "push_key", "push_key_expires_at", "report_schema", "repository", "start", "to_fix", "to_resolve", "to_review", "to_review_feature", "url"],
             job.Select(pair => pair.Key).Order(StringComparer.Ordinal));
         // How the worker starts the project for its pictures, from the same project.json as the
         // check.
@@ -257,6 +257,7 @@ public sealed class DispatchTests
         Assert.Equal(200, (int)limits["turns"]!);
         Assert.Equal(25m, (decimal)limits["budget_usd"]!);
         Assert.Equal(90, (int)limits["minutes"]!);
+        Assert.Equal("opus", (string)job["model"]!);
 
         // There was one card, and it is taken.
         Assert.Equal(StatusCodes.Status204NoContent, (await jobs.Next()).Response.StatusCode);

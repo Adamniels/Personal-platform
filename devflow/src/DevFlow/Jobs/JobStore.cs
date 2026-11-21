@@ -7,6 +7,7 @@ using Dapper;
 using DevFlow.Briefs;
 using DevFlow.Cards;
 using DevFlow.Fixing;
+using DevFlow.Projects;
 using DevFlow.Protocol;
 using DevFlow.Reviews;
 
@@ -71,7 +72,7 @@ public sealed record EarlierRound(int? Round, string? ReviewedCommit, string? Ve
 /// <param name="Branch">The card's branch, its build's.</param>
 /// <param name="Base">The branch it was made from, its build's.</param>
 /// <param name="FromCommit">The commit the branch is at, which the fix starts from.</param>
-/// <param name="Round">The round, 1 to 3, or null when the owner's comment started it.</param>
+/// <param name="Round">The round, 1 to the project's fix rounds, or null when the owner's comment started it.</param>
 /// <param name="Report">The report of the newest build or fix that succeeded, as it was stored,
 /// null without one.</param>
 /// <param name="Review">The review the fix answers, null when there is none.</param>
@@ -119,7 +120,7 @@ public sealed record ClaimedFeatureReview(Guid RunId, BriefFeature Feature, stri
 /// <param name="Base">The default branch, which the feature's branch was made from.</param>
 /// <param name="FromCommit">The commit the feature's branch is at, as its watch last named it,
 /// which the fix starts from.</param>
-/// <param name="Round">The round, 1 to 3, or null when the owner's comment started it.</param>
+/// <param name="Round">The round, 1 to the project's fix rounds, or null when the owner's comment started it.</param>
 /// <param name="Report">The report of the feature's newest fix that succeeded, as it was stored,
 /// null without one.</param>
 /// <param name="Review">The review of the whole feature the fix answers, null when there is
@@ -381,7 +382,7 @@ public static class JobStore
     /// check. The card stays <c>reviewing</c>, the run under way holding it. Null when there is
     /// none.
     /// </summary>
-    public static async Task<ClaimedReview?> ClaimReview(NpgsqlTransaction transaction, Guid projectId, Guid userId, Guid workerId, DateTimeOffset now, CancellationToken cancellationToken)
+    public static async Task<ClaimedReview?> ClaimReview(NpgsqlTransaction transaction, Guid projectId, Guid userId, Guid workerId, RunSettings run, DateTimeOffset now, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(transaction);
         var card = await transaction.Connection!.QuerySingleOrDefaultAsync<ToReview>(new CommandDefinition(
@@ -418,10 +419,10 @@ public static class JobStore
             Pictures(card.Screenshots, card.ScreenshotsNote), await FeatureOf(transaction, projectId, card.Number, cancellationToken));
         await transaction.Connection!.ExecuteAsync(new CommandDefinition(
             """
-            INSERT INTO runs (id, project_id, user_id, card_number, worker_id, kind, branch, base, check_command, head_commit, started_at)
-            VALUES (@id, @projectId, @userId, @number, @workerId, 'review', @branch, @baseBranch, @check, @commit, @now)
+            INSERT INTO runs (id, project_id, user_id, card_number, worker_id, kind, branch, base, check_command, head_commit, started_at, run_minutes)
+            VALUES (@id, @projectId, @userId, @number, @workerId, 'review', @branch, @baseBranch, @check, @commit, @now, @minutes)
             """,
-            new { id = claimed.RunId, projectId, userId, number = claimed.Number, workerId, branch = claimed.Branch, baseBranch = claimed.Base, check = claimed.Check, commit = claimed.Commit, now },
+            new { id = claimed.RunId, projectId, userId, number = claimed.Number, workerId, branch = claimed.Branch, baseBranch = claimed.Base, check = claimed.Check, commit = claimed.Commit, now, minutes = run.Minutes },
             transaction,
             cancellationToken: cancellationToken));
         return claimed;
@@ -459,7 +460,7 @@ public static class JobStore
     /// <paramref name="check"/> its job carries. The
     /// card stays <c>fixing</c>, the run under way holding it. Null when there is none.
     /// </summary>
-    public static async Task<ClaimedFix?> ClaimFix(NpgsqlTransaction transaction, Guid projectId, Guid userId, Guid workerId, string check, DateTimeOffset now, CancellationToken cancellationToken)
+    public static async Task<ClaimedFix?> ClaimFix(NpgsqlTransaction transaction, Guid projectId, Guid userId, Guid workerId, RunSettings run, string check, DateTimeOffset now, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(transaction);
         ArgumentNullException.ThrowIfNull(check);
@@ -490,7 +491,7 @@ public static class JobStore
 
         await transaction.Connection!.ExecuteAsync(new CommandDefinition(
             "UPDATE cards SET reason = @reason, changed_at = @now WHERE project_id = @projectId AND number = @number",
-            new { projectId, number = card.Number, reason = FixRounds.Fixing(card.Round), now },
+            new { projectId, number = card.Number, reason = FixRounds.Fixing(card.Round, run.FixRoundsCard), now },
             transaction,
             cancellationToken: cancellationToken));
         var review = card.ReviewId is { } reviewId ? await ReviewStore.Of(transaction, reviewId, cancellationToken) : null;
@@ -500,12 +501,13 @@ public static class JobStore
         await transaction.Connection!.ExecuteAsync(new CommandDefinition(
             """
             INSERT INTO runs (id, project_id, user_id, card_number, worker_id, kind, branch, base, check_command, from_commit, fix_round,
-                              fix_review_id, owner_comments, started_at)
+                              fix_review_id, owner_comments, started_at, run_minutes)
             VALUES (@id, @projectId, @userId, @number, @workerId, 'fix', @branch, @baseBranch, @check, @fromCommit, @round, @reviewId,
-                    @comments::jsonb, @now)
+                    @comments::jsonb, @now, @minutes)
             """,
             new
             {
+                minutes = run.Minutes,
                 id = claimed.RunId,
                 projectId,
                 userId,
@@ -556,7 +558,7 @@ public static class JobStore
     /// another transaction holds it, or when either commit has moved since, so the files read for it
     /// are never handed out with other commits.
     /// </summary>
-    public static async Task<ClaimedConflict?> ClaimConflict(NpgsqlTransaction transaction, Guid projectId, Guid userId, Guid workerId, DueConflict due, string defaultBranch, string check, DateTimeOffset now, CancellationToken cancellationToken)
+    public static async Task<ClaimedConflict?> ClaimConflict(NpgsqlTransaction transaction, Guid projectId, Guid userId, Guid workerId, RunSettings run, DueConflict due, string defaultBranch, string check, DateTimeOffset now, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(transaction);
         ArgumentNullException.ThrowIfNull(due);
@@ -598,11 +600,12 @@ public static class JobStore
         await transaction.Connection!.ExecuteAsync(new CommandDefinition(
             """
             INSERT INTO runs (id, project_id, user_id, feature_number, worker_id, kind, branch, base, check_command, from_commit,
-                              default_commit, started_at)
-            VALUES (@id, @projectId, @userId, @number, @workerId, 'conflict', @branch, @baseBranch, @check, @fromCommit, @defaultCommit, @now)
+                              default_commit, started_at, run_minutes)
+            VALUES (@id, @projectId, @userId, @number, @workerId, 'conflict', @branch, @baseBranch, @check, @fromCommit, @defaultCommit, @now, @minutes)
             """,
             new
             {
+                minutes = run.Minutes,
                 id = claimed.RunId,
                 projectId,
                 userId,
@@ -634,7 +637,7 @@ public static class JobStore
     /// The feature's earlier fix rounds are read too, by <see cref="FeatureEarlier"/>.
     /// The feature stays <c>reviewing</c>, the run under way holding it. Null when there is none.
     /// </summary>
-    public static async Task<ClaimedFeatureReview?> ClaimFeatureReview(NpgsqlTransaction transaction, Guid projectId, Guid userId, Guid workerId, string defaultBranch, string check, DateTimeOffset now, CancellationToken cancellationToken)
+    public static async Task<ClaimedFeatureReview?> ClaimFeatureReview(NpgsqlTransaction transaction, Guid projectId, Guid userId, Guid workerId, RunSettings run, string defaultBranch, string check, DateTimeOffset now, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(transaction);
         ArgumentException.ThrowIfNullOrEmpty(defaultBranch);
@@ -718,10 +721,10 @@ public static class JobStore
             earlier);
         await transaction.Connection!.ExecuteAsync(new CommandDefinition(
             """
-            INSERT INTO runs (id, project_id, user_id, feature_number, worker_id, kind, branch, base, check_command, head_commit, started_at)
-            VALUES (@id, @projectId, @userId, @number, @workerId, 'feature_review', @branch, @baseBranch, @check, @commit, @now)
+            INSERT INTO runs (id, project_id, user_id, feature_number, worker_id, kind, branch, base, check_command, head_commit, started_at, run_minutes)
+            VALUES (@id, @projectId, @userId, @number, @workerId, 'feature_review', @branch, @baseBranch, @check, @commit, @now, @minutes)
             """,
-            new { id = claimed.RunId, projectId, userId, number = feature.Number, workerId, branch = claimed.Branch, baseBranch = claimed.Base, check, commit = claimed.Commit, now },
+            new { id = claimed.RunId, projectId, userId, number = feature.Number, workerId, branch = claimed.Branch, baseBranch = claimed.Base, check, commit = claimed.Commit, now, minutes = run.Minutes },
             transaction,
             cancellationToken: cancellationToken));
         return claimed;
@@ -763,7 +766,7 @@ public static class JobStore
     /// report of the feature's newest fix that succeeded and the review it answers. The feature stays
     /// <c>fixing</c>, the run under way holding it. Null when there is none.
     /// </summary>
-    public static async Task<ClaimedFeatureFix?> ClaimFeatureFix(NpgsqlTransaction transaction, Guid projectId, Guid userId, Guid workerId, string defaultBranch, string check, DateTimeOffset now, CancellationToken cancellationToken)
+    public static async Task<ClaimedFeatureFix?> ClaimFeatureFix(NpgsqlTransaction transaction, Guid projectId, Guid userId, Guid workerId, RunSettings run, string defaultBranch, string check, DateTimeOffset now, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(transaction);
         ArgumentException.ThrowIfNullOrEmpty(defaultBranch);
@@ -806,7 +809,7 @@ public static class JobStore
             cancellationToken: cancellationToken));
         await transaction.Connection!.ExecuteAsync(new CommandDefinition(
             "UPDATE features SET reason = @reason, changed_at = @now WHERE id = @id",
-            new { id = feature.Id, reason = Features.FeatureFix.Fixing(feature.Round), now },
+            new { id = feature.Id, reason = Features.FeatureFix.Fixing(feature.Round, run.FixRoundsFeature), now },
             transaction,
             cancellationToken: cancellationToken));
         var review = feature.ReviewId is { } reviewId ? await FeatureReviewStore.Of(transaction, reviewId, cancellationToken) : null;
@@ -817,12 +820,13 @@ public static class JobStore
         await transaction.Connection!.ExecuteAsync(new CommandDefinition(
             """
             INSERT INTO runs (id, project_id, user_id, feature_number, worker_id, kind, branch, base, check_command, from_commit, fix_round,
-                              fix_review_id, owner_comments, started_at)
+                              fix_review_id, owner_comments, started_at, run_minutes)
             VALUES (@id, @projectId, @userId, @number, @workerId, 'feature_fix', @branch, @baseBranch, @check, @fromCommit, @round, @reviewId,
-                    @comments::jsonb, @now)
+                    @comments::jsonb, @now, @minutes)
             """,
             new
             {
+                minutes = run.Minutes,
                 id = claimed.RunId,
                 projectId,
                 userId,
@@ -865,7 +869,7 @@ public static class JobStore
     /// landed goes on a new branch, by <see cref="Branch"/>, and carries the pull request it landed
     /// in, the report it landed with and the owner's comments that sent it back.
     /// </summary>
-    public static async Task<ClaimedCard?> Claim(NpgsqlTransaction transaction, Guid projectId, Guid userId, Guid workerId, string baseBranch, string check, DateTimeOffset now, CancellationToken cancellationToken)
+    public static async Task<ClaimedCard?> Claim(NpgsqlTransaction transaction, Guid projectId, Guid userId, Guid workerId, RunSettings run, string baseBranch, string check, DateTimeOffset now, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(transaction);
         ArgumentException.ThrowIfNullOrEmpty(baseBranch);
@@ -908,10 +912,10 @@ public static class JobStore
         List<string> input = [.. sentBack?.Comments ?? [], .. comments];
         await transaction.Connection!.ExecuteAsync(new CommandDefinition(
             """
-            INSERT INTO runs (id, project_id, user_id, card_number, worker_id, kind, branch, base, check_command, owner_comments, started_at)
-            VALUES (@id, @projectId, @userId, @number, @workerId, 'build', @branch, @baseBranch, @check, @comments::jsonb, @now)
+            INSERT INTO runs (id, project_id, user_id, card_number, worker_id, kind, branch, base, check_command, owner_comments, started_at, run_minutes)
+            VALUES (@id, @projectId, @userId, @number, @workerId, 'build', @branch, @baseBranch, @check, @comments::jsonb, @now, @minutes)
             """,
-            new { id = claimed.RunId, projectId, userId, number = claimed.Number, workerId, branch = claimed.Branch, baseBranch = claimed.Base, check, comments = input.Count == 0 ? null : JsonSerializer.Serialize(input), now },
+            new { id = claimed.RunId, projectId, userId, number = claimed.Number, workerId, branch = claimed.Branch, baseBranch = claimed.Base, check, comments = input.Count == 0 ? null : JsonSerializer.Serialize(input), now, minutes = run.Minutes },
             transaction,
             cancellationToken: cancellationToken));
         return claimed;

@@ -270,7 +270,7 @@ export function FeaturePage({
 			)}
 			{story.rounds.length === 0 ? null : (
 				<Panel
-					title={`Fix rounds, ${story.fix_rounds} of 3 used`}
+					title={`Fix rounds, ${story.fix_rounds} of ${story.most_rounds} used`}
 					className={styles.panel}
 				>
 					<ul className={styles.runs} aria-label="Fix rounds of the feature">
@@ -279,6 +279,7 @@ export function FeaturePage({
 								key={round.run_id}
 								round={round}
 								reviews={story.reviews}
+								most={story.most_rounds}
 							/>
 						))}
 					</ul>

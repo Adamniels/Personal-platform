@@ -134,8 +134,8 @@ public sealed class ReviewJobTests
         // fixed.
         var (first, second) = await door.InUserTransaction(Jobs.Jobs.User, async transaction =>
         {
-            var taken = await JobStore.ClaimReview(transaction, jobs.Project, Jobs.Jobs.User, Jobs.Jobs.FirstWorker, now, Ct);
-            var other = await door.InUserTransaction(Jobs.Jobs.User, inner => JobStore.ClaimReview(inner, jobs.Project, Jobs.Jobs.User, Jobs.Jobs.SecondWorker, now, Ct), Ct);
+            var taken = await JobStore.ClaimReview(transaction, jobs.Project, Jobs.Jobs.User, Jobs.Jobs.FirstWorker, DevFlow.Projects.RunSettings.Defaults, now, Ct);
+            var other = await door.InUserTransaction(Jobs.Jobs.User, inner => JobStore.ClaimReview(inner, jobs.Project, Jobs.Jobs.User, Jobs.Jobs.SecondWorker, DevFlow.Projects.RunSettings.Defaults, now, Ct), Ct);
             return (taken, other);
         }, Ct);
 
