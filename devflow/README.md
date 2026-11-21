@@ -2552,9 +2552,9 @@ package's `Card`s, top to bottom:
   number and title, each card's pictures as its own page shows them.
 - "Cards": the table "Cards of the feature", each card's number and title linked to its page, its
   state, its fix rounds, its tokens and how many decisions it has for the owner, the numbers folded
-  under the card at phone width, and at the end of each row that can be sent back a secondary "Send
-  back", which opens the comment box "What should the developer change in #<card>?" under the
-  table; then, once a card was sent back, "Sent back", the list "Cards you sent back", each card's
+  under the card at phone width; under it a secondary "Send back #<card>" for each card that can be
+  sent back, kept out of the table so its rows stay readable at phone width, which opens the comment
+  box "What should the developer change in #<card>?"; then, once a card was sent back, "Sent back", the list "Cards you sent back", each card's
   number and title, "Sent back from pull request #<n>", with how many times when more than once, and
   his words as he wrote them. "Send back" is disabled, with why under it, while GitHub is not
   linked or its link has expired.

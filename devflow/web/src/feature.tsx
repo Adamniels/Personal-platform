@@ -610,9 +610,9 @@ function linkLine(link: LinkState): string | null {
 }
 
 /**
- * The Cards panel: the cards in order, "Send back" at the end of each row
- * that has landed while the feature is open, and the comment box for the one
- * pressed under the table; then each card you sent back, how many times, the
+ * The Cards panel: the cards in order, then "Send back #<card>" for each
+ * that has landed while the feature is open, kept out of the table so its
+ * rows stay readable at phone width, and the comment box for the one pressed; then each card you sent back, how many times, the
  * pull request it had landed in and your words.
  */
 function CardsPanel({
@@ -634,44 +634,46 @@ function CardsPanel({
 	const [writing, setWriting] = useState<number | null>(null);
 	const [refusal, setRefusal] = useState<string | null>(null);
 	const line = linkLine(link);
-	const sendable = cards.some((card) => card.can_send_back);
+	const sendable = cards.filter((card) => card.can_send_back);
 	const sentBack = cards.filter((card) => card.sent_back !== null);
 	return (
 		<Panel title="Cards" className={styles.panel}>
-			<Table
-				label="Cards of the feature"
-				columns={columns(project)}
-				rows={cards}
-				rowKey={(card) => String(card.number)}
-				rowAction={(card) =>
-					card.can_send_back ? (
-						<Button
-							kind="secondary"
-							disabled={link !== "linked" || writing === card.number}
-							aria-label={`Send back #${card.number}`}
-							aria-describedby={line === null ? undefined : lineId}
-							onClick={() => {
-								setRefusal(null);
-								setWriting(card.number);
-							}}
-						>
-							Send back
-						</Button>
-					) : null
-				}
-			/>
-			{sendable && line !== null ? (
-				<p id={lineId} className={`${styles.body} ${styles.muted}`}>
-					{line}
-				</p>
-			) : null}
-			{refusal === null ? null : (
-				<p className={`${styles.body} ${styles.error}`} role="alert">
-					{refusal}
-				</p>
-			)}
-			{writing === null ? null : (
-				<div className={styles.body}>
+			<div className={styles.body}>
+				<Table
+					label="Cards of the feature"
+					columns={columns(project)}
+					rows={cards}
+					rowKey={(card) => String(card.number)}
+				/>
+				{sendable.length === 0 ? null : (
+					<div className={own.actions}>
+						{sendable.map((card) => (
+							<Button
+								key={card.number}
+								kind="secondary"
+								disabled={link !== "linked" || writing === card.number}
+								aria-describedby={line === null ? undefined : lineId}
+								onClick={() => {
+									setRefusal(null);
+									setWriting(card.number);
+								}}
+							>
+								Send back #{card.number}
+							</Button>
+						))}
+					</div>
+				)}
+				{sendable.length > 0 && line !== null ? (
+					<p id={lineId} className={styles.muted}>
+						{line}
+					</p>
+				) : null}
+				{refusal === null ? null : (
+					<p className={styles.error} role="alert">
+						{refusal}
+					</p>
+				)}
+				{writing === null ? null : (
 					<CommentBox
 						key={writing}
 						label={`What should the developer change in #${writing}?`}
@@ -693,18 +695,18 @@ function CardsPanel({
 							return sent;
 						}}
 					/>
-				</div>
-			)}
-			{sentBack.length === 0 ? null : (
-				<div className={styles.body}>
-					<h3 className={styles.label}>Sent back</h3>
-					<ul className={styles.runs} aria-label="Cards you sent back">
-						{sentBack.map((card) => (
-							<SentBackRow key={card.number} card={card} />
-						))}
-					</ul>
-				</div>
-			)}
+				)}
+				{sentBack.length === 0 ? null : (
+					<section className={styles.section} aria-label="Sent back">
+						<h3 className={styles.label}>Sent back</h3>
+						<ul className={styles.runs} aria-label="Cards you sent back">
+							{sentBack.map((card) => (
+								<SentBackRow key={card.number} card={card} />
+							))}
+						</ul>
+					</section>
+				)}
+			</div>
 		</Panel>
 	);
 }
