@@ -37,6 +37,13 @@ public sealed class TrustedAccountsTests
         ["wait_when_decision"] = true,
         ["wait_paths"] = new JsonArray(),
         ["trusted_logins"] = new JsonArray([.. trusted.Select(login => (JsonNode)login)]),
+        ["model_reading"] = "opus",
+        ["model_building"] = "opus",
+        ["model_reviewing"] = "opus",
+        ["run_minutes"] = 90,
+        ["run_turns"] = 200,
+        ["fix_rounds_card"] = 3,
+        ["fix_rounds_feature"] = 3,
     };
 
     /// <summary>The list as the route answers it: each login with whether it is the caller's.</summary>

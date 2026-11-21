@@ -2324,7 +2324,24 @@
           "attention_label": {
             "type": "string"
           },
+          "fix_rounds_card": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "fix_rounds_feature": {
+            "format": "int32",
+            "type": "integer"
+          },
           "hold_label": {
+            "type": "string"
+          },
+          "model_building": {
+            "type": "string"
+          },
+          "model_reading": {
+            "type": "string"
+          },
+          "model_reviewing": {
             "type": "string"
           },
           "pickup_label": {
@@ -2332,6 +2349,14 @@
           },
           "review_label": {
             "type": "string"
+          },
+          "run_minutes": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "run_turns": {
+            "format": "int32",
+            "type": "integer"
           },
           "trusted_logins": {
             "items": {
@@ -2368,7 +2393,14 @@
           "wait_when_paths",
           "wait_when_decision",
           "wait_paths",
-          "trusted_logins"
+          "trusted_logins",
+          "model_reading",
+          "model_building",
+          "model_reviewing",
+          "run_minutes",
+          "run_turns",
+          "fix_rounds_card",
+          "fix_rounds_feature"
         ],
         "type": "object"
       },
@@ -2858,7 +2890,39 @@
               "string"
             ]
           },
+          "fix_rounds_card": {
+            "format": "int32",
+            "type": [
+              "null",
+              "integer"
+            ]
+          },
+          "fix_rounds_feature": {
+            "format": "int32",
+            "type": [
+              "null",
+              "integer"
+            ]
+          },
           "hold_label": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "model_building": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "model_reading": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "model_reviewing": {
             "type": [
               "null",
               "string"
@@ -2874,6 +2938,20 @@
             "type": [
               "null",
               "string"
+            ]
+          },
+          "run_minutes": {
+            "format": "int32",
+            "type": [
+              "null",
+              "integer"
+            ]
+          },
+          "run_turns": {
+            "format": "int32",
+            "type": [
+              "null",
+              "integer"
             ]
           },
           "trusted_logins": {
@@ -2929,7 +3007,14 @@
           "wait_when_paths",
           "wait_when_decision",
           "wait_paths",
-          "trusted_logins"
+          "trusted_logins",
+          "model_reading",
+          "model_building",
+          "model_reviewing",
+          "run_minutes",
+          "run_turns",
+          "fix_rounds_card",
+          "fix_rounds_feature"
         ],
         "type": "object"
       },

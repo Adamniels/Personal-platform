@@ -1303,9 +1303,20 @@ export interface components {
         };
         ProjectSettings: {
             attention_label: string;
+            /** Format: int32 */
+            fix_rounds_card: number;
+            /** Format: int32 */
+            fix_rounds_feature: number;
             hold_label: string;
+            model_building: string;
+            model_reading: string;
+            model_reviewing: string;
             pickup_label: string;
             review_label: string;
+            /** Format: int32 */
+            run_minutes: number;
+            /** Format: int32 */
+            run_turns: number;
             trusted_logins: components["schemas"]["TrustedLogin"][];
             wait_paths: string[];
             wait_when_decision: boolean;
@@ -1418,9 +1429,20 @@ export interface components {
         };
         SettingsRequest: {
             attention_label: null | string;
+            /** Format: int32 */
+            fix_rounds_card: null | number;
+            /** Format: int32 */
+            fix_rounds_feature: null | number;
             hold_label: null | string;
+            model_building: null | string;
+            model_reading: null | string;
+            model_reviewing: null | string;
             pickup_label: null | string;
             review_label: null | string;
+            /** Format: int32 */
+            run_minutes: null | number;
+            /** Format: int32 */
+            run_turns: null | number;
             trusted_logins: null | string[];
             wait_paths: null | string[];
             wait_when_decision: null | boolean;

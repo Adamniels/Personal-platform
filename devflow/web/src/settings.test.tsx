@@ -32,6 +32,13 @@ const DEFAULTS: ProjectSettings = {
 	wait_when_decision: true,
 	wait_paths: [],
 	trusted_logins: [{ login: "octo-owner", mine: true }],
+	model_reading: "opus",
+	model_building: "opus",
+	model_reviewing: "opus",
+	run_minutes: 90,
+	run_turns: 200,
+	fix_rounds_card: 3,
+	fix_rounds_feature: 3,
 };
 
 /** What saving answers: the request, with the owner's login marked. */
@@ -49,6 +56,13 @@ const answered = (settings: SettingsRequest): ProjectSettings => ({
 		login,
 		mine: login === "octo-owner",
 	})),
+	model_reading: settings.model_reading ?? "",
+	model_building: settings.model_building ?? "",
+	model_reviewing: settings.model_reviewing ?? "",
+	run_minutes: settings.run_minutes ?? 0,
+	run_turns: settings.run_turns ?? 0,
+	fix_rounds_card: settings.fix_rounds_card ?? 0,
+	fix_rounds_feature: settings.fix_rounds_feature ?? 0,
 });
 
 function renderPanel(
