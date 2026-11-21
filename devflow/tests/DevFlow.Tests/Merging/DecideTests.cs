@@ -4,6 +4,7 @@ using System.Text;
 using DevFlow.Cards;
 using DevFlow.CodeHost;
 using DevFlow.Merging;
+using DevFlow.Projects;
 using DevFlow.Watching;
 
 namespace DevFlow.Tests.Merging;
@@ -37,7 +38,7 @@ public sealed class DecideTests
         "never",
         "devflow",
         "devflow-hold",
-        "octo-owner",
+        TrustedAccounts.Of("octo-owner", ["octo-friend"]),
         1,
         new CardRecord(SHA256.HashData(Encoding.UTF8.GetBytes(Body)), "Card 1", null),
         new CheckedHead(Head, 0, Pushed, "main"),
@@ -142,7 +143,7 @@ public sealed class DecideTests
         "review asked for changes" => Good with { Review = new LatestReview("changes", Head) },
         "issues unread" => Good with { Labelled = Down<IReadOnlyList<Issue>>() },
         "edits unread" => Good with { Edits = new CodeHostResult<IReadOnlyList<IssueEdit>>.NotFound() },
-        "not linked" => Good with { OwnerLogin = null },
+        "not linked" => Good with { Trusted = TrustedAccounts.Of(null, ["octo-owner", "octo-friend"]) },
         "closed or unlabelled" => Good with { Labelled = Found<IReadOnlyList<Issue>>([]) },
         "listed only as a pull request" => Good with { Labelled = Found<IReadOnlyList<Issue>>([CardIssue with { IsPullRequest = true }]) },
         "written by someone else" => Good with { Labelled = Found<IReadOnlyList<Issue>>([CardIssue with { Author = "mallory" }]) },
@@ -203,6 +204,55 @@ public sealed class DecideTests
             Found<IReadOnlyList<SubIssue>>([CardSub]),
             Found<IReadOnlyList<IssueEdit>>([])),
     };
+
+    /// <summary>Condition 4 reads the project's trusted accounts: a card, a feature's parent and
+    /// a feature's card written and edited by any of them merge, whatever the case GitHub answers
+    /// their login in.</summary>
+    [Fact]
+    public void ATrustedAccountsCardIsMerged()
+    {
+        var edits = Found<IReadOnlyList<IssueEdit>>([new IssueEdit("UCE_1", "Octo-Friend", Pushed, EditKind.Body)]);
+        var card = Good with
+        {
+            Labelled = Found<IReadOnlyList<Issue>>([CardIssue with { Author = "OCTO-FRIEND", Body = "Build it, and the empty state." }]),
+            Edits = edits,
+        };
+        Assert.Equal(new MergeDecision.Merge(Head), MergeCheck.Decide(card));
+
+        var feature = GoodFeature with
+        {
+            Labelled = Found<IReadOnlyList<Issue>>([ParentIssue with { Author = "octo-friend" }]),
+            Edits = edits,
+            Feature = GoodFeature.Feature! with
+            {
+                SubIssues = Found<IReadOnlyList<SubIssue>>([CardSub with { Author = "octo-friend" }]),
+                Edits = Found<IReadOnlyList<IssueEdit>>([new IssueEdit("UCE_2", "octo-friend", Pushed, EditKind.Title)]),
+            },
+        };
+        Assert.Equal(new MergeDecision.Merge(Head), MergeCheck.Decide(feature));
+    }
+
+    /// <summary>A card, a feature's parent or a feature's card written or edited by a login off the
+    /// list is not merged, and the reason says it is not trusted; one taken off the list since it
+    /// was picked no longer merges either.</summary>
+    [Fact]
+    public void AStrangersCardIsNotMerged()
+    {
+        Assert.Equal(
+            new MergeDecision.Wait("The card was written by mallory, who is not a trusted account of this project", TryAgain: false),
+            MergeCheck.Decide(Good with { Labelled = Found<IReadOnlyList<Issue>>([CardIssue with { Author = "mallory" }]) }));
+        Assert.Equal(
+            new MergeDecision.Wait("The card was edited by mallory since it was picked", TryAgain: false),
+            MergeCheck.Decide(Good with { Edits = Found<IReadOnlyList<IssueEdit>>([new IssueEdit("UCE_1", "mallory", Pushed, EditKind.Body)]) }));
+        Assert.Equal(
+            new MergeDecision.Wait("Its feature, #10, was written by mallory, who is not a trusted account of this project", TryAgain: false),
+            MergeCheck.Decide(GoodFeature with { Labelled = Found<IReadOnlyList<Issue>>([ParentIssue with { Author = "mallory" }]) }));
+
+        var friends = Good with { Labelled = Found<IReadOnlyList<Issue>>([CardIssue with { Author = "octo-friend" }]) };
+        Assert.Equal(
+            new MergeDecision.Wait("The card was written by octo-friend, who is not a trusted account of this project", TryAgain: false),
+            MergeCheck.Decide(friends with { Trusted = TrustedAccounts.Of("octo-owner", []) }));
+    }
 
     [Fact]
     public void AFeaturesCardMergesIntoItsBranch() =>

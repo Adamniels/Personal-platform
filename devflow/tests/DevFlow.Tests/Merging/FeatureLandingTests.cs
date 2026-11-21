@@ -194,7 +194,7 @@ public sealed class FeatureLandingTests
                 return "Its feature, #10, was edited by mallory since it was picked";
             case "feature written by someone else":
                 Merged.Issue(jobs, Parent, issue => issue with { Author = "mallory" });
-                return "Its feature, #10, was written by mallory, not by you";
+                return "Its feature, #10, was written by mallory, who is not a trusted account of this project";
             case "goes into another branch":
                 // Someone changed the pull request's base on GitHub, to the default branch.
                 var number = (await Built.Card(jobs, First)).PullRequestNumber!.Value;

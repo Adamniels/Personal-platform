@@ -42,3 +42,59 @@
 .saved {
 	color: var(--text-2);
 }
+
+/* The trusted accounts, under the fields: a heading, a line on what they are,
+ * the list, and the field that adds one. */
+.trusted {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-3);
+}
+
+.heading {
+	margin: 0;
+	font-size: inherit;
+	font-weight: 600;
+}
+
+.help {
+	margin: 0;
+	color: var(--text-2);
+}
+
+/* A short list of a login and what can be done with it: plain rows 36px
+ * high with a border under each, the login in the mono font, as section 4
+ * of design/DESIGN.md has a short list. */
+.logins {
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.login {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--space-3);
+	min-height: 36px;
+	border-bottom: 1px solid var(--border);
+}
+
+.name {
+	font-family: var(--font-mono);
+	overflow-wrap: anywhere;
+	min-width: 0;
+}
+
+/* The field and its button side by side, the button level with the input's
+ * foot, and one under the other where there is no room. */
+.add {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: flex-end;
+	gap: var(--space-3);
+}
+
+.add > :first-child {
+	flex: 1 1 16rem;
+}

@@ -384,10 +384,11 @@ GitHub answers with pull requests among them, and drops the pull requests. Then,
 order, the first that holds decides:
 
 1. The owner has not linked GitHub: ignored, since Dev flow does not know which login is his.
-2. Another login wrote it: ignored, saying who.
-3. Anyone but the owner edited its body or its title: ignored, saying who. Who edited an issue is
-   read through GraphQL, since REST does not say; a deleted account shows as `ghost`, which is not
-   the owner either.
+2. A login that is not a trusted account of the project wrote it: ignored, "<login> is not a
+   trusted account of this project".
+3. A login that is not a trusted account edited its body or its title: ignored, saying who. Who
+   edited an issue is read through GraphQL, since REST does not say; a deleted account shows as
+   `ghost`, which is never on the list.
 4. It carries the hold label: held.
 5. Something it is blocked by is still open: queued, and its reason names what it waits for, `#12`,
    or `owner/name#12` in another repository, so the queue says which card it waits for, as the spec
@@ -395,16 +396,33 @@ order, the first that holds decides:
 6. Otherwise queued and free to start.
 
 The reads are ordered so a card costs only what decides it: one by someone else costs nothing
-beyond the list, and only a card nobody else touched costs the read of what blocks it. A picked
+beyond the list, and only a card nobody off the list touched costs the read of what blocks it. A picked
 card keeps a record of what was read, its body's SHA-256, its title, and the id of its edit
 history's newest entry, which later parts compare against before building on it and before
 merging, as "Not edited since it was read" in the spec's clarifications asks. Logins and labels are
 compared whatever their case, as GitHub's are.
 
-**Only the owner's cards count, fixed in code until part 5.** The spec gives each project a list of
-trusted accounts; until part 5 builds that setting, the list is the project's user's linked login
-alone. A card that is anything else is never queued, and is listed as ignored with the reason, so a
-card that does not run says why rather than vanishing.
+**Only a project's trusted accounts give instructions.** Each project has a list of trusted
+accounts, the setting `trusted_logins`, as the spec's round 3 has it: the GitHub logins whose cards,
+edits and comments count. It governs who may write a card or a feature's parent, who may edit their
+body or title, and whose comment is input wherever one is read: sending a card back, running a
+stopped card again, fixing a card, and fixing and sending back a feature. Where this document speaks
+of the owner's comment as an input, it is a comment by any trusted account. A card that is anything
+else is never queued, and is listed as ignored with the reason, so a card that does not run says
+why rather than vanishing. Who changes a label is not on the list yet: the next slice reads it.
+
+The owner's linked login is always on the list and is never stored there: it is added whenever the
+list is read. A relinked account with a new login is then trusted at once and the old one is not,
+which a stored copy would have to be kept in step with; and since it is never stored, it cannot be
+removed, which the route refuses as well. Without a link nobody is known to be him and nothing is
+trusted, as before. The others are compared whatever their case, as GitHub's logins are, and kept
+once each. `TrustedAccounts` is the one place that answers whether a login is trusted, so the
+picker, the merge check and the comment readers cannot drift apart.
+
+A trusted account gives instructions and never makes Dev flow act as it. Dev flow acts on GitHub as
+the owner only with his linked token, and as the app otherwise, whoever wrote the card. Watching the
+default branch is not governed by the list either: a push is an action, not an instruction, and
+only the owner's own or Dev flow's are fine there, see "Watching the default branch".
 
 **A card that changes.** A card that has not started is decided afresh on every read. One that has
 started stays where its run put it: when the owner changed its body or title, its record is
@@ -442,11 +460,11 @@ it.
 
 **Why the parent is checked as a card is.** The parent is the feature's description, which later
 slices quote in every brief and review the whole feature against, so it is an instruction as much
-as a card's body is. It is held to the same rules, written by the owner and edited by nobody
-else, and keeps the same record of what was picked. A parent that fails ignores every card of it,
-read no further: a feature whose description is not his is not his. Each sub-issue is checked by
-the card rules all the same, so a stranger's sub-issue under the owner's parent is not picked
-either.
+as a card's body is. It is held to the same rules, written by a trusted account and edited by
+nobody off the list, and keeps the same record of what was picked. A parent that fails ignores
+every card of it, read no further: a feature whose description is not trusted is not his. Each
+sub-issue is checked by the card rules all the same, so a stranger's sub-issue under a trusted
+parent is not picked either.
 
 **What is a card of the feature, and what is not.** Only the direct sub-issues in this repository:
 a card is a number in the project's repository, so a sub-issue in another is not stored, and the
@@ -988,8 +1006,8 @@ compiled code the check runs and fails if it names an agent, a brief, a report, 
    report", since a project's CI that broke silently looks exactly like one with no CI.
 3. *The latest review approved exactly that commit*, from Dev flow's own `reviews`, never from a
    comment, so a commit after the review needs a new one, see "Review".
-4. *The card is still valid.* Written by the owner's linked login, open with the pick-up label,
-   without the hold label, and edited by nobody else since it was picked, read again from GitHub as
+4. *The card is still valid.* Written by a trusted account, open with the pick-up label, without
+   the hold label, and edited by nobody outside the list since it was picked, read again from GitHub as
    the app rather than from the last minute's picture. Its body and title are compared with the
    record made when it was picked, and a change the history cannot attribute is a reason too.
 5. *The project's setting is `never`.* Any other value, one it does not know included, waits.
@@ -1048,9 +1066,10 @@ land the card where nobody built or reviewed it to land, a feature's card in the
 around the owner's own merge of the feature, so that is the owner's.
 
 **The card rules, read through the parent.** A feature's cards carry no label of their own, so "open
-with the pick-up label" is the parent's: the parent is open with the label, written by the owner,
-not held and edited by nobody else since it was picked, as picking checks it, and the card is an
-open sub-issue of it in this repository, written by the owner, not held and edited by nobody else.
+with the pick-up label" is the parent's: the parent is open with the label, written by a trusted
+account, not held and edited by nobody off the list since it was picked, as picking checks it, and
+the card is an open sub-issue of it in this repository, written by a trusted account, not held and
+edited by nobody off the list.
 The parent is held to the rules because its body is in every brief of the feature, so a stranger's
 edit there reaches the agent as surely as one on the card.
 
@@ -1997,17 +2016,22 @@ its reason, or a risk accepted on purpose; each slice adds the ones it builds.
   as well. A worker's key sent to a user's route is refused the same way, so the two ways to
   authenticate never stand in for each other; `WorkerApiTests.AWorkerKeyCannotCallTheUsersRoutes`
   keeps both.
-- **Only the owner's own, unedited cards are instructions.** A card is picked only when the owner's
-  linked login wrote it and nobody else has edited its body or title, by GitHub's own edit history,
-  read through GraphQL; until part 5 adds a project's trusted accounts, the owner is the only
-  account that counts. Anything else carrying the pick-up label, a stranger's issue, the owner's
-  issue edited by someone else, or any issue while the owner has no link, is ignored, and the page
-  lists it as ignored with why, so it is seen rather than silently dropped. A feature's parent and
-each of its sub-issues are held to the same rule, see "Features and their cards": the label on
-the owner's parent never makes a stranger's sub-issue an instruction. A card's title and body
-  are data, shown as text. The accepted risk: anyone who can label issues in a repository can make
-  a card appear as ignored on the owner's page, which shows a stranger's title there as text and
-  runs nothing. GitHub's edit history does not cover a comment, which no card is read from yet.
+- **Only a trusted account's own, unedited cards are instructions.** A card is picked only when a
+  trusted account of the project wrote it and nobody off the list has edited its body or title, by
+  GitHub's own edit history, read through GraphQL; the list is the owner's linked login, always,
+  and the logins he added, see "Cards". Anything else carrying the pick-up label, a stranger's
+  issue, a trusted issue edited by a stranger, or any issue while the owner has no link, is
+  ignored, and the page lists it as ignored with why, so it is seen rather than silently dropped. A
+  feature's parent and each of its sub-issues are held to the same rule, see "Features and their
+  cards": the label on a trusted parent never makes a stranger's sub-issue an instruction. A card's
+  title and body are data, shown as text. A trusted account's words count as the owner's would, so
+  adding one is trusting that account and whoever controls it with work on the project; it never
+  makes Dev flow act as that account, and Dev flow acts as the owner only with his own token. The
+  accepted risk: anyone who can label issues in a repository can make a card appear as ignored on
+  the owner's page, which shows a stranger's title there as text and runs nothing; and until the
+  next slice reads who changes a label, a stranger who can label issues can put the pick-up label
+  on a trusted account's issue. GitHub's edit history does not cover a comment, which no card is
+  read from yet.
 - **The Claude token and a push key leave Dev flow only inside a job, to the worker holding it.**
   A job is answered only to a worker of the key's own project, through the door as its user, so
   the token is that user's and the push key reaches that project's repository alone, narrowed to
@@ -2110,10 +2134,10 @@ the owner's parent never makes a stranger's sub-issue an instruction. A card's t
   remote's branch is anywhere else, before the agent runs. A fix that leaves the branch at that
   commit fails in the card. `FixJobTests.ABranchThatMovedIsNotFixed` and
   `FixTests.AFixThatChangesNothingIsAFailureInTheCard` keep both.
-- **Only the owner's comment is read as input, and only into a fix.** Comments on a card's pull
-  request are read for one purpose: a comment by the owner's linked login, new by its id, starts a
-  fix with his words quoted in the brief as data. Anyone else's comment, the app's review copies
-  among them, is passed over and never reaches a brief; no comment, his included, is read as a
+- **Only a trusted account's comment is read as input, and only into a fix.** Comments on a card's
+  pull request are read for one purpose: a comment by a trusted account of the project, new by its
+  id, starts a fix with its words quoted in the brief as data. A comment by a login off the list,
+  the app's review copies among them, is passed over and never reaches a brief; no comment, his included, is read as a
   verdict, so none can approve or merge a card. `FixTests.TheOwnersCommentStartsAFixRun` keeps it.
 - **The project runs as `agent`, in a clean copy.** A project's `start` is code from its
   repository, on a commit an agent wrote, so it runs as `agent`, never root, in an environment
@@ -2169,11 +2193,12 @@ the owner's parent never makes a stranger's sub-issue an instruction. A card's t
   no HTML, its backticks escaped, a closing keyword and an `@` mention each in a code span, so the
   app's comment closes nothing and notifies nobody. The label and the comment are posted with a
   `Post` key, which cannot push or merge.
-- **A stopped card's issue is read for the owner's comment alone.** Running a card again is a
-  write on the strength of a comment, so it is taken only from his linked login, as GitHub compares
-  logins, only when written after the stop, and only into the next run's brief as his input, quoted
-  in a fence no text can end; anyone else's comment, the app's own among them, is never read as an
-  input.
+- **A stopped card's issue is read for a trusted account's comment alone.** Running a card again
+  is a write on the strength of a comment, so it is taken only from a trusted account of the
+  project, as GitHub compares logins, only when written after the stop, and only into the next
+  run's brief as input, quoted in a fence no text can end; a comment by a login off the list, the
+  app's own among them, is never read as an input. `TrustedCommentsTests.OnlyATrustedCommentIsInput`
+  keeps the three places a comment is read.
 - **A worker's `resets_at` is believed within limits.** A worker could send a reset far off and
   hold its own project's work back; it can only hold back the project whose key it has, which it
   could as well by asking for no work, and Dev flow believes a reset only in the next 8 days.

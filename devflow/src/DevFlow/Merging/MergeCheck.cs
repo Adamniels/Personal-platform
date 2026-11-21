@@ -3,6 +3,7 @@ using System.Text;
 
 using DevFlow.Cards;
 using DevFlow.CodeHost;
+using DevFlow.Projects;
 using DevFlow.Watching;
 
 namespace DevFlow.Merging;
@@ -52,7 +53,8 @@ public sealed record FeatureFacts(
 /// <param name="Hold">Whether the project is stopped, or its default branch was not read within
 /// five minutes.</param>
 /// <param name="WaitsForOwner">The project's setting, <c>never</c> or <c>always</c>.</param>
-/// <param name="OwnerLogin">The owner's linked login, null without a link.</param>
+/// <param name="Trusted">The project's trusted accounts, with the owner's linked login, none of
+/// them trusted without a link.</param>
 /// <param name="Card">The card's issue number.</param>
 /// <param name="Record">What was picked of the card.</param>
 /// <param name="Head">What the card's runs left, null when none succeeded.</param>
@@ -69,7 +71,7 @@ public sealed record MergeFacts(
     string WaitsForOwner,
     string PickupLabel,
     string HoldLabel,
-    string? OwnerLogin,
+    TrustedAccounts Trusted,
     int Card,
     CardRecord Record,
     CheckedHead? Head,
@@ -140,7 +142,7 @@ public static class MergeCheck
 
     public static string NotLabelled(string label) => $"The card is no longer open with the label {label}";
 
-    public static string WrittenBy(string login) => $"The card was written by {login}, not by you";
+    public static string WrittenBy(string login) => $"The card was written by {login}, who is not a trusted account of this project";
 
     public static string Held(string label) => $"The card is held by the label {label}";
 
@@ -154,7 +156,7 @@ public static class MergeCheck
 
     public static string FeatureNotLabelled(int feature, string label) => Invariant($"Its feature, #{feature}, is no longer open with the label {label}");
 
-    public static string FeatureWrittenBy(int feature, string login) => Invariant($"Its feature, #{feature}, was written by {login}, not by you");
+    public static string FeatureWrittenBy(int feature, string login) => Invariant($"Its feature, #{feature}, was written by {login}, who is not a trusted account of this project");
 
     public static string FeatureHeld(int feature, string label) => Invariant($"Its feature, #{feature}, is held by the label {label}");
 
@@ -255,15 +257,17 @@ public static class MergeCheck
             return Again(CouldNotRead("the card"));
         }
 
-        if (facts.OwnerLogin is not { } owner)
+        if (facts.Trusted.Mine is null)
         {
             return Final(CardPicker.NotLinked);
         }
 
+        var trusted = facts.Trusted;
+
         if (facts.Feature is not { } feature)
         {
             return labelled.FirstOrDefault(issue => !issue.IsPullRequest && issue.Number == facts.Card) is { } card
-                ? Valid(new Read(card.Author, card.Labels, card.Body, card.Title), edits, facts.Record, owner, facts.HoldLabel, CardWords)
+                ? Valid(new Read(card.Author, card.Labels, card.Body, card.Title), edits, facts.Record, trusted, facts.HoldLabel, CardWords)
                 : Final(NotLabelled(facts.PickupLabel));
         }
 
@@ -281,7 +285,7 @@ public static class MergeCheck
         }
 
         var words = FeatureWords(feature.Number);
-        if (Valid(new Read(parent.Author, parent.Labels, parent.Body, parent.Title), parentEdits, parentRecord, owner, facts.HoldLabel, words) is { } invalid)
+        if (Valid(new Read(parent.Author, parent.Labels, parent.Body, parent.Title), parentEdits, parentRecord, trusted, facts.HoldLabel, words) is { } invalid)
         {
             return invalid;
         }
@@ -293,7 +297,7 @@ public static class MergeCheck
             return Final(NotSubIssue(feature.Number));
         }
 
-        return Valid(new Read(own.Author, own.Labels, own.Body, own.Title), edits, facts.Record, owner, facts.HoldLabel, CardWords);
+        return Valid(new Read(own.Author, own.Labels, own.Body, own.Title), edits, facts.Record, trusted, facts.HoldLabel, CardWords);
     }
 
     /// <summary>An issue as the card rules read it.</summary>
@@ -308,11 +312,11 @@ public static class MergeCheck
         new(login => FeatureWrittenBy(feature, login), label => FeatureHeld(feature, label), login => FeatureEditedBy(feature, login), FeatureChangedUnseen(feature));
 
     /// <summary>Why the issue is no longer one a run merges from, or null when it still is: written
-    /// by the owner, not held, and edited by nobody else since it was picked, with any change to it
-    /// explained by an edit of his.</summary>
-    private static MergeDecision.Wait? Valid(Read issue, IReadOnlyList<IssueEdit> edits, CardRecord record, string owner, string holdLabel, Words words)
+    /// by a trusted account, not held, and edited by nobody outside the list since it was picked,
+    /// with any change to it explained by an edit of one of them.</summary>
+    private static MergeDecision.Wait? Valid(Read issue, IReadOnlyList<IssueEdit> edits, CardRecord record, TrustedAccounts trusted, string holdLabel, Words words)
     {
-        if (!IsOwner(issue.Author, owner))
+        if (!trusted.Trusts(issue.Author))
         {
             return Final(words.WrittenBy(issue.Author));
         }
@@ -322,13 +326,13 @@ public static class MergeCheck
             return Final(words.Held(holdLabel));
         }
 
-        if (edits.Where(edit => !IsOwner(edit.Editor, owner)).OrderBy(edit => edit.At).FirstOrDefault() is { } stranger)
+        if (edits.Where(edit => !trusted.Trusts(edit.Editor)).OrderBy(edit => edit.At).FirstOrDefault() is { } stranger)
         {
             return Final(words.EditedBy(stranger.Editor));
         }
 
-        // Every edit is the owner's, so a change since the record is his, which is allowed; one the
-        // history does not explain is not.
+        // Every edit is a trusted account's, so a change since the record is one of theirs, which
+        // is allowed; one the history does not explain is not.
         var newest = edits.OrderByDescending(edit => edit.At).Select(edit => edit.Id).FirstOrDefault();
         var same = SHA256.HashData(Encoding.UTF8.GetBytes(issue.Body)).AsSpan().SequenceEqual(record.BodySha256)
             && string.Equals(issue.Title, record.Title, StringComparison.Ordinal);
@@ -375,9 +379,6 @@ public static class MergeCheck
 
         return null;
     }
-
-    /// <summary>Logins are one account whatever their case, as GitHub's are.</summary>
-    private static bool IsOwner(string login, string owner) => string.Equals(login, owner, StringComparison.OrdinalIgnoreCase);
 
     private static string Invariant(FormattableString text) => FormattableString.Invariant(text);
 

@@ -88,9 +88,12 @@ function renderPage(
 				hold_label: "devflow-hold",
 				attention_label: "devflow-attention",
 				waits_for_owner: "never",
+				trusted_logins: [{ login: "octo-owner", mine: true }],
 			}),
 		),
-		saveSettings: vi.fn((_: string, settings) => Promise.resolve(settings)),
+		saveSettings: vi.fn(() =>
+			Promise.reject(new Error("the project page's tests do not save")),
+		),
 		loadCards: vi.fn(() => Promise.resolve({ cards: [], features: [] })),
 		copy: vi.fn(() => Promise.resolve()),
 		back: vi.fn(),

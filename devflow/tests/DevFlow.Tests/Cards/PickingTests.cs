@@ -161,10 +161,10 @@ public sealed class PickingTests
         Assert.All(cards, card => Assert.Equal("ignored", card.State));
         Assert.Equal(
         [
-            $"Written by {Stranger}: only your own cards are picked",
-            $"Edited by {Stranger}: only cards nobody else has edited are picked",
-            $"Edited by {Stranger}: only cards nobody else has edited are picked",
-            "Edited by ghost: only cards nobody else has edited are picked",
+            $"{Stranger} is not a trusted account of this project",
+            $"Edited by {Stranger}, who is not a trusted account of this project",
+            $"Edited by {Stranger}, who is not a trusted account of this project",
+            "Edited by ghost, who is not a trusted account of this project",
         ], cards.Select(card => card.Reason));
         // Never picked, so nothing was recorded of it.
         Assert.All(cards, card => Assert.Null(card.PickedBodySha256));
@@ -297,7 +297,7 @@ public sealed class PickingTests
         Assert.Equal(("building", (string?)null), (cards[0].State, cards[0].Reason));
         Assert.Equal(Sha("Build it differently."), cards[0].PickedBodySha256);
         Assert.Equal("UCE_80", cards[0].PickedEdit);
-        Assert.Equal(("ignored", $"Edited by {Stranger}: only cards nobody else has edited are picked"), (cards[1].State, cards[1].Reason));
+        Assert.Equal(("ignored", $"Edited by {Stranger}, who is not a trusted account of this project"), (cards[1].State, cards[1].Reason));
         Assert.Equal(Sha("Build the thing of card 81."), cards[1].PickedBodySha256);
         Assert.Null(cards[1].PickedEdit);
     }

@@ -5,6 +5,7 @@ using Dapper;
 using DevFlow.CodeHost;
 using DevFlow.Features;
 using DevFlow.Jobs;
+using DevFlow.Projects;
 
 using Npgsql;
 
@@ -36,8 +37,9 @@ public sealed record TakenComments(int Card, int? PullRequest, IReadOnlyList<str
 
 /// <summary>
 /// The owner's comment on a card's open pull request, the one input Dev flow reads from GitHub: one
-/// by his linked login that is new starts a fix with it, read on the project's minute; it is not a
-/// review round, and anyone else's comment is neither a trigger nor in the brief. A comment is new
+/// by a trusted account of the project, his linked login or another on the list, that is new starts
+/// a fix with it, read on the project's minute; it is not a review round, and a comment by a login
+/// off the list is neither a trigger nor in the brief. A comment is new
 /// when its id is past the newest of his already taken, every one of his before any was: GitHub's
 /// ids only grow, so none is taken twice, and no time is compared, so none is lost to a run that
 /// started after it was written. It is read only while no run of the card is under way, so one
@@ -86,18 +88,18 @@ public static class OwnerComments
     private sealed record Row(int Number, int? PullRequest, long? ReadThrough, DateTime? StoppedAt, DateTime? LandedAt);
 
     /// <summary>The owner's new comments among <paramref name="comments"/>, oldest first, or null
-    /// when there are none: by <paramref name="owner"/>, his linked login, as GitHub compares logins,
-    /// whatever the case, new for <paramref name="card"/>, for a stopped card written after it
+    /// when there are none: by a login <paramref name="trusted"/> trusts, whatever the case, as
+    /// GitHub compares logins, new for <paramref name="card"/>, for a stopped card written after it
     /// stopped, and for a landed card after its last run. They are for
     /// <paramref name="pullRequest"/>, the card's pull request while it is open, or null; a landed
     /// card's send it back.</summary>
-    public static TakenComments? New(CommentableCard card, IReadOnlyList<Comment> comments, string owner, int? pullRequest)
+    public static TakenComments? New(CommentableCard card, IReadOnlyList<Comment> comments, TrustedAccounts trusted, int? pullRequest)
     {
         ArgumentNullException.ThrowIfNull(card);
         ArgumentNullException.ThrowIfNull(comments);
-        ArgumentException.ThrowIfNullOrEmpty(owner);
+        ArgumentNullException.ThrowIfNull(trusted);
         var taken = comments
-            .Where(comment => string.Equals(comment.Author, owner, StringComparison.OrdinalIgnoreCase))
+            .Where(comment => trusted.Trusts(comment.Author))
             .Where(comment => card.ReadThrough is not { } through || comment.Id > through)
             .Where(comment => card.StoppedAt is not { } stopped || comment.CreatedAt > stopped)
             .Where(comment => card.LandedAt is not { } landed || comment.CreatedAt > landed)

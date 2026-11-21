@@ -12,8 +12,8 @@ using PlatformData.Testing;
 namespace DevFlow.Tests.Projects;
 
 /// <summary>
-/// A project's settings: the pick-up, hold and attention labels and whether a card's pull request
-/// waits for the owner, a row per project made with the project, read and changed by the
+/// A project's settings: the pick-up, hold and attention labels, whether a card's pull request
+/// waits for the owner and the trusted accounts, a row per project made with the project, read and changed by the
 /// project's user through <c>GET</c> and <c>PUT /devflow/api/projects/{id}/settings</c>. See
 /// "Settings" under "Cards" in devflow/README.md.
 /// </summary>
@@ -29,6 +29,7 @@ public sealed class SettingsTests
         ["hold_label"] = hold,
         ["attention_label"] = attention,
         ["waits_for_owner"] = waits,
+        ["trusted_logins"] = new JsonArray(),
     };
 
     private static Task<HttpContext> Put(Routes routes, Guid project, JsonObject settings) =>
@@ -61,7 +62,8 @@ public sealed class SettingsTests
         // Made with the project, in the project's user's name.
         Assert.Equal((Routes.User, "devflow", "devflow-hold", "devflow-attention", "never"), await Row(routes, project));
 
-        // Answered with exactly the four, and nothing else.
+        // Answered with exactly the five, and nothing else: no login is linked, so nobody is
+        // trusted, see TrustedAccountsTests.
         var settings = await Get(routes, project);
         Assert.Equal(Settings().ToJsonString(), settings.ToJsonString());
     }
@@ -89,7 +91,7 @@ public sealed class SettingsTests
             (Settings(attention: "DevFlow-Hold"), "attention_label"),
             (Settings(waits: "sometimes"), "waits_for_owner"),
             (Settings(waits: "Always"), "waits_for_owner"),
-            (new JsonObject { ["pickup_label"] = "devflow", ["hold_label"] = "devflow-hold", ["attention_label"] = "devflow-attention" }, "waits_for_owner"),
+            (new JsonObject { ["pickup_label"] = "devflow", ["hold_label"] = "devflow-hold", ["attention_label"] = "devflow-attention", ["trusted_logins"] = new JsonArray() }, "waits_for_owner"),
         };
         foreach (var (body, field) in refused)
         {

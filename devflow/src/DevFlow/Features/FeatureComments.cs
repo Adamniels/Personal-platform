@@ -4,6 +4,7 @@ using Dapper;
 
 using DevFlow.CodeHost;
 using DevFlow.Fixing;
+using DevFlow.Projects;
 
 using Npgsql;
 
@@ -18,9 +19,10 @@ public sealed record CommentableFeature(int Number, int PullRequest, long? ReadT
 
 /// <summary>
 /// The owner's comment on a feature's pull request, the one comment read there as an input: one by
-/// his linked login that is new starts a fix of the whole feature with it, read on the project's
-/// minute, and is not one of its review's rounds; anyone else's, the app's review copies among
-/// them, is neither a trigger nor in the brief. A comment is new by the rule a card's is, see
+/// a trusted account of the project, his linked login or another on the list, that is new starts a
+/// fix of the whole feature with it, read on the project's minute, and is not one of its review's
+/// rounds; one by a login off the list, the app's review copies among them, is neither a trigger
+/// nor in the brief. A comment is new by the rule a card's is, see
 /// <see cref="OwnerComments"/>: its id past the newest of his already taken, every one of his
 /// before any was, and no time compared, so one written while a run was under way is taken by the
 /// first read that falls between runs rather than lost. See "Fixing a feature" in
@@ -52,13 +54,13 @@ public static class FeatureComments
     }
 
     /// <summary>The owner's new comments among <paramref name="comments"/>, the feature's pull
-    /// request's, oldest first, or null when there are none: by <paramref name="owner"/>, his
-    /// linked login, whatever its case, and new for <paramref name="feature"/>, as a card's
+    /// request's, oldest first, or null when there are none: by a login <paramref name="trusted"/>
+    /// trusts, whatever its case, and new for <paramref name="feature"/>, as a card's
     /// are.</summary>
-    public static TakenComments? New(CommentableFeature feature, IReadOnlyList<Comment> comments, string owner)
+    public static TakenComments? New(CommentableFeature feature, IReadOnlyList<Comment> comments, TrustedAccounts trusted)
     {
         ArgumentNullException.ThrowIfNull(feature);
-        return OwnerComments.New(new CommentableCard(feature.Number, feature.PullRequest, feature.ReadThrough), comments, owner, feature.PullRequest);
+        return OwnerComments.New(new CommentableCard(feature.Number, feature.PullRequest, feature.ReadThrough), comments, trusted, feature.PullRequest);
     }
 
     /// <summary>
