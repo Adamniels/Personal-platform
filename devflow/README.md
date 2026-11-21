@@ -897,12 +897,17 @@ and no check runs, as GitHub answers for a commit nothing was posted on. An issu
 `blocked_by` names issues listed in the same repository, by number. An issue may also have
 `sub_issues`, its sub-issues in their order, each `{"number", "repository"}`, the id of another
 repository of the same installation or null for this one, naming an issue or a pull request listed
-there and never the issue itself; it is the one field an issue may leave out, and is left out when
-the world is written back. `ICodeHost.SubIssues` answers them in that order, each from its own
+there and never the issue itself; it and `label_events` are the two fields an issue may leave out,
+and each is left out when the world is written back unset. `ICodeHost.SubIssues` answers them in that order, each from its own
 repository, a pull request marked. Listing issues by label answers
 the open issues carrying it, whatever its case, and the open pull requests carrying it, marked as
 pull requests, as GitHub lists them; an issue's edits are answered as staged, its body's first and
-then its title's, `kind` `body` or `title`.
+then its title's, `kind` `body` or `title`. An issue may also have `label_events`, each
+`{"label", "change", "actor", "at"}`, `change` `added` or `removed`, answered by
+`ICodeHost.LabelEvents` oldest first by `at`; left out, each label the issue carries was put on by
+its author at `created_at`, which is what most worlds mean, and it is left out when the world is
+written back unset. The app's own `AddLabel` and `RemoveLabel` on an issue add theirs to it, by the
+app's login, as GitHub's timeline would.
 
 The fake signs a person in too, in `FakeCodeHost.SignIn.cs`, per account and apart from its world,
 so staging a world again signs nobody out. Its sign in page, `GET /devflow/fake-github/authorize`,
@@ -1258,8 +1263,14 @@ a project" under "What waits", and stores both in one transaction:
   is never a card.
 - A card no trusted account wrote, or any card while the owner has no link, is `ignored`;
   otherwise `ICodeHost.Edits` reads who edited its body and title, and one a login off the list
-  edited is `ignored`. A card carrying `hold_label` is `held`. Otherwise `ICodeHost.BlockedBy` reads what it is
-  blocked by, and it is `queued`, waiting for what of that is still open.
+  edited is `ignored`. Then `ICodeHost.LabelEvents` reads its timeline, and `LabelActors.Judge`
+  reads its labels by who changed them: a labelled issue, a card on its own or a feature's parent,
+  whose `pickup_label` no trusted account put on is `ignored`. A card carrying `hold_label`, whoever
+  put it on, is `held`, and so is one whose `hold_label` a trusted account put on and only someone
+  untrusted took off since. A card of a feature reads its timeline only when no hold on it or its feature
+  decided first. Otherwise `ICodeHost.BlockedBy` reads what it is blocked by, and it is `queued`,
+  waiting for what of that is still open. A timeline that cannot be read fails the read, as any
+  other read does.
 - Its priority is `high` with the label `priority: high`, `low` with `priority: low`, and `none`
   otherwise.
 - `CardStore.Store` merges them into the project's cards: a new card is inserted, one that has not
@@ -1270,7 +1281,11 @@ a project" under "What waits", and stores both in one transaction:
 
 The reasons, as stored and shown: "Dev flow does not know your GitHub login: link GitHub on the
 Projects tab", "<login> is not a trusted account of this project", "Edited by <login>, who is not a
-trusted account of this project", "Held by the label <hold label>", and "Waits for #12", "Waits for
+trusted account of this project", "The pick-up label <pick-up label> was added by <login>, who is not
+a trusted account of this project", naming who put it on last, or "The pick-up label <pick-up label>
+was not added by a trusted account of this project" when its timeline does not say, "Held by the
+label <hold label>", "Held by the label <hold label>, taken off by <login>, who is not a trusted
+account of this project", and "Waits for #12", "Waits for
 #12 and #14" or "Waits for owner/name#3"; null when a card is queued with nothing to wait for.
 
 `CardStore.Queue(projectId)` answers the numbers of the queued cards with nothing to wait for, in
@@ -1306,12 +1321,12 @@ stores them in the same transaction, in `CardStore`:
   `GET /repos/{owner}/{repo}/issues/{number}/sub_issues`; one that cannot be read makes the read
   unavailable, as any read does. A labelled issue with none is a card as above.
 - The parent is checked as a card is, by everything but what blocks it: not linked, another
-  author or another editor is `ignored`, with the card's reasons, and the hold label is `held`,
-  "Held by the label <hold label>". Otherwise `queued`, with its record of what was picked, as a
-  card's.
+  author, another editor or a pick-up label no trusted account put on is `ignored`, with the card's
+  reasons, and the hold label, on it or taken off only by someone untrusted, is `held`, with the
+  card's reasons. Otherwise `queued`, with its record of what was picked, as a card's.
 - Each direct sub-issue in this repository, a pull request left out, is a card of the feature, at
-  `position` 1, 2, 3 in GitHub's sub-issue order, and is checked by the card rules with no label of
-  its own. With the parent `ignored`, every one is `ignored`, "Its feature, #<parent>, is not
+  `position` 1, 2, 3 in GitHub's sub-issue order, and is checked by the card rules with no pick-up
+  label of its own, its own hold label read as a card's. With the parent `ignored`, every one is `ignored`, "Its feature, #<parent>, is not
   picked", read no further; with the parent `held`, every one the owner's is `held`, "The feature is
   held by the label <hold label>". Its priority is the feature's; its own priority label is not read.
   A sub-issue carrying the pick-up label too is still one card, of its feature.
@@ -2909,7 +2924,7 @@ five minutes, as handing out reads it; its setting, labels and trusted accounts,
 record of what was picked; what its newest build or fix that succeeded left, its commit, the
 check's exit code and when it came back, which is when it was pushed; its latest review in
 `reviews`; and as the app the pull request, the statuses and check runs on its head, the open
-issues with the pick-up label and the card's edits. It answers `Merge(commit)`, the pull request's
+issues with the pick-up label, the card's edits and its label events, `ICodeHost.LabelEvents`. It answers `Merge(commit)`, the pull request's
 head, or `Wait(reason, try_again)`, the first that holds deciding:
 
 | Order | What is read | No merge, the card's reason | Tried again |
@@ -2924,37 +2939,43 @@ head, or `Wait(reason, try_again)`, the first that holds deciding:
 | 8 | The pull request goes into another branch than the one its run used, the default branch or its feature's | "Its pull request goes into <base>, not <branch>" | no |
 | 9 | The latest review is not for exactly that commit | "The reviewer has not approved its head commit" | no |
 | 10 | It is, and asks for changes | "The reviewer asked for changes on its head commit" | no |
-| 11 | The card or its edits not read | "Dev flow could not read the card; it tries again each minute" | yes |
+| 11 | The card, its edits or its label events not read | "Dev flow could not read the card; it tries again each minute" | yes |
 | 12 | No linked login | "Dev flow does not know your GitHub login: link GitHub on the Projects tab" | no |
 | 13 | Not open with the pick-up label | "The card is no longer open with the label <label>" | no |
 | 14 | Written by a login that is not a trusted account | "The card was written by <login>, who is not a trusted account of this project" | no |
-| 15 | It carries the hold label | "The card is held by the label <label>" | no |
-| 16 | A login that is not a trusted account edited it | "The card was edited by <login> since it was picked" | no |
-| 17 | Its body or title differ from the record with no newer edit to say who | "The card changed since it was picked, and its history does not say by whom" | no |
-| 18 | The setting is anything but `never` | "This project waits for you on every pull request" | no |
-| 19 | CI not read | "Dev flow could not read CI on its commit; it tries again each minute" | yes |
-| 20 | A check run completed with any conclusion but `success`, or a status `failure` or `error`, the first by name | "CI failed: <name>" | no |
-| 21 | A check run queued or in progress, or a status pending | "CI is still running on its commit" | yes |
-| 22 | No check run and no status, less than 30 minutes after the push | "Waiting for CI to report on its commit" | yes |
-| 23 | None, 30 minutes or more after it | "CI did not report" | no |
+| 15 | No trusted account put the pick-up label on, by its timeline | "The card's pick-up label <label> was added by <login>, who is not a trusted account of this project", naming who put it on last, or "The card's pick-up label <label> was not added by a trusted account of this project" when its timeline does not say | no |
+| 16 | It carries the hold label | "The card is held by the label <label>" | no |
+| 17 | It does not, but a trusted account put the hold label on and only someone untrusted took it off since | "The card is held by the label <label>, taken off by <login>, who is not a trusted account of this project" | no |
+| 18 | A login that is not a trusted account edited it | "The card was edited by <login> since it was picked" | no |
+| 19 | Its body or title differ from the record with no newer edit to say who | "The card changed since it was picked, and its history does not say by whom" | no |
+| 20 | The setting is anything but `never` | "This project waits for you on every pull request" | no |
+| 21 | CI not read | "Dev flow could not read CI on its commit; it tries again each minute" | yes |
+| 22 | A check run completed with any conclusion but `success`, or a status `failure` or `error`, the first by name | "CI failed: <name>" | no |
+| 23 | A check run queued or in progress, or a status pending | "CI is still running on its commit" | yes |
+| 24 | No check run and no status, less than 30 minutes after the push | "Waiting for CI to report on its commit" | yes |
+| 25 | None, 30 minutes or more after it | "CI did not report" | no |
 
 Logins and labels are compared whatever their case, as GitHub's are, and branches exactly, as git's
 are. An edit by a trusted account since the card was picked is fine, so is a change to its body or
-title their edits explain. Screenshots, whether tests were written and the agent's report are not on the list,
+title their edits explain. Rows 15 and 17 read the labels by `LabelActors.Judge`, as picking does,
+see "Cards" above. Screenshots, whether tests were written and the agent's report are not on the list,
 on purpose: the reviewer judges the first two, and the report decides nothing.
 
 **A card of a feature** is checked by the same function, `MergeFacts.Feature` carrying its feature,
 with the feature's branch as its base: its run's base, row 8, and its branch's watch, row 3, read as
-`WatchStore.FeatureWatchedSql` reads it for handing out. Its rows 11 to 17 read it through its
+`WatchStore.FeatureWatchedSql` reads it for handing out. Its rows 11 to 19 read it through its
 parent, since a feature's cards carry no label of their own: as the app, the parent's sub-issues,
-`ICodeHost.SubIssues`, and its edits, beside the card's, any of them unread being row 11. In place
-of row 13, the parent is open with the pick-up label, "Its feature, #<parent>, is no longer open with the label <label>"; then picked,
-"Its feature, #<parent>, is not picked" otherwise; then held to rows 14 to 17 against its own record
-in `features`, "Its feature, #<parent>, was written by <login>, who is not a trusted account of this project", "Its feature, #<parent>,
-is held by the label <label>", "Its feature, #<parent>, was edited by <login> since it was picked"
+`ICodeHost.SubIssues`, its edits and its label events, beside the card's, any of them unread being
+row 11. In place of row 13, the parent is open with the pick-up label, "Its feature, #<parent>, is no longer open with the label <label>"; then picked,
+"Its feature, #<parent>, is not picked" otherwise; then held to rows 14 to 19 against its own record
+in `features`, "Its feature, #<parent>, was written by <login>, who is not a trusted account of this project",
+"The pick-up label <label> on its feature, #<parent>, was added by <login>, who is not a trusted account of this project", "Its feature, #<parent>,
+is held by the label <label>", "Its feature, #<parent>, is held by the label <label>, taken off by <login>, who is not a trusted
+account of this project", "Its feature, #<parent>, was edited by <login> since it was picked"
 and "Its feature, #<parent>, changed since it was picked, and its history does not say by whom";
 then the card is an open sub-issue of it in the project's repository, "The card is no longer an open
-sub-issue of its feature, #<parent>"; then the card itself, rows 14 to 17, as a card on its own. None
+sub-issue of its feature, #<parent>"; then the card itself, rows 14 and 16 to 19, as a card on its
+own, row 15 left out since it carries no pick-up label. None
 of these is tried again. With `never` it merges into the feature's branch, and with `always` it
 waits on "Waiting for you" with its feature's branch as its `base`, and the owner merges it from
 there into that branch.

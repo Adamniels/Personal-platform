@@ -46,7 +46,7 @@ public sealed partial class MergeChecker(UserDb database, ICodeHost host, AppMer
                 if (hold != ProjectHold.None)
                 {
                     // A project that holds merges nothing, so nothing is asked of the code host.
-                    facts = Facts(project, card, hold, Unread<PullRequest>(), Unread<IReadOnlyList<CommitStatus>>(), Unread<IReadOnlyList<CheckRun>>(), Unread<IReadOnlyList<Issue>>(), Unread<IReadOnlyList<IssueEdit>>(), Unread<IReadOnlyList<SubIssue>>(), Unread<IReadOnlyList<IssueEdit>>());
+                    facts = Facts(project, card, hold, Unread<PullRequest>(), Unread<IReadOnlyList<CommitStatus>>(), Unread<IReadOnlyList<CheckRun>>(), Unread<IReadOnlyList<Issue>>(), Unread<IReadOnlyList<IssueEdit>>(), Unread<IReadOnlyList<LabelEvent>>(), Unread<IReadOnlyList<SubIssue>>(), Unread<IReadOnlyList<IssueEdit>>(), Unread<IReadOnlyList<LabelEvent>>());
                 }
                 else
                 {
@@ -56,10 +56,12 @@ public sealed partial class MergeChecker(UserDb database, ICodeHost host, AppMer
                     var checkRuns = head is null ? Unread<IReadOnlyList<CheckRun>>() : await host.CheckRuns(userId, repository, head, cancellationToken);
                     labelled ??= await host.LabelledIssues(userId, repository, project.PickupLabel, cancellationToken);
                     var edits = await host.Edits(userId, repository, card.Number, cancellationToken);
+                    var labelEvents = await host.LabelEvents(userId, repository, card.Number, cancellationToken);
                     // A card of a feature is read as its parent lists it, and the parent as a card.
                     var subIssues = card.FeatureNumber is { } feature ? await host.SubIssues(userId, repository, feature, cancellationToken) : Unread<IReadOnlyList<SubIssue>>();
                     var featureEdits = card.FeatureNumber is { } parent ? await host.Edits(userId, repository, parent, cancellationToken) : Unread<IReadOnlyList<IssueEdit>>();
-                    facts = Facts(project, card, hold, pull, statuses, checkRuns, labelled, edits, subIssues, featureEdits);
+                    var featureLabelEvents = card.FeatureNumber is { } labelledParent ? await host.LabelEvents(userId, repository, labelledParent, cancellationToken) : Unread<IReadOnlyList<LabelEvent>>();
+                    facts = Facts(project, card, hold, pull, statuses, checkRuns, labelled, edits, labelEvents, subIssues, featureEdits, featureLabelEvents);
                 }
 
                 switch (MergeCheck.Decide(facts))
@@ -153,8 +155,10 @@ public sealed partial class MergeChecker(UserDb database, ICodeHost host, AppMer
         CodeHostResult<IReadOnlyList<CheckRun>> checkRuns,
         CodeHostResult<IReadOnlyList<Issue>> labelled,
         CodeHostResult<IReadOnlyList<IssueEdit>> edits,
+        CodeHostResult<IReadOnlyList<LabelEvent>> labelEvents,
         CodeHostResult<IReadOnlyList<SubIssue>> subIssues,
-        CodeHostResult<IReadOnlyList<IssueEdit>> featureEdits) => new(
+        CodeHostResult<IReadOnlyList<IssueEdit>> featureEdits,
+        CodeHostResult<IReadOnlyList<LabelEvent>> featureLabelEvents) => new(
         time.GetUtcNow(),
         hold,
         project.WaitsForOwner,
@@ -170,6 +174,7 @@ public sealed partial class MergeChecker(UserDb database, ICodeHost host, AppMer
         checkRuns,
         labelled,
         edits,
+        labelEvents,
         card.FeatureNumber is { } feature
             ? new FeatureFacts(
                 feature,
@@ -178,7 +183,8 @@ public sealed partial class MergeChecker(UserDb database, ICodeHost host, AppMer
                 project.Owner,
                 project.Name,
                 subIssues,
-                featureEdits)
+                featureEdits,
+                featureLabelEvents)
             : null);
 
     /// <summary>A read that was not made, which the check takes as one that could not be.</summary>

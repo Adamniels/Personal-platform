@@ -293,6 +293,46 @@ public sealed class FakeCodeHostTests
     }
 
     [Fact]
+    public async Task LabelEventsAreAnsweredAsStagedOrAsTheAuthorsOwn()
+    {
+        var host = new FakeCodeHost();
+        var added = new LabelEvent("devflow", LabelChange.Added, "octo-stranger", At.AddHours(1));
+        var held = new LabelEvent("devflow-hold", LabelChange.Added, "Adamniels", At.AddHours(2));
+        var released = new LabelEvent("devflow-hold", LabelChange.Removed, "octo-stranger", At.AddHours(3));
+        static FakeIssue Issue(int number, IReadOnlyList<string> labels, IReadOnlyList<LabelEvent>? events) => new(
+            number, $"Card {number}", "Adamniels", labels, $"Body of {number}",
+            new Uri($"https://github.com/Adamniels/Personal-platform/issues/{number}"), At, Open: true, [], [], LabelEvents: events);
+        var world = World;
+        var repository = world.Installations[0].Repositories[0] with
+        {
+            Issues =
+            [
+                // Staged out of order: answered oldest first.
+                Issue(338, ["devflow"], [released, added, held]),
+                // None staged: each label it carries, put on by its author as it was written.
+                Issue(339, ["devflow", "priority: high"], null),
+                Issue(340, [], []),
+            ],
+        };
+        host.Replace(Owner, world with { Installations = [world.Installations[0] with { Repositories = [repository] }] });
+
+        Assert.Equal([added, held, released], Found(await host.LabelEvents(Owner, Platform, 338, Ct)));
+        Assert.Equal(
+            [new LabelEvent("devflow", LabelChange.Added, "Adamniels", At), new LabelEvent("priority: high", LabelChange.Added, "Adamniels", At)],
+            Found(await host.LabelEvents(Owner, Platform, 339, Ct)));
+        Assert.Empty(Found(await host.LabelEvents(Owner, Platform, 340, Ct)));
+
+        // A pull request's number, or one the world does not hold, is not found; another account
+        // sees nothing of it.
+        Assert.IsType<CodeHostResult<IReadOnlyList<LabelEvent>>.NotFound>(await host.LabelEvents(Owner, Platform, 304, Ct));
+        Assert.IsType<CodeHostResult<IReadOnlyList<LabelEvent>>.NotFound>(await host.LabelEvents(Owner, Platform, 999, Ct));
+        Assert.IsType<CodeHostResult<IReadOnlyList<LabelEvent>>.NotFound>(await host.LabelEvents(Stranger, Platform, 338, Ct));
+
+        host.SetUnavailable(Owner, unavailable: true);
+        Assert.IsType<CodeHostResult<IReadOnlyList<LabelEvent>>.Unavailable>(await host.LabelEvents(Owner, Platform, 338, Ct));
+    }
+
+    [Fact]
     public async Task SubIssuesAreAnsweredInTheirOrderFromWhereverTheyAre()
     {
         var host = new FakeCodeHost();

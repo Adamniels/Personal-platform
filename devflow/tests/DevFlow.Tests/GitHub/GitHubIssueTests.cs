@@ -192,6 +192,97 @@ public sealed class GitHubIssueTests
             await host.CodeHost.BlockedBy(GitHubHost.User, GitHubHost.Platform, 339, Ct));
     }
 
+    [Fact]
+    public async Task LabelEventsMatchGitHubsRecordedAnswer()
+    {
+        using var host = new GitHubHost();
+        host.Stub.Answer = Serve(("/graphql", "issue-label-events.json"));
+
+        var events = Results.Value(await host.CodeHost.LabelEvents(GitHubHost.User, GitHubHost.Platform, 15122, Ct));
+
+        // One POST to GraphQL, as the app, with the query exactly as recorded, naming the
+        // repository and the issue, from the first page.
+        var asked = Assert.Single(host.Stub.Reads);
+        Assert.Equal(HttpMethod.Post, asked.Method);
+        Assert.Equal("https://api.github.com/graphql", asked.Uri.ToString());
+        Assert.Equal($"Bearer {StubGitHub.FixtureToken}", asked.Header("Authorization"));
+        var sent = JsonNode.Parse(asked.Body!)!.AsObject();
+        Assert.Equal(DevFlow.CodeHost.GitHub.GitHubCodeHost.LabelEventsQuery, (string)sent["query"]!);
+        var variables = sent["variables"]!.AsObject();
+        Assert.Equal("Adamniels", (string)variables["owner"]!);
+        Assert.Equal("Personal-platform", (string)variables["name"]!);
+        Assert.Equal(15122, (int)variables["number"]!);
+        Assert.Null(variables["after"]);
+
+        // Each event as the file holds it, oldest first, a label put on or taken off.
+        var nodes = Fixture.Node("issue-label-events.json")["data"]!["repository"]!["issue"]!["timelineItems"]!["nodes"]!.AsArray();
+        Assert.Equal(
+            nodes.Select(node => new LabelEvent(
+                (string)node!["label"]!["name"]!,
+                (string)node["__typename"]! == "LabeledEvent" ? LabelChange.Added : LabelChange.Removed,
+                (string)node["actor"]!["login"]!,
+                Time(node["createdAt"]))),
+            events);
+        Assert.Equal([LabelChange.Added, LabelChange.Added, LabelChange.Removed], events.Select(change => change.Change));
+    }
+
+    [Fact]
+    public async Task LabelEventsAreReadAcrossPages()
+    {
+        using var host = new GitHubHost();
+        var first = Fixture.Node("issue-label-events.json");
+        var page = first["data"]!["repository"]!["issue"]!["timelineItems"]!["pageInfo"]!;
+        page["hasNextPage"] = true;
+        page["endCursor"] = "events-cursor";
+        var second = JsonNode.Parse("""
+            {"data": {"repository": {"issue": {"timelineItems": {
+              "pageInfo": {"hasNextPage": false, "endCursor": "events-end"},
+              "nodes": [{"__typename": "UnlabeledEvent", "createdAt": "2026-11-22T10:00:00Z", "actor": null, "label": {"name": "suspected-spam"}}]
+            }}}}}
+            """)!;
+        var answers = new Queue<string>([first.ToJsonString(), second.ToJsonString()]);
+        host.Stub.Answer = _ => StubGitHub.Json(answers.Dequeue());
+
+        var events = Results.Value(await host.CodeHost.LabelEvents(GitHubHost.User, GitHubHost.Platform, 15122, Ct));
+
+        // The second page asks from the cursor; the event of a deleted account is ghost's.
+        Assert.Equal(2, host.Stub.Reads.Count);
+        Assert.Equal("events-cursor", (string)JsonNode.Parse(host.Stub.Reads[1].Body!)!["variables"]!["after"]!);
+        Assert.Equal(4, events.Count);
+        Assert.Equal(new LabelEvent("suspected-spam", LabelChange.Removed, "ghost", Time(JsonValue.Create("2026-11-22T10:00:00Z"))), events[3]);
+    }
+
+    [Fact]
+    public async Task LabelEventsOfAnIssueGitHubDoesNotShowAreNotFound()
+    {
+        using var host = new GitHubHost();
+        host.Stub.Answer = Serve(("/graphql", "issue-edits-not-found.json"));
+
+        Assert.IsType<CodeHostResult<IReadOnlyList<LabelEvent>>.NotFound>(
+            await host.CodeHost.LabelEvents(GitHubHost.User, GitHubHost.Platform, 99999, Ct));
+    }
+
+    /// <summary>Anything but a whole history is unavailable, never part of one answered as
+    /// all of it: an event the adapter cannot name might be the one that decides.</summary>
+    [Theory]
+    [InlineData("""{"data": null, "errors": [{"type": "RATE_LIMITED", "message": "API rate limit exceeded"}]}""")]
+    [InlineData("""{"data": {"repository": {"issue": {}}}}""")]
+    [InlineData("""{"data": {"repository": {"issue": {"timelineItems": {"pageInfo": {"hasNextPage": true, "endCursor": null}, "nodes": []}}}}}""")]
+    [InlineData("""{"data": {"repository": {"issue": {"timelineItems": {"pageInfo": {"hasNextPage": false, "endCursor": null}, "nodes": [{"__typename": "RenamedTitleEvent", "createdAt": "2026-11-22T10:00:00Z", "actor": null}]}}}}}""")]
+    [InlineData("""{"data": {"repository": {"issue": {"timelineItems": {"pageInfo": {"hasNextPage": false, "endCursor": null}, "nodes": [{"__typename": "LabeledEvent", "createdAt": "2026-11-22T10:00:00Z", "actor": null, "label": null}]}}}}}""")]
+    public async Task LabelEventsGitHubCannotAnswerWhollyAreUnavailable(string answer)
+    {
+        using var host = new GitHubHost();
+        host.Stub.Answer = _ => StubGitHub.Json(answer);
+
+        Assert.IsType<CodeHostResult<IReadOnlyList<LabelEvent>>.Unavailable>(
+            await host.CodeHost.LabelEvents(GitHubHost.User, GitHubHost.Platform, 15122, Ct));
+
+        host.Stub.Answer = _ => new HttpResponseMessage(HttpStatusCode.BadGateway);
+        Assert.IsType<CodeHostResult<IReadOnlyList<LabelEvent>>.Unavailable>(
+            await host.CodeHost.LabelEvents(GitHubHost.User, GitHubHost.Platform, 15122, Ct));
+    }
+
     private static DateTimeOffset Time(JsonNode? value) =>
         DateTimeOffset.Parse((string)value!, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal);
 }

@@ -411,6 +411,17 @@ internal sealed class CountingCodeHost(ICodeHost inner) : ICodeHost
         return inner.Edits(userId, repository, number, cancellationToken);
     }
 
+    public Task<CodeHostResult<IReadOnlyList<LabelEvent>>> LabelEvents(Guid userId, CodeHost.Repository repository, int number, CancellationToken cancellationToken)
+    {
+        Record("LabelEvents", userId, repository, $"{number}");
+        if (Unavailable.ContainsKey("LabelEvents"))
+        {
+            return Task.FromResult<CodeHostResult<IReadOnlyList<LabelEvent>>>(new CodeHostResult<IReadOnlyList<LabelEvent>>.Unavailable(RetryAt: null));
+        }
+
+        return inner.LabelEvents(userId, repository, number, cancellationToken);
+    }
+
     public Task<CodeHostResult<string>> DefaultBranch(Guid userId, CodeHost.Repository repository, CancellationToken cancellationToken)
     {
         Record("DefaultBranch", userId, repository, "");

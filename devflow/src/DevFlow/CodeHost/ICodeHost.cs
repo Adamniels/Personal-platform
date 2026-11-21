@@ -63,6 +63,11 @@ public interface ICodeHost
     /// it; empty when it was never edited. Not found when there is no such issue.</summary>
     Task<CodeHostResult<IReadOnlyList<IssueEdit>>> Edits(Guid userId, Repository repository, int number, CancellationToken cancellationToken);
 
+    /// <summary>Every label put on the issue or taken off it, oldest first, each with who did it;
+    /// the whole history or a failure, never part of it. Not found when there is no such
+    /// issue.</summary>
+    Task<CodeHostResult<IReadOnlyList<LabelEvent>>> LabelEvents(Guid userId, Repository repository, int number, CancellationToken cancellationToken);
+
     /// <summary>The repository's default branch, as the host says it now, never assumed to be
     /// <c>main</c>.</summary>
     Task<CodeHostResult<string>> DefaultBranch(Guid userId, Repository repository, CancellationToken cancellationToken);

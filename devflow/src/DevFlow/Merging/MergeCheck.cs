@@ -35,6 +35,7 @@ public sealed record LatestReview(string Verdict, string Commit);
 /// <param name="Name">The name of the project's repository.</param>
 /// <param name="SubIssues">The parent's sub-issues.</param>
 /// <param name="Edits">The parent's edit history.</param>
+/// <param name="LabelEvents">The parent's label events, from its timeline.</param>
 public sealed record FeatureFacts(
     int Number,
     bool BranchUnwatched,
@@ -42,7 +43,8 @@ public sealed record FeatureFacts(
     string Owner,
     string Name,
     CodeHostResult<IReadOnlyList<SubIssue>> SubIssues,
-    CodeHostResult<IReadOnlyList<IssueEdit>> Edits);
+    CodeHostResult<IReadOnlyList<IssueEdit>> Edits,
+    CodeHostResult<IReadOnlyList<LabelEvent>> LabelEvents);
 
 /// <summary>
 /// Everything the merge check decides on, read fresh by its caller: Dev flow's own records of the
@@ -64,6 +66,7 @@ public sealed record FeatureFacts(
 /// <param name="CheckRuns">The check runs on it.</param>
 /// <param name="Labelled">The repository's open issues carrying the pick-up label.</param>
 /// <param name="Edits">The card's edit history.</param>
+/// <param name="LabelEvents">The card's label events, from its timeline.</param>
 /// <param name="Feature">The card's feature, null for a card on its own.</param>
 public sealed record MergeFacts(
     DateTimeOffset Now,
@@ -81,6 +84,7 @@ public sealed record MergeFacts(
     CodeHostResult<IReadOnlyList<CheckRun>> CheckRuns,
     CodeHostResult<IReadOnlyList<Issue>> Labelled,
     CodeHostResult<IReadOnlyList<IssueEdit>> Edits,
+    CodeHostResult<IReadOnlyList<LabelEvent>> LabelEvents,
     FeatureFacts? Feature = null);
 
 /// <summary>What the merge check answers. A closed set.</summary>
@@ -148,6 +152,14 @@ public static class MergeCheck
 
     public static string EditedBy(string login) => $"The card was edited by {login} since it was picked";
 
+    public static string PickupNotTrusted(string label, string? by) => by is null
+        ? $"The card's pick-up label {label} was not added by a trusted account of this project"
+        : $"The card's pick-up label {label} was added by {by}, who is not a trusted account of this project";
+
+    public static string HoldTakenOff(string label, string? by) => by is null
+        ? $"The card is held by the label {label}, which a trusted account put on and none took off"
+        : $"The card is held by the label {label}, taken off by {by}, who is not a trusted account of this project";
+
     public static string CiFailed(string name) => $"CI failed: {name}";
 
     public static string IntoAnother(string into, string built) => $"Its pull request goes into {into}, not {built}";
@@ -162,6 +174,14 @@ public static class MergeCheck
 
     public static string FeatureEditedBy(int feature, string login) => Invariant($"Its feature, #{feature}, was edited by {login} since it was picked");
 
+    public static string FeaturePickupNotTrusted(int feature, string label, string? by) => by is null
+        ? Invariant($"The pick-up label {label} on its feature, #{feature}, was not added by a trusted account of this project")
+        : Invariant($"The pick-up label {label} on its feature, #{feature}, was added by {by}, who is not a trusted account of this project");
+
+    public static string FeatureHoldTakenOff(int feature, string label, string? by) => by is null
+        ? Invariant($"Its feature, #{feature}, is held by the label {label}, which a trusted account put on and none took off")
+        : Invariant($"Its feature, #{feature}, is held by the label {label}, taken off by {by}, who is not a trusted account of this project");
+
     public static string FeatureChangedUnseen(int feature) => Invariant($"Its feature, #{feature}, changed since it was picked, and its history does not say by whom");
 
     /// <summary>
@@ -169,10 +189,11 @@ public static class MergeCheck
     /// its default branch unread, or for a card of a feature its feature's branch unread; the pull
     /// request unread or not open; its head not the commit the worker checked, the check failed on
     /// it, or the pull request going into another branch than the one it ran on; the latest review not
-    /// an approve of exactly that commit; the card not still valid, written by the owner, open with
-    /// the pick-up label, not held, and edited by nobody else since it was picked, where for a card
-    /// of a feature the parent is held to all of it and the card is an open sub-issue of it with no
-    /// label of its own; the setting not <c>never</c>; and CI, every check run and status on the
+    /// an approve of exactly that commit; the card not still valid, written by a trusted account,
+    /// open with the pick-up label a trusted account put on, not held, by the hold label on it or
+    /// one a trusted account put on and only someone untrusted took off, and edited by nobody
+    /// outside the list since it was picked, where for a card of a feature the parent is held to
+    /// all of it and the card is an open sub-issue of it, held to all of it but the pick-up label; the setting not <c>never</c>; and CI, every check run and status on the
     /// commit completed and succeeded. Only a wait that can clear by itself is tried again: a branch
     /// unread, a read that failed, CI running or not reported yet. Everything else is the owner's.
     /// </summary>
@@ -252,7 +273,10 @@ public static class MergeCheck
     {
         if (facts.Labelled is not CodeHostResult<IReadOnlyList<Issue>>.Found { Value: var labelled }
             || facts.Edits is not CodeHostResult<IReadOnlyList<IssueEdit>>.Found { Value: var edits }
-            || facts.Feature is { } unread && (unread.SubIssues is not CodeHostResult<IReadOnlyList<SubIssue>>.Found || unread.Edits is not CodeHostResult<IReadOnlyList<IssueEdit>>.Found))
+            || facts.LabelEvents is not CodeHostResult<IReadOnlyList<LabelEvent>>.Found { Value: var events }
+            || facts.Feature is { } unread && (unread.SubIssues is not CodeHostResult<IReadOnlyList<SubIssue>>.Found
+                || unread.Edits is not CodeHostResult<IReadOnlyList<IssueEdit>>.Found
+                || unread.LabelEvents is not CodeHostResult<IReadOnlyList<LabelEvent>>.Found))
         {
             return Again(CouldNotRead("the card"));
         }
@@ -267,7 +291,7 @@ public static class MergeCheck
         if (facts.Feature is not { } feature)
         {
             return labelled.FirstOrDefault(issue => !issue.IsPullRequest && issue.Number == facts.Card) is { } card
-                ? Valid(new Read(card.Author, card.Labels, card.Body, card.Title), edits, facts.Record, trusted, facts.HoldLabel, CardWords)
+                ? Valid(new Read(card.Author, card.Labels, card.Body, card.Title), edits, events, facts.Record, trusted, facts.PickupLabel, facts.HoldLabel, CardWords)
                 : Final(NotLabelled(facts.PickupLabel));
         }
 
@@ -279,13 +303,14 @@ public static class MergeCheck
         // Read above: both answered.
         var subIssues = ((CodeHostResult<IReadOnlyList<SubIssue>>.Found)feature.SubIssues).Value;
         var parentEdits = ((CodeHostResult<IReadOnlyList<IssueEdit>>.Found)feature.Edits).Value;
+        var parentEvents = ((CodeHostResult<IReadOnlyList<LabelEvent>>.Found)feature.LabelEvents).Value;
         if (feature.Record is not { } parentRecord)
         {
             return Final(CardPicker.FeatureNotPicked(feature.Number));
         }
 
         var words = FeatureWords(feature.Number);
-        if (Valid(new Read(parent.Author, parent.Labels, parent.Body, parent.Title), parentEdits, parentRecord, trusted, facts.HoldLabel, words) is { } invalid)
+        if (Valid(new Read(parent.Author, parent.Labels, parent.Body, parent.Title), parentEdits, parentEvents, parentRecord, trusted, facts.PickupLabel, facts.HoldLabel, words) is { } invalid)
         {
             return invalid;
         }
@@ -297,33 +322,59 @@ public static class MergeCheck
             return Final(NotSubIssue(feature.Number));
         }
 
-        return Valid(new Read(own.Author, own.Labels, own.Body, own.Title), edits, facts.Record, trusted, facts.HoldLabel, CardWords);
+        // A card of a feature carries no pick-up label of its own: its parent's switched it on.
+        return Valid(new Read(own.Author, own.Labels, own.Body, own.Title), edits, events, facts.Record, trusted, pickupLabel: null, facts.HoldLabel, CardWords);
     }
 
     /// <summary>An issue as the card rules read it.</summary>
     private sealed record Read(string Author, IReadOnlyList<string> Labels, string Body, string Title);
 
     /// <summary>The reasons the card rules give, of the card or of its feature.</summary>
-    private sealed record Words(Func<string, string> WrittenBy, Func<string, string> Held, Func<string, string> EditedBy, string ChangedUnseen);
+    private sealed record Words(
+        Func<string, string> WrittenBy,
+        Func<string, string?, string> PickupNotTrusted,
+        Func<string, string> Held,
+        Func<string, string?, string> HoldTakenOff,
+        Func<string, string> EditedBy,
+        string ChangedUnseen);
 
-    private static readonly Words CardWords = new(WrittenBy, Held, EditedBy, ChangedUnseen);
+    private static readonly Words CardWords = new(WrittenBy, PickupNotTrusted, Held, HoldTakenOff, EditedBy, ChangedUnseen);
 
     private static Words FeatureWords(int feature) =>
-        new(login => FeatureWrittenBy(feature, login), label => FeatureHeld(feature, label), login => FeatureEditedBy(feature, login), FeatureChangedUnseen(feature));
+        new(
+            login => FeatureWrittenBy(feature, login),
+            (label, by) => FeaturePickupNotTrusted(feature, label, by),
+            label => FeatureHeld(feature, label),
+            (label, by) => FeatureHoldTakenOff(feature, label, by),
+            login => FeatureEditedBy(feature, login),
+            FeatureChangedUnseen(feature));
 
     /// <summary>Why the issue is no longer one a run merges from, or null when it still is: written
-    /// by a trusted account, not held, and edited by nobody outside the list since it was picked,
-    /// with any change to it explained by an edit of one of them.</summary>
-    private static MergeDecision.Wait? Valid(Read issue, IReadOnlyList<IssueEdit> edits, CardRecord record, TrustedAccounts trusted, string holdLabel, Words words)
+    /// by a trusted account, its pick-up label, when <paramref name="pickupLabel"/> is given, put on
+    /// by one, not held, by a hold label on it or one a trusted account put on and only someone
+    /// untrusted took off, and edited by nobody outside the list since it was picked, with any
+    /// change to it explained by an edit of one of them. Labels are read by
+    /// <see cref="LabelActors"/>, as picking reads them.</summary>
+    private static MergeDecision.Wait? Valid(Read issue, IReadOnlyList<IssueEdit> edits, IReadOnlyList<LabelEvent> events, CardRecord record, TrustedAccounts trusted, string? pickupLabel, string holdLabel, Words words)
     {
         if (!trusted.Trusts(issue.Author))
         {
             return Final(words.WrittenBy(issue.Author));
         }
 
+        if (pickupLabel is not null && LabelActors.Judge(pickupLabel, LabelKind.SwitchesOn, issue.Labels, events, trusted) is { Counts: false, By: var putOnBy })
+        {
+            return Final(words.PickupNotTrusted(pickupLabel, putOnBy));
+        }
+
         if (issue.Labels.Contains(holdLabel, StringComparer.OrdinalIgnoreCase))
         {
             return Final(words.Held(holdLabel));
+        }
+
+        if (LabelActors.Judge(holdLabel, LabelKind.HoldsBack, issue.Labels, events, trusted) is { Counts: true, By: var takenOffBy })
+        {
+            return Final(words.HoldTakenOff(holdLabel, takenOffBy));
         }
 
         if (edits.Where(edit => !trusted.Trusts(edit.Editor)).OrderBy(edit => edit.At).FirstOrDefault() is { } stranger)

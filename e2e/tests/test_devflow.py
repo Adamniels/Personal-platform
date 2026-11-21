@@ -30,6 +30,7 @@ from devflow_worlds import (
     check_run,
     comment,
     edit,
+    label_event,
     one_repository,
     png,
     repository,
@@ -1472,6 +1473,60 @@ def test_a_card_i_label_shows_as_queued(
     ):
         check(page)
     capture(page, "devflow-project-cards")
+
+
+def test_a_strangers_label_starts_nothing(
+    page: Page, invite_code: str, base_url: str, viewport: str, devflow_world
+):
+    register_and_log_in(page, invite_code, base_url)
+    # Two cards the owner, octo-owner, wrote: a stranger put the pick-up label
+    # on one, and took the hold label the owner put on the other off.
+    world = one_repository()
+    add_issue(
+        world,
+        12,
+        "The card a stranger switched on",
+        labels=["devflow"],
+        label_events=[label_event("devflow", "octo-stranger")],
+    )
+    add_issue(
+        world,
+        13,
+        "The card a stranger released",
+        labels=["devflow"],
+        label_events=[
+            label_event("devflow", "octo-owner"),
+            label_event("devflow-hold", "octo-owner"),
+            label_event("devflow-hold", "octo-stranger", change="removed"),
+        ],
+    )
+    _open_project(page, base_url, devflow_world, world)
+    project = page.url.rsplit("/", 1)[1]
+
+    refreshed = page.request.post(
+        f"/devflow/api/projects/{project}/refresh", headers={"Origin": base_url}
+    )
+    assert refreshed.status == 204, refreshed.text()
+    page.reload()
+
+    cards = page.get_by_role("list", name="Cards")
+    expect(cards.get_by_role("listitem")).to_have_count(2)
+
+    def row(number: int):
+        return cards.get_by_role("listitem").filter(
+            has=page.get_by_text(f"#{number}", exact=True)
+        )
+
+    expect(row(12)).to_contain_text("Ignored")
+    expect(row(12)).to_contain_text(
+        "The pick-up label devflow was added by octo-stranger, who is not a"
+        " trusted account of this project"
+    )
+    expect(row(13)).to_contain_text("Held")
+    expect(row(13)).to_contain_text(
+        "Held by the label devflow-hold, taken off by octo-stranger, who is not a"
+        " trusted account of this project"
+    )
 
 
 def test_a_labelled_feature_shows_its_cards_in_order(

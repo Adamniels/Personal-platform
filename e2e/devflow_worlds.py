@@ -151,13 +151,15 @@ def add_issue(
     edits: list[dict] | None = None,
     created_at: str = WHEN,
     sub_issues: list[int] | None = None,
+    label_events: list[dict] | None = None,
 ) -> dict:
     """Adds an issue to the world's repository, written by the fake's user,
     the owner once GitHub is linked, unless said, open unless said, with the
     labels, the issues in the same repository it is blocked by, and its edits,
-    none unless given; and its sub-issues in the same repository, in their
-    order, which make a labelled issue a feature. Returns it, so a test can
-    change it."""
+    none unless given; its sub-issues in the same repository, in their
+    order, which make a labelled issue a feature; and who put each label on it
+    or took it off, its author putting on each label it carries unless given.
+    Returns it, so a test can change it."""
     issue = {
         "number": number,
         "title": title,
@@ -174,6 +176,8 @@ def add_issue(
         issue["sub_issues"] = [
             {"number": sub, "repository": None} for sub in sub_issues
         ]
+    if label_events is not None:
+        issue["label_events"] = label_events
     repository(world)["issues"].append(issue)
     return issue
 
@@ -182,6 +186,12 @@ def edit(edit_id: str, editor: str, kind: str = "body", at: str = WHEN) -> dict:
     """An edit of an issue's body, or its title with kind title, by the
     login."""
     return {"id": edit_id, "editor": editor, "at": at, "kind": kind}
+
+
+def label_event(label: str, actor: str, change: str = "added", at: str = WHEN) -> dict:
+    """A label put on an issue, or taken off it with change removed, by the
+    login."""
+    return {"label": label, "change": change, "actor": actor, "at": at}
 
 
 def add_conversation(world: dict, number: int, comments: list[dict]) -> None:

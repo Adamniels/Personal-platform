@@ -1,0 +1,46 @@
+{
+  "data": {
+    "repository": {
+      "issue": {
+        "timelineItems": {
+          "pageInfo": {
+            "hasNextPage": false,
+            "endCursor": "Y3Vyc29yOnYyOpPPAAABof5aklgBqzM2ODYyMjEwMjAw"
+          },
+          "nodes": [
+            {
+              "__typename": "LabeledEvent",
+              "createdAt": "2026-11-21T13:39:28Z",
+              "actor": {
+                "login": "github-actions"
+              },
+              "label": {
+                "name": "needs-triage"
+              }
+            },
+            {
+              "__typename": "LabeledEvent",
+              "createdAt": "2026-11-21T13:45:01Z",
+              "actor": {
+                "login": "cli-triage"
+              },
+              "label": {
+                "name": "suspected-spam"
+              }
+            },
+            {
+              "__typename": "UnlabeledEvent",
+              "createdAt": "2026-11-21T13:45:11Z",
+              "actor": {
+                "login": "github-actions"
+              },
+              "label": {
+                "name": "needs-triage"
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}

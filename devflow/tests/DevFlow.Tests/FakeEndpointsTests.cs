@@ -80,7 +80,8 @@ public sealed class FakeEndpointsTests
                       "number": 338, "title": "Settings and picking cards", "author": "Adamniels", "labels": ["devflow"],
                       "body": "## Goal", "url": "https://github.com/Adamniels/Personal-platform/issues/338",
                       "created_at": "2026-11-17T07:46:17+00:00", "open": true, "blocked_by": [339],
-                      "edits": [{ "id": "UCE_1", "editor": "Adamniels", "at": "2026-11-17T08:00:00+00:00", "kind": "title" }]
+                      "edits": [{ "id": "UCE_1", "editor": "Adamniels", "at": "2026-11-17T08:00:00+00:00", "kind": "title" }],
+                      "label_events": [{ "label": "devflow", "change": "added", "actor": "Adamniels", "at": "2026-11-17T07:46:17+00:00" }]
                     },
                     {
                       "number": 339, "title": "Handing out work", "author": "Adamniels", "labels": [],
@@ -163,6 +164,8 @@ public sealed class FakeEndpointsTests
         { "installations[0].repositories[0].files[1]", Changed(world => Repo(world)["files"]!.AsArray().Add(Repo(world)["files"]![0]!.DeepClone())) },
         { "installations[0].repositories[0].issues", Changed(world => Repo(world).Remove("issues")) },
         { "installations[0].repositories[0].issues[0].edits[0].kind", Changed(world => Repo(world)["issues"]![0]!["edits"]![0]!["kind"] = "label") },
+        { "installations[0].repositories[0].issues[0].label_events[0].change", Changed(world => Repo(world)["issues"]![0]!["label_events"]![0]!["change"] = "renamed") },
+        { "installations[0].repositories[0].issues[0].label_events[0].actor", Changed(world => Repo(world)["issues"]![0]!["label_events"]![0]!["actor"] = null) },
         { "installations[0].repositories[0].issues[1].number", Changed(world => Repo(world)["issues"]![1]!["number"] = 338) },
         { "installations[0].repositories[0].issues[1].number", Changed(world =>
         {

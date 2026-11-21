@@ -389,14 +389,44 @@ order, the first that holds decides:
 3. A login that is not a trusted account edited its body or its title: ignored, saying who. Who
    edited an issue is read through GraphQL, since REST does not say; a deleted account shows as
    `ghost`, which is never on the list.
-4. It carries the hold label: held.
-5. Something it is blocked by is still open: queued, and its reason names what it waits for, `#12`,
+4. For an issue carrying the pick-up label itself, a card on its own or a feature's parent, no
+   trusted account put it on: ignored, "The pick-up label <label> was added by <login>, who is not
+   a trusted account of this project", naming who put it on last, or "was not added by a trusted
+   account of this project" when its timeline does not say. A card of a feature carries none of its
+   own; its parent's label switched it on.
+5. It carries the hold label, whoever put it on: held.
+6. It does not, but a trusted account put the hold label on and only someone untrusted took it off
+   since: held, "Held by the label <label>, taken off by <login>, who is not a trusted account of
+   this project".
+7. Something it is blocked by is still open: queued, and its reason names what it waits for, `#12`,
    or `owner/name#12` in another repository, so the queue says which card it waits for, as the spec
    asks. It is not free to start until that is closed.
-6. Otherwise queued and free to start.
+8. Otherwise queued and free to start.
+
+**Who changed a label decides it, and the rule fails closed.** The pick-up label switches the
+automation on, and anyone who can label issues in the repository can put it on, which GitHub grants
+far more widely than writing the card. So a label counts by who changed it, as the spec's round 3
+has it: for each label, the newest `LabeledEvent` or `UnlabeledEvent` of it on the issue's timeline
+whose actor is trusted decides. The pick-up label counts only when that event put it on and it is
+on the issue. The hold label counts while it is on the issue, whoever put it there, and also while
+it is off when that event put it on and only someone untrusted took it off since. Both directions
+fail closed: someone untrusted can stop a card, by holding it or by making it ignored, but can
+never start one, release one or switch anything on. A deleted account shows as `ghost`, which is
+never on the list. The rule is one pure function, `LabelActors.Judge`, over the events, the labels
+on the issue and the trusted accounts, answering for one label at a time whether it counts, so the
+review label of "Sometimes" is read by the same rule, and the picker and the merge check cannot
+drift apart.
+
+The timeline is read with one GraphQL query per issue, `timelineItems` of the types `LABELED_EVENT`
+and `UNLABELED_EVENT`, each with its label's name and its actor's login, paged to the end. Half a
+history is never taken for the whole: a page that fails, or an event the adapter cannot name, makes
+the read unavailable, since the missing event could be the one that decides, and the project's read
+fails and stores nothing, as any other failure does.
 
 The reads are ordered so a card costs only what decides it: one by someone else costs nothing
-beyond the list, and only a card nobody off the list touched costs the read of what blocks it. A picked
+beyond the list, only a card nobody off the list edited costs the read of its timeline, which a card
+of a feature skips while a hold label on it or its feature decides first, and only a card still
+picked and not held costs the read of what blocks it. A picked
 card keeps a record of what was read, its body's SHA-256, its title, and the id of its edit
 history's newest entry, which later parts compare against before building on it and before
 merging, as "Not edited since it was read" in the spec's clarifications asks. Logins and labels are
@@ -409,7 +439,7 @@ body or title, and whose comment is input wherever one is read: sending a card b
 stopped card again, fixing a card, and fixing and sending back a feature. Where this document speaks
 of the owner's comment as an input, it is a comment by any trusted account. A card that is anything
 else is never queued, and is listed as ignored with the reason, so a card that does not run says
-why rather than vanishing. Who changes a label is not on the list yet: the next slice reads it.
+why rather than vanishing. Who changes a label counts by the same list, steps 4 and 6 above.
 
 The owner's linked login is always on the list and is never stored there: it is added whenever the
 list is read. A relinked account with a new login is then trusted at once and the old one is not,
@@ -460,8 +490,9 @@ it.
 
 **Why the parent is checked as a card is.** The parent is the feature's description, which later
 slices quote in every brief and review the whole feature against, so it is an instruction as much
-as a card's body is. It is held to the same rules, written by a trusted account and edited by
-nobody off the list, and keeps the same record of what was picked. A parent that fails ignores
+as a card's body is. It is held to the same rules, written by a trusted account, edited by nobody
+off the list and its pick-up label put on by a trusted account, and keeps the same record of what
+was picked. A parent that fails ignores
 every card of it, read no further: a feature whose description is not trusted is not his. Each
 sub-issue is checked by the card rules all the same, so a stranger's sub-issue under a trusted
 parent is not picked either.
@@ -1006,10 +1037,15 @@ compiled code the check runs and fails if it names an agent, a brief, a report, 
    report", since a project's CI that broke silently looks exactly like one with no CI.
 3. *The latest review approved exactly that commit*, from Dev flow's own `reviews`, never from a
    comment, so a commit after the review needs a new one, see "Review".
-4. *The card is still valid.* Written by a trusted account, open with the pick-up label, without
-   the hold label, and edited by nobody outside the list since it was picked, read again from GitHub as
-   the app rather than from the last minute's picture. Its body and title are compared with the
-   record made when it was picked, and a change the history cannot attribute is a reason too.
+4. *The card is still valid.* Written by a trusted account, open with the pick-up label a trusted
+   account put on, not held, and edited by nobody outside the list since it was picked, read again
+   from GitHub as the app rather than from the last minute's picture. Its labels are read from its
+   timeline by `LabelActors.Judge`, the rule picking reads them by in "How a card is picked": a
+   pick-up label someone untrusted put on, or a hold label a trusted account put on and only
+   someone untrusted took off, is no merge, and a timeline that cannot be read waits like any read
+   that failed. For a card of a feature the parent is held to all of it, and the card to all but
+   the pick-up label, which it does not carry. Its body and title are compared with the record
+   made when it was picked, and a change the history cannot attribute is a reason too.
 5. *The project's setting is `never`.* Any other value, one it does not know included, waits.
 
 And the project is not stopped and its watch has read within five minutes, as for handing out
@@ -2027,11 +2063,13 @@ its reason, or a risk accepted on purpose; each slice adds the ones it builds.
   title and body are data, shown as text. A trusted account's words count as the owner's would, so
   adding one is trusting that account and whoever controls it with work on the project; it never
   makes Dev flow act as that account, and Dev flow acts as the owner only with his own token. The
-  accepted risk: anyone who can label issues in a repository can make a card appear as ignored on
-  the owner's page, which shows a stranger's title there as text and runs nothing; and until the
-  next slice reads who changes a label, a stranger who can label issues can put the pick-up label
-  on a trusted account's issue. GitHub's edit history does not cover a comment, which no card is
-  read from yet.
+  pick-up label itself counts only when a trusted account put it on, and a hold label a trusted
+  account put on stays in force until a trusted account takes it off, by the issue's timeline, see
+  "How a card is picked". The accepted risk: anyone who can label issues in a repository can
+  still make a card appear as ignored on the owner's page, as text, by labelling a stranger's issue
+  or by putting the pick-up label on a trusted account's issue it was not on, and can hold a card
+  by the hold label; they can no longer start, release or switch on anything. GitHub's edit history
+  does not cover a comment, which no card is read from yet.
 - **The Claude token and a push key leave Dev flow only inside a job, to the worker holding it.**
   A job is answered only to a worker of the key's own project, through the door as its user, so
   the token is that user's and the push key reaches that project's repository alone, narrowed to

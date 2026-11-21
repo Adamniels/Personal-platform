@@ -295,6 +295,13 @@ body as it is and the full ones are long:
   `repository.owner.login` and whether `pull_request` is there.
 - `issue-edits-not-found.json`: the same query for issue 99999, which does not exist, GraphQL's
   `200` with `issue` null and an error of type `NOT_FOUND`.
+- `issue-label-events.json`, recorded on 2026 11 21 for the slice "Who changes a label": `gh api
+  graphql` with the query `GitHubCodeHost.LabelEventsQuery` in the same file, exactly, and `owner`
+  `cli`, `name` `cli`, `number` 15122, formatted with `python3 -m json.tool --indent 2`. It is
+  GitHub's own CLI's public repository, since no issue in this one has ever had a label put on or
+  taken off: issue 15122's three label events, two put on and one taken off, each by a different
+  bot, oldest first. The adapter reads `__typename`, `createdAt`, `actor.login` and `label.name`, and
+  the same `NOT_FOUND` answer above for an issue that is not there.
 
 `installation-token.json` is written by hand from GitHub's documented answer to
 `POST /app/installations/{installation_id}/access_tokens`, with a made up token. The tests set its
