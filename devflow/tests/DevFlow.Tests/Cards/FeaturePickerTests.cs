@@ -59,10 +59,11 @@ public sealed class FeaturePickerTests
         ], cards.Select(card => (card.Number, card.State, card.Reason, card.Feature, card.Position)));
         Assert.All(cards, card => Assert.True(card.Picked));
 
-        // None is queued as a card on its own; the feature's first card is its next build, by the
-        // feature's own rule, see FeatureDispatchTests.
+        // None is queued as a card on its own; the feature's cards are read first, together, and its
+        // first card is then its next build, by the feature's own rule, see FeatureDispatchTests
+        // and ReadJobTests.
         Assert.Empty(await CardStore.Queue(reading.Door, Reading.Reading.Alice, project, Ct));
-        Assert.Equal("build", await DevFlow.Jobs.JobStore.NextKind(reading.Door, Reading.Reading.Alice, project, DateTimeOffset.UtcNow, Ct));
+        Assert.Equal("read", await DevFlow.Jobs.JobStore.NextKind(reading.Door, Reading.Reading.Alice, project, DateTimeOffset.UtcNow, Ct));
     }
 
     [Fact]

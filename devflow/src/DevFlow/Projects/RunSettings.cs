@@ -47,6 +47,7 @@ public sealed record RunSettings(string ModelReading, string ModelBuilding, stri
     {
         Job.Build or Job.Fix or Job.Conflict or Job.FeatureFix => ModelBuilding,
         Job.Review or Job.FeatureReview => ModelReviewing,
+        Job.Read => ModelReading,
         _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "No job of this kind runs a model"),
     };
 

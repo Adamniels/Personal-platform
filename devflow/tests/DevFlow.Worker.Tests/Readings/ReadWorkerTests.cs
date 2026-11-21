@@ -25,7 +25,7 @@ public sealed class ReadWorkerTests
     };
 
     /// <summary>A reading job of card 1 on <paramref name="branch"/>, made from the job Dev flow
-    /// hands out for it, under a job id of its own.</summary>
+    /// hands out for it, a build, under a job id of its own, so the result goes nowhere.</summary>
     private static async Task<JsonElement> ReadingJob(Bench bench, string branch = "main")
     {
         var job = JsonNode.Parse((await bench.NextJob()).GetRawText())!.AsObject();
@@ -46,9 +46,11 @@ public sealed class ReadWorkerTests
     [Fact]
     public async Task AReadJobCommitsAndPushesNothing()
     {
-        await using var bench = await Bench.Start();
+        await using var bench = await Bench.Start(read: false);
         var main = await bench.RemoteHead("main");
-        var job = await ReadingJob(bench);
+        var job = await bench.NextJob();
+        Assert.Equal(Job.Read, job.GetProperty("kind").GetString());
+        Assert.Equal("main", job.GetProperty("branch").GetString());
         var before = await Refs(bench);
 
         string? copyHead = null;
@@ -90,7 +92,9 @@ public sealed class ReadWorkerTests
             bench.AsRoot.Started.Concat(bench.AsAgent.Started),
             started => started.Spec.FileName == "git" && started.Spec.Arguments.Any(argument => argument is "push" or "commit"));
 
-        // Nothing of the job is left on the machine.
+        // Dev flow took the reading, and nothing of the job is left on the machine.
+        Assert.Equal("succeeded", (await bench.Run()).Result);
+        Assert.Equal("queued", (await bench.Jobs.Card(1)).State);
         Assert.Empty(Bench.Files(bench.Folders.Work));
         Assert.Empty(Bench.Files(bench.Folders.Handover));
         Assert.Empty(Bench.Files(bench.Folders.Secrets));

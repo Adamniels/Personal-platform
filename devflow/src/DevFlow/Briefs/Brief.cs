@@ -64,9 +64,13 @@ public sealed record ConflictFacts(string Check, string Branch, string DefaultBr
 /// from GitHub.</summary>
 public sealed record FeatureReviewFacts(string Commit, string Branch, string DefaultBranch, bool Remerge, int EarlierRounds = 0);
 
+/// <summary>The facts a reading's brief names: the branch whose code is read, Dev flow's, never
+/// text from GitHub.</summary>
+public sealed record ReaderFacts(string Branch);
+
 /// <summary>
 /// The briefs an agent gets, <c>developer.md</c>, <c>reviewer.md</c>, <c>conflict.md</c>,
-/// <c>feature-reviewer.md</c> and <c>feature-fixer.md</c> beside this file, embedded in the assembly: the same text for every project, filled with one card, or
+/// <c>feature-reviewer.md</c>, <c>feature-fixer.md</c> and <c>reader.md</c> beside this file, embedded in the assembly: the same text for every project, filled with one card, or
 /// for a conflict one feature, and its project's facts.
 /// The card's title and body, and for a card of a feature the parent's, are the only text from
 /// GitHub in either, each quoted inside a fenced block longer than any run of backticks in them,
@@ -87,6 +91,8 @@ public static class Brief
     private static readonly Lazy<string> FeatureReviewerTemplate = new(() => Embedded("feature-reviewer"));
 
     private static readonly Lazy<string> FeatureFixerTemplate = new(() => Embedded("feature-fixer"));
+
+    private static readonly Lazy<string> ReaderTemplate = new(() => Embedded("reader"));
 
     /// <summary>What the brief says in place of looking, for a project without a <c>start</c> or a
     /// <c>url</c>: nothing can be started, so no page is looked at.</summary>
@@ -475,6 +481,53 @@ public static class Brief
                 ? "This is the feature's first review.\n"
                 : string.Create(CultureInfo.InvariantCulture, $"This is not the feature's first review: it was sent back to be fixed {facts.EarlierRounds} {(facts.EarlierRounds == 1 ? "time" : "times")} before, and `review/earlier.json` holds each round. Judge the whole feature again, from where its branch and `{facts.DefaultBranch}` last met to the commit, not only what changed since: a finding that still holds is still blocking, a reply that argues one is weighed on its merits, and a new finding counts as any other.\n"),
         });
+    }
+
+    /// <summary>
+    /// The reader's brief, <c>reader.md</c>, as Settled in the slice "The reading job": read
+    /// <paramref name="cards"/> with the code they touch, and answer for each ready, questions or too
+    /// thin, too thin only when it cannot be built from as written and questions only where a choice
+    /// is the owner's and the card does not settle it; a contradiction between cards a question on
+    /// each; and write the note of the code they touch. For cards of <paramref name="feature"/>, the
+    /// parent is quoted first, with each done card's handover note, as information. Every card's and
+    /// the parent's words are the owner's, and the notes an agent's, so each is quoted inside a fenced
+    /// block longer than any run of backticks in it, and none can end its quote and write into the
+    /// brief.
+    /// </summary>
+    public static string Reader(BriefFeature? feature, IReadOnlyList<BriefCard> cards, ReaderFacts facts)
+    {
+        ArgumentNullException.ThrowIfNull(cards);
+        ArgumentNullException.ThrowIfNull(facts);
+        var quoted = new StringBuilder();
+        foreach (var card in cards)
+        {
+            quoted.Append(Fenced("text", Quoted(card))).Append("\n\n");
+        }
+
+        return Fill(ReaderTemplate.Value, new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["what"] = feature is null ? "one card, on its own," : "the cards of one feature together,",
+            ["whose"] = feature is null ? "this card" : "this feature",
+            ["feature"] = feature is null ? "" : ReaderFeature(feature),
+            ["cards"] = quoted.ToString().TrimEnd('\n'),
+            ["branch"] = facts.Branch,
+        });
+    }
+
+    /// <summary>A reading's section "The feature": the parent quoted as it was picked, what it is to
+    /// the cards, and the handover note of each of its done cards, as information.</summary>
+    private static string ReaderFeature(BriefFeature feature)
+    {
+        var section = new StringBuilder("## The feature\n\n")
+            .Append("The cards below are the cards of one feature, written by the owner too. It is quoted between the fences exactly as it was picked, its number and title first, then its body. ")
+            .Append("Read the cards against it: they are built one at a time, in the order given, each on the work of the ones before.\n\n")
+            .Append(Fenced("text", Quoted(feature))).Append("\n\n");
+        if (feature.Earlier.Count > 0)
+        {
+            section.Append("Some of its cards are built already, and their work is on the branch you read. ").Append(Notes(feature)).Append('\n');
+        }
+
+        return section.ToString();
     }
 
     /// <summary>The JSON an agent reads in a brief, indented and its text unescaped where JSON

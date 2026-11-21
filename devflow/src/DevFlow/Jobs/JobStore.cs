@@ -147,15 +147,17 @@ public static class JobStore
 
     /// <summary>
     /// What lets a card of a feature start, as SQL over <c>cards</c>, and nothing for a card on its
-    /// own: its feature is queued or building, no card of the feature has a run under way, and no
-    /// card before it holds it back, <see cref="CardStore.HeldBackBy"/>. So one card of a feature
-    /// runs at a time, the first by position free to start, and a second worker asking meanwhile
-    /// finds the feature's next card held back by the one it took. See "A feature's cards, one at
-    /// a time" in devflow/docs/devflow-architecture.md.
+    /// own: its feature is queued or building, no card of the feature has a run under way, nor the
+    /// feature itself, a reading of it among them, and no card before it holds it back,
+    /// <see cref="CardStore.HeldBackBy"/>. So one card of a feature runs at a time, the first by
+    /// position free to start, a second worker asking meanwhile finds the feature's next card held
+    /// back by the one it took, and nothing of a feature is built while it is read. See "A feature's
+    /// cards, one at a time" in devflow/docs/devflow-architecture.md.
     /// </summary>
     private const string FeatureLetsItStart = $"""
         (cards.feature_id IS NULL OR (
-            EXISTS (SELECT 1 FROM features f WHERE f.id = cards.feature_id AND f.state IN ('queued', 'building'))
+            EXISTS (SELECT 1 FROM features f WHERE f.id = cards.feature_id AND f.state IN ('queued', 'building')
+                    AND NOT EXISTS (SELECT 1 FROM runs fr WHERE fr.project_id = f.project_id AND fr.feature_number = f.number AND fr.finished_at IS NULL))
             AND {CardStore.HeldBackBy} IS NULL
             AND NOT EXISTS (SELECT 1 FROM runs r JOIN cards s ON s.project_id = r.project_id AND s.number = r.card_number
                             WHERE r.project_id = cards.project_id AND s.feature_id = cards.feature_id AND r.finished_at IS NULL)))
@@ -176,11 +178,15 @@ public static class JobStore
         AND {Watching.WatchStore.FeatureWatchedSql}
         """;
 
-    /// <summary>What makes a card one to hand out, as SQL over <c>cards</c>: free to start, and,
+    /// <summary>What makes a card one to build, as SQL over <c>cards</c>: free to start and read,
+    /// <see cref="Readings.ReadingStore.IsRead"/>, since nothing is built before its card is read.</summary>
+    internal const string Buildable = $"{FreeToStart} AND {Readings.ReadingStore.IsRead}";
+
+    /// <summary>What makes a card one to hand out, as SQL over <c>cards</c>: one to build, and,
     /// for a card of a feature, its feature's branch made, which <see cref="FeatureBranchStore"/>
     /// records before the card is taken.</summary>
     private const string Takeable = $"""
-        {FreeToStart}
+        {Buildable}
         AND (cards.feature_id IS NULL
              OR EXISTS (SELECT 1 FROM features f WHERE f.id = cards.feature_id AND f.branch_base_commit IS NOT NULL))
         """;
@@ -351,8 +357,10 @@ public static class JobStore
     /// <summary>The kind of job the project has to hand out now, <see cref="DevFlow.Protocol.Job.Review"/>,
     /// then <see cref="DevFlow.Protocol.Job.FeatureReview"/>, then <see cref="DevFlow.Protocol.Job.Fix"/>,
     /// then <see cref="DevFlow.Protocol.Job.FeatureFix"/>, then <see cref="DevFlow.Protocol.Job.Conflict"/>,
-    /// then <see cref="DevFlow.Protocol.Job.Build"/>, so work in progress finishes before new work
-    /// starts; null when it has none. A build counts a
+    /// then <see cref="DevFlow.Protocol.Job.Read"/>, then <see cref="DevFlow.Protocol.Job.Build"/>, so
+    /// work in progress finishes before new work starts, and a reading, which is short and frees work,
+    /// before any build; null when it has none. A build counts only a card that was read, and a
+    /// reading one free to start that was not, <see cref="Readings.ReadingStore.Due"/>. A build counts a
     /// card of a feature whose branch is still to be made, which the dispatcher makes first; a card
     /// of a feature whose branch has not been read since five minutes before <paramref name="now"/>
     /// counts for none. Read without a lock, so a worker with nothing to do costs Dev flow one query and GitHub
@@ -367,7 +375,8 @@ public static class JobStore
                         WHEN EXISTS (SELECT 1 FROM cards WHERE {Fixable}) THEN 'fix'
                         WHEN EXISTS (SELECT 1 FROM features WHERE {FeatureFixable}) THEN 'feature_fix'
                         WHEN EXISTS (SELECT 1 FROM features WHERE {Resolvable}) THEN 'conflict'
-                        WHEN EXISTS (SELECT 1 FROM cards WHERE {FreeToStart}) THEN 'build' END
+                        WHEN EXISTS (SELECT 1 FROM cards WHERE {Readings.ReadingStore.Due}) THEN 'read'
+                        WHEN EXISTS (SELECT 1 FROM cards WHERE {Buildable}) THEN 'build' END
             """,
             new { projectId, watchedSince = Watching.WatchStore.WatchedSince(now) },
             transaction,
@@ -595,7 +604,9 @@ public static class JobStore
             transaction,
             cancellationToken: cancellationToken));
         var claimed = new ClaimedConflict(
-            Guid.CreateVersion7(now), new BriefFeature(feature.Number, feature.Title, feature.Body, [.. done]), feature.Branch, defaultBranch,
+            Guid.CreateVersion7(now),
+            new BriefFeature(feature.Number, feature.Title, feature.Body, [.. done]),
+            feature.Branch, defaultBranch,
             feature.FeatureCommit, feature.DefaultCommit);
         await transaction.Connection!.ExecuteAsync(new CommandDefinition(
             """
@@ -815,7 +826,9 @@ public static class JobStore
         var review = feature.ReviewId is { } reviewId ? await FeatureReviewStore.Of(transaction, reviewId, cancellationToken) : null;
         var comments = JsonSerializer.Deserialize<List<string>>(feature.Comments) ?? [];
         var claimed = new ClaimedFeatureFix(
-            Guid.CreateVersion7(now), new BriefFeature(feature.Number, feature.Title, feature.Body, [.. done]), feature.Branch, defaultBranch,
+            Guid.CreateVersion7(now),
+            new BriefFeature(feature.Number, feature.Title, feature.Body, [.. done]),
+            feature.Branch, defaultBranch,
             feature.FromCommit, feature.Round, feature.Report, review, comments);
         await transaction.Connection!.ExecuteAsync(new CommandDefinition(
             """

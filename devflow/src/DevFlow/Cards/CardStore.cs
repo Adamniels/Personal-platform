@@ -18,7 +18,7 @@ public static class CardStore
 
     /// <summary>The states of a card whose run is under way, which finishes before its card is
     /// removed.</summary>
-    private static readonly string[] Running = ["building", "checking", "reviewing", "fixing", "waiting_for_owner"];
+    private static readonly string[] Running = ["reading", "building", "checking", "reviewing", "fixing", "waiting_for_owner"];
 
     /// <summary>
     /// Merges what a read found into the project's features and cards, inside the read's
@@ -298,17 +298,17 @@ public static class CardStore
 
     /// <summary>
     /// The number of the card that holds a card of a feature back, as SQL over <c>cards</c>: the
-    /// nearest before it in its feature that is not <c>done</c>, <c>stopped</c> or <c>held</c>, so
-    /// whatever else it is, queued, ignored, under way or waiting for the owner, it comes first.
-    /// Null for a card with none before it in such a state, and for a card on its own. A stopped
-    /// or held card holds back only itself, and what is blocked by it on GitHub, which picking
-    /// records in <c>waits_for</c>. See "A feature's cards, one at a time" in
+    /// nearest before it in its feature that is not <c>done</c>, <c>stopped</c>, <c>refused</c> or
+    /// <c>held</c>, so whatever else it is, queued, ignored, read, under way or waiting for the owner,
+    /// it comes first. Null for a card with none before it in such a state, and for a card on its
+    /// own. A stopped, refused or held card holds back only itself, and what is blocked by it on
+    /// GitHub, which picking records in <c>waits_for</c>. See "A feature's cards, one at a time" in
     /// devflow/docs/devflow-architecture.md.
     /// </summary>
     public const string HeldBackBy = """
         (SELECT e.number FROM cards e
          WHERE e.project_id = cards.project_id AND e.feature_id = cards.feature_id AND e.position < cards.position
-           AND e.state NOT IN ('done', 'stopped', 'held')
+           AND e.state NOT IN ('done', 'stopped', 'refused', 'held')
          ORDER BY e.position DESC LIMIT 1)
         """;
 

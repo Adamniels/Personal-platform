@@ -674,6 +674,7 @@ def test_a_change_on_a_features_branch_stops_the_project(
     )
     assert given.status == 200, given.text()
     _read(page, base_url, project)
+    _fake_read(page, base_url, project, [_ready(61), _ready(62)])
 
     # The feature's first card is handed out, so the app makes its branch,
     # and the next read begins the branch's watch at its creation.
@@ -1628,6 +1629,7 @@ def test_a_features_cards_are_built_in_order(
         f"/devflow/api/projects/{project}/refresh", headers={"Origin": base_url}
     )
     assert refreshed.status == 204, refreshed.text()
+    _fake_read(page, base_url, project, [_ready(62), _ready(61), _ready(63)])
 
     # The fake worker takes the project's next job and keeps it running: the
     # feature's first card, on a branch of its own from the feature's.
@@ -1908,6 +1910,45 @@ CARD_TITLE = "Add the empty state"
 CHECK = "npm ci && npm test"
 
 
+def _reading(cards: list[dict]) -> dict:
+    """A reading in its form of `cards`, with a note of the code they touch."""
+    return {
+        "cards": cards,
+        "touches": "web/src/list.tsx: the habits list the cards change.",
+    }
+
+
+def _ready(number: int) -> dict:
+    """A card read as ready to build."""
+    return {"number": number, "outcome": "ready", "questions": [], "missing": []}
+
+
+def _fake_read(page: Page, base_url: str, project: str, cards: list[dict]) -> dict:
+    """The fake worker takes the project's next job, a reading, and ends it
+    with `cards` read, as a reader hands them back: before anything is built,
+    each card is read. What it answered."""
+    ran = page.request.post(
+        "/devflow/api/fake/worker/run",
+        data={
+            "project_id": project,
+            "result": {
+                "outcome": "succeeded",
+                "report": _reading(cards),
+                "failure": None,
+                "check": None,
+                "auth_method": "oauth_token",
+                "usage": {"num_turns": 4},
+                "duration_ms": 41000,
+                "stderr": "",
+            },
+        },
+        headers={"Origin": base_url},
+    )
+    assert ran.status == 200, ran.text()
+    assert ran.json()["kind"] == "read", ran.text()
+    return ran.json()
+
+
 def _report() -> dict:
     """A report in its form, as an agent hands one back, with a decision for
     the owner beside one that is not."""
@@ -1946,8 +1987,9 @@ def _report() -> dict:
 
 def _card_project(page: Page, base_url: str, devflow_world) -> str:
     """Connects a repository with one card the owner labelled and the project's
-    .devflow/project.json, gives Dev flow a Claude login, and reads the project
-    so the card is picked. The project's id."""
+    .devflow/project.json, gives Dev flow a Claude login, reads the project so
+    the card is picked, and has the fake worker read the card as ready, so its
+    build is the next job. The project's id."""
     world = one_repository()
     add_issue(world, CARD, CARD_TITLE, labels=["devflow"])
     add_file(
@@ -1967,6 +2009,7 @@ def _card_project(page: Page, base_url: str, devflow_world) -> str:
         f"/devflow/api/projects/{project}/refresh", headers={"Origin": base_url}
     )
     assert refreshed.status == 204, refreshed.text()
+    _fake_read(page, base_url, project, [_ready(CARD)])
     return project
 
 
@@ -2208,9 +2251,9 @@ def test_a_cards_page_tells_its_story(
 
     # Its runs, newest first: the review, then the build with its kind,
     # worker, outcome, auth method, tokens and the check, with the output's
-    # tail behind Show.
+    # tail behind Show, then the reading that read it before it was built.
     runs = page.get_by_role("list", name="Runs")
-    expect(runs.get_by_role("listitem")).to_have_count(2)
+    expect(runs.get_by_role("listitem")).to_have_count(3)
     expect(runs.get_by_role("listitem").first).to_contain_text("Review")
     run = runs.get_by_role("listitem").nth(1)
     expect(run).to_contain_text("Build")
@@ -2625,7 +2668,7 @@ def test_a_card_with_changes_is_fixed_and_reviewed_again(
     expect(reviews).to_contain_text(f"Review of {ran['head_commit'][:7]}")
     expect(reviews).to_contain_text("For an older commit, so it does not count")
     runs = page.get_by_role("list", name="Runs").get_by_role("listitem")
-    expect(runs).to_have_count(4)
+    expect(runs).to_have_count(5)
     expect(runs.nth(1)).to_contain_text("Fix")
 
     page.evaluate("document.fonts.ready.then(() => null)")
@@ -2979,6 +3022,9 @@ def test_a_card_marked_for_my_review_waits(
         f"/devflow/api/projects/{project}/refresh", headers={"Origin": base_url}
     )
     assert refreshed.status == 204, refreshed.text()
+    # Each card on its own is read alone, the older first.
+    _fake_read(page, base_url, project, [_ready(CARD)])
+    _fake_read(page, base_url, project, [_ready(OTHER_CARD)])
 
     # Both built with nothing marked for the owner, CI green, and approved.
     plain = [decision | {"for_owner": False} for decision in _report()["decisions"]]
@@ -3258,6 +3304,7 @@ def test_a_features_card_lands_in_its_branch(
         f"/devflow/api/projects/{project}/refresh", headers={"Origin": base_url}
     )
     assert refreshed.status == 204, refreshed.text()
+    _fake_read(page, base_url, project, [_ready(61), _ready(62)])
 
     # The fake worker builds the first card with a passing check, on a branch
     # of its own from the feature's, and its pull request goes into the
@@ -3387,6 +3434,7 @@ def _landed_feature(
         f"/devflow/api/projects/{project}/refresh", headers={"Origin": base_url}
     )
     assert refreshed.status == 204, refreshed.text()
+    _fake_read(page, base_url, project, [_ready(61), _ready(62), _ready(63)])
 
     pictures = {
         "plan-desktop": png(640, 400, (96, 140, 200)),
@@ -3646,6 +3694,7 @@ def test_a_finished_feature_gets_its_pull_request(
         f"/devflow/api/projects/{project}/refresh", headers={"Origin": base_url}
     )
     assert refreshed.status == 204, refreshed.text()
+    _fake_read(page, base_url, project, [_ready(61)])
 
     # The fake worker builds the one card into its own branch from the
     # feature's, with a passing check.
@@ -3771,6 +3820,7 @@ def test_a_conflict_is_resolved_by_an_agent(
         f"/devflow/api/projects/{project}/refresh", headers={"Origin": base_url}
     )
     assert refreshed.status == 204, refreshed.text()
+    _fake_read(page, base_url, project, [_ready(61)])
 
     # The fake worker builds the one card; meanwhile I push to main, and the
     # project is read, so the watch judges my push fine.
@@ -3869,15 +3919,16 @@ def test_a_conflict_is_resolved_by_an_agent(
     assert workers.status == 200, workers.text()
     assert workers.json()["held"] is None
 
-    # Its page shows the run that resolved it.
+    # Its page shows the run that resolved it, newest first, after the reading
+    # of its cards.
     page.goto(f"/devflow/projects/{project}/features/60")
     feature = page.get_by_role("article", name="The feature")
     expect(feature).to_contain_text("Reviewing")
     runs = page.get_by_role("article", name="Runs").get_by_role(
         "list", name="Runs of the feature"
     )
-    run = runs.get_by_role("listitem")
-    expect(run).to_have_count(1)
+    expect(runs.get_by_role("listitem")).to_have_count(2)
+    run = runs.get_by_role("listitem").first
     expect(run).to_contain_text("Conflict")
     expect(run).to_contain_text("Succeeded")
     expect(run).to_contain_text(f"on {resolved.json()['head_commit'][:7]}")
@@ -3912,6 +3963,7 @@ def _published_feature(page: Page, base_url: str, devflow_world) -> tuple[str, i
         f"/devflow/api/projects/{project}/refresh", headers={"Origin": base_url}
     )
     assert refreshed.status == 204, refreshed.text()
+    _fake_read(page, base_url, project, [_ready(61)])
 
     # The fake worker builds the one card; meanwhile I push to main, and the
     # project is read, so the watch judges my push fine.
@@ -4270,6 +4322,7 @@ def _reviewed_feature(
         f"/devflow/api/projects/{project}/refresh", headers={"Origin": base_url}
     )
     assert refreshed.status == 204, refreshed.text()
+    _fake_read(page, base_url, project, [_ready(61)])
 
     # The fake worker builds the one card; meanwhile I push to main, and the
     # project is read, so the watch judges my push fine.

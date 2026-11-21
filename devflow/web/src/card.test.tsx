@@ -91,6 +91,7 @@ function story(overrides: Partial<CardStory> = {}): CardStory {
 		merge: null,
 		feature: null,
 		most_rounds: 3,
+		reading: null,
 		...overrides,
 	};
 }

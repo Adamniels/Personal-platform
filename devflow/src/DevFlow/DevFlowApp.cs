@@ -168,6 +168,10 @@ public static class DevFlowApp
         // devflow/README.md.
         builder.Services.AddSingleton(provider => new StopMarker(
             database, provider.GetRequiredService<ICodeHost>(), provider.GetRequiredService<TimeProvider>(), settings.PublicOrigin, provider.GetRequiredService<ILogger<StopMarker>>()));
+        // Posting the questions of each card read with them as the app, on the same minute. See
+        // "Jobs" in devflow/README.md.
+        builder.Services.AddSingleton(provider => new Readings.QuestionComments(
+            database, provider.GetRequiredService<ICodeHost>(), settings.PublicOrigin, provider.GetRequiredService<ILogger<Readings.QuestionComments>>()));
         if (settings.PollInterval is { } interval)
         {
             builder.Services.AddHostedService(provider => new Poller(
@@ -183,6 +187,7 @@ public static class DevFlowApp
                 provider.GetRequiredService<FeatureReadiness>(),
                 provider.GetRequiredService<FeatureOutcomes>(),
                 provider.GetRequiredService<StopMarker>(),
+                provider.GetRequiredService<Readings.QuestionComments>(),
                 provider.GetRequiredService<TimeProvider>(),
                 interval,
                 provider.GetRequiredService<ILogger<OpeningLoop>>()));

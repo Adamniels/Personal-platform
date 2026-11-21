@@ -795,6 +795,20 @@ export interface components {
             number: number;
             url: string;
         };
+        CardQuestion: {
+            answer: string;
+            question: string;
+            recommendation: string;
+            why: string;
+        };
+        CardReadingView: {
+            commented: boolean;
+            missing: string[];
+            outcome: string;
+            questions: components["schemas"]["CardQuestion"][];
+            /** Format: date-time */
+            read_at: string;
+        };
         CardReview: {
             commit: string;
             current: boolean;
@@ -863,6 +877,7 @@ export interface components {
             /** Format: int32 */
             number: number;
             pull_request: null | components["schemas"]["CardPullRequest"];
+            reading: null | components["schemas"]["CardReadingView"];
             reason: null | string;
             report: null | components["schemas"]["Report"];
             reviews: components["schemas"]["CardReview"][];

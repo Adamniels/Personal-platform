@@ -271,6 +271,32 @@ public static class RunStore
     }
 
     /// <summary>
+    /// How a reading's result ends its run, in this order: a failure outside the cards puts the
+    /// reading back, each card it read <c>queued</c> to be read again, counting nothing; a failure in
+    /// the cards, or a reading that does not match its form or names other cards than
+    /// <paramref name="cards"/>, the ones it was handed, stops them with why, all but a time limit
+    /// only as the second in a row, see <see cref="RunEnding.Retry"/>; anything else succeeded, and
+    /// each card moves on by what the reading answered for it, see
+    /// <see cref="Readings.ReadingStore.Read"/>.
+    /// </summary>
+    public static RunEnding JudgeRead(RunResult result, IReadOnlyCollection<int> cards)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        ArgumentNullException.ThrowIfNull(cards);
+        if (!result.Succeeded)
+        {
+            var why = Cut(result.FailureReason ?? "");
+            return result.FailureInCard
+                ? new RunEnding("failed_in_card", Cut($"The reading failed: {why}"), "stopped", Retry: !result.TimedOut)
+                : new RunEnding("failed_outside_card", why, "queued");
+        }
+
+        return Protocol.Reading.TryRead(result.Report ?? default, cards, out _, out var error)
+            ? new RunEnding("succeeded", null, "queued")
+            : new RunEnding("report_invalid", Cut($"The reading did not match its form: {error}"), "stopped", Retry: true);
+    }
+
+    /// <summary>
     /// How a build's result ends its run, in this order: a failure outside the card puts the card back in
     /// <c>queued</c>, counting nothing against it; a failure in the card, a report that does not
     /// match its form, a report that stopped, a check that did not run or failed, each stop it with
@@ -411,6 +437,9 @@ public static class RunStore
             }
 
             var review = run.Kind is Job.Review or Job.FeatureReview;
+            var read = run.Kind == Job.Read;
+            // The cards a reading was handed, which its reading must name each exactly once.
+            var readCards = read ? await Readings.ReadingStore.CardsOf(transaction, runId, cancellationToken) : [];
             // A review, of a card or of a whole feature, is for the commit it was handed, which the
             // worker checked out: a success names that commit, and a failure that one or none.
             if (review && (result.Succeeded || result.HeadCommit is not null)
@@ -427,6 +456,7 @@ public static class RunStore
                 Job.Conflict => JudgeConflict(result, run.FromCommit!),
                 Job.FeatureReview => JudgeFeatureReview(result),
                 Job.FeatureFix => JudgeFeatureFix(result, run.FromCommit!),
+                Job.Read => JudgeRead(result, readCards),
                 _ => Judge(result),
             };
             var usage = result.Usage;
@@ -453,7 +483,8 @@ public static class RunStore
                     report = result.Report?.GetRawText(),
                     checkExitCode = result.CheckExitCode,
                     checkOutput = result.CheckOutput is { } output ? Tail(output) : null,
-                    headCommit = result.HeadCommit,
+                    // A reading pushes nothing, so it names no commit whatever its worker sent.
+                    headCommit = read ? null : result.HeadCommit,
                     authMethod = result.AuthMethod,
                     usage = usage.GetRawText(),
                     inputTokens = Count(usage, "input_tokens"),
@@ -465,9 +496,9 @@ public static class RunStore
                     durationMs = result.DurationMs,
                     stderr = Tail(result.Stderr),
                     permissionDenials = result.PermissionDenials?.GetRawText(),
-                    // A review takes none; only a build's are kept.
-                    screenshots = !review && result.Screenshots is { Names: { } names } ? JsonSerializer.Serialize(names) : null,
-                    screenshotsNote = review ? null : result.Screenshots?.Note,
+                    // A review and a reading take none; only a build's are kept.
+                    screenshots = !review && !read && result.Screenshots is { Names: { } names } ? JsonSerializer.Serialize(names) : null,
+                    screenshotsNote = review || read ? null : result.Screenshots?.Note,
                     timedOut = !result.Succeeded && result.TimedOut,
                     resetsAt = result.Succeeded ? null : result.ResetsAt,
                     // Only a conflict's, cut as its worker cuts it.
@@ -478,8 +509,9 @@ public static class RunStore
             // A run on a feature's branch itself pushed there, before it sent this: the commit it
             // names is recorded as Dev flow's own push, and what the watch read meanwhile is judged.
             // A review, of a whole feature among them, names the commit it read and pushed nothing,
-            // and a fix that names the commit it was handed pushed nothing new.
-            if (await transaction.Connection!.ExecuteScalarAsync<bool>(new CommandDefinition(
+            // a fix that names the commit it was handed pushed nothing new, and a reading pushes
+            // nothing at all.
+            if (!read && await transaction.Connection!.ExecuteScalarAsync<bool>(new CommandDefinition(
                     "SELECT EXISTS (SELECT 1 FROM features WHERE project_id = @projectId AND branch = @branch)",
                     new { projectId, branch = run.Branch },
                     transaction,
@@ -510,6 +542,13 @@ public static class RunStore
             else if (ending.Result == "succeeded")
             {
                 await ProjectWaits.Succeeded(transaction, projectId, cancellationToken);
+            }
+
+            // A reading moves the cards it read, whether it was a feature's or a card's.
+            if (read)
+            {
+                await EndRead(transaction, projectId, runId, readCards, result, ending, now, cancellationToken);
+                return Recorded.Stored;
             }
 
             // A feature's run moves its feature, never a card. A whole feature's verdict in its form is
@@ -630,22 +669,29 @@ public static class RunStore
                 return 0;
             }
 
-            var lost = (await transaction.Connection!.QueryAsync<(int?, string, int?, int?)>(new CommandDefinition(
+            var lost = (await transaction.Connection!.QueryAsync<(Guid, int?, string, int?, int?)>(new CommandDefinition(
                 """
                 UPDATE runs r SET finished_at = @now, result = 'lost', reason = @reason
                 FROM workers w
                 WHERE r.project_id = @projectId AND r.finished_at IS NULL
                   AND r.started_at + make_interval(mins => r.run_minutes) + @margin <= @now
                   AND w.project_id = r.project_id AND w.id = r.worker_id AND w.last_seen_at <= @seenBefore
-                RETURNING r.card_number, r.kind, r.fix_round, r.feature_number
+                RETURNING r.id, r.card_number, r.kind, r.fix_round, r.feature_number
                 """,
                 new { projectId, now, reason = LostReason, margin = LostMargin, seenBefore = now - QuietFor },
                 transaction,
                 cancellationToken: cancellationToken))).ToList();
-            foreach (var (card, kind, round, feature) in lost)
+            foreach (var (id, card, kind, round, feature) in lost)
             {
                 // A lost run lies outside the card: it never counts against it, and its project waits.
                 await ProjectWaits.Failed(transaction, projectId, userId, LostReason, null, now, cancellationToken);
+                if (kind == Job.Read)
+                {
+                    // A reading, of a feature or of a card, is put back: its cards are read again.
+                    await Readings.ReadingStore.PutBack(transaction, projectId, id, _ => Task.FromResult(("queued", (string?)null)), now, cancellationToken);
+                    continue;
+                }
+
                 if (card is not { } number)
                 {
                     // A feature's: it stays where its run left it, resolving or reviewing, and is
@@ -680,6 +726,38 @@ public static class RunStore
 
             return lost.Count;
         }, cancellationToken);
+    }
+
+    /// <summary>
+    /// Moves the cards a reading read, inside the transaction that records its result: by what it
+    /// answered, when it came back in its form; otherwise each card still reading goes back as
+    /// <paramref name="ending"/> says, <c>queued</c> for a failure outside the cards, stopped at once
+    /// for a time limit, and for any other failure in them once more <c>queued</c>, the second in a
+    /// row stopped, each counted per card as a build's failure is, see <see cref="InARow"/>.
+    /// </summary>
+    private static async Task EndRead(NpgsqlTransaction transaction, Guid projectId, Guid runId, IReadOnlyList<int> cards, RunResult result, RunEnding ending, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        if (ending.Result == "succeeded" && Protocol.Reading.TryRead(result.Report!.Value, cards, out var reading, out _))
+        {
+            await Readings.ReadingStore.Read(transaction, projectId, runId, reading, now, cancellationToken);
+            return;
+        }
+
+        await Readings.ReadingStore.PutBack(transaction, projectId, runId, async number =>
+        {
+            if (ending.Result == "failed_outside_card")
+            {
+                return ("queued", null);
+            }
+
+            if (!ending.Retry)
+            {
+                return (ending.CardState, ending.Reason);
+            }
+
+            var counted = await InARow(transaction, projectId, number, Job.Read, ending, cancellationToken);
+            return (counted.CardState, counted.CardReason);
+        }, now, cancellationToken);
     }
 
     /// <summary>What a card says when one failure in the card runs it again.</summary>

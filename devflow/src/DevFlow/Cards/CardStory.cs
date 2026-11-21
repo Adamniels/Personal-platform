@@ -22,8 +22,8 @@ public sealed record RunCheck(int ExitCode, string Output);
 
 /// <summary>One run of a card, or of a feature, as its page shows it. Every text from a worker or an
 /// agent is shown as text.</summary>
-/// <param name="Kind"><c>build</c>, <c>review</c> or <c>fix</c>, or for a feature
-/// <c>conflict</c> or <c>feature_review</c>.</param>
+/// <param name="Kind"><c>build</c>, <c>review</c>, <c>fix</c> or <c>read</c>, or for a feature
+/// <c>conflict</c>, <c>feature_review</c>, <c>feature_fix</c> or <c>read</c>.</param>
 /// <param name="Worker">The name the worker said hello with, its container's hostname.</param>
 /// <param name="StartedAt">When it was handed out.</param>
 /// <param name="FinishedAt">When its result came back or it was found lost, null while it
@@ -148,6 +148,8 @@ public sealed record CardRound(
 /// on its own.</param>
 /// <param name="MostRounds">The fix rounds the project gives a card, as its settings are now, which
 /// the page counts each round against.</param>
+/// <param name="Reading">What the card was read as before it was built, its newest reading; null
+/// before one came back.</param>
 public sealed record CardStoryView(
     int Number,
     string Title,
@@ -162,7 +164,8 @@ public sealed record CardStoryView(
     CardScreenshots? Screenshots,
     CardMerge? Merge,
     CardFeature? Feature,
-    int MostRounds);
+    int MostRounds,
+    Readings.CardReadingView? Reading);
 
 /// <summary>The feature a card is a card of, by its parent's number and title as last read.</summary>
 public sealed record CardFeature(int Number, string Title);
@@ -213,7 +216,7 @@ public static class CardStory
             }
 
             var runs = (await transaction.Connection!.QueryAsync<RunRow>(new CommandDefinition(
-                $"{SelectRuns} WHERE r.project_id = @projectId AND r.card_number = @number ORDER BY r.started_at DESC, r.id DESC",
+                $"{SelectRuns} WHERE r.project_id = @projectId AND {RunsOfCard} ORDER BY r.started_at DESC, r.id DESC",
                 new { projectId, number },
                 transaction,
                 cancellationToken: cancellationToken))).ToList();
@@ -259,9 +262,17 @@ public static class CardStory
                 CardScreenshots.Of(head, built?.Screenshots, built?.ScreenshotsNote),
                 merge is null || head is null ? null : new CardMerge(merge.Commit, head, merge.Base ?? "", new DateTimeOffset(DateTime.SpecifyKind(merge.MergedAt, DateTimeKind.Utc))),
                 card.FeatureNumber is { } feature && card.FeatureTitle is { } featureTitle ? new CardFeature(feature, featureTitle) : null,
-                (await Projects.RunSettings.Read(transaction, projectId, cancellationToken))?.FixRoundsCard ?? Projects.RunSettings.Defaults.FixRoundsCard);
+                (await Projects.RunSettings.Read(transaction, projectId, cancellationToken))?.FixRoundsCard ?? Projects.RunSettings.Defaults.FixRoundsCard,
+                await Readings.ReadingStore.Of(transaction, projectId, number, cancellationToken));
         }, cancellationToken);
     }
+
+    /// <summary>A card's runs, as SQL over <c>runs r</c> with <c>@number</c>: its own, and each
+    /// reading that read it, its feature's among them.</summary>
+    private const string RunsOfCard = """
+        (r.card_number = @number
+         OR r.kind = 'read' AND EXISTS (SELECT 1 FROM card_readings cr WHERE cr.run_id = r.id AND cr.card_number = @number))
+        """;
 
     /// <summary>Each run of a project's run with a worker, as its page shows one, the filter and the
     /// order the caller's.</summary>

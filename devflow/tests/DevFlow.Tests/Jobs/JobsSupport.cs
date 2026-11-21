@@ -90,9 +90,13 @@ internal sealed class Jobs : IAsyncDisposable
     /// only the link's row is written, which is all reading and handing out need.</summary>
     /// <param name="configure">More, run after the harness's own, such as a service of a test's
     /// own.</param>
-    public static async Task<Jobs> Start(IReadOnlyList<FakeIssue>? cards = null, bool login = true, string? projectFile = null, bool signIn = false, Action<Microsoft.AspNetCore.Builder.WebApplicationBuilder>? configure = null)
+    /// <param name="read">Whether every card the harness's reads pick is taken as already read and
+    /// ready, <see cref="Routes.CardsRead"/>; false for a test of reading itself, whose cards are
+    /// read by a reading job first.</param>
+    public static async Task<Jobs> Start(IReadOnlyList<FakeIssue>? cards = null, bool login = true, string? projectFile = null, bool signIn = false, Action<Microsoft.AspNetCore.Builder.WebApplicationBuilder>? configure = null, bool read = true)
     {
         var routes = await Routes.Start(configure);
+        routes.CardsRead = read;
         try
         {
             var project = await routes.Project(User);

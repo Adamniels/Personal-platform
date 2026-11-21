@@ -58,7 +58,7 @@ public static class FeatureBranchStore
             var feature = await transaction.Connection!.ExecuteScalarAsync<Guid?>(new CommandDefinition(
                 $"""
                 SELECT feature_id FROM cards
-                WHERE {JobStore.FreeToStart}
+                WHERE {JobStore.Buildable}
                 ORDER BY {CardStore.QueueOrder}
                 LIMIT 1
                 """,
