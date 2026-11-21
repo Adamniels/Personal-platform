@@ -3776,7 +3776,13 @@ def test_i_merge_a_feature_into_main(
     # commit naming the head that was shown, and the item is gone.
     expect(page.get_by_text("Merged feature #60")).to_be_visible()
     expect(group.get_by_role("article", name="The feature's branch")).to_have_count(0)
-    merges = [write for write in _writes(page) if write["kind"] == "merge"]
+    # A person's merges, with no key's purpose: the app's merge of the card into
+    # the feature's branch is not among them.
+    merges = [
+        write
+        for write in _writes(page)
+        if write["kind"] == "merge" and "purpose" not in write
+    ]
     assert merges == [
         {
             "kind": "merge",
@@ -3841,7 +3847,7 @@ def test_merging_warns_when_the_review_did_not_approve(
     # findings, and counts the decision I have not answered.
     dialog = page.get_by_role("dialog", name="Merge feature #60 into main?")
     expect(dialog).to_contain_text(f"Pull request #{pull}")
-    expect(dialog.locator("code")).to_have_text(head[:7])
+    expect(dialog.get_by_text(head[:7], exact=True)).to_be_visible()
     expect(dialog).to_contain_text("The review asked for changes: 2 open findings")
     listed = dialog.get_by_role("list", name="Open findings")
     expect(listed.get_by_role("listitem")).to_have_count(2)
@@ -3849,12 +3855,14 @@ def test_merging_warns_when_the_review_did_not_approve(
     expect(listed).to_contain_text("devflow/web/src/feature.tsx:120")
     expect(dialog).not_to_contain_text("A sentence could be shorter")
     expect(dialog).to_contain_text("Merging confirms 1 decision you have not answered.")
-    page.evaluate("document.fonts.ready.then(() => null)")
-    assert_nothing_scrolls_sideways(page)
-    capture(page, "devflow-feature-merge-dialog")
+    _look(page, "devflow-feature-merge-dialog")
 
-    # Cancelled, nothing is merged.
+    # Cancelled, nothing is merged by me.
     dialog.get_by_role("button", name="Cancel").click()
     expect(dialog).to_have_count(0)
-    assert [write for write in _writes(page) if write["kind"] == "merge"] == []
+    assert [
+        write
+        for write in _writes(page)
+        if write["kind"] == "merge" and "purpose" not in write
+    ] == []
     assert _staged_pull(page, pull)["state"] == "open"

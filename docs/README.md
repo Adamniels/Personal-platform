@@ -131,7 +131,8 @@ features" in `High-level/docs/platform-architecture.md`.
   keeping it current and a conflict resolved by an agent in a job of its own, reviewing a whole
   feature, with when it is reviewed, its job, the diff from the merge base and the remerge diff
   apart, its brief, its verdict kept and posted, when it is ready and its group on Waiting for you,
-  stops, with what stops a card, its mark on GitHub, running it again on the owner's
+  merging a feature, with when it is offered, its confirmation, and what follows a merge or a pull
+  request closed without merging, stops, with what stops a card, its mark on GitHub, running it again on the owner's
   comment and a project's wait after failures outside its cards, starting a worker, with the base
   image, the format of `.devflow/`, the recipe route, the
   two commands, the memory rule and when a worker needs a rebuild, the worker program with its
@@ -168,7 +169,9 @@ features" in `High-level/docs/platform-architecture.md`.
   commit and pushes it only once its check passed, and why the resolution is kept apart for the
   review, reviewing a feature, which the spec has not, with why its diff is from the merge base, why
   a clean bringing in needs no new review and a resolved conflict does, and why its readiness is
-  decided each minute from what Dev flow stored, stops, with what lies in the card
+  decided each minute from what Dev flow stored, merging a feature, with why it is offered without
+  the review's approval but never without CI, and why a closed pull request gives the cards back,
+  stops, with what lies in the card
   and what outside it, why a failure outside never counts, why one failure in the card is tried
   again, why a stop is marked on the card, running it again on his comment and reading the usage
   limit's reset, and its security decisions and accepted risks, kept for an audit,
@@ -180,7 +183,8 @@ features" in `High-level/docs/platform-architecture.md`.
   being a pass, a merge naming the approved commit, only a recorded merge being fine on the default
   branch, a decision issue's text, a stop's comment carrying a run's reason as data, a stopped
   card's issue read for his comment alone, a worker's `resets_at` believed within limits and the
-  one job that pushes a merge of the default branch held to one merge commit, among
+  one job that pushes a merge of the default branch held to one merge commit, and a feature
+  reaching the default branch only by the owner's own merge, among
   them
 - `docs/superpowers/specs/2026-11-14-development-flow-design.md` — the design of the whole
   development flow, frozen on 2026 11 15 when the slices of its first part were cut; the

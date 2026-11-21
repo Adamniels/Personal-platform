@@ -61,7 +61,9 @@ program that calls it: everything else the tabs will show arrives with later sli
 - `GET /devflow/api/projects/{id}/features/{number}`, a feature's whole story so far, and
   `POST /devflow/api/projects/{id}/features/{number}/decisions/{run}/{position}/fine`, which
   answers a decision of one of its cards "Fine as it is", in Dev flow alone, see "A feature's
-  page". Without a valid token, `401` with an empty body.
+  page"; and `GET` and `POST /devflow/api/projects/{id}/features/{number}/merge`, what merging the
+  feature confirms and the merge itself, into the default branch as the caller on GitHub, see
+  "Acting from the page" and "Merging a feature". Without a valid token, `401` with an empty body.
 - `POST /devflow/api/projects/{id}/worker-key`, which makes a project's worker key and answers it
   once, and `GET /devflow/api/projects/{id}/workers`, the workers that have said hello with it,
   see "Workers". Without a valid token, `401` with an empty body.
@@ -288,7 +290,8 @@ answer's `count` as a badge once it is more than none. Its parts, top to bottom:
 - Five groups, in this order, each a section heading in the heading font's capitals with its
   count, and shown only with items: "Pull requests waiting", Dev flow's own waiting cards, then
   items of kind `waiting` not sent back; "Features ready for your review", Dev flow's features
-  ready for review or waiting for the owner, see "Reviewing a feature"; "Stopped", kind `stopped` not sent back; "Decisions to
+  ready for review or waiting for the owner, see "Reviewing a feature", each with a secondary
+  "Merge into <default>" while it is offered, see "Merging a feature"; "Stopped", kind `stopped` not sent back; "Decisions to
   look at", the issues Dev flow opened for decisions on cards it merged; and "Sent back, the runner has it", every item
   sent back, muted, and not in the tab's count. Within a group, by `<owner>/<name>` and then
   number.
@@ -926,7 +929,9 @@ answer another as GitHub answers `401`, refused with "Bad credentials". A merge 
 answers head moved unless its head is the commit named, and otherwise marks it merged in the world
 and lands it on the repository's default branch as a `pull_request_merge` by whoever merged, from the
 commit the branch's last change left it at, forty zeros before any, to a new random merge commit,
-which the merge answers.
+which the merge answers. Merged into the default branch, each issue of the repository its body
+names after a closing keyword, `close`, `fix` or `resolve` in any form and case, as `Closes #10`,
+is closed, as GitHub closes it; a merge into another branch closes none, as on GitHub.
 A comment is refused with `404` for a number with neither a pull request nor a conversation, and is
 otherwise added to the end of the conversation, by the login the token acts as, at the fake's now.
 Each write taken is recorded, with whose token made it, and the record survives staging a world
@@ -1319,8 +1324,10 @@ sets only `queued`, `held` and `ignored` and the later slices of part 4 the othe
 later slices set them, `branch`, `branch_base_commit`, `brought_in_commit` and
 `pull_request_number`, with `pull_request_url` beside it from `migrations/0027_feature_page.sql`,
 both or neither, and `bring_in_failed_at` from `migrations/0029_feature_end.sql`, see "The end of
-a feature"; `fix_round`, 0 to 3, 0 until then; `changed_at`, when its state or reason
-last changed, and `read_at`. On `cards`, `feature_id` refers to a feature of the same project, null
+a feature", and `ci_passed_commit` and `outcome_told_at` from `migrations/0032_feature_merge.sql`,
+see "Merging a feature"; `fix_round`, 0 to 3, 0 until then; `changed_at`, when its state or reason
+last changed, and `read_at`. `merged` and `closed` are set by a read that finds the feature's pull
+request merged or closed, see "Merging a feature". On `cards`, `feature_id` refers to a feature of the same project, null
 for a card on its own, and `position`, from 1, is set exactly when `feature_id` is, unique per
 feature at the end of each transaction.
 
@@ -1375,6 +1382,24 @@ branch"; `409` "The pull request has changed since this was shown" when `head_co
 commit its latest built run checked, after the project is read again; the two `409`s and the `503`
 for the link; then GitHub is asked to merge that commit, with a merge commit, and answers as an
 item's merge does. Merged, the project is read again, which makes the card `done`.
+
+**`POST /devflow/api/projects/{id}/features/{number}/merge`**, with
+`{"head_commit": "<the commit the page showed>"}`, merges a feature into the default branch, from its
+page or its item under "Features ready for your review", as the caller with his linked token and
+never as the app, in this order: `404` "No such feature" for a project or feature the caller does
+not have; `422` without `head_commit`; `409` "This feature is not waiting for you" unless it is
+`ready` or `waiting_for_owner` with its pull request recorded; `409` "This project is stopped";
+`409` "CI has not passed on this commit" unless `ci_passed_commit` is the head its branch's watch
+names; `409` "The pull request has changed since this was shown" when `head_commit` is not that
+head, after the project is read again; the two `409`s and the `503` for the link; then GitHub is
+asked to merge the feature's pull request at that commit, with a merge commit, and answers as an
+item's merge does. Merged, the project is read again, which makes the feature `merged`. The review's
+verdict refuses nothing; the confirmation says it, see "Merging a feature".
+
+**`GET /devflow/api/projects/{id}/features/{number}/merge`** answers what the dialog shows before
+that merge, read from what Dev flow stored: `number`, `title`, `into`, the default branch,
+`pull_request`, `{"number", "url"}`, `head_commit`, `review`, `open_findings` and `unanswered`, see
+"Merging a feature". It refuses as the merge does, `404` and the three `409`s before the head's.
 
 Reading again goes through `ProjectRefresher` and waits for the read as the refresh route does, at
 most ten seconds, so the list the page reads next is current. After either, whatever it answered,
@@ -2494,8 +2519,9 @@ one kept. Nothing is written to the code host. It is `DecisionAnswers` in `src/D
 
 **The table**, from `migrations/0028_decision_answers.sql`, guarded like every scoped table and
 following its project: `decision_answers`, `project_id`, `user_id`, `card_number`, `run_id`,
-referencing `runs` and deleted with it, `position`, `answer`, `fine` or `sent_back`, which
-"Sending a card back" gives, and `answered_at`, its primary key `(project_id, run_id, position)`,
+referencing `runs` and deleted with it, `position`, `answer`, `fine`, `sent_back`, which
+"Sending a card back" gives, or `merged`, confirmed by merging, from
+`migrations/0032_feature_merge.sql`, see "Merging a feature", and `answered_at`, its primary key `(project_id, run_id, position)`,
 so a newer report's decisions are answered again. `migrations/0027_feature_page.sql` adds
 `branch_watches.last_commit`, see "Watching branches", and `features.pull_request_url`, beside
 `pull_request_number`, both or neither, as a card's are.
@@ -2507,10 +2533,11 @@ to the project" over the feature's title as a section heading; a feature the cal
 is the `EmptyState` "There is no such feature", and one that cannot be read an alert. Under it the
 package's `Card`s, top to bottom:
 
-- "The feature": its state, as the Cards panel says a state, with its reason beside it; the links
-  "Issue #<number>" and, once there is one, "Pull request #<number>", in a new tab with
-  `rel="noreferrer"` when their address is https and plain text otherwise; and "<done> of <all>
-  cards done".
+- "The feature": its state, as the Cards panel says a state, "Merged" and "Closed" among them, with
+  its reason beside it; the links "Issue #<number>" and, once there is one, "Pull request
+  #<number>", in a new tab with `rel="noreferrer"` when their address is https and plain text
+  otherwise; "<done> of <all> cards done"; and, while the feature is offered for merging, the
+  primary "Merge into <default>", see "Merging a feature".
 - "The review of the whole feature", once it has a review: the list "Reviews of the feature",
   newest first, each as a card's page shows a review, its commit, its verdict, whether it covers the
   pull request's head, its summary, its findings and its views for the owner.
@@ -2518,10 +2545,13 @@ package's `Card`s, top to bottom:
   while any is not answered: the list "Decisions for you", each "#<card>: <chosen>", "Instead of
   <alternative>", "Because <why>" and "Reviewer: <view>", or "Reviewer: gave no view on it.", then a
   secondary "Fine as it is", which posts the answer and shows it in place; once answered, the
-  `done` status "Fine as it is" and "answered <when>". A refused answer reads the story again and
+  `done` status "Fine as it is", or "Confirmed by merging" for one merging confirmed, and
+  "answered <when>". A refused answer reads the story again and
   shows an alert under the decision.
-- "The branch": "Its branch is made when its first card starts." before it is, and then a line
-  saying the feature is not in main yet, with the commit it is at, short, and the region "Check out
+- "The branch": "Its branch is made when its first card starts." before it is; "The feature is
+  merged, and its branch is no longer watched." once it is merged; and otherwise a line saying the
+  feature is not in main yet, or that its pull request was closed without merging so it is not in
+  main, with the commit it is at, short, and the region "Check out
   the branch", `git fetch origin <branch> && git switch <branch>` in the mono font with a secondary
   "Copy the command" that reads "Copied" once it has, as a worker's commands are copied.
 - "Screenshots", only when a card has any: a region "Screenshots of #<card>" per card with its
@@ -2534,8 +2564,8 @@ package's `Card`s, top to bottom:
   feature waits for you", or outside it, "so it runs again".
 
 Every text from the code host or an agent goes through `src/format.tsx`, as everywhere in Dev flow.
-"Merge into main", "Send the whole feature back" and "Send back" arrive with their slices and are
-not shown before then.
+"Send the whole feature back" and "Send back" arrive with their slices and are not shown before
+then.
 
 ## Review
 
@@ -3101,6 +3131,11 @@ request moves the feature to `reviewing`, with no reason, for it to decide. For 
   that reason. Every check passed: `ready`, no reason. The push is when Dev flow recorded the head
   in `merges_made` or `pushes_made`, or the feature's last change for a head of the owner's.
 
+Whatever the review, the head CI passed on is kept in `ci_passed_commit`, null when it has not or
+could not be read: from the read above for a head an approve covers, and, for a feature that waits
+for the owner otherwise, from CI read the same way until it has passed on that head, and not again
+for it. It is what offers the merge, see "Merging a feature".
+
 The latest review **covers** the head when it is for the head, or when the head differs from it
 only by merges of the default branch Dev flow made cleanly: following the head back through
 `merges_made` rows of the feature's branch with no `number`, each by its `parent_commit`, the
@@ -3193,13 +3228,15 @@ answer never posts it twice. It is a copy: Dev flow never reads a comment to lea
 **On "Waiting for you"**, `features` in `GET /devflow/api/waiting`, the group "Features ready for
 your review" after "Pull requests waiting": each feature `ready` or `waiting_for_owner`, by project
 and number, `{"project_id", "project_name", "owner", "number", "title", "web_url", "state",
-"reason", "pull_request_number", "pull_request_url", "review", "unanswered", "changed_at"}`,
+"reason", "pull_request_number", "pull_request_url", "review", "unanswered", "changed_at", "merge"}`,
 `review` its latest, `{"verdict", "summary", "blocking", "commit"}` or null, and `unanswered` how
 many decisions its cards' latest reports marked for the owner have no answer, counted as its page
 counts them, in the same transaction. Each is counted in `count`, in the nav's dot, `attention`,
 and in the front page's `waiting`, as every item is. The page shows its title, its state, why it
 waits, the review's verdict and summary, the decisions left to answer, "Open the feature", its page
-inside the app, and "Open on GitHub", its pull request.
+inside the app, and "Open on GitHub", its pull request; `merge` is `{"into", "head_commit"}` while it
+is offered for merging, as on its page, and null otherwise, and the item then shows "Merge into
+<default>" before its links, see "Merging a feature".
 
 **On its page**, `reviews` in the feature's story, newest first, each as a card's page shows a
 review, its `current` true for the newest when it covers the head; the page shows them under "The
@@ -3208,6 +3245,68 @@ review of the whole feature", after the feature's state.
 **In the fake**, the fake worker answers a feature's review as it answers a card's, naming the
 commit it was handed and changing nothing, then posts the copy and decides readiness, as the minute
 would; and bringing in answers the base's commit it merged into as the first parent.
+
+## Merging a feature
+
+The owner merges a feature into the default branch himself, from its page or from its item under
+"Features ready for your review", as himself on GitHub, and GitHub's own button works too. Its pull
+request closed without merging gives its cards back. Why it is built so is "Merging a feature" in
+`docs/devflow-architecture.md`. It is `FeatureMergeOffers` and `FeatureMergeConfirmation`, in
+`src/DevFlow/Features/FeatureMergeOffer.cs`; the two routes in `ActionEndpoints`, see "Acting from
+the page"; `FeaturePulls`, which a read follows a feature's pull request with; `FeatureOutcomes`,
+which tells its cards; and `src/feature-merge.tsx` on the page.
+
+**Offered** while the feature is `ready` or `waiting_for_owner` with its pull request recorded, its
+branch's watch names a head, `ci_passed_commit` is that head, see "Reviewing a feature", and the
+project is not stopped: decided in SQL by `FeatureMergeOffers.IntoSql` from what Dev flow stored,
+so the feature's page, its item and the route agree. The feature's story and its item answer it as
+`merge`, `{"into", "head_commit"}`, `into` the default branch as its watch names it, null when it
+is not offered. With CI pending, failed or never reported on the head it is not offered, and the
+route refuses it the same way.
+
+**The confirmation.** "Merge into <default>" reads `GET …/features/{number}/merge` and opens the
+package's `Dialog`, "Merge feature #<number> into <default>?", with the feature's title, "Pull
+request #<number> at <commit, seven characters>", what the review says, and, when any is unanswered,
+"Merging confirms <n> decisions you have not answered.", one decision said once. What the review
+says, by `review`: `approved` when the newest review approved a commit that covers the head, "The
+review approved this commit."; `changes` when the newest review asked for changes, "The review asked
+for changes: <n> open findings", with the list "Open findings", its blocking findings, each with its
+file and line, what and why; and `not_reviewed` otherwise, "Not reviewed as a whole". `unanswered`
+counts as the feature's page counts. "Merge" posts the merge naming the commit the dialog showed;
+the answer is said as "Merged feature #<number>" or the refusal in words where the button is, and
+the page or the list is read again and the nav asked to ask again, as for a card's merge. Without a
+usable link the button is disabled, with why, as a card's Merge is.
+
+**After a merge.** The read that finds the feature's pull request merged, the one the route waits
+for or the next one, makes the feature `merged`, no reason, and keeps each decision its cards' latest
+reports marked for the owner that has no answer as `merged` in `decision_answers`, whoever merged
+it. Its branch is no longer watched, since the watch reads only the branches of features neither
+`merged` nor `closed`. The parent closes by its pull request's `Closes` line. On the next minute,
+`FeatureOutcomes.TellPending` in `OpeningLoop`, after readiness, reads the parent's sub-issues as the
+app and closes each direct sub-issue in the repository still open, as the app with a `Post` key,
+after the comment "Its feature, #<parent>, was merged into `<default>` in #<pull>, so this card is
+closed." The branch is left to GitHub's own setting to delete.
+
+**A pull request closed without merging.** The read makes the feature `closed`, no reason, and its
+branch is no longer watched. On the next minute each card Dev flow keeps for the feature whose issue
+is closed, as landing closed it, is opened again by the app, after the comment "The feature's pull
+request #<pull> was closed without merging, so this card is open again."; a sub-issue Dev flow never
+built is left as it is. It stays `closed` while the parent keeps its label. Labelled again later,
+after a read found it without the label, it starts afresh: a `closed` feature whose cards were told
+and that a read does not find gives up the cards it kept, which are deleted unless a run of one is
+under way, and is then deleted as any feature no card refers to is, its watch with it, so a read
+that finds the label again picks it as a new feature, queued, with its cards queued. Its old runs,
+reviews and answers stay. Its old branch stays on GitHub, so making the new one answers that it
+exists, and the feature waits for the owner until he deletes it.
+
+**Told once.** Before each comment, the app's own comments on the issue are read for the same words,
+so an answer that was lost never posts it twice; the feature's `outcome_told_at` is set once every
+card is told, and what GitHub did not answer for is tried again on the next minute. A parent GitHub
+no longer shows is told with nothing written.
+
+**The columns**, from `migrations/0032_feature_merge.sql`: `features.ci_passed_commit`, the head CI
+last passed on, and `features.outcome_told_at`, when its cards were told, null until then; and
+`merged` among the answers of `decision_answers`.
 
 ## Stops
 
