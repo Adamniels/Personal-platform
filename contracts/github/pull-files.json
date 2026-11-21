@@ -1,0 +1,36 @@
+[
+  {
+    "sha": "e52b6eb45598f71b98f2927d77e7053243fc96e1",
+    "filename": "Brain/web/src/app.module.css",
+    "status": "modified",
+    "additions": 1,
+    "deletions": 1,
+    "changes": 2,
+    "blob_url": "https://github.com/Adamniels/Personal-platform/blob/01643d9a56e158d854dedcf81ad7aace0ab1fb0f/Brain%2Fweb%2Fsrc%2Fapp.module.css",
+    "raw_url": "https://github.com/Adamniels/Personal-platform/raw/01643d9a56e158d854dedcf81ad7aace0ab1fb0f/Brain%2Fweb%2Fsrc%2Fapp.module.css",
+    "contents_url": "https://api.github.com/repos/Adamniels/Personal-platform/contents/Brain%2Fweb%2Fsrc%2Fapp.module.css?ref=01643d9a56e158d854dedcf81ad7aace0ab1fb0f"
+  },
+  {
+    "sha": "d2f2fc55612e4559208ad05e8c6ec617e79ba333",
+    "filename": "design/fonts/barlow-condensed-LICENSE.txt",
+    "status": "renamed",
+    "additions": 1,
+    "deletions": 1,
+    "changes": 2,
+    "blob_url": "https://github.com/Adamniels/Personal-platform/blob/01643d9a56e158d854dedcf81ad7aace0ab1fb0f/design%2Ffonts%2Fbarlow-condensed-LICENSE.txt",
+    "raw_url": "https://github.com/Adamniels/Personal-platform/raw/01643d9a56e158d854dedcf81ad7aace0ab1fb0f/design%2Ffonts%2Fbarlow-condensed-LICENSE.txt",
+    "contents_url": "https://api.github.com/repos/Adamniels/Personal-platform/contents/design%2Ffonts%2Fbarlow-condensed-LICENSE.txt?ref=01643d9a56e158d854dedcf81ad7aace0ab1fb0f",
+    "previous_filename": "design/fonts/space-grotesk-LICENSE.txt"
+  },
+  {
+    "sha": "da60c9a90e758f7924dfac415f24961ee74c59c9",
+    "filename": "design/fonts/barlow-condensed-latin-600-normal.woff2",
+    "status": "added",
+    "additions": 0,
+    "deletions": 0,
+    "changes": 0,
+    "blob_url": "https://github.com/Adamniels/Personal-platform/blob/01643d9a56e158d854dedcf81ad7aace0ab1fb0f/design%2Ffonts%2Fbarlow-condensed-latin-600-normal.woff2",
+    "raw_url": "https://github.com/Adamniels/Personal-platform/raw/01643d9a56e158d854dedcf81ad7aace0ab1fb0f/design%2Ffonts%2Fbarlow-condensed-latin-600-normal.woff2",
+    "contents_url": "https://api.github.com/repos/Adamniels/Personal-platform/contents/design%2Ffonts%2Fbarlow-condensed-latin-600-normal.woff2?ref=01643d9a56e158d854dedcf81ad7aace0ab1fb0f"
+  }
+]

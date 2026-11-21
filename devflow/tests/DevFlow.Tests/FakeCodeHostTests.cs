@@ -292,6 +292,31 @@ public sealed class FakeCodeHostTests
         Assert.IsType<CodeHostResult<IReadOnlyList<IssueEdit>>.Unavailable>(await host.Edits(Owner, Platform, 338, Ct));
     }
 
+    /// <summary>A pull request's files are answered as staged, a rename with its old name, and as
+    /// none for a pull request with nothing staged; one the world does not hold is not
+    /// found.</summary>
+    [Fact]
+    public async Task PullRequestFilesAreAnsweredAsStaged()
+    {
+        var host = new FakeCodeHost();
+        IReadOnlyList<ChangedFile> files = [new ChangedFile("src/auth/login.rs", null), new ChangedFile("lib/new.rs", "src/auth/old.rs")];
+        var world = World;
+        var repository = world.Installations[0].Repositories[0] with
+        {
+            PullRequests = [Waiting, Merged],
+            PullRequestFiles = [new FakePullRequestFiles(Waiting.Number, files)],
+        };
+        host.Replace(Owner, world with { Installations = [world.Installations[0] with { Repositories = [repository] }] });
+
+        Assert.Equal(files, Found(await Through(host).PullRequestFiles(Owner, Platform, Waiting.Number, Ct)));
+        Assert.Empty(Found(await Through(host).PullRequestFiles(Owner, Platform, Merged.Number, Ct)));
+        Assert.IsType<CodeHostResult<IReadOnlyList<ChangedFile>>.NotFound>(await host.PullRequestFiles(Owner, Platform, 999, Ct));
+        Assert.IsType<CodeHostResult<IReadOnlyList<ChangedFile>>.NotFound>(await host.PullRequestFiles(Stranger, Platform, Waiting.Number, Ct));
+
+        host.SetUnavailable(Owner, unavailable: true);
+        Assert.IsType<CodeHostResult<IReadOnlyList<ChangedFile>>.Unavailable>(await host.PullRequestFiles(Owner, Platform, Waiting.Number, Ct));
+    }
+
     [Fact]
     public async Task LabelEventsAreAnsweredAsStagedOrAsTheAuthorsOwn()
     {

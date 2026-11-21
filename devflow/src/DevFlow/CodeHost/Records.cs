@@ -204,6 +204,11 @@ public enum LabelChange
 /// <param name="At">When it was done.</param>
 public sealed record LabelEvent(string Label, LabelChange Change, string Actor, DateTimeOffset At);
 
+/// <summary>One file a pull request changes, as the code host lists them.</summary>
+/// <param name="Path">Its path, a renamed file's new one.</param>
+/// <param name="PreviousPath">A renamed file's old path, null for any other.</param>
+public sealed record ChangedFile(string Path, string? PreviousPath);
+
 /// <summary>What changed a branch, as the code host lists a repository's activity.</summary>
 public enum ActivityKind
 {

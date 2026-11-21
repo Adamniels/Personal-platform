@@ -30,13 +30,24 @@ public sealed class TrustedAccountsTests
         ["pickup_label"] = "devflow",
         ["hold_label"] = "devflow-hold",
         ["attention_label"] = "devflow-attention",
+        ["review_label"] = "devflow-review",
         ["waits_for_owner"] = "never",
+        ["wait_when_marked"] = true,
+        ["wait_when_paths"] = true,
+        ["wait_when_decision"] = true,
+        ["wait_paths"] = new JsonArray(),
         ["trusted_logins"] = new JsonArray([.. trusted.Select(login => (JsonNode)login)]),
     };
 
     /// <summary>The list as the route answers it: each login with whether it is the caller's.</summary>
     private static string Answered(params (string Login, bool Mine)[] trusted) =>
         new JsonArray([.. trusted.Select(entry => (JsonNode)new JsonObject { ["login"] = entry.Login, ["mine"] = entry.Mine })]).ToJsonString();
+
+    private static JsonObject Without(JsonObject settings, string field)
+    {
+        settings.Remove(field);
+        return settings;
+    }
 
     private static Task<HttpContext> Put(Routes routes, Guid project, JsonObject settings) =>
         routes.App.SendJson("PUT", PathOf(project), Contract.Token, settings.ToJsonString());
@@ -115,7 +126,7 @@ public sealed class TrustedAccountsTests
             Settings(Owner, "octo pal"),
             Settings(Owner, "octo_pal"),
             Settings(Owner, tooLong),
-            new() { ["pickup_label"] = "devflow", ["hold_label"] = "devflow-hold", ["attention_label"] = "devflow-attention", ["waits_for_owner"] = "never" },
+            Without(Settings(Owner), "trusted_logins"),
         };
         foreach (var body in refused)
         {

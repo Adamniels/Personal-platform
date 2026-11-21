@@ -1,6 +1,7 @@
 using Dapper;
 
 using DevFlow.CodeHost;
+using DevFlow.Decisions;
 using DevFlow.Projects;
 using DevFlow.Watching;
 
@@ -36,6 +37,9 @@ public sealed partial class MergeChecker(UserDb database, ICodeHost host, AppMer
 
         var repository = new Repository(project.Installation, project.RepositoryId, project.Owner, project.Name);
         var hold = WatchStore.Read(project.Hold);
+        var setting = project.Setting;
+        // The files are read only when a ticked condition needs them.
+        var readsFiles = setting is { WaitsForOwner: "sometimes", Conditions: { WhenPaths: true, Paths.Count: > 0 } };
         // Read once for the project's cards, and only when anything is read at all.
         CodeHostResult<IReadOnlyList<Issue>>? labelled = null;
         foreach (var card in due)
@@ -46,7 +50,7 @@ public sealed partial class MergeChecker(UserDb database, ICodeHost host, AppMer
                 if (hold != ProjectHold.None)
                 {
                     // A project that holds merges nothing, so nothing is asked of the code host.
-                    facts = Facts(project, card, hold, Unread<PullRequest>(), Unread<IReadOnlyList<CommitStatus>>(), Unread<IReadOnlyList<CheckRun>>(), Unread<IReadOnlyList<Issue>>(), Unread<IReadOnlyList<IssueEdit>>(), Unread<IReadOnlyList<LabelEvent>>(), Unread<IReadOnlyList<SubIssue>>(), Unread<IReadOnlyList<IssueEdit>>(), Unread<IReadOnlyList<LabelEvent>>());
+                    facts = Facts(project, card, hold, Unread<PullRequest>(), Unread<IReadOnlyList<CommitStatus>>(), Unread<IReadOnlyList<CheckRun>>(), Unread<IReadOnlyList<Issue>>(), Unread<IReadOnlyList<IssueEdit>>(), Unread<IReadOnlyList<LabelEvent>>(), Unread<IReadOnlyList<SubIssue>>(), Unread<IReadOnlyList<IssueEdit>>(), Unread<IReadOnlyList<LabelEvent>>(), Unread<IReadOnlyList<ChangedFile>>());
                 }
                 else
                 {
@@ -61,7 +65,8 @@ public sealed partial class MergeChecker(UserDb database, ICodeHost host, AppMer
                     var subIssues = card.FeatureNumber is { } feature ? await host.SubIssues(userId, repository, feature, cancellationToken) : Unread<IReadOnlyList<SubIssue>>();
                     var featureEdits = card.FeatureNumber is { } parent ? await host.Edits(userId, repository, parent, cancellationToken) : Unread<IReadOnlyList<IssueEdit>>();
                     var featureLabelEvents = card.FeatureNumber is { } labelledParent ? await host.LabelEvents(userId, repository, labelledParent, cancellationToken) : Unread<IReadOnlyList<LabelEvent>>();
-                    facts = Facts(project, card, hold, pull, statuses, checkRuns, labelled, edits, labelEvents, subIssues, featureEdits, featureLabelEvents);
+                    var files = readsFiles && head is not null ? await host.PullRequestFiles(userId, repository, card.PullRequest, cancellationToken) : Unread<IReadOnlyList<ChangedFile>>();
+                    facts = Facts(project, card, hold, pull, statuses, checkRuns, labelled, edits, labelEvents, subIssues, featureEdits, featureLabelEvents, files);
                 }
 
                 switch (MergeCheck.Decide(facts))
@@ -70,7 +75,7 @@ public sealed partial class MergeChecker(UserDb database, ICodeHost host, AppMer
                         await Record(projectId, userId, card, reason, again, cancellationToken);
                         break;
                     case MergeDecision.Merge { Commit: var commit }:
-                        await Merge(projectId, userId, card, commit, cancellationToken);
+                        await Merge(projectId, userId, card, commit, setting, cancellationToken);
                         break;
                     default:
                         throw new InvalidOperationException("a merge decision that is not one of the two");
@@ -83,10 +88,12 @@ public sealed partial class MergeChecker(UserDb database, ICodeHost host, AppMer
         }
     }
 
-    /// <summary>Merges the card as the app and records what came of it when it did not merge.</summary>
-    private async Task Merge(Guid projectId, Guid userId, DueCard card, string commit, CancellationToken cancellationToken)
+    /// <summary>Merges the card as the app, while the project's setting is still
+    /// <paramref name="setting"/>, the one the check decided on, and records what came of it when it
+    /// did not merge.</summary>
+    private async Task Merge(Guid projectId, Guid userId, DueCard card, string commit, WaitSetting setting, CancellationToken cancellationToken)
     {
-        var (reason, again) = await merges.MergeCard(userId, projectId, card.Number, card.PullRequest, commit, cancellationToken) switch
+        var (reason, again) = await merges.MergeCard(userId, projectId, card.Number, card.PullRequest, commit, setting, cancellationToken) switch
         {
             AppMergeOutcome.Done { Result: MergeResult.Merged { Commit: var merged } } => Merged(projectId, card, merged),
             AppMergeOutcome.Done { Result: MergeResult.HeadMoved } => (MergeCheck.HeadMoved, true),
@@ -158,7 +165,8 @@ public sealed partial class MergeChecker(UserDb database, ICodeHost host, AppMer
         CodeHostResult<IReadOnlyList<LabelEvent>> labelEvents,
         CodeHostResult<IReadOnlyList<SubIssue>> subIssues,
         CodeHostResult<IReadOnlyList<IssueEdit>> featureEdits,
-        CodeHostResult<IReadOnlyList<LabelEvent>> featureLabelEvents) => new(
+        CodeHostResult<IReadOnlyList<LabelEvent>> featureLabelEvents,
+        CodeHostResult<IReadOnlyList<ChangedFile>> files) => new(
         time.GetUtcNow(),
         hold,
         project.WaitsForOwner,
@@ -175,6 +183,9 @@ public sealed partial class MergeChecker(UserDb database, ICodeHost host, AppMer
         labelled,
         edits,
         labelEvents,
+        project.Setting.Conditions,
+        card.DecisionForOwner,
+        files,
         card.FeatureNumber is { } feature
             ? new FeatureFacts(
                 feature,
@@ -207,7 +218,8 @@ public sealed partial class MergeChecker(UserDb database, ICodeHost host, AppMer
                        h.head_commit AS HeadCommit, h.check_exit_code AS CheckExitCode, h.finished_at AS PushedAt, h.base AS Base,
                        v.verdict AS Verdict, v.reviewed_commit AS ReviewedCommit,
                        f.number AS FeatureNumber, f.picked_body_sha256 AS FeatureBodySha256, f.picked_title AS FeatureTitle,
-                       f.picked_edit AS FeatureNewestEdit, NOT {WatchStore.FeatureWatchedSql} AS FeatureUnwatched
+                       f.picked_edit AS FeatureNewestEdit, NOT {WatchStore.FeatureWatchedSql} AS FeatureUnwatched,
+                       EXISTS (SELECT 1 {DecisionStore.MarkedFrom("cards.project_id", "cards.number")}) AS DecisionForOwner
                 FROM cards
                 LEFT JOIN features f ON f.id = cards.feature_id
                 LEFT JOIN LATERAL (SELECT head_commit, check_exit_code, finished_at, base FROM runs
@@ -233,7 +245,9 @@ public sealed partial class MergeChecker(UserDb database, ICodeHost host, AppMer
                 $"""
                 SELECT p.installation_id AS Installation, p.repository_id AS RepositoryId, p.owner AS Owner, p.name AS Name,
                        a.login AS OwnerLogin, s.pickup_label AS PickupLabel, s.hold_label AS HoldLabel,
-                       s.waits_for_owner AS WaitsForOwner, s.trusted_logins AS TrustedLogins, {WatchStore.HoldSql} AS Hold
+                       s.waits_for_owner AS WaitsForOwner, s.trusted_logins AS TrustedLogins, {WatchStore.HoldSql} AS Hold,
+                       s.review_label AS ReviewLabel, s.wait_when_marked AS WaitWhenMarked, s.wait_when_paths AS WaitWhenPaths,
+                       s.wait_when_decision AS WaitWhenDecision, s.wait_paths AS WaitPaths
                 FROM projects p
                 JOIN project_settings s ON s.project_id = p.id
                 LEFT JOIN github_accounts a ON a.user_id = p.user_id
@@ -280,6 +294,19 @@ public sealed partial class MergeChecker(UserDb database, ICodeHost host, AppMer
         public string[] TrustedLogins { get; init; } = [];
 
         public string? Hold { get; init; }
+
+        public string ReviewLabel { get; init; } = "";
+
+        public bool WaitWhenMarked { get; init; }
+
+        public bool WaitWhenPaths { get; init; }
+
+        public bool WaitWhenDecision { get; init; }
+
+        public string[] WaitPaths { get; init; } = [];
+
+        /// <summary>The setting as the check decides on it, and as the merge reads it again.</summary>
+        public WaitSetting Setting => new(WaitsForOwner, new WaitConditions(WaitWhenMarked, WaitWhenPaths, WaitWhenDecision, ReviewLabel, WaitPaths));
     }
 
     /// <summary>A card due for the check, set by property, as Dapper reads <c>bytea</c>.</summary>
@@ -316,5 +343,7 @@ public sealed partial class MergeChecker(UserDb database, ICodeHost host, AppMer
         public string? FeatureNewestEdit { get; init; }
 
         public bool FeatureUnwatched { get; init; }
+
+        public bool DecisionForOwner { get; init; }
     }
 }

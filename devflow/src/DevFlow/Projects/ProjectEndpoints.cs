@@ -58,12 +58,12 @@ public static class ProjectEndpoints
                     ? TypedResults.Ok(settings)
                     : NoSuchProject())
             .Route("getProjectSettings", "A project's settings",
-                "The labels that pick and hold its cards and mark what needs the caller, whether a card's pull request waits for them, never or always, and its trusted accounts, the GitHub logins whose cards, edits and comments count, the caller's linked login first and marked as theirs. 404 for a project the caller does not have.",
+                "The labels that pick and hold its cards, mark what needs the caller and mark a card for their review; whether a card's pull request waits for them, never, sometimes or always, with the three conditions of sometimes and the paths it watches; and its trusted accounts, the GitHub logins whose cards, edits and comments count, the caller's linked login first and marked as theirs. 404 for a project the caller does not have.",
                 StatusCodes.Status404NotFound);
 
         projects.MapPut("/{id:guid}/settings", SaveSettings)
             .Route("saveProjectSettings", "Change a project's settings",
-                "Takes all five and answers them as saved. A label is written, at most 50 characters, with no space at either end and no comma, and the three are different names whatever their case; waits_for_owner is never or always; trusted_logins is a list of GitHub logins that holds the caller's linked login, and a login given twice whatever its case is kept once. 422 naming each field that breaks a rule, 404 for a project the caller does not have.",
+                "Takes all ten and answers them as saved. A label is written, at most 50 characters, with no space at either end and no comma, and the four are different names whatever their case; waits_for_owner is never, sometimes or always, and sometimes has at least one of wait_when_marked, wait_when_paths and wait_when_decision; wait_paths is at most 100 glob patterns of at most 200 characters, none starting with ! or /, and a pattern given twice is kept once; trusted_logins is a list of GitHub logins that holds the caller's linked login, and a login given twice whatever its case is kept once. 422 naming each field that breaks a rule, 404 for a project the caller does not have.",
                 StatusCodes.Status404NotFound, StatusCodes.Status422UnprocessableEntity);
 
         return routes;

@@ -164,7 +164,9 @@ public sealed partial class ProjectReader(UserDb database, ICodeHost host, TimeP
             SELECT p.installation_id AS Installation, p.repository_id AS RepositoryId, p.owner AS Owner, p.name AS Name,
                    p.bot_login AS Bot, a.login AS OwnerLogin,
                    s.pickup_label AS PickupLabel, s.hold_label AS HoldLabel, s.attention_label AS AttentionLabel,
-                   s.waits_for_owner AS WaitsForOwner, s.trusted_logins AS TrustedLogins
+                   s.review_label AS ReviewLabel, s.waits_for_owner AS WaitsForOwner, s.wait_when_marked AS WaitWhenMarked,
+                   s.wait_when_paths AS WaitWhenPaths, s.wait_when_decision AS WaitWhenDecision, s.wait_paths AS WaitPaths,
+                   s.trusted_logins AS TrustedLogins
             FROM projects p
             JOIN project_settings s ON s.project_id = p.id
             LEFT JOIN github_accounts a ON a.user_id = p.user_id
@@ -187,7 +189,9 @@ public sealed partial class ProjectReader(UserDb database, ICodeHost host, TimeP
         }
 
         var trusted = target.Trusted;
-        var settings = new ProjectSettings(target.PickupLabel, target.HoldLabel, target.AttentionLabel, target.WaitsForOwner, trusted.Listed);
+        var settings = new ProjectSettings(
+            target.PickupLabel, target.HoldLabel, target.AttentionLabel, target.ReviewLabel, target.WaitsForOwner, target.WaitWhenMarked,
+            target.WaitWhenPaths, target.WaitWhenDecision, target.WaitPaths, trusted.Listed);
         var repository = new Repository(target.Installation, target.RepositoryId, target.Owner, target.Name);
         PickedProject cards;
         switch (await CardPicker.Pick(host, userId, repository, settings, trusted, cancellationToken))
@@ -651,7 +655,17 @@ public sealed partial class ProjectReader(UserDb database, ICodeHost host, TimeP
 
         public string AttentionLabel { get; init; } = "";
 
+        public string ReviewLabel { get; init; } = "";
+
         public string WaitsForOwner { get; init; } = "";
+
+        public bool WaitWhenMarked { get; init; }
+
+        public bool WaitWhenPaths { get; init; }
+
+        public bool WaitWhenDecision { get; init; }
+
+        public string[] WaitPaths { get; init; } = [];
 
         public string[] TrustedLogins { get; init; } = [];
 

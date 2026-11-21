@@ -8,6 +8,11 @@ using PlatformData;
 
 namespace DevFlow.Merging;
 
+/// <summary>The project's setting for whether a card's pull request waits for the owner, as the
+/// merge check decided on it: <c>never</c>, <c>sometimes</c> or <c>always</c>, and what
+/// <c>sometimes</c> waits for.</summary>
+public sealed record WaitSetting(string WaitsForOwner, WaitConditions Conditions);
+
 /// <summary>What merging as the app answers. A closed set.</summary>
 public abstract record AppMergeOutcome
 {
@@ -63,24 +68,36 @@ public sealed class AppMerges(UserDb database, ICodeHost host, TimeProvider time
     /// host gives one, as a merge into the default branch, as its watch names it.
     /// </summary>
     public Task<AppMergeOutcome> Merge(Guid userId, Guid projectId, int number, string commit, CancellationToken cancellationToken) =>
-        Merge(userId, projectId, number, commit, card: null, cancellationToken);
+        Merge(userId, projectId, number, commit, card: null, setting: null, cancellationToken);
 
     /// <summary>
     /// Merges the pull request of the user's card as <see cref="Merge(Guid, Guid, int, string, CancellationToken)"/>
     /// does, into the base its newest build or fix ran on, the default branch or its feature's,
     /// and only while, read under the project's lock, the project is watched, its setting is
-    /// still <c>never</c>, and the card still waits for this merge, due for the merge check with this
-    /// pull request; so a send back, a change of the setting or a stop made since the check read is
-    /// never overtaken. When the code host merges, the card is recorded <c>done</c> in the same
-    /// transaction as the merge commit, with the decisions a card on its own marked for the owner,
-    /// and when it does not the card is left as it was, for the caller to say why.
+    /// still <paramref name="setting"/>, the one the check decided on, <c>never</c> or
+    /// <c>sometimes</c> with the same conditions, label and paths, and the card still waits for this
+    /// merge, due for the merge check with this pull request; so a send back, a change of the
+    /// setting or a stop made since the check read is never overtaken, and a card whose setting
+    /// changed is decided again on the next minute. When the code host merges, the card is recorded
+    /// <c>done</c> in the same transaction as the merge commit, with the decisions a card on its own
+    /// marked for the owner, and when it does not the card is left as it was, for the caller to say
+    /// why.
     /// </summary>
-    public Task<AppMergeOutcome> MergeCard(Guid userId, Guid projectId, int card, int number, string commit, CancellationToken cancellationToken) =>
-        Merge(userId, projectId, number, commit, card, cancellationToken);
+    public Task<AppMergeOutcome> MergeCard(Guid userId, Guid projectId, int card, int number, string commit, WaitSetting setting, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(setting);
+        return Merge(userId, projectId, number, commit, card, setting, cancellationToken);
+    }
 
-    private async Task<AppMergeOutcome> Merge(Guid userId, Guid projectId, int number, string commit, int? card, CancellationToken cancellationToken)
+    private async Task<AppMergeOutcome> Merge(Guid userId, Guid projectId, int number, string commit, int? card, WaitSetting? setting, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(commit);
+        if (card is not null && setting is null)
+        {
+            // A card is merged only against the setting it was decided on, never past the check.
+            throw new ArgumentNullException(nameof(setting));
+        }
+
         return await database.InUserTransaction<AppMergeOutcome>(userId, async transaction =>
         {
             if (!await BranchWatch.Lock(transaction, projectId, cancellationToken))
@@ -93,7 +110,7 @@ public sealed class AppMerges(UserDb database, ICodeHost host, TimeProvider time
             // feature reaches the default branch before the owner merges it.
             var onItsOwn = false;
 
-            if (card is { } held)
+            if (card is { } held && setting is { WaitsForOwner: var waits, Conditions: var conditions })
             {
                 switch (WatchStore.Read(await transaction.Connection!.QuerySingleOrDefaultAsync<string?>(new CommandDefinition(
                     $"SELECT {WatchStore.HoldSql} FROM projects p WHERE p.id = @projectId",
@@ -111,10 +128,23 @@ public sealed class AppMerges(UserDb database, ICodeHost host, TimeProvider time
                         """
                         SELECT c.feature_id IS NULL FROM cards c JOIN project_settings s ON s.project_id = c.project_id
                         WHERE c.project_id = @projectId AND c.number = @held AND c.state = 'waiting_for_owner' AND c.merge_check_due
-                          AND c.pull_request_number = @number AND s.waits_for_owner = 'never'
+                          AND c.pull_request_number = @number AND @waits IN ('never', 'sometimes') AND s.waits_for_owner = @waits
+                          AND (@waits = 'never' OR (s.wait_when_marked = @marked AND s.wait_when_paths = @whenPaths
+                               AND s.wait_when_decision = @whenDecision AND s.review_label = @reviewLabel AND s.wait_paths = @paths))
                         FOR UPDATE OF c
                         """,
-                        new { projectId, held, number },
+                        new
+                        {
+                            projectId,
+                            held,
+                            number,
+                            waits,
+                            marked = conditions.WhenMarked,
+                            whenPaths = conditions.WhenPaths,
+                            whenDecision = conditions.WhenDecision,
+                            reviewLabel = conditions.ReviewLabel,
+                            paths = conditions.Paths.ToArray(),
+                        },
                         transaction,
                         cancellationToken: cancellationToken)) is not { } own)
                 {

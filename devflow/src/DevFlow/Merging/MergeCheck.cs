@@ -47,6 +47,24 @@ public sealed record FeatureFacts(
     CodeHostResult<IReadOnlyList<LabelEvent>> LabelEvents);
 
 /// <summary>
+/// What the merge check reads of "sometimes", the project's settings as they are now: which of the
+/// three conditions are ticked, the review label, and the paths the owner listed, in his order.
+/// </summary>
+/// <param name="WhenMarked">Whether a card marked with the review label, or of a feature whose
+/// parent is, waits.</param>
+/// <param name="WhenPaths">Whether a change touching a path on <paramref name="Paths"/> waits.</param>
+/// <param name="WhenDecision">Whether a card whose agent marked a decision for the owner
+/// waits.</param>
+/// <param name="ReviewLabel">The label that marks a card for his review.</param>
+/// <param name="Paths">The patterns he listed, read by <see cref="PathPatterns"/>.</param>
+public sealed record WaitConditions(bool WhenMarked, bool WhenPaths, bool WhenDecision, string ReviewLabel, IReadOnlyList<string> Paths)
+{
+    /// <summary>A new project's: all three ticked, the review label <c>devflow-review</c>, no
+    /// paths.</summary>
+    public static WaitConditions Defaults { get; } = new(true, true, true, "devflow-review", []);
+}
+
+/// <summary>
 /// Everything the merge check decides on, read fresh by its caller: Dev flow's own records of the
 /// project and the card, and the code host's answers as they came, a failure among them, so what
 /// could not be read is decided here too.
@@ -54,7 +72,8 @@ public sealed record FeatureFacts(
 /// <param name="Now">The time the reads were made.</param>
 /// <param name="Hold">Whether the project is stopped, or its default branch was not read within
 /// five minutes.</param>
-/// <param name="WaitsForOwner">The project's setting, <c>never</c> or <c>always</c>.</param>
+/// <param name="WaitsForOwner">The project's setting, <c>never</c>, <c>sometimes</c> or
+/// <c>always</c>.</param>
 /// <param name="Trusted">The project's trusted accounts, with the owner's linked login, none of
 /// them trusted without a link.</param>
 /// <param name="Card">The card's issue number.</param>
@@ -67,6 +86,11 @@ public sealed record FeatureFacts(
 /// <param name="Labelled">The repository's open issues carrying the pick-up label.</param>
 /// <param name="Edits">The card's edit history.</param>
 /// <param name="LabelEvents">The card's label events, from its timeline.</param>
+/// <param name="Conditions">What "sometimes" waits for, read only on <c>sometimes</c>.</param>
+/// <param name="DecisionForOwner">Whether any build's or fix's report of the card that succeeded
+/// marked a decision for the owner.</param>
+/// <param name="Files">The files its pull request changes, read as the app only when a ticked
+/// condition needs them, a read that was not made otherwise.</param>
 /// <param name="Feature">The card's feature, null for a card on its own.</param>
 public sealed record MergeFacts(
     DateTimeOffset Now,
@@ -85,6 +109,9 @@ public sealed record MergeFacts(
     CodeHostResult<IReadOnlyList<Issue>> Labelled,
     CodeHostResult<IReadOnlyList<IssueEdit>> Edits,
     CodeHostResult<IReadOnlyList<LabelEvent>> LabelEvents,
+    WaitConditions Conditions,
+    bool DecisionForOwner,
+    CodeHostResult<IReadOnlyList<ChangedFile>> Files,
     FeatureFacts? Feature = null);
 
 /// <summary>What the merge check answers. A closed set.</summary>
@@ -127,6 +154,9 @@ public static class MergeCheck
     public const string ChangesAsked = "The reviewer asked for changes on its head commit";
     public const string ChangedUnseen = "The card changed since it was picked, and its history does not say by whom";
     public const string Always = "This project waits for you on every pull request";
+    public const string Marked = "This card is marked for your review";
+    public const string TooManyFiles = "Too many files to check the paths";
+    public const string Decision = "The agent made a decision for you";
     public const string CiRunning = "CI is still running on its commit";
     public const string CiNotYet = "Waiting for CI to report on its commit";
     public const string CiSilent = "CI did not report";
@@ -182,6 +212,10 @@ public static class MergeCheck
         ? Invariant($"Its feature, #{feature}, is held by the label {label}, which a trusted account put on and none took off")
         : Invariant($"Its feature, #{feature}, is held by the label {label}, taken off by {by}, who is not a trusted account of this project");
 
+    public static string FeatureMarked(int feature) => Invariant($"Its feature, #{feature}, is marked for your review");
+
+    public static string PathListed(string path, string pattern) => $"It changes {path}, which matches {pattern} on this project's list of paths";
+
     public static string FeatureChangedUnseen(int feature) => Invariant($"Its feature, #{feature}, changed since it was picked, and its history does not say by whom");
 
     /// <summary>
@@ -193,9 +227,12 @@ public static class MergeCheck
     /// open with the pick-up label a trusted account put on, not held, by the hold label on it or
     /// one a trusted account put on and only someone untrusted took off, and edited by nobody
     /// outside the list since it was picked, where for a card of a feature the parent is held to
-    /// all of it and the card is an open sub-issue of it, held to all of it but the pick-up label; the setting not <c>never</c>; and CI, every check run and status on the
-    /// commit completed and succeeded. Only a wait that can clear by itself is tried again: a branch
-    /// unread, a read that failed, CI running or not reported yet. Everything else is the owner's.
+    /// all of it and the card is an open sub-issue of it, held to all of it but the pick-up label;
+    /// the setting, <c>never</c> going on, <c>sometimes</c> going on unless a ticked condition
+    /// holds, see <see cref="Sometimes"/>, and anything else waiting; and CI, every check run and
+    /// status on the commit completed and succeeded. Only a wait that can clear by itself is tried
+    /// again: a branch unread, a read that failed, CI running or not reported yet. Everything else
+    /// is the owner's.
     /// </summary>
     public static MergeDecision Decide(MergeFacts facts)
     {
@@ -257,10 +294,20 @@ public static class MergeCheck
             return invalid;
         }
 
-        // Anything but never, a value it does not know included, waits for the owner.
-        if (!string.Equals(facts.WaitsForOwner, "never", StringComparison.Ordinal))
+        // Anything but never or sometimes, a value it does not know included, waits for the owner.
+        switch (facts.WaitsForOwner)
         {
-            return Final(Always);
+            case "never":
+                break;
+            case "sometimes":
+                if (Sometimes(facts) is { } wait)
+                {
+                    return wait;
+                }
+
+                break;
+            default:
+                return Final(Always);
         }
 
         return (MergeDecision?)Ci(facts.CheckRuns, facts.Statuses, facts.Now, checkedHead.PushedAt) ?? new MergeDecision.Merge(head);
@@ -300,8 +347,7 @@ public static class MergeCheck
             return Final(FeatureNotLabelled(feature.Number, facts.PickupLabel));
         }
 
-        // Read above: both answered.
-        var subIssues = ((CodeHostResult<IReadOnlyList<SubIssue>>.Found)feature.SubIssues).Value;
+        // Read above: all three answered.
         var parentEdits = ((CodeHostResult<IReadOnlyList<IssueEdit>>.Found)feature.Edits).Value;
         var parentEvents = ((CodeHostResult<IReadOnlyList<LabelEvent>>.Found)feature.LabelEvents).Value;
         if (feature.Record is not { } parentRecord)
@@ -315,9 +361,7 @@ public static class MergeCheck
             return invalid;
         }
 
-        if (subIssues.FirstOrDefault(sub => !sub.IsPullRequest && sub.Open && sub.Number == facts.Card
-                && string.Equals(sub.Owner, feature.Owner, StringComparison.OrdinalIgnoreCase)
-                && string.Equals(sub.Name, feature.Name, StringComparison.OrdinalIgnoreCase)) is not { } own)
+        if (OwnSubIssue(feature, facts.Card) is not { } own)
         {
             return Final(NotSubIssue(feature.Number));
         }
@@ -325,6 +369,78 @@ public static class MergeCheck
         // A card of a feature carries no pick-up label of its own: its parent's switched it on.
         return Valid(new Read(own.Author, own.Labels, own.Body, own.Title), edits, events, facts.Record, trusted, pickupLabel: null, facts.HoldLabel, CardWords);
     }
+
+    /// <summary>
+    /// Why "sometimes" waits for the owner, or null when nothing it ticked holds, the first that
+    /// holds deciding: the review label counts on the card, or for a card of a feature on its parent
+    /// or on the card, read by <see cref="LabelActors.Judge"/> as one that holds back, so anyone may
+    /// put it on and only a trusted account take it off; a file the pull request changes, by its new
+    /// or its old name, matches a listed path, where files at GitHub's limit cannot be known to
+    /// match none and wait too, and files not read are tried again; and a decision marked for the
+    /// owner in any report of the card. Called once the card was found valid, so what it looks up
+    /// was read and is there.
+    /// </summary>
+    private static MergeDecision.Wait? Sometimes(MergeFacts facts)
+    {
+        var conditions = facts.Conditions;
+        if (conditions.WhenMarked && MarkedFor(facts) is { } marked)
+        {
+            return marked;
+        }
+
+        if (conditions.WhenPaths && conditions.Paths.Count > 0)
+        {
+            if (facts.Files is not CodeHostResult<IReadOnlyList<ChangedFile>>.Found { Value: var files })
+            {
+                return Again(CouldNotRead("the files of its pull request"));
+            }
+
+            if (files.Count >= ICodeHost.MostPullRequestFiles)
+            {
+                return Final(TooManyFiles);
+            }
+
+            if (PathPatterns.FirstMatch(conditions.Paths, files) is { } match)
+            {
+                return Final(PathListed(match.Path, match.Pattern));
+            }
+        }
+
+        return conditions.WhenDecision && facts.DecisionForOwner ? Final(Decision) : null;
+    }
+
+    /// <summary>Why the review label marks the card, or null when it does not: on a card of a
+    /// feature its parent's first, then the card's own.</summary>
+    private static MergeDecision.Wait? MarkedFor(MergeFacts facts)
+    {
+        var label = facts.Conditions.ReviewLabel;
+        var labelled = ((CodeHostResult<IReadOnlyList<Issue>>.Found)facts.Labelled).Value;
+        var events = ((CodeHostResult<IReadOnlyList<LabelEvent>>.Found)facts.LabelEvents).Value;
+        bool Counts(IReadOnlyList<string> labels, IReadOnlyList<LabelEvent> changes) =>
+            LabelActors.Judge(label, LabelKind.HoldsBack, labels, changes, facts.Trusted).Counts;
+
+        if (facts.Feature is not { } feature)
+        {
+            var card = labelled.First(issue => !issue.IsPullRequest && issue.Number == facts.Card);
+            return Counts(card.Labels, events) ? Final(Marked) : null;
+        }
+
+        var parent = labelled.First(issue => !issue.IsPullRequest && issue.Number == feature.Number);
+        if (Counts(parent.Labels, ((CodeHostResult<IReadOnlyList<LabelEvent>>.Found)feature.LabelEvents).Value))
+        {
+            return Final(FeatureMarked(feature.Number));
+        }
+
+        var own = OwnSubIssue(feature, facts.Card)!;
+        return Counts(own.Labels, events) ? Final(Marked) : null;
+    }
+
+    /// <summary>The card as its feature lists it, an open sub-issue in the project's repository, or
+    /// null when it is not one.</summary>
+    private static SubIssue? OwnSubIssue(FeatureFacts feature, int card) =>
+        ((CodeHostResult<IReadOnlyList<SubIssue>>.Found)feature.SubIssues).Value.FirstOrDefault(sub => !sub.IsPullRequest && sub.Open && sub.Number == card
+            && string.Equals(sub.Owner, feature.Owner, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(sub.Name, feature.Name, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>An issue as the card rules read it.</summary>
     private sealed record Read(string Author, IReadOnlyList<string> Labels, string Body, string Title);

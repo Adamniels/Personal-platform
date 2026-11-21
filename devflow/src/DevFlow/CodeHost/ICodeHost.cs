@@ -86,6 +86,19 @@ public interface ICodeHost
     public const int MostChangedFiles = 300;
 
     /// <summary>
+    /// The files the pull request with the number changes, every one the host lists, in its order,
+    /// each with its old path when it was renamed: the whole list or a failure, never part of it.
+    /// At most <see cref="MostPullRequestFiles"/>, the most it lists, so a list that long may not be
+    /// all of them. Read as the app, for the merge check. Not found when there is no such pull
+    /// request.
+    /// </summary>
+    Task<CodeHostResult<IReadOnlyList<ChangedFile>>> PullRequestFiles(Guid userId, Repository repository, int number, CancellationToken cancellationToken);
+
+    /// <summary>The most files <see cref="PullRequestFiles"/> lists, GitHub's limit for a pull
+    /// request; a pull request listing this many cannot be known to change no other.</summary>
+    public const int MostPullRequestFiles = 3000;
+
+    /// <summary>
     /// What changed <paramref name="branch"/>, newest first. With <paramref name="since"/> null,
     /// the newest page alone, which is all a watch that has seen nothing needs, since it begins at
     /// the newest. Otherwise every change newer than the one whose id is <paramref name="since"/>,

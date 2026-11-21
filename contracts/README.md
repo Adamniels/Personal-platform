@@ -234,6 +234,13 @@ What handing out a conflict reads, for the slice "Resolving a conflict", read by
   `jq '{url, status, ahead_by, behind_by, total_commits, merge_base_commit: {sha: .merge_base_commit.sha}, commits: [.commits[0] | {sha}], files: [.files[0:3][] | del(.patch)]}'`,
   cut to one commit and its first three files without their patches. The adapter asks with
   `per_page=1`, since it reads no commit, and reads each file's `filename`.
+- `pull-files.json`, recorded on 2026 11 21 as the bot for the slice "Sometimes": `gh api
+  'repos/Adamniels/Personal-platform/pulls/286/files?per_page=100'`, the redesign's foundation,
+  piped through `jq '[.[0], (.[] | select(.status == "renamed")), (.[] | select(.status == "added"))][0:3] | map(del(.patch))'`,
+  cut to its first file, its one rename and its first added file, without their patches. GitHub
+  writes `previous_filename` only on a rename. The adapter asks with `per_page=100`, follows `Link`
+  to the end, and reads each file's `filename` and `previous_filename`, read by
+  `devflow/tests/DevFlow.Tests/GitHub/GitHubPullFilesTests.cs`.
 
 What bringing one branch into another answers, for the slice "Bringing main in, and the feature's
 pull request", read by `devflow/tests/DevFlow.Tests/GitHub/GitHubBranchMergeTests.cs`; see "The end

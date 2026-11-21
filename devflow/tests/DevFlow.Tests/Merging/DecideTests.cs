@@ -48,7 +48,10 @@ public sealed class DecideTests
         Found<IReadOnlyList<CheckRun>>([new CheckRun("test", CheckStatus.Completed, CheckConclusion.Success, "github-actions")]),
         Found<IReadOnlyList<Issue>>([CardIssue]),
         Found<IReadOnlyList<IssueEdit>>([]),
-        Found<IReadOnlyList<LabelEvent>>([new LabelEvent("devflow", LabelChange.Added, "octo-owner", Pushed.AddDays(-1))]));
+        Found<IReadOnlyList<LabelEvent>>([new LabelEvent("devflow", LabelChange.Added, "octo-owner", Pushed.AddDays(-1))]),
+        WaitConditions.Defaults,
+        DecisionForOwner: false,
+        Down<IReadOnlyList<ChangedFile>>());
 
     [Fact]
     public void EverythingHoldsAndItMergesTheHead() =>
@@ -155,7 +158,7 @@ public sealed class DecideTests
         "edited by a deleted account" => Good with { Edits = Found<IReadOnlyList<IssueEdit>>([new IssueEdit("UCE_1", "ghost", Pushed, EditKind.Body)]) },
         "changed with no history" => Good with { Labelled = Found<IReadOnlyList<Issue>>([CardIssue with { Body = "Something else." }]) },
         "always" => Good with { WaitsForOwner = "always" },
-        "a setting it does not know" => Good with { WaitsForOwner = "sometimes" },
+        "a setting it does not know" => Good with { WaitsForOwner = "Sometimes" },
         "statuses unread" => Good with { Statuses = Down<IReadOnlyList<CommitStatus>>() },
         "check runs unread" => Good with { CheckRuns = new CodeHostResult<IReadOnlyList<CheckRun>>.NotFound() },
         "check run failed" => Good with { CheckRuns = Found<IReadOnlyList<CheckRun>>([Run(CheckStatus.Completed, CheckConclusion.Success, "test"), Run(CheckStatus.Completed, CheckConclusion.Failure)]) },
@@ -367,5 +370,167 @@ public sealed class DecideTests
             "into the default branch" => GoodFeature with { PullRequest = Found(Pull with { BaseBranch = "main" }) },
             _ => throw new ArgumentOutOfRangeException(nameof(condition), condition, "not a condition"),
         };
+    }
+    /// <summary>Facts where every condition holds on <c>sometimes</c> with the three conditions
+    /// ticked and nothing holding: no review label, no listed path changed, no decision for the
+    /// owner.</summary>
+    private static readonly MergeFacts GoodSometimes = Good with
+    {
+        WaitsForOwner = "sometimes",
+        Conditions = WaitConditions.Defaults with { Paths = ["src/auth/**", "*.sql"] },
+        Files = Found<IReadOnlyList<ChangedFile>>([new ChangedFile("web/src/list.tsx", null), new ChangedFile("web/src/list.test.tsx", null)]),
+    };
+
+    private static MergeDecision.Wait Owners(string reason) => new(reason, TryAgain: false);
+
+    /// <summary>With the review condition ticked, a card carrying the review label waits for the
+    /// owner, whoever put it on; one a trusted account put on and only someone untrusted took off
+    /// still counts; taken off by a trusted account it merges, and with the condition not ticked a
+    /// labelled card merges.</summary>
+    [Fact]
+    public void SometimesWaitsForTheReviewLabel()
+    {
+        var labelled = GoodSometimes with { Labelled = Found<IReadOnlyList<Issue>>([CardIssue with { Labels = ["devflow", "DevFlow-Review"] }]) };
+        Assert.Equal(Owners("This card is marked for your review"), MergeCheck.Decide(labelled));
+
+        // Anyone may mark a card for the owner's review.
+        Assert.Equal(Owners(MergeCheck.Marked), MergeCheck.Decide(GoodSometimes with
+        {
+            Labelled = Found<IReadOnlyList<Issue>>([CardIssue with { Labels = ["devflow", "devflow-review"] }]),
+            LabelEvents = Events(Added("devflow", "octo-owner", 0), Added("devflow-review", "mallory", 1)),
+        }));
+
+        // Taken off by someone untrusted, it still counts.
+        Assert.Equal(Owners(MergeCheck.Marked), MergeCheck.Decide(GoodSometimes with
+        {
+            LabelEvents = Events(Added("devflow", "octo-owner", 0), Added("devflow-review", "octo-friend", 1), Removed("devflow-review", "mallory", 2)),
+        }));
+
+        // Taken off by a trusted account, it does not.
+        Assert.Equal(new MergeDecision.Merge(Head), MergeCheck.Decide(GoodSometimes with
+        {
+            LabelEvents = Events(Added("devflow", "octo-owner", 0), Added("devflow-review", "octo-friend", 1), Removed("devflow-review", "mallory", 2), Removed("devflow-review", "octo-owner", 3)),
+        }));
+
+        // The project's own name for it.
+        Assert.Equal(Owners(MergeCheck.Marked), MergeCheck.Decide(labelled with
+        {
+            Labelled = Found<IReadOnlyList<Issue>>([CardIssue with { Labels = ["devflow", "look at me"] }]),
+            Conditions = GoodSometimes.Conditions with { ReviewLabel = "Look at me" },
+        }));
+
+        // Not ticked, a labelled card merges.
+        Assert.Equal(new MergeDecision.Merge(Head), MergeCheck.Decide(labelled with { Conditions = GoodSometimes.Conditions with { WhenMarked = false } }));
+
+        // On never the label means nothing, and on always the card waits whatever it carries.
+        Assert.Equal(new MergeDecision.Merge(Head), MergeCheck.Decide(labelled with { WaitsForOwner = "never" }));
+        Assert.Equal(Owners(MergeCheck.Always), MergeCheck.Decide(labelled with { WaitsForOwner = "always" }));
+    }
+
+    /// <summary>A card of a feature whose parent carries the review label waits, as does one
+    /// carrying it itself; a parent's label taken off by someone untrusted still counts.</summary>
+    [Fact]
+    public void SometimesWaitsForTheParentsReviewLabel()
+    {
+        var feature = GoodFeature with { WaitsForOwner = "sometimes", Conditions = GoodSometimes.Conditions, Files = GoodSometimes.Files };
+        Assert.Equal(new MergeDecision.Merge(Head), MergeCheck.Decide(feature));
+
+        Assert.Equal(
+            Owners("Its feature, #10, is marked for your review"),
+            MergeCheck.Decide(feature with { Labelled = Found<IReadOnlyList<Issue>>([ParentIssue with { Labels = ["devflow", "devflow-review"] }]) }));
+        Assert.Equal(Owners(MergeCheck.FeatureMarked(10)), MergeCheck.Decide(feature with
+        {
+            Feature = feature.Feature! with
+            {
+                LabelEvents = Events(Added("devflow", "octo-owner", 0), Added("devflow-review", "octo-owner", 1), Removed("devflow-review", "mallory", 2)),
+            },
+        }));
+
+        // A card's own label inside a feature counts too.
+        Assert.Equal(Owners(MergeCheck.Marked), MergeCheck.Decide(feature with
+        {
+            Feature = feature.Feature! with { SubIssues = Found<IReadOnlyList<SubIssue>>([CardSub with { Labels = ["devflow-review"] }]) },
+        }));
+
+        // Not ticked, it merges into the feature's branch.
+        Assert.Equal(new MergeDecision.Merge(Head), MergeCheck.Decide(feature with
+        {
+            Labelled = Found<IReadOnlyList<Issue>>([ParentIssue with { Labels = ["devflow", "devflow-review"] }]),
+            Conditions = GoodSometimes.Conditions with { WhenMarked = false },
+        }));
+    }
+
+    /// <summary>A change touching a listed path waits, naming the path and the pattern; a rename
+    /// is matched by its new and its old name; a pull request whose files are at GitHub's limit is
+    /// the owner's, and one whose files could not be read is tried again.</summary>
+    [Fact]
+    public void SometimesWaitsForAListedPath()
+    {
+        Assert.Equal(
+            Owners("It changes src/auth/login.rs, which matches src/auth/** on this project's list of paths"),
+            MergeCheck.Decide(GoodSometimes with { Files = Found<IReadOnlyList<ChangedFile>>([new ChangedFile("web/src/list.tsx", null), new ChangedFile("src/auth/login.rs", null)]) }));
+        Assert.Equal(
+            Owners(MergeCheck.PathListed("schema.sql", "*.sql")),
+            MergeCheck.Decide(GoodSometimes with { Files = Found<IReadOnlyList<ChangedFile>>([new ChangedFile("schema.sql", null)]) }));
+
+        // A rename, by either name.
+        Assert.Equal(
+            Owners(MergeCheck.PathListed("src/auth/old.rs", "src/auth/**")),
+            MergeCheck.Decide(GoodSometimes with { Files = Found<IReadOnlyList<ChangedFile>>([new ChangedFile("lib/old.rs", "src/auth/old.rs")]) }));
+        Assert.Equal(
+            Owners(MergeCheck.PathListed("src/auth/new.rs", "src/auth/**")),
+            MergeCheck.Decide(GoodSometimes with { Files = Found<IReadOnlyList<ChangedFile>>([new ChangedFile("src/auth/new.rs", "lib/new.rs")]) }));
+
+        // Files that cannot all be judged: at GitHub's limit, the owner's; not read, tried again.
+        var limit = Enumerable.Range(0, ICodeHost.MostPullRequestFiles).Select(index => new ChangedFile(FormattableString.Invariant($"web/{index}.ts"), null)).ToList();
+        Assert.Equal(Owners("Too many files to check the paths"), MergeCheck.Decide(GoodSometimes with { Files = Found<IReadOnlyList<ChangedFile>>(limit) }));
+        Assert.Equal(new MergeDecision.Merge(Head), MergeCheck.Decide(GoodSometimes with { Files = Found<IReadOnlyList<ChangedFile>>(limit[..^1]) }));
+        Assert.Equal(
+            new MergeDecision.Wait(MergeCheck.CouldNotRead("the files of its pull request"), TryAgain: true),
+            MergeCheck.Decide(GoodSometimes with { Files = Down<IReadOnlyList<ChangedFile>>() }));
+        Assert.Equal(
+            new MergeDecision.Wait(MergeCheck.CouldNotRead("the files of its pull request"), TryAgain: true),
+            MergeCheck.Decide(GoodSometimes with { Files = new CodeHostResult<IReadOnlyList<ChangedFile>>.NotFound() }));
+
+        // Not ticked, a listed path merges, with nothing read.
+        Assert.Equal(new MergeDecision.Merge(Head), MergeCheck.Decide(GoodSometimes with
+        {
+            Conditions = GoodSometimes.Conditions with { WhenPaths = false },
+            Files = Down<IReadOnlyList<ChangedFile>>(),
+        }));
+    }
+
+    /// <summary>With the decision condition ticked, a card whose build or fix reports marked a
+    /// decision for the owner waits; not ticked, it merges, and its attention issue is opened as
+    /// with never, see OwnerDecisionTests.</summary>
+    [Fact]
+    public void SometimesWaitsForADecision()
+    {
+        Assert.Equal(Owners("The agent made a decision for you"), MergeCheck.Decide(GoodSometimes with { DecisionForOwner = true }));
+        Assert.Equal(new MergeDecision.Merge(Head), MergeCheck.Decide(GoodSometimes with
+        {
+            DecisionForOwner = true,
+            Conditions = GoodSometimes.Conditions with { WhenDecision = false },
+        }));
+    }
+
+    /// <summary>With nothing holding it merges as with never: every condition ticked and none
+    /// holding, none ticked, and a list of paths that is empty, which needs no files read.</summary>
+    [Fact]
+    public void SometimesMergesWhenNothingHolds()
+    {
+        Assert.Equal(new MergeDecision.Merge(Head), MergeCheck.Decide(GoodSometimes));
+        Assert.Equal(new MergeDecision.Merge(Head), MergeCheck.Decide(GoodSometimes with
+        {
+            Conditions = WaitConditions.Defaults,
+            Files = Down<IReadOnlyList<ChangedFile>>(),
+        }));
+
+        // The other conditions still decide first: an unapproved card is not merged, and CI still
+        // running is waited for.
+        Assert.Equal(Owners(MergeCheck.NotApproved), MergeCheck.Decide(GoodSometimes with { Review = null }));
+        Assert.Equal(
+            new MergeDecision.Wait(MergeCheck.CiRunning, TryAgain: true),
+            MergeCheck.Decide(GoodSometimes with { CheckRuns = Found<IReadOnlyList<CheckRun>>([Run(CheckStatus.InProgress, null)]) }));
     }
 }

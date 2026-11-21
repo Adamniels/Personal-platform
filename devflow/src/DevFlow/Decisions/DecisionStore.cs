@@ -30,6 +30,51 @@ public sealed record UnopenedDecision(
 public static class DecisionStore
 {
     /// <summary>
+    /// The decisions marked <c>for_owner</c>, with something chosen, in the reports of the builds
+    /// and fixes that succeeded of the card numbered <paramref name="card"/> in the project
+    /// <paramref name="project"/>, both SQL expressions of the caller's: a <c>FROM</c> and
+    /// <c>WHERE</c> over <c>runs r</c> and each decision <c>d</c>, with its place in its report as
+    /// <c>d.ordinality</c>. The one rule for what is a decision for the owner, which recording them
+    /// and the merge check of "sometimes" both read, so the two cannot drift apart.
+    /// </summary>
+    public static string MarkedFrom(string project, string card) =>
+        $"""
+        FROM runs r
+        CROSS JOIN LATERAL jsonb_array_elements(
+            CASE WHEN jsonb_typeof(r.report->'decisions') = 'array' THEN r.report->'decisions' ELSE '[]'::jsonb END
+        ) WITH ORDINALITY d
+        WHERE r.project_id = {project} AND r.card_number = {card} AND r.kind IN ('build', 'fix') AND r.result = 'succeeded'
+          AND jsonb_typeof(d.value) = 'object' AND d.value->'for_owner' = 'true'::jsonb
+          AND btrim(coalesce(d.value->>'chosen', '')) <> ''
+        """;
+
+    /// <summary>
+    /// A query of the decisions for the owner of the card numbered <paramref name="card"/> in the
+    /// project <paramref name="project"/>, both SQL expressions of the caller's, as
+    /// <see cref="MarkedFrom"/> finds them: once each by what was chosen, whatever its case and
+    /// surrounding space, with the newest run's words, <c>chosen</c>, <c>alternative</c> and
+    /// <c>why</c>, and where it first appeared, <c>first_at</c>, <c>first_run</c> and
+    /// <c>first_place</c>, to order them by. Recording them with a merge and listing a waiting
+    /// card's read the same, so the decisions a card waits for are the ones it shows.
+    /// </summary>
+    public static string ForOwnerSql(string project, string card) =>
+        $"""
+        WITH marked AS (
+            SELECT btrim(d.value->>'chosen') AS chosen, btrim(coalesce(d.value->>'alternative', '')) AS alternative,
+                   btrim(coalesce(d.value->>'why', '')) AS why, r.started_at, r.id AS run_id, d.ordinality
+            {MarkedFrom(project, card)}
+        ), newest AS (
+            SELECT DISTINCT ON (lower(chosen)) chosen, alternative, why FROM marked
+            ORDER BY lower(chosen), started_at DESC, run_id DESC, ordinality
+        ), first AS (
+            SELECT DISTINCT ON (lower(chosen)) lower(chosen) AS name, started_at, run_id, ordinality FROM marked
+            ORDER BY lower(chosen), started_at, run_id, ordinality
+        )
+        SELECT n.chosen, n.alternative, n.why, f.started_at AS first_at, f.run_id AS first_run, f.ordinality AS first_place
+        FROM newest n JOIN first f ON f.name = lower(n.chosen)
+        """;
+
+    /// <summary>
     /// Records, inside the merge's <paramref name="transaction"/>, each decision marked
     /// <c>for_owner</c> in the reports of the card's builds and fixes that succeeded, once each by
     /// what was chosen, whatever its case and surrounding space, the newest run's words winning and
@@ -43,24 +88,8 @@ public static class DecisionStore
     {
         ArgumentNullException.ThrowIfNull(transaction);
         var decisions = await transaction.Connection!.QueryAsync<RecordedRow>(new CommandDefinition(
-            """
-            WITH marked AS (
-                SELECT btrim(d.value->>'chosen') AS chosen, btrim(coalesce(d.value->>'alternative', '')) AS alternative,
-                       btrim(coalesce(d.value->>'why', '')) AS why, r.started_at, r.id AS run_id, d.ordinality
-                FROM runs r
-                CROSS JOIN LATERAL jsonb_array_elements(
-                    CASE WHEN jsonb_typeof(r.report->'decisions') = 'array' THEN r.report->'decisions' ELSE '[]'::jsonb END
-                ) WITH ORDINALITY d
-                WHERE r.project_id = @projectId AND r.card_number = @card AND r.kind IN ('build', 'fix') AND r.result = 'succeeded'
-                  AND jsonb_typeof(d.value) = 'object' AND d.value->'for_owner' = 'true'::jsonb
-                  AND btrim(coalesce(d.value->>'chosen', '')) <> ''
-            ), newest AS (
-                SELECT DISTINCT ON (lower(chosen)) chosen, alternative, why FROM marked
-                ORDER BY lower(chosen), started_at DESC, run_id DESC, ordinality
-            ), first AS (
-                SELECT DISTINCT ON (lower(chosen)) lower(chosen) AS name, started_at, run_id, ordinality FROM marked
-                ORDER BY lower(chosen), started_at, run_id, ordinality
-            ), views AS (
+            $"""
+            WITH views AS (
                 SELECT lower(btrim(v.value->>'decision')) AS name, btrim(v.value->>'view') AS view
                 FROM (SELECT for_owner FROM reviews
                       WHERE project_id = @projectId AND card_number = @card AND reviewed_commit = @commit AND verdict = 'approve'
@@ -68,10 +97,10 @@ public static class DecisionStore
                 CROSS JOIN LATERAL jsonb_array_elements(approved.for_owner) v
                 WHERE jsonb_typeof(v.value) = 'object'
             )
-            SELECT n.chosen AS Chosen, n.alternative AS Alternative, n.why AS Why,
-                   (SELECT nullif(view, '') FROM views WHERE views.name = lower(n.chosen) LIMIT 1) AS ReviewerView
-            FROM newest n JOIN first f ON f.name = lower(n.chosen)
-            ORDER BY f.started_at, f.run_id, f.ordinality
+            SELECT o.chosen AS Chosen, o.alternative AS Alternative, o.why AS Why,
+                   (SELECT nullif(view, '') FROM views WHERE views.name = lower(o.chosen) LIMIT 1) AS ReviewerView
+            FROM ({ForOwnerSql("@projectId", "@card")}) o
+            ORDER BY o.first_at, o.first_run, o.first_place
             """,
             new { projectId, card, commit },
             transaction,
