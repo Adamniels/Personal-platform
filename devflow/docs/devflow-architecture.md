@@ -1097,8 +1097,54 @@ decisions open no attention issue. Keeping it in Dev flow also keeps it out of w
 comment on the card would be text a later brief could quote. An answer is kept as first given, and
 only a decision the page can show is answered, marked for the owner in the card's latest report; one
 from an older report is refused as `409`, so a page read before a newer run is read again rather than
-answering what the card no longer says. "Send back", the other answer, arrives with "Sending a card
-back", and the confirmation of "Merging a feature into main" counts the decisions not answered.
+answering what the card no longer says. "Send back", the other answer, is below, and the
+confirmation of "Merging a feature into main" counts the decisions not answered.
+
+#### Sending a card back
+
+A card that has landed in its feature's branch is sent back from the feature's page with a comment,
+one action, and the program opens it again and queues it, as the spec's round 2 has it in "Work is
+sent back in three ways, which are one mechanism"; reopening it on GitHub with a comment does the
+same, round 4's "The page can do everything". The routes, the read and the columns are "Send back"
+under "A feature's page" in `devflow/README.md`.
+
+**The comment is the send back, and the only input read.** The page posts the owner's comment on
+the card's issue as him, and the next read takes it, as every comment of his that starts work is
+taken, see "Fixing": the page never moves the card itself, so a comment written on GitHub and one
+posted from the page are one path, and the comment on GitHub is the record of why the card came
+back. An issue opened again, by him or by anyone, and anyone else's comment, queue nothing: opening
+says nothing about what to change, and a stranger's words are never an input. The page says why
+instead, so a reopened card that sits still is not a mystery. A decision sent back is the same
+comment with the decision quoted above his words, so the agent reads what he is answering; the
+answer `sent_back` is kept only once the comment is posted, so a refused comment leaves the decision
+open.
+
+**Only a landed card of an open feature.** Before it lands, a card is sent back on its own pull
+request, as "Fixing" has it; once its feature is merged or closed, there is no feature branch to
+build on. One SQL expression decides it, so the page's button, the routes' refusals and the read
+cannot disagree about which card it is.
+
+**Its issue is opened again by the app, on the minute.** The app closed it when the card landed, so
+the app opens it again: the parent then shows the card as not done, and the merge check, which lands
+only an open sub-issue of its feature, can land it again. The read cannot do it, since the reading
+code never holds a write key, so `LandedCards`, which closes it, opens it too, once per send back,
+and the read keeps the card meanwhile even while its issue is still closed.
+
+**A new branch, never the one that merged.** A sent back card is built on
+`devflow/<number>-<slug>-<k>`, from the feature's branch at its head, rather than on its old branch. The old
+branch merged: building on it again would start from a commit behind the feature's branch, missing
+every later card, and the new pull request would carry the old commits again, or need a rebase or a
+force push, which a worker never does. A branch from the feature's head starts from everything the
+feature holds now, the card's own earlier work among it, so the agent changes what the owner asks
+on top of it and the pull request shows only that change. Counting the send backs into the name
+keeps every branch name used once, so GitHub never reuses a merged branch's pull request and a
+lost push can never land on a branch that already merged.
+
+**The brief says what was built.** The agent is told the card landed in pull request #<n>, gets the
+report it landed with, whose handover note is for it, and the owner's comment fenced as his input,
+as the fix brief carries them. Its rounds and failures start afresh, since this is new work on the
+card, and the feature goes back to building, its pull request open, so its end, its review as a
+whole and its readiness run again once the card lands again.
 
 ## The end of a feature
 

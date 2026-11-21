@@ -201,7 +201,8 @@ public sealed partial class Dispatcher(
             new BriefCard(claimed.Number, claimed.Title, claimed.Body),
             new BriefFacts(facts.Check, claimed.Branch, claimed.Base, claimed.RunId, facts.Start, facts.Url),
             claimed.Comments,
-            claimed.Feature);
+            claimed.Feature,
+            claimed.SentBack);
         return new Job(
             claimed.RunId,
             Job.Build,

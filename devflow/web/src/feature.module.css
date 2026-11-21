@@ -18,3 +18,10 @@
 	font-weight: 600;
 	overflow-wrap: anywhere;
 }
+
+/* A decision's answers side by side, wrapping at phone width. */
+.actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-2);
+}

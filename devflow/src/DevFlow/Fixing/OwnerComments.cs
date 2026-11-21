@@ -3,6 +3,7 @@ using System.Text.Json;
 using Dapper;
 
 using DevFlow.CodeHost;
+using DevFlow.Features;
 using DevFlow.Jobs;
 
 using Npgsql;
@@ -11,21 +12,27 @@ using PlatformData;
 
 namespace DevFlow.Fixing;
 
-/// <summary>A card whose pull request, or, stopped, whose issue, is read for the owner's comments:
-/// its number, its pull request, the newest of his comments already taken, and when it stopped.</summary>
-/// <param name="PullRequest">Its pull request, null for a stopped card that has none.</param>
+/// <summary>A card whose pull request, or, stopped or landed, whose issue, is read for the owner's
+/// comments: its number, its pull request, the newest of his comments already taken, and when it
+/// stopped or last ran.</summary>
+/// <param name="PullRequest">Its pull request, null for a stopped card that has none; for a landed
+/// card, the one it landed in, which is not read.</param>
 /// <param name="ReadThrough">The id of the newest of his comments taken, null before any was.</param>
 /// <param name="StoppedAt">When it stopped, for a stopped card, whose comments count only when
 /// newer; null otherwise.</param>
-public sealed record CommentableCard(int Number, int? PullRequest, long? ReadThrough, DateTimeOffset? StoppedAt = null);
+/// <param name="LandedAt">For a card landed in an open feature's branch, which his comment on its
+/// issue sends back, when its last run ended, or it last changed without one: only a comment newer
+/// counts. Null for any other card.</param>
+public sealed record CommentableCard(int Number, int? PullRequest, long? ReadThrough, DateTimeOffset? StoppedAt = null, DateTimeOffset? LandedAt = null);
 
-/// <summary>The owner's new comments on a card's pull request, or a stopped card's issue, oldest
-/// first, as a read found them, to be taken in its transaction.</summary>
+/// <summary>The owner's new comments on a card's pull request, or a stopped or landed card's issue,
+/// oldest first, as a read found them, to be taken in its transaction.</summary>
 /// <param name="PullRequest">The card's open pull request, null for a stopped card without one, which
-/// is built again.</param>
+/// is built again, and for a landed card.</param>
 /// <param name="Bodies">Each comment, exactly as he wrote it.</param>
 /// <param name="Through">The id of the newest of them.</param>
-public sealed record TakenComments(int Card, int? PullRequest, IReadOnlyList<string> Bodies, long Through);
+/// <param name="SentBack">Whether they are on a landed card's issue, and send it back.</param>
+public sealed record TakenComments(int Card, int? PullRequest, IReadOnlyList<string> Bodies, long Through, bool SentBack = false);
 
 /// <summary>
 /// The owner's comment on a card's open pull request, the one input Dev flow reads from GitHub: one
@@ -48,33 +55,42 @@ public static class OwnerComments
     public const string RanAgain = "You commented on it; it runs again next";
 
     /// <summary>The project's cards with no run under way, in a state whose pull request is read for
-    /// his comments, with one, or stopped, with or without one, read as the project's user.</summary>
+    /// his comments, with one, or stopped, with or without one, or landed in an open feature's
+    /// branch, by <see cref="SendingBack.Sendable"/>, read as the project's user.</summary>
     public static async Task<IReadOnlyList<CommentableCard>> Cards(UserDb database, Guid userId, Guid projectId, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(database);
         var rows = await database.InUserTransaction(userId, transaction => transaction.Connection!.QueryAsync<Row>(new CommandDefinition(
-            """
-            SELECT c.number AS Number, c.pull_request_number AS PullRequest, c.comments_read_through AS ReadThrough,
+            $"""
+            SELECT cards.number AS Number, cards.pull_request_number AS PullRequest, cards.comments_read_through AS ReadThrough,
                    -- A card stopped before stops were recorded counts from its last change.
-                   CASE WHEN c.state = 'stopped' THEN coalesce(c.stopped_at, c.changed_at) END AS StoppedAt
-            FROM cards c
-            WHERE c.project_id = @projectId AND c.state = ANY(@readable) AND (c.pull_request_number IS NOT NULL OR c.state = 'stopped')
-              AND NOT EXISTS (SELECT 1 FROM runs r WHERE r.project_id = c.project_id AND r.card_number = c.number AND r.finished_at IS NULL)
-            ORDER BY c.number
+                   CASE WHEN cards.state = 'stopped' THEN coalesce(cards.stopped_at, cards.changed_at) END AS StoppedAt,
+                   -- A landed card counts from its last run's end, or its last change without one.
+                   CASE WHEN {SendingBack.Sendable}
+                        THEN coalesce((SELECT max(r.finished_at) FROM runs r WHERE r.project_id = cards.project_id AND r.card_number = cards.number),
+                                      cards.changed_at) END AS LandedAt
+            FROM cards
+            WHERE cards.project_id = @projectId
+              AND ((cards.state = ANY(@readable) AND (cards.pull_request_number IS NOT NULL OR cards.state = 'stopped')) OR {SendingBack.Sendable})
+              AND NOT EXISTS (SELECT 1 FROM runs r WHERE r.project_id = cards.project_id AND r.card_number = cards.number AND r.finished_at IS NULL)
+            ORDER BY cards.number
             """,
             new { projectId, readable = Readable },
             transaction,
             cancellationToken: cancellationToken)), cancellationToken);
-        return [.. rows.Select(row => new CommentableCard(row.Number, row.PullRequest, row.ReadThrough, row.StoppedAt is { } at ? new DateTimeOffset(at, TimeSpan.Zero) : null))];
+        return [.. rows.Select(row => new CommentableCard(row.Number, row.PullRequest, row.ReadThrough, Utc(row.StoppedAt), Utc(row.LandedAt)))];
     }
 
-    private sealed record Row(int Number, int? PullRequest, long? ReadThrough, DateTime? StoppedAt);
+    private static DateTimeOffset? Utc(DateTime? at) => at is { } value ? new DateTimeOffset(value, TimeSpan.Zero) : null;
+
+    private sealed record Row(int Number, int? PullRequest, long? ReadThrough, DateTime? StoppedAt, DateTime? LandedAt);
 
     /// <summary>The owner's new comments among <paramref name="comments"/>, oldest first, or null
     /// when there are none: by <paramref name="owner"/>, his linked login, as GitHub compares logins,
-    /// whatever the case, new for <paramref name="card"/>, and, for a stopped card, written after it
-    /// stopped. They are for <paramref name="pullRequest"/>, the card's pull request while it is
-    /// open, or null.</summary>
+    /// whatever the case, new for <paramref name="card"/>, for a stopped card written after it
+    /// stopped, and for a landed card after its last run. They are for
+    /// <paramref name="pullRequest"/>, the card's pull request while it is open, or null; a landed
+    /// card's send it back.</summary>
     public static TakenComments? New(CommentableCard card, IReadOnlyList<Comment> comments, string owner, int? pullRequest)
     {
         ArgumentNullException.ThrowIfNull(card);
@@ -84,10 +100,13 @@ public static class OwnerComments
             .Where(comment => string.Equals(comment.Author, owner, StringComparison.OrdinalIgnoreCase))
             .Where(comment => card.ReadThrough is not { } through || comment.Id > through)
             .Where(comment => card.StoppedAt is not { } stopped || comment.CreatedAt > stopped)
+            .Where(comment => card.LandedAt is not { } landed || comment.CreatedAt > landed)
             .DistinctBy(comment => comment.Id)
             .OrderBy(comment => comment.Id)
             .ToList();
-        return taken.Count == 0 ? null : new TakenComments(card.Number, pullRequest, [.. taken.Select(comment => comment.Body)], taken[^1].Id);
+        return taken.Count == 0
+            ? null
+            : new TakenComments(card.Number, card.LandedAt is null ? pullRequest : null, [.. taken.Select(comment => comment.Body)], taken[^1].Id, card.LandedAt is not null);
     }
 
     /// <summary>
@@ -115,6 +134,30 @@ public static class OwnerComments
             new { projectId, card = comments.Card },
             transaction,
             cancellationToken: cancellationToken));
+        if (comments.SentBack)
+        {
+            // A card landed in an open feature's branch is sent back: queued with his comments as
+            // its input, to be built on a new branch from the feature's branch, the pull request it
+            // landed in kept for its brief, its rounds and failures afresh. The app opens its issue
+            // again on the minute, see LandedCards.
+            await transaction.Connection!.ExecuteAsync(new CommandDefinition(
+                $"""
+                UPDATE cards SET
+                    state = 'queued', reason = @queued, fix_round = NULL, fix_review_id = NULL, fix_comments = NULL,
+                    sent_backs = sent_backs + 1, sent_back_from = pull_request_number, sent_back_from_url = pull_request_url,
+                    sent_back_comments = @bodies::jsonb,
+                    fix_rounds = 0, in_card_failures = 0, failed_at_commit = NULL, pull_request_number = NULL, pull_request_url = NULL,
+                    comments_read_through = @through, changed_at = @now
+                WHERE project_id = @projectId AND number = @card AND {SendingBack.Sendable}
+                  AND (comments_read_through IS NULL OR comments_read_through < @through)
+                  AND NOT EXISTS (SELECT 1 FROM runs r WHERE r.project_id = cards.project_id AND r.card_number = cards.number AND r.finished_at IS NULL)
+                """,
+                new { projectId, card = comments.Card, bodies = JsonSerializer.Serialize(comments.Bodies), through = comments.Through, queued = SendingBack.Queued, now },
+                transaction,
+                cancellationToken: cancellationToken));
+            return;
+        }
+
         if (comments.PullRequest is null)
         {
             // A stopped card without an open pull request is built again, on its branch, with his

@@ -20,6 +20,11 @@ namespace DevFlow.Merging;
 /// answer that was lost never posts it twice. Nothing is held while the code host answers, and what
 /// it did not answer for is tried again on the next minute. It writes, so it lives outside
 /// <c>Reading/</c>, which can never reach a write key. See "The merge check" in devflow/README.md.
+///
+/// It also undoes the close when the owner sends a landed card back: the read takes his comment
+/// and queues the card, and here the app opens its issue again, once per send back, so the card is
+/// an open sub-issue of its feature while it is built again, as the merge check needs, and is
+/// closed again once it lands. See "Sending a card back" in devflow/README.md.
 /// </summary>
 public sealed partial class LandedCards(UserDb database, ICodeHost host, ILogger<LandedCards> log)
 {
@@ -35,6 +40,7 @@ public sealed partial class LandedCards(UserDb database, ICodeHost host, ILogger
     /// </summary>
     public async Task TellPending(Guid projectId, Guid userId, CancellationToken cancellationToken)
     {
+        await OpenSentBack(projectId, userId, cancellationToken);
         var (repository, pending) = await Pending(projectId, userId, cancellationToken);
         if (repository is null || pending.Count == 0)
         {
@@ -81,6 +87,73 @@ public sealed partial class LandedCards(UserDb database, ICodeHost host, ILogger
             }
         }
     }
+
+    /// <summary>
+    /// Opens again, as the app with a <see cref="WritePurpose.Post"/> key, the issue of every card
+    /// sent back since its issue was last opened, whatever its state now, and records the send back
+    /// it opened it for, while the card still has that count. Opening an issue that is open already
+    /// changes nothing on GitHub, so the owner reopening it himself costs one write. What the code
+    /// host did not answer for, or refused, is tried again on the next minute. Never throws for what
+    /// the code host answers or for one card's failure.
+    /// </summary>
+    private async Task OpenSentBack(Guid projectId, Guid userId, CancellationToken cancellationToken)
+    {
+        var (repository, pending) = await SentBack(projectId, userId, cancellationToken);
+        if (repository is null || pending.Count == 0)
+        {
+            return;
+        }
+
+        if (await host.ForWrite(userId, repository, WritePurpose.Post, cancellationToken) is not CodeHostResult<AppWriteToken>.Found { Value: var key })
+        {
+            LogNotNow(log, projectId, "a key to open issues with");
+            return;
+        }
+
+        foreach (var (number, times) in pending)
+        {
+            try
+            {
+                if (Written(await host.SetIssueState(userId, key, repository, number, open: true, cancellationToken), projectId, number, "opening the issue again"))
+                {
+                    await database.InUserTransaction(userId, transaction => transaction.Connection!.ExecuteAsync(new CommandDefinition(
+                        "UPDATE cards SET reopened_for = @times WHERE project_id = @projectId AND number = @number AND sent_backs = @times",
+                        new { projectId, number, times },
+                        transaction,
+                        cancellationToken: cancellationToken)), cancellationToken);
+                    LogOpened(log, projectId, number);
+                }
+            }
+            catch (Exception error) when (error is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+            {
+                LogFailed(log, projectId, number, error);
+            }
+        }
+    }
+
+    /// <summary>The project's repository and its cards sent back since their issue was last opened,
+    /// each with how many times it was sent back, read as the user; no repository when there are
+    /// none.</summary>
+    private async Task<(Repository? Repository, IReadOnlyList<(int Number, int Times)> Pending)> SentBack(Guid projectId, Guid userId, CancellationToken cancellationToken) =>
+        await database.InUserTransaction<(Repository?, IReadOnlyList<(int, int)>)>(userId, async transaction =>
+        {
+            var pending = (await transaction.Connection!.QueryAsync<(int, int)>(new CommandDefinition(
+                "SELECT number, sent_backs FROM cards WHERE project_id = @projectId AND sent_backs > coalesce(reopened_for, 0) ORDER BY number",
+                new { projectId },
+                transaction,
+                cancellationToken: cancellationToken))).ToList();
+            if (pending.Count == 0)
+            {
+                return (null, []);
+            }
+
+            var project = await transaction.Connection!.QuerySingleOrDefaultAsync<ProjectRow>(new CommandDefinition(
+                "SELECT installation_id AS Installation, repository_id AS RepositoryId, owner AS Owner, name AS Name FROM projects WHERE id = @projectId",
+                new { projectId },
+                transaction,
+                cancellationToken: cancellationToken));
+            return (project is null ? null : new Repository(project.Installation, project.RepositoryId, project.Owner, project.Name), pending);
+        }, cancellationToken);
 
     /// <summary>The comment once, then the issue closed; told when both are on the issue.</summary>
     private async Task Tell(Guid projectId, Guid userId, Repository repository, string app, AppWriteToken key, Landed card, CancellationToken cancellationToken)
@@ -170,6 +243,9 @@ public sealed partial class LandedCards(UserDb database, ICodeHost host, ILogger
                 cancellationToken: cancellationToken));
             return (project is null ? null : new Repository(project.Installation, project.RepositoryId, project.Owner, project.Name), pending);
         }, cancellationToken);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Opened the issue of card {Card} of project {Project} again, sent back")]
+    private static partial void LogOpened(ILogger logger, Guid project, int card);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Closed the issue of card {Card} of project {Project}, landed in {Branch}")]
     private static partial void LogTold(ILogger logger, Guid project, int card, string branch);

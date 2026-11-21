@@ -2,7 +2,7 @@
 
 Status: exploratory. The walking skeleton is being built.
 
-Last updated: 2026 11 20
+Last updated: 2026 11 21
 
 These are planning notes, not specifications. Everything here is the current best idea with the
 reasoning attached, and it is expected to change as building teaches things planning could not.
@@ -123,7 +123,8 @@ features" in `High-level/docs/platform-architecture.md`.
   means, a project's worker key, the worker scheme and the worker API with their routes and
   tables, the pull request Dev flow opens for a built card, with its body, the screenshots the worker
   takes of a built card's pages, with `start`, `url` and `DEVFLOW=1`, and the developer's own look at
-  its pages before it reports, a card's page, and
+  its pages before it reports, a card's page, a feature's page with sending a landed card back
+  from it, and
   fixing, with its rounds, the owner's comment as the one input read and sending a card back, the
   merge check, with its conditions in order, merging as the app and the issues for decisions marked
   for the owner, a feature's card checked through its parent and its issue closed by the app once it
@@ -163,7 +164,8 @@ features" in `High-level/docs/platform-architecture.md`.
   lies and when a run is lost, the worker's pictures and why they never decide a merge, why the developer looks at its own pages too, the review and why its verdict lives in the database tied to its
   commit, fixing, why rounds are limited and why the owner's comment is the one input read from
   GitHub, the merge check, each condition and why it fails closed, a card of a feature, why the app
-  closes its issue and why its decisions open no issue, the end of a feature, with why it is a merge
+  closes its issue and why its decisions open no issue, sending a card back, with why only his
+  comment sends it back and why it gets a new branch, the end of a feature, with why it is a merge
   and never a rebase, why its pull request is opened at the end, not as a draft as the spec has it,
   and why the default branch is kept in a feature that waits, a conflict, with a run for a feature,
   why the files in conflict are those both sides changed, why the worker accepts exactly one merge

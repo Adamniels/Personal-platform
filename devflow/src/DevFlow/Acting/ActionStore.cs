@@ -34,6 +34,9 @@ public sealed record ActionTarget(
 /// <param name="HeadCommit">The commit its newest build or fix that succeeded checked, null
 /// without one.</param>
 /// <param name="Stopped">Whether the project is stopped, by what landed on its default branch.</param>
+/// <param name="Sendable">Whether it is a card of a feature that landed in the feature's branch, of a
+/// feature neither merged nor closed, which is sent back on its issue, by
+/// <see cref="Features.SendingBack.Sendable"/>.</param>
 public sealed record CardTarget(
     Guid ProjectId,
     long Installation,
@@ -45,7 +48,8 @@ public sealed record CardTarget(
     string? Reason,
     int? PullRequestNumber,
     string? HeadCommit,
-    bool Stopped)
+    bool Stopped,
+    bool Sendable)
 {
     /// <summary>The repository, as the code host is asked for it.</summary>
     public Repository Repository => new(Installation, RepositoryId, Owner, Name);
@@ -95,15 +99,17 @@ public sealed class ActionStore(UserDb database)
     /// such project or card.</summary>
     public async Task<CardTarget?> FindCard(Guid userId, Guid projectId, int number, CancellationToken cancellationToken) =>
         await database.InUserTransaction(userId, transaction => transaction.Connection!.QuerySingleOrDefaultAsync<CardTarget>(new CommandDefinition(
-            """
+            $"""
             SELECT p.id AS ProjectId, p.installation_id AS Installation, p.repository_id AS RepositoryId, p.owner AS Owner,
-                   p.name AS Name, c.number AS Number, c.state AS State, c.reason AS Reason, c.pull_request_number AS PullRequestNumber,
-                   (SELECT r.head_commit FROM runs r WHERE r.project_id = c.project_id AND r.card_number = c.number
+                   p.name AS Name, cards.number AS Number, cards.state AS State, cards.reason AS Reason,
+                   cards.pull_request_number AS PullRequestNumber,
+                   (SELECT r.head_commit FROM runs r WHERE r.project_id = cards.project_id AND r.card_number = cards.number
                       AND r.kind IN ('build', 'fix') AND r.result = 'succeeded'
                     ORDER BY r.started_at DESC, r.id DESC LIMIT 1) AS HeadCommit,
-                   EXISTS (SELECT 1 FROM project_stops s WHERE s.project_id = p.id) AS Stopped
-            FROM cards c JOIN projects p ON p.id = c.project_id
-            WHERE p.id = @projectId AND c.number = @number
+                   EXISTS (SELECT 1 FROM project_stops s WHERE s.project_id = p.id) AS Stopped,
+                   {Features.SendingBack.Sendable} AS Sendable
+            FROM cards JOIN projects p ON p.id = cards.project_id
+            WHERE p.id = @projectId AND cards.number = @number
             """,
             new { projectId, number },
             transaction,

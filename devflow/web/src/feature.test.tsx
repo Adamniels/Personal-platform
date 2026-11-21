@@ -7,6 +7,7 @@ import {
 	within,
 } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
+import { ApiError } from "./api/client";
 import { App } from "./app";
 import type { DecisionAnswer, FeatureApi, FeatureStory } from "./feature";
 import { checkout, NOT_ANSWERED } from "./feature";
@@ -55,6 +56,8 @@ function story(overrides: Partial<FeatureStory> = {}): FeatureStory {
 						answer: null,
 					},
 				],
+				can_send_back: true,
+				sent_back: null,
 			},
 			{
 				number: 40,
@@ -67,6 +70,8 @@ function story(overrides: Partial<FeatureStory> = {}): FeatureStory {
 				output_tokens: 0,
 				screenshots: null,
 				decisions: [],
+				can_send_back: false,
+				sent_back: null,
 			},
 		],
 		runs: [],
@@ -96,6 +101,8 @@ function open(api: Partial<FeatureApi> = {}) {
 			}),
 		),
 		sendBack: vi.fn(() => Promise.resolve()),
+		sendBackCard: vi.fn(() => Promise.resolve()),
+		sendBackDecision: vi.fn(() => Promise.resolve()),
 		copy: vi.fn(() => Promise.resolve()),
 		...api,
 	};
@@ -561,5 +568,167 @@ describe("a feature's page", () => {
 		expect(round.getByText("8888888")).toBeTruthy();
 		expect(round.getByText("Fixed: one reader.")).toBeTruthy();
 		expect(round.getByText(COMMIT.slice(0, 7))).toBeTruthy();
+	});
+});
+
+describe("sending a card back", () => {
+	afterEach(cleanup);
+
+	test("sends a landed card back with my comment", async () => {
+		const loadFeature = vi.fn(() => Promise.resolve(story()));
+		const sendBackCard = vi.fn(() => Promise.resolve());
+		open({ loadFeature, sendBackCard });
+
+		fireEvent.click(
+			await screen.findByRole("button", { name: "Send back #39" }),
+		);
+		fireEvent.change(
+			screen.getByLabelText("What should the developer change in #39?"),
+			{ target: { value: "Round to 0.25 kg." } },
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+		await waitFor(() =>
+			expect(sendBackCard).toHaveBeenCalledWith(
+				PROJECT,
+				39,
+				"Round to 0.25 kg.",
+			),
+		);
+		// The page is read again, so it shows the card queued.
+		await waitFor(() => expect(loadFeature).toHaveBeenCalledTimes(2));
+		expect(
+			screen.queryByLabelText("What should the developer change in #39?"),
+		).toBeNull();
+	});
+
+	test("offers it only on a card that can be sent back", async () => {
+		open();
+
+		await screen.findByRole("button", { name: "Send back #39" });
+		expect(screen.queryByRole("button", { name: "Send back #40" })).toBeNull();
+	});
+
+	test("a refused send back says why and keeps my words", async () => {
+		open({
+			sendBackCard: () =>
+				Promise.reject(
+					new ApiError({
+						status: 409,
+						title: "This card cannot be sent back now",
+						detail: null,
+					}),
+				),
+		});
+		fireEvent.click(
+			await screen.findByRole("button", { name: "Send back #39" }),
+		);
+		const box = screen.getByLabelText(
+			"What should the developer change in #39?",
+		);
+		fireEvent.change(box, { target: { value: "Round to 0.25 kg." } });
+		fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+		expect((await screen.findByRole("alert")).textContent).toBe(
+			"This card cannot be sent back now",
+		);
+		expect(
+			(
+				screen.getByLabelText(
+					"What should the developer change in #39?",
+				) as HTMLTextAreaElement
+			).value,
+		).toBe("Round to 0.25 kg.");
+	});
+
+	test("sends a decision's card back with my comment", async () => {
+		const sendBackDecision = vi.fn(() => Promise.resolve());
+		open({ sendBackDecision });
+
+		const wants = await screen.findByRole("article", {
+			name: "What the agents want you to know",
+		});
+		fireEvent.click(
+			within(wants).getByRole("button", { name: /^Send back: #39/ }),
+		);
+		fireEvent.change(
+			within(wants).getByLabelText("What should the developer change in #39?"),
+			{ target: { value: "Keep 0.1 kg." } },
+		);
+		fireEvent.click(within(wants).getByRole("button", { name: "Send" }));
+
+		await waitFor(() =>
+			expect(sendBackDecision).toHaveBeenCalledWith(
+				PROJECT,
+				38,
+				RUN,
+				1,
+				"Keep 0.1 kg.",
+			),
+		);
+	});
+
+	test("a decision of a card not landed is only answered fine", async () => {
+		const building = story();
+		const first = building.cards[0];
+		if (first) first.can_send_back = false;
+		open({ loadFeature: () => Promise.resolve(building) });
+
+		const wants = await screen.findByRole("article", {
+			name: "What the agents want you to know",
+		});
+		expect(
+			within(wants).getByRole("button", { name: /^Fine as it is/ }),
+		).toBeTruthy();
+		expect(
+			within(wants).queryByRole("button", { name: /^Send back/ }),
+		).toBeNull();
+	});
+
+	test("a decision sent back says so", async () => {
+		const sent = story();
+		const first = sent.cards[0];
+		if (first?.decisions[0])
+			first.decisions[0].answer = {
+				answer: "sent_back",
+				answered_at: "2026-11-20T09:30:00+00:00",
+			};
+		open({ loadFeature: () => Promise.resolve(sent) });
+
+		const wants = await screen.findByRole("article", {
+			name: "What the agents want you to know",
+		});
+		expect(within(wants).getByText("Sent back")).toBeTruthy();
+		expect(within(wants).queryByRole("button")).toBeNull();
+	});
+
+	test("shows a card I sent back with my words", async () => {
+		const sent = story();
+		const first = sent.cards[0];
+		if (first) {
+			first.state = "queued";
+			first.can_send_back = false;
+			first.sent_back = {
+				times: 2,
+				pull_request: {
+					number: 44,
+					url: "https://github.com/Adamniels/Fodr/pull/44",
+				},
+				comments: ["Round to 0.25 kg.\nAnd say so on the page."],
+			};
+		}
+		open({ loadFeature: () => Promise.resolve(sent) });
+
+		const list = await screen.findByRole("list", {
+			name: "Cards you sent back",
+		});
+		expect(list.textContent).toContain("#39 Plan model and its rules");
+		expect(list.textContent).toContain(
+			"Sent back from pull request #44, 2 times in all",
+		);
+		expect(list.textContent).toContain(
+			"Round to 0.25 kg.\nAnd say so on the page.",
+		);
+		expect(screen.queryByRole("button", { name: "Send back #39" })).toBeNull();
 	});
 });

@@ -2489,7 +2489,10 @@ pages never disagree, in the report's order, each `run_id`, the run whose report
 `position`, its place among that report's decisions from 0, `chosen`, `alternative`, `why`,
 `reviewer_view`, the reviewer's view of it in the newest review of the commit that run left,
 matched by `chosen` as the merge check matches them, null with none, and `answer`,
-`{"answer", "answered_at"}` or null. A project or feature the caller does not have is `404` "No
+`{"answer", "answered_at"}` or null; `can_send_back`, whether the card can be sent back now, see
+"Send back" below; and `sent_back`, `{"times", "pull_request", "comments"}`, its last send back, how
+many times it was sent back, the pull request `{"number", "url"}` it had landed in and the owner's
+words, or null when it never was. A project or feature the caller does not have is `404` "No
 such feature". It is `FeatureStory` and `FeatureEndpoints` in `src/DevFlow/Features/`. It also
 answers `runs`, the feature's own runs, none of its cards', a conflict's among them, newest first,
 each as "A card's page" answers a run, a whole feature's review among them, and `input_tokens` and
@@ -2536,9 +2539,11 @@ package's `Card`s, top to bottom:
 - "What the agents want you to know", only when a card has a decision for the owner, in attention
   while any is not answered: the list "Decisions for you", each "#<card>: <chosen>", "Instead of
   <alternative>", "Because <why>" and "Reviewer: <view>", or "Reviewer: gave no view on it.", then a
-  secondary "Fine as it is", which posts the answer and shows it in place; once answered, the
-  `done` status "Fine as it is" and "answered <when>". A refused answer reads the story again and
-  shows an alert under the decision.
+  secondary "Fine as it is", which posts the answer and shows it in place, and, while its card can
+  be sent back, a secondary "Send back", which opens a comment box "What should the developer change
+  in #<card>?" with Send and Cancel; once answered, the `done` status "Fine as it is" or "Sent back"
+  and "answered <when>". A refused answer reads the story again and shows an alert under the
+  decision.
 - "The branch": "Its branch is made when its first card starts." before it is, and then a line
   saying the feature is not in main yet, with the commit it is at, short, and the region "Check out
   the branch", `git fetch origin <branch> && git switch <branch>` in the mono font with a secondary
@@ -2547,14 +2552,81 @@ package's `Card`s, top to bottom:
   number and title, each card's pictures as its own page shows them.
 - "Cards": the table "Cards of the feature", each card's number and title linked to its page, its
   state, its fix rounds, its tokens and how many decisions it has for the owner, the numbers folded
-  under the card at phone width.
+  under the card at phone width; under it a secondary "Send back #<card>" for each card that can be
+  sent back, kept out of the table so its rows stay readable at phone width, which opens the comment
+  box "What should the developer change in #<card>?"; then, once a card was sent back, "Sent back", the list "Cards you sent back", each card's
+  number and title, "Sent back from pull request #<n>", with how many times when more than once, and
+  his words as he wrote them. "Send back" is disabled, with why under it, while GitHub is not
+  linked or its link has expired.
 - "Runs", only when the feature has a run of its own: the list "Runs of the feature", each run as a
   card's page shows one, its kind "Conflict", a failure's cause said to lie in the job, "so the
   feature waits for you", or outside it, "so it runs again".
 
-Every text from the code host or an agent goes through `src/format.tsx`, as everywhere in Dev flow.
-"Merge into main", "Send the whole feature back" and "Send back" arrive with their slices and are
-not shown before then.
+Every text from the code host or an agent goes through `src/format.tsx`, as everywhere in Dev flow;
+the owner's own words are shown as he wrote them, his line breaks kept. "Merge into main" arrives
+with its slice and is not shown before then. The comment boxes of "Send back" and "Send the whole
+feature back" are one component, `src/comment-box.tsx`.
+
+**Send back.** A card of a feature that has landed in the feature's branch is sent back with the
+owner's comment: its issue opens again, and a fresh agent builds it on a new branch from the
+feature's branch, with what was built for it and his comment; once it lands again the feature goes
+through its end again. Why a sent back card gets a new branch is "Sending a card back" in
+`docs/devflow-architecture.md`. It is `SendingBack` in `src/DevFlow/Features/`, `SendBackCard` and
+`SendBackDecision` in `ActionEndpoints`, `OwnerComments` and `ProjectReader` for the read, and
+`LandedCards` for the issue.
+
+- **Which card.** One `done` with the pull request it landed in, of a feature neither `merged` nor
+  `closed`: `SendingBack.Sendable`, one SQL expression that `can_send_back`, both routes and the read
+  share, so they never disagree.
+- **From the page**, `POST /devflow/api/projects/{id}/cards/{number}/send-back`, the route "Fixing"
+  describes, posts his comment on the card's issue, closed or not, as him with his linked token and
+  never as the app, and reads the project again. For any other card it refuses as it does there,
+  `409` "This card cannot be sent back now".
+- **From a decision**,
+  `POST /devflow/api/projects/{id}/features/{number}/decisions/{run}/{position}/send-back`, with
+  `{"comment"}`, under the `Api` policy and the origin check, posts on the card's issue the decision
+  quoted, `> Chosen: <chosen>` and `> Instead of: <alternative>`, each further line quoted too and
+  the second left out when there is no alternative, then a blank line and his comment, trimmed; once
+  posted, it keeps the decision answered `sent_back` and reads the project again. In this order:
+  `404` "No such decision", as for "Fine as it is"; `422` for a comment missing, empty once trimmed
+  or longer than 10,000 characters; `409` "A newer report"; `409` "This decision is answered", since
+  an answer is kept as first given; `409` "This card cannot be sent back now"; `409` without a usable
+  link; then GitHub is asked: `204` once posted, `409` "GitHub refused the comment" with its reason,
+  and `503` when GitHub did not answer, after the project is read again, with no answer kept.
+- **The read.** Each read of the project reads the comments of the issue of every card that can be
+  sent back, with no run under way, and takes those by the owner's linked login, past
+  `comments_read_through` and written after the card's last run ended, or its last change for a card
+  with no run, as "Fixing" takes his comments. Opening the issue himself on GitHub and commenting
+  there is the same comment. Anyone else's comment, and an opening alone, by anyone, queue nothing,
+  and a landed card whose issue is open after the app closed it says why, "Its issue is open again,
+  but only your comment on it sends it back", until it is closed again. Taken, in the read's
+  transaction, the card is `queued`, "You sent it back; it is built again on a new branch", with his
+  comments in `sent_back_comments`, `sent_backs` one more, the pull request it landed in kept in
+  `sent_back_from` and `sent_back_from_url` and cleared from the card, its fix rounds and failures
+  afresh; and `FeatureEnd.Advance`, in the same transaction, moves the feature to `building`. Its
+  pull request stays open, and its end runs again once every card is done, the card's new pull
+  request in its body. While its issue is still closed the store keeps the card, which has started.
+- **Its issue opened again.** On the minute of the opening loop, and after each fake worker review,
+  `LandedCards` opens the issue of every card sent back since its issue was last opened, as the app
+  with a `Post` key, `PATCH /repos/{owner}/{repo}/issues/{number}` with `state` `open`, and records
+  the send back it opened it for in `reopened_for`; what GitHub did not answer for is tried again on
+  the next minute. Open, it is a sub-issue the merge check lands, and the app closes it again with
+  its comment once it lands, since it tells each pull request a card lands in once.
+- **Its build** is handed out as any card of a feature is, see "Jobs", on
+  `devflow/<number>-<slug>-<k>`, `k` 2 the first time it is sent back and 3 the second, from the
+  feature's branch at its head, and its pull request goes into the feature's branch. Its brief is
+  the developer's with a section `## Sent back` after the card and the feature's sections: that the
+  card landed in the feature's branch in pull request #<n> and the owner sent it back, that what was
+  built is on the branch it starts from and is built on, not started again; `### The report it
+  landed with`, its newest build's or fix's report that succeeded, as indented JSON; and a
+  `### The owner's comment` for each of his comments, his exact text, each fenced as the fix brief
+  fences them, with a reply asked for each in `replies`. "Run again" follows it when the card stopped
+  since and he ran it again. The run records his comments, the ones that sent it back and then any
+  that ran it again, as `owner_comments`.
+- **The columns**, from `migrations/0033_sent_back_cards.sql`, on `cards`: `sent_backs`, 0 and up;
+  `sent_back_from` and `sent_back_from_url`, both or neither, set exactly when `sent_backs` is not 0;
+  `sent_back_comments`, a JSON array of his words, null before; and `reopened_for`, the send back
+  whose issue the app opened, null before any, never past `sent_backs`.
 
 ## Review
 
@@ -2731,7 +2803,8 @@ that still holds is still blocking. Only blocking findings make it `changes`.
 **The owner's comment.** Each read of a project, `ProjectReader.Read`, reads the comments of the
 pull request of every card that has one still open, is `reviewing`, `fixing`, `waiting_for_owner`
 or `stopped`, and has no run under way, and of a stopped card's issue too, whose comments run it
-again, see "Stops"; and takes those by the owner's linked login, as GitHub
+again, see "Stops", and of a landed card's issue, whose comments send it back, see "Send back" under
+"A feature's page"; and takes those by the owner's linked login, as GitHub
 compares logins, whatever the case, that are new: past `comments_read_through`, the id of the
 newest of his already taken, and every one of his before any was. No time is compared, so a comment
 written during a review is not lost to the fix a worker claims seconds after it. They are taken in
@@ -2753,10 +2826,12 @@ the read as any other read does.
 policy and the origin check, posts the comment, trimmed and with nothing added, as the owner with
 his linked token, never as the app, and reads the project again, which takes it as above: on the
 card's pull request for a card that waits for him, and on the card's issue for a stopped one, as
-"Comment to run again", see "Stops", since its issue is there whatever became of its pull request.
-In this order: `404` "No such card"; `422` for a comment missing, empty once trimmed or longer than
-10,000 characters; `409` "This card cannot be sent back now" for a card that neither waits for him
-with its pull request nor has stopped; `409` without a usable link; then GitHub is asked to post:
+"Comment to run again", see "Stops", since its issue is there whatever became of its pull request;
+and on the card's issue for a card landed in an open feature's branch, which sends it back, see
+"Send back" under "A feature's page". In this order: `404` "No such card"; `422` for a comment
+missing, empty once trimmed or longer than 10,000 characters; `409` "This card cannot be sent back
+now" for a card that neither waits for him with its pull request, nor has stopped, nor has landed in
+an open feature; `409` without a usable link; then GitHub is asked to post:
 `204` once posted, `409` "GitHub refused the comment" with its reason, and `503` when GitHub did not
 answer, after the project is read again.
 

@@ -2987,13 +2987,16 @@ def test_a_features_card_lands_in_its_branch(
     capture(page, "devflow-feature-card-landed")
 
 
-def _landed_feature(page: Page, base_url: str, devflow_world) -> str:
+def _landed_feature(
+    page: Page, base_url: str, devflow_world, next_running: bool = True
+) -> str:
     """Connects a repository with a labelled feature of three cards, 61, 62 and
     63 under 60, and the project's .devflow/project.json; the fake worker
     builds 61 with `_report()`, which marks a decision for the owner, and two
     pictures of one page, CI passes on it and the reviewer approves, so Dev
     flow merges it into the feature's branch; then 62 is handed out and kept
-    running. The project's id."""
+    running, unless `next_running` is false, when it stays queued. The
+    project's id."""
     world = one_repository()
     add_issue(
         world, 60, "The feature's branch", labels=["devflow"], sub_issues=[61, 62, 63]
@@ -3061,6 +3064,8 @@ def _landed_feature(page: Page, base_url: str, devflow_world) -> str:
         f"/devflow/api/projects/{project}/refresh", headers={"Origin": base_url}
     )
     assert refreshed.status == 204, refreshed.text()
+    if not next_running:
+        return project
 
     taken = page.request.post(
         "/devflow/api/fake/worker/run",
@@ -3192,6 +3197,62 @@ def test_i_answer_a_decision_fine_as_it_is(
     assert page.request.get("/devflow/api/fake/world").json() == world_before
     assert _writes(page) == writes_before
     _look(page, "devflow-feature-decision-answered")
+
+
+def test_i_send_a_card_back_from_the_features_page(
+    page: Page, invite_code: str, base_url: str, viewport: str, devflow_world
+):
+    register_and_log_in(page, invite_code, base_url)
+    project = _landed_feature(page, base_url, devflow_world, next_running=False)
+
+    # From the feature's page, on the card that landed, with a comment.
+    page.goto(f"/devflow/projects/{project}/features/60")
+    cards = page.get_by_role("article", name="Cards")
+    expect(cards.get_by_role("button", name="Send back #62")).to_have_count(0)
+    cards.get_by_role("button", name="Send back #61").click()
+    said = "Read the sub-issues a hundred at a time, not all at once."
+    cards.get_by_role("textbox", name="What should the developer change in #61?").fill(
+        said
+    )
+    cards.get_by_role("button", name="Send", exact=True).click()
+    expect(page.get_by_text("Sent back #61")).to_be_visible()
+
+    # Posted as me on the card's issue, never as the app.
+    mine = [
+        write
+        for write in _writes(page)
+        if write["kind"] == "comment" and write["by"] == "octo-owner"
+    ]
+    assert len(mine) == 1, mine
+    assert (mine[0]["number"], mine[0]["body"]) == (61, said)
+
+    # The read that followed took it: the card is queued with my words, and
+    # the feature builds again.
+    rows = page.get_by_role("table", name="Cards of the feature").get_by_role("row")
+    expect(rows.nth(1)).to_contain_text("Queued")
+    expect(page.get_by_role("article", name="The feature")).to_contain_text("Building")
+    sent = cards.get_by_role("list", name="Cards you sent back")
+    expect(sent).to_contain_text("#61 Read the sub-issues")
+    expect(sent).to_contain_text("Sent back from pull request #")
+    expect(sent).to_contain_text(said)
+    _look(page, "devflow-feature-card-sent-back")
+
+    # The fake worker takes it next, on a new branch from the feature's, and
+    # it is building.
+    taken = page.request.post(
+        "/devflow/api/fake/worker/run",
+        data={"project_id": project, "keep_running": True},
+        headers={"Origin": base_url},
+    )
+    assert taken.status == 200, taken.text()
+    assert (taken.json()["card"], taken.json()["branch"]) == (
+        61,
+        "devflow/61-read-the-sub-issues-2",
+    )
+    page.reload()
+    rows = page.get_by_role("table", name="Cards of the feature").get_by_role("row")
+    expect(rows.nth(1)).to_contain_text("Building")
+    expect(page.get_by_role("article", name="The feature")).to_contain_text("Building")
 
 
 def test_a_finished_feature_gets_its_pull_request(
