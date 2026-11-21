@@ -82,7 +82,9 @@ export function WaitingFeature({
 			aside={<Status tone={tone}>{word}</Status>}
 			className={styles.item}
 			footer={
-				<>
+				// One column, so the merge's row and the send back stack rather
+				// than share the card's footer row, at every width.
+				<div className={styles.footer}>
 					{feature.merge === null ? (
 						<div className={styles.actions}>{links}</div>
 					) : (
@@ -108,7 +110,7 @@ export function WaitingFeature({
 							lineShownAt={feature.merge === null ? undefined : linkLineId}
 						/>
 					) : null}
-				</>
+				</div>
 			}
 		>
 			<div className={styles.body}>
