@@ -28,7 +28,8 @@ public static class CardStore
     /// <item>A feature whose parent has started as a card on its own stays that card, and its open
     /// sub-issues are ignored on their own, <see cref="CardPicker.ParentIsACard"/>.</item>
     /// <item>A closed card of a feature is kept, where it is, only when it has started, since Dev
-    /// flow built it; any other is left out, as if not found.</item>
+    /// flow built it, a card sent back and queued again among them; any other is left out, as if
+    /// not found.</item>
     /// </list>
     /// Then each feature is merged as a card is, see <see cref="StoreFeatures"/>, and each card:
     /// <list type="bullet">
@@ -52,13 +53,13 @@ public static class CardStore
         var stored = (await transaction.Connection!.QueryAsync<StoredCard>(new CommandDefinition(
             """
             SELECT number AS Number, state AS State, reason AS Reason, waits_for AS WaitsFor, unlabelled AS Unlabelled,
-                   pull_request_number AS PullRequestNumber, feature_id AS FeatureId
+                   pull_request_number AS PullRequestNumber, feature_id AS FeatureId, sent_backs AS SentBacks
             FROM cards WHERE project_id = @projectId
             """,
             new { projectId },
             transaction,
             cancellationToken: cancellationToken))).ToDictionary(card => card.Number);
-        bool Started(int number) => stored.GetValueOrDefault(number) is { } card && !NotStarted.Contains(card.State, StringComparer.Ordinal);
+        bool Started(int number) => stored.GetValueOrDefault(number) is { } card && HasStarted(card);
 
         var features = new List<PickedFeature>();
         var onTheirOwn = new List<PickedCard>(found.Cards);
@@ -131,7 +132,7 @@ public static class CardStore
             }
 
             var before = stored.GetValueOrDefault(card.Number);
-            var started = before is not null && !NotStarted.Contains(before.State, StringComparer.Ordinal);
+            var started = before is not null && HasStarted(before);
             var (state, reason, waitsFor) = started && card.Verdict != Verdict.Ignored
                 ? (before!.State, before.Reason, before.WaitsFor)
                 : (State(card.Verdict), card.Reason, card.WaitsFor.ToArray());
@@ -465,6 +466,12 @@ public static class CardStore
     /// <summary>A feature as listed.</summary>
     private sealed record ListedFeature(Guid Id, int Number, string Title, string WebUrl, string State, string? Reason, string Priority, DateTime ChangedAt);
 
+    /// <summary>Whether the card has started: it is past what picking sets, or it was sent back and
+    /// is queued to be built again, which Dev flow did, so a read that finds its issue still closed,
+    /// before the app opens it again, keeps it where it is.</summary>
+    private static bool HasStarted(StoredCard card) =>
+        !NotStarted.Contains(card.State, StringComparer.Ordinal) || (card.State == "queued" && card.SentBacks > 0);
+
     /// <summary>A card as stored, set by property: Dapper reads <c>text[]</c> as an array no
     /// constructor parameter matches.</summary>
     private sealed class StoredCard
@@ -482,6 +489,8 @@ public static class CardStore
         public int? PullRequestNumber { get; init; }
 
         public Guid? FeatureId { get; init; }
+
+        public int SentBacks { get; init; }
     }
 
     /// <summary>A feature as stored, what merging it needs.</summary>

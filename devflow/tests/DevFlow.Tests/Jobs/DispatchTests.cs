@@ -336,6 +336,16 @@ public sealed class DispatchTests
     public void TheBranchIsMadeFromTheTitle(string title, int number, string branch) =>
         Assert.Equal(branch, JobStore.Branch(number, title));
 
+    /// <summary>A card sent back after it landed takes <c>-2</c>, then <c>-3</c>, after its branch,
+    /// so a branch that merged is never used again. See "Sending a card back" in
+    /// devflow/README.md.</summary>
+    [Theory]
+    [InlineData("Read the sub-issues", 11, 1, "devflow/11-read-the-sub-issues-2")]
+    [InlineData("Read the sub-issues", 11, 2, "devflow/11-read-the-sub-issues-3")]
+    [InlineData("日本語", 4, 1, "devflow/4-2")]
+    public void ACardSentBackTakesItsNextBranch(string title, int number, int sentBacks, string branch) =>
+        Assert.Equal(branch, JobStore.Branch(number, title, sentBacks));
+
     [Fact]
     public async Task ACardPickedBeforeItsBodyWasKeptWaitsForTheNextRead()
     {

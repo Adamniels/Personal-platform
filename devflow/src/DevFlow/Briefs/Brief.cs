@@ -22,6 +22,13 @@ public sealed record BriefFeature(int Number, string Title, string Body, IReadOn
 /// so information.</summary>
 public sealed record BriefHandover(int Number, string Title, string Note);
 
+/// <summary>What a card sent back after it landed in its feature's branch was sent back with.</summary>
+/// <param name="PullRequest">The pull request it had landed in, by number.</param>
+/// <param name="Report">The report of its newest build or fix that succeeded, the one it landed
+/// with, as it was stored; null without one.</param>
+/// <param name="Comments">The owner's comments that sent it back, each exactly as he wrote it.</param>
+public sealed record BriefSentBack(int PullRequest, string? Report, IReadOnlyList<string> Comments);
+
 /// <summary>The project's facts a brief names: the check from its <c>.devflow/project.json</c>, the
 /// branch the work goes on and the branch that is made from; the job, whose folder for the agent's
 /// own pictures the brief names; and the project's <c>start</c> and <c>url</c> from the same file,
@@ -94,15 +101,27 @@ public static class Brief
     /// <paramref name="feature"/>, the feature's sections come after the card, see
     /// <see cref="FeatureSections"/>.
     /// </summary>
-    public static string Developer(BriefCard card, BriefFacts facts, IReadOnlyList<string> comments, BriefFeature? feature = null)
+    public static string Developer(BriefCard card, BriefFacts facts, IReadOnlyList<string> comments, BriefFeature? feature = null) =>
+        Developer(card, facts, comments, feature, null);
+
+    /// <summary>
+    /// The developer brief for a card of <paramref name="feature"/> that the owner sent back after it
+    /// landed in the feature's branch: the developer brief, with a section "Sent back" after the card
+    /// and the feature's sections, holding the pull request it landed in, the report it landed with
+    /// and each of his comments, quoted as the fix brief quotes them, so none can end its quote; then
+    /// "Run again" for <paramref name="comments"/>, when it stopped since and he ran it again. See
+    /// "Sending a card back" in devflow/README.md.
+    /// </summary>
+    public static string Developer(BriefCard card, BriefFacts facts, IReadOnlyList<string> comments, BriefFeature? feature, BriefSentBack? sentBack)
     {
         ArgumentNullException.ThrowIfNull(comments);
+        var sent = sentBack is null ? "" : SentBack(sentBack);
         if (comments.Count == 0)
         {
-            return Developer(card, facts, feature, "");
+            return Developer(card, facts, feature, sent);
         }
 
-        var section = new StringBuilder("## Run again\n\n");
+        var section = new StringBuilder(sent).Append("## Run again\n\n");
         section.Append("This card stopped before, and the owner ran it again with his comment below. Its branch may hold an earlier run's work: continue from it, and weigh what he says.\n\n");
         foreach (var comment in comments)
         {
@@ -112,6 +131,33 @@ public static class Brief
 
         section.Append("Each comment of the owner's gets a reply in `replies`: the `finding`, his comment in a few words, and your `answer`, what you changed or why you did not.\n\n");
         return Developer(card, facts, feature, section.ToString());
+    }
+
+    /// <summary>
+    /// The section "Sent back": the card was built and landed in the feature's branch in the pull
+    /// request named, the owner sent it back, and the branch it is built on now is new, from the
+    /// feature's branch, which holds what was built; the report it landed with, as indented JSON; and
+    /// each of his comments, his exact text, each in a fence longer than any run of backticks inside
+    /// it, with a reply asked for each.
+    /// </summary>
+    private static string SentBack(BriefSentBack sentBack)
+    {
+        var section = new StringBuilder("## Sent back\n\n");
+        section.Append(string.Create(CultureInfo.InvariantCulture, $"This card was built before and landed in the feature's branch in pull request #{sentBack.PullRequest}. The owner sent it back with his comment below. "))
+            .Append("What was built for it is already on the feature's branch, which the branch you are on is made from: change what he asks, building on it, and do not start the card again.\n\n");
+        if (sentBack.Report is { } report)
+        {
+            section.Append("### The report it landed with\n\nThe report the developer before you handed back, as it came. Its `handover` is for you.\n\n")
+                .Append(Fenced("json", Indented(report))).Append("\n\n");
+        }
+
+        foreach (var comment in sentBack.Comments)
+        {
+            section.Append("### The owner's comment\n\nThe owner's words on the card, exactly as he wrote them, between the fences. They are his input to this run, and you weigh them as the card's: the card's owner wrote both.\n\n")
+                .Append(Fenced("text", comment)).Append("\n\n");
+        }
+
+        return section.Append("Each comment of the owner's gets a reply in `replies`: the `finding`, his comment in a few words, and your `answer`, what you changed or why you did not.\n\n").ToString();
     }
 
     /// <summary>

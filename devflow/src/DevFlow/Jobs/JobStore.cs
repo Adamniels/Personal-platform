@@ -28,7 +28,9 @@ namespace DevFlow.Jobs;
 /// and otherwise the default branch.</param>
 /// <param name="Feature">The feature it is a card of, with what its done cards left, null for a
 /// card on its own.</param>
-public sealed record ClaimedCard(Guid RunId, int Number, string Title, string Body, string Branch, IReadOnlyList<string> Comments, string Base, BriefFeature? Feature = null);
+/// <param name="SentBack">What it was sent back with after it landed in its feature's branch, null
+/// for a card never sent back.</param>
+public sealed record ClaimedCard(Guid RunId, int Number, string Title, string Body, string Branch, IReadOnlyList<string> Comments, string Base, BriefFeature? Feature = null, BriefSentBack? SentBack = null);
 
 /// <summary>A card taken for its review, with the run made for it and what the review reads of the
 /// build that made the commit.</summary>
@@ -309,14 +311,18 @@ public static class JobStore
     /// The branch a card's work goes on, <c>devflow/&lt;number&gt;-&lt;slug&gt;</c>: the slug is the
     /// title lowercased, each run of anything but ASCII letters and digits one hyphen, trimmed of
     /// hyphens, cut to <see cref="MaxSlug"/> characters and trimmed again; <c>devflow/&lt;number&gt;</c>
-    /// when nothing is left.
+    /// when nothing is left. A card sent back <paramref name="sentBacks"/> times after it landed
+    /// takes <c>-&lt;k&gt;</c> after it, <c>k</c> 2 for the first time, 3 for the second, so a branch
+    /// that already merged is never used again.
     /// </summary>
-    public static string Branch(int number, string title)
+    public static string Branch(int number, string title, int sentBacks = 0)
     {
+        ArgumentOutOfRangeException.ThrowIfNegative(sentBacks);
         var slug = Slug(title);
-        return slug.Length == 0
+        var branch = slug.Length == 0
             ? string.Create(CultureInfo.InvariantCulture, $"devflow/{number}")
             : string.Create(CultureInfo.InvariantCulture, $"devflow/{number}-{slug}");
+        return sentBacks == 0 ? branch : string.Create(CultureInfo.InvariantCulture, $"{branch}-{sentBacks + 1}");
     }
 
     /// <summary>The slug a branch takes from a title, by <see cref="Branch"/>'s rules; empty when
@@ -855,7 +861,9 @@ public static class JobStore
     /// with the <paramref name="check"/> its job carries, made from its feature's branch for a card
     /// of a feature and from <paramref name="baseBranch"/>, the default branch, for one on its own.
     /// Null when there is none, a card another transaction holds included, so two workers asking at
-    /// once never get the same card and neither waits for the other.
+    /// once never get the same card and neither waits for the other. A card sent back after it
+    /// landed goes on a new branch, by <see cref="Branch"/>, and carries the pull request it landed
+    /// in, the report it landed with and the owner's comments that sent it back.
     /// </summary>
     public static async Task<ClaimedCard?> Claim(NpgsqlTransaction transaction, Guid projectId, Guid userId, Guid workerId, string baseBranch, string check, DateTimeOffset now, CancellationToken cancellationToken)
     {
@@ -865,7 +873,11 @@ public static class JobStore
         var card = await transaction.Connection!.QuerySingleOrDefaultAsync<Picked>(new CommandDefinition(
             $"""
             SELECT number AS Number, picked_title AS Title, picked_body AS Body, coalesce(fix_comments, '[]'::jsonb)::text AS Comments,
-                   (SELECT f.branch FROM features f WHERE f.id = cards.feature_id) AS FeatureBranch
+                   (SELECT f.branch FROM features f WHERE f.id = cards.feature_id) AS FeatureBranch,
+                   sent_backs AS SentBacks, sent_back_from AS SentBackFrom, coalesce(sent_back_comments, '[]'::jsonb)::text AS SentBackComments,
+                   (SELECT r.report::text FROM runs r
+                    WHERE r.project_id = cards.project_id AND r.card_number = cards.number AND r.kind IN ('build', 'fix') AND r.result = 'succeeded'
+                    ORDER BY r.started_at DESC, r.id DESC LIMIT 1) AS Report
             FROM cards
             WHERE {Takeable}
             ORDER BY {CardStore.QueueOrder}
@@ -886,14 +898,20 @@ public static class JobStore
             transaction,
             cancellationToken: cancellationToken));
         var comments = JsonSerializer.Deserialize<List<string>>(card.Comments) ?? [];
-        var claimed = new ClaimedCard(Guid.CreateVersion7(now), card.Number, card.Title, card.Body, Branch(card.Number, card.Title), comments, card.FeatureBranch ?? baseBranch,
-            await FeatureOf(transaction, projectId, card.Number, cancellationToken));
+        var sentBack = card is { SentBacks: > 0, SentBackFrom: { } from }
+            ? new BriefSentBack(from, card.Report, JsonSerializer.Deserialize<List<string>>(card.SentBackComments) ?? [])
+            : null;
+        var claimed = new ClaimedCard(Guid.CreateVersion7(now), card.Number, card.Title, card.Body, Branch(card.Number, card.Title, card.SentBacks), comments, card.FeatureBranch ?? baseBranch,
+            await FeatureOf(transaction, projectId, card.Number, cancellationToken), sentBack);
+        // The run keeps every comment of his its brief quotes as his input: what sent it back, then
+        // what ran it again.
+        List<string> input = [.. sentBack?.Comments ?? [], .. comments];
         await transaction.Connection!.ExecuteAsync(new CommandDefinition(
             """
             INSERT INTO runs (id, project_id, user_id, card_number, worker_id, kind, branch, base, check_command, owner_comments, started_at)
             VALUES (@id, @projectId, @userId, @number, @workerId, 'build', @branch, @baseBranch, @check, @comments::jsonb, @now)
             """,
-            new { id = claimed.RunId, projectId, userId, number = claimed.Number, workerId, branch = claimed.Branch, baseBranch = claimed.Base, check, comments = comments.Count == 0 ? null : card.Comments, now },
+            new { id = claimed.RunId, projectId, userId, number = claimed.Number, workerId, branch = claimed.Branch, baseBranch = claimed.Base, check, comments = input.Count == 0 ? null : JsonSerializer.Serialize(input), now },
             transaction,
             cancellationToken: cancellationToken));
         return claimed;
@@ -959,7 +977,7 @@ public static class JobStore
     /// <summary>What a card under review says while its run is under way.</summary>
     public const string BeingReviewed = "The reviewer is reading it";
 
-    private sealed record Picked(int Number, string Title, string Body, string Comments, string? FeatureBranch);
+    private sealed record Picked(int Number, string Title, string Body, string Comments, string? FeatureBranch, int SentBacks, int? SentBackFrom, string SentBackComments, string? Report);
 
     private sealed record FeatureParent(int Number, string Title, string Body);
 

@@ -291,12 +291,16 @@ public sealed class SendBackTests
         Assert.Equal(0, await SentBacks(jobs, Ending.First));
     }
 
-    /// <summary>The card sent back built by the fake worker on <paramref name="branch"/>, from the
-    /// feature's branch at its head, its pull request opened into the feature's branch, CI green and
+    /// <summary>The card sent back, its issue opened again on the minute, built by the fake worker on
+    /// <paramref name="branch"/>, from the feature's branch at its head, its pull request opened into the feature's branch, CI green and
     /// approved, so the merge check lands it there again; then its issue told and the project read.
     /// The pull request it landed in.</summary>
     private static async Task<int> BuildAndLand(Jobs.Jobs jobs, string branch)
     {
+        // The minute after the send back opens the card's issue again, which the merge check needs:
+        // it lands only an open sub-issue of its feature.
+        await Tell(jobs);
+        Assert.True(Issue(jobs, Ending.First).Open);
         await jobs.Routes.Read(jobs.Project, User);
         var featureHead = await Reviewing.Head(jobs);
         Fixed.Later(jobs);
@@ -317,7 +321,8 @@ public sealed class SendBackTests
         await jobs.Routes.Read(jobs.Project, User);
         Merged.Ci(jobs, commit, Merged.GreenRuns, Merged.GreenStatuses);
         await Built.Review(jobs, Built.Verdict("approve"));
-        Assert.Equal("done", (await Built.Card(jobs, Ending.First)).State);
+        var landed = await Built.Card(jobs, Ending.First);
+        Assert.Equal(("done", (string?)null), (landed.State, landed.Reason));
         Assert.Equal(PullRequestState.Merged, Merged.Pull(jobs, pull).State);
         await Tell(jobs);
         Assert.False(Issue(jobs, Ending.First).Open);
@@ -325,14 +330,21 @@ public sealed class SendBackTests
         return pull;
     }
 
-    /// <summary>The owner's send back of the card with the number, from the feature's page.</summary>
-    private static Task<HttpContext> SendBack(Jobs.Jobs jobs, int card, string comment) =>
-        jobs.Routes.App.SendJson("POST", $"/devflow/api/projects/{jobs.Project}/cards/{card}/send-back", Contract.Token, JsonSerializer.Serialize(new { comment }));
+    /// <summary>The owner's send back of the card with the number, from the feature's page, a minute
+    /// after what came before, as a person's click comes after the run it answers.</summary>
+    private static Task<HttpContext> SendBack(Jobs.Jobs jobs, int card, string comment)
+    {
+        Fixed.Later(jobs);
+        return jobs.Routes.App.SendJson("POST", $"/devflow/api/projects/{jobs.Project}/cards/{card}/send-back", Contract.Token, JsonSerializer.Serialize(new { comment }));
+    }
 
     /// <summary>The owner's send back of the decision at <paramref name="position"/> of the report of
-    /// <paramref name="run"/>, from the feature's page.</summary>
-    private static Task<HttpContext> SendBackDecision(Jobs.Jobs jobs, Guid run, int position, string comment) =>
-        jobs.Routes.App.SendJson("POST", $"/devflow/api/projects/{jobs.Project}/features/{Ending.Parent}/decisions/{run}/{position}/send-back", Contract.Token, JsonSerializer.Serialize(new { comment }));
+    /// <paramref name="run"/>, from the feature's page, a minute after what came before.</summary>
+    private static Task<HttpContext> SendBackDecision(Jobs.Jobs jobs, Guid run, int position, string comment)
+    {
+        Fixed.Later(jobs);
+        return jobs.Routes.App.SendJson("POST", $"/devflow/api/projects/{jobs.Project}/features/{Ending.Parent}/decisions/{run}/{position}/send-back", Contract.Token, JsonSerializer.Serialize(new { comment }));
+    }
 
     /// <summary>The feature's story, as its page reads it.</summary>
     private static async Task<JsonNode> Story(Jobs.Jobs jobs)

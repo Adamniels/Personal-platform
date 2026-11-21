@@ -268,17 +268,19 @@ public sealed partial class ProjectReader(UserDb database, ICodeHost host, TimeP
         var commented = new List<TakenComments>();
         foreach (var card in await OwnerComments.Cards(database, userId, projectId, cancellationToken))
         {
-            int? openPull = card.PullRequest is { } pull && stillOpen.Contains(pull) ? pull : null;
-            var stopped = card.StoppedAt is not null;
-            if (openPull is null && !stopped)
+            var landed = card.LandedAt is not null;
+            int? openPull = !landed && card.PullRequest is { } pull && stillOpen.Contains(pull) ? pull : null;
+            var onIssue = card.StoppedAt is not null || landed;
+            if (openPull is null && !onIssue)
             {
                 continue;
             }
 
-            // A stopped card runs again on his comment on its issue or its open pull request; any
+            // A stopped card runs again on his comment on its issue or its open pull request, and a
+            // card landed in an open feature's branch is sent back on its issue, open or closed; any
             // other is sent back on its open pull request alone.
             var comments = new List<Comment>();
-            foreach (var number in (int?[])[openPull, stopped ? card.Number : null])
+            foreach (var number in (int?[])[openPull, onIssue ? card.Number : null])
             {
                 if (number is not { } conversation)
                 {
