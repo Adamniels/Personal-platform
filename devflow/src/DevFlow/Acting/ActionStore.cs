@@ -51,6 +51,38 @@ public sealed record CardTarget(
     public Repository Repository => new(Installation, RepositoryId, Owner, Name);
 }
 
+/// <summary>A feature the caller asked to merge, as stored, with what merging it needs.</summary>
+/// <param name="Title">The parent's title as last read.</param>
+/// <param name="State">The feature's state; only <c>ready</c> and <c>waiting_for_owner</c> are
+/// merged.</param>
+/// <param name="PullRequestNumber">Its pull request to the default branch, null before one is
+/// opened.</param>
+/// <param name="PullRequestUrl">Where it is, beside its number.</param>
+/// <param name="Head">The feature branch's head as its watch last named it, null before it named
+/// one.</param>
+/// <param name="CiPassed">The head CI last passed on, as the minute read it, null when none.</param>
+/// <param name="Into">The default branch, as its watch names it, null before it is watched.</param>
+/// <param name="Stopped">Whether the project is stopped.</param>
+public sealed record FeatureTarget(
+    Guid ProjectId,
+    long Installation,
+    long RepositoryId,
+    string Owner,
+    string Name,
+    int Number,
+    string Title,
+    string State,
+    int? PullRequestNumber,
+    string? PullRequestUrl,
+    string? Head,
+    string? CiPassed,
+    string? Into,
+    bool Stopped)
+{
+    /// <summary>The repository, as the code host is asked for it.</summary>
+    public Repository Repository => new(Installation, RepositoryId, Owner, Name);
+}
+
 /// <summary>
 /// The items the page acts on, read and changed through the door as the caller, so another user's
 /// item is not found rather than refused. See "Acting from the page" in devflow/README.md.
@@ -84,6 +116,26 @@ public sealed class ActionStore(UserDb database)
                    EXISTS (SELECT 1 FROM project_stops s WHERE s.project_id = p.id) AS Stopped
             FROM cards c JOIN projects p ON p.id = c.project_id
             WHERE p.id = @projectId AND c.number = @number
+            """,
+            new { projectId, number },
+            transaction,
+            cancellationToken: cancellationToken)), cancellationToken);
+
+    /// <summary>The caller's feature with the number in their project, or null when they have no
+    /// such project or feature.</summary>
+    public async Task<FeatureTarget?> FindFeature(Guid userId, Guid projectId, int number, CancellationToken cancellationToken) =>
+        await database.InUserTransaction(userId, transaction => transaction.Connection!.QuerySingleOrDefaultAsync<FeatureTarget>(new CommandDefinition(
+            """
+            SELECT p.id AS ProjectId, p.installation_id AS Installation, p.repository_id AS RepositoryId, p.owner AS Owner,
+                   p.name AS Name, f.number AS Number, f.title AS Title, f.state AS State,
+                   f.pull_request_number AS PullRequestNumber, f.pull_request_url AS PullRequestUrl,
+                   h.last_commit AS Head, f.ci_passed_commit AS CiPassed, d.branch AS Into,
+                   EXISTS (SELECT 1 FROM project_stops s WHERE s.project_id = p.id) AS Stopped
+            FROM features f
+            JOIN projects p ON p.id = f.project_id
+            LEFT JOIN branch_watches h ON h.project_id = f.project_id AND h.feature_id = f.id
+            LEFT JOIN branch_watches d ON d.project_id = f.project_id AND d.feature_id IS NULL
+            WHERE p.id = @projectId AND f.number = @number
             """,
             new { projectId, number },
             transaction,

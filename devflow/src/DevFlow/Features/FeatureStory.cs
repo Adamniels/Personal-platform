@@ -86,6 +86,8 @@ public sealed record FeatureCard(
 /// <param name="Reviews">The reviews of the whole feature, newest first, each as a card's page shows
 /// one; <c>current</c> is whether it is the newest and covers the feature branch's head, its own
 /// commit or one that differs from it only by clean merges of the default branch.</param>
+/// <param name="Merge">"Merge into &lt;default&gt;" when the feature is offered for merging, by
+/// <see cref="FeatureMergeOffers"/>, with the head the merge names; null when it is not.</param>
 public sealed record FeatureStoryView(
     int Number,
     string Title,
@@ -98,7 +100,8 @@ public sealed record FeatureStoryView(
     IReadOnlyList<CardRun> Runs,
     long InputTokens,
     long OutputTokens,
-    IReadOnlyList<CardReview> Reviews);
+    IReadOnlyList<CardReview> Reviews,
+    FeatureMergeOffer? Merge);
 
 /// <summary>
 /// A feature's story, read from what Dev flow stored and never from the code host, through the
@@ -122,11 +125,12 @@ public static class FeatureStory
     {
         ArgumentNullException.ThrowIfNull(transaction);
         var feature = await transaction.Connection!.QuerySingleOrDefaultAsync<FeatureRow>(new CommandDefinition(
-            """
+            $"""
             SELECT f.id AS Id, f.number AS Number, f.title AS Title, f.web_url AS WebUrl, f.state AS State, f.reason AS Reason,
                    CASE WHEN f.branch_base_commit IS NULL THEN NULL ELSE f.branch END AS Branch,
                    coalesce(b.last_commit, f.branch_base_commit) AS BranchCommit,
-                   f.pull_request_number AS PullRequestNumber, f.pull_request_url AS PullRequestUrl
+                   f.pull_request_number AS PullRequestNumber, f.pull_request_url AS PullRequestUrl,
+                   {FeatureMergeOffers.IntoSql} AS MergeInto, {FeatureMergeOffers.HeadSql} AS Head
             FROM features f
             LEFT JOIN branch_watches b ON b.project_id = f.project_id AND b.feature_id = f.id
             WHERE f.project_id = @projectId AND f.number = @number
@@ -215,7 +219,8 @@ public static class FeatureStory
                 review.Verdict.ForOwner,
                 review.ReviewedAt,
                 review.PostedAt is not null,
-                at == 0 && covering is not null))]);
+                at == 0 && covering is not null))],
+            FeatureMergeOffers.Of(feature.MergeInto, feature.Head));
     }
 
     /// <summary>Each merge of the default branch Dev flow made cleanly on the feature's branch, by its
@@ -268,7 +273,8 @@ public static class FeatureStory
         string.Equals(one.Trim(), other.Trim(), StringComparison.OrdinalIgnoreCase);
 
     private sealed record FeatureRow(
-        Guid Id, int Number, string Title, string WebUrl, string State, string? Reason, string? Branch, string? BranchCommit, int? PullRequestNumber, string? PullRequestUrl);
+        Guid Id, int Number, string Title, string WebUrl, string State, string? Reason, string? Branch, string? BranchCommit, int? PullRequestNumber, string? PullRequestUrl,
+        string? MergeInto, string? Head);
 
     private sealed record AnswerRow(Guid RunId, int Position, string Answer, DateTime AnsweredAt);
 

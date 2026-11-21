@@ -27,6 +27,7 @@ function story(overrides: Partial<FeatureStory> = {}): FeatureStory {
 		reason: null,
 		branch: { name: BRANCH, commit: COMMIT },
 		pull_request: null,
+		merge: null,
 		cards: [
 			{
 				number: 39,

@@ -318,6 +318,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/devflow/api/projects/{id}/features/{number}/merge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Merge a feature into the default branch, as the caller
+         * @description Merges the feature's pull request into the default branch with a merge commit, as the caller's linked GitHub account and never as the app, only while its head is head_commit, the commit the page showed. In order: 404 for a project or feature the caller does not have; 422 without head_commit; 409 when the feature is not ready or waiting for the caller with its pull request; 409 when the project is stopped; 409 when CI has not passed on the feature's head, as the minute last read it; 409 when head_commit is not that head, after the project is read again; 409 when GitHub is not linked or the link has expired; then GitHub is asked. 204 once merged and the project read again, which makes the feature merged. 409 when GitHub says the head moved, after the project is read again, and when GitHub will not merge it or refuses, with its reason; 503 when GitHub did not answer. The review's verdict is not among the refusals: the confirmation says it. Without a valid token, 401 with an empty body; a change from another origin, 403.
+         */
+        post: operations["mergeFeature"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/devflow/api/projects/{id}/refresh": {
         parameters: {
             query?: never;
@@ -952,6 +972,7 @@ export interface components {
         FeatureItem: {
             /** Format: date-time */
             changed_at: string;
+            merge: null | components["schemas"]["FeatureMergeOffer"];
             /** Format: int32 */
             number: number;
             owner: string;
@@ -978,11 +999,16 @@ export interface components {
             summary: string;
             verdict: string;
         };
+        FeatureMergeOffer: {
+            head_commit: string;
+            into: string;
+        };
         FeatureStoryView: {
             branch: null | components["schemas"]["FeatureBranch"];
             cards: components["schemas"]["FeatureCard"][];
             /** Format: int64 */
             input_tokens: number;
+            merge: null | components["schemas"]["FeatureMergeOffer"];
             /** Format: int32 */
             number: number;
             /** Format: int64 */
@@ -2178,6 +2204,74 @@ export interface operations {
             };
             /** @description Conflict */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    mergeFeature: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                number: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MergeRequest"];
+            };
+        };
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

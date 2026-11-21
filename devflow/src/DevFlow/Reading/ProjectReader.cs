@@ -105,11 +105,12 @@ public sealed partial class ProjectReader(UserDb database, ICodeHost host, TimeP
         IReadOnlyList<RunnerItem> items = [];
         var cards = NothingPicked;
         IReadOnlyList<FollowedPull> followed = [];
+        IReadOnlyList<FollowedFeature> features = [];
         IReadOnlyList<TakenComments> commented = [];
         IReadOnlyList<OpenDecisions> decisions = [];
         try
         {
-            (items, cards, followed, commented, failure) = await Fetch(projectId, target, userId, cancellationToken);
+            (items, cards, followed, features, commented, failure) = await Fetch(projectId, target, userId, cancellationToken);
             if (failure is null)
             {
                 decisions = await ReadDecisions(projectId, target, userId, cancellationToken);
@@ -126,7 +127,7 @@ public sealed partial class ProjectReader(UserDb database, ICodeHost host, TimeP
         {
             try
             {
-                if (!await Store(projectId, userId, items, cards, followed, commented, decisions, now, cancellationToken))
+                if (!await Store(projectId, userId, items, cards, followed, features, commented, decisions, now, cancellationToken))
                 {
                     return ReadResult.NoSuchProject;
                 }
@@ -175,12 +176,12 @@ public sealed partial class ProjectReader(UserDb database, ICodeHost host, TimeP
     /// <summary>The project's items, its cards, where its waiting cards' pull requests are, and the
     /// owner's new comments on its cards' open pull requests, as the code host answers now, or why it
     /// could not be read.</summary>
-    private async Task<(IReadOnlyList<RunnerItem> Items, PickedProject Cards, IReadOnlyList<FollowedPull> Followed, IReadOnlyList<TakenComments> Commented, string? Failure)> Fetch(Guid projectId, ProjectTarget target, Guid userId, CancellationToken cancellationToken)
+    private async Task<(IReadOnlyList<RunnerItem> Items, PickedProject Cards, IReadOnlyList<FollowedPull> Followed, IReadOnlyList<FollowedFeature> Features, IReadOnlyList<TakenComments> Commented, string? Failure)> Fetch(Guid projectId, ProjectTarget target, Guid userId, CancellationToken cancellationToken)
     {
         var (items, open, failure) = await FetchItems(target, userId, cancellationToken);
         if (failure is not null)
         {
-            return ([], NothingPicked, [], [], failure);
+            return ([], NothingPicked, [], [], [], failure);
         }
 
         var settings = new ProjectSettings(target.PickupLabel, target.HoldLabel, target.AttentionLabel, target.WaitsForOwner);
@@ -192,9 +193,9 @@ public sealed partial class ProjectReader(UserDb database, ICodeHost host, TimeP
                 cards = found;
                 break;
             case CodeHostResult<PickedProject>.NotFound:
-                return ([], NothingPicked, [], [], RepositoryNotFound);
+                return ([], NothingPicked, [], [], [], RepositoryNotFound);
             case CodeHostResult<PickedProject>.Unavailable:
-                return ([], NothingPicked, [], [], HostUnavailable);
+                return ([], NothingPicked, [], [], [], HostUnavailable);
             default:
                 throw new InvalidOperationException("a code host result that is not one of the three");
         }
@@ -202,11 +203,46 @@ public sealed partial class ProjectReader(UserDb database, ICodeHost host, TimeP
         var (followed, followFailure) = await Follow(projectId, userId, repository, open, cancellationToken);
         if (followFailure is not null)
         {
-            return ([], NothingPicked, [], [], followFailure);
+            return ([], NothingPicked, [], [], [], followFailure);
+        }
+
+        var (features, featureFailure) = await FollowFeatures(projectId, userId, repository, open, cancellationToken);
+        if (featureFailure is not null)
+        {
+            return ([], NothingPicked, [], [], [], featureFailure);
         }
 
         var (commented, commentFailure) = await ReadComments(projectId, userId, repository, open, target.OwnerLogin, cancellationToken);
-        return commentFailure is null ? (items, cards, followed, commented, null) : ([], NothingPicked, [], [], commentFailure);
+        return commentFailure is null ? (items, cards, followed, features, commented, null) : ([], NothingPicked, [], [], [], commentFailure);
+    }
+
+    /// <summary>
+    /// Where the pull request of each feature not merged or closed yet is now, as
+    /// <see cref="Follow"/> does for cards: one still among the open pull requests costs nothing
+    /// more, and only one that has left the list is read on its own, to tell merged from closed.
+    /// One not found is left as it is. See "Merging a feature" in devflow/README.md.
+    /// </summary>
+    private async Task<(IReadOnlyList<FollowedFeature> Followed, string? Failure)> FollowFeatures(Guid projectId, Guid userId, Repository repository, IReadOnlyList<PullRequest> open, CancellationToken cancellationToken)
+    {
+        var stillOpen = open.Select(pull => pull.Number).ToHashSet();
+        var followed = new List<FollowedFeature>();
+        foreach (var (feature, number) in (await FeaturePulls.Followed(database, userId, projectId, cancellationToken)).Where(pair => !stillOpen.Contains(pair.PullRequest)))
+        {
+            switch (await host.PullRequest(userId, repository, number, cancellationToken))
+            {
+                case CodeHostResult<PullRequest>.Found { Value: { State: not PullRequestState.Open } pull }:
+                    followed.Add(new FollowedFeature(feature, number, pull.State == PullRequestState.Merged));
+                    break;
+                case CodeHostResult<PullRequest>.Found or CodeHostResult<PullRequest>.NotFound:
+                    break;
+                case CodeHostResult<PullRequest>.Unavailable:
+                    return ([], HostUnavailable);
+                default:
+                    throw new InvalidOperationException("a code host result that is not one of the three");
+            }
+        }
+
+        return (followed, null);
     }
 
     /// <summary>
@@ -352,14 +388,15 @@ public sealed partial class ProjectReader(UserDb database, ICodeHost host, TimeP
     /// The project's items replaced by <paramref name="items"/>, its cards merged with
     /// <paramref name="cards"/>, features among them, by <see cref="CardStore.Store"/>, each waiting card whose pull
     /// request merged or closed moved on by <see cref="CardStore.Follow"/>, the owner's new comments
-    /// taken into their cards by <see cref="OwnerComments.Take"/>, each feature moved to its end, or
+    /// taken into their cards by <see cref="OwnerComments.Take"/>, each feature whose pull request
+    /// left the open ones moved on by <see cref="FeaturePulls.Follow"/>, each feature moved to its end, or
     /// back from it, by <see cref="FeatureEnd.Advance"/>, and the read recorded as a success, in one
     /// transaction through the door: an item still there is updated in place and
     /// keeps its id, one gone is deleted. The project's row is locked for share first, so a disconnect waits
     /// for the transaction, and a project disconnected before it stores nothing.
     /// </summary>
     /// <returns>Whether the project was still there.</returns>
-    private async Task<bool> Store(Guid projectId, Guid userId, IReadOnlyList<RunnerItem> items, PickedProject cards, IReadOnlyList<FollowedPull> followed, IReadOnlyList<TakenComments> commented, IReadOnlyList<OpenDecisions> decisions, DateTimeOffset now, CancellationToken cancellationToken) =>
+    private async Task<bool> Store(Guid projectId, Guid userId, IReadOnlyList<RunnerItem> items, PickedProject cards, IReadOnlyList<FollowedPull> followed, IReadOnlyList<FollowedFeature> features, IReadOnlyList<TakenComments> commented, IReadOnlyList<OpenDecisions> decisions, DateTimeOffset now, CancellationToken cancellationToken) =>
         await database.InUserTransaction(userId, async transaction =>
         {
             if (await transaction.Connection!.ExecuteScalarAsync<int?>(new CommandDefinition(
@@ -387,6 +424,13 @@ public sealed partial class ProjectReader(UserDb database, ICodeHost host, TimeP
             foreach (var comments in commented)
             {
                 await OwnerComments.Take(transaction, projectId, comments, now, cancellationToken);
+            }
+
+            // A feature whose pull request merged is merged, before its end is decided, which
+            // leaves it alone from then on.
+            foreach (var pull in features)
+            {
+                await FeaturePulls.Follow(transaction, projectId, pull, now, cancellationToken);
             }
 
             // A feature whose cards are now all done moves to its end, and one at its end whose

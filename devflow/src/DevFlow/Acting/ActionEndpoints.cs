@@ -3,6 +3,7 @@ using System.Globalization;
 using DevFlow.Api;
 using DevFlow.Cards;
 using DevFlow.CodeHost;
+using DevFlow.Features;
 using DevFlow.Link;
 using DevFlow.Reading;
 
@@ -35,6 +36,9 @@ public static class ActionEndpoints
 {
     /// <summary>The title of the answer when the pull request is not as the page showed it.</summary>
     public const string Changed = "The pull request has changed since this was shown";
+
+    /// <summary>The title of the answer when CI has not passed on a feature's head.</summary>
+    public const string CiNotPassed = "CI has not passed on this commit";
 
     /// <summary>The most characters a comment may have once trimmed.</summary>
     public const int MostComment = 10_000;
@@ -87,7 +91,89 @@ public static class ActionEndpoints
             .ProducesValidationProblem(StatusCodes.Status422UnprocessableEntity)
             .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
+        routes.MapPost("/devflow/api/projects/{id:guid}/features/{number:int}/merge", MergeFeature)
+            .RequireAuthorization(PlatformAuthPolicies.Api)
+            .WithName("mergeFeature")
+            .WithSummary("Merge a feature into the default branch, as the caller")
+            .WithDescription("Merges the feature's pull request into the default branch with a merge commit, as the caller's linked GitHub account and never as the app, only while its head is head_commit, the commit the page showed. In order: 404 for a project or feature the caller does not have; 422 without head_commit; 409 when the feature is not ready or waiting for the caller with its pull request; 409 when the project is stopped; 409 when CI has not passed on the feature's head, as the minute last read it; 409 when head_commit is not that head, after the project is read again; 409 when GitHub is not linked or the link has expired; then GitHub is asked. 204 once merged and the project read again, which makes the feature merged. 409 when GitHub says the head moved, after the project is read again, and when GitHub will not merge it or refuses, with its reason; 503 when GitHub did not answer. The review's verdict is not among the refusals: the confirmation says it. Without a valid token, 401 with an empty body; a change from another origin, 403.")
+            .Produces(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesValidationProblem(StatusCodes.Status422UnprocessableEntity)
+            .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
+
         return routes;
+    }
+
+    /// <summary>
+    /// The owner's merge of a whole feature into the default branch, the one way part 4 reaches it:
+    /// the same merge as a card's, with his linked token and a merge commit naming the head the page
+    /// showed, refused before the code host is asked for whatever Dev flow can tell itself, a stopped
+    /// project and CI that has not passed on the head among it. The review's verdict refuses
+    /// nothing, since the owner reviews a feature himself; the confirmation says what it is. See
+    /// "Merging a feature" in devflow/README.md.
+    /// </summary>
+    private static async Task<Results<NoContent, ProblemHttpResult>> MergeFeature(
+        Guid id,
+        int number,
+        MergeRequest request,
+        HttpContext context,
+        [FromServices] ActionStore store,
+        [FromServices] UserTokens tokens,
+        [FromServices] ICodeHost host,
+        [FromServices] ProjectRefresher refresher,
+        [FromServices] TimeProvider time)
+    {
+        var userId = context.UserId();
+        var cancellationToken = context.RequestAborted;
+        if (await store.FindFeature(userId, id, number, cancellationToken) is not { } feature)
+        {
+            return NoSuchFeature();
+        }
+
+        if (string.IsNullOrEmpty(request.HeadCommit))
+        {
+            return Invalid("head_commit", "is missing; it is the commit the page showed");
+        }
+
+        if (NotMergeable(feature) is { } refused)
+        {
+            return refused;
+        }
+
+        if (!string.Equals(request.HeadCommit, feature.Head, StringComparison.Ordinal))
+        {
+            await ReadAgain(refresher, feature.ProjectId, userId, time, cancellationToken);
+            return ChangedSinceShown();
+        }
+
+        var userToken = await tokens.For(userId, cancellationToken);
+        if (userToken is not UserToken.Usable { Token: var access })
+        {
+            return TokenProblem(userToken, context, time);
+        }
+
+        return await Merged(await host.Merge(userId, access, feature.Repository, feature.PullRequestNumber!.Value, feature.Head!, cancellationToken), refresher, feature.ProjectId, userId, context, time, cancellationToken);
+    }
+
+    /// <summary>Why the feature cannot be merged now, from what Dev flow stored, or null when it
+    /// can: it is not the owner's turn with its pull request, the project is stopped, or CI has not
+    /// passed on its head. The order the route and the confirmation refuse in.</summary>
+    private static ProblemHttpResult? NotMergeable(FeatureTarget feature)
+    {
+        if (!FeatureMergeOffers.States.Contains(feature.State, StringComparer.Ordinal) || feature.PullRequestNumber is null)
+        {
+            return Conflict("This feature is not waiting for you", "A feature is merged once it is ready for you, or waits for you, with its pull request open.");
+        }
+
+        if (feature.Stopped)
+        {
+            return Conflict("This project is stopped", "Something landed on a branch it watches that Dev flow did not put there. Look at it and resume the project first.");
+        }
+
+        return feature.Head is null || feature.Into is null || !string.Equals(feature.CiPassed, feature.Head, StringComparison.Ordinal)
+            ? Conflict(CiNotPassed, "Merge it once CI has passed on the feature's head.")
+            : null;
     }
 
     /// <summary>
@@ -376,6 +462,9 @@ public static class ActionEndpoints
         message is null
             ? string.Create(CultureInfo.InvariantCulture, $"GitHub answered {status}.")
             : string.Create(CultureInfo.InvariantCulture, $"GitHub answered {status}: {message}");
+
+    private static ProblemHttpResult NoSuchFeature() =>
+        TypedResults.Problem(statusCode: StatusCodes.Status404NotFound, title: "No such feature", detail: "You have no feature with that number in that project.");
 
     private static ProblemHttpResult NoSuchItem() =>
         TypedResults.Problem(statusCode: StatusCodes.Status404NotFound, title: "No such item", detail: "Nothing waits for you with that id.");

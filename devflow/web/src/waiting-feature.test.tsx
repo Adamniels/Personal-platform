@@ -34,6 +34,7 @@ function feature(overrides: Partial<FeatureItem> = {}): FeatureItem {
 		},
 		unanswered: 2,
 		changed_at: new Date(NOW - 60_000).toISOString(),
+		merge: null,
 		...overrides,
 	};
 }

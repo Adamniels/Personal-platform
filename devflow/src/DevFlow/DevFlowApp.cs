@@ -137,6 +137,10 @@ public static class DevFlowApp
         // devflow/README.md.
         builder.Services.AddSingleton(provider => new FeatureReadiness(
             database, provider.GetRequiredService<ICodeHost>(), provider.GetRequiredService<TimeProvider>(), provider.GetRequiredService<ILogger<FeatureReadiness>>()));
+        // Each feature whose pull request merged or closed: its cards told how it ended, as the app.
+        // See "Merging a feature" in devflow/README.md.
+        builder.Services.AddSingleton(provider => new FeatureOutcomes(
+            database, provider.GetRequiredService<ICodeHost>(), provider.GetRequiredService<TimeProvider>(), provider.GetRequiredService<ILogger<FeatureOutcomes>>()));
         // Each user's Claude login, sealed in the vault and opened only for one of their runs. See
         // "Claude login" in devflow/README.md.
         builder.Services.AddSingleton(provider => new ClaudeLogins(

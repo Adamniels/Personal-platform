@@ -3628,3 +3628,233 @@ def test_a_reviewed_feature_is_ready_for_me(
     expect(latest).to_contain_text("For the pull request's head")
     expect(latest).to_contain_text("The card and the end both read the branch's head")
     _look(page, "devflow-feature-review")
+
+
+# Merging a feature into main, as the owner, from its item under "Features
+# ready for your review" or from its page. See "Merging a feature" in
+# devflow/README.md.
+
+
+def _reviewed_feature(
+    page: Page, base_url: str, devflow_world, whole: dict
+) -> tuple[str, int, str]:
+    """A labelled feature of one card carried to its end: the card built and
+    landed, main brought in and the feature's pull request opened, its whole
+    review answered `whole`, and CI green on its head, decided on the next
+    minute. The project, the feature's pull request and its head."""
+    world = one_repository()
+    add_issue(world, 60, "The feature's branch", labels=["devflow"], sub_issues=[61])
+    add_issue(world, 61, "Merge the feature")
+    add_file(
+        world,
+        ".devflow/project.json",
+        json.dumps({"version": 1, "check": CHECK, "start": "", "url": ""}).encode(),
+    )
+    _open_project(page, base_url, devflow_world, world)
+    project = page.url.rsplit("/", 1)[1]
+    given = page.request.put(
+        "/devflow/api/claude-login",
+        data={"token": CLAUDE_TOKEN},
+        headers={"Origin": base_url},
+    )
+    assert given.status == 200, given.text()
+    refreshed = page.request.post(
+        f"/devflow/api/projects/{project}/refresh", headers={"Origin": base_url}
+    )
+    assert refreshed.status == 204, refreshed.text()
+
+    # The fake worker builds the one card; meanwhile I push to main, and the
+    # project is read, so the watch judges my push fine.
+    ran = page.request.post(
+        "/devflow/api/fake/worker/run",
+        data={
+            "project_id": project,
+            "result": {
+                "outcome": "succeeded",
+                "report": _report(),
+                "failure": None,
+                "check": {"exit_code": 0, "output": "Tests: 12 passed"},
+                "auth_method": "oauth_token",
+                "usage": {
+                    "usage": {"input_tokens": 41, "output_tokens": 6113},
+                    "num_turns": 23,
+                },
+                "duration_ms": 184213,
+                "stderr": "",
+            },
+        },
+        headers={"Origin": base_url},
+    )
+    assert ran.status == 200, ran.text()
+    pushed = page.request.post(
+        "/devflow/api/fake/push",
+        data={"repository": REPOSITORY, "branch": "main", "message": "Main moves on"},
+        headers={"Origin": base_url},
+    )
+    assert pushed.status == 200, pushed.text()
+    refreshed = page.request.post(
+        f"/devflow/api/projects/{project}/refresh", headers={"Origin": base_url}
+    )
+    assert refreshed.status == 204, refreshed.text()
+
+    # CI green and the reviewer's approve: the card lands, which ends the
+    # feature: main is brought in, and the feature's pull request opened.
+    _stage_ci(page, devflow_world, ran.json()["head_commit"], [check_run("test")])
+    _fake_review(page, base_url, project, _verdict("approve"))
+    opened = [
+        write
+        for write in _writes(page)
+        if write["kind"] == "pull_request" and write.get("base") == "main"
+    ]
+    assert len(opened) == 1, opened
+    refreshed = page.request.post(
+        f"/devflow/api/projects/{project}/refresh", headers={"Origin": base_url}
+    )
+    assert refreshed.status == 204, refreshed.text()
+
+    # The fake worker takes the whole feature's review and answers `whole`.
+    reviewed = page.request.post(
+        "/devflow/api/fake/worker/run",
+        data={
+            "project_id": project,
+            "result": {
+                "outcome": "succeeded",
+                "report": whole,
+                "failure": None,
+                "check": None,
+                "auth_method": "oauth_token",
+                "usage": {
+                    "usage": {"input_tokens": 30, "output_tokens": 1200},
+                    "num_turns": 11,
+                },
+                "duration_ms": 95000,
+                "stderr": "",
+            },
+        },
+        headers={"Origin": base_url},
+    )
+    assert reviewed.status == 200, reviewed.text()
+    assert reviewed.json()["kind"] == "feature_review", reviewed.json()
+    head = reviewed.json()["head_commit"]
+
+    # CI passes on the head; the next minute decides, here as the fake worker
+    # asks for work, which there is none of.
+    _stage_ci(page, devflow_world, head, [check_run("ci")])
+    asked = page.request.post(
+        "/devflow/api/fake/worker/run",
+        data={"project_id": project, "keep_running": True},
+        headers={"Origin": base_url},
+    )
+    assert asked.status == 204, asked.text()
+    return project, opened[0]["number"], head
+
+
+def test_i_merge_a_feature_into_main(
+    page: Page, invite_code: str, base_url: str, viewport: str, devflow_world
+):
+    register_and_log_in(page, invite_code, base_url)
+    project, pull, head = _reviewed_feature(
+        page, base_url, devflow_world, _verdict("approve")
+    )
+
+    # From "Features ready for your review", Merge into main asks first,
+    # naming the pull request and its commit.
+    page.goto("/devflow")
+    group = page.get_by_role("region", name="Features ready for your review")
+    item = group.get_by_role("article", name="The feature's branch")
+    expect(item).to_contain_text("Ready for you")
+    item.get_by_role("button", name="Merge into main").click()
+    dialog = page.get_by_role("dialog", name="Merge feature #60 into main?")
+    expect(dialog).to_be_visible()
+    expect(dialog).to_contain_text(f"Pull request #{pull}")
+    expect(dialog.locator("code")).to_have_text(head[:7])
+    expect(dialog).to_contain_text("The review approved this commit.")
+    expect(dialog).to_contain_text("Merging confirms 1 decision you have not answered.")
+    dialog.get_by_role("button", name="Merge").click()
+
+    # Merged as me: the fake world holds my merge of its pull request, a merge
+    # commit naming the head that was shown, and the item is gone.
+    expect(page.get_by_text("Merged feature #60")).to_be_visible()
+    expect(group.get_by_role("article", name="The feature's branch")).to_have_count(0)
+    merges = [write for write in _writes(page) if write["kind"] == "merge"]
+    assert merges == [
+        {
+            "kind": "merge",
+            "repository": REPOSITORY,
+            "number": pull,
+            "commit": head,
+            "method": "merge",
+            "body": None,
+            "by": OWNER_LOGIN,
+        }
+    ], merges
+    assert _staged_pull(page, pull)["state"] == "merged"
+
+    # Its page says it is merged, and offers the merge no more.
+    page.goto(f"/devflow/projects/{project}/features/60")
+    feature = page.get_by_role("article", name="The feature")
+    expect(feature).to_contain_text("Merged")
+    expect(page.get_by_role("button", name="Merge into main")).to_have_count(0)
+    _look(page, "devflow-feature-merged")
+
+
+def test_merging_warns_when_the_review_did_not_approve(
+    page: Page, invite_code: str, base_url: str, viewport: str, devflow_world
+):
+    register_and_log_in(page, invite_code, base_url)
+    findings = [
+        {
+            "blocking": True,
+            "file": "devflow/src/DevFlow/Features/FeatureEnd.cs",
+            "line": 40,
+            "what": "The end reads the cards twice",
+            "why": "A card added between the reads is missed",
+        },
+        {
+            "blocking": True,
+            "file": "devflow/web/src/feature.tsx",
+            "line": 120,
+            "what": "The branch line says main for every project",
+            "why": "A project whose default branch is trunk reads wrong",
+        },
+        {
+            "blocking": False,
+            "file": "devflow/README.md",
+            "line": 3000,
+            "what": "A sentence could be shorter",
+            "why": "It reads twice",
+        },
+    ]
+    project, pull, head = _reviewed_feature(
+        page, base_url, devflow_world, _verdict("changes", findings)
+    )
+
+    # It waits for me, since the review asked for changes, and CI passed, so
+    # Merge into main is offered on its page.
+    page.goto(f"/devflow/projects/{project}/features/60")
+    feature = page.get_by_role("article", name="The feature")
+    expect(feature).to_contain_text("Waiting for you")
+    expect(feature).to_contain_text("The review of the whole feature asked for changes")
+    feature.get_by_role("button", name="Merge into main").click()
+
+    # The confirmation says the review asked for changes and lists the open
+    # findings, and counts the decision I have not answered.
+    dialog = page.get_by_role("dialog", name="Merge feature #60 into main?")
+    expect(dialog).to_contain_text(f"Pull request #{pull}")
+    expect(dialog.locator("code")).to_have_text(head[:7])
+    expect(dialog).to_contain_text("The review asked for changes: 2 open findings")
+    listed = dialog.get_by_role("list", name="Open findings")
+    expect(listed.get_by_role("listitem")).to_have_count(2)
+    expect(listed).to_contain_text("The end reads the cards twice")
+    expect(listed).to_contain_text("devflow/web/src/feature.tsx:120")
+    expect(dialog).not_to_contain_text("A sentence could be shorter")
+    expect(dialog).to_contain_text("Merging confirms 1 decision you have not answered.")
+    page.evaluate("document.fonts.ready.then(() => null)")
+    assert_nothing_scrolls_sideways(page)
+    capture(page, "devflow-feature-merge-dialog")
+
+    # Cancelled, nothing is merged.
+    dialog.get_by_role("button", name="Cancel").click()
+    expect(dialog).to_have_count(0)
+    assert [write for write in _writes(page) if write["kind"] == "merge"] == []
+    assert _staged_pull(page, pull)["state"] == "open"
