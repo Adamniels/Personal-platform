@@ -1139,6 +1139,7 @@ export interface components {
             job_id: string;
             kind: string;
             limits: components["schemas"]["JobLimits"];
+            model: string;
             push_key: string;
             /** Format: date-time */
             push_key_expires_at: string;

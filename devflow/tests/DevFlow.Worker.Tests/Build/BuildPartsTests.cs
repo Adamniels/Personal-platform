@@ -51,6 +51,41 @@ public sealed class BuildPartsTests
     public void ACardsBranchIsTaken() =>
         Assert.Null(BuildJob.Refusal(Job("devflow/12-show-the-empty_state.v2")));
 
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("--dangerously-skip-permissions")]
+    [InlineData("opus --max-turns 9999")]
+    [InlineData("Opus")]
+    public void AJobWithoutAModelIsAProtocolError(string? model) =>
+        Assert.Contains("model", WorkerJob.ProtocolError(Job("devflow/1-x") with { Model = model! }), StringComparison.Ordinal);
+
+    [Theory]
+    [InlineData("opus")]
+    [InlineData("sonnet")]
+    [InlineData("haiku")]
+    [InlineData("claude-opus-5-5")]
+    public void AJobWithAModelIsTaken(string model) =>
+        Assert.Null(WorkerJob.ProtocolError(Job("devflow/1-x") with { Model = model }));
+
+    [Fact]
+    public async Task AJobWithoutAModelIsRefusedOutsideTheCard()
+    {
+        // A Dev flow that sends no model: the agent never runs, and the job ends at once as a failure
+        // outside the card, which the card is not to blame for.
+        var devFlow = new ScriptedDevFlow().Then(WorkerApi.ResultPath(JobId), HttpStatusCode.NoContent);
+        var sent = JsonSerializer.SerializeToNode(Job("devflow/1-add-the-greeting"), WorkerApi.Json)!.AsObject();
+        Assert.True(sent.Remove("model"));
+
+        await Refused(devFlow, new WatchedClock(), JsonSerializer.SerializeToElement(sent));
+
+        var result = JsonNode.Parse(Assert.Single(devFlow.Calls).Body)!;
+        Assert.Equal("failed", (string)result["outcome"]!);
+        Assert.False((bool)result["failure"]!["in_card"]!);
+        Assert.Contains("model", (string)result["failure"]!["reason"]!, StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task TheResultIsSentAgainWhileDevFlowIsAway()
     {
@@ -123,7 +158,7 @@ public sealed class BuildPartsTests
 
     /// <summary>A job onto the default branch, refused before anything runs, against
     /// <paramref name="devFlow"/>, so only its result is sent.</summary>
-    private static Task Refused(ScriptedDevFlow devFlow, TimeProvider clock)
+    private static Task Refused(ScriptedDevFlow devFlow, TimeProvider clock, JsonElement? job = null)
     {
         var http = DevFlowClient.CreateHttpClient(WorkerSettings.Load(Environment(("DEVFLOW_URL", "http://devflow.test"), ("DEVFLOW_PROJECT_KEY", Key)), out _)!, devFlow);
         var none = new ScriptedAgent((_, _) => throw new InvalidOperationException("the agent must not run"));
@@ -136,7 +171,7 @@ public sealed class BuildPartsTests
         {
             using (http)
             {
-                await build.Run(JsonSerializer.SerializeToElement(Job("main"), WorkerApi.Json), Ct);
+                await build.Run(job ?? JsonSerializer.SerializeToElement(Job("main"), WorkerApi.Json), Ct);
             }
 
             Assert.Empty(starter.Started);
@@ -157,5 +192,6 @@ public sealed class BuildPartsTests
         "ghs_a_push_key",
         new DateTimeOffset(2026, 11, 18, 10, 0, 0, TimeSpan.Zero),
         new JobCommitter("devflow[bot]", "1+devflow[bot]@users.noreply.github.com"),
-        JobLimits.Default);
+        new JobLimits(200, 25m, 90),
+        "opus");
 }

@@ -67,7 +67,12 @@ internal sealed partial class ReviewJob(DevFlowClient devFlow, Guid workerId, Jo
         var started = Time.GetTimestamp();
         AgentFailure? failure;
         AgentResult? result = null;
-        if (Refusal(job, commit) is { } refused)
+        if (ProtocolError(job) is { } broken)
+        {
+            Log.Write($"Refused: {broken}.");
+            failure = new AgentFailure(FailureSide.OutsideCard, broken);
+        }
+        else if (Refusal(job, commit) is { } refused)
         {
             Log.Write($"Refused: {refused}.");
             failure = new AgentFailure(FailureSide.Card, refused);

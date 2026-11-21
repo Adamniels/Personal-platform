@@ -4,6 +4,7 @@ using System.Text.Json;
 using DevFlow.Briefs;
 using DevFlow.ClaudeLogin;
 using DevFlow.CodeHost;
+using DevFlow.Projects;
 using DevFlow.Protocol;
 using DevFlow.Recipes;
 using DevFlow.Stops;
@@ -162,19 +163,22 @@ public sealed partial class Dispatcher(
         var now = Now();
         var job = await database.InUserTransaction<Job?>(userId, async transaction =>
         {
-            if (await watch.HoldUnderLock(transaction, projectId, cancellationToken) != ProjectHold.None)
+            // The project's models and limits are read in the transaction that takes the work, so
+            // the job carries them as they are now and the run keeps them whatever changes after.
+            if (await watch.HoldUnderLock(transaction, projectId, cancellationToken) != ProjectHold.None
+                || await RunSettings.Read(transaction, projectId, cancellationToken) is not { } run)
             {
                 return null;
             }
 
             return kind switch
             {
-                Job.Review => ReviewJob(await JobStore.ClaimReview(transaction, projectId, userId, workerId, now, cancellationToken), repository, facts, token, key),
-                Job.FeatureReview => FeatureReviewJob(await JobStore.ClaimFeatureReview(transaction, projectId, userId, workerId, facts.DefaultBranch, facts.Check, now, cancellationToken), repository, facts, token, key),
-                Job.Fix => FixJob(await JobStore.ClaimFix(transaction, projectId, userId, workerId, facts.Check, now, cancellationToken), repository, facts, token, key),
-                Job.FeatureFix => FeatureFixJob(await JobStore.ClaimFeatureFix(transaction, projectId, userId, workerId, facts.DefaultBranch, facts.Check, now, cancellationToken), repository, facts, token, key),
-                Job.Conflict => ConflictJob(await JobStore.ClaimConflict(transaction, projectId, userId, workerId, due!, facts.DefaultBranch, facts.Check, now, cancellationToken), repository, facts, token, key, files),
-                _ => BuildJob(await JobStore.Claim(transaction, projectId, userId, workerId, facts.DefaultBranch, facts.Check, now, cancellationToken), repository, facts, token, key),
+                Job.Review => ReviewJob(await JobStore.ClaimReview(transaction, projectId, userId, workerId, now, cancellationToken), repository, facts, run, token, key),
+                Job.FeatureReview => FeatureReviewJob(await JobStore.ClaimFeatureReview(transaction, projectId, userId, workerId, facts.DefaultBranch, facts.Check, now, cancellationToken), repository, facts, run, token, key),
+                Job.Fix => FixJob(await JobStore.ClaimFix(transaction, projectId, userId, workerId, facts.Check, now, cancellationToken), repository, facts, run, token, key),
+                Job.FeatureFix => FeatureFixJob(await JobStore.ClaimFeatureFix(transaction, projectId, userId, workerId, facts.DefaultBranch, facts.Check, now, cancellationToken), repository, facts, run, token, key),
+                Job.Conflict => ConflictJob(await JobStore.ClaimConflict(transaction, projectId, userId, workerId, due!, facts.DefaultBranch, facts.Check, now, cancellationToken), repository, facts, run, token, key, files),
+                _ => BuildJob(await JobStore.Claim(transaction, projectId, userId, workerId, facts.DefaultBranch, facts.Check, now, cancellationToken), repository, facts, run, token, key),
             };
         }, cancellationToken);
         if (job is null)
@@ -190,7 +194,7 @@ public sealed partial class Dispatcher(
     }
 
     /// <summary>The build job for a card taken to build, or null when none was.</summary>
-    private static Job? BuildJob(ClaimedCard? claimed, Repository repository, RepositoryFacts facts, ClaudeToken token, AppWriteToken key)
+    private static Job? BuildJob(ClaimedCard? claimed, Repository repository, RepositoryFacts facts, RunSettings run, ClaudeToken token, AppWriteToken key)
     {
         if (claimed is null)
         {
@@ -217,7 +221,8 @@ public sealed partial class Dispatcher(
             key.Value,
             key.ExpiresAt,
             new JobCommitter(facts.Committer.Name, facts.Committer.Email),
-            JobLimits.Default,
+            run.Limits,
+            run.ModelFor(Job.Build),
             Start: facts.Start,
             Url: facts.Url);
     }
@@ -225,7 +230,7 @@ public sealed partial class Dispatcher(
     /// <summary>The conflict job for a feature taken to resolve, or null when none was: on the
     /// feature's branch, with the default branch as its base, the feature's parent as its card, the
     /// conflict brief, the report's form, the check, and the two commits it merges.</summary>
-    private static Job? ConflictJob(ClaimedConflict? claimed, Repository repository, RepositoryFacts facts, ClaudeToken token, AppWriteToken key, IReadOnlyList<string> files)
+    private static Job? ConflictJob(ClaimedConflict? claimed, Repository repository, RepositoryFacts facts, RunSettings run, ClaudeToken token, AppWriteToken key, IReadOnlyList<string> files)
     {
         if (claimed is null)
         {
@@ -247,7 +252,8 @@ public sealed partial class Dispatcher(
             key.Value,
             key.ExpiresAt,
             new JobCommitter(facts.Committer.Name, facts.Committer.Email),
-            JobLimits.Default,
+            run.Limits,
+            run.ModelFor(Job.Conflict),
             ToResolve: new JobConflict(claimed.FeatureCommit, claimed.DefaultCommit));
     }
 
@@ -255,7 +261,7 @@ public sealed partial class Dispatcher(
     /// the feature's branch, with the default branch as its base, the feature's parent as its card,
     /// the feature reviewer's brief, the verdict's form, the project's check, and what the review
     /// reads besides the code.</summary>
-    private static Job? FeatureReviewJob(ClaimedFeatureReview? claimed, Repository repository, RepositoryFacts facts, ClaudeToken token, AppWriteToken key)
+    private static Job? FeatureReviewJob(ClaimedFeatureReview? claimed, Repository repository, RepositoryFacts facts, RunSettings run, ClaudeToken token, AppWriteToken key)
     {
         if (claimed is null)
         {
@@ -277,14 +283,15 @@ public sealed partial class Dispatcher(
             key.Value,
             key.ExpiresAt,
             new JobCommitter(facts.Committer.Name, facts.Committer.Email),
-            JobLimits.Default,
+            run.Limits,
+            run.ModelFor(Job.FeatureReview),
             ToReviewFeature: new JobFeatureReview(claimed.Commit, claimed.Cards, claimed.Check, claimed.RemergeDiff, [.. claimed.Earlier.Select(Round)]));
     }
 
     /// <summary>The fix job for a feature taken to fix as a whole, or null when none was: a fix's job
     /// on the feature's branch, with the default branch as its base, the feature's parent as its
     /// card, the feature's fix brief, the report's form, and where the fix starts.</summary>
-    private static Job? FeatureFixJob(ClaimedFeatureFix? claimed, Repository repository, RepositoryFacts facts, ClaudeToken token, AppWriteToken key)
+    private static Job? FeatureFixJob(ClaimedFeatureFix? claimed, Repository repository, RepositoryFacts facts, RunSettings run, ClaudeToken token, AppWriteToken key)
     {
         if (claimed is null)
         {
@@ -309,7 +316,8 @@ public sealed partial class Dispatcher(
             key.Value,
             key.ExpiresAt,
             new JobCommitter(facts.Committer.Name, facts.Committer.Email),
-            JobLimits.Default,
+            run.Limits,
+            run.ModelFor(Job.FeatureFix),
             ToFix: new JobFix(claimed.FromCommit, claimed.Round),
             Start: facts.Start,
             Url: facts.Url);
@@ -318,7 +326,7 @@ public sealed partial class Dispatcher(
     /// <summary>The fix job for a card taken to fix, or null when none was: a build's job on the
     /// card's branch and base, with the fix brief, the developer's with what to fix, the report's
     /// form, and where the fix starts.</summary>
-    private static Job? FixJob(ClaimedFix? claimed, Repository repository, RepositoryFacts facts, ClaudeToken token, AppWriteToken key)
+    private static Job? FixJob(ClaimedFix? claimed, Repository repository, RepositoryFacts facts, RunSettings run, ClaudeToken token, AppWriteToken key)
     {
         if (claimed is null)
         {
@@ -344,7 +352,8 @@ public sealed partial class Dispatcher(
             key.Value,
             key.ExpiresAt,
             new JobCommitter(facts.Committer.Name, facts.Committer.Email),
-            JobLimits.Default,
+            run.Limits,
+            run.ModelFor(Job.Fix),
             ToFix: new JobFix(claimed.FromCommit, claimed.Round),
             Start: facts.Start,
             Url: facts.Url);
@@ -353,7 +362,7 @@ public sealed partial class Dispatcher(
     /// <summary>The review job for a card taken to review, or null when none was: the build's
     /// branch, base and check, the commit it left, its report, the check's result and its pictures,
     /// the reviewer's brief and the verdict's form.</summary>
-    private static Job? ReviewJob(ClaimedReview? claimed, Repository repository, RepositoryFacts facts, ClaudeToken token, AppWriteToken key)
+    private static Job? ReviewJob(ClaimedReview? claimed, Repository repository, RepositoryFacts facts, RunSettings run, ClaudeToken token, AppWriteToken key)
     {
         if (claimed is null)
         {
@@ -377,7 +386,8 @@ public sealed partial class Dispatcher(
             key.Value,
             key.ExpiresAt,
             new JobCommitter(facts.Committer.Name, facts.Committer.Email),
-            JobLimits.Default,
+            run.Limits,
+            run.ModelFor(Job.Review),
             new JobReview(claimed.Commit, report.RootElement.Clone(), new CheckResult(claimed.CheckExitCode, claimed.CheckOutput), [.. claimed.Earlier.Select(Round)], claimed.Screenshots));
     }
 

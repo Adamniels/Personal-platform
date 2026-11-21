@@ -67,7 +67,12 @@ internal sealed partial class BuildJob(DevFlowClient devFlow, Guid workerId, Job
         });
         var started = Time.GetTimestamp();
         Outcome outcome;
-        if (Refusal(job) is { } refused)
+        if (ProtocolError(job) is { } broken)
+        {
+            Log.Write($"Refused: {broken}.");
+            outcome = Outcome.Failed(new AgentFailure(FailureSide.OutsideCard, broken), null);
+        }
+        else if (Refusal(job) is { } refused)
         {
             Log.Write($"Refused: {refused}.");
             outcome = Outcome.Failed(new AgentFailure(FailureSide.Card, refused), null);

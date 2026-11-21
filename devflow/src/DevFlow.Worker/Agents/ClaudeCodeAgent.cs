@@ -6,12 +6,12 @@ using DevFlow.Worker.Pages;
 
 namespace DevFlow.Worker.Agents;
 
-/// <summary>Where Claude Code is, the user's home it runs in, the model, and where the image's
-/// Chromium is, which the pictures the developer takes of its own pages need; the rest of its
-/// environment is built from these and nothing else.</summary>
-internal sealed record ClaudeCodeOptions(string Executable, string Home, string Path, string Lang, string Model, string BrowsersPath)
+/// <summary>Where Claude Code is, the user's home it runs in, and where the image's Chromium is,
+/// which the pictures the developer takes of its own pages need; the rest of its environment is
+/// built from these and nothing else. The model is not among them: each run takes its job's.</summary>
+internal sealed record ClaudeCodeOptions(string Executable, string Home, string Path, string Lang, string BrowsersPath)
 {
-    public static ClaudeCodeOptions Default { get; } = new("claude", "/home/agent", "/usr/local/bin:/usr/bin:/bin", "C.UTF-8", "claude-opus-5-5", PageTools.ImageBrowsers);
+    public static ClaudeCodeOptions Default { get; } = new("claude", "/home/agent", "/usr/local/bin:/usr/bin:/bin", "C.UTF-8", PageTools.ImageBrowsers);
 }
 
 /// <summary>
@@ -89,16 +89,17 @@ internal sealed class ClaudeCodeAgent(IProcessStarter starter, ClaudeCodeOptions
     };
 
     /// <summary>
-    /// The run's arguments. A developer may change its copy and run commands, with
+    /// The run's arguments, with the model, the turns and the spend its job carried. A developer may
+    /// change its copy and run commands, with
     /// <c>bypassPermissions</c>. A reviewer reads and nothing else: the default permission mode,
     /// which asks before any other tool, no prompts, so every ask is refused and reported in
     /// <c>permission_denials</c> rather than waiting, and only <c>Read</c>, <c>Grep</c> and
     /// <c>Glob</c> allowed, as the experiment of 2026-11-16 found.
     /// </summary>
-    internal List<string> Arguments(AgentRun run) =>
+    internal static List<string> Arguments(AgentRun run) =>
     [
         "-p", run.Brief,
-        "--model", options.Model,
+        "--model", run.Model,
         .. run.Access == AgentAccess.ReadOnly
             ? (string[])["--permission-mode", "default", "--permission-prompts", "none", "--allowedTools", "Read,Grep,Glob"]
             : ["--permission-mode", "bypassPermissions"],

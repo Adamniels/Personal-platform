@@ -1657,6 +1657,9 @@
           "limits": {
             "$ref": "#/components/schemas/JobLimits"
           },
+          "model": {
+            "type": "string"
+          },
           "push_key": {
             "type": "string"
           },
@@ -1733,7 +1736,8 @@
           "push_key",
           "push_key_expires_at",
           "committer",
-          "limits"
+          "limits",
+          "model"
         ],
         "type": "object"
       },

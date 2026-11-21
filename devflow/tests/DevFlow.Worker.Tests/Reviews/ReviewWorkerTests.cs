@@ -203,7 +203,9 @@ public sealed class ReviewWorkerTests
         Assert.Equal("none", After(arguments, "--permission-prompts"));
         Assert.Equal("Read,Grep,Glob", After(arguments, "--allowedTools"));
         Assert.DoesNotContain(arguments, argument => argument.Contains("bypass", StringComparison.OrdinalIgnoreCase));
-        Assert.Equal("claude-opus-5-5", After(arguments, "--model"));
+        // On the model its job carried, the project's reviewing model, opus for a new project.
+        Assert.Equal("opus", job.GetProperty("model").GetString());
+        Assert.Equal("opus", After(arguments, "--model"));
 
         // A refused write is recorded, and does not fail a review: it cannot write by construction.
         var sent = bench.SentResult(jobId);

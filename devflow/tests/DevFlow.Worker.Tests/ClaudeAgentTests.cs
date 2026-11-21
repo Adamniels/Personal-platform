@@ -149,7 +149,7 @@ public sealed class ClaudeAgentTests
         Assert.Equal(
             [
                 "-p", "Add an empty state to the habits list.",
-                "--model", "claude-opus-5-5",
+                "--model", "opus",
                 "--permission-mode", "bypassPermissions",
                 "--output-format", "json",
                 "--json-schema", Schema,
@@ -158,6 +158,28 @@ public sealed class ClaudeAgentTests
             ],
             starter.Started[1].Spec.Arguments);
         NoToken(result, log);
+    }
+
+    [Fact]
+    public async Task TheJobsModelIsPassed()
+    {
+        // Each run is started with the model and the limits its job carried, whatever the last run
+        // was given.
+        foreach (var (model, access) in new[] { ("sonnet", AgentAccess.Write), ("haiku", AgentAccess.ReadOnly), ("opus", AgentAccess.Write) })
+        {
+            var (result, starter, _) = await Run(access: access, model: model, limits: new AgentLimits(50, 25m, TimeSpan.FromMinutes(30)));
+
+            Assert.True(result.Succeeded, result.Failure?.Reason);
+            var arguments = starter.Started[1].Spec.Arguments.ToList();
+            Assert.Equal(model, arguments[arguments.IndexOf("--model") + 1]);
+            Assert.Single(arguments, argument => argument == "--model");
+            Assert.Equal("50", arguments[arguments.IndexOf("--max-turns") + 1]);
+            Assert.Equal(TimeSpan.FromMinutes(30), starter.Started[1].TimeLimit);
+        }
+
+        // The worker has no model of its own any more: the job is the one place it comes from.
+        Assert.Null(typeof(ClaudeCodeOptions).GetProperty("Model"));
+        Assert.Null(typeof(AgentLimits).GetProperty("Model"));
     }
 
     [Theory]
@@ -202,7 +224,7 @@ public sealed class ClaudeAgentTests
         // Nor through the credential printed by mistake.
         var credential = new AgentCredential(Token);
         Assert.DoesNotContain(Token, credential.ToString(), StringComparison.Ordinal);
-        Assert.DoesNotContain(Token, new AgentRun("/work", "brief", Schema, AgentLimits.Default, credential).ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain(Token, new AgentRun("/work", "brief", Schema, "opus", Limits, credential).ToString(), StringComparison.Ordinal);
 
         // And a failure keeps none either.
         var (failed, _, failedLog) = await Run(new ProcessOutcome(1, $"crashed with {Token}", Token, false));
@@ -236,13 +258,13 @@ public sealed class ClaudeAgentTests
     /// <summary>Runs the agent on a brief in <c>/work/fodr</c>, with <paramref name="login"/>
     /// answering the login check, logged in with the token unless a test says otherwise, and
     /// <paramref name="run"/> the run.</summary>
-    private static async Task<(AgentResult Result, FakeStarter Starter, StringBuilder Log)> Run(ProcessOutcome? run = null, ProcessOutcome? login = null, AgentAccess access = AgentAccess.Write)
+    private static async Task<(AgentResult Result, FakeStarter Starter, StringBuilder Log)> Run(ProcessOutcome? run = null, ProcessOutcome? login = null, AgentAccess access = AgentAccess.Write, string model = "opus", AgentLimits? limits = null)
     {
         var starter = new FakeStarter(login ?? Answer("auth-oauth-token.json", 0), run ?? Answer("success.json", 0));
         var output = Writer(out var log);
         var agent = new ClaudeCodeAgent(starter, ClaudeCodeOptions.Default, new WorkerLog(output, new WatchedClock()));
         var result = await agent.Run(
-            new AgentRun("/work/fodr", "Add an empty state to the habits list.", Schema, AgentLimits.Default, new AgentCredential(Token), access),
+            new AgentRun("/work/fodr", "Add an empty state to the habits list.", Schema, model, limits ?? Limits, new AgentCredential(Token), access),
             Ct);
         return (result, starter, log);
     }

@@ -17,11 +17,12 @@ internal interface IAgent
 /// <param name="WorkingDirectory">The clean working copy it works in.</param>
 /// <param name="Brief">What it is asked to do, as text.</param>
 /// <param name="ReportSchema">The JSON Schema its report must follow, as JSON text.</param>
+/// <param name="Model">The model it runs on, as its job carried it.</param>
 /// <param name="Limits">When it is stopped.</param>
 /// <param name="Credential">What it logs in with.</param>
 /// <param name="Access">Whether it may change files and run commands, as a build's developer
 /// does, or only read, as a review's reviewer does.</param>
-internal sealed record AgentRun(string WorkingDirectory, string Brief, string ReportSchema, AgentLimits Limits, AgentCredential Credential, AgentAccess Access = AgentAccess.Write);
+internal sealed record AgentRun(string WorkingDirectory, string Brief, string ReportSchema, string Model, AgentLimits Limits, AgentCredential Credential, AgentAccess Access = AgentAccess.Write);
 
 /// <summary>What an agent may do in its run.</summary>
 internal enum AgentAccess
@@ -33,17 +34,13 @@ internal enum AgentAccess
     ReadOnly,
 }
 
-/// <summary>When a run is stopped.</summary>
+/// <summary>When a run is stopped, as its job carried it.</summary>
 /// <param name="MaxTurns">The most turns, which Claude Code enforces.</param>
 /// <param name="MaxBudgetUsd">The most it may cost, which Claude Code enforces, overshooting by
 /// about a turn.</param>
 /// <param name="Time">The longest it may take, which the worker enforces by ending the
 /// process.</param>
-internal sealed record AgentLimits(int MaxTurns, decimal MaxBudgetUsd, TimeSpan Time)
-{
-    /// <summary>The limits for now, fixed in code until Dev flow's settings hold them.</summary>
-    public static AgentLimits Default { get; } = new(200, 25m, TimeSpan.FromMinutes(90));
-}
+internal sealed record AgentLimits(int MaxTurns, decimal MaxBudgetUsd, TimeSpan Time);
 
 /// <summary>
 /// The secret an agent logs in with, Claude Code's subscription token. It is handed to the run in

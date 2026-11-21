@@ -30,7 +30,12 @@ namespace DevFlow.Protocol;
 /// <param name="PushKeyExpiresAt">When the key stops working; for a build a fresh one is asked
 /// for at <see cref="WorkerApi.PushKeyPath"/>, and a review asks for none.</param>
 /// <param name="Committer">Who the worker's commits are made as; a review makes none.</param>
-/// <param name="Limits">When the run is stopped.</param>
+/// <param name="Limits">When the run is stopped: the project's minutes and turns as they were when
+/// the job was handed out, which the run keeps whatever changes after.</param>
+/// <param name="Model">The model Claude Code runs on, given as <c>--model</c>: one of Claude Code's
+/// aliases, the project's building model for a build, a fix, a conflict and a feature's fix, and its
+/// reviewing model for a review of a card or of a feature, as they were when the job was handed out.
+/// A worker refuses a job without one as a protocol error.</param>
 /// <param name="ToReview">What a review reads besides the code, null on a build or a fix.</param>
 /// <param name="ToFix">Where a fix, of a card or of a whole feature, starts and which round it is,
 /// null on any other job.</param>
@@ -57,6 +62,7 @@ public sealed record Job(
     DateTimeOffset PushKeyExpiresAt,
     JobCommitter Committer,
     JobLimits Limits,
+    string Model,
     JobReview? ToReview = null,
     JobFix? ToFix = null,
     string Start = "",
@@ -194,14 +200,12 @@ public sealed record JobRepository(string Owner, string Name, Uri CloneAddress, 
 /// <summary>Who a worker's commits are made as: the app's bot and its no-reply address.</summary>
 public sealed record JobCommitter(string Name, string Email);
 
-/// <summary>When a run is stopped, fixed in code until a project's settings hold them.</summary>
+/// <summary>When a run is stopped: its turns and minutes from the project's settings, its spend
+/// fixed until part 8's budget.</summary>
 /// <param name="Turns">The most turns.</param>
 /// <param name="BudgetUsd">The most it may cost, in US dollars.</param>
 /// <param name="Minutes">The longest it may take.</param>
-public sealed record JobLimits(int Turns, decimal BudgetUsd, int Minutes)
-{
-    public static JobLimits Default { get; } = new(200, 25m, 90);
-}
+public sealed record JobLimits(int Turns, decimal BudgetUsd, int Minutes);
 
 /// <summary>What a worker sends to ask for a fresh push key for the job it holds.</summary>
 /// <param name="WorkerId">The id it said hello with.</param>
