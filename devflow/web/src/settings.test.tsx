@@ -25,7 +25,12 @@ const DEFAULTS: ProjectSettings = {
 	pickup_label: "devflow",
 	hold_label: "devflow-hold",
 	attention_label: "devflow-attention",
+	review_label: "devflow-review",
 	waits_for_owner: "never",
+	wait_when_marked: true,
+	wait_when_paths: true,
+	wait_when_decision: true,
+	wait_paths: [],
 	trusted_logins: [{ login: "octo-owner", mine: true }],
 };
 
@@ -34,7 +39,12 @@ const answered = (settings: SettingsRequest): ProjectSettings => ({
 	pickup_label: settings.pickup_label ?? "",
 	hold_label: settings.hold_label ?? "",
 	attention_label: settings.attention_label ?? "",
+	review_label: settings.review_label ?? "",
 	waits_for_owner: settings.waits_for_owner ?? "",
+	wait_when_marked: settings.wait_when_marked ?? false,
+	wait_when_paths: settings.wait_when_paths ?? false,
+	wait_when_decision: settings.wait_when_decision ?? false,
+	wait_paths: (settings.wait_paths ?? []).map((pattern) => pattern ?? ""),
 	trusted_logins: (settings.trusted_logins ?? []).map((login) => ({
 		login,
 		mine: login === "octo-owner",

@@ -1,5 +1,7 @@
 using Dapper;
 
+using DevFlow.Merging;
+
 using Npgsql;
 
 using PlatformData;
@@ -13,34 +15,67 @@ namespace DevFlow.Projects;
 /// </summary>
 /// <param name="PickupLabel">A card is an open issue carrying it.</param>
 /// <param name="HoldLabel">A card carrying it is held.</param>
-/// <param name="AttentionLabel">What a later part marks a card or an issue that needs the owner
+/// <param name="AttentionLabel">What a card or an issue that needs the owner is marked
 /// with.</param>
-/// <param name="WaitsForOwner"><c>never</c> or <c>always</c>: whether a card's pull request waits
-/// for the owner, read by a later part.</param>
+/// <param name="ReviewLabel">What marks a card, or a feature's parent and so every card of it, for
+/// the owner's review, read on <c>sometimes</c>.</param>
+/// <param name="WaitsForOwner"><c>never</c>, <c>sometimes</c> or <c>always</c>: whether a card's
+/// pull request waits for the owner, as the merge check reads it.</param>
+/// <param name="WaitWhenMarked">On <c>sometimes</c>, whether a card marked with the review label
+/// waits.</param>
+/// <param name="WaitWhenPaths">On <c>sometimes</c>, whether a change touching a path on
+/// <paramref name="WaitPaths"/> waits.</param>
+/// <param name="WaitWhenDecision">On <c>sometimes</c>, whether a card whose agent marked a decision
+/// for the owner waits.</param>
+/// <param name="WaitPaths">The paths the owner wants to see, glob patterns as
+/// <see cref="PathPatterns"/> reads them, in the order he gave them.</param>
 /// <param name="TrustedLogins">The trusted accounts, the owner's linked login first, marked as his,
 /// then the others; see <see cref="TrustedAccounts"/>.</param>
-public sealed record ProjectSettings(string PickupLabel, string HoldLabel, string AttentionLabel, string WaitsForOwner, IReadOnlyList<TrustedLogin> TrustedLogins)
+public sealed record ProjectSettings(
+    string PickupLabel,
+    string HoldLabel,
+    string AttentionLabel,
+    string ReviewLabel,
+    string WaitsForOwner,
+    bool WaitWhenMarked,
+    bool WaitWhenPaths,
+    bool WaitWhenDecision,
+    IReadOnlyList<string> WaitPaths,
+    IReadOnlyList<TrustedLogin> TrustedLogins)
 {
     /// <summary>The most characters a label has, the most GitHub takes.</summary>
     public const int LongestLabel = 50;
 
     /// <summary>The values <see cref="WaitsForOwner"/> takes.</summary>
-    public static readonly IReadOnlyList<string> WaitsValues = ["never", "always"];
+    public static readonly IReadOnlyList<string> WaitsValues = ["never", "sometimes", "always"];
 
     /// <summary>A new project's, as the table's defaults make them.</summary>
-    public static ProjectSettings Defaults { get; } = new("devflow", "devflow-hold", "devflow-attention", "never", []);
+    public static ProjectSettings Defaults { get; } = new("devflow", "devflow-hold", "devflow-attention", "devflow-review", "never", true, true, true, [], []);
 }
 
-/// <summary>What <c>PUT /devflow/api/projects/{id}/settings</c> takes: all five, every time, the
+/// <summary>What <c>PUT /devflow/api/projects/{id}/settings</c> takes: all ten, every time, the
 /// trusted accounts as plain logins.</summary>
-public sealed record SettingsRequest(string? PickupLabel, string? HoldLabel, string? AttentionLabel, string? WaitsForOwner, IReadOnlyList<string?>? TrustedLogins)
+public sealed record SettingsRequest(
+    string? PickupLabel,
+    string? HoldLabel,
+    string? AttentionLabel,
+    string? ReviewLabel,
+    string? WaitsForOwner,
+    bool? WaitWhenMarked,
+    bool? WaitWhenPaths,
+    bool? WaitWhenDecision,
+    IReadOnlyList<string?>? WaitPaths,
+    IReadOnlyList<string?>? TrustedLogins)
 {
     /// <summary>
     /// The settings, with the trusted accounts to store, or what is wrong with each field, by its
     /// name on the wire. A label is written, at most <see cref="ProjectSettings.LongestLabel"/>
     /// characters, with no space at either end and no comma, since GitHub's list of issues by label
-    /// takes a comma separated list; and the three are different names, whatever their case, as
-    /// GitHub's label names are. <c>waits_for_owner</c> is <c>never</c> or <c>always</c>, exactly.
+    /// takes a comma separated list; and the four are different names, whatever their case, as
+    /// GitHub's label names are. <c>waits_for_owner</c> is <c>never</c>, <c>sometimes</c> or
+    /// <c>always</c>, exactly, and <c>sometimes</c> has at least one of its three conditions
+    /// ticked. <c>wait_paths</c> is at most <see cref="PathPatterns.Most"/> patterns, each as
+    /// <see cref="PathPatterns.Problem"/> has it; a pattern given twice is kept once.
     /// <c>trusted_logins</c> is a list of GitHub logins, each of GitHub's shape, that holds
     /// <paramref name="mine"/>, the owner's linked login, whatever its case, when he has one; a
     /// login given twice is kept once.
@@ -48,7 +83,7 @@ public sealed record SettingsRequest(string? PickupLabel, string? HoldLabel, str
     public (ProjectSettings? Settings, TrustedAccounts? Trusted, Dictionary<string, string[]> Errors) Check(string? mine)
     {
         var errors = new Dictionary<string, string[]>();
-        var labels = new (string Field, string? Value)[] { ("pickup_label", PickupLabel), ("hold_label", HoldLabel), ("attention_label", AttentionLabel) };
+        var labels = new (string Field, string? Value)[] { ("pickup_label", PickupLabel), ("hold_label", HoldLabel), ("attention_label", AttentionLabel), ("review_label", ReviewLabel) };
         var seen = new List<string>();
         foreach (var (field, value) in labels)
         {
@@ -58,7 +93,7 @@ public sealed record SettingsRequest(string? PickupLabel, string? HoldLabel, str
             }
             else if (seen.Contains(value!, StringComparer.OrdinalIgnoreCase))
             {
-                errors[field] = ["must be a different label from the other two"];
+                errors[field] = ["must be a different label from the other three"];
             }
             else
             {
@@ -66,9 +101,24 @@ public sealed record SettingsRequest(string? PickupLabel, string? HoldLabel, str
             }
         }
 
+        var conditions = new (string Field, bool? Value)[] { ("wait_when_marked", WaitWhenMarked), ("wait_when_paths", WaitWhenPaths), ("wait_when_decision", WaitWhenDecision) };
+        foreach (var (field, _) in conditions.Where(condition => condition.Value is null))
+        {
+            errors[field] = ["is missing"];
+        }
+
         if (WaitsForOwner is null || !ProjectSettings.WaitsValues.Contains(WaitsForOwner, StringComparer.Ordinal))
         {
-            errors["waits_for_owner"] = ["must be never or always"];
+            errors["waits_for_owner"] = ["must be never, sometimes or always"];
+        }
+        else if (WaitsForOwner == "sometimes" && conditions.All(condition => condition.Value == false))
+        {
+            errors["waits_for_owner"] = ["must have at least one condition ticked on sometimes, which otherwise waits for nothing"];
+        }
+
+        if (Paths(WaitPaths) is { } wrongPaths)
+        {
+            errors["wait_paths"] = [wrongPaths];
         }
 
         if (Logins(TrustedLogins, mine) is { } wrongLogins)
@@ -82,7 +132,28 @@ public sealed record SettingsRequest(string? PickupLabel, string? HoldLabel, str
         }
 
         var trusted = TrustedAccounts.Of(mine, TrustedLogins!.Select(login => login!));
-        return (new ProjectSettings(PickupLabel!, HoldLabel!, AttentionLabel!, WaitsForOwner!, trusted.Listed), trusted, errors);
+        var paths = WaitPaths!.Select(pattern => pattern!).Distinct(StringComparer.Ordinal).ToList();
+        return (
+            new ProjectSettings(PickupLabel!, HoldLabel!, AttentionLabel!, ReviewLabel!, WaitsForOwner!, WaitWhenMarked!.Value, WaitWhenPaths!.Value, WaitWhenDecision!.Value, paths, trusted.Listed),
+            trusted,
+            errors);
+    }
+
+    /// <summary>What is wrong with the list of paths, or null when nothing is: missing, longer than
+    /// <see cref="PathPatterns.Most"/>, or the first pattern that breaks a rule.</summary>
+    private static string? Paths(IReadOnlyList<string?>? patterns)
+    {
+        if (patterns is null)
+        {
+            return "is missing";
+        }
+
+        if (patterns.Count > PathPatterns.Most)
+        {
+            return $"must hold at most {PathPatterns.Most} patterns";
+        }
+
+        return patterns.Select(PathPatterns.Problem).FirstOrDefault(problem => problem is not null);
     }
 
     /// <summary>Why a list holding a login that is not GitHub's shape is refused.</summary>
@@ -137,7 +208,9 @@ public sealed class ProjectSettingsStore(UserDb database)
         var row = await transaction.Connection!.QuerySingleOrDefaultAsync<Row>(new CommandDefinition(
             """
             SELECT s.pickup_label AS PickupLabel, s.hold_label AS HoldLabel, s.attention_label AS AttentionLabel,
-                   s.waits_for_owner AS WaitsForOwner, s.trusted_logins AS TrustedLogins, a.login AS Mine
+                   s.review_label AS ReviewLabel, s.waits_for_owner AS WaitsForOwner, s.wait_when_marked AS WaitWhenMarked,
+                   s.wait_when_paths AS WaitWhenPaths, s.wait_when_decision AS WaitWhenDecision, s.wait_paths AS WaitPaths,
+                   s.trusted_logins AS TrustedLogins, a.login AS Mine
             FROM project_settings s
             LEFT JOIN github_accounts a ON a.user_id = s.user_id
             WHERE s.project_id = @projectId
@@ -147,7 +220,9 @@ public sealed class ProjectSettingsStore(UserDb database)
             cancellationToken: cancellationToken));
         return row is null
             ? null
-            : new ProjectSettings(row.PickupLabel, row.HoldLabel, row.AttentionLabel, row.WaitsForOwner, TrustedAccounts.Of(row.Mine, row.TrustedLogins).Listed);
+            : new ProjectSettings(
+                row.PickupLabel, row.HoldLabel, row.AttentionLabel, row.ReviewLabel, row.WaitsForOwner, row.WaitWhenMarked, row.WaitWhenPaths,
+                row.WaitWhenDecision, row.WaitPaths, TrustedAccounts.Of(row.Mine, row.TrustedLogins).Listed);
     }
 
     /// <summary>The owner's linked login, whatever the link's state, or null without one.</summary>
@@ -168,11 +243,25 @@ public sealed class ProjectSettingsStore(UserDb database)
         return await database.InUserTransaction(userId, transaction => transaction.Connection!.ExecuteAsync(new CommandDefinition(
             """
             UPDATE project_settings
-            SET pickup_label = @PickupLabel, hold_label = @HoldLabel, attention_label = @AttentionLabel, waits_for_owner = @WaitsForOwner,
-                trusted_logins = @trustedLogins
+            SET pickup_label = @PickupLabel, hold_label = @HoldLabel, attention_label = @AttentionLabel, review_label = @ReviewLabel,
+                waits_for_owner = @WaitsForOwner, wait_when_marked = @WaitWhenMarked, wait_when_paths = @WaitWhenPaths,
+                wait_when_decision = @WaitWhenDecision, wait_paths = @waitPaths, trusted_logins = @trustedLogins
             WHERE project_id = @projectId
             """,
-            new { projectId, settings.PickupLabel, settings.HoldLabel, settings.AttentionLabel, settings.WaitsForOwner, trustedLogins = trusted.Others.ToArray() },
+            new
+            {
+                projectId,
+                settings.PickupLabel,
+                settings.HoldLabel,
+                settings.AttentionLabel,
+                settings.ReviewLabel,
+                settings.WaitsForOwner,
+                settings.WaitWhenMarked,
+                settings.WaitWhenPaths,
+                settings.WaitWhenDecision,
+                waitPaths = settings.WaitPaths.ToArray(),
+                trustedLogins = trusted.Others.ToArray(),
+            },
             transaction,
             cancellationToken: cancellationToken)), cancellationToken) > 0;
     }
@@ -184,7 +273,12 @@ public sealed class ProjectSettingsStore(UserDb database)
         public string PickupLabel { get; init; } = "";
         public string HoldLabel { get; init; } = "";
         public string AttentionLabel { get; init; } = "";
+        public string ReviewLabel { get; init; } = "";
         public string WaitsForOwner { get; init; } = "";
+        public bool WaitWhenMarked { get; init; }
+        public bool WaitWhenPaths { get; init; }
+        public bool WaitWhenDecision { get; init; }
+        public string[] WaitPaths { get; init; } = [];
         public string[] TrustedLogins { get; init; } = [];
         public string? Mine { get; init; }
     }

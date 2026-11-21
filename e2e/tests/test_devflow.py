@@ -1323,7 +1323,7 @@ def test_i_set_a_projects_settings(
         "aria-invalid", "true"
     )
     expect(
-        settings.get_by_text("must be a different label from the other two")
+        settings.get_by_text("must be a different label from the other three")
     ).to_be_visible()
 
     settings.get_by_label("Pick-up label").fill("agent: go")
@@ -2829,21 +2829,19 @@ def _stage_ci(page: Page, devflow_world, commit: str, check_runs: list[dict]) ->
     devflow_world(world)
 
 
-def _waits_for_me(page: Page, base_url: str, project: str, waits: str) -> None:
-    """Sets the project's Pull requests wait for you, its labels the defaults
-    and its trusted accounts as they are."""
+def _waits_for_me(page: Page, base_url: str, project: str, waits: str, **changes) -> None:
+    """Sets the project's Pull requests wait for you, and any other setting
+    named in `changes`, keeping every other as it is."""
     current = page.request.get(f"/devflow/api/projects/{project}/settings")
     assert current.status == 200, current.text()
+    settings = current.json()
     saved = page.request.put(
         f"/devflow/api/projects/{project}/settings",
         data={
-            "pickup_label": "devflow",
-            "hold_label": "devflow-hold",
-            "attention_label": "devflow-attention",
+            **settings,
+            "trusted_logins": [entry["login"] for entry in settings["trusted_logins"]],
             "waits_for_owner": waits,
-            "trusted_logins": [
-                entry["login"] for entry in current.json()["trusted_logins"]
-            ],
+            **changes,
         },
         headers={"Origin": base_url},
     )
