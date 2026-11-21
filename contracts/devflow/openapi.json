@@ -1697,6 +1697,16 @@
               }
             ]
           },
+          "to_read": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JobRead"
+              }
+            ]
+          },
           "to_resolve": {
             "oneOf": [
               {
@@ -1942,6 +1952,20 @@
           "turns",
           "budget_usd",
           "minutes"
+        ],
+        "type": "object"
+      },
+      "JobRead": {
+        "properties": {
+          "cards": {
+            "items": {
+              "$ref": "#/components/schemas/JobCard"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "cards"
         ],
         "type": "object"
       },

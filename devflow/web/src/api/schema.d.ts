@@ -1152,6 +1152,7 @@ export interface components {
             /** @default  */
             start: string;
             to_fix?: null | components["schemas"]["JobFix"];
+            to_read?: null | components["schemas"]["JobRead"];
             to_resolve?: null | components["schemas"]["JobConflict"];
             to_review?: null | components["schemas"]["JobReview"];
             to_review_feature?: null | components["schemas"]["JobFeatureReview"];
@@ -1206,6 +1207,9 @@ export interface components {
             minutes: number;
             /** Format: int32 */
             turns: number;
+        };
+        JobRead: {
+            cards: components["schemas"]["JobCard"][];
         };
         JobRepository: {
             /** Format: uri */

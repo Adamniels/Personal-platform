@@ -5,36 +5,40 @@ namespace DevFlow.Protocol;
 
 /// <summary>
 /// A job, what <c>jobs/next</c> answers a worker with <c>200</c>: one card of its project to build,
-/// to review or to fix, or a feature's conflict to resolve, with everything the worker needs for it
-/// and nothing more. The Claude token and the
+/// to review or to fix, a feature's conflict to resolve, or the cards of a feature or a card on its
+/// own to read, with everything the worker needs for it and nothing more. The Claude token and the
 /// key leave Dev flow only here, to the worker holding the job. See "Jobs", "Review" and
 /// "Fixing" in devflow/README.md.
 /// </summary>
 /// <param name="JobId">The run's id, which the job's other routes take.</param>
 /// <param name="Kind"><see cref="Build"/>, <see cref="Review"/>, <see cref="Fix"/>,
-/// <see cref="Conflict"/> or <see cref="FeatureReview"/>.</param>
-/// <param name="Card">The card, as it was picked; for a conflict, the feature's parent.</param>
+/// <see cref="Conflict"/>, <see cref="FeatureReview"/>, <see cref="FeatureFix"/> or
+/// <see cref="Read"/>.</param>
+/// <param name="Card">The card, as it was picked; for a conflict, the feature's parent; for a
+/// reading, the feature's parent, or the card on its own.</param>
 /// <param name="Repository">Where the code is.</param>
 /// <param name="Branch">The branch the work goes on, <c>devflow/&lt;number&gt;-&lt;slug&gt;</c>.</param>
 /// <param name="Base">The branch it is made from, the repository's default branch.</param>
 /// <param name="Brief">What the agent is asked to do, as text.</param>
 /// <param name="ReportSchema">The JSON Schema the agent's answer follows: for a build the report's,
-/// contracts/devflow/report.schema.json, and for a review the verdict's,
-/// contracts/devflow/verdict.schema.json.</param>
+/// contracts/devflow/report.schema.json, for a review the verdict's,
+/// contracts/devflow/verdict.schema.json, and for a reading the reading's,
+/// contracts/devflow/reading.schema.json.</param>
 /// <param name="Check">The command that checks the working copy, from the project's
 /// <c>.devflow/project.json</c> on its default branch; for a review, the one the build ran.</param>
 /// <param name="ClaudeToken">The run's user's Claude token, for the agent's
 /// <c>CLAUDE_CODE_OAUTH_TOKEN</c> and nowhere else.</param>
 /// <param name="PushKey">The key git is given for the repository: for a build one that fetches and
-/// pushes its code and does nothing else; for a review one that only fetches it.</param>
+/// pushes its code and does nothing else; for a review or a reading one that only fetches it.</param>
 /// <param name="PushKeyExpiresAt">When the key stops working; for a build a fresh one is asked
 /// for at <see cref="WorkerApi.PushKeyPath"/>, and a review asks for none.</param>
 /// <param name="Committer">Who the worker's commits are made as; a review makes none.</param>
 /// <param name="Limits">When the run is stopped: the project's minutes and turns as they were when
 /// the job was handed out, which the run keeps whatever changes after.</param>
 /// <param name="Model">The model Claude Code runs on, given as <c>--model</c>: one of Claude Code's
-/// aliases, the project's building model for a build, a fix, a conflict and a feature's fix, and its
-/// reviewing model for a review of a card or of a feature, as they were when the job was handed out.
+/// aliases, the project's building model for a build, a fix, a conflict and a feature's fix, its
+/// reviewing model for a review of a card or of a feature, and its reading model for a reading, as
+/// they were when the job was handed out.
 /// A worker refuses a job without one as a protocol error.</param>
 /// <param name="ToReview">What a review reads besides the code, null on a build or a fix.</param>
 /// <param name="ToFix">Where a fix, of a card or of a whole feature, starts and which round it is,
@@ -47,6 +51,7 @@ namespace DevFlow.Protocol;
 /// <param name="ToResolve">For a conflict, the two commits it merges; null on any other job.</param>
 /// <param name="ToReviewFeature">For a whole feature's review, what it reads besides the code; null
 /// on any other job.</param>
+/// <param name="ToRead">For a reading, the cards it reads; null on any other job.</param>
 public sealed record Job(
     Guid JobId,
     string Kind,
@@ -68,7 +73,8 @@ public sealed record Job(
     string Start = "",
     string Url = "",
     JobConflict? ToResolve = null,
-    JobFeatureReview? ToReviewFeature = null)
+    JobFeatureReview? ToReviewFeature = null,
+    JobRead? ToRead = null)
 {
     /// <summary>Building a card.</summary>
     public const string Build = "build";
@@ -94,6 +100,13 @@ public sealed record Job(
     /// parent, <see cref="Branch"/> the feature's branch and <see cref="Base"/> the default
     /// branch.</summary>
     public const string FeatureFix = "feature_fix";
+
+    /// <summary>Reading the cards of a feature together, or a card on its own, with the code they
+    /// touch, before any of them is built; <see cref="Card"/> is then the feature's parent or the
+    /// card, <see cref="Branch"/> the branch whose code is read, the feature's where it exists and
+    /// otherwise the default branch, and <see cref="Base"/> the default branch. It commits, checks
+    /// and pushes nothing.</summary>
+    public const string Read = "read";
 
     /// <summary>Its kind and card, never the token or the key.</summary>
     public override string ToString() =>
@@ -187,6 +200,12 @@ public sealed record JobFeatureCard(int Number, string Title, string? Verdict, s
 /// <summary>A check a worker ran on a commit of a feature's branch, as Dev flow recorded it: the
 /// command, the commit, its exit code and the last lines it printed.</summary>
 public sealed record JobFeatureCheck(string Command, string Commit, int ExitCode, string Output);
+
+/// <summary>What a reading reads besides the code: each card it is to answer for, in its feature's
+/// order, as it was picked. Its brief quotes them too; the cards here are what the reading must
+/// name, each exactly once.</summary>
+/// <param name="Cards">The cards to read, each with its title and body as picked.</param>
+public sealed record JobRead(IReadOnlyList<JobCard> Cards);
 
 /// <summary>The card a job builds or reviews, as it was picked, or the feature a conflict job or a
 /// whole feature's review is for; its title and body are the owner's words.</summary>

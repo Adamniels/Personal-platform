@@ -208,7 +208,7 @@ public sealed class DispatchTests
         var job = await jobs.Job();
 
         Assert.Equal(
-            ["base", "branch", "brief", "card", "check", "claude_token", "committer", "job_id", "kind", "limits", "model", "push_key", "push_key_expires_at", "report_schema", "repository", "start", "to_fix", "to_resolve", "to_review", "to_review_feature", "url"],
+            ["base", "branch", "brief", "card", "check", "claude_token", "committer", "job_id", "kind", "limits", "model", "push_key", "push_key_expires_at", "report_schema", "repository", "start", "to_fix", "to_read", "to_resolve", "to_review", "to_review_feature", "url"],
             job.Select(pair => pair.Key).Order(StringComparer.Ordinal));
         // How the worker starts the project for its pictures, from the same project.json as the
         // check.
@@ -216,9 +216,10 @@ public sealed class DispatchTests
         Assert.Equal("http://localhost:5173", (string)job["url"]!);
         Assert.Equal((Guid)job["job_id"]!, Assert.Single(await jobs.Runs()).Id);
         Assert.Equal("build", (string)job["kind"]!);
-        // A build reads nothing besides the code and the card, and starts no fix.
+        // A build reads nothing besides the code and the card, starts no fix and reads no card.
         Assert.Null(job["to_review"]);
         Assert.Null(job["to_fix"]);
+        Assert.Null(job["to_read"]);
 
         var card = job["card"]!.AsObject();
         Assert.Equal(["body", "number", "title"], card.Select(pair => pair.Key).Order(StringComparer.Ordinal));
