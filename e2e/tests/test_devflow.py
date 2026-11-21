@@ -3958,10 +3958,20 @@ def _reviewed_feature(
     # asks for changes, its fix runs, and the project is read again so the
     # watch finds the fix's push its own.
     if whole["verdict"] != "approve":
+        asked = _verdict(
+            "changes",
+            [
+                {
+                    "blocking": True,
+                    "file": "devflow/src/DevFlow/Features/FeatureEnd.cs",
+                    "line": 12,
+                    "what": "The end reads the branch twice",
+                    "why": "One read would do",
+                }
+            ],
+        )
         for _ in range(3):
-            asked_changes = _fake_job(
-                page, base_url, project, _verdict("changes"), None
-            )
+            asked_changes = _fake_job(page, base_url, project, asked, None)
             assert asked_changes["kind"] == "feature_review", asked_changes
             fixed = _fake_job(
                 page,
