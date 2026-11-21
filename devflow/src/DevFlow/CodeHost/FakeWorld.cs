@@ -52,6 +52,9 @@ public sealed record FakeInstallation(long Id, string Account, IReadOnlyList<Fak
 /// be. A merge the fake takes adds one.</param>
 /// <param name="Conflicts">The branches that bringing another branch into answers a conflict, see
 /// <see cref="FakeCodeHost.BringIn"/>; none when it is left out, as it may be.</param>
+/// <param name="PullRequestFiles">The files a pull request changes, by its number, as
+/// <see cref="ICodeHost.PullRequestFiles"/> answers them; a pull request not listed changes none,
+/// and all of it may be left out.</param>
 public sealed record FakeRepository(
     long Id,
     string Owner,
@@ -63,7 +66,8 @@ public sealed record FakeRepository(
     IReadOnlyList<FakeIssue> Issues,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? DefaultBranch = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<FakeActivity>? Activity = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<string>? Conflicts = null)
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<string>? Conflicts = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<FakePullRequestFiles>? PullRequestFiles = null)
 {
     /// <summary>Its default branch, as the world says or the fake's own.</summary>
     [JsonIgnore]
@@ -113,6 +117,10 @@ public sealed record FakeIssue(
 /// <summary>A sub-issue, by its number in <paramref name="Repository"/>, the id of another
 /// repository of the same installation, or this one when null.</summary>
 public sealed record FakeSubIssue(int Number, long? Repository);
+
+/// <summary>The files the pull request with the number changes, in the order the host lists
+/// them.</summary>
+public sealed record FakePullRequestFiles(int Number, IReadOnlyList<ChangedFile> Files);
 
 /// <summary>The conversation of the issue or pull request with the number, oldest first.</summary>
 public sealed record FakeConversation(int Number, IReadOnlyList<Comment> Comments);

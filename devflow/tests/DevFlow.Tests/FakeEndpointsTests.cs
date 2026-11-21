@@ -75,6 +75,12 @@ public sealed class FakeEndpointsTests
                     }
                   ],
                   "files": [{ "path": "AGENTS.md", "branch": "main", "content": "IyBXb3JraW5nIGluIHRoaXMgcmVwb3NpdG9yeQo=" }],
+                  "pull_request_files": [
+                    {
+                      "number": 304,
+                      "files": [{ "path": "devflow/README.md", "previous_path": null }, { "path": "docs/new.md", "previous_path": "docs/old.md" }]
+                    }
+                  ],
                   "issues": [
                     {
                       "number": 338, "title": "Settings and picking cards", "author": "Adamniels", "labels": ["devflow"],

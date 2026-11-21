@@ -434,6 +434,17 @@ internal sealed class CountingCodeHost(ICodeHost inner) : ICodeHost
         return inner.ChangedFiles(userId, repository, from, head, cancellationToken);
     }
 
+    public Task<CodeHostResult<IReadOnlyList<ChangedFile>>> PullRequestFiles(Guid userId, CodeHost.Repository repository, int number, CancellationToken cancellationToken)
+    {
+        Record("PullRequestFiles", userId, repository, $"{number}");
+        if (Unavailable.ContainsKey("PullRequestFiles"))
+        {
+            return Task.FromResult<CodeHostResult<IReadOnlyList<ChangedFile>>>(new CodeHostResult<IReadOnlyList<ChangedFile>>.Unavailable(RetryAt: null));
+        }
+
+        return inner.PullRequestFiles(userId, repository, number, cancellationToken);
+    }
+
     public async Task<CodeHostResult<IReadOnlyList<BranchActivity>>> Activity(Guid userId, CodeHost.Repository repository, string branch, long? since, CancellationToken cancellationToken)
     {
         Record("Activity", userId, repository, $"{branch} {since}");

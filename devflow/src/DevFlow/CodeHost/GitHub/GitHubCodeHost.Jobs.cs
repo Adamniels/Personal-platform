@@ -66,6 +66,19 @@ public sealed partial class GitHubCodeHost
                 .Distinct(StringComparer.Ordinal).Take(ICodeHost.MostChangedFiles)]);
     }
 
+    /// <summary>
+    /// <c>GET /repos/{owner}/{repo}/pulls/{number}/files?per_page=100</c>, as the app, paged to the
+    /// end, at most 3000 files, GitHub's limit: each by its <c>filename</c>, and a renamed one's
+    /// <c>previous_filename</c> beside it. A file with no name is an answer that does not parse,
+    /// and a page that fails fails the whole, since a missing file could be the one that decides.
+    /// </summary>
+    public async Task<CodeHostResult<IReadOnlyList<ChangedFile>>> PullRequestFiles(Guid userId, Repository repository, int number, CancellationToken cancellationToken) =>
+        Map(
+            await List<IReadOnlyList<PullFileAnswer>, PullFileAnswer>(Invariant($"{Repo(repository)}/pulls/{number}/files?per_page=100"), page => page, AsApp(repository, cancellationToken)),
+            files => (IReadOnlyList<ChangedFile>)[.. files.Select(file => new ChangedFile(
+                file.Filename is { Length: > 0 } name ? name : throw new JsonException("a file with no name"),
+                file.PreviousFilename is { Length: > 0 } previous ? previous : null))]);
+
     /// <summary>A full commit id, 40 or 64 lowercase hex digits.</summary>
     private static bool FullCommit(string? commit) =>
         commit is { Length: 40 or 64 } && commit.All(c => char.IsAsciiDigit(c) || c is >= 'a' and <= 'f');
@@ -73,6 +86,9 @@ public sealed partial class GitHubCodeHost
     private sealed record CompareAnswer(IReadOnlyList<CompareFile>? Files);
 
     private sealed record CompareFile(string? Filename);
+
+    /// <summary>A file as GitHub lists it: <c>previous_filename</c> only on a rename.</summary>
+    private sealed record PullFileAnswer(string? Filename, string? PreviousFilename = null);
 
     private sealed record RepositoryInfoAnswer(string DefaultBranch);
 

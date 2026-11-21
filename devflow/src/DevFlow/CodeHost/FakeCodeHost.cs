@@ -172,6 +172,13 @@ public sealed partial class FakeCodeHost : ICodeHost, ICodeHostSignIn
     public Task<CodeHostResult<IReadOnlyList<LabelEvent>>> LabelEvents(Guid userId, Repository repository, int number, CancellationToken cancellationToken) =>
         Answer<IReadOnlyList<LabelEvent>>(userId, repository, found => found.Issues.FirstOrDefault(issue => issue.Number == number)?.LabelHistory());
 
+    /// <summary>The files the pull request changes, as its world lists them, none when it lists
+    /// nothing for it; not found for a pull request the world does not hold.</summary>
+    public Task<CodeHostResult<IReadOnlyList<ChangedFile>>> PullRequestFiles(Guid userId, Repository repository, int number, CancellationToken cancellationToken) =>
+        Answer<IReadOnlyList<ChangedFile>>(userId, repository, found => found.PullRequests.Any(pull => pull.Number == number)
+            ? found.PullRequestFiles?.FirstOrDefault(files => files.Number == number)?.Files ?? []
+            : null);
+
     /// <summary>The repository's default branch, as its world says, <see cref="DefaultBranchName"/>
     /// when it does not.</summary>
     public Task<CodeHostResult<string>> DefaultBranch(Guid userId, Repository repository, CancellationToken cancellationToken) =>
