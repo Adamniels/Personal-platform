@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 using Dapper;
 
 using DevFlow.Cards;
@@ -18,7 +20,8 @@ namespace DevFlow.Features;
 public sealed record FeatureBranch(string Name, string? Commit);
 
 /// <summary>Your answer to a decision, kept in Dev flow and never written to the code host.</summary>
-/// <param name="Answer"><c>fine</c>, "Fine as it is", the one this part gives.</param>
+/// <param name="Answer"><c>fine</c>, "Fine as it is", or <c>sent_back</c>, when the card was sent
+/// back from it.</param>
 /// <param name="AnsweredAt">When it was first given.</param>
 public sealed record DecisionAnswer(string Answer, DateTimeOffset AnsweredAt);
 
@@ -42,6 +45,12 @@ public sealed record FeatureDecision(
     string? ReviewerView,
     DecisionAnswer? Answer);
 
+/// <summary>The owner's last send back of a card that had landed in its feature's branch.</summary>
+/// <param name="Times">How many times it was sent back, from 1.</param>
+/// <param name="PullRequest">The pull request it had landed in when it was last sent back.</param>
+/// <param name="Comments">His comments that sent it back, each exactly as he wrote it.</param>
+public sealed record CardSentBack(int Times, CardPullRequest PullRequest, IReadOnlyList<string> Comments);
+
 /// <summary>One card of a feature, as its page lists it.</summary>
 /// <param name="Number">The issue's number.</param>
 /// <param name="Title">The issue's title as last read.</param>
@@ -56,6 +65,9 @@ public sealed record FeatureDecision(
 /// none.</param>
 /// <param name="Decisions">The decisions its latest report marked for the owner, in the report's
 /// order.</param>
+/// <param name="CanSendBack">Whether it can be sent back now: it landed in the feature's branch, and
+/// the feature is neither merged nor closed, by <see cref="SendingBack.Sendable"/>.</param>
+/// <param name="SentBack">Its last send back, null when it was never sent back.</param>
 public sealed record FeatureCard(
     int Number,
     string Title,
@@ -66,7 +78,9 @@ public sealed record FeatureCard(
     long InputTokens,
     long OutputTokens,
     CardScreenshots? Screenshots,
-    IReadOnlyList<FeatureDecision> Decisions);
+    IReadOnlyList<FeatureDecision> Decisions,
+    bool CanSendBack,
+    CardSentBack? SentBack);
 
 /// <summary>What <c>GET /devflow/api/projects/{id}/features/{number}</c> answers: a feature's whole
 /// story so far.</summary>
@@ -148,7 +162,8 @@ public static class FeatureStory
         var cards = (await transaction.Connection!.QueryAsync<CardRow>(new CommandDefinition(
             $"""
             SELECT number AS Number, title AS Title, web_url AS WebUrl, state AS State, {CardStore.ShownReason} AS Reason,
-                   fix_rounds AS FixRounds
+                   fix_rounds AS FixRounds, {SendingBack.Sendable} AS CanSendBack, sent_backs AS SentBacks,
+                   sent_back_from AS SentBackFrom, sent_back_from_url AS SentBackFromUrl, sent_back_comments::text AS SentBackComments
             FROM cards WHERE project_id = @projectId AND feature_id = @feature
             ORDER BY position
             """,
@@ -192,7 +207,11 @@ public static class FeatureStory
                 ofCard.Sum(run => run.InputTokens ?? 0),
                 ofCard.Sum(run => run.OutputTokens ?? 0),
                 CardScreenshots.Of(built?.HeadCommit, built?.Screenshots, built?.ScreenshotsNote),
-                Decisions(ofCard, reviews, answers)));
+                Decisions(ofCard, reviews, answers),
+                card.CanSendBack,
+                card is { SentBacks: > 0, SentBackFrom: { } from, SentBackFromUrl: { } fromUrl }
+                    ? new CardSentBack(card.SentBacks, new CardPullRequest(from, fromUrl), JsonSerializer.Deserialize<List<string>>(card.SentBackComments ?? "[]") ?? [])
+                    : null));
         }
 
         var own = await CardStory.FeatureRuns(transaction, projectId, feature.Number, cancellationToken);
@@ -285,7 +304,8 @@ public static class FeatureStory
 
     private sealed record AnswerRow(Guid RunId, int Position, string Answer, DateTime AnsweredAt);
 
-    private sealed record CardRow(int Number, string Title, string WebUrl, string State, string? Reason, int FixRounds);
+    private sealed record CardRow(
+        int Number, string Title, string WebUrl, string State, string? Reason, int FixRounds, bool CanSendBack, int SentBacks, int? SentBackFrom, string? SentBackFromUrl, string? SentBackComments);
 
     private sealed record RunRow(
         Guid Id, int CardNumber, string Kind, string? Result, string? HeadCommit, string? Report, long? InputTokens, long? OutputTokens, string? Screenshots, string? ScreenshotsNote);

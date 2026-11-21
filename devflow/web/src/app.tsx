@@ -148,6 +148,20 @@ const featureApi: FeatureApi = {
 			{ comment },
 		);
 	},
+	sendBackCard: async (project, card, comment) => {
+		await client.send(
+			"POST",
+			`/projects/${encodeURIComponent(project)}/cards/${card}/send-back`,
+			{ comment },
+		);
+	},
+	sendBackDecision: async (project, number, run, position, comment) => {
+		await client.send(
+			"POST",
+			`/projects/${encodeURIComponent(project)}/features/${number}/decisions/${encodeURIComponent(run)}/${position}/send-back`,
+			{ comment },
+		);
+	},
 };
 
 /** The Claude login, through Dev flow's API. The token is sent, never

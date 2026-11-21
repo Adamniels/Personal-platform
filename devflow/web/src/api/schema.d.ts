@@ -269,7 +269,7 @@ export interface paths {
         put?: never;
         /**
          * Send a card of Dev flow's own back, with a comment as the caller
-         * @description Posts comment, trimmed and with nothing added, as the caller's linked GitHub account and never as the app: on the card's pull request for a card that waits for the caller, which the read of the project that follows takes, as any comment of his past the newest already taken, and starts a fix run with, which is not a review round; on the card's issue for a card that has stopped, which that read takes as a comment newer than the stop and runs the card again with. In order: 404 for a project or card the caller does not have; 422 when comment is missing, empty once trimmed, or longer than 10,000 characters; 409 when the card neither waits for the caller with its pull request nor has stopped; 409 when GitHub is not linked or the link has expired; then GitHub is asked. 204 once posted and the project read again. 409 when GitHub refuses, with its reason; 503 when GitHub did not answer. Without a valid token, 401 with an empty body; a change from another origin, 403.
+         * @description Posts comment, trimmed and with nothing added, as the caller's linked GitHub account and never as the app: on the card's pull request for a card that waits for the caller, which the read of the project that follows takes, as any comment of his past the newest already taken, and starts a fix run with, which is not a review round; on the card's issue for a card that has stopped, which that read takes as a comment newer than the stop and runs the card again with; and on the card's issue for a card of a feature that has landed in the feature's branch, of a feature neither merged nor closed, which that read takes as a comment newer than the card's last run and sends the card back with, to be built again on a new branch. In order: 404 for a project or card the caller does not have; 422 when comment is missing, empty once trimmed, or longer than 10,000 characters; 409 when the card neither waits for the caller with its pull request, nor has stopped, nor has landed in an open feature; 409 when GitHub is not linked or the link has expired; then GitHub is asked. 204 once posted and the project read again. 409 when GitHub refuses, with its reason; 503 when GitHub did not answer. Without a valid token, 401 with an empty body; a change from another origin, 403.
          */
         post: operations["sendBackCard"];
         delete?: never;
@@ -287,7 +287,7 @@ export interface paths {
         };
         /**
          * A feature's whole story so far
-         * @description The feature as last read, its number, title, web_url, state and reason, null when there is nothing to say; its branch, the name and the commit it was at after the newest change its watch judged, or the one it was made at before any, null before the branch is made; its pull_request to the default branch, number and url, null before one is opened; and its cards in their sub-issue order, each with its number, title, web_url, state, reason, fix_rounds, the input_tokens and output_tokens of all its runs, the screenshots of its head commit as getCard has them, read through getCardScreenshot, and the decisions its latest report marked for the owner, each with the run_id of that report's run, its position among the report's decisions, what was chosen, the alternative, why, the reviewer_view from the newest review of the commit that run left, null without one, and the answer, null before one; its own runs and the reviews of the whole feature, newest first; fix_rounds, the rounds its reviews have started; and rounds, each fix of the whole feature newest first, as getCard has a card's rounds. Read from what Dev flow stored, never from GitHub; every text from GitHub or an agent is to be shown as text. 404 for a project or a feature the caller does not have. Without a valid token, 401 with an empty body.
+         * @description The feature as last read, its number, title, web_url, state and reason, null when there is nothing to say; its branch, the name and the commit it was at after the newest change its watch judged, or the one it was made at before any, null before the branch is made; its pull_request to the default branch, number and url, null before one is opened; and its cards in their sub-issue order, each with its number, title, web_url, state, reason, fix_rounds, the input_tokens and output_tokens of all its runs, the screenshots of its head commit as getCard has them, read through getCardScreenshot, and the decisions its latest report marked for the owner, each with the run_id of that report's run, its position among the report's decisions, what was chosen, the alternative, why, the reviewer_view from the newest review of the commit that run left, null without one, and the answer, fine or sent_back, null before one, can_send_back, whether the card has landed in the feature's branch of a feature neither merged nor closed, so it can be sent back, and sent_back, its last send back, how many times, the pull request it had landed in and the owner's comments, null when it was never sent back; its own runs and the reviews of the whole feature, newest first; fix_rounds, the rounds its reviews have started; and rounds, each fix of the whole feature newest first, as getCard has a card's rounds. Read from what Dev flow stored, never from GitHub; every text from GitHub or an agent is to be shown as text. 404 for a project or a feature the caller does not have. Without a valid token, 401 with an empty body.
          */
         get: operations["getFeature"];
         put?: never;
@@ -312,6 +312,26 @@ export interface paths {
          * @description Keeps the answer fine to the decision at position among the decisions of the report of run, a build or fix of a card of the feature, when that decision is marked for the owner and that report is still the card's latest, the one getFeature shows. Kept once, as first given: answering again changes nothing and answers the answer kept, with its answered_at. Never written to GitHub. 404 for a project, feature, run or decision the caller does not have, or one not marked for the owner; 409 when the card has a newer report than that run's, so the page is to be read again. Without a valid token, 401 with an empty body.
          */
         post: operations["answerDecisionFine"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/devflow/api/projects/{id}/features/{number}/decisions/{run}/{position}/send-back": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Send a feature's card back from one of its decisions, with a comment as the caller
+         * @description Posts a comment as the caller's linked GitHub account and never as the app, on the issue of the card whose report holds the decision at position of the report of run: the decision quoted, what was chosen and the alternative, then comment, trimmed. The read of the project that follows takes it as a comment newer than the card's last run and sends the card back with all of it, to be built again on a new branch, and the decision is kept answered sent_back. In order: 404 for a project, feature, run or decision the caller does not have, or one not marked for the owner; 422 when comment is missing, empty once trimmed, or longer than 10,000 characters; 409 when the card has a newer report than that run's; 409 when the decision is already answered; 409 when its card has not landed in the feature's branch, or the feature is merged or closed; 409 when GitHub is not linked or the link has expired; then GitHub is asked. 204 once posted, the answer kept and the project read again. 409 when GitHub refuses, with its reason; 503 when GitHub did not answer, with no answer kept. Without a valid token, 401 with an empty body; a change from another origin, 403.
+         */
+        post: operations["sendBackDecision"];
         delete?: never;
         options?: never;
         head?: never;
@@ -805,6 +825,12 @@ export interface components {
             groups: components["schemas"]["ScreenshotGroup"][];
             note: null | string;
         };
+        CardSentBack: {
+            comments: string[];
+            pull_request: components["schemas"]["CardPullRequest"];
+            /** Format: int32 */
+            times: number;
+        };
         CardStoryView: {
             feature: null | components["schemas"]["CardFeature"];
             merge: null | components["schemas"]["CardMerge"];
@@ -943,6 +969,7 @@ export interface components {
             name: string;
         };
         FeatureCard: {
+            can_send_back: boolean;
             decisions: components["schemas"]["FeatureDecision"][];
             /** Format: int32 */
             fix_rounds: number;
@@ -954,6 +981,7 @@ export interface components {
             output_tokens: number;
             reason: null | string;
             screenshots: null | components["schemas"]["CardScreenshots"];
+            sent_back: null | components["schemas"]["CardSentBack"];
             state: string;
             title: string;
             web_url: string;
@@ -2202,6 +2230,76 @@ export interface operations {
             };
             /** @description Conflict */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    sendBackDecision: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                number: number;
+                run: string;
+                position: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SendBackRequest"];
+            };
+        };
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

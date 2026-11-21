@@ -6,11 +6,12 @@
 // reviews of the whole feature, newest first, each with its findings and whether it covers the
 // head; its fix rounds, each with the review that started it or your comment, the developer's
 // replies and the review after it; what the agents want you to know, every decision its cards'
-// latest reports marked for you, each answered "Fine as it is" here and nowhere else; its branch
-// with the command to check it out; every card's screenshots, by card; its cards in order; and its
-// own runs, such as an agent resolving a conflict, as a card's page shows its runs. Every text came
-// from the code host or an agent and is shown as text. See "A feature's page" in
-// devflow/README.md.
+// latest reports marked for you, each answered "Fine as it is" here and nowhere else, or sent back
+// with its card; its branch with the command to check it out; every card's screenshots, by card; its
+// cards in order, "Send back" on each that has landed while the feature is open, and those you sent
+// back with your words; and its own runs, such as an agent resolving a conflict, as a card's page
+// shows its runs. Every text came from the code host or an agent and is shown as text. See "A
+// feature's page" and "Sending a card back" in devflow/README.md.
 import {
 	Button,
 	EmptyState,
@@ -18,16 +19,19 @@ import {
 	Status,
 	Table,
 	type TableColumn,
+	useToast,
 } from "@platform/ui";
-import { useCallback, useEffect, useState } from "react";
-import type { LinkState } from "./actions";
+import { useCallback, useEffect, useId, useState } from "react";
+import { describe, EXPIRED, type LinkState, UNLINKED } from "./actions";
 import { navigate, plainClick } from "./address";
 import type { components } from "./api/schema";
 import { ReviewRow, RoundRow, RunRow } from "./card";
 import styles from "./card.module.css";
 import { stateWord } from "./cards";
+import { CommentBox } from "./comment-box";
 import own from "./feature.module.css";
 import { Inline } from "./format";
+import { askNavAgain } from "./nav-attention";
 import { Command } from "./project";
 import { cardScreenshot, Screenshots } from "./screenshots";
 import { cardPath } from "./sections";
@@ -65,6 +69,22 @@ export type FeatureApi = {
 	/** Sends the whole feature back with the owner's comment, posted as him
 	 * on its pull request. */
 	sendBack: SendBackFeature;
+	/** Sends a card that landed back with the owner's comment, posted as
+	 * him on its issue. */
+	sendBackCard: (
+		project: string,
+		card: number,
+		comment: string,
+	) => Promise<void>;
+	/** Sends a decision's card back with the owner's comment, the decision
+	 * quoted above it, posted as him on the card's issue. */
+	sendBackDecision: (
+		project: string,
+		number: number,
+		run: string,
+		position: number,
+		comment: string,
+	) => Promise<void>;
 	/** Copies text to the clipboard, the browser's by default. */
 	copy?: (text: string) => Promise<void>;
 };
@@ -104,6 +124,8 @@ export function FeaturePage({
 	loadFeature,
 	answerFine,
 	sendBack,
+	sendBackCard,
+	sendBackDecision,
 	link,
 	copy = clipboard,
 }: FeaturePageProps) {
@@ -254,6 +276,20 @@ export function FeaturePage({
 								key={`${decision.run_id}/${decision.position}`}
 								card={card}
 								decision={decision}
+								link={link}
+								sendBack={
+									card.can_send_back
+										? (comment) =>
+												sendBackDecision(
+													project,
+													number,
+													decision.run_id,
+													decision.position,
+													comment,
+												)
+										: null
+								}
+								reload={load}
 								answer={async () => {
 									try {
 										const kept = await answerFine(
@@ -326,14 +362,13 @@ export function FeaturePage({
 					</div>
 				</Panel>
 			)}
-			<Panel title="Cards" className={styles.panel}>
-				<Table
-					label="Cards of the feature"
-					columns={columns(project)}
-					rows={story.cards}
-					rowKey={(card) => String(card.number)}
-				/>
-			</Panel>
+			<CardsPanel
+				project={project}
+				cards={story.cards}
+				link={link}
+				sendBack={(card, comment) => sendBackCard(project, card, comment)}
+				reload={load}
+			/>
 			{story.runs.length === 0 ? null : (
 				<Panel title="Runs" className={styles.panel}>
 					<ul className={styles.runs} aria-label="Runs of the feature">
@@ -433,19 +468,36 @@ function CardLink({ project, card }: { project: string; card: FeatureCard }) {
 }
 
 /** One decision on an inset: the card it is of, what was chosen, the
- * alternative and why, the reviewer's view, and "Fine as it is", or the
- * answer once given. */
+ * alternative and why, the reviewer's view, and "Fine as it is" and, while
+ * its card can be sent back, "Send back" with a comment box; or the answer
+ * once given. */
 function DecisionRow({
 	card,
 	decision,
 	answer,
+	sendBack,
+	link,
+	reload,
 }: {
 	card: FeatureCard;
 	decision: Decision;
 	answer: () => Promise<void>;
+	/** Sends its card back with the owner's comment; null while the card
+	 * cannot be sent back. */
+	sendBack: ((comment: string) => Promise<void>) | null;
+	link: LinkState;
+	/** Reads the feature again. */
+	reload: () => Promise<unknown>;
 }) {
+	const toast = useToast();
+	const lineId = useId();
 	const [busy, setBusy] = useState(false);
 	const [failed, setFailed] = useState(false);
+	const [writing, setWriting] = useState(false);
+	const [refusal, setRefusal] = useState<string | null>(null);
+	const line = linkLine(link);
+	const word =
+		decision.answer?.answer === "sent_back" ? "Sent back" : "Fine as it is";
 	return (
 		<li className={`${styles.run} ${styles.review}`}>
 			<span className={styles.kind}>
@@ -474,9 +526,14 @@ function DecisionRow({
 					{NOT_ANSWERED}
 				</p>
 			) : null}
+			{refusal === null ? null : (
+				<p className={styles.error} role="alert">
+					{refusal}
+				</p>
+			)}
 			{decision.answer ? (
 				<span className={styles.meta}>
-					<Status tone="done">Fine as it is</Status>
+					<Status tone="done">{word}</Status>
 					<span>
 						answered{" "}
 						<time dateTime={decision.answer.answered_at}>
@@ -484,8 +541,28 @@ function DecisionRow({
 						</time>
 					</span>
 				</span>
+			) : writing && sendBack !== null ? (
+				<CommentBox
+					label={`What should the developer change in #${card.number}?`}
+					cancel={() => setWriting(false)}
+					send={async (comment) => {
+						let sent = false;
+						try {
+							await sendBack(comment);
+							setRefusal(null);
+							setWriting(false);
+							toast.success(`Sent back #${card.number}`);
+							sent = true;
+						} catch (error) {
+							setRefusal(describe(error));
+						}
+						await reload();
+						askNavAgain();
+						return sent;
+					}}
+				/>
 			) : (
-				<div>
+				<div className={own.actions}>
 					<Button
 						kind="secondary"
 						disabled={busy}
@@ -504,8 +581,158 @@ function DecisionRow({
 					>
 						Fine as it is
 					</Button>
+					{sendBack === null ? null : (
+						<Button
+							kind="secondary"
+							disabled={busy || link !== "linked"}
+							aria-label={`Send back: #${card.number}, ${decision.chosen}`}
+							aria-describedby={line === null ? undefined : lineId}
+							onClick={() => setWriting(true)}
+						>
+							Send back
+						</Button>
+					)}
 				</div>
 			)}
+			{decision.answer || sendBack === null || line === null ? null : (
+				<p id={lineId} className={styles.sub}>
+					{line}
+				</p>
+			)}
+		</li>
+	);
+}
+
+/** Why commenting as the owner cannot be done now, or null; nothing while
+ * the link's state is still being read. */
+function linkLine(link: LinkState): string | null {
+	return link === "none" ? UNLINKED : link === "needs_relink" ? EXPIRED : null;
+}
+
+/**
+ * The Cards panel: the cards in order, "Send back" at the end of each row
+ * that has landed while the feature is open, and the comment box for the one
+ * pressed under the table; then each card you sent back, how many times, the
+ * pull request it had landed in and your words.
+ */
+function CardsPanel({
+	project,
+	cards,
+	link,
+	sendBack,
+	reload,
+}: {
+	project: string;
+	cards: FeatureCard[];
+	link: LinkState;
+	sendBack: (card: number, comment: string) => Promise<void>;
+	/** Reads the feature again. */
+	reload: () => Promise<unknown>;
+}) {
+	const toast = useToast();
+	const lineId = useId();
+	const [writing, setWriting] = useState<number | null>(null);
+	const [refusal, setRefusal] = useState<string | null>(null);
+	const line = linkLine(link);
+	const sendable = cards.some((card) => card.can_send_back);
+	const sentBack = cards.filter((card) => card.sent_back !== null);
+	return (
+		<Panel title="Cards" className={styles.panel}>
+			<Table
+				label="Cards of the feature"
+				columns={columns(project)}
+				rows={cards}
+				rowKey={(card) => String(card.number)}
+				rowAction={(card) =>
+					card.can_send_back ? (
+						<Button
+							kind="secondary"
+							disabled={link !== "linked" || writing === card.number}
+							aria-label={`Send back #${card.number}`}
+							aria-describedby={line === null ? undefined : lineId}
+							onClick={() => {
+								setRefusal(null);
+								setWriting(card.number);
+							}}
+						>
+							Send back
+						</Button>
+					) : null
+				}
+			/>
+			{sendable && line !== null ? (
+				<p id={lineId} className={`${styles.body} ${styles.muted}`}>
+					{line}
+				</p>
+			) : null}
+			{refusal === null ? null : (
+				<p className={`${styles.body} ${styles.error}`} role="alert">
+					{refusal}
+				</p>
+			)}
+			{writing === null ? null : (
+				<div className={styles.body}>
+					<CommentBox
+						key={writing}
+						label={`What should the developer change in #${writing}?`}
+						cancel={() => setWriting(null)}
+						send={async (comment) => {
+							const card = writing;
+							let sent = false;
+							try {
+								await sendBack(card, comment);
+								setRefusal(null);
+								setWriting(null);
+								toast.success(`Sent back #${card}`);
+								sent = true;
+							} catch (error) {
+								setRefusal(describe(error));
+							}
+							await reload();
+							askNavAgain();
+							return sent;
+						}}
+					/>
+				</div>
+			)}
+			{sentBack.length === 0 ? null : (
+				<div className={styles.body}>
+					<h3 className={styles.label}>Sent back</h3>
+					<ul className={styles.runs} aria-label="Cards you sent back">
+						{sentBack.map((card) => (
+							<SentBackRow key={card.number} card={card} />
+						))}
+					</ul>
+				</div>
+			)}
+		</Panel>
+	);
+}
+
+/** A card you sent back: its number and title, where it had landed, how many
+ * times, and your words as you wrote them. */
+function SentBackRow({ card }: { card: FeatureCard }) {
+	const sent = card.sent_back;
+	if (sent === null) return null;
+	return (
+		<li className={styles.run}>
+			<span className={styles.kind}>
+				#{card.number} {card.title}
+			</span>
+			<span className={styles.sub}>
+				Sent back from pull request #{sent.pull_request.number}
+				{sent.times === 1 ? "" : `, ${sent.times} times in all`}
+			</span>
+			<span className={styles.mark}>What you wrote</span>
+			<ul className={styles.items}>
+				{sent.comments.map((comment, at) => (
+					// The same words may be written twice, so their place keys them.
+					// biome-ignore lint/suspicious/noArrayIndexKey: comments have no id
+					<li key={at} className={styles.item}>
+						<span className={styles.said}>{comment}</span>
+					</li>
+				))}
+			</ul>
 		</li>
 	);
 }

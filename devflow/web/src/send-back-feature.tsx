@@ -4,9 +4,10 @@
 // not one of its review's rounds. Offered only for a feature that is ready or waits for him, with
 // its pull request. A refusal is shown in words, and what shows the feature is read again, and the
 // nav bar asked to ask again. See "Fixing a feature" in devflow/README.md.
-import { Button, TextArea, useToast } from "@platform/ui";
-import { type FormEvent, useId, useState } from "react";
+import { Button, useToast } from "@platform/ui";
+import { useId, useState } from "react";
 import { describe, EXPIRED, type LinkState, UNLINKED } from "./actions";
+import { CommentBox } from "./comment-box";
 import { askNavAgain } from "./nav-attention";
 import styles from "./waiting.module.css";
 
@@ -49,30 +50,25 @@ export function SendBack({
 	const toast = useToast();
 	const lineId = useId();
 	const [writing, setWriting] = useState(false);
-	const [text, setText] = useState("");
-	const [sending, setSending] = useState(false);
 	const [refusal, setRefusal] = useState<string | null>(null);
 	// Nothing to say while the link's state is still being read.
 	const line =
 		link === "none" ? UNLINKED : link === "needs_relink" ? EXPIRED : null;
 
-	async function submit(event: FormEvent) {
-		event.preventDefault();
-		if (text.trim() === "") return;
-		setSending(true);
+	async function submit(comment: string): Promise<boolean> {
+		let sent = false;
 		try {
-			await send(projectId, number, text);
+			await send(projectId, number, comment);
 			setRefusal(null);
 			setWriting(false);
-			setText("");
 			toast.success(`Sent back feature #${number}`);
+			sent = true;
 		} catch (error) {
 			setRefusal(describe(error));
-		} finally {
-			setSending(false);
 		}
 		await reload();
 		askNavAgain();
+		return sent;
 	}
 
 	return (
@@ -83,28 +79,11 @@ export function SendBack({
 				</p>
 			)}
 			{writing ? (
-				<form className={styles.comment} onSubmit={submit}>
-					<TextArea
-						label="What should the developer change in the whole feature?"
-						value={text}
-						rows={4}
-						onChange={(event) => setText(event.target.value)}
-					/>
-					<div className={styles.actions}>
-						<Button type="submit" disabled={sending || text.trim() === ""}>
-							Send
-						</Button>
-						<Button
-							kind="ghost"
-							onClick={() => {
-								setWriting(false);
-								setText("");
-							}}
-						>
-							Cancel
-						</Button>
-					</div>
-				</form>
+				<CommentBox
+					label="What should the developer change in the whole feature?"
+					send={submit}
+					cancel={() => setWriting(false)}
+				/>
 			) : (
 				<div className={styles.actions}>
 					<Button
