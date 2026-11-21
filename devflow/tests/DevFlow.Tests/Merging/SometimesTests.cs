@@ -1,3 +1,5 @@
+using System.Text.Json.Nodes;
+
 using DevFlow.CodeHost;
 using DevFlow.Merging;
 using DevFlow.Tests.PullRequests;
@@ -104,6 +106,37 @@ public sealed class SometimesTests
         Assert.Single(Merged.AppMerges(jobs));
         var issue = Assert.Single(Merged.IssuesOpened(jobs));
         Assert.Equal($"Decision in #{await Merged.PullNumber(jobs)}: Show it on every list", issue.Title);
+    }
+
+    /// <summary>A card that waits for a decision shows it on "Waiting for you", whichever report
+    /// marked it: here the build's, which the fix's report does not repeat.</summary>
+    [Fact]
+    public async Task AWaitingCardShowsEveryReportsDecisions()
+    {
+        await using var jobs = await Jobs.Jobs.Start();
+        await Sometimes(jobs);
+        await Fixing.Fixed.BuiltAndReviewed(jobs);
+        var report = Fixing.Fixed.Report();
+        report["decisions"] = new JsonArray(new JsonObject
+        {
+            ["chosen"] = "Keep the list's order",
+            ["alternative"] = "Sort it by name",
+            ["why"] = "The owner orders them himself",
+            ["for_owner"] = false,
+        });
+        var fixedUp = await Fixing.Fixed.Fix(jobs, Built.Prepared(report));
+        Merged.Ci(jobs, (string)fixedUp["head_commit"]!, Merged.GreenRuns);
+        await Built.Review(jobs, Built.Verdict("approve"));
+
+        Assert.Equal(MergeCheck.Decision, (await Built.Card(jobs, Merged.Card)).Reason);
+        var (_, body) = await Built.Get(jobs, Reading.Routes.WaitingPath);
+        var listed = Assert.Single(body!["cards"]!.AsArray())!;
+        var decision = Assert.Single(listed["decisions"]!.AsArray())!;
+        Assert.Equal("Show it on every list", (string)decision["chosen"]!);
+        Assert.Equal("Only on habits", (string)decision["alternative"]!);
+        Assert.Equal("The lists look the same", (string)decision["why"]!);
+        // The newest report's own, not marked, are counted beside them.
+        Assert.Equal(1, (int)listed["other_decisions"]!);
     }
 
     /// <summary>The merge reads the setting again under the project's lock: one changed since the

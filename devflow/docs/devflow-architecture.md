@@ -2,7 +2,7 @@
 
 Status: living. It describes what is built, and changes in the same pull request as the code.
 
-Last updated: 2026 11 19
+Last updated: 2026 11 21
 
 ## What Dev flow is
 
@@ -57,8 +57,9 @@ recipe and start it, and says when one needs building again.
 On the Projects tab the owner also gives Dev flow his Claude login once, which it keeps sealed and
 warns him about a month before it is due.
 
-A project's page also holds its settings, the labels that pick and hold its cards and whether a
-card's pull request waits for the owner, and lists its cards: each read of the project picks the
+A project's page also holds its settings, the labels that pick and hold its cards, whether a
+card's pull request waits for the owner, never, sometimes on the conditions he ticks, or always,
+and its trusted accounts, and lists its cards: each read of the project picks the
 open issues he wrote that carry the pick-up label, and each card shows as queued, held, waiting for
 what blocks it, or ignored with why; a labelled issue with sub-issues is a feature, listed above
 the cards on their own with its sub-issues as its cards, see "Features and their cards" below. A worker asking for work is handed the
@@ -1022,7 +1023,9 @@ read and answers merge or a reason, with no database, network or clock inside it
 condition is one case of a test over plain values, and what decides a merge can be read in one
 place. The code host's answers reach it as they came, failures included, so "anything that cannot
 be read is no merge" is decided there too rather than by each read's caller. No language model
-takes part anywhere in it: the agent's report is not among what it reads, and a test reads the
+takes part anywhere in it: of the agent's report it reads only whether any build's or fix's marked
+a decision for the owner, on `sometimes`, read in SQL from the report as stored, which can make a
+card wait and never lets one merge; and a test reads the
 compiled code the check runs and fails if it names an agent, a brief, a report, a worker or a job.
 
 **The conditions, and why each fails closed.**
@@ -1046,16 +1049,54 @@ compiled code the check runs and fails if it names an agent, a brief, a report, 
    that failed. For a card of a feature the parent is held to all of it, and the card to all but
    the pick-up label, which it does not carry. Its body and title are compared with the record
    made when it was picked, and a change the history cannot attribute is a reason too.
-5. *The project's setting is `never`.* Any other value, one it does not know included, waits.
+5. *The project's setting lets it merge.* `never` does; `sometimes` does unless a condition the
+   owner ticked holds, see "Sometimes" below; any other value, `always` and one it does not know
+   included, waits.
 
 And the project is not stopped and its watch has read within five minutes, as for handing out
 work, since nothing a project produced merges while something unexplained may sit on its default
 branch.
 
+**Sometimes.** The spec's round 2 left "what 'sometimes' means" open, and #331 left it to this
+part. A card's pull request waits for the owner on `sometimes` when any condition he ticked holds,
+the first deciding, and merges as with `never` otherwise. Each condition is a reason a person would
+want to look, and each errs towards looking:
+
+- *Marked for his review.* The review label is read by `LabelActors.Judge` as a label that holds
+  back, as the hold label is: anyone may put it on, since asking the owner to look can only stop a
+  merge, and only a trusted account can take it off, since taking it off lets one through. On a
+  feature's parent it marks every card of the feature, whose pull requests into the feature's branch
+  then wait, and a card's own label inside a feature counts too.
+- *A change touching a listed path.* The files are the pull request's own, as GitHub lists them,
+  read whole or not at all, a rename by both its names, so moving a file out of a listed folder is
+  seen as touching it. GitHub lists at most 3000; a pull request at that limit may change a file
+  past it, so it cannot be judged and waits for the owner, "Too many files to check the paths",
+  since the check fails closed. A read that failed is no merge either, and is tried again on the
+  next minute like every other read that failed, since it may clear by itself and its reason should
+  say what happened. The files are read only when the condition is
+  ticked and a path is listed, so a project that lists none costs nothing.
+- *A decision the agent marked for him.* Any build's or fix's report of the card counts, as "A
+  decision for the owner" below counts them, through the one SQL rule `DecisionStore.MarkedFrom`,
+  so what waits and what a merge records are the same decisions, and the waiting card shows them.
+  Not ticked, the card merges and its decisions open their attention issues as with `never`.
+
+**The paths are globs, not gitignore's full syntax.** They are read by
+`Microsoft.Extensions.FileSystemGlobbing`'s `Matcher`, which is part of the ASP.NET Core shared
+framework Dev flow already runs on, so the rule is a first party one with no dependency to keep:
+`*` within a folder, `**` across folders, and a pattern ending in `/` everything under it, each from
+the repository's top. There is no negation: in gitignore a later `!` line takes a file back out, so
+whether a path waits would depend on the order of the lines and a single line could hollow out the
+list, and a list whose only job is to make pull requests wait should only ever add to what waits.
+`*.sql` is a file at the top, not one anywhere as gitignore reads it, which the panel's help says;
+`**/*.sql` is one anywhere. Paths are matched whatever their case, the stricter of the two, so a
+pattern never misses a file by its case. `PathPatterns` holds the matching and the rules the
+settings route checks a pattern against.
+
 **What is tried again, and what is the owner's.** A reason that may clear by itself, CI still
-running or not reported yet, a read that failed, the watch not read lately, no key or no answer
-from the merge, keeps the card due, and it is read again on the next minute. Every other is the
-owner's: a check, CI or review that failed, a card no longer valid, `always`, a stopped project. It
+running or not reported yet, a read that failed, the files of a pull request on `sometimes` among
+them, the watch not read lately, no key or no answer from the merge, keeps the card due, and it is
+read again on the next minute. Every other is the owner's: a check, CI or review that failed, a
+card no longer valid, `always`, a condition of `sometimes` that held, a stopped project. It
 then waits on "Waiting for you" with the reason in words, as every card that waits does, and he
 merges it as himself or sends it back; a stopped project's card stays his after he resumes, since
 resuming accepts what landed on the default branch, not the card.
@@ -1067,21 +1108,24 @@ program's other writes, outside the reading code, which can never reach a write 
 
 **The merge is made under the watch's lock and names the approved commit.** `AppMerges.MergeCard`
 holds the project's row as the watch judges under it, reads again there what could have changed
-since the check read, the hold, the setting and that the card still waits for this merge, and only
+since the check read, the hold, the setting, exactly as the check decided on it, `never` or
+`sometimes` with the same conditions, review label and paths, so a change made since is decided
+again on the next minute, and that the card still waits for this merge, and only
 then merges with a `Merge` key and `sha` set to the approved commit, so GitHub refuses one whose
 head moved. The merge commit, the card's `done` and its decisions for the owner are recorded in
 that one transaction, so the watch finds the merge fine and none of it is lost. A merge commit
 GitHub's answer did not name is not recorded, and the watch then stops the project: that path errs
 towards asking the owner.
 
-**A decision for the owner, with `never`.** The card merges, and each decision the agent marked for
+**A decision for the owner, with `never`**, or with `sometimes` and its decision condition not
+ticked. The card merges, and each decision the agent marked for
 him gets one issue, opened as the app with the attention label, round 8's "a new issue with the
 attention label is opened only for a decision the agent flagged on a card that has already
 merged". Every build's and fix's report counts, not only the newest, since a fix need not repeat
 what the build decided, and a decision for the owner that vanished would be one merged unchecked.
 "Waiting for you" lists the open ones until he closes them on GitHub; whether a decision stands is
-his to judge, and a fix is a new card. With `always` nothing merges, so the decision waits on the
-card itself.
+his to judge, and a fix is a new card. With `always`, or `sometimes` and the condition ticked,
+nothing merges, so the decision waits on the card itself, which lists every report's.
 
 **Not on the list, on purpose**, round 8: screenshots, which the reviewer judges; whether tests were
 written, which the reviewer judges by the card's acceptance; and the agent's report, which never
@@ -1092,6 +1136,11 @@ decides. Branch protection is not relied on either, as for the watch.
 A card of a feature lands in the feature's branch, not the default branch, through the same check,
 "Where a finished card lands is a setting, and it follows the card" in the spec's round 2. Nothing
 of a feature reaches the default branch before the owner merges the feature himself.
+
+**The setting governs a card's merge into its feature's branch only.** With `never`, `sometimes`
+or `always` alike, the owner merges a feature into the default branch himself, so the setting
+decides only whether each card's pull request into the feature's branch waits for him; on
+`sometimes`, the review label on the parent marks every card of the feature.
 
 **The same function, with the feature's branch as the base.** `Decide` is not forked for features:
 the facts gain the card's feature, and the base the card's run used stands wherever the default
@@ -1124,7 +1173,7 @@ again without anything clearing it.
 **Its decisions open no attention issue.** The attention issues exist so a decision on something
 already in the default branch is not merged unseen. A feature's card's decisions are not in the
 default branch until the owner merges the feature, and the feature's page shows them with an
-answer, so they stay in the card's reports, with `never` and with `always`. A card on its own keeps
+answer, so they stay in the card's reports, whatever the setting. A card on its own keeps
 its attention issues.
 
 ### A feature's page
@@ -1918,7 +1967,8 @@ its reason, or a risk accepted on purpose; each slice adds the ones it builds.
   feature's branch is no longer watched once its feature is merged or closed, so a change to it
   afterwards is not seen, and nothing builds on it then.
 - **No language model decides a merge.** `MergeCheck.Decide` is deterministic code over what was
-  read, and the agent's report is not among it; the reviewer's verdict counts only as Dev flow's
+  read, and of the agent's report only whether it marked a decision for the owner is among it, on
+  `sometimes`, read in SQL as stored, which can only make a card wait; the reviewer's verdict counts only as Dev flow's
   record, tied to its commit. `MergeCheckTests.NoLanguageModelDecides` walks everything the check
   and its caller run in Dev flow's code and fails if any of it names a type of the briefs, the
   worker protocol, the agent's report, the jobs, the workers, the Claude login or the recipes.

@@ -1,8 +1,17 @@
 // A project's Settings panel, under its page's header: the labels that pick and hold its cards and
-// mark what needs the owner, whether a card's pull request waits for him, and the trusted accounts
-// whose cards, edits and comments count. All five are saved together, and a value Dev flow refuses
-// is named under its field. See "Settings" in devflow/README.md.
-import { Badge, Button, Card, Select, TextField } from "@platform/ui";
+// mark what needs the owner, whether a card's pull request waits for him, with what "sometimes"
+// waits for, and the trusted accounts whose cards, edits and comments count. All ten are saved
+// together, and a value Dev flow refuses is named under its field. See "Settings" in
+// devflow/README.md.
+import {
+	Badge,
+	Button,
+	Card,
+	Checkbox,
+	Select,
+	TextArea,
+	TextField,
+} from "@platform/ui";
 import { type FormEvent, type KeyboardEvent, useEffect, useState } from "react";
 import { ApiError } from "./api/client";
 import type { components } from "./api/schema";
@@ -20,7 +29,7 @@ export const SAVED = "Saved.";
  * the page and a test's own in a test. */
 export type SettingsApi = {
 	loadSettings: (id: string) => Promise<ProjectSettings>;
-	/** Saves all five and answers them as saved. */
+	/** Saves all ten and answers them as saved. */
 	saveSettings: (
 		id: string,
 		settings: SettingsRequest,
@@ -30,6 +39,11 @@ export type SettingsApi = {
 type Field = keyof ProjectSettings;
 
 type LabelField = "pickup_label" | "hold_label" | "attention_label";
+
+type ConditionField =
+	| "wait_when_marked"
+	| "wait_when_paths"
+	| "wait_when_decision";
 
 /** The three labels, in the order they are shown, with what each does. */
 const LABELS: { field: LabelField; label: string; help: string }[] = [
@@ -50,8 +64,30 @@ const LABELS: { field: LabelField; label: string; help: string }[] = [
 	},
 ];
 
-/** The Settings panel: the four settings as a form, and Save. Nothing is
- * shown in it before they are read. */
+/** The three conditions of "sometimes", in the order the merge check reads
+ * them. */
+const CONDITIONS: { field: ConditionField; label: string }[] = [
+	{
+		field: "wait_when_marked",
+		label: "The card or its feature is marked for your review",
+	},
+	{ field: "wait_when_paths", label: "The change touches a path on the list" },
+	{ field: "wait_when_decision", label: "The agent made a decision for you" },
+];
+
+/** The list of paths as the box shows it, one pattern a line. */
+const asLines = (paths: string[]) => paths.join("\n");
+
+/** The box's lines as patterns: each trimmed, blank ones dropped. Whether
+ * a pattern is valid is Dev flow's to judge when it is saved. */
+const asPaths = (lines: string) =>
+	lines
+		.split("\n")
+		.map((line) => line.trim())
+		.filter((line) => line !== "");
+
+/** The Settings panel: the settings as a form, and Save. Nothing is shown in
+ * it before they are read. */
 export function SettingsPanel({
 	id,
 	loadSettings,
@@ -64,12 +100,15 @@ export function SettingsPanel({
 	const [error, setError] = useState<string | null>(null);
 	const [invalid, setInvalid] = useState<Partial<Record<Field, string>>>({});
 	const [adding, setAdding] = useState("");
+	const [lines, setLines] = useState("");
 
 	useEffect(() => {
 		let current = true;
 		loadSettings(id).then(
 			(answer) => {
-				if (current) setValues(answer);
+				if (!current) return;
+				setValues(answer);
+				setLines(asLines(answer.wait_paths));
 			},
 			() => {
 				if (current) setReadFailed(true);
@@ -80,8 +119,16 @@ export function SettingsPanel({
 		};
 	}, [id, loadSettings]);
 
-	const change = (field: LabelField | "waits_for_owner", value: string) => {
+	const change = (
+		field: LabelField | "review_label" | "waits_for_owner",
+		value: string,
+	) => {
 		setValues((before) => (before ? { ...before, [field]: value } : before));
+		setSaved(false);
+	};
+
+	const tick = (field: ConditionField, checked: boolean) => {
+		setValues((before) => (before ? { ...before, [field]: checked } : before));
 		setSaved(false);
 	};
 
@@ -132,12 +179,13 @@ export function SettingsPanel({
 		if (values === undefined) return;
 		setSaving(true);
 		try {
-			setValues(
-				await saveSettings(id, {
-					...values,
-					trusted_logins: values.trusted_logins.map((entry) => entry.login),
-				}),
-			);
+			const answer = await saveSettings(id, {
+				...values,
+				wait_paths: asPaths(lines),
+				trusted_logins: values.trusted_logins.map((entry) => entry.login),
+			});
+			setValues(answer);
+			setLines(asLines(answer.wait_paths));
 			setInvalid({});
 			setError(null);
 			setSaved(true);
@@ -201,9 +249,57 @@ export function SettingsPanel({
 							}
 						>
 							<option value="never">Never</option>
+							<option value="sometimes">Sometimes</option>
 							<option value="always">Always</option>
 						</Select>
 					</div>
+					{values.waits_for_owner === "sometimes" ? (
+						<fieldset className={styles.sometimes}>
+							<legend className={styles.heading}>Waits for you when</legend>
+							<p className={styles.help}>
+								A card's pull request waits for you when any of these holds, and
+								merges by itself otherwise.
+							</p>
+							<div className={styles.conditions}>
+								{CONDITIONS.map(({ field, label }) => (
+									<Checkbox
+										key={field}
+										label={label}
+										checked={values[field]}
+										onChange={(event) => tick(field, event.target.checked)}
+									/>
+								))}
+							</div>
+							<div className={styles.fields}>
+								<TextField
+									label="Review label"
+									help="A card, or a feature's parent, with this label is marked for your review. Anyone may put it on; only a trusted account takes it off."
+									autoComplete="off"
+									spellCheck={false}
+									maxLength={50}
+									value={values.review_label}
+									error={invalid.review_label}
+									onChange={(event) =>
+										change("review_label", event.target.value)
+									}
+								/>
+								<TextArea
+									label="Paths"
+									help="One pattern a line, from the repository's top: * within a folder, ** across folders, and a folder ending in / for everything under it."
+									autoComplete="off"
+									spellCheck={false}
+									rows={4}
+									className={styles.paths}
+									value={lines}
+									error={invalid.wait_paths}
+									onChange={(event) => {
+										setLines(event.target.value);
+										setSaved(false);
+									}}
+								/>
+							</div>
+						</fieldset>
+					) : null}
 					<section className={styles.trusted} aria-labelledby={`trusted-${id}`}>
 						<h3 id={`trusted-${id}`} className={styles.heading}>
 							Trusted accounts

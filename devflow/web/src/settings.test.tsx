@@ -76,6 +76,119 @@ const panel = async () =>
 	within(await screen.findByRole("article", { name: "Settings" }));
 
 describe("the settings panel", () => {
+	test("sometimes shows its three conditions, the review label and the paths", async () => {
+		const { saveSettings } = renderPanel({
+			loadSettings: () =>
+				Promise.resolve({ ...DEFAULTS, wait_paths: ["src/auth/**"] }),
+		});
+		const settings = await panel();
+		const waits = (await settings.findByLabelText(
+			"Pull requests wait for you",
+		)) as HTMLSelectElement;
+
+		// On never, nothing of sometimes is shown.
+		expect(
+			settings.queryByRole("group", { name: "Waits for you when" }),
+		).toBeNull();
+		expect(settings.queryByLabelText("Review label")).toBeNull();
+		expect(settings.queryByLabelText("Paths")).toBeNull();
+
+		fireEvent.change(waits, { target: { value: "sometimes" } });
+		const conditions = within(
+			settings.getByRole("group", { name: "Waits for you when" }),
+		);
+		const marked = conditions.getByLabelText(
+			"The card or its feature is marked for your review",
+		) as HTMLInputElement;
+		const paths = conditions.getByLabelText(
+			"The change touches a path on the list",
+		) as HTMLInputElement;
+		const decision = conditions.getByLabelText(
+			"The agent made a decision for you",
+		) as HTMLInputElement;
+		expect([marked.checked, paths.checked, decision.checked]).toEqual([
+			true,
+			true,
+			true,
+		]);
+		const review = conditions.getByLabelText(
+			"Review label",
+		) as HTMLInputElement;
+		expect(review.value).toBe("devflow-review");
+		const list = conditions.getByLabelText("Paths") as HTMLTextAreaElement;
+		expect(list.value).toBe("src/auth/**");
+
+		// Changed, and saved with the rest: one pattern a line, blank lines dropped.
+		fireEvent.click(decision);
+		fireEvent.change(review, { target: { value: "look at me" } });
+		fireEvent.change(list, {
+			target: { value: "src/auth/**\n\n  *.sql \n.github/\n" },
+		});
+		fireEvent.click(settings.getByRole("button", { name: "Save" }));
+
+		expect(await settings.findByText(SAVED)).toBeTruthy();
+		expect(saveSettings).toHaveBeenCalledWith(ID, {
+			...DEFAULTS,
+			waits_for_owner: "sometimes",
+			review_label: "look at me",
+			wait_when_decision: false,
+			wait_paths: ["src/auth/**", "*.sql", ".github/"],
+			trusted_logins: ["octo-owner"],
+		});
+		expect(
+			(settings.getByLabelText("Paths") as HTMLTextAreaElement).value,
+		).toBe("src/auth/**\n*.sql\n.github/");
+
+		// Back on always, its values are kept and saved as they are.
+		fireEvent.change(waits, { target: { value: "always" } });
+		expect(settings.queryByLabelText("Paths")).toBeNull();
+		fireEvent.click(settings.getByRole("button", { name: "Save" }));
+		await waitFor(() =>
+			expect(saveSettings).toHaveBeenLastCalledWith(ID, {
+				...DEFAULTS,
+				waits_for_owner: "always",
+				review_label: "look at me",
+				wait_when_decision: false,
+				wait_paths: ["src/auth/**", "*.sql", ".github/"],
+				trusted_logins: ["octo-owner"],
+			}),
+		);
+	});
+
+	test("a pattern or a condition Dev flow refuses is named under its field", async () => {
+		renderPanel({
+			loadSettings: () =>
+				Promise.resolve({ ...DEFAULTS, waits_for_owner: "sometimes" }),
+			saveSettings: () =>
+				Promise.reject(
+					new ApiError({
+						status: 422,
+						title: "The settings break a rule",
+						detail: "wait_paths must not start with !",
+						errors: {
+							wait_paths: [
+								"!src/** must not start with !: there is no negation",
+							],
+							review_label: ["must be a different label from the other three"],
+						},
+					}),
+				),
+		});
+		const settings = await panel();
+		fireEvent.click(await settings.findByRole("button", { name: "Save" }));
+
+		const list = await settings.findByLabelText("Paths");
+		await waitFor(() => expect(list.getAttribute("aria-invalid")).toBe("true"));
+		expect(
+			settings.getByText(
+				"Error: !src/** must not start with !: there is no negation",
+			),
+		).toBeTruthy();
+		expect(
+			settings.getByLabelText("Review label").getAttribute("aria-invalid"),
+		).toBe("true");
+	});
+
 	test("shows the project's settings", async () => {
 		const { loadSettings } = renderPanel();
 		const settings = await panel();
@@ -97,6 +210,7 @@ describe("the settings panel", () => {
 		expect(waits.value).toBe("never");
 		expect([...waits.options].map((option) => option.value)).toEqual([
 			"never",
+			"sometimes",
 			"always",
 		]);
 	});

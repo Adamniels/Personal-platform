@@ -2829,7 +2829,9 @@ def _stage_ci(page: Page, devflow_world, commit: str, check_runs: list[dict]) ->
     devflow_world(world)
 
 
-def _waits_for_me(page: Page, base_url: str, project: str, waits: str, **changes) -> None:
+def _waits_for_me(
+    page: Page, base_url: str, project: str, waits: str, **changes
+) -> None:
     """Sets the project's Pull requests wait for you, and any other setting
     named in `changes`, keeping every other as it is."""
     current = page.request.get(f"/devflow/api/projects/{project}/settings")
@@ -2915,6 +2917,150 @@ def test_with_always_an_approved_card_waits_for_me(
     expect(
         page.get_by_text("This project waits for you on every pull request")
     ).to_be_visible()
+
+
+# "Sometimes": a card's pull request waits for the owner only when a condition
+# he ticked holds. See "The merge check" in devflow/README.md.
+
+OTHER_CARD = 22
+
+
+def _build(page: Page, base_url: str, project: str, decisions: list[dict]) -> dict:
+    """The fake worker takes the project's next job, a build, and ends it with
+    a passing check and a report holding `decisions`. What it answered."""
+    built = _fake_run(
+        page,
+        base_url,
+        project,
+        {
+            "outcome": "succeeded",
+            "report": {**_report(), "decisions": decisions},
+            "failure": None,
+            "check": {"exit_code": 0, "output": "Tests: 12 passed"},
+            "auth_method": "oauth_token",
+            "usage": {"usage": {"input_tokens": 41, "output_tokens": 6113}},
+            "duration_ms": 184213,
+            "stderr": "",
+        },
+    )
+    assert built["kind"] == "build", built
+    return built
+
+
+def test_a_card_marked_for_my_review_waits(
+    page: Page, invite_code: str, base_url: str, devflow_world
+):
+    register_and_log_in(page, invite_code, base_url)
+    world = one_repository()
+    # The marked card is the older, so it is built first.
+    add_issue(
+        world,
+        CARD,
+        CARD_TITLE,
+        labels=["devflow", "devflow-review"],
+        created_at="2026-11-15T09:00:00+00:00",
+    )
+    add_issue(world, OTHER_CARD, "Count the habits", labels=["devflow"])
+    add_file(
+        world,
+        ".devflow/project.json",
+        json.dumps({"version": 1, "check": CHECK, "start": "", "url": ""}).encode(),
+    )
+    _open_project(page, base_url, devflow_world, world)
+    project = page.url.rsplit("/", 1)[1]
+    given = page.request.put(
+        "/devflow/api/claude-login",
+        data={"token": CLAUDE_TOKEN},
+        headers={"Origin": base_url},
+    )
+    assert given.status == 200, given.text()
+    _waits_for_me(page, base_url, project, "sometimes")
+    refreshed = page.request.post(
+        f"/devflow/api/projects/{project}/refresh", headers={"Origin": base_url}
+    )
+    assert refreshed.status == 204, refreshed.text()
+
+    # Both built with nothing marked for the owner, CI green, and approved.
+    plain = [decision | {"for_owner": False} for decision in _report()["decisions"]]
+    marked = _build(page, base_url, project, plain)
+    _stage_ci(page, devflow_world, marked["head_commit"], [check_run("test")])
+    _fake_review(page, base_url, project, _verdict("approve"))
+    other = _build(page, base_url, project, plain)
+    assert other["head_commit"] != marked["head_commit"]
+    _stage_ci(page, devflow_world, other["head_commit"], [check_run("test")])
+    _fake_review(page, base_url, project, _verdict("approve"))
+
+    # The card with the review label waits on Waiting for you, saying why,
+    # with Merge offered as his own.
+    page.goto("/devflow")
+    card = _waiting_card(page)
+    expect(card).to_have_count(1)
+    expect(card).to_contain_text(CARD_TITLE)
+    expect(card).to_contain_text("This card is marked for your review")
+    expect(card.get_by_role("button", name="Merge")).to_be_enabled()
+
+    # The one without it merged by itself, as the app, naming its commit.
+    merges = [write for write in _writes(page) if write["kind"] == "merge"]
+    assert len(merges) == 1, merges
+    assert merges[0]["by"] == APP_LOGIN
+    assert merges[0]["commit"] == other["head_commit"]
+    page.goto(f"/devflow/projects/{project}/cards/{OTHER_CARD}")
+    expect(page.get_by_text("Done", exact=True).first).to_be_visible()
+
+
+def test_i_set_sometimes(
+    page: Page, invite_code: str, base_url: str, viewport: str, devflow_world
+):
+    register_and_log_in(page, invite_code, base_url)
+    _open_project(page, base_url, devflow_world)
+    settings = page.get_by_role("article", name="Settings")
+
+    # Sometimes shows its conditions, all three ticked, the review label, and
+    # an empty list of paths.
+    expect(settings.get_by_label("Paths")).to_have_count(0)
+    settings.get_by_label("Pull requests wait for you").select_option("sometimes")
+    conditions = settings.get_by_role("group", name="Waits for you when")
+    for condition in (
+        "The card or its feature is marked for your review",
+        "The change touches a path on the list",
+        "The agent made a decision for you",
+    ):
+        expect(conditions.get_by_label(condition)).to_be_checked()
+    expect(conditions.get_by_label("Review label")).to_have_value("devflow-review")
+    expect(conditions.get_by_label("Paths")).to_have_value("")
+
+    # A pattern Dev flow refuses is named under the list, and nothing is saved.
+    conditions.get_by_label("Paths").fill("!src/**")
+    settings.get_by_role("button", name="Save").click()
+    expect(conditions.get_by_label("Paths")).to_have_attribute("aria-invalid", "true")
+
+    conditions.get_by_label("The agent made a decision for you").uncheck()
+    conditions.get_by_label("Paths").fill("src/auth/**\ninfra/hosted/compose.yaml")
+    settings.get_by_role("button", name="Save").click()
+    expect(settings.get_by_text("Saved.")).to_be_visible()
+    expect(conditions.get_by_label("Paths")).not_to_have_attribute(
+        "aria-invalid", "true"
+    )
+    page.evaluate("document.fonts.ready.then(() => null)")
+    for check in (assert_headings_are_capitals, assert_nothing_scrolls_sideways):
+        check(page)
+    assert _axe_violations(page) == []
+    settings.scroll_into_view_if_needed()
+    capture(page, "devflow-settings-sometimes")
+
+    # Kept: a fresh load reads them back.
+    page.reload()
+    settings = page.get_by_role("article", name="Settings")
+    expect(settings.get_by_label("Pull requests wait for you")).to_have_value(
+        "sometimes"
+    )
+    conditions = settings.get_by_role("group", name="Waits for you when")
+    expect(
+        conditions.get_by_label("The agent made a decision for you")
+    ).not_to_be_checked()
+    expect(conditions.get_by_label("Paths")).to_have_value(
+        "src/auth/**\ninfra/hosted/compose.yaml"
+    )
 
 
 def test_a_decision_for_me_becomes_an_issue(

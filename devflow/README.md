@@ -219,12 +219,20 @@ see "Stops".
 
 The Settings panel, `src/settings.tsx`, the package's `Card` titled "Settings", read from
 `GET /devflow/api/projects/{id}/settings` as the page loads, is a form: a line saying Dev flow picks
-up the open issues the owner wrote that carry the pick-up label, then the text fields "Pick-up
-label", "Hold label" and "Attention label" and the select "Pull requests wait for you", "Never" or
-"Always", each with a help line saying what it does, two by two at desktop width and one under
-another at phone width, and a secondary "Save", which puts all four and then says "Saved.". A value
-Dev flow refuses is shown under its field as the field's error, from the problem's `errors`; any
-other failure is the alert "The settings were not saved. Try again.", and what was typed is kept.
+up the open issues the owner's trusted accounts wrote that carry the pick-up label, then the text
+fields "Pick-up label", "Hold label" and "Attention label" and the select "Pull requests wait for
+you", "Never", "Sometimes" or "Always", each with a help line saying what it does, two by two at
+desktop width and one under another at phone width. On "Sometimes", the group "Waits for you when"
+follows, a line saying a pull request waits when any of these holds and merges by itself otherwise,
+the checkboxes "The card or its feature is marked for your review", "The change touches a path on
+the list" and "The agent made a decision for you", then the text field "Review label" and the
+textarea "Paths", one pattern a line in the mono font, each with its help; on the other two the
+group is not shown and its values are kept and saved as they are. Lines of "Paths" are trimmed and
+blank ones dropped as it is saved. Then "Trusted accounts", the list with the owner's own login
+marked "You" and the others each with "Remove", and the field "Add a trusted account" with "Add".
+A secondary "Save" puts all ten and then says "Saved.". A value Dev flow refuses is shown under its
+field as the field's error, from the problem's `errors`; any other failure is the alert "The
+settings were not saved. Try again.", and what was typed is kept.
 
 The Cards panel, `src/cards.tsx`, the package's `Card` titled "Cards", read from
 `GET /devflow/api/projects/{id}/cards` as the page loads, is the list "Cards", in the order the
@@ -665,6 +673,12 @@ does. Its read side:
   file's `filename`, the first page holding every file GitHub lists and one commit, which is not
   read; in the fake, `git diff --name-only from...head` in the repository's git repository, sorted.
   Handing out a conflict reads it both ways, see "A conflict" under "The end of a feature";
+- `PullRequestFiles(user, repository, number)`: every file the pull request changes, in the host's
+  order, each a `ChangedFile` with its path and, for a rename, its old path; the whole list or a
+  failure, never part of it; at most 3000, GitHub's limit, `ICodeHost.MostPullRequestFiles`. On
+  GitHub it is `GET /repos/{owner}/{repo}/pulls/{number}/files?per_page=100`, paged to the end,
+  each file's `filename` and `previous_filename`; in the fake, what the world stages for the pull
+  request. The merge check reads it for the paths of "sometimes", see "The merge check";
 - `Activity(user, repository, branch, since)`: what changed the branch, newest first, each a
   `BranchActivity` with the host's id, the commit before and after, when, its `ActivityKind`,
   `Push`, `ForcePush`, `BranchCreation`, `BranchDeletion`, `PullRequestMerge` or
@@ -907,7 +921,11 @@ then its title's, `kind` `body` or `title`. An issue may also have `label_events
 `ICodeHost.LabelEvents` oldest first by `at`; left out, each label the issue carries was put on by
 its author at `created_at`, which is what most worlds mean, and it is left out when the world is
 written back unset. The app's own `AddLabel` and `RemoveLabel` on an issue add theirs to it, by the
-app's login, as GitHub's timeline would.
+app's login, as GitHub's timeline would. A repository may also have `pull_request_files`, each
+`{"number", "files"}`, a pull request's number and the files it changes in order, each
+`{"path", "previous_path"}`, `previous_path` null but for a rename, answered by
+`ICodeHost.PullRequestFiles`; a pull request it does not list changes none, and it is left out when
+the world is written back unset.
 
 The fake signs a person in too, in `FakeCodeHost.SignIn.cs`, per account and apart from its world,
 so staging a world again signs nobody out. Its sign in page, `GET /devflow/fake-github/authorize`,
@@ -1209,19 +1227,36 @@ in `src/DevFlow/Cards/`.
 
 ### Settings
 
-Five, and only the five something reads:
+Ten, and only the ten something reads:
 
 | Setting | Default | What it does |
 |---|---|---|
 | `pickup_label` | `devflow` | An open issue carrying it is a card |
 | `hold_label` | `devflow-hold` | A card carrying it is held |
 | `attention_label` | `devflow-attention` | The label of the issue Dev flow opens for a decision marked for the owner on a card it merged, see "The merge check"; part 3's "Stops" marks a stopped card with it too |
-| `waits_for_owner` | `never` | `never` or `always`: with `never` the merge check merges an approved card when every condition holds; with `always` it waits for the owner, "This project waits for you on every pull request", see "The merge check" |
+| `review_label` | `devflow-review` | A card carrying it, or every card of a feature whose parent carries it, is marked for the owner's review, which `sometimes` waits for when `wait_when_marked` is ticked |
+| `waits_for_owner` | `never` | `never`, `sometimes` or `always`: with `never` the merge check merges an approved card when every condition holds; with `sometimes` it does too, unless a ticked condition below holds; with `always` it waits for the owner, "This project waits for you on every pull request", see "The merge check" |
+| `wait_when_marked` | ticked | On `sometimes`, a card marked for the owner's review waits |
+| `wait_when_paths` | ticked | On `sometimes`, a change touching a path on `wait_paths` waits |
+| `wait_when_decision` | ticked | On `sometimes`, a card whose agent marked a decision for the owner in any build's or fix's report waits |
+| `wait_paths` | none | The paths the owner wants to see, glob patterns, see "Paths" below |
 | `trusted_logins` | the owner's linked login alone | The GitHub logins whose cards, edits and comments are instructions, see "Trusted accounts" below |
 
 A label is written, at most 50 characters, GitHub's limit, with no space at either end, no comma,
 since GitHub's list of issues by label takes a comma separated list, and no control character; and
-the three are different names whatever their case, as GitHub's label names are.
+the four are different names whatever their case, as GitHub's label names are. The three
+conditions are read only on `sometimes`, where at least one is ticked, since `sometimes` with none
+would wait for nothing.
+
+**Paths.** `wait_paths` is a list of glob patterns, as `Microsoft.Extensions.FileSystemGlobbing`'s
+`Matcher` reads them, each from the repository's top: `*` within one folder, so `*.sql` is a file
+at the top and `**/*.sql` one anywhere; `**` across folders, as in `src/auth/**`; and a pattern
+ending in `/` meaning everything under that folder, as `.github/` does. A path is matched whatever
+its case. There is no negation. A pattern is written, at most 200 characters, with no space at
+either end and no control character, does not start with `!` or `/`, separates folders with `/`,
+never `\`, and holds no empty, `.` or `..` folder; the list holds at most 100, and a pattern given
+twice is kept once, in its first place. `PathPatterns` in `src/DevFlow/Merging/` holds the rules and
+the matching.
 
 **Trusted accounts.** `trusted_logins` lists the GitHub logins whose words count: who may write a
 card or a feature's parent, who may edit their body or title, and whose comment is input, wherever
@@ -1233,24 +1268,34 @@ GitHub's are. The owner's linked login is always on the list and is not stored: 
 the list is read, so a relinked account is trusted under its new login at once and the old one is
 not; without a link nobody is known to be him, and nothing is trusted. A login is 1 to 39 ASCII
 letters, digits and single hyphens, with no hyphen at either end, GitHub's rule. Who changes a label
-is not on the list yet.
+is read by the list too, see "Cards" below.
 
-- `GET /devflow/api/projects/{id}/settings` answers the five,
-  `{"pickup_label", "hold_label", "attention_label", "waits_for_owner", "trusted_logins"}`, the last
-  a list of `{"login", "mine"}`, the caller's linked login first with `mine` true, then the others in
+- `GET /devflow/api/projects/{id}/settings` answers the ten,
+  `{"pickup_label", "hold_label", "attention_label", "review_label", "waits_for_owner",
+  "wait_when_marked", "wait_when_paths", "wait_when_decision", "wait_paths", "trusted_logins"}`,
+  the three conditions booleans, `wait_paths` a list of patterns in their order, and the last a
+  list of `{"login", "mine"}`, the caller's linked login first with `mine` true, then the others in
   the order they were given. Another user's project, or none, is `404`.
-- `PUT /devflow/api/projects/{id}/settings` takes all five, `trusted_logins` as a list of logins,
+- `PUT /devflow/api/projects/{id}/settings` takes all ten, `trusted_logins` as a list of logins,
   and answers them as saved. One that breaks a rule, or is missing, is `422`, a validation problem
-  whose `errors` names each field, and nothing changes: `trusted_logins` without the caller's linked
-  login, whatever its case, or with a login that is not GitHub's shape, among them. A login given
-  twice whatever its case is kept once, in its first spelling, and the caller's own is never stored.
-  Another user's project, or none, is `404`. From another origin, `403`.
+  whose `errors` names each field, and nothing changes: a label that is another's whatever its case,
+  named on the later of the two, `sometimes` with no condition ticked, under `waits_for_owner`, a
+  pattern that breaks a rule, under `wait_paths` with the first one named, `trusted_logins` without
+  the caller's linked login, whatever its case, or with a login that is not GitHub's shape, among
+  them. A login given twice whatever its case is kept once, in its first spelling, and the caller's
+  own is never stored. Another user's project, or none, is `404`. From another origin, `403`.
 
 The table, from `migrations/0010_project_settings.sql`, guarded like every scoped table:
 `project_settings`, `project_id`, its primary key, and `user_id`, referencing `projects` with
 `ON DELETE CASCADE` and `ON UPDATE CASCADE`, and the four columns with their defaults and checks;
 `trusted_logins`, a `text[]` of the others, empty by default and never holding a null, from
-`migrations/0035_trusted_logins.sql`, whose login rules are the route's. A trigger on `projects`
+`migrations/0035_trusted_logins.sql`, whose login rules are the route's; and from
+`migrations/0036_sometimes.sql`, `waits_for_owner` taking `sometimes`, with a check that it has a
+condition ticked, `wait_when_marked`, `wait_when_paths` and `wait_when_decision`, `boolean`, true by
+default, `review_label`, `text`, `devflow-review` by default, held to the other labels' checks and
+different from each whatever the case, and `wait_paths`, a `text[]`, empty by default and never
+holding a null, whose pattern rules are the route's. The migration gives a project that already
+named a label `devflow-review` the review label `devflow-review-1`. A trigger on `projects`
 makes a project's row when the project is made, running as the caller, and the migration made one
 for every project before it.
 
@@ -2370,8 +2415,11 @@ transaction, with the cards.
 **What waits.** Each card that waits is in `GET /devflow/api/waiting`'s `cards`, from its row and
 its latest succeeded run: `project_id`, `project_name`, `owner`, `number`, `title`, as picked,
 `web_url`, `pull_request_number`, `pull_request_url`, `head_commit`, the commit the run built and
-checked, `base`, `summary`, `decisions`, those the agent marked for the owner, each
-`{"chosen", "alternative", "why"}` with an empty part null, `other_decisions`, `check`,
+checked, `base`, `summary`, `decisions`, those the agent marked for the owner in any build's or
+fix's report of the card, once each by what was chosen, the newest words winning, in the order they
+first appeared, as the merge check counts them and a merge records them, so a card waiting for one
+shows it whichever report marked it, each `{"chosen", "alternative", "why"}` with an empty part
+null, `other_decisions`, how many the newest report made that it did not mark, `check`,
 `{"command", "exit_code", "commit"}`, `review`, the reviewer's verdict on that commit,
 `{"verdict", "summary", "blocking", "commit"}`, `blocking` how many findings block it, or null when
 the commit has none, `can_merge`, false while the project is stopped, `changed_at`,
@@ -2920,11 +2968,11 @@ It is `MergeCheck`, `MergeChecker`, `MergeRequests` and `AppMerges.MergeCard` in
 **The decision**, `MergeCheck.Decide(MergeFacts)`, one pure function: no database, no network, no
 clock and no language model. Its caller reads, fresh, what it decides on and passes it in, each
 code host read as it answered, a failure included: the project's hold, `stopped` or not read within
-five minutes, as handing out reads it; its setting, labels and trusted accounts, the owner's linked login among them; the card's
+five minutes, as handing out reads it; its setting, labels and trusted accounts, the owner's linked login among them, and on `sometimes` its three conditions, its review label and its paths; whether any build's or fix's report of the card marked a decision for the owner, read in SQL by the rule `DecisionStore.MarkedFrom` records them by; the card's
 record of what was picked; what its newest build or fix that succeeded left, its commit, the
 check's exit code and when it came back, which is when it was pushed; its latest review in
 `reviews`; and as the app the pull request, the statuses and check runs on its head, the open
-issues with the pick-up label, the card's edits and its label events, `ICodeHost.LabelEvents`. It answers `Merge(commit)`, the pull request's
+issues with the pick-up label, the card's edits and its label events, `ICodeHost.LabelEvents`, and, only on `sometimes` with `wait_when_paths` ticked and a path listed, the pull request's files, `ICodeHost.PullRequestFiles`. It answers `Merge(commit)`, the pull request's
 head, or `Wait(reason, try_again)`, the first that holds deciding:
 
 | Order | What is read | No merge, the card's reason | Tried again |
@@ -2948,17 +2996,24 @@ head, or `Wait(reason, try_again)`, the first that holds deciding:
 | 17 | It does not, but a trusted account put the hold label on and only someone untrusted took it off since | "The card is held by the label <label>, taken off by <login>, who is not a trusted account of this project" | no |
 | 18 | A login that is not a trusted account edited it | "The card was edited by <login> since it was picked" | no |
 | 19 | Its body or title differ from the record with no newer edit to say who | "The card changed since it was picked, and its history does not say by whom" | no |
-| 20 | The setting is anything but `never` | "This project waits for you on every pull request" | no |
-| 21 | CI not read | "Dev flow could not read CI on its commit; it tries again each minute" | yes |
-| 22 | A check run completed with any conclusion but `success`, or a status `failure` or `error`, the first by name | "CI failed: <name>" | no |
-| 23 | A check run queued or in progress, or a status pending | "CI is still running on its commit" | yes |
-| 24 | No check run and no status, less than 30 minutes after the push | "Waiting for CI to report on its commit" | yes |
-| 25 | None, 30 minutes or more after it | "CI did not report" | no |
+| 20 | The setting is `sometimes` with `wait_when_marked` ticked, and the review label counts on the card, by its timeline | "This card is marked for your review" | no |
+| 21 | The same, with `wait_when_paths` ticked and a path listed, and the pull request's files not read | "Dev flow could not read the files of its pull request; it tries again each minute" | yes |
+| 22 | They are read, and are 3000 or more, GitHub's limit, so they may not be all | "Too many files to check the paths" | no |
+| 23 | A file, by its path or a rename's old path, matches a listed pattern, the first file and the first pattern named | "It changes <path>, which matches <pattern> on this project's list of paths" | no |
+| 24 | The same, with `wait_when_decision` ticked, and any build's or fix's report of the card marked a decision for the owner | "The agent made a decision for you" | no |
+| 25 | The setting is anything but `never` or `sometimes` | "This project waits for you on every pull request" | no |
+| 26 | CI not read | "Dev flow could not read CI on its commit; it tries again each minute" | yes |
+| 27 | A check run completed with any conclusion but `success`, or a status `failure` or `error`, the first by name | "CI failed: <name>" | no |
+| 28 | A check run queued or in progress, or a status pending | "CI is still running on its commit" | yes |
+| 29 | No check run and no status, less than 30 minutes after the push | "Waiting for CI to report on its commit" | yes |
+| 30 | None, 30 minutes or more after it | "CI did not report" | no |
 
 Logins and labels are compared whatever their case, as GitHub's are, and branches exactly, as git's
 are. An edit by a trusted account since the card was picked is fine, so is a change to its body or
-title their edits explain. Rows 15 and 17 read the labels by `LabelActors.Judge`, as picking does,
-see "Cards" above. Screenshots, whether tests were written and the agent's report are not on the list,
+title their edits explain. Rows 15, 17 and 20 read the labels by `LabelActors.Judge`, as picking does,
+see "Cards" above: the review label as one that holds back, so it counts while it is on, whoever put
+it there, and while a trusted account put it on and only someone untrusted took it off since.
+Patterns are matched as "Paths" under "Settings" above has them. Screenshots, whether tests were written and the agent's report are not on the list,
 on purpose: the reviewer judges the first two, and the report decides nothing.
 
 **A card of a feature** is checked by the same function, `MergeFacts.Feature` carrying its feature,
@@ -2976,9 +3031,13 @@ and "Its feature, #<parent>, changed since it was picked, and its history does n
 then the card is an open sub-issue of it in the project's repository, "The card is no longer an open
 sub-issue of its feature, #<parent>"; then the card itself, rows 14 and 16 to 19, as a card on its
 own, row 15 left out since it carries no pick-up label. None
-of these is tried again. With `never` it merges into the feature's branch, and with `always` it
-waits on "Waiting for you" with its feature's branch as its `base`, and the owner merges it from
-there into that branch.
+of these is tried again. Row 20 reads the parent first, "Its feature, #<parent>, is marked for your
+review", so the review label on a feature's parent marks every card of it, and then the card's own
+label. With `never` it merges into the feature's branch, with `sometimes` it does unless a ticked
+condition holds, and with `always` it waits on "Waiting for you" with its feature's branch as its
+`base`, and the owner merges it from there into that branch. The setting governs a card's pull
+request into its feature's branch only: the owner always merges a feature into the default branch
+himself, whatever it is.
 
 **A card of a feature that landed.** A card of a feature is `done` when its pull request merged into
 the feature's branch, whoever merged it, the check, the owner from the page or anyone on GitHub, which
@@ -3016,7 +3075,8 @@ his own merge or send it back. One card's failure is logged and never stops the 
 
 **Merging.** `AppMerges.MergeCard(user, project, card, number, commit)`: under the project's row
 lock, the one the watch judges under, it reads again that the project is neither stopped nor
-unwatched, that the setting is still `never`, and that the card is still `waiting_for_owner`, due,
+unwatched, that the setting is still the one the check decided on, `never`, or `sometimes` with the
+same three conditions, review label and paths, and that the card is still `waiting_for_owner`, due,
 with this pull request, holding its row; then merges as the app with a `Merge` key, a merge commit
 with `sha` the approved commit; and, when GitHub merged, writes the merge commit to `merges_made`,
 records the card `done` and records its decisions for the owner, all in that one transaction. A
@@ -3032,9 +3092,13 @@ merge whose answer was lost is found merged by the next read, which records the 
 **The setting.** With `waits_for_owner` `always`, an approved card waits on "Waiting for you"
 with "This project waits for you on every pull request", and the owner merges it from there as
 himself, through `POST /devflow/api/projects/{id}/cards/{number}/merge`, see "Acting from the
-page".
+page". With `sometimes`, one waits there the same way with the reason of the condition that held,
+rows 20 to 24, and none but row 21's, files not read, is tried again: a label taken off or a
+setting changed later does not release it, which only his merge or his sending it back does. The setting is read fresh each
+time, so a change applies at the next check.
 
-**A decision for the owner.** When the check merges a card on its own, `DecisionStore.Record` records in the
+**A decision for the owner.** When the check merges a card on its own, with `never`, or with
+`sometimes` and `wait_when_decision` not ticked, `DecisionStore.Record` records in the
 merge's transaction each decision marked `for_owner` in the reports of the card's builds and fixes
 that succeeded, once each by what was chosen, whatever its case, the newest run's words winning, in
 the order they first appeared; with the reviewer's `for_owner` view on it from the review that
@@ -3064,8 +3128,9 @@ Opened by Dev flow for decision <id>.
 every text of the agent's and the reviewer's made data as the pull request body makes the
 report's, so it closes no issue and notifies nobody. Before opening, the app's own open issues
 with the label are looked at for one whose body names the decision's id, so an answer that was lost
-never opens a second. With `always` nothing merges, so no issue is opened: the decision is on the
-card's item, which waits for him. A card of a feature opens no issue, with `never` or `always`: its
+never opens a second. With `always`, or `sometimes` and `wait_when_decision` ticked, the card does
+not merge, so no issue is opened: the decision is on the card's item, which waits for him. A card
+of a feature opens no issue, whatever the setting: its
 decisions stay in its reports, and the feature's page shows them with an answer.
 
 **On "Waiting for you"**, `GET /devflow/api/waiting`'s `decisions` are the open ones, by project,

@@ -294,7 +294,7 @@ public sealed class WaitingStore(UserDb database, TimeProvider time)
     /// name, and whether their link needs renewing, read in one transaction.</summary>
     public async Task<WaitingList> For(Guid userId, CancellationToken cancellationToken)
     {
-        var (items, projects, relink, stops, cardRows, stoppedRows, failingRows, decisionRows, features) = await database.InUserTransaction(userId, async transaction =>
+        var (items, projects, relink, stops, cardRows, stoppedRows, failingRows, decisionRows, features, cardDecisions) = await database.InUserTransaction(userId, async transaction =>
         {
             var items = await transaction.Connection!.QueryAsync<ItemRow>(new CommandDefinition(
                 """
@@ -349,6 +349,19 @@ public sealed class WaitingStore(UserDb database, TimeProvider time)
                                    ORDER BY reviewed_at DESC, run_id DESC LIMIT 1) v ON true
                 WHERE c.state = 'waiting_for_owner' AND c.pull_request_number IS NOT NULL AND r.head_commit IS NOT NULL
                 ORDER BY lower(p.owner), lower(p.name), p.id, c.number
+                """,
+                transaction: transaction,
+                cancellationToken: cancellationToken));
+            // Each waiting card's decisions for the owner, from every build's and fix's report, as
+            // the merge check counts them and a merge records them, so a card that waits for one
+            // shows it whichever report marked it.
+            var marked = await transaction.Connection!.QueryAsync<CardDecisionRow>(new CommandDefinition(
+                $"""
+                SELECT c.project_id AS ProjectId, c.number AS Number, o.chosen AS Chosen, o.alternative AS Alternative, o.why AS Why
+                FROM cards c
+                CROSS JOIN LATERAL ({Decisions.DecisionStore.ForOwnerSql("c.project_id", "c.number")}) o
+                WHERE c.state = 'waiting_for_owner' AND c.pull_request_number IS NOT NULL
+                ORDER BY c.project_id, c.number, o.first_at, o.first_run, o.first_place
                 """,
                 transaction: transaction,
                 cancellationToken: cancellationToken));
@@ -414,7 +427,7 @@ public sealed class WaitingStore(UserDb database, TimeProvider time)
                 features.Add(Feature(row, story?.Cards.Sum(card => card.Decisions.Count(decision => decision.Answer is null)) ?? 0));
             }
 
-            return (items.ToList(), projects.ToList(), relink, stops.ToList(), cards.ToList(), stopped.ToList(), failing.ToList(), decisions.ToList(), features);
+            return (items.ToList(), projects.ToList(), relink, stops.ToList(), cards.ToList(), stopped.ToList(), failing.ToList(), decisions.ToList(), features, marked.ToList());
         }, cancellationToken);
 
         var now = time.GetUtcNow();
@@ -431,7 +444,7 @@ public sealed class WaitingStore(UserDb database, TimeProvider time)
             CommitUrl(stop.Owner, stop.Name, stop.Commit),
             GitHubLink.Utc(stop.LandedAt),
             GitHubLink.Utc(stop.StoppedAt))).ToList();
-        var cards = cardRows.Select(Card).ToList();
+        var cards = cardRows.Select(row => Card(row, cardDecisions.Where(decision => decision.ProjectId == row.ProjectId && decision.Number == row.Number))).ToList();
         var decided = decisionRows.Select(row => new DecisionItem(
             row.Id,
             row.ProjectId,
@@ -503,10 +516,11 @@ public sealed class WaitingStore(UserDb database, TimeProvider time)
         GitHubLink.Utc(row.ChangedAt),
         Features.FeatureMergeOffers.Of(row.MergeInto, row.Head));
 
-    /// <summary>A waiting card as the list answers it, from its row and its run's report, read into
-    /// its form; a report that does not read, which a waiting card's run never has, says
+    /// <summary>A waiting card as the list answers it, from its row and its newest run's report,
+    /// read into its form, and its decisions for the owner, <paramref name="marked"/>, from every
+    /// report; a report that does not read, which a waiting card's run never has, says
     /// nothing.</summary>
-    private static CardItem Card(CardRow row)
+    private static CardItem Card(CardRow row, IEnumerable<CardDecisionRow> marked)
     {
         using var document = JsonDocument.Parse(row.Report ?? "null");
         var report = Protocol.Report.TryRead(document.RootElement, out var read, out _) ? read : null;
@@ -523,7 +537,7 @@ public sealed class WaitingStore(UserDb database, TimeProvider time)
             row.HeadCommit,
             row.Base,
             report?.Summary.Trim() ?? "",
-            [.. decisions.Where(decision => decision.ForOwner).Select(decision => new OwnerDecision(decision.Chosen.Trim(), Said(decision.Alternative), Said(decision.Why)))],
+            [.. marked.Select(decision => new OwnerDecision(decision.Chosen, Said(decision.Alternative), Said(decision.Why)))],
             decisions.Count(decision => !decision.ForOwner),
             new CardCheck(row.CheckCommand, row.CheckExitCode ?? 0, row.HeadCommit),
             row.CanMerge,
@@ -592,6 +606,10 @@ public sealed class WaitingStore(UserDb database, TimeProvider time)
         JsonSerializer.Deserialize<List<string>>(row.ReviewerView, Json) ?? [],
         Screenshots.Group(JsonSerializer.Deserialize<List<string>>(row.Screenshots, Json) ?? []),
         GitHubLink.Utc(row.ReadAt));
+
+    /// <summary>One decision for the owner of a waiting card, as <see cref="Decisions.DecisionStore.ForOwnerSql"/>
+    /// reads it.</summary>
+    private sealed record CardDecisionRow(Guid ProjectId, int Number, string Chosen, string Alternative, string Why);
 
     private sealed record ItemRow(
         Guid Id,

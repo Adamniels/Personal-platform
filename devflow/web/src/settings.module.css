@@ -98,3 +98,34 @@
 .add > :first-child {
 	flex: 1 1 16rem;
 }
+
+/* What "sometimes" waits for, under the fields while it is chosen: a group
+ * with its heading, a line on what it does, the three conditions, and the
+ * review label and the paths beside each other where there is room. */
+.sometimes {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-3);
+	min-width: 0;
+	margin: 0;
+	padding: 0;
+	border: 0;
+}
+
+/* A legend sits in its fieldset's border unless it is laid out as a block. */
+.sometimes > legend {
+	float: left;
+	width: 100%;
+	padding: 0;
+}
+
+.conditions {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-2);
+}
+
+/* Patterns are paths, read in the mono font. */
+.paths {
+	font-family: var(--font-mono);
+}
