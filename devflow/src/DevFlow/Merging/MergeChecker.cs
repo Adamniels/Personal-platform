@@ -1,6 +1,7 @@
 using Dapper;
 
 using DevFlow.CodeHost;
+using DevFlow.Projects;
 using DevFlow.Watching;
 
 using PlatformData;
@@ -159,7 +160,7 @@ public sealed partial class MergeChecker(UserDb database, ICodeHost host, AppMer
         project.WaitsForOwner,
         project.PickupLabel,
         project.HoldLabel,
-        project.OwnerLogin,
+        TrustedAccounts.Of(project.OwnerLogin, project.TrustedLogins),
         card.Number,
         new CardRecord(card.BodySha256, card.Title, card.NewestEdit),
         card.HeadCommit is { } commit && card.PushedAt is { } pushed && card.Base is { } ran ? new CheckedHead(commit, card.CheckExitCode, Utc(pushed), ran) : null,
@@ -226,7 +227,7 @@ public sealed partial class MergeChecker(UserDb database, ICodeHost host, AppMer
                 $"""
                 SELECT p.installation_id AS Installation, p.repository_id AS RepositoryId, p.owner AS Owner, p.name AS Name,
                        a.login AS OwnerLogin, s.pickup_label AS PickupLabel, s.hold_label AS HoldLabel,
-                       s.waits_for_owner AS WaitsForOwner, {WatchStore.HoldSql} AS Hold
+                       s.waits_for_owner AS WaitsForOwner, s.trusted_logins AS TrustedLogins, {WatchStore.HoldSql} AS Hold
                 FROM projects p
                 JOIN project_settings s ON s.project_id = p.id
                 LEFT JOIN github_accounts a ON a.user_id = p.user_id
@@ -250,16 +251,30 @@ public sealed partial class MergeChecker(UserDb database, ICodeHost host, AppMer
     [LoggerMessage(Level = LogLevel.Warning, Message = "The merge check of card {Card} of project {Project} failed; it is tried again on a later minute")]
     private static partial void LogFailed(ILogger logger, Guid project, int card, Exception failed);
 
-    private sealed record ProjectRow(
-        long Installation,
-        long RepositoryId,
-        string Owner,
-        string Name,
-        string? OwnerLogin,
-        string PickupLabel,
-        string HoldLabel,
-        string WaitsForOwner,
-        string? Hold);
+    /// <summary>The project as the check reads it, set by property, since Dapper maps an array
+    /// column only to a property.</summary>
+    private sealed class ProjectRow
+    {
+        public long Installation { get; init; }
+
+        public long RepositoryId { get; init; }
+
+        public string Owner { get; init; } = "";
+
+        public string Name { get; init; } = "";
+
+        public string? OwnerLogin { get; init; }
+
+        public string PickupLabel { get; init; } = "";
+
+        public string HoldLabel { get; init; } = "";
+
+        public string WaitsForOwner { get; init; } = "";
+
+        public string[] TrustedLogins { get; init; } = [];
+
+        public string? Hold { get; init; }
+    }
 
     /// <summary>A card due for the check, set by property, as Dapper reads <c>bytea</c>.</summary>
     private sealed class DueCard

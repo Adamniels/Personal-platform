@@ -215,13 +215,13 @@ public sealed partial class ProjectReader(UserDb database, ICodeHost host, TimeP
             return ([], NothingPicked, [], [], [], [], followFeatureFailure);
         }
 
-        var (commented, commentFailure) = await ReadComments(projectId, userId, repository, open, target.OwnerLogin, cancellationToken);
+        var (commented, commentFailure) = await ReadComments(projectId, userId, repository, open, trusted, cancellationToken);
         if (commentFailure is not null)
         {
             return ([], NothingPicked, [], [], [], [], commentFailure);
         }
 
-        var (featureCommented, featureFailure) = await ReadFeatureComments(projectId, userId, repository, open, target.OwnerLogin, cancellationToken);
+        var (featureCommented, featureFailure) = await ReadFeatureComments(projectId, userId, repository, open, trusted, cancellationToken);
         return featureFailure is null ? (items, cards, followed, features, commented, featureCommented, null) : ([], NothingPicked, [], [], [], [], featureFailure);
     }
 
@@ -255,14 +255,14 @@ public sealed partial class ProjectReader(UserDb database, ICodeHost host, TimeP
     }
 
     /// <summary>
-    /// The owner's new comments on each feature's pull request that is still open, for the features
-    /// whose pull request is read for them, by <see cref="FeatureComments"/>'s rule; nothing without
-    /// his linked login. Every other comment is passed over unread. See "Fixing a feature" in
-    /// devflow/README.md.
+    /// The trusted accounts' new comments on each feature's pull request that is still open, for the
+    /// features whose pull request is read for them, by <see cref="FeatureComments"/>'s rule;
+    /// nothing without the owner's linked login. Every other comment is passed over unread. See
+    /// "Fixing a feature" in devflow/README.md.
     /// </summary>
-    private async Task<(IReadOnlyList<TakenComments> Commented, string? Failure)> ReadFeatureComments(Guid projectId, Guid userId, Repository repository, IReadOnlyList<PullRequest> open, string? owner, CancellationToken cancellationToken)
+    private async Task<(IReadOnlyList<TakenComments> Commented, string? Failure)> ReadFeatureComments(Guid projectId, Guid userId, Repository repository, IReadOnlyList<PullRequest> open, TrustedAccounts trusted, CancellationToken cancellationToken)
     {
-        if (string.IsNullOrEmpty(owner))
+        if (trusted.Mine is null)
         {
             return ([], null);
         }
@@ -281,7 +281,7 @@ public sealed partial class ProjectReader(UserDb database, ICodeHost host, TimeP
                 return ([], HostUnavailable);
             }
 
-            if (FeatureComments.New(feature, listed, owner) is { } taken)
+            if (FeatureComments.New(feature, listed, trusted) is { } taken)
             {
                 commented.Add(taken);
             }
@@ -291,13 +291,14 @@ public sealed partial class ProjectReader(UserDb database, ICodeHost host, TimeP
     }
 
     /// <summary>
-    /// The owner's new comments on each card's pull request that is still open, for the cards whose
-    /// pull request is read for them, by <see cref="OwnerComments"/>'s rule; nothing without his
-    /// linked login. Every other comment is passed over unread. See "Fixing" in devflow/README.md.
+    /// The trusted accounts' new comments on each card's pull request that is still open, and on a
+    /// stopped or landed card's issue, for the cards read for them, by <see cref="OwnerComments"/>'s
+    /// rule; nothing without the owner's linked login. Every other comment is passed over unread.
+    /// See "Fixing" in devflow/README.md.
     /// </summary>
-    private async Task<(IReadOnlyList<TakenComments> Commented, string? Failure)> ReadComments(Guid projectId, Guid userId, Repository repository, IReadOnlyList<PullRequest> open, string? owner, CancellationToken cancellationToken)
+    private async Task<(IReadOnlyList<TakenComments> Commented, string? Failure)> ReadComments(Guid projectId, Guid userId, Repository repository, IReadOnlyList<PullRequest> open, TrustedAccounts trusted, CancellationToken cancellationToken)
     {
-        if (string.IsNullOrEmpty(owner))
+        if (trusted.Mine is null)
         {
             return ([], null);
         }
@@ -333,7 +334,7 @@ public sealed partial class ProjectReader(UserDb database, ICodeHost host, TimeP
                 comments.AddRange(listed);
             }
 
-            if (OwnerComments.New(card, comments, owner, openPull) is { } taken)
+            if (OwnerComments.New(card, comments, trusted, openPull) is { } taken)
             {
                 commented.Add(taken);
             }
