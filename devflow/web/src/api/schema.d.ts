@@ -431,12 +431,12 @@ export interface paths {
         };
         /**
          * A project's settings
-         * @description The labels that pick and hold its cards and mark what needs the caller, and whether a card's pull request waits for them, never or always. 404 for a project the caller does not have. Without a valid token, 401 with an empty body; a change from another origin, 403.
+         * @description The labels that pick and hold its cards and mark what needs the caller, whether a card's pull request waits for them, never or always, and its trusted accounts, the GitHub logins whose cards, edits and comments count, the caller's linked login first and marked as theirs. 404 for a project the caller does not have. Without a valid token, 401 with an empty body; a change from another origin, 403.
          */
         get: operations["getProjectSettings"];
         /**
          * Change a project's settings
-         * @description Takes all four and answers them as saved. A label is written, at most 50 characters, with no space at either end and no comma, and the three are different names whatever their case; waits_for_owner is never or always. 422 naming each field that breaks a rule, 404 for a project the caller does not have. Without a valid token, 401 with an empty body; a change from another origin, 403.
+         * @description Takes all five and answers them as saved. A label is written, at most 50 characters, with no space at either end and no comma, and the three are different names whatever their case; waits_for_owner is never or always; trusted_logins is a list of GitHub logins that holds the caller's linked login, and a login given twice whatever its case is kept once. 422 naming each field that breaks a rule, 404 for a project the caller does not have. Without a valid token, 401 with an empty body; a change from another origin, 403.
          */
         put: operations["saveProjectSettings"];
         post?: never;
@@ -1305,6 +1305,7 @@ export interface components {
             attention_label: string;
             hold_label: string;
             pickup_label: string;
+            trusted_logins: components["schemas"]["TrustedLogin"][];
             waits_for_owner: string;
         };
         PushKeyAnswer: {
@@ -1414,6 +1415,7 @@ export interface components {
             attention_label: null | string;
             hold_label: null | string;
             pickup_label: null | string;
+            trusted_logins: null | string[];
             waits_for_owner: null | string;
         };
         StoppedCard: {
@@ -1434,6 +1436,10 @@ export interface components {
         };
         /** Format: binary */
         Stream: string;
+        TrustedLogin: {
+            login: string;
+            mine: boolean;
+        };
         WaitingItem: {
             can_merge: boolean;
             decisions: components["schemas"]["OwnerDecision"][];

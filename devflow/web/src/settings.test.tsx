@@ -14,6 +14,7 @@ import {
 	type ProjectSettings,
 	SAVED,
 	SettingsPanel,
+	type SettingsRequest,
 } from "./settings";
 
 afterEach(cleanup);
@@ -25,14 +26,27 @@ const DEFAULTS: ProjectSettings = {
 	hold_label: "devflow-hold",
 	attention_label: "devflow-attention",
 	waits_for_owner: "never",
+	trusted_logins: [{ login: "octo-owner", mine: true }],
 };
+
+/** What saving answers: the request, with the owner's login marked. */
+const answered = (settings: SettingsRequest): ProjectSettings => ({
+	pickup_label: settings.pickup_label ?? "",
+	hold_label: settings.hold_label ?? "",
+	attention_label: settings.attention_label ?? "",
+	waits_for_owner: settings.waits_for_owner ?? "",
+	trusted_logins: (settings.trusted_logins ?? []).map((login) => ({
+		login,
+		mine: login === "octo-owner",
+	})),
+});
 
 function renderPanel(
 	api: {
 		loadSettings?: (id: string) => Promise<ProjectSettings>;
 		saveSettings?: (
 			id: string,
-			settings: ProjectSettings,
+			settings: SettingsRequest,
 		) => Promise<ProjectSettings>;
 	} = {},
 ) {
@@ -40,7 +54,8 @@ function renderPanel(
 		loadSettings: vi.fn(api.loadSettings ?? (() => Promise.resolve(DEFAULTS))),
 		saveSettings: vi.fn(
 			api.saveSettings ??
-				((_: string, settings: ProjectSettings) => Promise.resolve(settings)),
+				((_: string, settings: SettingsRequest) =>
+					Promise.resolve(answered(settings))),
 		),
 	};
 	render(<SettingsPanel id={ID} {...calls} />);
@@ -93,6 +108,7 @@ describe("the settings panel", () => {
 			...DEFAULTS,
 			pickup_label: "agent: go",
 			waits_for_owner: "always",
+			trusted_logins: ["octo-owner"],
 		});
 	});
 

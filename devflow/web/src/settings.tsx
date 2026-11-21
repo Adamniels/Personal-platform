@@ -9,6 +9,8 @@ import type { components } from "./api/schema";
 import styles from "./settings.module.css";
 
 export type ProjectSettings = components["schemas"]["ProjectSettings"];
+/** What saving takes: the settings, the trusted accounts as plain logins. */
+export type SettingsRequest = components["schemas"]["SettingsRequest"];
 
 export const NOT_READ = "The settings could not be read. Try again.";
 export const NOT_SAVED = "The settings were not saved. Try again.";
@@ -18,17 +20,19 @@ export const SAVED = "Saved.";
  * the page and a test's own in a test. */
 export type SettingsApi = {
 	loadSettings: (id: string) => Promise<ProjectSettings>;
-	/** Saves all four and answers them as saved. */
+	/** Saves all five and answers them as saved. */
 	saveSettings: (
 		id: string,
-		settings: ProjectSettings,
+		settings: SettingsRequest,
 	) => Promise<ProjectSettings>;
 };
 
 type Field = keyof ProjectSettings;
 
+type LabelField = "pickup_label" | "hold_label" | "attention_label";
+
 /** The three labels, in the order they are shown, with what each does. */
-const LABELS: { field: Field; label: string; help: string }[] = [
+const LABELS: { field: LabelField; label: string; help: string }[] = [
 	{
 		field: "pickup_label",
 		label: "Pick-up label",
@@ -75,7 +79,7 @@ export function SettingsPanel({
 		};
 	}, [id, loadSettings]);
 
-	const change = (field: Field, value: string) => {
+	const change = (field: LabelField | "waits_for_owner", value: string) => {
 		setValues((before) => (before ? { ...before, [field]: value } : before));
 		setSaved(false);
 	};
@@ -85,7 +89,12 @@ export function SettingsPanel({
 		if (values === undefined) return;
 		setSaving(true);
 		try {
-			setValues(await saveSettings(id, values));
+			setValues(
+				await saveSettings(id, {
+					...values,
+					trusted_logins: values.trusted_logins.map((entry) => entry.login),
+				}),
+			);
 			setInvalid({});
 			setError(null);
 			setSaved(true);

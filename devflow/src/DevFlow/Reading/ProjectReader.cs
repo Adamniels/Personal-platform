@@ -186,7 +186,7 @@ public sealed partial class ProjectReader(UserDb database, ICodeHost host, TimeP
             return ([], NothingPicked, [], [], [], [], failure);
         }
 
-        var settings = new ProjectSettings(target.PickupLabel, target.HoldLabel, target.AttentionLabel, target.WaitsForOwner);
+        var settings = new ProjectSettings(target.PickupLabel, target.HoldLabel, target.AttentionLabel, target.WaitsForOwner, []);
         var repository = new Repository(target.Installation, target.RepositoryId, target.Owner, target.Name);
         PickedProject cards;
         switch (await CardPicker.Pick(host, userId, repository, settings, target.OwnerLogin, cancellationToken))

@@ -58,12 +58,12 @@ public static class ProjectEndpoints
                     ? TypedResults.Ok(settings)
                     : NoSuchProject())
             .Route("getProjectSettings", "A project's settings",
-                "The labels that pick and hold its cards and mark what needs the caller, and whether a card's pull request waits for them, never or always. 404 for a project the caller does not have.",
+                "The labels that pick and hold its cards and mark what needs the caller, whether a card's pull request waits for them, never or always, and its trusted accounts, the GitHub logins whose cards, edits and comments count, the caller's linked login first and marked as theirs. 404 for a project the caller does not have.",
                 StatusCodes.Status404NotFound);
 
         projects.MapPut("/{id:guid}/settings", SaveSettings)
             .Route("saveProjectSettings", "Change a project's settings",
-                "Takes all four and answers them as saved. A label is written, at most 50 characters, with no space at either end and no comma, and the three are different names whatever their case; waits_for_owner is never or always. 422 naming each field that breaks a rule, 404 for a project the caller does not have.",
+                "Takes all five and answers them as saved. A label is written, at most 50 characters, with no space at either end and no comma, and the three are different names whatever their case; waits_for_owner is never or always; trusted_logins is a list of GitHub logins that holds the caller's linked login, and a login given twice whatever its case is kept once. 422 naming each field that breaks a rule, 404 for a project the caller does not have.",
                 StatusCodes.Status404NotFound, StatusCodes.Status422UnprocessableEntity);
 
         return routes;
@@ -71,8 +71,8 @@ public static class ProjectEndpoints
 
     private static async Task<Results<Ok<ProjectSettings>, ProblemHttpResult>> SaveSettings(Guid id, SettingsRequest request, HttpContext context, [FromServices] ProjectSettingsStore store)
     {
-        var (settings, errors) = request.Check();
-        if (settings is null)
+        var (settings, trusted, errors) = request.Check(await store.Mine(context.UserId(), context.RequestAborted));
+        if (settings is null || trusted is null)
         {
             return TypedResults.Problem(new HttpValidationProblemDetails(errors)
             {
@@ -82,7 +82,7 @@ public static class ProjectEndpoints
             });
         }
 
-        return await store.Save(context.UserId(), id, settings, context.RequestAborted)
+        return await store.Save(context.UserId(), id, settings, trusted, context.RequestAborted)
             ? TypedResults.Ok(settings)
             : NoSuchProject();
     }

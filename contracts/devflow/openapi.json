@@ -2330,6 +2330,12 @@
           "pickup_label": {
             "type": "string"
           },
+          "trusted_logins": {
+            "items": {
+              "$ref": "#/components/schemas/TrustedLogin"
+            },
+            "type": "array"
+          },
           "waits_for_owner": {
             "type": "string"
           }
@@ -2338,7 +2344,8 @@
           "pickup_label",
           "hold_label",
           "attention_label",
-          "waits_for_owner"
+          "waits_for_owner",
+          "trusted_logins"
         ],
         "type": "object"
       },
@@ -2840,6 +2847,15 @@
               "string"
             ]
           },
+          "trusted_logins": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "null",
+              "array"
+            ]
+          },
           "waits_for_owner": {
             "type": [
               "null",
@@ -2851,7 +2867,8 @@
           "pickup_label",
           "hold_label",
           "attention_label",
-          "waits_for_owner"
+          "waits_for_owner",
+          "trusted_logins"
         ],
         "type": "object"
       },
@@ -2909,6 +2926,21 @@
       "Stream": {
         "format": "binary",
         "type": "string"
+      },
+      "TrustedLogin": {
+        "properties": {
+          "login": {
+            "type": "string"
+          },
+          "mine": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "login",
+          "mine"
+        ],
+        "type": "object"
       },
       "WaitingItem": {
         "properties": {
@@ -4549,7 +4581,7 @@
     },
     "/devflow/api/projects/{id}/settings": {
       "get": {
-        "description": "The labels that pick and hold its cards and mark what needs the caller, and whether a card's pull request waits for them, never or always. 404 for a project the caller does not have. Without a valid token, 401 with an empty body; a change from another origin, 403.",
+        "description": "The labels that pick and hold its cards and mark what needs the caller, whether a card's pull request waits for them, never or always, and its trusted accounts, the GitHub logins whose cards, edits and comments count, the caller's linked login first and marked as theirs. 404 for a project the caller does not have. Without a valid token, 401 with an empty body; a change from another origin, 403.",
         "operationId": "getProjectSettings",
         "parameters": [
           {
@@ -4593,7 +4625,7 @@
         ]
       },
       "put": {
-        "description": "Takes all four and answers them as saved. A label is written, at most 50 characters, with no space at either end and no comma, and the three are different names whatever their case; waits_for_owner is never or always. 422 naming each field that breaks a rule, 404 for a project the caller does not have. Without a valid token, 401 with an empty body; a change from another origin, 403.",
+        "description": "Takes all five and answers them as saved. A label is written, at most 50 characters, with no space at either end and no comma, and the three are different names whatever their case; waits_for_owner is never or always; trusted_logins is a list of GitHub logins that holds the caller's linked login, and a login given twice whatever its case is kept once. 422 naming each field that breaks a rule, 404 for a project the caller does not have. Without a valid token, 401 with an empty body; a change from another origin, 403.",
         "operationId": "saveProjectSettings",
         "parameters": [
           {
