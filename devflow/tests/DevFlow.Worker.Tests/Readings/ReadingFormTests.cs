@@ -92,6 +92,13 @@ public sealed class ReadingFormTests
                 obj["properties"]!.AsObject().Select(pair => pair.Key).Order(StringComparer.Ordinal),
                 obj["required"]!.AsArray().Select(name => (string)name!).Order(StringComparer.Ordinal));
         }
+
+        // And a reading with a missing, unknown, null or mistyped field is refused, as the slice's
+        // Acceptance names it here; the rest of the form's rules are the theory below.
+        foreach (var (what, error) in new[] { ("a missing field", "touches"), ("an unknown field", "verdict"), ("a null field", "touches"), ("a mistyped field", "number") })
+        {
+            AReadingIsCheckedAgainstItsForm(what, error);
+        }
     }
 
     public static TheoryData<string, string> NotInItsForm() => new()
