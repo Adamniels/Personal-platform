@@ -1131,7 +1131,7 @@ code never holds a write key, so `LandedCards`, which closes it, opens it too, o
 and the read keeps the card meanwhile even while its issue is still closed.
 
 **A new branch, never the one that merged.** A sent back card is built on
-`<number>-<slug>-<k>`, from the feature's branch at its head, rather than on its old branch. The old
+`devflow/<number>-<slug>-<k>`, from the feature's branch at its head, rather than on its old branch. The old
 branch merged: building on it again would start from a commit behind the feature's branch, missing
 every later card, and the new pull request would carry the old commits again, or need a rebase or a
 force push, which a worker never does. A branch from the feature's head starts from everything the
