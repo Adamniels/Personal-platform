@@ -9,6 +9,7 @@ using DevFlow.PullRequests;
 using DevFlow.Worker.Agents;
 using DevFlow.Worker.Build;
 using DevFlow.Worker.Pages;
+using DevFlow.Worker.Read;
 using DevFlow.Worker.Review;
 
 using Microsoft.Extensions.DependencyInjection;
@@ -147,6 +148,10 @@ internal sealed class Bench : IAsyncDisposable
 
     /// <summary>A review job for the bench's worker, with <paramref name="agent"/>.</summary>
     public ReviewJob Review(IAgent agent) =>
+        new(Client, Jobs.FirstWorker, new JobTools(agent, AsRoot, AsAgent, Folders, User, Pages), Clock, new WorkerLog(TextWriter.Synchronized(new StringWriter(Log)), Clock));
+
+    /// <summary>A reading job for the bench's worker, with <paramref name="agent"/>.</summary>
+    public ReadJob Read(IAgent agent) =>
         new(Client, Jobs.FirstWorker, new JobTools(agent, AsRoot, AsAgent, Folders, User, Pages), Clock, new WorkerLog(TextWriter.Synchronized(new StringWriter(Log)), Clock));
 
     /// <summary>

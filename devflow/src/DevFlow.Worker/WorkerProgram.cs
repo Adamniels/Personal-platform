@@ -4,6 +4,7 @@ using DevFlow.Protocol;
 using DevFlow.Worker.Agents;
 using DevFlow.Worker.Build;
 using DevFlow.Worker.Pages;
+using DevFlow.Worker.Read;
 using DevFlow.Worker.Review;
 
 namespace DevFlow.Worker;
@@ -44,14 +45,15 @@ internal static class WorkerProgram
         var tools = Tools(time, log);
         var build = new BuildJob(devFlow, identity.Id, tools, time, log);
         var review = new ReviewJob(devFlow, identity.Id, tools, time, log);
-        var loop = new WorkerLoop(devFlow, identity, (job, stopping) => RunJob(job, build, review, log, stopping), time, log, error);
+        var read = new ReadJob(devFlow, identity.Id, tools, time, log);
+        var loop = new WorkerLoop(devFlow, identity, (job, stopping) => RunJob(job, build, review, read, log, stopping), time, log, error);
         return await loop.Run(stopping);
     }
 
     /// <summary>Runs the job by its kind: a build, or a fix or a conflict, which are carried as one,
-    /// or a review of a card or of a whole feature, carried as one too; a job of any other kind is
-    /// left, and Dev flow finds its run lost.</summary>
-    internal static Task RunJob(JsonElement job, BuildJob build, ReviewJob review, WorkerLog log, CancellationToken stopping)
+    /// a review of a card or of a whole feature, carried as one too, or a reading; a job of any other
+    /// kind is left, and Dev flow finds its run lost.</summary>
+    internal static Task RunJob(JsonElement job, BuildJob build, ReviewJob review, ReadJob read, WorkerLog log, CancellationToken stopping)
     {
         var kind = job.ValueKind == JsonValueKind.Object && job.TryGetProperty("kind", out var named) && named.ValueKind == JsonValueKind.String
             ? named.GetString()
@@ -62,6 +64,8 @@ internal static class WorkerProgram
                 return build.Run(job, stopping);
             case Job.Review or Job.FeatureReview:
                 return review.Run(job, stopping);
+            case Job.Read:
+                return read.Run(job, stopping);
             default:
                 log.Write($"The job is of a kind this worker does not run, {kind ?? "none"}; it is left.");
                 return Task.CompletedTask;
