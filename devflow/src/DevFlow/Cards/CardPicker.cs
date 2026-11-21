@@ -80,8 +80,9 @@ public sealed record PickedProject(IReadOnlyList<PickedFeature> Features, IReadO
 /// issues carrying the pick-up label, never a pull request among them, and each one's sub-issues.
 /// One with sub-issues is a feature, whose direct sub-issues in this repository are its cards;
 /// one without is a card on its own. Each card, and a feature's parent, is checked by the same
-/// rules: then, only for one a trusted account of the project wrote, its edits; then, only for a
-/// card nobody outside the list edited and that is not held, what it is blocked by. The accounts
+/// rules: then, only for one a trusted account of the project wrote, its edits; then, only for one
+/// nobody outside the list edited, its timeline's label events, judged by <see cref="LabelActors"/>;
+/// then, only for a card that is still picked and not held, what it is blocked by. The accounts
 /// whose cards count are the project's trusted accounts, see <see cref="TrustedAccounts"/>. See
 /// "Cards" and "Features and their cards" in devflow/docs/devflow-architecture.md.
 /// </summary>
@@ -105,6 +106,18 @@ public static class CardPicker
 
     /// <summary>Why a card edited by a login that is not on the project's list is ignored.</summary>
     public static string EditedByUntrusted(string login) => $"Edited by {login}, who is not a trusted account of this project";
+
+    /// <summary>Why a card whose pick-up label no trusted account put on is ignored, naming who
+    /// put it on, when the timeline says.</summary>
+    public static string PickupNotTrusted(string label, string? by) => by is null
+        ? $"The pick-up label {label} was not added by a trusted account of this project"
+        : $"The pick-up label {label} was added by {by}, who is not a trusted account of this project";
+
+    /// <summary>Why a card whose hold label a trusted account put on is held though it is off,
+    /// naming who took it off, when the timeline says.</summary>
+    public static string HoldTakenOffUntrusted(string label, string? by) => by is null
+        ? $"Held by the label {label}, which a trusted account put on and none took off"
+        : $"Held by the label {label}, taken off by {by}, who is not a trusted account of this project";
 
     /// <summary>Why a sub-issue of an issue that started as a card on its own is not a card.</summary>
     public static string ParentIsACard(int parent) => string.Create(CultureInfo.InvariantCulture, $"Its parent, #{parent}, is being built as a card");
@@ -312,9 +325,12 @@ public static class CardPicker
     {
         /// <summary>
         /// The card rules, in order, the first that holds deciding: no link, an author who is not
-        /// trusted, an editor who is not, a held feature, its own hold label, and then, when
-        /// <paramref name="readBlockers"/>, what it is blocked by. A card costs only what decides
-        /// it. Not found when the issue is gone since the list.
+        /// trusted, an editor who is not, for a labelled issue a pick-up label no trusted account
+        /// put on, a held feature, its own hold label, on it or taken off only by someone
+        /// untrusted, and then, when <paramref name="readBlockers"/>, what it is blocked by. A card
+        /// costs only what decides it: the timeline is read only past the edits, and for a card of
+        /// a feature only when no hold label on it or its feature decides first. Not found when the
+        /// issue is gone since the list.
         /// </summary>
         public async Task<CodeHostResult<PickedCard>> Card(Candidate issue, string priority, int? feature, bool featureHeld, bool readBlockers = true)
         {
@@ -348,6 +364,23 @@ public static class CardPicker
                 return new CodeHostResult<PickedCard>.Found(card with { Reason = EditedByUntrusted(stranger.Editor) });
             }
 
+            // A labelled issue, a card on its own or a feature's parent, is switched on only by a
+            // trusted account's pick-up label; a card of a feature carries none of its own.
+            CodeHostResult<IReadOnlyList<LabelEvent>>? timeline = null;
+            if (feature is null)
+            {
+                timeline = await Host.LabelEvents(UserId, Repository, issue.Number, CancellationToken);
+                if (timeline is not CodeHostResult<IReadOnlyList<LabelEvent>>.Found { Value: var events })
+                {
+                    return Failed(timeline);
+                }
+
+                if (LabelActors.Judge(Settings.PickupLabel, LabelKind.SwitchesOn, issue.Labels, events, Trusted) is { Counts: false, By: var by })
+                {
+                    return new CodeHostResult<PickedCard>.Found(card with { Reason = PickupNotTrusted(Settings.PickupLabel, by) });
+                }
+            }
+
             var record = new PickedRecord(
                 SHA256.HashData(Encoding.UTF8.GetBytes(issue.Body)),
                 issue.Title,
@@ -361,6 +394,19 @@ public static class CardPicker
             if (issue.Labels.Contains(Settings.HoldLabel, StringComparer.OrdinalIgnoreCase))
             {
                 return new CodeHostResult<PickedCard>.Found(card with { Verdict = Verdict.Held, Reason = $"Held by the label {Settings.HoldLabel}", Record = record });
+            }
+
+            // Off the issue, the hold label still holds while only someone untrusted took it off
+            // since a trusted account put it on, which only its timeline says.
+            timeline ??= await Host.LabelEvents(UserId, Repository, issue.Number, CancellationToken);
+            if (timeline is not CodeHostResult<IReadOnlyList<LabelEvent>>.Found { Value: var history })
+            {
+                return Failed(timeline);
+            }
+
+            if (LabelActors.Judge(Settings.HoldLabel, LabelKind.HoldsBack, issue.Labels, history, Trusted) is { Counts: true, By: var takenOffBy })
+            {
+                return new CodeHostResult<PickedCard>.Found(card with { Verdict = Verdict.Held, Reason = HoldTakenOffUntrusted(Settings.HoldLabel, takenOffBy), Record = record });
             }
 
             if (!readBlockers)
@@ -392,6 +438,14 @@ public static class CardPicker
             });
         }
     }
+
+    /// <summary>A read that did not answer, not found or unavailable, as the card's.</summary>
+    private static CodeHostResult<PickedCard> Failed<T>(CodeHostResult<T> result) => result switch
+    {
+        CodeHostResult<T>.NotFound => new CodeHostResult<PickedCard>.NotFound(),
+        CodeHostResult<T>.Unavailable { RetryAt: var retryAt } => new CodeHostResult<PickedCard>.Unavailable(retryAt),
+        _ => throw new InvalidOperationException("a code host result that is not a failure"),
+    };
 
     /// <summary><c>high</c> with the high label, else <c>low</c> with the low one, else
     /// <c>none</c>; labels matched whatever their case.</summary>
