@@ -1198,12 +1198,13 @@ The two tables, from `migrations/0005_waiting_items.sql`, both guarded like ever
 ## Cards
 
 A project's settings, and the cards each read of it picks. Why they are built so is "Cards" in
-`docs/devflow-architecture.md`. It is `ProjectSettings.cs` and `ProjectEndpoints.cs` in
-`src/DevFlow/Projects/`, and `CardPicker`, `CardStore` and `CardEndpoints` in `src/DevFlow/Cards/`.
+`docs/devflow-architecture.md`. It is `ProjectSettings.cs`, `TrustedAccounts.cs` and
+`ProjectEndpoints.cs` in `src/DevFlow/Projects/`, and `CardPicker`, `CardStore` and `CardEndpoints`
+in `src/DevFlow/Cards/`.
 
 ### Settings
 
-Four, and only the four something reads:
+Five, and only the five something reads:
 
 | Setting | Default | What it does |
 |---|---|---|
@@ -1211,23 +1212,42 @@ Four, and only the four something reads:
 | `hold_label` | `devflow-hold` | A card carrying it is held |
 | `attention_label` | `devflow-attention` | The label of the issue Dev flow opens for a decision marked for the owner on a card it merged, see "The merge check"; part 3's "Stops" marks a stopped card with it too |
 | `waits_for_owner` | `never` | `never` or `always`: with `never` the merge check merges an approved card when every condition holds; with `always` it waits for the owner, "This project waits for you on every pull request", see "The merge check" |
+| `trusted_logins` | the owner's linked login alone | The GitHub logins whose cards, edits and comments are instructions, see "Trusted accounts" below |
 
 A label is written, at most 50 characters, GitHub's limit, with no space at either end, no comma,
 since GitHub's list of issues by label takes a comma separated list, and no control character; and
 the three are different names whatever their case, as GitHub's label names are.
 
-- `GET /devflow/api/projects/{id}/settings` answers the four,
-  `{"pickup_label", "hold_label", "attention_label", "waits_for_owner"}`. Another user's project,
-  or none, is `404`.
-- `PUT /devflow/api/projects/{id}/settings` takes all four and answers them as saved. One that
-  breaks a rule, or is missing, is `422`, a validation problem whose `errors` names each field, and
-  nothing changes; another user's project, or none, is `404`. From another origin, `403`.
+**Trusted accounts.** `trusted_logins` lists the GitHub logins whose words count: who may write a
+card or a feature's parent, who may edit their body or title, and whose comment is input, wherever
+one is read, sending a card back, running a stopped card again, fixing a card, and fixing and
+sending back a feature; and the merge check reads it, see "The merge check". Everywhere else is
+data. A trusted account gives instructions and never makes Dev flow act as it: Dev flow acts on
+GitHub as the owner only with his linked token. Logins are compared whatever their case, as
+GitHub's are. The owner's linked login is always on the list and is not stored: it is added whenever
+the list is read, so a relinked account is trusted under its new login at once and the old one is
+not; without a link nobody is known to be him, and nothing is trusted. A login is 1 to 39 ASCII
+letters, digits and single hyphens, with no hyphen at either end, GitHub's rule. Who changes a label
+is not on the list yet.
+
+- `GET /devflow/api/projects/{id}/settings` answers the five,
+  `{"pickup_label", "hold_label", "attention_label", "waits_for_owner", "trusted_logins"}`, the last
+  a list of `{"login", "mine"}`, the caller's linked login first with `mine` true, then the others in
+  the order they were given. Another user's project, or none, is `404`.
+- `PUT /devflow/api/projects/{id}/settings` takes all five, `trusted_logins` as a list of logins,
+  and answers them as saved. One that breaks a rule, or is missing, is `422`, a validation problem
+  whose `errors` names each field, and nothing changes: `trusted_logins` without the caller's linked
+  login, whatever its case, or with a login that is not GitHub's shape, among them. A login given
+  twice whatever its case is kept once, in its first spelling, and the caller's own is never stored.
+  Another user's project, or none, is `404`. From another origin, `403`.
 
 The table, from `migrations/0010_project_settings.sql`, guarded like every scoped table:
 `project_settings`, `project_id`, its primary key, and `user_id`, referencing `projects` with
-`ON DELETE CASCADE` and `ON UPDATE CASCADE`, and the four columns with their defaults and checks. A
-trigger on `projects` makes a project's row when the project is made, running as the caller, and the
-migration made one for every project before it.
+`ON DELETE CASCADE` and `ON UPDATE CASCADE`, and the four columns with their defaults and checks;
+`trusted_logins`, a `text[]` of the others, empty by default and never holding a null, from
+`migrations/0035_trusted_logins.sql`, whose login rules are the route's. A trigger on `projects`
+makes a project's row when the project is made, running as the caller, and the migration made one
+for every project before it.
 
 ### Cards
 
@@ -1236,9 +1256,9 @@ a project" under "What waits", and stores both in one transaction:
 
 - `ICodeHost.LabelledIssues` lists the open issues carrying `pickup_label`; a pull request among them
   is never a card.
-- A card the owner's linked login did not write, or written while he has no link, is `ignored`;
-  otherwise `ICodeHost.Edits` reads who edited its body and title, and one anyone else edited is
-  `ignored`. A card carrying `hold_label` is `held`. Otherwise `ICodeHost.BlockedBy` reads what it is
+- A card no trusted account wrote, or any card while the owner has no link, is `ignored`;
+  otherwise `ICodeHost.Edits` reads who edited its body and title, and one a login off the list
+  edited is `ignored`. A card carrying `hold_label` is `held`. Otherwise `ICodeHost.BlockedBy` reads what it is
   blocked by, and it is `queued`, waiting for what of that is still open.
 - Its priority is `high` with the label `priority: high`, `low` with `priority: low`, and `none`
   otherwise.
@@ -1249,8 +1269,8 @@ a project" under "What waits", and stores both in one transaction:
   issue as it merged and the card is its story.
 
 The reasons, as stored and shown: "Dev flow does not know your GitHub login: link GitHub on the
-Projects tab", "Written by <login>: only your own cards are picked", "Edited by <login>: only cards
-nobody else has edited are picked", "Held by the label <hold label>", and "Waits for #12", "Waits for
+Projects tab", "<login> is not a trusted account of this project", "Edited by <login>, who is not a
+trusted account of this project", "Held by the label <hold label>", and "Waits for #12", "Waits for
 #12 and #14" or "Waits for owner/name#3"; null when a card is queued with nothing to wait for.
 
 `CardStore.Queue(projectId)` answers the numbers of the queued cards with nothing to wait for, in
@@ -2625,10 +2645,10 @@ through its end again. Why a sent back card gets a new branch is "Sending a card
   link; then GitHub is asked: `204` once posted, `409` "GitHub refused the comment" with its reason,
   and `503` when GitHub did not answer, after the project is read again, with no answer kept.
 - **The read.** Each read of the project reads the comments of the issue of every card that can be
-  sent back, with no run under way, and takes those by the owner's linked login, past
+  sent back, with no run under way, and takes those by a trusted account, see "Settings", past
   `comments_read_through` and written after the card's last run ended, or its last change for a card
   with no run, as "Fixing" takes his comments. Opening the issue himself on GitHub and commenting
-  there is the same comment. Anyone else's comment, and an opening alone, by anyone, queue nothing,
+  there is the same comment. A comment by a login off the list, and an opening alone, by anyone, queue nothing,
   and a landed card whose issue is open after the app closed it says why, "Its issue is open again,
   but only your comment on it sends it back", until it is closed again. Taken, in the read's
   transaction, the card is `queued`, "You sent it back; it is built again on a new branch", with his
@@ -2835,7 +2855,7 @@ that still holds is still blocking. Only blocking findings make it `changes`.
 pull request of every card that has one still open, is `reviewing`, `fixing`, `waiting_for_owner`
 or `stopped`, and has no run under way, and of a stopped card's issue too, whose comments run it
 again, see "Stops", and of a landed card's issue, whose comments send it back, see "Send back" under
-"A feature's page"; and takes those by the owner's linked login, as GitHub
+"A feature's page"; and takes those by a trusted account of the project, see "Settings", as GitHub
 compares logins, whatever the case, that are new: past `comments_read_through`, the id of the
 newest of his already taken, and every one of his before any was. No time is compared, so a comment
 written during a review is not lost to the fix a worker claims seconds after it. They are taken in
@@ -2885,7 +2905,7 @@ It is `MergeCheck`, `MergeChecker`, `MergeRequests` and `AppMerges.MergeCard` in
 **The decision**, `MergeCheck.Decide(MergeFacts)`, one pure function: no database, no network, no
 clock and no language model. Its caller reads, fresh, what it decides on and passes it in, each
 code host read as it answered, a failure included: the project's hold, `stopped` or not read within
-five minutes, as handing out reads it; its setting, labels and the owner's linked login; the card's
+five minutes, as handing out reads it; its setting, labels and trusted accounts, the owner's linked login among them; the card's
 record of what was picked; what its newest build or fix that succeeded left, its commit, the
 check's exit code and when it came back, which is when it was pushed; its latest review in
 `reviews`; and as the app the pull request, the statuses and check runs on its head, the open
@@ -2907,9 +2927,9 @@ head, or `Wait(reason, try_again)`, the first that holds deciding:
 | 11 | The card or its edits not read | "Dev flow could not read the card; it tries again each minute" | yes |
 | 12 | No linked login | "Dev flow does not know your GitHub login: link GitHub on the Projects tab" | no |
 | 13 | Not open with the pick-up label | "The card is no longer open with the label <label>" | no |
-| 14 | Written by another login | "The card was written by <login>, not by you" | no |
+| 14 | Written by a login that is not a trusted account | "The card was written by <login>, who is not a trusted account of this project" | no |
 | 15 | It carries the hold label | "The card is held by the label <label>" | no |
-| 16 | Anyone but the owner edited it | "The card was edited by <login> since it was picked" | no |
+| 16 | A login that is not a trusted account edited it | "The card was edited by <login> since it was picked" | no |
 | 17 | Its body or title differ from the record with no newer edit to say who | "The card changed since it was picked, and its history does not say by whom" | no |
 | 18 | The setting is anything but `never` | "This project waits for you on every pull request" | no |
 | 19 | CI not read | "Dev flow could not read CI on its commit; it tries again each minute" | yes |
@@ -2919,8 +2939,8 @@ head, or `Wait(reason, try_again)`, the first that holds deciding:
 | 23 | None, 30 minutes or more after it | "CI did not report" | no |
 
 Logins and labels are compared whatever their case, as GitHub's are, and branches exactly, as git's
-are. An edit by the owner since the card was picked is fine, so is a change to its body or title his
-edits explain. Screenshots, whether tests were written and the agent's report are not on the list,
+are. An edit by a trusted account since the card was picked is fine, so is a change to its body or
+title their edits explain. Screenshots, whether tests were written and the agent's report are not on the list,
 on purpose: the reviewer judges the first two, and the report decides nothing.
 
 **A card of a feature** is checked by the same function, `MergeFacts.Feature` carrying its feature,
@@ -2930,7 +2950,7 @@ parent, since a feature's cards carry no label of their own: as the app, the par
 `ICodeHost.SubIssues`, and its edits, beside the card's, any of them unread being row 11. In place
 of row 13, the parent is open with the pick-up label, "Its feature, #<parent>, is no longer open with the label <label>"; then picked,
 "Its feature, #<parent>, is not picked" otherwise; then held to rows 14 to 17 against its own record
-in `features`, "Its feature, #<parent>, was written by <login>, not by you", "Its feature, #<parent>,
+in `features`, "Its feature, #<parent>, was written by <login>, who is not a trusted account of this project", "Its feature, #<parent>,
 is held by the label <label>", "Its feature, #<parent>, was edited by <login> since it was picked"
 and "Its feature, #<parent>, changed since it was picked, and its history does not say by whom";
 then the card is an open sub-issue of it in the project's repository, "The card is no longer an open
@@ -3415,8 +3435,8 @@ met, so a finding that still holds is still blocking.
 
 **The owner's comment.** Each read of a project, `ProjectReader.Read`, reads the comments of the
 pull request of every feature that has one still open, is `reviewing`, `fixing`,
-`waiting_for_owner` or `ready`, and has no run of its own under way, and takes those by the owner's
-linked login, whatever its case, that are new by the rule a card's are, see "Fixing": past
+`waiting_for_owner` or `ready`, and has no run of its own under way, and takes those by a trusted
+account of the project, whatever its case, that are new by the rule a card's are, see "Fixing": past
 `comments_read_through`, the id of the newest of his already taken, and every one of his before any
 was, no time compared. They are taken in the read's transaction, `FeatureComments.Take`, the
 feature's row locked first: it moves to `fixing`, "You commented on its pull request; a fix runs
@@ -3572,8 +3592,8 @@ before this part, whose `stopped_at` is null, is never marked.
 
 **Running it again.** Each read of a project reads a stopped card's issue, and its pull request
 when still open, for the owner's comments, as "The owner's comment" under "Fixing" reads them, by
-his linked login and past `comments_read_through`, and only those written after `stopped_at`, or
-after its last change for a card stopped before this part; anyone else's does nothing. Taken, a
+a trusted account and past `comments_read_through`, and only those written after `stopped_at`, or
+after its last change for a card stopped before this part; one by a login off the list does nothing. Taken, a
 card with its pull request open moves to `fixing`, "You commented on its pull request; a fix runs
 next", as a fix with his comments; any other is built again, `queued`, "You commented on it; it
 runs again next", with his comments in the build's brief under `## Run again`, each quoted as the

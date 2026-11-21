@@ -1,9 +1,9 @@
 // A project's Settings panel, under its page's header: the labels that pick and hold its cards and
-// mark what needs the owner, and whether a card's pull request waits for him. All four are saved
-// together, and a value Dev flow refuses is named under its field. See "Cards" in
-// devflow/README.md.
-import { Button, Card, Select, TextField } from "@platform/ui";
-import { type FormEvent, useEffect, useState } from "react";
+// mark what needs the owner, whether a card's pull request waits for him, and the trusted accounts
+// whose cards, edits and comments count. All five are saved together, and a value Dev flow refuses
+// is named under its field. See "Settings" in devflow/README.md.
+import { Badge, Button, Card, Select, TextField } from "@platform/ui";
+import { type FormEvent, type KeyboardEvent, useEffect, useState } from "react";
 import { ApiError } from "./api/client";
 import type { components } from "./api/schema";
 import styles from "./settings.module.css";
@@ -36,7 +36,7 @@ const LABELS: { field: LabelField; label: string; help: string }[] = [
 	{
 		field: "pickup_label",
 		label: "Pick-up label",
-		help: "An open issue you wrote with this label becomes a card.",
+		help: "An open issue a trusted account wrote with this label becomes a card.",
 	},
 	{
 		field: "hold_label",
@@ -63,6 +63,7 @@ export function SettingsPanel({
 	const [saved, setSaved] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [invalid, setInvalid] = useState<Partial<Record<Field, string>>>({});
+	const [adding, setAdding] = useState("");
 
 	useEffect(() => {
 		let current = true;
@@ -81,6 +82,48 @@ export function SettingsPanel({
 
 	const change = (field: LabelField | "waits_for_owner", value: string) => {
 		setValues((before) => (before ? { ...before, [field]: value } : before));
+		setSaved(false);
+	};
+
+	/** Lists the login typed, unless it is empty or already listed whatever
+	 * its case, as GitHub compares logins. Its shape is Dev flow's to judge
+	 * when it is saved. */
+	const add = () => {
+		const login = adding.trim();
+		setAdding("");
+		if (login === "") return;
+		setValues((before) =>
+			before === undefined ||
+			before.trusted_logins.some(
+				(entry) => entry.login.toLowerCase() === login.toLowerCase(),
+			)
+				? before
+				: {
+						...before,
+						trusted_logins: [...before.trusted_logins, { login, mine: false }],
+					},
+		);
+		setSaved(false);
+	};
+
+	/** Enter in the field adds the login rather than saving the form. */
+	const addOnEnter = (event: KeyboardEvent<HTMLInputElement>) => {
+		if (event.key !== "Enter") return;
+		event.preventDefault();
+		add();
+	};
+
+	const remove = (login: string) => {
+		setValues((before) =>
+			before
+				? {
+						...before,
+						trusted_logins: before.trusted_logins.filter(
+							(entry) => entry.mine || entry.login !== login,
+						),
+					}
+				: before,
+		);
 		setSaved(false);
 	};
 
@@ -126,8 +169,8 @@ export function SettingsPanel({
 			) : values === undefined ? null : (
 				<form className={styles.form} onSubmit={save}>
 					<p className={styles.line}>
-						Dev flow picks up the open issues you wrote that carry the pick-up
-						label, as cards.
+						Dev flow picks up the open issues your trusted accounts wrote that
+						carry the pick-up label, as cards.
 					</p>
 					{error === null ? null : (
 						<p className={styles.error} role="alert">
@@ -161,6 +204,49 @@ export function SettingsPanel({
 							<option value="always">Always</option>
 						</Select>
 					</div>
+					<section className={styles.trusted} aria-labelledby={`trusted-${id}`}>
+						<h3 id={`trusted-${id}`} className={styles.heading}>
+							Trusted accounts
+						</h3>
+						<p className={styles.help}>
+							Only the cards, edits and comments of these GitHub accounts are
+							instructions; anyone else's are shown and never acted on. A login
+							you add counts once you save.
+						</p>
+						<ul className={styles.logins} aria-label="Trusted accounts">
+							{values.trusted_logins.map((entry) => (
+								<li key={entry.login} className={styles.login}>
+									<span className={styles.name}>{entry.login}</span>
+									{entry.mine ? (
+										<Badge>You</Badge>
+									) : (
+										<Button
+											kind="ghost"
+											aria-label={`Remove ${entry.login}`}
+											onClick={() => remove(entry.login)}
+										>
+											Remove
+										</Button>
+									)}
+								</li>
+							))}
+						</ul>
+						<div className={styles.add}>
+							<TextField
+								label="Add a trusted account"
+								autoComplete="off"
+								spellCheck={false}
+								maxLength={39}
+								value={adding}
+								error={invalid.trusted_logins}
+								onChange={(event) => setAdding(event.target.value)}
+								onKeyDown={addOnEnter}
+							/>
+							<Button kind="secondary" onClick={add}>
+								Add
+							</Button>
+						</div>
+					</section>
 					<div className={styles.actions}>
 						<Button kind="secondary" type="submit" disabled={saving}>
 							Save

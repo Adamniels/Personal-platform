@@ -1344,6 +1344,61 @@ def test_i_set_a_projects_settings(
     expect(settings.get_by_label("Pull requests wait for you")).to_have_value("always")
 
 
+def test_i_trust_another_account(
+    page: Page, invite_code: str, base_url: str, viewport: str, devflow_world
+):
+    register_and_log_in(page, invite_code, base_url)
+    # A card octo-friend wrote, ignored while only the owner, octo-owner, is
+    # trusted.
+    world = one_repository()
+    add_issue(world, 12, "The friend's card", author="octo-friend", labels=["devflow"])
+    _open_project(page, base_url, devflow_world, world)
+    project = page.url.rsplit("/", 1)[1]
+
+    def read_again():
+        refreshed = page.request.post(
+            f"/devflow/api/projects/{project}/refresh", headers={"Origin": base_url}
+        )
+        assert refreshed.status == 204, refreshed.text()
+        page.reload()
+
+    def card():
+        return (
+            page.get_by_role("list", name="Cards")
+            .get_by_role("listitem")
+            .filter(has=page.get_by_text("#12", exact=True))
+        )
+
+    read_again()
+    expect(card()).to_contain_text("Ignored")
+    expect(card()).to_contain_text(
+        "octo-friend is not a trusted account of this project"
+    )
+
+    # My own login is listed and cannot be removed; I add octo-friend.
+    settings = page.get_by_role("article", name="Settings")
+    trusted = settings.get_by_role("list", name="Trusted accounts")
+    expect(trusted.get_by_role("listitem")).to_have_count(1)
+    expect(trusted.get_by_role("listitem").first).to_contain_text("octo-owner")
+    expect(trusted.get_by_role("listitem").first).to_contain_text("You")
+    expect(settings.get_by_role("button", name="Remove octo-owner")).to_have_count(0)
+    settings.get_by_label("Add a trusted account").fill("octo-friend")
+    settings.get_by_role("button", name="Add").click()
+    settings.get_by_role("button", name="Save").click()
+    expect(settings.get_by_text("Saved.")).to_be_visible()
+    expect(trusted.get_by_role("listitem")).to_have_count(2)
+    expect(settings.get_by_role("button", name="Remove octo-friend")).to_be_visible()
+    capture(page, "devflow-settings-trusted")
+
+    # The next read queues the card octo-friend wrote.
+    read_again()
+    expect(card()).to_contain_text("Queued")
+    settings = page.get_by_role("article", name="Settings")
+    expect(
+        settings.get_by_role("list", name="Trusted accounts").get_by_role("listitem")
+    ).to_have_count(2)
+
+
 def test_a_card_i_label_shows_as_queued(
     page: Page, invite_code: str, base_url: str, viewport: str, devflow_world
 ):
@@ -2720,7 +2775,10 @@ def _stage_ci(page: Page, devflow_world, commit: str, check_runs: list[dict]) ->
 
 
 def _waits_for_me(page: Page, base_url: str, project: str, waits: str) -> None:
-    """Sets the project's Pull requests wait for you, its labels the defaults."""
+    """Sets the project's Pull requests wait for you, its labels the defaults
+    and its trusted accounts as they are."""
+    current = page.request.get(f"/devflow/api/projects/{project}/settings")
+    assert current.status == 200, current.text()
     saved = page.request.put(
         f"/devflow/api/projects/{project}/settings",
         data={
@@ -2728,6 +2786,9 @@ def _waits_for_me(page: Page, base_url: str, project: str, waits: str) -> None:
             "hold_label": "devflow-hold",
             "attention_label": "devflow-attention",
             "waits_for_owner": waits,
+            "trusted_logins": [
+                entry["login"] for entry in current.json()["trusted_logins"]
+            ],
         },
         headers={"Origin": base_url},
     )
