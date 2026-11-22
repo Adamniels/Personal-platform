@@ -6,7 +6,8 @@ namespace DevFlow.Protocol;
 /// <summary>
 /// A job, what <c>jobs/next</c> answers a worker with <c>200</c>: one card of its project to build,
 /// to review or to fix, a feature's conflict to resolve, the cards of a feature or a card on its
-/// own to read, or a version of the project's <c>.devflow/</c> to check, with everything the worker
+/// own to read, a version of the project's <c>.devflow/</c> to check, or the project to set up,
+/// with everything the worker
 /// needs for it and nothing more. The Claude token and the
 /// key leave Dev flow only here, to the worker holding the job. See "Jobs", "Review" and
 /// "Fixing" in devflow/README.md.
@@ -14,17 +15,19 @@ namespace DevFlow.Protocol;
 /// <param name="JobId">The run's id, which the job's other routes take.</param>
 /// <param name="Kind"><see cref="Build"/>, <see cref="Review"/>, <see cref="Fix"/>,
 /// <see cref="Conflict"/>, <see cref="FeatureReview"/>, <see cref="FeatureFix"/> or
-/// <see cref="Read"/> or <see cref="RecipeCheck"/>.</param>
+/// <see cref="Read"/>, <see cref="RecipeCheck"/> or <see cref="Setup"/>.</param>
 /// <param name="Card">The card, as it was picked; for a conflict, the feature's parent; for a
-/// reading, the feature's parent, or the card on its own; null on a check, which is no card's.</param>
+/// reading, the feature's parent, or the card on its own; null on a check and a setup, which are no
+/// card's.</param>
 /// <param name="Repository">Where the code is.</param>
 /// <param name="Branch">The branch the work goes on, <c>devflow/&lt;number&gt;-&lt;slug&gt;</c>.</param>
 /// <param name="Base">The branch it is made from, the repository's default branch.</param>
 /// <param name="Brief">What the agent is asked to do, as text.</param>
 /// <param name="ReportSchema">The JSON Schema the agent's answer follows: for a build the report's,
 /// contracts/devflow/report.schema.json, for a review the verdict's,
-/// contracts/devflow/verdict.schema.json, and for a reading the reading's,
-/// contracts/devflow/reading.schema.json.</param>
+/// contracts/devflow/verdict.schema.json, for a reading the reading's,
+/// contracts/devflow/reading.schema.json, and for a setup the setup report's,
+/// contracts/devflow/setup.schema.json.</param>
 /// <param name="Check">The command that checks the working copy, from the project's
 /// <c>.devflow/project.json</c> on its default branch; for a review, the one the build ran.</param>
 /// <param name="ClaudeToken">The run's user's Claude token, for the agent's
@@ -120,6 +123,16 @@ public sealed record Job(
     /// the default branch, its key only fetches, and it commits and pushes nothing. See "Setting
     /// up a project" in devflow/README.md.</summary>
     public const string RecipeCheck = "check";
+
+    /// <summary>Setting a project up that has no valid <c>.devflow/</c>: the agent reads the
+    /// repository and writes <c>.devflow/Dockerfile</c> and <c>.devflow/project.json</c> on
+    /// <see cref="Branch"/>, <c>devflow/setup</c> or <c>devflow/setup-&lt;k&gt;</c>, made from
+    /// <see cref="Base"/>, the default branch, and answers a <see cref="SetupReport"/>. It runs on a
+    /// worker started from the base image itself, which cannot install a project's tools, so no
+    /// check runs: <see cref="Check"/> is empty, and the worker commits what the agent left and
+    /// pushes. <see cref="Card"/> is null. With <see cref="ToFix"/> it is a fix of the setup's pull
+    /// request, from that commit. See "Setting up a project" in devflow/README.md.</summary>
+    public const string Setup = "setup";
 
     /// <summary>Its kind and card, never the token or the key.</summary>
     public override string ToString() =>

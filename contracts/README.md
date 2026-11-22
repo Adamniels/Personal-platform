@@ -139,11 +139,15 @@ flow is C#, so this is the same pin as `review/`.
 - `reading.schema.json`: the JSON Schema of a reader agent's reading, which every reading job hands
   the agent, written by `DevFlow.Protocol`'s `Reading.Schema()` the same way, with the note's
   `maxLength` of 4000 added. See "Jobs" in `devflow/README.md`.
+- `setup.schema.json`: the JSON Schema of a setup run's report, which every setup job hands the
+  agent, written by `DevFlow.Protocol`'s `SetupReport.Schema()` the same way. See "Setting up a
+  project" in `devflow/README.md`.
 
 Dev flow's `ContractTests` check that the app still generates exactly these bytes, as review's do,
 and that `Report.Schema()` and `ReviewVerdict.Schema()` still write exactly `report.schema.json` and
-`verdict.schema.json`; the worker's `ReadingFormTests` check that `Reading.Schema()` still writes
-exactly `reading.schema.json`.
+`verdict.schema.json`; the worker's `ReadingFormTests` and `SetupFormTests` check that
+`Reading.Schema()` and `SetupReport.Schema()` still write exactly `reading.schema.json` and
+`setup.schema.json`.
 From `devflow/`:
 
 ```zsh

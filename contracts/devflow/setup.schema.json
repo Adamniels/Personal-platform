@@ -1,0 +1,119 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Dev flow's setup report",
+  "type": "object",
+  "properties": {
+    "summary": {
+      "type": "string"
+    },
+    "proposed": {
+      "type": "object",
+      "properties": {
+        "preset": {
+          "enum": [
+            "fully_automatic",
+            "guided",
+            "only_i_merge"
+          ]
+        },
+        "why": {
+          "type": "string"
+        },
+        "paths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "preset",
+        "why",
+        "paths"
+      ],
+      "additionalProperties": false
+    },
+    "variables": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "why": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "why"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "unsettled": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "enum": [
+              "real_secret",
+              "containers_in_tests",
+              "macos_needed",
+              "other"
+            ]
+          },
+          "detail": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "detail"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "decisions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "chosen": {
+            "type": "string"
+          },
+          "alternative": {
+            "type": "string"
+          },
+          "why": {
+            "type": "string"
+          },
+          "for_owner": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "chosen",
+          "alternative",
+          "why",
+          "for_owner"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "handover": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "summary",
+    "proposed",
+    "variables",
+    "unsettled",
+    "decisions",
+    "handover"
+  ],
+  "additionalProperties": false
+}
