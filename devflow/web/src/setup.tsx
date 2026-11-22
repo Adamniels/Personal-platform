@@ -1,18 +1,21 @@
 // A project's setup on its page: while it is setting up, in place of its cards and features, the
-// steps of setting it up, each done or not, and its newest check, with the check's output, its
-// pictures of the project's address, and "Check again" when it failed; and above the cards of a
-// registered project whose newer version failed its check. See "Setting up a project" in
+// steps of setting it up, each done or not, the settings its setup run proposed with "Accept" while
+// the settings step waits, and its newest check, with the check's output, its pictures of the
+// project's address, and "Check again" and "Send back with a comment" when it failed; and above the
+// cards of a registered project whose newer version failed its check. See "Setting up a project" in
 // devflow/README.md.
 import { Button, Card, Status, TextArea } from "@platform/ui";
 import { type FormEvent, useState } from "react";
 import { describe } from "./actions";
 import { navigate, plainClick } from "./address";
 import type { GetAnswer } from "./api/client";
+import { CommentBox } from "./comment-box";
 import { Command } from "./project";
 import styles from "./setup.module.css";
 
 export type ProjectSetup = GetAnswer<"/projects/{id}/setup">;
 export type SetupCheck = NonNullable<ProjectSetup["check"]>;
+export type SetupProposal = NonNullable<ProjectSetup["proposal"]>;
 export type SetupProjectItem = GetAnswer<"/waiting">["setup_projects"][number];
 
 /** How the page reads a project's setup and asks for another check, Dev
@@ -26,6 +29,9 @@ export type SetupApi = {
 	/** Runs a setup that stopped before it had a pull request again, with the
 	 * owner's comment. */
 	runSetupAgain: (id: string, comment: string) => Promise<void>;
+	/** Sends the failed check back with the owner's comment, which starts a
+	 * new setup run. */
+	sendSetupBack: (id: string, comment: string) => Promise<void>;
 };
 
 export type SetupRunInfo = NonNullable<ProjectSetup["setup"]>;
@@ -35,12 +41,13 @@ export type SetupRunItem = GetAnswer<"/waiting">["setup_runs"][number];
 export const STEP_NAMES: Record<string, string> = {
 	setup: "A valid .devflow/ on the default branch",
 	recipe: "The recipe on the default branch",
+	settings: "The settings accepted",
 	worker: "A worker on the recipe",
 	check: "The check passed",
 };
 
 export const SETTING_UP =
-	"Dev flow hands out no card until this project's setup has passed its check.";
+	"Dev flow starts no card's work until this project's setup has passed its check and its settings are accepted.";
 export const NEWER_FAILED =
 	"The newest version of this project's setup failed its check, so its workers on that version get no work.";
 export const CHECK_RUNNING = "The check is running.";
@@ -55,6 +62,15 @@ export const RUN_SETUP_AGAIN = "Comment to run again";
 export const COMMENT_RUNS_AGAIN = "A comment runs it again.";
 export const COMMENT_ON_PULL =
 	"Comment on its pull request, and it runs again.";
+export const SENT_BACK_RUN =
+	"You sent the failed check back: an agent writes .devflow/ again on a new branch and opens a pull request with it. Start its worker on the machine that runs your workers with this command, after saving the project's key below:";
+export const SETTINGS_PROPOSED =
+	"The setup run proposes these settings. Accept them, or change them in the Settings panel above and save it.";
+export const SETTINGS_SAVE_ONCE =
+	"Look over the settings in the Settings panel above, and save them once. Until you do, this project hands out no reading or build.";
+export const NOT_ACCEPTED = "The proposal was not saved.";
+export const SEND_BACK = "Send back with a comment";
+export const SEND_BACK_LABEL = "What should the setup do differently?";
 
 /** Each setup state as its step shows it, with its status's tone. */
 const SETUP_STATES: Record<
@@ -112,6 +128,8 @@ export function SetupPanel({
 	checkAgain,
 	mergeSetup,
 	runSetupAgain,
+	sendSetupBack,
+	acceptProposal,
 	copy,
 	reload,
 }: {
@@ -120,6 +138,10 @@ export function SetupPanel({
 	checkAgain: SetupApi["checkAgain"];
 	mergeSetup: SetupApi["mergeSetup"];
 	runSetupAgain: SetupApi["runSetupAgain"];
+	sendSetupBack: SetupApi["sendSetupBack"];
+	/** Saves the proposed preset's settings and paths through the settings
+	 * route, which does the settings step. */
+	acceptProposal: (proposal: SetupProposal) => Promise<void>;
 	/** Copies the setup command to the clipboard. */
 	copy: (text: string) => Promise<void>;
 	/** Reads the setup again, after another check was asked for. */
@@ -132,6 +154,9 @@ export function SetupPanel({
 	const [error, setError] = useState<string | null>(null);
 	const { check } = setup;
 	const canAsk = check !== null && !check.passed && !check.again_asked;
+	// The settings step waits, and is offered, only after the setup's pull
+	// request, as the route decides: a save before then does not do it.
+	const settingsWait = setup.settings_waits;
 
 	const ask = async () => {
 		setAsking(true);
@@ -182,10 +207,17 @@ export function SetupPanel({
 					<SetupRunSection
 						id={id}
 						setup={setup}
+						proposalShown={settingsWait && setup.proposal !== null}
 						mergeSetup={mergeSetup}
 						runSetupAgain={runSetupAgain}
 						copy={copy}
 						reload={reload}
+					/>
+				) : null}
+				{settingsWait ? (
+					<SettingsSection
+						proposal={setup.proposal}
+						acceptProposal={acceptProposal}
 					/>
 				) : null}
 				{setup.checking ? (
@@ -198,9 +230,92 @@ export function SetupPanel({
 						{error}
 					</p>
 				)}
-				{check === null ? null : <CheckResult id={id} check={check} />}
+				{check === null ? null : (
+					<CheckResult
+						id={id}
+						check={check}
+						sendBack={
+							setup.can_send_back
+								? async (comment) => {
+										await sendSetupBack(id, comment);
+										await reload();
+									}
+								: null
+						}
+					/>
+				)}
 			</div>
 		</Card>
+	);
+}
+
+/** The settings step while it waits: the preset, why and the paths the
+ * setup run proposed, with Accept, or, without a proposal, the panel to save
+ * once. */
+function SettingsSection({
+	proposal,
+	acceptProposal,
+}: {
+	proposal: SetupProposal | null;
+	acceptProposal: (proposal: SetupProposal) => Promise<void>;
+}) {
+	const [accepting, setAccepting] = useState(false);
+	const [error, setError] = useState<string | null>(null);
+
+	const accept = async (shown: SetupProposal) => {
+		setAccepting(true);
+		try {
+			await acceptProposal(shown);
+			setError(null);
+		} catch (failure) {
+			setError(`${NOT_ACCEPTED} ${describe(failure)}`);
+		}
+		setAccepting(false);
+	};
+
+	return (
+		<section className={styles.run} aria-label="The settings">
+			<p className={styles.label}>The settings</p>
+			{proposal === null ? (
+				<p className={styles.line}>{SETTINGS_SAVE_ONCE}</p>
+			) : (
+				<>
+					<p className={styles.line}>{SETTINGS_PROPOSED}</p>
+					<p className={styles.line}>
+						<span className={styles.kind}>
+							{PRESETS[proposal.preset] ?? proposal.preset}
+						</span>
+						<span>{proposal.why}</span>
+					</p>
+					<p className={styles.label}>Paths that wait for you</p>
+					{proposal.paths.length === 0 ? (
+						<p className={styles.muted}>None.</p>
+					) : (
+						<ul className={styles.list} aria-label="Paths that wait for you">
+							{proposal.paths.map((path) => (
+								<li key={path} className={styles.mono}>
+									{path}
+								</li>
+							))}
+						</ul>
+					)}
+					{error === null ? null : (
+						<p className={styles.error} role="alert">
+							{error}
+						</p>
+					)}
+					<div>
+						<Button
+							kind="primary"
+							disabled={accepting}
+							onClick={() => accept(proposal)}
+						>
+							Accept
+						</Button>
+					</div>
+				</>
+			)}
+		</section>
 	);
 }
 
@@ -212,6 +327,7 @@ export function SetupPanel({
 function SetupRunSection({
 	id,
 	setup,
+	proposalShown,
 	mergeSetup,
 	runSetupAgain,
 	copy,
@@ -219,6 +335,9 @@ function SetupRunSection({
 }: {
 	id: string;
 	setup: ProjectSetup;
+	/** Whether the settings step shows what it proposes, so it is not
+	 * shown here twice. */
+	proposalShown: boolean;
 	mergeSetup: SetupApi["mergeSetup"];
 	runSetupAgain: SetupApi["runSetupAgain"];
 	copy: (text: string) => Promise<void>;
@@ -269,7 +388,9 @@ function SetupRunSection({
 			)}
 			{run === null || run.state !== "done" ? (
 				<>
-					<p className={styles.line}>{NO_DEVFLOW}</p>
+					<p className={styles.line}>
+						{run?.sent_back ? SENT_BACK_RUN : NO_DEVFLOW}
+					</p>
 					<Command
 						label="Start the setup worker"
 						copyLabel="Copy the command"
@@ -330,13 +451,18 @@ function SetupRunSection({
 									))}
 								</ul>
 							)}
-							<p className={styles.label}>What it proposes</p>
-							<p className={styles.line}>
-								<span className={styles.kind}>
-									{PRESETS[report.proposed.preset] ?? report.proposed.preset}
-								</span>
-								<span>{report.proposed.why}</span>
-							</p>
+							{proposalShown ? null : (
+								<>
+									<p className={styles.label}>What it proposes</p>
+									<p className={styles.line}>
+										<span className={styles.kind}>
+											{PRESETS[report.proposed.preset] ??
+												report.proposed.preset}
+										</span>
+										<span>{report.proposed.why}</span>
+									</p>
+								</>
+							)}
 							{report.variables.length === 0 ? null : (
 								<>
 									<p className={styles.label}>The values its tests need</p>
@@ -468,8 +594,33 @@ export function WaitingSetupRun({ project }: { project: SetupRunItem }) {
 }
 
 /** The newest check: whether it passed, of which version and commit, when,
- * its output, and its pictures. */
-function CheckResult({ id, check }: { id: string; check: SetupCheck }) {
+ * its output, its pictures, and, when it failed and may be, Send back with a
+ * comment. */
+function CheckResult({
+	id,
+	check,
+	sendBack,
+}: {
+	id: string;
+	check: SetupCheck;
+	/** Sends it back with the owner's comment; null when it is not offered. */
+	sendBack: ((comment: string) => Promise<void>) | null;
+}) {
+	const [writing, setWriting] = useState(false);
+	const [error, setError] = useState<string | null>(null);
+
+	const send = async (comment: string) => {
+		try {
+			await sendBack?.(comment);
+			setError(null);
+			setWriting(false);
+			return true;
+		} catch (failure) {
+			setError(describe(failure));
+			return false;
+		}
+	};
+
 	return (
 		<section className={styles.check} aria-label="The newest check">
 			<p className={styles.result}>
@@ -511,6 +662,24 @@ function CheckResult({ id, check }: { id: string; check: SetupCheck }) {
 			) : check.pictures_note ? (
 				<p className={styles.muted}>{check.pictures_note}</p>
 			) : null}
+			{error === null ? null : (
+				<p className={styles.error} role="alert">
+					{error}
+				</p>
+			)}
+			{sendBack === null ? null : writing ? (
+				<CommentBox
+					label={SEND_BACK_LABEL}
+					send={send}
+					cancel={() => setWriting(false)}
+				/>
+			) : (
+				<div>
+					<Button kind="secondary" onClick={() => setWriting(true)}>
+						{SEND_BACK}
+					</Button>
+				</div>
+			)}
 		</section>
 	);
 }
@@ -537,7 +706,7 @@ export function WaitingSetup({ project }: { project: SetupProjectItem }) {
 				</p>
 				<p className={styles.line}>
 					{project.state === "setting_up"
-						? "It hands out no card until its setup passes its check."
+						? "It starts no card's work until its setup passes its check."
 						: "Its workers on the newest version of its setup get no work until it passes its check."}{" "}
 					The check of version{" "}
 					<span className={styles.mono}>{project.version.slice(0, 7)}</span>{" "}

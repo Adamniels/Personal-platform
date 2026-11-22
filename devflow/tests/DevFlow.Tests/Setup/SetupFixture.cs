@@ -34,4 +34,15 @@ internal static class SetupFixture
             new { project, commit = Commit },
             cancellationToken: cancellationToken));
     }
+
+    /// <summary>The project's settings taken as accepted on its settings step, as the owner saving
+    /// them would leave them, past row level security; once, as the step is.</summary>
+    public static async Task Accepted(TestDatabase database, Guid project, CancellationToken cancellationToken)
+    {
+        await using var admin = await database.OpenAdmin(cancellationToken);
+        await admin.ExecuteAsync(new CommandDefinition(
+            "UPDATE project_settings SET accepted_at = now() WHERE project_id = @project AND accepted_at IS NULL",
+            new { project },
+            cancellationToken: cancellationToken));
+    }
 }

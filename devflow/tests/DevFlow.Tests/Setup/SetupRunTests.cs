@@ -24,9 +24,9 @@ using PullRequestSupport = DevFlow.Tests.PullRequests.Built;
 public sealed class SetupRunTests
 {
     /// <summary>The worker started from the base image, which reports no recipe version.</summary>
-    private static readonly Guid SetupWorker = Guid.Parse("0190a8f0-0000-7000-8000-00000000f5e7");
+    internal static readonly Guid SetupWorker = Guid.Parse("0190a8f0-0000-7000-8000-00000000f5e7");
 
-    private const string GoodRecipe = "ARG DEVFLOW_BASE\nFROM ${DEVFLOW_BASE}\nRUN apt-get update && apt-get install -y postgresql\n";
+    internal const string GoodRecipe = "ARG DEVFLOW_BASE\nFROM ${DEVFLOW_BASE}\nRUN apt-get update && apt-get install -y postgresql\n";
 
     private static CancellationToken Ct => Jobs.Ct;
 
@@ -34,9 +34,9 @@ public sealed class SetupRunTests
 
     /// <summary>A project with one labelled card and no <c>.devflow/</c> on its default branch,
     /// its setup worker said hello.</summary>
-    private static async Task<Jobs> Unset()
+    internal static async Task<Jobs> Unset(bool settingsAccepted = true)
     {
-        var jobs = await Jobs.Start([Jobs.Card(1)], projectFile: null, checkedRecipe: false);
+        var jobs = await Jobs.Start([Jobs.Card(1)], projectFile: null, checkedRecipe: false, settingsAccepted: settingsAccepted);
         await Hello(jobs);
         return jobs;
     }
@@ -53,7 +53,7 @@ public sealed class SetupRunTests
         """);
 
     /// <summary>The setup worker says hello, built from no recipe on the base image.</summary>
-    private static async Task Hello(Jobs jobs)
+    internal static async Task Hello(Jobs jobs)
     {
         var hello = new JsonObject { ["worker_id"] = SetupWorker, ["name"] = "devflow-fodr-setup", ["recipe_version"] = WorkerApi.NoVersion, ["base_image"] = Jobs.Image };
         var response = await Workers.Workers.AsWorker(jobs.Routes.App, Workers.Workers.HelloPath, hello.ToJsonString(), null, Workers.Workers.Bearer(jobs.Key));
@@ -61,7 +61,7 @@ public sealed class SetupRunTests
     }
 
     /// <summary>The world with the given files staged, each on its branch, besides the card.</summary>
-    private static void Stage(Jobs jobs, params (string Path, string Branch, string Text)[] files)
+    internal static void Stage(Jobs jobs, params (string Path, string Branch, string Text)[] files)
     {
         foreach (var (path, branch, text) in files)
         {
@@ -84,7 +84,7 @@ public sealed class SetupRunTests
 
     /// <summary>A setup's result as its worker sends one: the report, no check, and the commit it
     /// pushed.</summary>
-    private static JsonObject Result(string head, JsonNode? report = null, string branch = "devflow/setup")
+    internal static JsonObject Result(string head, JsonNode? report = null, string branch = "devflow/setup")
     {
         var result = Jobs.Result(SetupWorker, branch, report ?? Report(), checkExit: null);
         result["head_commit"] = head;
@@ -93,7 +93,7 @@ public sealed class SetupRunTests
 
     /// <summary>The worker pushes a commit to the setup's branch, as a worker pushes what its agent
     /// left; the commit.</summary>
-    private static async Task<string> Push(Jobs jobs, string branch = "devflow/setup", string from = "main")
+    internal static async Task<string> Push(Jobs jobs, string branch = "devflow/setup", string from = "main")
     {
         if (await jobs.Fake.BranchHead(Jobs.User, Repo, "main", Ct) is not CodeHostResult<string>.Found)
         {
@@ -103,17 +103,17 @@ public sealed class SetupRunTests
         return (await jobs.Fake.CommitOnBranch(Jobs.User, Repo, branch, from, "Set up Dev flow", new Committer(FakeCodeHost.AppLogin, FakeCodeHost.AppEmail), Ct))!;
     }
 
-    private static Task<HttpContext> Send(Jobs jobs, JsonObject job, JsonObject result) =>
+    internal static Task<HttpContext> Send(Jobs jobs, JsonObject job, JsonObject result) =>
         jobs.Post(WorkerApi.ResultPath((Guid)job["job_id"]!), result);
 
     /// <summary>The setup worker's next job, a minute on, as runs are ordered by when they began.</summary>
-    private static async Task<JsonObject> Next(Jobs jobs)
+    internal static async Task<JsonObject> Next(Jobs jobs)
     {
         jobs.Routes.Time.Advance(TimeSpan.FromMinutes(1));
         return await jobs.Job(SetupWorker);
     }
 
-    private static async Task<SetupRow> Setup(Jobs jobs, int number = 1)
+    internal static async Task<SetupRow> Setup(Jobs jobs, int number = 1)
     {
         await using var admin = await jobs.Routes.Database.OpenAdmin(Ct);
         return await admin.QuerySingleAsync<SetupRow>(new CommandDefinition(
@@ -134,10 +134,10 @@ public sealed class SetupRunTests
             cancellationToken: Ct))];
     }
 
-    private static Task Tend(Jobs jobs) =>
+    internal static Task Tend(Jobs jobs) =>
         jobs.Routes.App.Services.GetRequiredService<DevFlow.Setup.SetupLoop>().TendPending(jobs.Project, Jobs.User, Ct);
 
-    private static async Task<JsonNode> Steps(Jobs jobs)
+    internal static async Task<JsonNode> Steps(Jobs jobs)
     {
         var response = await jobs.Routes.App.Get($"/devflow/api/projects/{jobs.Project}/setup", Contract.Token);
         Assert.Equal(StatusCodes.Status200OK, response.Response.StatusCode);
@@ -204,8 +204,8 @@ public sealed class SetupRunTests
         // next is a worker on the recipe; no setup is made, and a worker with no recipe is told to
         // rebuild.
         var steps = (await Steps(jobs))["steps"]!.AsArray();
-        Assert.Equal(["setup", "recipe", "worker", "check"], steps.Select(step => (string)step!["step"]!));
-        Assert.Equal([true, true, false, false], steps.Select(step => (bool)step!["done"]!));
+        Assert.Equal(["setup", "recipe", "settings", "worker", "check"], steps.Select(step => (string)step!["step"]!));
+        Assert.Equal([true, true, true, false, false], steps.Select(step => (bool)step!["done"]!));
         await Hello(jobs);
         Assert.Equal(StatusCodes.Status204NoContent, (await jobs.Next(SetupWorker)).Response.StatusCode);
         await using var admin = await jobs.Routes.Database.OpenAdmin(Ct);
@@ -463,7 +463,7 @@ public sealed class SetupRunTests
 
     /// <summary>The setup run through to its approved pull request, valid and reviewed; the commit
     /// it waits at.</summary>
-    private static async Task<string> Approved(Jobs jobs)
+    internal static async Task<string> Approved(Jobs jobs)
     {
         var job = await Next(jobs);
         Stage(jobs, (".devflow/Dockerfile", "devflow/setup", GoodRecipe), (".devflow/project.json", "devflow/setup", Jobs.ProjectFile()));
@@ -479,7 +479,7 @@ public sealed class SetupRunTests
 
     /// <summary>The owner merges the setup's pull request from its step, naming the commit the page
     /// showed.</summary>
-    private static Task<HttpContext> MergeFromStep(Jobs jobs, string head) =>
+    internal static Task<HttpContext> MergeFromStep(Jobs jobs, string head) =>
         jobs.Routes.App.SendJson("POST", $"/devflow/api/projects/{jobs.Project}/setup/merge", Contract.Token,
             new JsonObject { ["head_commit"] = head }.ToJsonString());
 
@@ -531,7 +531,7 @@ public sealed class SetupRunTests
         Assert.Equal(DevFlow.Reading.ReadResult.Read, await jobs.Routes.Read(jobs.Project, Jobs.User));
         Assert.Equal("done", (await Setup(jobs)).State);
         var steps = (await Steps(jobs))["steps"]!.AsArray();
-        Assert.Equal([true, true, false, false], steps.Select(step => (bool)step!["done"]!));
+        Assert.Equal([true, true, true, false, false], steps.Select(step => (bool)step!["done"]!));
         waiting = JsonNode.Parse(await Harness.Body(await jobs.Routes.App.Get("/devflow/api/waiting", Contract.Token)))!;
         Assert.Empty(waiting["setup_runs"]!.AsArray());
     }
@@ -573,5 +573,5 @@ public sealed class SetupRunTests
     private static DevFlow.Jobs.RunResult Read(JsonObject result) =>
         DevFlow.Jobs.JobEndpoints.Read(System.Text.Json.JsonSerializer.Deserialize<ResultRequest>(result.ToJsonString(), WorkerApi.Json)!)!;
 
-    private sealed record SetupRow(string State, string? Reason, int? PullRequest, int FixRounds, int Failures);
+    internal sealed record SetupRow(string State, string? Reason, int? PullRequest, int FixRounds, int Failures);
 }

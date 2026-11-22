@@ -439,17 +439,19 @@ public sealed class WaitingStore(UserDb database, TimeProvider time)
             var setup = await transaction.Connection!.QueryAsync<SetupRow>(new CommandDefinition(
                 $"""
                 SELECT p.id AS ProjectId, p.name AS ProjectName, p.owner AS Owner,
-                       EXISTS (SELECT 1 FROM recipe_checks r WHERE r.project_id = p.id AND r.passed) AS Registered,
+                       {Setup.SetupStore.RegisteredSql} AS Registered,
                        c.version AS Version, c.exit_code AS ExitCode, c.checked_at AS CheckedAt
                 FROM projects p JOIN recipe_checks c ON c.run_id = {Setup.SetupStore.NewestSql}
                 WHERE NOT c.passed AND c.again_at IS NULL
+                  AND NOT EXISTS (SELECT 1 FROM setups sb WHERE sb.project_id = p.id AND sb.sent_back_check = c.run_id)
                 ORDER BY lower(p.owner), lower(p.name), p.id
                 """,
                 transaction: transaction,
                 cancellationToken: cancellationToken));
             // A project's newest setup run that waits for the owner or stopped, while the project
             // still needs one: once .devflow/ on its default branch is valid, written by hand among
-            // other ways, nothing of the setup is asked of him.
+            // other ways, nothing of the setup is asked of him, unless he sent a failed check of
+            // its version back to it. A failed check he sent back is listed no more as one.
             var setupRuns = await transaction.Connection!.QueryAsync<SetupRunRow>(new CommandDefinition(
                 $"""
                 SELECT p.id AS ProjectId, p.name AS ProjectName, p.owner AS Owner, s.state AS State, s.reason AS Reason,
@@ -457,7 +459,7 @@ public sealed class WaitingStore(UserDb database, TimeProvider time)
                        {Setup.SetupRunStore.HeadOf} AS HeadCommit, s.changed_at AS ChangedAt
                 FROM projects p
                 JOIN LATERAL (SELECT * FROM setups WHERE setups.project_id = p.id ORDER BY setups.number DESC LIMIT 1) s ON true
-                WHERE s.state IN ('waiting_for_owner', 'stopped') AND p.devflow_valid IS NOT TRUE
+                WHERE s.state IN ('waiting_for_owner', 'stopped') AND (p.devflow_valid IS NOT TRUE OR {Setup.SetupRunStore.SentBackPending})
                 ORDER BY lower(p.owner), lower(p.name), p.id
                 """,
                 transaction: transaction,

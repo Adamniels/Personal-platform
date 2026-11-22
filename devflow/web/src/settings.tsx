@@ -128,6 +128,25 @@ const PRESETS: {
 	},
 ];
 
+/** What each preset fills in, by its name on the wire: the setup's
+ * settings step fills in a proposed preset the same way. */
+export const PRESET_FILLS: Record<
+	Exclude<Preset, "custom">,
+	Partial<Covered>
+> = Object.fromEntries(
+	PRESETS.map((preset) => [preset.value, preset.fills]),
+) as Record<Exclude<Preset, "custom">, Partial<Covered>>;
+
+/** What saving takes, from the settings as read: everything but the preset,
+ * which is never stored, the trusted accounts as plain logins. */
+export const requestOf = ({
+	preset: _,
+	...settings
+}: ProjectSettings): SettingsRequest => ({
+	...settings,
+	trusted_logins: settings.trusted_logins.map((entry) => entry.login),
+});
+
 /** Each preset's name as the panel and the page's heading show it. */
 export const PRESET_NAMES: Record<Preset, string> = {
 	fully_automatic: "Fully automatic",
@@ -268,11 +287,14 @@ export function SettingsPanel({
 	loadSettings,
 	saveSettings,
 	onSettings,
+	onSaved,
 }: SettingsApi & {
 	id: string;
 	/** The settings as read and as each save answers them, for the page's
 	 * heading. */
 	onSettings?: (settings: ProjectSettings) => void;
+	/** After each save, which also does the setup's settings step. */
+	onSaved?: () => void;
 }) {
 	const [values, setValues] = useState<ProjectSettings>();
 	const [readFailed, setReadFailed] = useState(false);
@@ -392,15 +414,14 @@ export function SettingsPanel({
 		}
 		setSaving(true);
 		try {
-			const { preset: _, ...settings } = values;
 			const answer = await saveSettings(id, {
-				...settings,
+				...requestOf(values),
 				...(numbers as Record<LimitField, number>),
 				wait_paths: asPaths(lines),
-				trusted_logins: values.trusted_logins.map((entry) => entry.login),
 			});
 			setValues(answer);
 			onSettings?.(answer);
+			onSaved?.();
 			setLines(asLines(answer.wait_paths));
 			setLimits(asTexts(answer));
 			setInvalid({});

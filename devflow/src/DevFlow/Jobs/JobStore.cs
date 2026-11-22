@@ -359,6 +359,11 @@ public static class JobStore
         return cut.Length > MaxSlug ? cut[..MaxSlug].TrimEnd('-') : cut;
     }
 
+    /// <summary>Whether project <c>@projectId</c>'s settings step is done, as SQL: until it is, it
+    /// hands out no reading or build, beside its check. See "Setting up a project" in
+    /// devflow/README.md.</summary>
+    private const string SettingsAccepted = "EXISTS (SELECT 1 FROM project_settings ps WHERE ps.project_id = @projectId AND ps.accepted_at IS NOT NULL)";
+
     /// <summary>The kind of job the project has to hand out now, <see cref="DevFlow.Protocol.Job.Review"/>,
     /// then <see cref="DevFlow.Protocol.Job.FeatureReview"/>, then <see cref="DevFlow.Protocol.Job.Fix"/>,
     /// then <see cref="DevFlow.Protocol.Job.FeatureFix"/>, then <see cref="DevFlow.Protocol.Job.Conflict"/>,
@@ -368,8 +373,9 @@ public static class JobStore
     /// reading one free to start that was not, <see cref="Readings.ReadingStore.Due"/>. A build counts a
     /// card of a feature whose branch is still to be made, which the dispatcher makes first; a card
     /// of a feature whose branch has not been read since five minutes before <paramref name="now"/>
-    /// counts for none. Read without a lock, so a worker with nothing to do costs Dev flow one query and GitHub
-    /// nothing.</summary>
+    /// counts for none. A reading and a build only once the project's settings step is done,
+    /// <see cref="SettingsAccepted"/>. Read without a lock, so a worker with nothing to do costs Dev
+    /// flow one query and GitHub nothing.</summary>
     public static async Task<string?> NextKind(UserDb database, Guid userId, Guid projectId, DateTimeOffset now, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(database);
@@ -380,6 +386,7 @@ public static class JobStore
                         WHEN EXISTS (SELECT 1 FROM cards WHERE {Fixable}) THEN 'fix'
                         WHEN EXISTS (SELECT 1 FROM features WHERE {FeatureFixable}) THEN 'feature_fix'
                         WHEN EXISTS (SELECT 1 FROM features WHERE {Resolvable}) THEN 'conflict'
+                        WHEN NOT {SettingsAccepted} THEN NULL
                         WHEN EXISTS (SELECT 1 FROM cards WHERE {Readings.ReadingStore.Due}) THEN 'read'
                         WHEN EXISTS (SELECT 1 FROM cards WHERE {Buildable}) THEN 'build' END
             """,

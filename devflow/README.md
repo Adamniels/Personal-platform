@@ -1988,6 +1988,37 @@ its branch, state (`queued`, `checking`, `reviewing`, `fixing`, `waiting_for_own
 has, fix rounds, the comments its next run answers, and its failures in a row; at most one not done
 per project. `runs.setup_number` names a setup's runs.
 
+**The settings step.** After the setup's pull request and before a worker on the recipe, the
+owner accepts the settings the newest setup run that succeeded proposed, its `proposed` preset and
+paths, or saves the settings panel; either does the step, once, `project_settings.accepted_at`, from
+`migrations/0044_settings_step.sql`. "Accept" fills in what the preset covers over the settings as
+saved, as the panel's preset buttons do, sets `wait_paths` to the proposed paths, and saves them
+through `PUT /devflow/api/projects/{id}/settings`; nothing is stored as a preset. The step waits,
+`settings_waits` on the setup route, `SetupStore.SettingsDueSql`, only once the setup is behind it:
+`.devflow/` is valid on the default branch, so the setup's pull request merged, and no setup sent back
+from a check of its version is under way. The first save of the route while it waits, whatever it
+changes, marks the step done; a save before then is kept but does not, so the proposal is still put.
+The page offers the step only while it waits. A project with no setup run, one whose `.devflow/` was
+valid when it was connected, has no proposal, and its step asks for the panel to be saved once. Until the step is done the project hands out no reading or build, `JobStore.NextKind`,
+though its check and its setup runs go out before it; every project connected before the migration,
+Fodr and the registered ones among them, starts with it not done. In the fake mode the fake worker
+takes the settings as accepted before it asks for a job, unless `settings_wait` is true, and the
+tests' harness does the same unless a test of the step turns `SettingsAccepted` off.
+
+**Sending a failed check back.** On the newest check of the project's version, failed, while no
+check of it runs and no setup is under way, `can_send_back`, the step offers "Send back with a
+comment". The owner's comment starts a new setup from the default branch on the next free
+`devflow/setup-<k>`, numbered after the project's last. Dev flow reads both files of `.devflow/` as
+the app at the commit checked and keeps them on the setup with the comment and the check, from
+`migrations/0045_sent_back_setups.sql`; every run of that setup, its fixes too, has a section "Sent
+back" in its brief with the files, the check's exit code and output and the comment, each fenced,
+the comment as the owner's input. The setup is needed, `SetupRunStore.SentBackPending`, until it is
+done or the project's version changes, so its jobs go to the worker started from the base image,
+which is not told to rebuild meanwhile; its pull request is the setup's, opened, reviewed, fixed and
+waiting for the owner as above. A check sent back is listed no more under "Setup" on "Waiting for
+you"; the setup run is, once it waits or stops. The owner's comment on GitHub is not read for this,
+since a check has no issue or pull request of its own.
+
 **The check job**, kind `check`, handed out by `jobs/next` to a worker whose version has no check
 that passed, when no check of that version is running and its newest check, if any, failed and
 the owner asked for another; a worker on a version whose newest check failed gets `204` until then
@@ -2013,9 +2044,10 @@ that ran with `0` ends `succeeded`, any other exit code `check_failed`.
 version, the commit, whether it passed, its exit code, its last 200 lines, its pictures' names or
 why there are none, when, and `again_at`, when the owner asked for another after it failed; and
 `recipe_check_pictures`, each picture's bytes under its check and name. A version counts as checked
-once one check of it passed. A project is `setting_up` until any version has passed, then
-`registered`; a later version that fails holds back only its own workers. Every project connected
-before this, Fodr among them, starts `setting_up` and is checked once. The migration is
+once one check of it passed. A project is `setting_up` until any version has passed and its
+settings step is done, then `registered`; a later version that fails holds back only its own
+workers. Every project connected before this, Fodr among them, starts `setting_up` and is checked
+once. The migration is
 `migrations/0042_recipe_checks.sql`, which also lets a run of kind `check` name neither card nor
 feature and adds `runs.recipe_version` with one check of a version under way at a time.
 
@@ -2023,9 +2055,11 @@ feature and adds `runs.recipe_version` with one check of a version under way at 
 
 - `GET /devflow/api/projects/{id}/setup`: `{"state": "setting_up" or "registered", "steps": [{"step", "done"}], "check": … or null, "checking"}`.
   The steps in their order: `setup`, a valid `.devflow/` on the default branch; `recipe`, a version
-  of `.devflow/` read from the default branch; `worker`, a worker built from that version said
-  hello; `check`, a check of that version passed. The later slices of part 6 add the settings and
-  the values before `worker`. It also answers `problem`, why `.devflow/` is not valid, or null;
+  of `.devflow/` read from the default branch; `settings`, the settings accepted or saved once;
+  `worker`, a worker built from that version said hello; `check`, a check of that version passed.
+  The values' slice of part 6 adds its step before `worker`. It also answers `proposal`, the
+  `preset`, `why` and `paths` the newest setup run that succeeded proposed, or null, and
+  `can_send_back`. It also answers `problem`, why `.devflow/` is not valid, or null;
   `setup_command`; and `setup`, the newest setup run with its state, reason, pull request, head,
   newest report in its form and the review of its head, or null. `check` is the newest check of
   the project's version, or of any before it is known, with `id`, `version`, `commit`, `passed`,
@@ -2038,12 +2072,19 @@ feature and adds `runs.recipe_version` with one check of a version under way at 
   stopped before it had a pull request runs again with the comment; `422` for a comment missing,
   empty or over 10,000 characters, as a send back's; `409` when the newest setup has not stopped, has
   a pull request, is running, or the project no longer needs one.
+- `POST /devflow/api/projects/{id}/setup/send-back` with `{"comment"}`: `204`, and a new setup
+  run is queued with it, as above. In order: `404` for a project the caller does not have; `422` for
+  a comment missing, empty once trimmed or over 4,000 characters; `409` when it is not offered, the
+  newest check of the version not failed, another check of it running or a setup under way; `503`
+  when GitHub did not answer for the files.
 - `GET /devflow/api/projects/{id}/setup/checks/{check}/pictures/{name}`: the PNG as stored, as
   `image/png` with `nosniff`, `default-src 'none'` and `private, max-age=3600`; `404` otherwise.
 
 **On the page**: while the project is setting up, its Setup panel stands in place of its Cards
-panel, with the steps, each done or to do, the newest check with its output and its pictures, and
-"Check again" when it failed; a registered project whose newest check failed shows the panel above
+panel, with the steps, each done or to do, the settings step while it waits, with the proposal, its preset, why
+and paths, and "Accept", or without one the line asking to save the panel once, the newest check
+with its output and its pictures, and "Check again" when it failed, with "Send back with a comment"
+when it may be, which opens a box labelled "What should the setup do differently?"; a registered project whose newest check failed shows the panel above
 its cards; while the setup step is due it shows why, the setup command to copy, and the setup run,
 where it is, its pull request, its review, what it could not settle by kind, what it proposes, the
 values its tests need, "Merge" when it waits for me, and, when it stopped, "Comment on its pull

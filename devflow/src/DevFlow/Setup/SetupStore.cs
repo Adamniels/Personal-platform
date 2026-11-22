@@ -28,7 +28,8 @@ public enum VersionCheck
 
 /// <summary>A step of setting a project up, and whether it is done.</summary>
 /// <param name="Step"><see cref="SetupRunStore.SetupStep"/>, <see cref="SetupStore.RecipeStep"/>,
-/// <see cref="SetupStore.WorkerStep"/> or <see cref="SetupStore.CheckStep"/>.</param>
+/// <see cref="SetupStore.SettingsStep"/>, <see cref="SetupStore.WorkerStep"/> or
+/// <see cref="SetupStore.CheckStep"/>.</param>
 /// <param name="Done">Whether it is done.</param>
 public sealed record SetupStep(string Step, bool Done);
 
@@ -47,8 +48,8 @@ public sealed record SetupStep(string Step, bool Done);
 public sealed record SetupCheck(Guid Id, string Version, string Commit, bool Passed, int ExitCode, string Output, IReadOnlyList<string> Pictures, string? PicturesNote, DateTimeOffset CheckedAt, bool AgainAsked);
 
 /// <summary>What <c>GET /devflow/api/projects/{id}/setup</c> answers.</summary>
-/// <param name="State"><see cref="SetupStore.SettingUp"/> until a check of any version has passed,
-/// then <see cref="SetupStore.Registered"/>.</param>
+/// <param name="State"><see cref="SetupStore.SettingUp"/> until a check of any version has passed
+/// and the settings are accepted, then <see cref="SetupStore.Registered"/>.</param>
 /// <param name="Steps">The steps of setting it up, in their order, each with whether it is
 /// done.</param>
 /// <param name="Check">The newest check of the project's setup version, or, before that version is
@@ -59,7 +60,16 @@ public sealed record SetupCheck(Guid Id, string Version, string Commit, bool Pas
 /// <param name="SetupCommand">The command that starts the project's setup worker from the base
 /// image, <see cref="Recipes.WorkerStart.SetupCommand"/>.</param>
 /// <param name="Setup">The project's newest setup run, null before it has one.</param>
-public sealed record ProjectSetup(string State, IReadOnlyList<SetupStep> Steps, SetupCheck? Check, bool Checking, string? Problem, string SetupCommand, SetupRun? Setup);
+/// <param name="Proposal">The preset, why and the paths the project's newest setup run that
+/// succeeded proposed, which the settings step offers to accept; null without one, as for a project
+/// whose <c>.devflow/</c> was valid when it was connected.</param>
+/// <param name="CanSendBack">Whether the newest check, of the project's version, failed and may be
+/// sent back with a comment: no check of it runs and no setup is under way.</param>
+/// <param name="SettingsWaits">Whether the settings step waits for the owner: it is not done, the
+/// setup's pull request merged and no sent back setup is under way,
+/// <see cref="SetupStore.SettingsDueSql"/>. Only then is it offered, and only then does a save do
+/// it.</param>
+public sealed record ProjectSetup(string State, IReadOnlyList<SetupStep> Steps, SetupCheck? Check, bool Checking, string? Problem, string SetupCommand, SetupRun? Setup, SetupProposal? Proposal, bool CanSendBack, bool SettingsWaits);
 
 /// <summary>What asking for another check comes to.</summary>
 public enum CheckAgain
@@ -93,14 +103,33 @@ public static class SetupStore
     /// <summary>The longest a check may take, which its run keeps for being found lost.</summary>
     public const int CheckMinutes = 30;
 
-    /// <summary>A project no version of whose setup has passed its check: it hands out no card.</summary>
+    /// <summary>A project no version of whose setup has passed its check, or whose settings are not
+    /// accepted: it hands out no card.</summary>
     public const string SettingUp = "setting_up";
 
-    /// <summary>A project a version of whose setup has passed its check.</summary>
+    /// <summary>A project a version of whose setup has passed its check, its settings accepted.</summary>
     public const string Registered = "registered";
 
     /// <summary>The step of the recipe on the default branch: Dev flow has read a version of it.</summary>
     public const string RecipeStep = "recipe";
+
+    /// <summary>The step of the settings: the owner accepted the proposed ones or saved the panel,
+    /// once, while it waited. It comes after the setup's pull request and before a worker on the
+    /// recipe, <see cref="SettingsDueSql"/>.</summary>
+    public const string SettingsStep = "settings";
+
+    /// <summary>Whether project <c>p</c>'s settings step is done, as SQL.</summary>
+    internal const string AcceptedSql = "EXISTS (SELECT 1 FROM project_settings ps WHERE ps.project_id = p.id AND ps.accepted_at IS NOT NULL)";
+
+    /// <summary>Whether project <c>p</c>'s setup is behind it, so its settings step may be done, as
+    /// SQL: its <c>.devflow/</c> is valid on the default branch, the setup's pull request merged, and
+    /// no setup sent back from a check of its version is under way, whose fix may propose other
+    /// settings. Only then does a save of the settings do the step.</summary>
+    internal const string SettingsDueSql = $"(p.devflow_valid IS TRUE AND NOT {SetupRunStore.SentBackPending})";
+
+    /// <summary>Whether project <c>p</c> is registered, as SQL: a check of any version passed, and
+    /// its settings are accepted.</summary>
+    internal const string RegisteredSql = $"(EXISTS (SELECT 1 FROM recipe_checks rc WHERE rc.project_id = p.id AND rc.passed) AND {AcceptedSql})";
 
     /// <summary>The step of a worker on the recipe: one has said hello built from that version.</summary>
     public const string WorkerStep = "worker";
@@ -119,9 +148,9 @@ public static class SetupStore
 
     /// <summary>
     /// The project's setup: whether it is setting up or registered, its steps in their order, the
-    /// recipe on the default branch, a worker on it and its check passed, and its newest check;
-    /// or null when the user has no such project. The later parts of setting up add their steps
-    /// among these.
+    /// recipe on the default branch, its settings accepted, a worker on it and its check passed, its
+    /// newest check, and the settings its newest setup run that succeeded proposed; or null when the
+    /// user has no such project. The later parts of setting up add their steps among these.
     /// </summary>
     public static async Task<ProjectSetup?> Of(UserDb database, Guid userId, Guid projectId, Recipes.WorkerStart start, CancellationToken cancellationToken)
     {
@@ -134,10 +163,13 @@ public static class SetupStore
                 SELECT p.name AS Name, p.devflow_problem AS Problem, p.devflow_valid IS TRUE AS Setup, p.recipe_version IS NOT NULL AS Recipe,
                        EXISTS (SELECT 1 FROM workers w WHERE w.project_id = p.id AND w.recipe_version = p.recipe_version) AS Worker,
                        EXISTS (SELECT 1 FROM recipe_checks c WHERE c.project_id = p.id AND c.version = p.recipe_version AND c.passed) AS Passed,
-                       EXISTS (SELECT 1 FROM recipe_checks c WHERE c.project_id = p.id AND c.passed) AS Registered,
+                       {AcceptedSql} AS Settings,
+                       {RegisteredSql} AS Registered,
                        EXISTS (SELECT 1 FROM runs r WHERE r.project_id = p.id AND r.kind = 'check' AND r.finished_at IS NULL
                                AND r.recipe_version = coalesce(p.recipe_version, r.recipe_version)) AS Checking,
-                       {NewestSql} AS Newest
+                       {NewestSql} AS Newest,
+                       {SetupRunStore.SendBackSql} AS CanSendBack,
+                       ({SettingsDueSql} AND NOT {AcceptedSql}) AS SettingsWaits
                 FROM projects p WHERE p.id = @projectId
                 """,
                 new { projectId },
@@ -165,12 +197,18 @@ public static class SetupStore
 
             return new ProjectSetup(
                 row.Registered ? Registered : SettingUp,
-                [new SetupStep(SetupRunStore.SetupStep, row.Setup), new SetupStep(RecipeStep, row.Recipe), new SetupStep(WorkerStep, row.Worker), new SetupStep(CheckStep, row.Passed)],
+                [
+                    new SetupStep(SetupRunStore.SetupStep, row.Setup), new SetupStep(RecipeStep, row.Recipe), new SetupStep(SettingsStep, row.Settings),
+                    new SetupStep(WorkerStep, row.Worker), new SetupStep(CheckStep, row.Passed),
+                ],
                 check,
                 row.Checking,
                 row.Problem,
                 start.SetupCommand(row.Name),
-                await SetupRunStore.Newest(transaction, projectId, cancellationToken));
+                await SetupRunStore.Newest(transaction, projectId, cancellationToken),
+                await SetupRunStore.Proposal(transaction, projectId, cancellationToken),
+                row.CanSendBack,
+                row.SettingsWaits);
         }, cancellationToken);
     }
 
@@ -214,7 +252,7 @@ public static class SetupStore
             cancellationToken: cancellationToken)), cancellationToken);
     }
 
-    private sealed record StepsRow(string Name, string? Problem, bool Setup, bool Recipe, bool Worker, bool Passed, bool Registered, bool Checking, Guid? Newest);
+    private sealed record StepsRow(string Name, string? Problem, bool Setup, bool Recipe, bool Worker, bool Passed, bool Settings, bool Registered, bool Checking, Guid? Newest, bool CanSendBack, bool SettingsWaits);
 
     /// <summary>A check's row; a class rather than a positional record, since Npgsql answers a
     /// <c>text[]</c> column as an array Dapper matches only to a property.</summary>

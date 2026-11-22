@@ -96,11 +96,14 @@ internal sealed class Jobs : IAsyncDisposable
     /// <param name="checkedRecipe">Whether the worker's setup version is taken as already checked,
     /// <see cref="Routes.RecipesChecked"/>; false for a test of setting up itself, whose first job
     /// is the check.</param>
-    public static async Task<Jobs> Start(IReadOnlyList<FakeIssue>? cards = null, bool login = true, string? projectFile = null, bool signIn = false, Action<Microsoft.AspNetCore.Builder.WebApplicationBuilder>? configure = null, bool read = true, bool checkedRecipe = true)
+    /// <param name="settingsAccepted">Whether the project's settings are taken as accepted,
+    /// <see cref="Routes.SettingsAccepted"/>; false for a test of the settings step itself.</param>
+    public static async Task<Jobs> Start(IReadOnlyList<FakeIssue>? cards = null, bool login = true, string? projectFile = null, bool signIn = false, Action<Microsoft.AspNetCore.Builder.WebApplicationBuilder>? configure = null, bool read = true, bool checkedRecipe = true, bool settingsAccepted = true)
     {
         var routes = await Routes.Start(configure);
         routes.CardsRead = read;
         routes.RecipesChecked = checkedRecipe;
+        routes.SettingsAccepted = settingsAccepted;
         try
         {
             var project = await routes.Project(User);

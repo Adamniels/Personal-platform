@@ -36,8 +36,11 @@ namespace DevFlow.Jobs;
 /// after setting up never meets it. With <paramref name="Setup"/>, it says hello as a worker built
 /// from no recipe, the base image itself, as a setup run's worker is started, and is handed the
 /// project's setup jobs: a setup's run commits on the setup's branch, and what is staged on that
-/// branch in the fake's world is what Dev flow validates there.</summary>
-public sealed record FakeWorkerRun(Guid? ProjectId, ResultRequest? Result, bool? LeaveNoCommit = null, IReadOnlyDictionary<string, byte[]>? Pictures = null, bool? KeepRunning = null, bool? ForCheck = null, bool? Setup = null);
+/// branch in the fake's world is what Dev flow validates there. Without <paramref name="SettingsWait"/>,
+/// a project whose settings step is not done has its settings taken as accepted, as they are, as if
+/// the owner had saved them, before the job is asked for, so a test of anything after setting up
+/// never meets the step, as it never meets the check; with it, the step is left waiting.</summary>
+public sealed record FakeWorkerRun(Guid? ProjectId, ResultRequest? Result, bool? LeaveNoCommit = null, IReadOnlyDictionary<string, byte[]>? Pictures = null, bool? KeepRunning = null, bool? ForCheck = null, bool? Setup = null, bool? SettingsWait = null);
 
 /// <summary>What the fake worker did: the job it took, its kind, its card, or for a conflict or a
 /// reading its feature, null for a check, the commit it left on the branch, or for a review the commit it reviewed,
@@ -120,6 +123,11 @@ public static class FakeWorkerEndpoints
         }
 
         var caller = new WorkerCaller(projectId, userId);
+        if (request.SettingsWait != true)
+        {
+            await Projects.ProjectSettingsStore.AcceptAsTheyAre(database, userId, projectId, Now(time), cancellationToken);
+        }
+
         await workers.Hello(caller, new WorkerHello(WorkerId, Name, request.Setup == true ? WorkerApi.NoVersion : list.RecipeVersion ?? "fake", start.Image), cancellationToken);
         // Whether a finished feature needs its review, or is ready, is decided on the minute; a
         // worker asks after a minute has, so the fake decides it first, and a test that reads a

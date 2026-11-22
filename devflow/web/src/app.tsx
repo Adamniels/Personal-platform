@@ -123,6 +123,13 @@ const projectApi: ProjectApi = {
 			{ comment },
 		);
 	},
+	sendSetupBack: async (id, comment) => {
+		await client.send(
+			"POST",
+			`/projects/${encodeURIComponent(id)}/setup/send-back`,
+			{ comment },
+		);
+	},
 	saveSettings: (id, settings) =>
 		client.send<ProjectSettings>(
 			"PUT",
