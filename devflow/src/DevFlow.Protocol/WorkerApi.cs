@@ -13,6 +13,14 @@ public static class WorkerApi
     /// <summary>Where every worker route is.</summary>
     public const string Prefix = "/devflow/api/worker";
 
+    /// <summary>
+    /// What a worker reports in <c>hello</c> for a version its image did not set. A worker started
+    /// from the base image itself, as a setup run's is, reports it as its recipe version: it was
+    /// built from no recipe, and is handed only a setup's jobs while its project needs one. See
+    /// "Setting up a project" in devflow/README.md.
+    /// </summary>
+    public const string NoVersion = "unset";
+
     /// <summary>A worker introduces itself, with a <see cref="HelloRequest"/>.</summary>
     public const string HelloPath = Prefix + "/hello";
 

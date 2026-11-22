@@ -101,8 +101,27 @@ public sealed partial class FakeCodeHost : ICodeHost, ICodeHostSignIn
             ? new CodeHostResult<IReadOnlyList<T>>.Found([])
             : listed;
 
-    public Task<CodeHostResult<byte[]>> File(Guid userId, Repository repository, string path, string branch, CancellationToken cancellationToken) =>
-        Answer(userId, repository, found => found.Files.FirstOrDefault(file => file.Path == path && file.Branch == branch)?.Content.ToArray());
+    /// <summary>The file staged on the branch; or, for a commit, the file staged on the branch the
+    /// fake's git has at that commit, since GitHub reads a file at a commit as at a branch, and the
+    /// fake's commits hold no files.</summary>
+    public async Task<CodeHostResult<byte[]>> File(Guid userId, Repository repository, string path, string branch, CancellationToken cancellationToken)
+    {
+        var staged = await Answer(userId, repository, found => found.Files.FirstOrDefault(file => file.Path == path && file.Branch == branch)?.Content.ToArray());
+        if (staged is not CodeHostResult<byte[]>.NotFound || Find(Of(userId).World, repository) is not { } found)
+        {
+            return staged;
+        }
+
+        foreach (var file in found.Files.Where(file => file.Path == path))
+        {
+            if (await BranchCommit(userId, repository, file.Branch, cancellationToken) == branch)
+            {
+                return new CodeHostResult<byte[]>.Found(file.Content.ToArray());
+            }
+        }
+
+        return staged;
+    }
 
     /// <summary>
     /// The file on the repository's default branch. The fake keeps no history, so the commit it answers

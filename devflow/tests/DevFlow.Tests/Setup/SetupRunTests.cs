@@ -1,0 +1,305 @@
+using System.Text;
+using System.Text.Json.Nodes;
+
+using Dapper;
+
+using DevFlow.CodeHost;
+using DevFlow.Protocol;
+using DevFlow.Tests.Reading;
+
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
+
+namespace DevFlow.Tests.Setup;
+
+using Jobs = DevFlow.Tests.Jobs.Jobs;
+using PullRequestSupport = DevFlow.Tests.PullRequests.Built;
+
+/// <summary>
+/// The setup run: a project whose default branch has no valid <c>.devflow/</c> is set up by an
+/// agent, on a worker started from the base image itself, which reports no recipe version; what it
+/// pushed is validated, and its pull request opened as the app, reviewed and fixed like a card's.
+/// See "Setting up a project" in devflow/README.md.
+/// </summary>
+public sealed class SetupRunTests
+{
+    /// <summary>The worker started from the base image, which reports no recipe version.</summary>
+    private static readonly Guid SetupWorker = Guid.Parse("0190a8f0-0000-7000-8000-00000000f5e7");
+
+    private const string GoodRecipe = "ARG DEVFLOW_BASE\nFROM ${DEVFLOW_BASE}\nRUN apt-get update && apt-get install -y postgresql\n";
+
+    private static CancellationToken Ct => Jobs.Ct;
+
+    private static readonly DevFlow.CodeHost.Repository Repo = new(Reading.Reading.Installation, Reading.Reading.RepositoryId, "Adamniels", "Personal-platform");
+
+    /// <summary>A project with one labelled card and no <c>.devflow/</c> on its default branch,
+    /// its setup worker said hello.</summary>
+    private static async Task<Jobs> Unset()
+    {
+        var jobs = await Jobs.Start([Jobs.Card(1)], projectFile: null, checkedRecipe: false);
+        await Hello(jobs);
+        return jobs;
+    }
+
+    /// <summary>The setup worker says hello, built from no recipe on the base image.</summary>
+    private static async Task Hello(Jobs jobs)
+    {
+        var hello = new JsonObject { ["worker_id"] = SetupWorker, ["name"] = "devflow-fodr-setup", ["recipe_version"] = WorkerApi.NoVersion, ["base_image"] = Jobs.Image };
+        var response = await Workers.Workers.AsWorker(jobs.Routes.App, Workers.Workers.HelloPath, hello.ToJsonString(), null, Workers.Workers.Bearer(jobs.Key));
+        Assert.Equal(StatusCodes.Status204NoContent, response.Response.StatusCode);
+    }
+
+    /// <summary>The world with the given files staged, each on its branch, besides the card.</summary>
+    private static void Stage(Jobs jobs, params (string Path, string Branch, string Text)[] files)
+    {
+        foreach (var (path, branch, text) in files)
+        {
+            Assert.True(jobs.Fake.PutFile(Jobs.User, Repo, path, branch, Encoding.UTF8.GetBytes(text)));
+        }
+    }
+
+    /// <summary>A setup report in its form, with two things it could not settle.</summary>
+    internal static JsonObject Report(string summary = "Wrote a recipe with Postgres, and a check that starts it.") => new()
+    {
+        ["summary"] = summary,
+        ["proposed"] = new JsonObject { ["preset"] = "guided", ["why"] = "Its migrations are worth a look.", ["paths"] = new JsonArray("migrations/**") },
+        ["variables"] = new JsonArray(new JsonObject { ["name"] = "STRIPE_TEST_KEY", ["why"] = "The payment tests call Stripe's test mode." }),
+        ["unsettled"] = new JsonArray(
+            new JsonObject { ["kind"] = "real_secret", ["detail"] = "The export tests upload to the real bucket." },
+            new JsonObject { ["kind"] = "containers_in_tests", ["detail"] = "The integration tests start Redis with Testcontainers." }),
+        ["decisions"] = new JsonArray(),
+        ["handover"] = "The check starts Postgres before the tests.",
+    };
+
+    /// <summary>A setup's result as its worker sends one: the report, no check, and the commit it
+    /// pushed.</summary>
+    private static JsonObject Result(string head, JsonNode? report = null, string branch = "devflow/setup")
+    {
+        var result = Jobs.Result(SetupWorker, branch, report ?? Report(), checkExit: null);
+        result["head_commit"] = head;
+        return result;
+    }
+
+    /// <summary>The worker pushes a commit to the setup's branch, as a worker pushes what its agent
+    /// left; the commit.</summary>
+    private static async Task<string> Push(Jobs jobs, string branch = "devflow/setup", string from = "main")
+    {
+        if (await jobs.Fake.BranchHead(Jobs.User, Repo, "main", Ct) is not CodeHostResult<string>.Found)
+        {
+            Assert.Fail("the fake's default branch has no commit");
+        }
+
+        return (await jobs.Fake.CommitOnBranch(Jobs.User, Repo, branch, from, "Set up Dev flow", new Committer(FakeCodeHost.AppLogin, FakeCodeHost.AppEmail), Ct))!;
+    }
+
+    private static Task<HttpContext> Send(Jobs jobs, JsonObject job, JsonObject result) =>
+        jobs.Post(WorkerApi.ResultPath((Guid)job["job_id"]!), result);
+
+    /// <summary>The setup worker's next job, a minute on, as runs are ordered by when they began.</summary>
+    private static async Task<JsonObject> Next(Jobs jobs)
+    {
+        jobs.Routes.Time.Advance(TimeSpan.FromMinutes(1));
+        return await jobs.Job(SetupWorker);
+    }
+
+    private static async Task<SetupRow> Setup(Jobs jobs, int number = 1)
+    {
+        await using var admin = await jobs.Routes.Database.OpenAdmin(Ct);
+        return await admin.QuerySingleAsync<SetupRow>(new CommandDefinition(
+            """
+            SELECT state AS State, reason AS Reason, pull_request_number AS PullRequest, fix_rounds AS FixRounds, failures AS Failures
+            FROM setups WHERE project_id = @project AND number = @number
+            """,
+            new { project = jobs.Project, number },
+            cancellationToken: Ct));
+    }
+
+    private static async Task<List<(string Kind, string? Result, string? Reason, int? Exit, string? Command)>> Runs(Jobs jobs)
+    {
+        await using var admin = await jobs.Routes.Database.OpenAdmin(Ct);
+        return [.. await admin.QueryAsync<(string, string?, string?, int?, string?)>(new CommandDefinition(
+            "SELECT kind, result, reason, check_exit_code, check_command FROM runs WHERE project_id = @project AND setup_number IS NOT NULL ORDER BY started_at, id",
+            new { project = jobs.Project },
+            cancellationToken: Ct))];
+    }
+
+    private static Task Tend(Jobs jobs) =>
+        jobs.Routes.App.Services.GetRequiredService<DevFlow.Setup.SetupLoop>().TendPending(jobs.Project, Jobs.User, Ct);
+
+    private static async Task<JsonNode> Steps(Jobs jobs)
+    {
+        var response = await jobs.Routes.App.Get($"/devflow/api/projects/{jobs.Project}/setup", Contract.Token);
+        Assert.Equal(StatusCodes.Status200OK, response.Response.StatusCode);
+        return JsonNode.Parse(await Harness.Body(response))!;
+    }
+
+    [Fact]
+    public async Task AProjectWithoutDevflowGetsASetupRun()
+    {
+        await using var jobs = await Unset();
+
+        // A worker with no recipe version, of a project whose default branch has no .devflow/,
+        // gets a setup job: no card and no check, the setup's branch from the default branch, the
+        // setup report's form, the building model and a key that pushes.
+        var job = await Next(jobs);
+        Assert.Equal(Job.Setup, (string)job["kind"]!);
+        Assert.Null(job["card"]);
+        Assert.Equal("devflow/setup", (string)job["branch"]!);
+        Assert.Equal("main", (string)job["base"]!);
+        Assert.Equal("", (string)job["check"]!);
+        Assert.Null(job["to_fix"]);
+        Assert.Equal(SetupReport.Schema().ToJsonString(), job["report_schema"]!.ToJsonString());
+        Assert.Equal("opus", (string)job["model"]!);
+        Assert.Equal(Jobs.ClaudeToken, (string)job["claude_token"]!);
+        Assert.Equal(WritePurpose.Push, jobs.Fake.Issued(Jobs.User, (string)job["push_key"]!)!.Value.Purpose);
+        var brief = (string)job["brief"]!;
+        Assert.Contains("# Set this project up for Dev flow", brief, StringComparison.Ordinal);
+        Assert.Contains("You are on the branch `devflow/setup`, made from `main`", brief, StringComparison.Ordinal);
+        Assert.Contains("Every value a test needs is a throwaway", brief, StringComparison.Ordinal);
+        Assert.Contains("Say what you could not settle rather than guess", brief, StringComparison.Ordinal);
+        Assert.Contains("You cannot run the check", brief, StringComparison.Ordinal);
+        Assert.Equal("queued", (await Setup(jobs)).State);
+        Assert.Equal([("setup", (string?)null, (string?)null, (int?)null, (string?)DevFlow.Setup.SetupFiles.Validation)], await Runs(jobs));
+
+        // One setup run at a time: asked again while it runs, it gets nothing; the setup worker is
+        // never handed the card, nor a check of its version.
+        Assert.Equal(StatusCodes.Status204NoContent, (await jobs.Next(SetupWorker)).Response.StatusCode);
+
+        // A worker with no recipe of a project that has a valid one gets nothing and is told to
+        // rebuild, as a worker on an old recipe is.
+        Stage(jobs, (".devflow/Dockerfile", "main", GoodRecipe), (".devflow/project.json", "main", Jobs.ProjectFile()));
+        Assert.Equal(DevFlow.Reading.ReadResult.Read, await jobs.Routes.Read(jobs.Project, Jobs.User));
+        await using (var admin = await jobs.Routes.Database.OpenAdmin(Ct))
+        {
+            await admin.ExecuteAsync(new CommandDefinition("UPDATE runs SET finished_at = now(), result = 'lost' WHERE project_id = @project AND setup_number IS NOT NULL", new { project = jobs.Project }, cancellationToken: Ct));
+        }
+
+        Assert.Equal(StatusCodes.Status204NoContent, (await jobs.Next(SetupWorker)).Response.StatusCode);
+        var listed = await jobs.Routes.App.Get($"/devflow/api/projects/{jobs.Project}/workers", Contract.Token);
+        var worker = JsonNode.Parse(await Harness.Body(listed))!["workers"]!.AsArray().Single(each => (string)each!["id"]! == SetupWorker.ToString());
+        Assert.Equal("recipe", (string)worker!["rebuild"]!);
+    }
+
+    [Fact]
+    public async Task ValidDevflowNeedsNoSetupRun()
+    {
+        await using var jobs = await Jobs.Start([Jobs.Card(1)], projectFile: null, checkedRecipe: false);
+        Stage(jobs, (".devflow/Dockerfile", "main", GoodRecipe), (".devflow/project.json", "main", Jobs.ProjectFile()));
+        Assert.Equal(DevFlow.Reading.ReadResult.Read, await jobs.Routes.Read(jobs.Project, Jobs.User));
+
+        // Both files valid on the default branch: the setup step and the recipe's are done, and the
+        // next is a worker on the recipe; no setup is made, and a worker with no recipe is told to
+        // rebuild.
+        var steps = (await Steps(jobs))["steps"]!.AsArray();
+        Assert.Equal(["setup", "recipe", "worker", "check"], steps.Select(step => (string)step!["step"]!));
+        Assert.Equal([true, true, false, false], steps.Select(step => (bool)step!["done"]!));
+        await Hello(jobs);
+        Assert.Equal(StatusCodes.Status204NoContent, (await jobs.Next(SetupWorker)).Response.StatusCode);
+        await using var admin = await jobs.Routes.Database.OpenAdmin(Ct);
+        Assert.Equal(0, await admin.ExecuteScalarAsync<int>(new CommandDefinition("SELECT count(*) FROM setups WHERE project_id = @project", new { project = jobs.Project }, cancellationToken: Ct)));
+    }
+
+    [Fact]
+    public async Task ItsPullRequestIsReviewedAndFixed()
+    {
+        await using var jobs = await Unset();
+        var job = await Next(jobs);
+        Stage(jobs, (".devflow/Dockerfile", "devflow/setup", GoodRecipe), (".devflow/project.json", "devflow/setup", Jobs.ProjectFile()));
+        var first = await Push(jobs);
+        Assert.Equal(StatusCodes.Status204NoContent, (await Send(jobs, job, Result(first))).Response.StatusCode);
+
+        // Valid: its pull request opens next, as the app, from the setup's branch into the default
+        // branch, titled "Set up Dev flow", saying what it wrote and could not settle.
+        Assert.Equal("checking", (await Setup(jobs)).State);
+        Assert.Equal(("setup", (string?)"succeeded", (string?)null, (int?)0, (string?)DevFlow.Setup.SetupFiles.Validation), Assert.Single(await Runs(jobs)));
+        await Tend(jobs);
+        var opened = Assert.Single(jobs.Fake.Writes(Jobs.User), write => write.Kind == "pull_request");
+        Assert.Equal(("devflow/setup", "main", "Set up Dev flow"), (opened.Head, opened.Base, opened.Title));
+        Assert.Equal(FakeCodeHost.AppLogin, opened.By);
+        Assert.Contains("Wrote a recipe with Postgres", opened.Body, StringComparison.Ordinal);
+        var setup = await Setup(jobs);
+        Assert.Equal(("reviewing", (int?)opened.Number), (setup.State, setup.PullRequest));
+
+        // Its review, with the reviewing model and the setup reviewer's brief, of the commit pushed.
+        var review = await Next(jobs);
+        Assert.Equal(Job.Review, (string)review["kind"]!);
+        Assert.Equal(opened.Number, (int)review["card"]!["number"]!);
+        Assert.Equal("devflow/setup", (string)review["branch"]!);
+        Assert.Equal(first, (string)review["to_review"]!["commit"]!);
+        Assert.Equal(ReviewVerdict.Schema().ToJsonString(), review["report_schema"]!.ToJsonString());
+        Assert.Equal(WritePurpose.Fetch, jobs.Fake.Issued(Jobs.User, (string)review["push_key"]!)!.Value.Purpose);
+        Assert.Contains("# Review this project's setup", (string)review["brief"]!, StringComparison.Ordinal);
+        Assert.Contains("The recipe installs only what the check and the start need", (string)review["brief"]!, StringComparison.Ordinal);
+        Assert.Equal(0, (int)review["to_review"]!["check"]!["exit_code"]!);
+
+        // Changes: a fix with the setup's brief, from the commit, in round 1.
+        var changes = Jobs.Result(SetupWorker, "devflow/setup", PullRequestSupport.Verdict("changes", PullRequestSupport.Finding(file: ".devflow/Dockerfile", line: 3, what: "The recipe installs Postgres's server and its docs", why: "Only the client is needed")), checkExit: null);
+        changes["head_commit"] = first;
+        Assert.Equal(StatusCodes.Status204NoContent, (await Send(jobs, review, changes)).Response.StatusCode);
+        Assert.Equal(("fixing", 1), ((await Setup(jobs)).State, (await Setup(jobs)).FixRounds));
+        var fix = await Next(jobs);
+        Assert.Equal(Job.Setup, (string)fix["kind"]!);
+        Assert.Equal(first, (string)fix["to_fix"]!["commit"]!);
+        Assert.Equal(1, (int)fix["to_fix"]!["round"]!);
+        Assert.Contains("This is fix round 1 of 3", (string)fix["brief"]!, StringComparison.Ordinal);
+        Assert.Contains("The recipe installs Postgres's server and its docs", (string)fix["brief"]!, StringComparison.Ordinal);
+        Assert.Contains("# Set this project up for Dev flow", (string)fix["brief"]!, StringComparison.Ordinal);
+
+        // The fix pushes a new commit, valid: reviewed again, of the new head, and the body is
+        // written again from the fix's report.
+        var second = await Push(jobs, from: "devflow/setup");
+        Assert.Equal(StatusCodes.Status204NoContent, (await Send(jobs, fix, Result(second, Report("Installs Postgres's client only.")))).Response.StatusCode);
+        Assert.Equal("reviewing", (await Setup(jobs)).State);
+        await Tend(jobs);
+        var edited = Assert.Single(jobs.Fake.Writes(Jobs.User), write => write.Kind == "pull_request_edited");
+        Assert.Contains("Installs Postgres's client only.", edited.Body, StringComparison.Ordinal);
+        var again = await Next(jobs);
+        Assert.Equal(Job.Review, (string)again["kind"]!);
+        Assert.Equal(second, (string)again["to_review"]!["commit"]!);
+        Assert.Contains("This is not the setup's first review", (string)again["brief"]!, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task WhatItWroteIsValidated()
+    {
+        await using var jobs = await Unset();
+
+        // A pushed recipe that copies files is a failure in the setup, judged as a check that
+        // failed: it runs again once.
+        var job = await Next(jobs);
+        Stage(jobs, (".devflow/Dockerfile", "devflow/setup", "ARG DEVFLOW_BASE\nFROM ${DEVFLOW_BASE}\nCOPY . /app\n"), (".devflow/project.json", "devflow/setup", Jobs.ProjectFile()));
+        Assert.Equal(StatusCodes.Status204NoContent, (await Send(jobs, job, Result(await Push(jobs)))).Response.StatusCode);
+        var run = Assert.Single(await Runs(jobs));
+        Assert.Equal(("check_failed", 1), (run.Result, run.Exit));
+        Assert.Equal("What it wrote is not valid: Line 3 of .devflow/Dockerfile is COPY, and a recipe cannot copy files into the image.", run.Reason);
+        var setup = await Setup(jobs);
+        Assert.Equal(("queued", 1), (setup.State, setup.Failures));
+        Assert.StartsWith("Failed once, so it runs again: What it wrote is not valid", setup.Reason, StringComparison.Ordinal);
+
+        // Run again on its branch, a project.json out of its schema: the second in a row stops it.
+        var second = await Next(jobs);
+        Assert.Equal(Job.Setup, (string)second["kind"]!);
+        Assert.Equal("devflow/setup", (string)second["branch"]!);
+        Stage(jobs, (".devflow/Dockerfile", "devflow/setup", GoodRecipe), (".devflow/project.json", "devflow/setup", """{"version": 1, "check": "npm test"}"""));
+        Assert.Equal(StatusCodes.Status204NoContent, (await Send(jobs, second, Result(await Push(jobs, from: "devflow/setup")))).Response.StatusCode);
+        setup = await Setup(jobs);
+        Assert.Equal("stopped", setup.State);
+        Assert.StartsWith("Failed twice in a row: What it wrote is not valid: .devflow/project.json does not follow its schema", setup.Reason, StringComparison.Ordinal);
+        Assert.Equal(StatusCodes.Status204NoContent, (await jobs.Next(SetupWorker)).Response.StatusCode);
+
+        // Stopped before its pull request opened, it gets one all the same, saying it stopped, so
+        // there is a pull request to comment on; and it stays stopped.
+        await Tend(jobs);
+        var opened = Assert.Single(jobs.Fake.Writes(Jobs.User), write => write.Kind == "pull_request");
+        Assert.Contains("**Stopped.**", opened.Body, StringComparison.Ordinal);
+        Assert.Equal(("stopped", (int?)opened.Number), ((await Setup(jobs)).State, (await Setup(jobs)).PullRequest));
+
+        // A report out of its form is a failure in the setup too.
+        Assert.Equal("report_invalid", DevFlow.Setup.SetupRunStore.Judge(DevFlow.Setup.SetupRunStore.SetupKind, Read(Result(new string('0', 40), new JsonObject { ["summary"] = "no form" })), null, 0, 3).Result);
+    }
+
+    private static DevFlow.Jobs.RunResult Read(JsonObject result) =>
+        DevFlow.Jobs.JobEndpoints.Read(System.Text.Json.JsonSerializer.Deserialize<ResultRequest>(result.ToJsonString(), WorkerApi.Json)!)!;
+
+    private sealed record SetupRow(string State, string? Reason, int? PullRequest, int FixRounds, int Failures);
+}

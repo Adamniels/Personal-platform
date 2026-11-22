@@ -777,7 +777,7 @@ export interface paths {
         put?: never;
         /**
          * A job has ended
-         * @description What the worker sends when its job ends, whatever happened: outcome, succeeded with the agent's report or failed with the failure's reason and whether it lies in the card; the check's exit code and the last 200 lines of its output, null when it did not run; the branch, which must be the job's, and its head commit; the auth method; Claude's usage as it came, an object; the duration in milliseconds; the last 200 lines of stderr; and permission_denials, the actions the agent was refused, an array or null. Each is stored on the run as it came. A build's report is read against contracts/devflow/report.schema.json, and one that does not match is a failure in the card; a review's report is its verdict, read against contracts/devflow/verdict.schema.json, and one that does not match is a failure in the run, never a verdict. A review's head_commit is the commit it was handed, or null on a failure; any other is 422. A failure outside the card puts the card back in queued, counting nothing against it; a failure in the card, a report that does not match, a report that stopped, a check that did not run or failed stop it with why; otherwise the card waits, checked, for its pull request. A check runs no agent: its report is null, a success means the check ran and carries its result, which is the verdict on the version, and pictures, its address taken at both sizes as PNGs of at most 5 MB, base64, named as screenshots names them; pictures on any other job are 422. 204. Only for the worker holding the job while it runs, and once; 404 otherwise. 422 naming a field that is missing or breaks a rule. Takes the project's worker key as Authorization: Bearer dfw_…, and nothing else: without a key the project has now, 401 with an empty body. No Origin is needed, and no cookie is read or set.
+         * @description What the worker sends when its job ends, whatever happened: outcome, succeeded with the agent's report or failed with the failure's reason and whether it lies in the card; the check's exit code and the last 200 lines of its output, null when it did not run; the branch, which must be the job's, and its head commit; the auth method; Claude's usage as it came, an object; the duration in milliseconds; the last 200 lines of stderr; and permission_denials, the actions the agent was refused, an array or null. Each is stored on the run as it came. A build's report is read against contracts/devflow/report.schema.json, and one that does not match is a failure in the card; a review's report is its verdict, read against contracts/devflow/verdict.schema.json, and one that does not match is a failure in the run, never a verdict. A review's head_commit is the commit it was handed, or null on a failure; any other is 422. A failure outside the card puts the card back in queued, counting nothing against it; a failure in the card, a report that does not match, a report that stopped, a check that did not run or failed stop it with why; otherwise the card waits, checked, for its pull request. A check runs no agent: its report is null, a success means the check ran and carries its result, which is the verdict on the version, and pictures, its address taken at both sizes as PNGs of at most 5 MB, base64, named as screenshots names them; pictures on any other job are 422. A setup's success is validated by Dev flow at the commit it names, its .devflow/Dockerfile by the recipe route's rules and its .devflow/project.json by its schema, as its check; 503 when GitHub did not answer, and the worker sends the result again. 204. Only for the worker holding the job while it runs, and once; 404 otherwise. 422 naming a field that is missing or breaks a rule. Takes the project's worker key as Authorization: Bearer dfw_…, and nothing else: without a key the project has now, 401 with an empty body. No Origin is needed, and no cookie is read or set.
          */
         post: operations["workerJobResult"];
         delete?: never;
@@ -3758,6 +3758,15 @@ export interface operations {
                 };
                 content: {
                     "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
                 };
             };
         };

@@ -433,8 +433,9 @@ public static class RunStore
                 """
                 SELECT card_number AS CardNumber, feature_number AS FeatureNumber, branch AS Branch, base AS Base, kind AS Kind,
                        head_commit AS HeadCommit, from_commit AS FromCommit, default_commit AS DefaultCommit, fix_round AS FixRound,
-                       coalesce((SELECT c.fix_rounds FROM cards c WHERE c.project_id = runs.project_id AND c.number = runs.card_number), 0) AS RoundsUsed,
-                       recipe_version AS RecipeVersion
+                       coalesce((SELECT c.fix_rounds FROM cards c WHERE c.project_id = runs.project_id AND c.number = runs.card_number),
+                                (SELECT s.fix_rounds FROM setups s WHERE s.project_id = runs.project_id AND s.number = runs.setup_number), 0) AS RoundsUsed,
+                       recipe_version AS RecipeVersion, setup_number AS SetupNumber
                 FROM runs
                 WHERE id = @runId AND project_id = @projectId AND worker_id = @workerId AND finished_at IS NULL
                 FOR UPDATE OF runs
@@ -452,7 +453,7 @@ public static class RunStore
                 return Recorded.WrongBranch;
             }
 
-            var review = run.Kind is Job.Review or Job.FeatureReview;
+            var review = run.Kind is Job.Review or Job.FeatureReview or Setup.SetupRunStore.ReviewKind;
             var read = run.Kind == Job.Read;
             var check = run.Kind == Job.RecipeCheck;
             // The cards a reading was handed, which its reading must name each exactly once.
@@ -475,6 +476,8 @@ public static class RunStore
                 Job.FeatureFix => JudgeFeatureFix(result, run.FromCommit!),
                 Job.Read => JudgeRead(result, readCards),
                 Job.RecipeCheck => Setup.SetupStore.Judge(result),
+                // The rounds as the project has them now, as a card's review reads them.
+                Setup.SetupRunStore.SetupKind or Setup.SetupRunStore.ReviewKind => Setup.SetupRunStore.Judge(run.Kind, result, run.FromCommit, run.RoundsUsed, settings.FixRoundsCard),
                 _ => Judge(result),
             };
             var usage = result.Usage;
@@ -567,6 +570,13 @@ public static class RunStore
             if (check)
             {
                 await Setup.SetupStore.Record(transaction, projectId, userId, runId, run.RecipeVersion!, run.FromCommit!, result, now, cancellationToken);
+                return Recorded.Stored;
+            }
+
+            // A setup's run moves its setup, never a card.
+            if (run.SetupNumber is { } setup)
+            {
+                await Setup.SetupRunStore.End(transaction, projectId, setup, runId, run.Kind, run.FromCommit, run.RoundsUsed, ending, now, cancellationToken);
                 return Recorded.Stored;
             }
 
@@ -894,7 +904,7 @@ public static class RunStore
         : char.IsHighSurrogate(reason[MostReason - 1]) && char.IsLowSurrogate(reason[MostReason]) ? reason[..(MostReason - 1)]
         : reason[..MostReason];
 
-    private sealed record HeldRun(int? CardNumber, int? FeatureNumber, string Branch, string Base, string Kind, string? HeadCommit, string? FromCommit, string? DefaultCommit, int? FixRound, int RoundsUsed, string? RecipeVersion);
+    private sealed record HeldRun(int? CardNumber, int? FeatureNumber, string Branch, string Base, string Kind, string? HeadCommit, string? FromCommit, string? DefaultCommit, int? FixRound, int RoundsUsed, string? RecipeVersion, int? SetupNumber);
 
     /// <summary>
     /// Moves a feature whose conflict run has just ended to <paramref name="ending"/>'s state, only

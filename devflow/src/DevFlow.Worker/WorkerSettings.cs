@@ -19,7 +19,7 @@ internal sealed class WorkerSettings
     /// that the worker runs outside a project's image, and never matches a version Dev flow
     /// expects.
     /// </summary>
-    public const string Unset = "unset";
+    public const string Unset = Protocol.WorkerApi.NoVersion;
 
     private WorkerSettings(Uri devFlowUrl, string projectKey, string recipeVersion, string baseImage)
     {

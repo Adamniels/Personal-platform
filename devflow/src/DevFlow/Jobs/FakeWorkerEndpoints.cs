@@ -33,8 +33,11 @@ namespace DevFlow.Jobs;
 /// no result is needed then. With <paramref name="ForCheck"/>, the prepared result is a check's and
 /// ends the check the worker is handed, as a check's worker sends it; without it, a check the worker
 /// is handed first is passed, as a recipe that works, and the next job taken, so a test of anything
-/// after setting up never meets it.</summary>
-public sealed record FakeWorkerRun(Guid? ProjectId, ResultRequest? Result, bool? LeaveNoCommit = null, IReadOnlyDictionary<string, byte[]>? Pictures = null, bool? KeepRunning = null, bool? ForCheck = null);
+/// after setting up never meets it. With <paramref name="Setup"/>, it says hello as a worker built
+/// from no recipe, the base image itself, as a setup run's worker is started, and is handed the
+/// project's setup jobs: a setup's run commits on the setup's branch, and what is staged on that
+/// branch in the fake's world is what Dev flow validates there.</summary>
+public sealed record FakeWorkerRun(Guid? ProjectId, ResultRequest? Result, bool? LeaveNoCommit = null, IReadOnlyDictionary<string, byte[]>? Pictures = null, bool? KeepRunning = null, bool? ForCheck = null, bool? Setup = null);
 
 /// <summary>What the fake worker did: the job it took, its kind, its card, or for a conflict or a
 /// reading its feature, null for a check, the commit it left on the branch, or for a review the commit it reviewed,
@@ -92,6 +95,7 @@ public static class FakeWorkerEndpoints
         [FromServices] StopMarker marker,
         [FromServices] Readings.QuestionComments questions,
         [FromServices] Readings.RefusalMarker refusals,
+        [FromServices] Setup.SetupLoop setups,
         [FromServices] TimeProvider time)
     {
         var cancellationToken = context.RequestAborted;
@@ -116,7 +120,7 @@ public static class FakeWorkerEndpoints
         }
 
         var caller = new WorkerCaller(projectId, userId);
-        await workers.Hello(caller, new WorkerHello(WorkerId, Name, list.RecipeVersion ?? "fake", start.Image), cancellationToken);
+        await workers.Hello(caller, new WorkerHello(WorkerId, Name, request.Setup == true ? WorkerApi.NoVersion : list.RecipeVersion ?? "fake", start.Image), cancellationToken);
         // Whether a finished feature needs its review, or is ready, is decided on the minute; a
         // worker asks after a minute has, so the fake decides it first, and a test that reads a
         // project and then asks finds its feature's review as a worker would.
@@ -193,6 +197,7 @@ public static class FakeWorkerEndpoints
             await ends.EndPending(projectId, userId, cancellationToken);
             await readiness.DecidePending(projectId, userId, cancellationToken);
             await marker.MarkPending(projectId, userId, cancellationToken);
+            await setups.TendPending(projectId, userId, cancellationToken);
             return TypedResults.Ok(new FakeWorkerRan(job.JobId, job.Kind, job.Card?.Number, job.Branch, toReview.Commit, job.Brief));
         }
 
@@ -209,6 +214,31 @@ public static class FakeWorkerEndpoints
         }
 
         var committer = new Committer(job.Committer.Name, job.Committer.Email);
+
+        if (job.Kind == Job.Setup)
+        {
+            // A setup commits on its branch, a fix from the commit it was handed and a first run
+            // from the default branch, as the worker pushes whatever its agent left; what it pushed
+            // is validated as a real result is, and its pull request opened as on the minute.
+            if (!await fake.HasBranch(userId, repository, job.Base, cancellationToken))
+            {
+                await fake.CommitOnBranch(userId, repository, job.Base, job.Base, "The first commit, by the fake worker", committer, cancellationToken);
+            }
+
+            var from = job.ToFix is not null || await fake.HasBranch(userId, repository, job.Branch, cancellationToken) ? job.Branch : job.Base;
+            var setupCommit = request.LeaveNoCommit == true
+                ? job.ToFix?.Commit
+                : await fake.CommitOnBranch(userId, repository, job.Branch, from, "Set up Dev flow, by the fake worker", committer, cancellationToken);
+            var setupResult = JobEndpoints.Read(prepared with { WorkerId = WorkerId, Branch = job.Branch, HeadCommit = setupCommit, Check = null })!;
+            if (await Setup.SetupFiles.Validated(fake, userId, repository, setupResult, cancellationToken) is not { } validated)
+            {
+                return TypedResults.Problem(statusCode: StatusCodes.Status503ServiceUnavailable, title: "The fake did not answer", detail: "what the setup pushed could not be read to validate it; the job is left running");
+            }
+
+            await JobEndpoints.Complete(database, caller, job.JobId, WorkerId, validated, now, cancellationToken);
+            await setups.TendPending(projectId, userId, cancellationToken);
+            return TypedResults.Ok(new FakeWorkerRan(job.JobId, job.Kind, null, job.Branch, setupCommit, job.Brief));
+        }
 
         if (job.ToResolve is { } toResolve)
         {

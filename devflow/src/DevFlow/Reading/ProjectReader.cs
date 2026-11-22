@@ -637,7 +637,9 @@ public sealed partial class ProjectReader(UserDb database, ICodeHost host, TimeP
     /// <summary>
     /// Records the project's setup version as its default branch has it now, the newest commit that
     /// changed anything under <c>.devflow/</c>, so a worker built from an older one is told apart;
-    /// null when the branch has no recipe. When the code host
+    /// null when the branch has no recipe; and whether its <c>.devflow/</c> is valid, by
+    /// <see cref="Setup.SetupFiles.Problem"/>, so a project without a valid one gets a setup run.
+    /// When the code host
     /// does not answer, or reading fails, the version stays as it was, and the project's own read
     /// is not failed for it: the recipe is the workers' business, not the waiting list's.
     /// </summary>
@@ -647,21 +649,38 @@ public sealed partial class ProjectReader(UserDb database, ICodeHost host, TimeP
         {
             var repository = new Repository(target.Installation, target.RepositoryId, target.Owner, target.Name);
             string? version;
+            byte[]? recipe;
             // The setup version: the newest commit that changed anything under .devflow/, so a
             // change to project.json alone asks the workers to rebuild too.
             switch (await host.FolderFile(userId, repository, Recipes.RecipeEndpoints.SetupFolder, Recipes.RecipeEndpoints.RecipePath, cancellationToken))
             {
                 case CodeHostResult<FileAtCommit>.Found { Value: var file }:
-                    version = file.Commit;
+                    (version, recipe) = (file.Commit, file.Content);
                     break;
                 case CodeHostResult<FileAtCommit>.NotFound:
-                    version = null;
+                    (version, recipe) = (null, null);
+                    break;
+                default:
+                    return;
+            }
+
+            // project.json at the same version, so the two are judged together, as a setup run's
+            // validation judges what it pushed.
+            byte[]? projectFile;
+            switch (await host.FolderFile(userId, repository, Recipes.RecipeEndpoints.SetupFolder, Jobs.Dispatcher.ProjectFilePath, cancellationToken))
+            {
+                case CodeHostResult<FileAtCommit>.Found { Value: var file }:
+                    projectFile = file.Content;
+                    break;
+                case CodeHostResult<FileAtCommit>.NotFound:
+                    projectFile = null;
                     break;
                 default:
                     return;
             }
 
             await WorkerStore.RecipeRead(database, userId, projectId, version, cancellationToken);
+            await Setup.SetupRunStore.DevflowRead(database, userId, projectId, Setup.SetupFiles.Problem(recipe, projectFile), cancellationToken);
         }
         catch (Exception error) when (error is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {

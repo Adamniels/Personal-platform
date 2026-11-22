@@ -45,7 +45,7 @@ public sealed record RunSettings(string ModelReading, string ModelBuilding, stri
     /// <summary>The model a job of <paramref name="kind"/> runs on.</summary>
     public string ModelFor(string kind) => kind switch
     {
-        Job.Build or Job.Fix or Job.Conflict or Job.FeatureFix => ModelBuilding,
+        Job.Build or Job.Fix or Job.Conflict or Job.FeatureFix or Job.Setup => ModelBuilding,
         Job.Review or Job.FeatureReview => ModelReviewing,
         Job.Read => ModelReading,
         _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "No job of this kind runs a model"),

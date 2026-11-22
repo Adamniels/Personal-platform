@@ -31,7 +31,7 @@ namespace DevFlow.PullRequests;
 /// "Stops", "The end of a feature", "Reviewing a feature" and "Merging a feature" in
 /// devflow/README.md.
 /// </summary>
-public sealed partial class OpeningLoop(UserDb database, PullRequestOpener opener, ReviewPoster poster, MergeChecker merger, DecisionIssues decisions, LandedCards landed, FeatureEnds ends, FeatureReadiness readiness, FeatureOutcomes outcomes, StopMarker marker, Readings.QuestionComments questions, Readings.RefusalMarker refusals, TimeProvider time, TimeSpan interval, ILogger<OpeningLoop> log) : BackgroundService
+public sealed partial class OpeningLoop(UserDb database, PullRequestOpener opener, ReviewPoster poster, MergeChecker merger, DecisionIssues decisions, LandedCards landed, FeatureEnds ends, FeatureReadiness readiness, FeatureOutcomes outcomes, StopMarker marker, Readings.QuestionComments questions, Readings.RefusalMarker refusals, Setup.SetupLoop setups, TimeProvider time, TimeSpan interval, ILogger<OpeningLoop> log) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -82,6 +82,7 @@ public sealed partial class OpeningLoop(UserDb database, PullRequestOpener opene
                 await marker.MarkPending(target.ProjectId, target.UserId, stoppingToken);
                 await questions.PostPending(target.ProjectId, target.UserId, stoppingToken);
                 await refusals.MarkPending(target.ProjectId, target.UserId, stoppingToken);
+                await setups.TendPending(target.ProjectId, target.UserId, stoppingToken);
             }
             catch (Exception failed) when (failed is not OperationCanceledException || !stoppingToken.IsCancellationRequested)
             {

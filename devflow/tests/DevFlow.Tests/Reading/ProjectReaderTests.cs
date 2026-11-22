@@ -178,7 +178,7 @@ public sealed class ProjectReaderTests
         // The default branch and its changes, for the watch; then the list, then for each of the
         // bot's pull requests with an owner label alone: its comments, its head's statuses and
         // check runs, and its slice's comments; then the issues carrying the pick-up label, none
-        // here; and last the recipe, for its version.
+        // here; and last the recipe and project.json, for the version and whether .devflow/ is valid.
         Assert.Equal(
             [
                 ("DefaultBranch", ""), ("Activity", "main "),
@@ -187,6 +187,7 @@ public sealed class ProjectReaderTests
                 ("Comments", "43"), ("Statuses", new string('c', 40)), ("CheckRuns", new string('c', 40)), ("Comments", "7"),
                 ("LabelledIssues", "devflow"),
                 ("FolderFile", ".devflow/Dockerfile"),
+                ("FolderFile", ".devflow/project.json"),
             ],
             reading.Host.Calls.Select(call => (call.Operation, call.Argument)));
         Assert.All(reading.Host.Calls, call => Assert.Equal((Reading.Alice, Reading.RepositoryId), (call.User, call.Repository)));

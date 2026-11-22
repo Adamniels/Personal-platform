@@ -88,6 +88,9 @@ public sealed partial class Dispatcher(
     /// <summary>The report's schema a check carries, null, since it runs no agent.</summary>
     private static readonly JsonElement NoSchema = JsonSerializer.SerializeToElement<object?>(null);
 
+    /// <summary>The setup report's schema as every setup job carries it, written once from its type.</summary>
+    private static readonly JsonElement SetupSchema = JsonSerializer.SerializeToElement(SetupReport.Schema());
+
     /// <summary>The reading's schema as every reading job carries it, written once from its type.</summary>
     private static readonly JsonElement ReadingSchema = JsonSerializer.SerializeToElement(Protocol.Reading.Schema());
 
@@ -139,7 +142,13 @@ public sealed partial class Dispatcher(
         // "Setting up a project" in devflow/README.md.
         switch (await SetupStore.Of(database, userId, projectId, workerId, cancellationToken))
         {
-            case null or { State: VersionCheck.Waiting }:
+            case null:
+                return new NextJob.None();
+            case { Version: WorkerApi.NoVersion }:
+                // Built from no recipe, the base image itself: only a setup's jobs, while its project
+                // needs one. See "Setting up a project" in devflow/README.md.
+                return await HandOutSetup(caller, workerId, cancellationToken);
+            case { State: VersionCheck.Waiting }:
                 return new NextJob.None();
             case { State: VersionCheck.Due, Version: var version }:
                 return await HandOutCheck(caller, workerId, version, cancellationToken);
@@ -269,6 +278,116 @@ public sealed partial class Dispatcher(
             Start: facts.Start,
             Url: facts.Url,
             ToCheck: new JobCheck(claimed.Version, claimed.Commit)));
+    }
+
+    /// <summary>
+    /// Hands a worker built from no recipe its project's next setup job: its review, a fix of its
+    /// pull request, or a run, the first of a new setup among them; nothing when the project needs
+    /// no setup, its user has no Claude login, or the code host does not answer what the job needs,
+    /// the default branch, the clone address, the app's committer and a key, read first as the app
+    /// outside the lock. The setup is taken under the project's lock, while the project is not
+    /// stopped or unwatched.
+    /// </summary>
+    private async Task<NextJob> HandOutSetup(WorkerCaller caller, Guid workerId, CancellationToken cancellationToken)
+    {
+        var (userId, projectId) = (caller.UserId, caller.ProjectId);
+        if (HeldFor(await logins.Status(userId, cancellationToken)) is not null
+            || await SetupRunStore.NextKind(database, userId, projectId, cancellationToken) is not { } kind
+            || await workers.RepositoryOf(caller, cancellationToken) is not { } repository)
+        {
+            return new NextJob.None();
+        }
+
+        if (await host.DefaultBranch(userId, repository, cancellationToken) is not CodeHostResult<string>.Found { Value: var defaultBranch }
+            || await host.CloneAddress(userId, repository, cancellationToken) is not CodeHostResult<Uri>.Found { Value: var clone }
+            || await host.AppCommitter(userId, repository, cancellationToken) is not CodeHostResult<Committer>.Found { Value: var committer }
+            || await logins.ForRun(userId, cancellationToken) is not { } token
+            || await Key(projectId, userId, repository, kind == SetupRunStore.ReviewKind ? WritePurpose.Fetch : WritePurpose.Push, cancellationToken) is not { } key)
+        {
+            LogNotRead(log, projectId, "what a setup job needs");
+            return new NextJob.None();
+        }
+
+        var now = Now();
+        var where = new JobRepository(repository.Owner, repository.Name, clone, defaultBranch);
+        var by = new JobCommitter(committer.Name, committer.Email);
+        var job = await database.InUserTransaction<Job?>(userId, async transaction =>
+        {
+            if (await watch.HoldUnderLock(transaction, projectId, cancellationToken) != ProjectHold.None
+                || await RunSettings.Read(transaction, projectId, cancellationToken) is not { } run)
+            {
+                return null;
+            }
+
+            if (kind == SetupRunStore.ReviewKind)
+            {
+                return await SetupRunStore.ClaimReview(transaction, projectId, userId, workerId, run, defaultBranch, now, cancellationToken) is { } review
+                    ? SetupReviewJob(review, where, run, token, key, by)
+                    : null;
+            }
+
+            var claimed = kind == Job.Fix
+                ? await SetupRunStore.ClaimFix(transaction, projectId, userId, workerId, run, defaultBranch, now, cancellationToken)
+                : await SetupRunStore.ClaimRun(transaction, projectId, userId, workerId, run, defaultBranch, now, cancellationToken);
+            if (claimed is null)
+            {
+                return null;
+            }
+
+            var fix = claimed.FromCommit is not null || claimed.Comments.Count > 0
+                ? new FixInput(claimed.FromCommit is null ? null : claimed.Round, claimed.Report, claimed.Review, claimed.Comments, run.FixRoundsCard)
+                : null;
+            return new Job(
+                claimed.RunId,
+                Job.Setup,
+                null,
+                where,
+                claimed.Branch,
+                claimed.Base,
+                Brief.Setup(new SetupFacts(claimed.Branch, claimed.Base), fix),
+                SetupSchema,
+                "",
+                token.Value,
+                key.Value,
+                key.ExpiresAt,
+                by,
+                run.Limits,
+                run.ModelFor(Job.Setup),
+                ToFix: claimed.FromCommit is { } from ? new JobFix(from, claimed.Round) : null);
+        }, cancellationToken);
+        if (job is null)
+        {
+            return new NextJob.None();
+        }
+
+        LogSetupHandedOut(log, job.Kind, projectId, job.JobId);
+        return new NextJob.Handed(job);
+    }
+
+    /// <summary>The review job of a setup taken to review: on its branch, the commit it pushed, the
+    /// setup's reviewer brief, the verdict's form, and what the review reads, the setup report and
+    /// Dev flow's validation as the check. Its card is the setup's pull request, under its title,
+    /// since a worker's review reads one.</summary>
+    private static Job SetupReviewJob(ClaimedSetupReview claimed, JobRepository where, RunSettings run, ClaudeToken token, AppWriteToken key, JobCommitter by)
+    {
+        using var report = JsonDocument.Parse(claimed.Report);
+        return new Job(
+            claimed.RunId,
+            Job.Review,
+            new JobCard(claimed.PullRequest, SetupRunStore.Title, "Read the repository and write .devflow/Dockerfile and .devflow/project.json, so Dev flow can build this project's cards."),
+            where,
+            claimed.Branch,
+            claimed.Base,
+            Brief.SetupReviewer(new ReviewFacts(claimed.Commit, claimed.Branch, claimed.Base, claimed.Earlier.Count)),
+            VerdictSchema,
+            SetupFiles.Validation,
+            token.Value,
+            key.Value,
+            key.ExpiresAt,
+            by,
+            run.Limits,
+            run.ModelFor(Job.Review),
+            new JobReview(claimed.Commit, report.RootElement.Clone(), new CheckResult(claimed.ExitCode, claimed.Output), [.. claimed.Earlier.Select(Round)]));
     }
 
     /// <summary>The commit <paramref name="branch"/> is at, read as the app, or null when the code
@@ -677,6 +796,9 @@ public sealed partial class Dispatcher(
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Handed out the {Kind} of #{Card} of project {ProjectId} as run {RunId}")]
     private static partial void LogHandedOut(ILogger logger, string kind, Guid projectId, int card, Guid runId);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Handed out the setup's {Kind} of project {ProjectId} as run {RunId}")]
+    private static partial void LogSetupHandedOut(ILogger logger, string kind, Guid projectId, Guid runId);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Handed out the check of version {Version} of project {ProjectId} as run {RunId}")]
     private static partial void LogCheckHandedOut(ILogger logger, string version, Guid projectId, Guid runId);

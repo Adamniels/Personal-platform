@@ -27,8 +27,8 @@ public enum VersionCheck
 }
 
 /// <summary>A step of setting a project up, and whether it is done.</summary>
-/// <param name="Step"><see cref="SetupStore.RecipeStep"/>, <see cref="SetupStore.WorkerStep"/> or
-/// <see cref="SetupStore.CheckStep"/>.</param>
+/// <param name="Step"><see cref="SetupRunStore.SetupStep"/>, <see cref="SetupStore.RecipeStep"/>,
+/// <see cref="SetupStore.WorkerStep"/> or <see cref="SetupStore.CheckStep"/>.</param>
 /// <param name="Done">Whether it is done.</param>
 public sealed record SetupStep(string Step, bool Done);
 
@@ -125,7 +125,7 @@ public static class SetupStore
         {
             var row = await transaction.Connection!.QuerySingleOrDefaultAsync<StepsRow>(new CommandDefinition(
                 $"""
-                SELECT p.recipe_version IS NOT NULL AS Recipe,
+                SELECT p.devflow_valid IS TRUE AS Setup, p.recipe_version IS NOT NULL AS Recipe,
                        EXISTS (SELECT 1 FROM workers w WHERE w.project_id = p.id AND w.recipe_version = p.recipe_version) AS Worker,
                        EXISTS (SELECT 1 FROM recipe_checks c WHERE c.project_id = p.id AND c.version = p.recipe_version AND c.passed) AS Passed,
                        EXISTS (SELECT 1 FROM recipe_checks c WHERE c.project_id = p.id AND c.passed) AS Registered,
@@ -159,7 +159,7 @@ public static class SetupStore
 
             return new ProjectSetup(
                 row.Registered ? Registered : SettingUp,
-                [new SetupStep(RecipeStep, row.Recipe), new SetupStep(WorkerStep, row.Worker), new SetupStep(CheckStep, row.Passed)],
+                [new SetupStep(SetupRunStore.SetupStep, row.Setup), new SetupStep(RecipeStep, row.Recipe), new SetupStep(WorkerStep, row.Worker), new SetupStep(CheckStep, row.Passed)],
                 check,
                 row.Checking);
         }, cancellationToken);
@@ -205,7 +205,7 @@ public static class SetupStore
             cancellationToken: cancellationToken)), cancellationToken);
     }
 
-    private sealed record StepsRow(bool Recipe, bool Worker, bool Passed, bool Registered, bool Checking, Guid? Newest);
+    private sealed record StepsRow(bool Setup, bool Recipe, bool Worker, bool Passed, bool Registered, bool Checking, Guid? Newest);
 
     /// <summary>A check's row; a class rather than a positional record, since Npgsql answers a
     /// <c>text[]</c> column as an array Dapper matches only to a property.</summary>
