@@ -3070,6 +3070,137 @@ def test_a_thin_card_is_refused_and_read_again(
     ).to_contain_text("Queued")
 
 
+def test_an_edited_card_is_read_again(
+    page: Page,
+    invite_code: str,
+    base_url: str,
+    viewport: str,
+    devflow_world,
+    playwright,
+):
+    """A card I edit after it was read, before it starts, is read again,
+    alone, as it is now: it shows Reading while a worker reads it, then Queued,
+    and its page shows both readings. See "Reading a card" under "Jobs" in
+    devflow/README.md."""
+    register_and_log_in(page, invite_code, base_url)
+    world = one_repository()
+    add_issue(world, CARD, CARD_TITLE, labels=["devflow"])
+    add_file(
+        world,
+        ".devflow/project.json",
+        json.dumps({"version": 1, "check": CHECK, "start": "", "url": ""}).encode(),
+    )
+    _open_project(page, base_url, devflow_world, world)
+    project = page.url.rsplit("/", 1)[1]
+    given = page.request.put(
+        "/devflow/api/claude-login",
+        data={"token": CLAUDE_TOKEN},
+        headers={"Origin": base_url},
+    )
+    assert given.status == 200, given.text()
+    _read(page, base_url, project)
+    _fake_read(page, base_url, project, [_ready(CARD)])
+
+    # I edit it on GitHub before anything is built from it.
+    edited = 'Show "No habits yet" on the habits list when it is empty.'
+    staged = page.request.get("/devflow/api/fake/world").json()
+    issue = next(
+        each for each in repository(staged)["issues"] if each["number"] == CARD
+    )
+    issue["body"] = edited
+    issue["edits"].append(edit("edit-1", OWNER_LOGIN, at=LATER))
+    devflow_world(staged)
+    _read(page, base_url, project)
+
+    # A worker asking for work is handed its reading again, of it alone, as it
+    # is now, not its build.
+    key = _make_key(page)
+    command = (
+        page.get_by_role("region", name="Build and start the worker")
+        .locator("code")
+        .inner_text()
+    )
+    image = re.search(r"--build-arg DEVFLOW_BASE=(\S+) ", command).group(1)
+    worker_id = "0190a8f0-0000-7000-8000-0000000000f5"
+    worker = playwright.request.new_context(base_url=base_url, ignore_https_errors=True)
+    try:
+        hello = worker.post(
+            "/devflow/api/worker/hello",
+            data={
+                "worker_id": worker_id,
+                "name": "reader-worker-2",
+                "recipe_version": "1",
+                "base_image": image,
+            },
+            headers={"Authorization": f"Bearer {key}"},
+        )
+        assert hello.status == 204, hello.text()
+        asked = worker.post(
+            "/devflow/api/worker/jobs/next",
+            data={"worker_id": worker_id},
+            headers={"Authorization": f"Bearer {key}"},
+        )
+        assert asked.status == 200, asked.text()
+        job = asked.json()
+        assert (job["kind"], job["card"]["number"]) == ("read", CARD)
+        assert [card["body"] for card in job["to_read"]["cards"]] == [edited]
+        assert "## Read again" in job["brief"]
+
+        # While it is read, the card shows Reading.
+        page.reload()
+        row = (
+            page.get_by_role("list", name="Cards")
+            .get_by_role("listitem")
+            .filter(has_text=CARD_TITLE)
+        )
+        expect(row).to_contain_text("Reading")
+
+        result = worker.post(
+            f"/devflow/api/worker/jobs/{job['job_id']}/result",
+            data={
+                "worker_id": worker_id,
+                "outcome": "succeeded",
+                "report": _reading([_ready(CARD)]),
+                "failure": None,
+                "check": None,
+                "branch": job["branch"],
+                "head_commit": None,
+                "auth_method": "oauth_token",
+                "usage": {"num_turns": 3},
+                "duration_ms": 30000,
+                "stderr": "",
+            },
+            headers={"Authorization": f"Bearer {key}"},
+        )
+        assert result.status == 204, result.text()
+    finally:
+        worker.dispose()
+
+    # Read again as ready, it is Queued.
+    page.reload()
+    expect(
+        page.get_by_role("list", name="Cards")
+        .get_by_role("listitem")
+        .filter(has_text=CARD_TITLE)
+    ).to_contain_text("Queued")
+
+    # Its page shows both readings: the newest, and the one before it under
+    # Earlier readings, and two readings among its runs.
+    page.goto(f"/devflow/projects/{project}/cards/{CARD}")
+    reading = page.get_by_role("article", name="The reading")
+    expect(reading).to_contain_text("Ready to build")
+    earlier = reading.get_by_role("list", name="Earlier readings")
+    expect(earlier.get_by_role("listitem", name=re.compile("^Read on "))).to_have_count(
+        1
+    )
+    expect(earlier).to_contain_text("Ready")
+    runs = page.get_by_role("list", name="Runs").get_by_role("listitem")
+    expect(runs).to_have_count(2)
+    expect(runs.nth(0)).to_contain_text("Reading")
+    expect(runs.nth(1)).to_contain_text("Reading")
+    _look(page, "devflow-card-read-again")
+
+
 def test_a_project_that_cannot_run_its_cards_says_so(
     page: Page, invite_code: str, base_url: str, viewport: str, devflow_world
 ):

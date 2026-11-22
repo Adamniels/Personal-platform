@@ -455,8 +455,8 @@ the owner only with his linked token, and as the app otherwise, whoever wrote th
 default branch is not governed by the list either: a push is an action, not an instruction, and
 only the owner's own or Dev flow's are fine there, see "Watching the default branch".
 
-**A card that changes.** A card that has not started is decided afresh on every read. One that has
-started stays where its run put it: when the owner changed its body or title, its record is
+**A card that changes.** A card that has not started is decided afresh on every read, and one that
+was read is read again, see "Reading a card". One that has started stays where its run put it: when the owner changed its body or title, its record is
 replaced and it stays; when anyone else did, it is ignored with the reason, and a run on it is not
 merged, since its state is no longer one a run merges from. An ignored card keeps the record it had,
 so a run already under way is still checked against what was picked.
@@ -909,22 +909,55 @@ last line, as a stop's is, and its id is kept with the reading that refused, not
 a card refused again gets a comment of its own for its new reading. Dev flow's own comments never
 start a reading; they are known by their ids.
 
-**A refused card is read again on his edit or his comment after the refusal.** Either is the owner
-answering it, the spec's round 4 having `Refused` wait for him. An edit is seen without reading
-anything more from GitHub: picking already replaces a card's record whenever every editor is
-trusted, and ignores one anyone else edited, so the record no longer matching what the refusing
-reading was handed, its body's SHA-256 or its title, is a trusted edit. A comment counts only from
-a trusted account and only when newer than the refusal, as a stop's does, since one from before it
-was written while it was read and is not an answer to it. Either queues the card, and a queued card
-whose newest reading is too thin is due a reading rather than a build: the rule "a build takes only
-a card whose newest reading is ready or has questions" already keeps it from being built, so being
-read again is the one way on, and the same holds however else it came to be queued again. It is
-read alone, with the note of the code the feature touches, what was missing and the comments,
-fenced as that account's input: the rest of the feature was read already, and reading it all again
-would spend a run on cards nobody changed, and could move cards that are under way since. The run is
-the card's, not the feature's, so the feature's note stays what the whole feature was read to
-write. The attention label comes off as soon as the card is queued, since it is no longer his turn,
-and goes back on with a new comment if it is refused again.
+**A card is read again when it changes before it starts.** Nothing is built from a reading of a
+card that no longer says the same, as the spec's clarifications have it: "a card is read again when
+it changes". While a card has not started, `queued`, `needs_answers` or `refused`, a trusted
+account's edit of its body or title, or comment on it newer than its newest reading, reads it again.
+An edit is seen without reading anything more from GitHub: picking already replaces a card's record
+whenever every editor is trusted, and ignores one anyone else edited, so the record no longer
+matching what the newest reading was handed, its body's SHA-256 or its title, is a trusted edit. A
+comment counts only from a trusted account and only when newer than the reading, as a stop's does,
+since one from before it was written while the card was read and is not about what was read. For a
+refused card either is the owner answering the refusal, the spec's round 4 having `Refused` wait
+for him, and for one that needs answers it is the same: it was his turn, and he changed the card
+instead, so its questions may no longer be the ones to ask. Either is queued, no longer his turn,
+and its attention label comes off. A queued card so changed is due a reading rather than a build,
+and the rule "a build takes only a card whose newest reading is ready or has questions and is not
+to be read again" keeps it from being built meanwhile.
+
+It is read alone, with the note of the code the feature touches, the feature and its done cards'
+handover notes, what was missing for a refused card, and the comments, fenced as that account's
+input: the rest of the feature was read already, and reading it all again would spend a run on
+cards nobody changed and could move cards that are under way since. The run is the card's, not the
+feature's, so the feature's note stays what the whole feature was read to write, and is never
+rewritten from one card. The cost is one read of each such card's comments on every project read,
+as the refused cards' already was: GitHub's issue list says nothing of comments, so a card can be
+known to be commented on only by reading its comments, and they are read only while it can still be
+read again.
+
+**Dev flow's own comments never read a card again.** They are known by their ids, kept with the
+reading each is for: the comment listing the questions and the recommendations chosen, the
+refusal's, and the owner's answers posted from the page, which are his comment, posted with his
+token, but Dev flow's action and already taken. The app's comments are never a trusted account's
+anyway, since a trusted login is a GitHub user's; his answers are, which is why the ids, not the
+author, decide.
+
+**Answers belong to the reading that asked.** A card read again with questions asks them again,
+and needs his answers again with the setting on, or goes on the new recommendations with it off.
+The earlier answers were to an earlier card: the card changed, so a question may mean something
+else now, or not be asked at all, and matching old answers to new questions by their text would be
+a guess. They stay on the card's page, under "Earlier readings", as the history of what he decided,
+and on the issue as his comment, and no brief carries them.
+
+**Why a card that started is never read again.** From `building` on, work exists that was built
+from the reading, and reading the card again could not undo it: a reading moves only a card that is
+not under way, and a new answer would leave the built work out of step with it. A change to a
+started card is "A card that changes" under "Cards": an edit by a trusted account replaces its
+record and the card stays where its run put it; and the merge check holds the card to its newest
+reading, condition 4, so a card edited since it was read never merges unattended. The owner then
+sends it back, part 4's way, which builds it again on a new branch from the card as it is. Started
+is read from the runs, not the state: a card with any run but a reading has started, so a card
+queued again after a build, run again after a stop or sent back, is built, never read.
 
 **Why a feature's cards are read together.** The spec's round 2 reads all of a feature's cards at
 once, not each as its turn comes, and this keeps it: the owner gets every question of the feature in
@@ -935,12 +968,17 @@ feature in view, and goes into every brief of it, the spec's round 4b: each agen
 code it changes, but no longer has to search for it. A reading is one run for the feature, by its
 parent's number, so the index that allows one run under way per feature holds one reading of a
 feature at a time, and no card of the feature starts while it runs. A card on its own is read alone,
-since it has nothing to be read with. A card added to a feature later is read when its turn comes,
-with whatever else of the feature is still unread, and so is a held card once it is released: a
-held card is left out of its feature's reading, since it would not be handed out, and a reading of
+since it has nothing to be read with. A card added to a feature once a reading of it came back is
+read alone when its turn comes, in the sub-issues' order, and so is a held card once it is released:
+a held card is left out of its feature's reading, since it would not be handed out, and a reading of
 it could move nothing while it is held, so a too thin answer would sit on a card that the owner's
 release then queues. Reading it on release keeps the rule simple, every card's reading moves that
-card. As a second line, a build takes only a card whose newest reading is ready or has questions,
+card. It is read alone rather than with the feature again for the reasons a changed card is: the
+cards already read are not read twice, and the feature's note is not rewritten from one card. The
+price is that a contradiction between it and a card read before can be missed: its reading is given
+the feature, the note and what the done cards left, not the other cards' text. That is accepted,
+since asking it on both cards, as a reading of the whole feature does, would mean moving cards that
+may be under way. As a second line, a build takes only a card whose newest reading is ready or has questions,
 so a card read as too thin is never built however it comes to be queued again.
 
 **Why reading comes before every build.** The kinds of job are handed out work in progress first, and
@@ -961,8 +999,8 @@ answer is a form, `Reading`, whose schema is written from its type, as the repor
 verdict's are, and read with a field missing, unknown or mistyped refused, and with every card it
 was handed answered exactly once, so a reading that skips a card or names another is a failure, not
 an answer. The cards a reading was handed are recorded when it is handed out, with each card's body
-SHA-256 and title as it was, which "Reading again" compares against; and the note lives on the run's
-report, as a card's handover note does on its run's.
+SHA-256 and title as it was, which reading again and the merge check compare against; and the note
+lives on the run's report, as a card's handover note does on its run's.
 
 ## How a card reaches its pull request
 
@@ -1191,7 +1229,13 @@ compiled code the check runs and fails if it names an agent, a brief, a report, 
    someone untrusted took off, is no merge, and a timeline that cannot be read waits like any read
    that failed. For a card of a feature the parent is held to all of it, and the card to all but
    the pick-up label, which it does not carry. Its body and title are compared with the record
-   made when it was picked, and a change the history cannot attribute is a reason too.
+   made when it was picked, and a change the history cannot attribute is a reason too. They are
+   compared with what its newest reading was handed as well, since that is what it was built from,
+   "not edited since it was read" in the spec's clarifications: a trusted account's edit since the
+   pick is allowed, one since the reading is not. Before a card starts such an edit reads it again,
+   so the check meets one only once it has started, where it is the owner's to judge, merging it as
+   himself or sending it back. A card with no reading, built before reading came, is held to the
+   pick's record alone.
 5. *The project's setting lets it merge.* `never` does; `sometimes` does unless a condition the
    owner ticked holds, see "Sometimes" below; any other value, `always` and one it does not know
    included, waits.

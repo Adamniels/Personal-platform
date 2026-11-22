@@ -92,6 +92,8 @@ public sealed record WaitConditions(bool WhenMarked, bool WhenPaths, bool WhenDe
 /// <param name="Files">The files its pull request changes, read as the app only when a ticked
 /// condition needs them, a read that was not made otherwise.</param>
 /// <param name="Feature">The card's feature, null for a card on its own.</param>
+/// <param name="Reading">What the card's newest reading read of it, its body's SHA-256 and its
+/// title, with no edit; null for a card with no reading.</param>
 public sealed record MergeFacts(
     DateTimeOffset Now,
     ProjectHold Hold,
@@ -112,7 +114,8 @@ public sealed record MergeFacts(
     WaitConditions Conditions,
     bool DecisionForOwner,
     CodeHostResult<IReadOnlyList<ChangedFile>> Files,
-    FeatureFacts? Feature = null);
+    FeatureFacts? Feature = null,
+    CardRecord? Reading = null);
 
 /// <summary>What the merge check answers. A closed set.</summary>
 public abstract record MergeDecision
@@ -153,6 +156,10 @@ public static class MergeCheck
     public const string NotApproved = "The reviewer has not approved its head commit";
     public const string ChangesAsked = "The reviewer asked for changes on its head commit";
     public const string ChangedUnseen = "The card changed since it was picked, and its history does not say by whom";
+
+    /// <summary>Why a card whose body or title is no longer what its newest reading read is not
+    /// merged: it was built from that reading.</summary>
+    public const string ChangedSinceRead = "The card changed since it was read, and it was built from what was read";
     public const string Always = "This project waits for you on every pull request";
     public const string Marked = "This card is marked for your review";
     public const string TooManyFiles = "Too many files to check the paths";
@@ -227,8 +234,8 @@ public static class MergeCheck
     /// open with the pick-up label a trusted account put on, not held, by the hold label on it or
     /// one a trusted account put on and only someone untrusted took off, and edited by nobody
     /// outside the list since it was picked, where for a card of a feature the parent is held to
-    /// all of it and the card is an open sub-issue of it, held to all of it but the pick-up label;
-    /// the setting, <c>never</c> going on, <c>sometimes</c> going on unless a ticked condition
+    /// all of it and the card is an open sub-issue of it, held to all of it but the pick-up label,
+    /// and the card as it is now still what its newest reading read, when it has one; the setting, <c>never</c> going on, <c>sometimes</c> going on unless a ticked condition
     /// holds, see <see cref="Sometimes"/>, and anything else waiting; and CI, every check run and
     /// status on the commit completed and succeeded. Only a wait that can clear by itself is tried
     /// again: a branch unread, a read that failed, CI running or not reported yet. Everything else
@@ -339,6 +346,7 @@ public static class MergeCheck
         {
             return labelled.FirstOrDefault(issue => !issue.IsPullRequest && issue.Number == facts.Card) is { } card
                 ? Valid(new Read(card.Author, card.Labels, card.Body, card.Title), edits, events, facts.Record, trusted, facts.PickupLabel, facts.HoldLabel, CardWords)
+                    ?? SinceRead(card.Body, card.Title, facts.Reading)
                 : Final(NotLabelled(facts.PickupLabel));
         }
 
@@ -367,8 +375,19 @@ public static class MergeCheck
         }
 
         // A card of a feature carries no pick-up label of its own: its parent's switched it on.
-        return Valid(new Read(own.Author, own.Labels, own.Body, own.Title), edits, events, facts.Record, trusted, pickupLabel: null, facts.HoldLabel, CardWords);
+        return Valid(new Read(own.Author, own.Labels, own.Body, own.Title), edits, events, facts.Record, trusted, pickupLabel: null, facts.HoldLabel, CardWords)
+            ?? SinceRead(own.Body, own.Title, facts.Reading);
     }
+
+    /// <summary>Why a card is no longer what its newest reading read, or null when it still is or
+    /// has no reading: its body, as GitHub has it now, by its SHA-256, or its title differs from
+    /// the reading's record. That reading is what it was built from, so even a trusted account's edit
+    /// since, which the pick's record allows, is the owner's to judge.</summary>
+    private static MergeDecision.Wait? SinceRead(string body, string title, CardRecord? reading) =>
+        reading is null
+        || SHA256.HashData(Encoding.UTF8.GetBytes(body)).AsSpan().SequenceEqual(reading.BodySha256) && string.Equals(title, reading.Title, StringComparison.Ordinal)
+            ? null
+            : Final(ChangedSinceRead);
 
     /// <summary>
     /// Why "sometimes" waits for the owner, or null when nothing it ticked holds, the first that

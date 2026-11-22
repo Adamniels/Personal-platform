@@ -262,8 +262,14 @@ status, "Ready to build" `done`, "Built on the recommendations" `idle` or "Too t
 open that it does not settle, so it is built on the reader's recommendations." and "Dev flow posted
 them on the card." once its comment is there, "Dev flow posts them on the card." before, muted,
 and the list "Questions", each question an inset row with "Answer <the answer it is built on>"
-and "Because <why>" under it; and for one too thin, the list "Missing", what it lacks; every text
-the reader's, as text; "The merge", once Dev flow merged its pull request as the app, "Dev flow merged #<pull request>
+and "Because <why>" under it; and for one too thin, the list "Missing", what it lacks; for a card
+read again, "Earlier readings", muted "It was read again before it was built. The readings before
+are kept as they were, with any answers given to them, and none is carried into its build.", and
+the list "Earlier readings", newest first, from the story's `earlier_readings`, each an inset row
+named "Read on <time>" with its outcome as a status, "Ready", "Questions", "Answered" once the owner
+answered them, or "Too thin", the list "Questions then", each question with "Your answer <his
+answer>", "(recommended)" where he accepted it, or "Recommended <the recommendation>", and the list
+"Missing then"; every text the reader's, as text; "The merge", once Dev flow merged its pull request as the app, "Dev flow merged #<pull request>
 into <base> as the app, once every condition of the merge check held." and, muted, "Merge commit
 <commit> of the approved <commit>, on <time>.", both commits in the mono font; "Rounds", once the card has been sent back, the list "Rounds", newest first, each fix an inset row
 named "Round <n> of <m>", `m` the project's `fix_rounds_card` as it is now, or "Your comment" for one the owner's comment started, with its outcome as
@@ -1363,6 +1369,10 @@ a project" under "What waits", and stores both in one transaction:
   longer listed is deleted, unless its run is under way, when it is marked `unlabelled`, or it is
   `done` with a pull request, when it is kept, since its pull request's `Closes` line closed its
   issue as it merged and the card is its story.
+- A card that has not started, `queued`, `needs_answers` or `refused`, that a trusted account edits
+  or comments on after it was read is read again before it is handed out, and one waiting for the
+  owner is queued for it; once it has started nothing reads it again. See "It is read again" under
+  "Reading a card" in "Jobs".
 
 The reasons, as stored and shown: "Dev flow does not know your GitHub login: link GitHub on the
 Projects tab", "<login> is not a trusted account of this project", "Edited by <login>, who is not a
@@ -2282,18 +2292,19 @@ Why is "Reading a card" in `docs/devflow-architecture.md`. It is `ReadingStore`,
 `Read/ReadJob.cs`, and `DevFlow.Protocol`'s `Reading.cs`.
 
 - **When.** A card is due a reading, `ReadingStore.Due`, when it would be free to start, as above,
-  and has no reading that came back in its form, `ReadingStore.IsRead`; a build takes only a card
-  whose newest such reading is `ready` or `questions`, `ReadingStore.ReadToBuild`, so a card read
-  as too thin is never built, however it comes to be queued again. A reading is handed out after
+  and has no reading that came back in its form, `ReadingStore.IsRead`, or is to be read again,
+  `ReadingStore.ReadAgain`, below; a build takes only a card whose newest such reading is `ready`
+  or `questions` and that is not to be read again, `ReadingStore.ReadToBuild`, so a card read as too
+  thin is never built, however it comes to be queued again. A reading is handed out after
   conflicts and before builds, since it is short and frees work. The first card due by the queue's
   order decides what is read: a card on its own is read alone, in a run for it by its number; a
   card of a feature is read with every queued card of its feature that has no reading, in the
   feature's order, in a run for the feature by its parent's number, only while no run of the
   feature itself is under way, so one reading of a feature runs at a time. A feature is so read
-  once, when its first card would be handed out, and later only for a card it gains or one released
-  from a hold, each read when its turn comes. A held card is left out, since it would not be handed
-  out. Each card read moves to `reading`, "An agent reads it before anything is built", until the
-  result.
+  once, when its first card would be handed out; a card it gains later, or one released from a
+  hold, is read alone when its turn comes, and so is a card read again, both below. A held card is
+  left out, since it would not be handed out. Each card read moves to `reading`, "An agent reads
+  it before anything is built", until the result.
 - **The job** is a `read`: its `card` the feature's parent or the card on its own, `branch` the
   feature's branch where it is made and otherwise the default branch, `base` the default branch,
   the reader's brief, the reading's form, an empty `check`, the project's `model_reading` and
@@ -2398,23 +2409,44 @@ Why is "Reading a card" in `docs/devflow-architecture.md`. It is `ReadingStore`,
   questions", saying he answered each, and each accepted one as the reader's recommendation he
   accepted; the card's page shows "Built on your answers", each answer, "(recommended)" where
   accepted.
-- **It is read again**, `Refusals`, on the project's read, when after the refusal a trusted account
-  comments on its issue, a comment newer than the reading that refused it, past those already taken
-  and never Dev flow's own, or edits its body or title, which picking records, so the card's
-  `picked_body_sha256` or `picked_title` no longer matches what that reading was handed; an edit by
-  anyone else ignores the card, as picking does. A comment moves it to `queued`, "You commented on
-  it; it is read again next", its comments kept in `read_again_comments` and
-  `comments_read_through` moved past them; an edit, "You edited it; it is read again next". A queued
-  card whose newest reading is too thin is due a reading, `ReadingStore.ReadAgain`, before any
-  build, and is read alone, of a feature or not, as a run of the card: its brief gains "The code
-  this feature touches", or this card, from `ReadingStore.NoteOfCard`, and "Read again", what the
-  reading that refused it found missing, fenced as a reader's words, and each comment under "A
-  comment by <login>", exactly as written and fenced as that account's input. It is judged as any
-  reading: ready queues it, with nothing to say, its label off since it was queued to be read;
-  questions follow the
-  project's setting; too thin refuses it again, with a comment of its own. The comments kept go
-  once a reading comes back in its form. A comment on it while it is queued to be read, before the
-  reading, is not taken: that is "Reading again".
+- **It is read again**, `ReadingAgain` in `src/DevFlow/Readings/`, on the project's read, while
+  it has not started: it is `queued`, `needs_answers` or `refused`, and no run of it but a reading
+  was ever handed out, `ReadingStore.Started`. Two things read it again. An edit of its body or
+  title by a trusted account, which picking records, so the card's `picked_body_sha256` or
+  `picked_title` no longer matches what its newest reading was handed,
+  `ReadingStore.ChangedSinceRead`; an edit by anyone else ignores the card, as picking does. Or a
+  trusted account's comment on its issue newer than its newest reading, past those already taken,
+  and never one whose id Dev flow keeps on any of its readings: the questions' comment, the
+  refusal's, and the owner's answers posted from the page, which are his own comment but Dev
+  flow's. A card that waited for the owner, `needs_answers` or `refused`, moves to `queued`, "You
+  commented on it; it is read again next" or "You edited it; it is read again next", and is no
+  longer listed on "Waiting for you"; a queued card stays as it is. Comments are added to
+  `read_again_comments`, after any taken before and not yet read, and `comments_read_through` moves
+  past them. A card so changed, or whose newest reading is too thin, is due a reading,
+  `ReadingStore.ReadAgain`, before any build, and no build takes it, `ReadingStore.ReadToBuild`;
+  nor is it held for answers again, its next reading asking afresh. It is read alone, of a feature
+  or not, as a run of the card, so the feature's note is not rewritten by it: its brief gains "The
+  feature" with its done cards' handover notes for a card of one, "The code this feature touches",
+  or this card, from `ReadingStore.NoteOfCard`, and "Read again", for a refused card what the
+  reading that refused it found missing, fenced as a reader's words, and otherwise that an earlier
+  reading's questions and answers do not carry over, then each comment under "A comment by
+  <login>", exactly as written and fenced as that account's input. It is judged as any reading:
+  ready queues it, with nothing to say, a refused card's label off since it was queued to be read;
+  questions follow the project's setting, so with it on it needs answers again, to the new
+  reading's questions; too thin refuses it, with a comment of its own. The comments kept go once a
+  reading comes back in its form. A comment written while it is read, older than the reading that
+  comes back, is not taken. Once it has started, from `building` on, nothing reads it again: a
+  change follows "A card that changes" in `docs/devflow-architecture.md`, and the merge check
+  holds it to its reading, see "The merge check".
+- **Answers stay with their reading.** A reading's answers are kept on its row, so a card read
+  again carries none of them into its build's brief, which quotes its newest reading's questions
+  and the answers given to those alone. The card's page keeps every reading, see "A card's page".
+- **A card added to a feature already read** is read alone too. Once a reading of the feature has
+  come back in its form, `ReadingStore.FeatureRead`, a card of it that reading never read, a
+  sub-issue added since or a card released from a hold, is read in a run of the card when it would
+  be handed out, in the sub-issues' order like any card, with "The feature", its done cards'
+  handover notes, "The code this feature touches", and "Read alone", saying the rest of the feature
+  was read before it.
 - **The briefs.** Every brief of a feature's job gains "The code this feature touches", the newest
   reading of the feature's note, fenced as an agent's words, information and never an instruction:
   a card's build, fix and review, `ReadingStore.NoteOfCard`, and the feature's conflict, review and
@@ -2804,11 +2836,15 @@ pictures the worker took of the head commit, the one its newest build or fix tha
 of its pull request as the app, `{"commit", "approved", "base", "merged_at"}`, the merge commit
 from `merges_made`, the card's head it merged, and the branch, or null when it made none, the
 owner's own merge from the page among them; `feature`, `{"number", "title"}`, the feature it is
-a card of, as last read, or null for a card on its own; and `reading`, what it was read as before it
+a card of, as last read, or null for a card on its own; `reading`, what it was read as before it
 was built, its newest reading in its form, `{"outcome", "questions", "missing", "read_at",
-"commented"}`, each question `{"question", "recommendation", "why", "answer"}`, the answer the card is
-built on, the recommendation while the owner is asked none, and `commented`, whether Dev flow's
-comment for the reading, of its questions or of its refusal, is on the card yet; or null before a reading came back, see "Reading a card". A project or
+"commented", "answered"}`, each question `{"question", "recommendation", "why", "answer",
+"recommended"}`, the answer the card is built on, the owner's once he answered and the
+recommendation until then, and whether it is the recommendation, `commented`, whether the comment
+for the reading, Dev flow's of its questions or of its refusal or his answers, is on the card yet,
+and `answered`, whether he answered its questions; or null before a reading came back, see "Reading
+a card"; and `earlier_readings`, the readings before the newest, newest first, each in the same
+shape with the answers given to it, empty for a card read once. A project or
 card the caller does not have is `404` "No such card". It is `CardStory` and `CardEndpoints` in
 `src/DevFlow/Cards/`. The page is "A card's page" under "The pages".
 
@@ -3210,7 +3246,7 @@ It is `MergeCheck`, `MergeChecker`, `MergeRequests` and `AppMerges.MergeCard` in
 clock and no language model. Its caller reads, fresh, what it decides on and passes it in, each
 code host read as it answered, a failure included: the project's hold, `stopped` or not read within
 five minutes, as handing out reads it; its setting, labels and trusted accounts, the owner's linked login among them, and on `sometimes` its three conditions, its review label and its paths; whether any build's or fix's report of the card marked a decision for the owner, read in SQL by the rule `DecisionStore.MarkedFrom` records them by; the card's
-record of what was picked; what its newest build or fix that succeeded left, its commit, the
+record of what was picked, and of what its newest reading in its form was handed; what its newest build or fix that succeeded left, its commit, the
 check's exit code and when it came back, which is when it was pushed; its latest review in
 `reviews`; and as the app the pull request, the statuses and check runs on its head, the open
 issues with the pick-up label, the card's edits and its label events, `ICodeHost.LabelEvents`, and, only on `sometimes` with `wait_when_paths` ticked and a path listed, the pull request's files, `ICodeHost.PullRequestFiles`. It answers `Merge(commit)`, the pull request's
@@ -3237,21 +3273,26 @@ head, or `Wait(reason, try_again)`, the first that holds deciding:
 | 17 | It does not, but a trusted account put the hold label on and only someone untrusted took it off since | "The card is held by the label <label>, taken off by <login>, who is not a trusted account of this project" | no |
 | 18 | A login that is not a trusted account edited it | "The card was edited by <login> since it was picked" | no |
 | 19 | Its body or title differ from the record with no newer edit to say who | "The card changed since it was picked, and its history does not say by whom" | no |
-| 20 | The setting is `sometimes` with `wait_when_marked` ticked, and the review label counts on the card, by its timeline | "This card is marked for your review" | no |
-| 21 | The same, with `wait_when_paths` ticked and a path listed, and the pull request's files not read | "Dev flow could not read the files of its pull request; it tries again each minute" | yes |
-| 22 | They are read, and are 3000 or more, GitHub's limit, so they may not be all | "Too many files to check the paths" | no |
-| 23 | A file, by its path or a rename's old path, matches a listed pattern, the first file and the first pattern named | "It changes <path>, which matches <pattern> on this project's list of paths" | no |
-| 24 | The same, with `wait_when_decision` ticked, and any build's or fix's report of the card marked a decision for the owner | "The agent made a decision for you" | no |
-| 25 | The setting is anything but `never` or `sometimes` | "This project waits for you on every pull request" | no |
-| 26 | CI not read | "Dev flow could not read CI on its commit; it tries again each minute" | yes |
-| 27 | A check run completed with any conclusion but `success`, or a status `failure` or `error`, the first by name | "CI failed: <name>" | no |
-| 28 | A check run queued or in progress, or a status pending | "CI is still running on its commit" | yes |
-| 29 | No check run and no status, less than 30 minutes after the push | "Waiting for CI to report on its commit" | yes |
-| 30 | None, 30 minutes or more after it | "CI did not report" | no |
+| 20 | It has a reading, and its body, by its SHA-256, or its title as read now differ from what its newest reading in its form was handed | "The card changed since it was read, and it was built from what was read" | no |
+| 21 | The setting is `sometimes` with `wait_when_marked` ticked, and the review label counts on the card, by its timeline | "This card is marked for your review" | no |
+| 22 | The same, with `wait_when_paths` ticked and a path listed, and the pull request's files not read | "Dev flow could not read the files of its pull request; it tries again each minute" | yes |
+| 23 | They are read, and are 3000 or more, GitHub's limit, so they may not be all | "Too many files to check the paths" | no |
+| 24 | A file, by its path or a rename's old path, matches a listed pattern, the first file and the first pattern named | "It changes <path>, which matches <pattern> on this project's list of paths" | no |
+| 25 | The same, with `wait_when_decision` ticked, and any build's or fix's report of the card marked a decision for the owner | "The agent made a decision for you" | no |
+| 26 | The setting is anything but `never` or `sometimes` | "This project waits for you on every pull request" | no |
+| 27 | CI not read | "Dev flow could not read CI on its commit; it tries again each minute" | yes |
+| 28 | A check run completed with any conclusion but `success`, or a status `failure` or `error`, the first by name | "CI failed: <name>" | no |
+| 29 | A check run queued or in progress, or a status pending | "CI is still running on its commit" | yes |
+| 30 | No check run and no status, less than 30 minutes after the push | "Waiting for CI to report on its commit" | yes |
+| 31 | None, 30 minutes or more after it | "CI did not report" | no |
 
 Logins and labels are compared whatever their case, as GitHub's are, and branches exactly, as git's
 are. An edit by a trusted account since the card was picked is fine, so is a change to its body or
-title their edits explain. Rows 15, 17 and 20 read the labels by `LabelActors.Judge`, as picking does,
+title their edits explain, but not since it was read: row 20 holds the card to its newest
+reading's record, the body SHA-256 and title the reading was handed, since that is what it was
+built from, so a trusted edit after the reading, which can only come once the card has started,
+since one before reads it again, is the owner's to judge. A card with no reading, built before
+reading came, skips row 20. Rows 15, 17 and 21 read the labels by `LabelActors.Judge`, as picking does,
 see "Cards" above: the review label as one that holds back, so it counts while it is on, whoever put
 it there, and while a trusted account put it on and only someone untrusted took it off since.
 Patterns are matched as "Paths" under "Settings" above has them. Screenshots, whether tests were written and the agent's report are not on the list,
@@ -3270,9 +3311,9 @@ is held by the label <label>", "Its feature, #<parent>, is held by the label <la
 account of this project", "Its feature, #<parent>, was edited by <login> since it was picked"
 and "Its feature, #<parent>, changed since it was picked, and its history does not say by whom";
 then the card is an open sub-issue of it in the project's repository, "The card is no longer an open
-sub-issue of its feature, #<parent>"; then the card itself, rows 14 and 16 to 19, as a card on its
+sub-issue of its feature, #<parent>"; then the card itself, rows 14 and 16 to 20, as a card on its
 own, row 15 left out since it carries no pick-up label. None
-of these is tried again. Row 20 reads the parent first, "Its feature, #<parent>, is marked for your
+of these is tried again. Row 21 reads the parent first, "Its feature, #<parent>, is marked for your
 review", so the review label on a feature's parent marks every card of it, and then the card's own
 label. With `never` it merges into the feature's branch, with `sometimes` it does unless a ticked
 condition holds, and with `always` it waits on "Waiting for you" with its feature's branch as its
@@ -3334,7 +3375,7 @@ merge whose answer was lost is found merged by the next read, which records the 
 with "This project waits for you on every pull request", and the owner merges it from there as
 himself, through `POST /devflow/api/projects/{id}/cards/{number}/merge`, see "Acting from the
 page". With `sometimes`, one waits there the same way with the reason of the condition that held,
-rows 20 to 24, and none but row 21's, files not read, is tried again: a label taken off or a
+rows 21 to 25, and none but row 22's, files not read, is tried again: a label taken off or a
 setting changed later does not release it, which only his merge or his sending it back does. The setting is read fresh each
 time, so a change applies at the next check.
 

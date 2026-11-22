@@ -533,4 +533,41 @@ public sealed class DecideTests
             new MergeDecision.Wait(MergeCheck.CiRunning, TryAgain: true),
             MergeCheck.Decide(GoodSometimes with { CheckRuns = Found<IReadOnlyList<CheckRun>>([Run(CheckStatus.InProgress, null)]) }));
     }
+
+    /// <summary>Condition 4 compares the card with its last reading's record as well as the pick's:
+    /// the card as GitHub has it now must be what its newest reading read, its body and its title,
+    /// since that is what it was built from. A trusted edit since the reading, which the pick's
+    /// record allows, still refuses, and it is the owner's; a card read as it is merges. See "The
+    /// merge check" in devflow/README.md.</summary>
+    [Fact]
+    public void ACardChangedSinceItWasReadIsNotMerged()
+    {
+        var read = new CardRecord(SHA256.HashData(Encoding.UTF8.GetBytes(Body)), "Card 1", null);
+
+        // Read as it is: it merges, on its own and in a feature.
+        Assert.Equal(new MergeDecision.Merge(Head), MergeCheck.Decide(Good with { Reading = read }));
+        Assert.Equal(new MergeDecision.Merge(Head), MergeCheck.Decide(GoodFeature with { Reading = read }));
+
+        // Its body edited by the owner since it was read: the pick's record allows the edit, the
+        // reading's does not.
+        var edited = Good with
+        {
+            Labelled = Found<IReadOnlyList<Issue>>([CardIssue with { Body = "Build it, and the empty state." }]),
+            Edits = Found<IReadOnlyList<IssueEdit>>([new IssueEdit("UCE_1", "octo-owner", Pushed, EditKind.Body)]),
+        };
+        Assert.IsType<MergeDecision.Merge>(MergeCheck.Decide(edited));
+        Assert.Equal(new MergeDecision.Wait(MergeCheck.ChangedSinceRead, TryAgain: false), MergeCheck.Decide(edited with { Reading = read }));
+
+        // Its title too, and a feature's card as its parent lists it.
+        Assert.Equal(
+            new MergeDecision.Wait(MergeCheck.ChangedSinceRead, TryAgain: false),
+            MergeCheck.Decide(Good with { Reading = read with { Title = "Card one" } }));
+        var renamed = GoodFeature with
+        {
+            Reading = read,
+            Feature = GoodFeature.Feature! with { SubIssues = Found<IReadOnlyList<SubIssue>>([CardSub with { Title = "Card one" }]) },
+            Edits = Found<IReadOnlyList<IssueEdit>>([new IssueEdit("UCE_1", "octo-owner", Pushed, EditKind.Title)]),
+        };
+        Assert.Equal(new MergeDecision.Wait(MergeCheck.ChangedSinceRead, TryAgain: false), MergeCheck.Decide(renamed));
+    }
 }
