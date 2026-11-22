@@ -1,0 +1,147 @@
+/* A project's Setup panel: the steps of setting it up and its newest check.
+ * Tokens only, as the project's other panels. */
+
+.card {
+	margin: 0;
+}
+
+.body {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-4);
+}
+
+.line {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-2);
+	margin: 0;
+}
+
+.muted {
+	margin: 0;
+	color: var(--text-2);
+}
+
+/* What did not happen, read as an alert, as the Workers panel says its own. */
+.error {
+	margin: 0;
+	color: var(--accent-text);
+	font-weight: 600;
+}
+
+/* The steps, each on an inset, hard rule 3, in their order. */
+.steps {
+	display: flex;
+	flex-direction: column;
+	gap: var(--inset-gap);
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.step {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-2) var(--space-3);
+	padding: 8px 12px;
+	border-radius: var(--radius-md);
+	background: var(--surface-2);
+}
+
+.check {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-2);
+}
+
+.result {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-2);
+	margin: 0;
+}
+
+.label {
+	margin: 0;
+	font-weight: 600;
+}
+
+/* Versions, commits and times, hard rule 8. */
+.mono {
+	font-family: var(--font-mono);
+	font-size: var(--text-mono-size);
+	line-height: var(--text-mono-line);
+	font-variant-numeric: tabular-nums;
+	overflow-wrap: anywhere;
+}
+
+/* The check's output: an inset in the mono font, wrapping rather than
+ * scrolling sideways at phone width, hard rule 13, and scrolling down inside
+ * its box past about twenty lines, so 200 lines do not push the page away. */
+.output {
+	max-height: calc(var(--text-mono-line) * 20 + 16px);
+	margin: 0;
+	padding: 8px 12px;
+	overflow-y: auto;
+	border-radius: var(--radius-md);
+	background: var(--surface-2);
+	font-family: var(--font-mono);
+	font-size: var(--text-mono-size);
+	line-height: var(--text-mono-line);
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+
+/* The project's address at both sizes, side by side where they fit. */
+.pictures {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-3);
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.picture {
+	display: block;
+	max-width: 100%;
+	max-height: 240px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius-md);
+}
+
+/* A project under "Setup" on "Waiting for you", spaced as the list's other
+ * items. */
+.item {
+	margin: 0;
+}
+
+/* The way to the project's page: a link that looks like the ghost button of
+ * "Button" in section 4, as the list's other links, since it opens an
+ * address rather than doing something. */
+.open {
+	display: inline-flex;
+	align-items: center;
+	box-sizing: border-box;
+	min-height: var(--control-h);
+	padding: 0 14px;
+	border-radius: var(--radius-full);
+	color: var(--text-2);
+	font-size: var(--text-body-size);
+	line-height: var(--text-body-line);
+	font-weight: 500;
+	text-decoration: none;
+}
+
+.open:hover {
+	background: var(--surface-2);
+}
+
+.open:focus-visible {
+	outline: var(--focus-ring);
+	outline-offset: var(--focus-offset);
+}

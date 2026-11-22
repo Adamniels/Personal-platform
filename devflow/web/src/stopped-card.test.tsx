@@ -81,6 +81,7 @@ function list(
 		refused_cards: [],
 		question_cards: [],
 		failing_projects: failingProjects,
+		setup_projects: [],
 		decisions: [],
 	};
 }

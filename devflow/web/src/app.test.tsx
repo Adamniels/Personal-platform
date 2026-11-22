@@ -38,6 +38,8 @@ function openAt(path: string) {
 				loadSettings: () => new Promise(() => {}),
 				saveSettings: () => new Promise(() => {}),
 				loadCards: () => new Promise(() => {}),
+				loadSetup: () => new Promise(() => {}),
+				checkAgain: () => Promise.resolve(),
 			}}
 			projects={{
 				loadProjects: () => Promise.resolve([]),
@@ -54,6 +56,7 @@ function openAt(path: string) {
 						refused_cards: [],
 						question_cards: [],
 						failing_projects: [],
+						setup_projects: [],
 						features: [],
 						items: [],
 						projects: [],

@@ -1,5 +1,6 @@
 // A project's page, /devflow/projects/<id>, opened from its row on the Projects tab: a header with
-// the repository's name and the preset its saved settings match, the Settings panel under it, the Cards panel, and the Workers panel, with the project's worker key, the two commands
+// the repository's name and the preset its saved settings match, the Settings panel under it, the Cards panel, or while the
+// project is setting up its Setup panel in its place, and the Workers panel, with the project's worker key, the two commands
 // that start a worker, and the workers that have said hello with it, each saying when it needs
 // building again, and why no work is handed out when the user's Claude login is missing or past
 // its renewal. The key is shown once, as the answer that made it, with the command that saves
@@ -20,6 +21,12 @@ import {
 	type SettingsApi,
 	SettingsPanel,
 } from "./settings";
+import {
+	type ProjectSetup,
+	type SetupApi,
+	SetupPanel,
+	setupShows,
+} from "./setup";
 import { duration } from "./waiting";
 
 export type WorkerList = GetAnswer<"/projects/{id}/workers">;
@@ -65,7 +72,8 @@ export const QUIET_MS = 10 * 60 * 1000;
 /** How the page reads and changes a project's workers, Dev flow's API in
  * the page and a test's own in a test. */
 export type ProjectApi = SettingsApi &
-	CardsApi & {
+	CardsApi &
+	SetupApi & {
 		loadProjects: () => Promise<Project[]>;
 		loadWorkers: (id: string) => Promise<WorkerList>;
 		/** Makes the project's key, replacing its last, and answers it with
@@ -100,9 +108,22 @@ export function ProjectPage({
 	loadSettings,
 	saveSettings,
 	loadCards,
+	loadSetup,
+	checkAgain,
 }: ProjectPageProps) {
 	const [project, setProject] = useState<Project | null>();
 	const [failed, setFailed] = useState(false);
+	// The project's setup, which decides whether its steps stand in place of
+	// its cards; null when it could not be read, and the cards are shown.
+	const [setup, setSetup] = useState<ProjectSetup | null>();
+	const reloadSetup = useCallback(
+		() =>
+			loadSetup(id).then(
+				(answer) => setSetup(answer),
+				() => setSetup(null),
+			),
+		[id, loadSetup],
+	);
 	// The preset of the settings as last read or saved, never of the form
 	// while it is edited.
 	const [preset, setPreset] = useState<Preset>();
@@ -125,6 +146,21 @@ export function ProjectPage({
 			current = false;
 		};
 	}, [id, loadProjects]);
+
+	useEffect(() => {
+		let current = true;
+		loadSetup(id).then(
+			(answer) => {
+				if (current) setSetup(answer);
+			},
+			() => {
+				if (current) setSetup(null);
+			},
+		);
+		return () => {
+			current = false;
+		};
+	}, [id, loadSetup]);
 
 	const backLink = (
 		<a
@@ -174,7 +210,24 @@ export function ProjectPage({
 				saveSettings={saveSettings}
 				onSettings={showPreset}
 			/>
-			<CardsPanel id={id} loadCards={loadCards} />
+			{/* While the project is setting up, its steps stand in place of its
+			    cards; a registered project whose newer version failed its check
+			    shows them above its cards. Nothing before the setup answers. */}
+			{setup === undefined ? null : (
+				<>
+					{setup !== null && setupShows(setup) ? (
+						<SetupPanel
+							id={id}
+							setup={setup}
+							checkAgain={checkAgain}
+							reload={reloadSetup}
+						/>
+					) : null}
+					{setup?.state === "setting_up" ? null : (
+						<CardsPanel id={id} loadCards={loadCards} />
+					)}
+				</>
+			)}
 			<WorkersPanel
 				id={id}
 				project={project.name}

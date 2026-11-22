@@ -254,6 +254,18 @@ public sealed record QuestionCard(Guid Id, Guid ProjectId, string ProjectName, s
 /// <param name="WaitUntil">Until when it hands out no job.</param>
 public sealed record FailingProject(Guid ProjectId, string ProjectName, string Owner, string Message, string Reason, int Failures, DateTimeOffset Since, DateTimeOffset WaitUntil);
 
+/// <summary>A project whose newest check of its setup failed and has not been asked again, which
+/// hands out nothing to that version's workers until the owner looks at it, shown under "Setup".
+/// Its output and "Check again" are on the project's page. See "Setting up a project" in
+/// devflow/README.md.</summary>
+/// <param name="ProjectName">The repository's name, as connected.</param>
+/// <param name="Owner">The repository's owner, as connected.</param>
+/// <param name="State"><c>setting_up</c> or <c>registered</c>, as the project's setup says.</param>
+/// <param name="Version">The setup version whose check failed.</param>
+/// <param name="ExitCode">The check's exit code.</param>
+/// <param name="CheckedAt">When it failed.</param>
+public sealed record SetupProject(Guid ProjectId, string ProjectName, string Owner, string State, string Version, int ExitCode, DateTimeOffset CheckedAt);
+
 /// <summary>The latest review of a whole feature, as "Waiting for you" shows it.</summary>
 /// <param name="Verdict"><c>approve</c> or <c>changes</c>.</param>
 /// <param name="Summary">What the reviewer found, as text.</param>
@@ -317,7 +329,9 @@ public sealed record FeatureItem(
 /// him, by project and number.</param>
 /// <param name="QuestionCards">Dev flow's own cards that wait for the owner's answers to their
 /// reading's questions, by project and number.</param>
-public sealed record WaitingList(int Count, bool NeedsRelink, IReadOnlyList<WaitingItem> Items, IReadOnlyList<ProjectFreshness> Projects, IReadOnlyList<OwnItem> OwnItems, IReadOnlyList<CardItem> Cards, IReadOnlyList<StoppedCard> StoppedCards, IReadOnlyList<RefusedCard> RefusedCards, IReadOnlyList<FailingProject> FailingProjects, IReadOnlyList<DecisionItem> Decisions, IReadOnlyList<FeatureItem> Features, IReadOnlyList<QuestionCard> QuestionCards);
+/// <param name="SetupProjects">The projects whose newest check of their setup failed, by owner and
+/// name.</param>
+public sealed record WaitingList(int Count, bool NeedsRelink, IReadOnlyList<WaitingItem> Items, IReadOnlyList<ProjectFreshness> Projects, IReadOnlyList<OwnItem> OwnItems, IReadOnlyList<CardItem> Cards, IReadOnlyList<StoppedCard> StoppedCards, IReadOnlyList<RefusedCard> RefusedCards, IReadOnlyList<FailingProject> FailingProjects, IReadOnlyList<DecisionItem> Decisions, IReadOnlyList<FeatureItem> Features, IReadOnlyList<QuestionCard> QuestionCards, IReadOnlyList<SetupProject> SetupProjects);
 
 /// <summary>
 /// What waits for a user, read from the snapshot <see cref="ProjectReader"/> stores and never from
@@ -334,7 +348,7 @@ public sealed class WaitingStore(UserDb database, TimeProvider time)
     /// name, and whether their link needs renewing, read in one transaction.</summary>
     public async Task<WaitingList> For(Guid userId, CancellationToken cancellationToken)
     {
-        var (items, projects, relink, stops, cardRows, stoppedRows, refusedRows, failingRows, decisionRows, features, cardDecisions, askedRows) = await database.InUserTransaction(userId, async transaction =>
+        var (items, projects, relink, stops, cardRows, stoppedRows, refusedRows, failingRows, decisionRows, features, cardDecisions, askedRows, setupRows) = await database.InUserTransaction(userId, async transaction =>
         {
             var items = await transaction.Connection!.QueryAsync<ItemRow>(new CommandDefinition(
                 """
@@ -402,6 +416,18 @@ public sealed class WaitingStore(UserDb database, TimeProvider time)
                 CROSS JOIN LATERAL ({Decisions.DecisionStore.ForOwnerSql("c.project_id", "c.number")}) o
                 WHERE c.state = 'waiting_for_owner' AND c.pull_request_number IS NOT NULL
                 ORDER BY c.project_id, c.number, o.first_at, o.first_run, o.first_place
+                """,
+                transaction: transaction,
+                cancellationToken: cancellationToken));
+            // A project's newest check of its setup that failed, with no other asked for since.
+            var setup = await transaction.Connection!.QueryAsync<SetupRow>(new CommandDefinition(
+                $"""
+                SELECT p.id AS ProjectId, p.name AS ProjectName, p.owner AS Owner,
+                       EXISTS (SELECT 1 FROM recipe_checks r WHERE r.project_id = p.id AND r.passed) AS Registered,
+                       c.version AS Version, c.exit_code AS ExitCode, c.checked_at AS CheckedAt
+                FROM projects p JOIN recipe_checks c ON c.run_id = {Setup.SetupStore.NewestSql}
+                WHERE NOT c.passed AND c.again_at IS NULL
+                ORDER BY lower(p.owner), lower(p.name), p.id
                 """,
                 transaction: transaction,
                 cancellationToken: cancellationToken));
@@ -503,7 +529,7 @@ public sealed class WaitingStore(UserDb database, TimeProvider time)
                 features.Add(Feature(row, story?.Cards.Sum(card => card.Decisions.Count(decision => decision.Answer is null)) ?? 0));
             }
 
-            return (items.ToList(), projects.ToList(), relink, stops.ToList(), cards.ToList(), stopped.ToList(), refused.ToList(), failing.ToList(), decisions.ToList(), features, marked.ToList(), asked.ToList());
+            return (items.ToList(), projects.ToList(), relink, stops.ToList(), cards.ToList(), stopped.ToList(), refused.ToList(), failing.ToList(), decisions.ToList(), features, marked.ToList(), asked.ToList(), setup.ToList());
         }, cancellationToken);
 
         var now = time.GetUtcNow();
@@ -547,6 +573,14 @@ public sealed class WaitingStore(UserDb database, TimeProvider time)
             row.Failures,
             GitHubLink.Utc(row.Since),
             GitHubLink.Utc(row.WaitUntil))).ToList();
+        var setupProjects = setupRows.Select(row => new SetupProject(
+            row.ProjectId,
+            row.ProjectName,
+            row.Owner,
+            row.Registered ? Setup.SetupStore.Registered : Setup.SetupStore.SettingUp,
+            row.Version,
+            row.ExitCode,
+            GitHubLink.Utc(row.CheckedAt))).ToList();
         var stoppedCards = stoppedRows.Select(row => new StoppedCard(
             row.ProjectId,
             row.ProjectName,
@@ -579,7 +613,7 @@ public sealed class WaitingStore(UserDb database, TimeProvider time)
             JsonSerializer.Deserialize<List<ReadingQuestion>>(row.Questions, DevFlow.Protocol.Reading.Json) ?? [],
             GitHubLink.Utc(row.ReadAt))).ToList();
         return new WaitingList(
-            waiting.Count(item => !item.SentBack) + own.Count + cards.Count + stoppedCards.Count + refusedCards.Count + failingProjects.Count + decided.Count + features.Count + questionCards.Count + (relink ? 1 : 0),
+            waiting.Count(item => !item.SentBack) + own.Count + cards.Count + stoppedCards.Count + refusedCards.Count + failingProjects.Count + decided.Count + features.Count + questionCards.Count + setupProjects.Count + (relink ? 1 : 0),
             relink,
             waiting,
             [.. projects.Select(project =>
@@ -594,7 +628,8 @@ public sealed class WaitingStore(UserDb database, TimeProvider time)
             failingProjects,
             decided,
             features,
-            questionCards);
+            questionCards,
+            setupProjects);
     }
 
     /// <summary>A feature as the list answers it, from its row, with how many of its decisions are
@@ -762,6 +797,8 @@ public sealed class WaitingStore(UserDb database, TimeProvider time)
     private sealed record AskedRow(Guid Id, Guid ProjectId, string ProjectName, string Owner, int Number, string Title, string WebUrl, int? FeatureNumber, string? FeatureTitle, Guid ReadingId, string Questions, DateTime ReadAt);
 
     private sealed record RefusedRow(Guid ProjectId, string ProjectName, string Owner, int Number, string Title, string WebUrl, string Missing, DateTime RefusedAt);
+
+    private sealed record SetupRow(Guid ProjectId, string ProjectName, string Owner, bool Registered, string Version, int ExitCode, DateTime CheckedAt);
 
     private sealed record FailingRow(Guid ProjectId, string ProjectName, string Owner, string Reason, int Failures, DateTime Since, DateTime WaitUntil);
 

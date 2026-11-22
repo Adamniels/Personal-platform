@@ -104,8 +104,9 @@ public static class SetupStore
     public const string CheckStep = "check";
 
     /// <summary>The newest check of project <c>p</c>'s setup version, or of any before it is
-    /// known, as SQL naming its run's id.</summary>
-    private const string NewestSql = """
+    /// known, as SQL naming its run's id; the one the project's page and "Waiting for you"
+    /// show.</summary>
+    internal const string NewestSql = """
         (SELECT c.run_id FROM recipe_checks c
          WHERE c.project_id = p.id AND c.version = coalesce(p.recipe_version, c.version)
          ORDER BY c.checked_at DESC, c.run_id DESC LIMIT 1)

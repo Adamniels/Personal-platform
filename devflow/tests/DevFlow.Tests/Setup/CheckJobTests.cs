@@ -185,6 +185,14 @@ public sealed class CheckJobTests
         Assert.Equal("line 51", shown[0]);
         Assert.Equal("line 250", shown[^1]);
 
+        // "Waiting for you" lists the project under "Setup", and counts it.
+        var waiting = JsonNode.Parse(await Harness.Body(await jobs.Routes.App.Get(Routes.WaitingPath, Contract.Token)))!;
+        var listed = Assert.Single(waiting["setup_projects"]!.AsArray())!;
+        Assert.Equal(jobs.Project, (Guid)listed["project_id"]!);
+        Assert.Equal("setting_up", (string)listed["state"]!);
+        Assert.Equal(1, (int)listed["exit_code"]!);
+        Assert.Equal(1, (int)waiting["count"]!);
+
         // "Check again" hands out another check, once.
         Assert.Equal(StatusCodes.Status204NoContent, (await CheckAgain(jobs)).Response.StatusCode);
         Assert.Equal(StatusCodes.Status409Conflict, (await CheckAgain(jobs)).Response.StatusCode);
@@ -196,6 +204,8 @@ public sealed class CheckJobTests
         Assert.Equal(StatusCodes.Status204NoContent, (await Send(jobs, again, Checked(0))).Response.StatusCode);
         Assert.Equal([("1", false), ("1", true)], await Checks(jobs));
         Assert.Equal(Job.Build, (string)(await jobs.Job())["kind"]!);
+        var after = JsonNode.Parse(await Harness.Body(await jobs.Routes.App.Get(Routes.WaitingPath, Contract.Token)))!;
+        Assert.Empty(after["setup_projects"]!.AsArray());
 
         // Nothing to check again once it passed, and another user's project is not found.
         Assert.Equal(StatusCodes.Status409Conflict, (await CheckAgain(jobs)).Response.StatusCode);
