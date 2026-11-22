@@ -809,9 +809,14 @@ round 2 has it, since its cards build on each other in one branch: a card is let
 no card of its feature has a run under way, nor the feature itself, its reading among them, and
 every card before it is done, stopped, refused or held. A
 card before it in any other state holds it back, whatever that state is, queued and waiting on
-GitHub, ignored, or waiting for the owner, because its work is what the later card builds on: a
-card that is not finished might still change the code under it, and one that is ignored or waits
-for its own blockers is still meant to come first. A stopped, refused or held card is the exception, since
+GitHub, ignored, needing the owner's answers, or waiting for the owner, because its work is what the
+later card builds on: a card that is not finished might still change the code under it, and one
+that is ignored or waits for its own blockers is still meant to come first. A card that needs
+answers is the plainest case: it is the owner's turn as a refused card is, but unlike a refused
+card it is meant to be built as it is, once he answers, and it comes first; a later card built
+meanwhile would be built on code that does not have it yet, and on a guess at answers the earlier
+card's questions were asked to settle. So it holds back as a queued card does, the feature's
+"Inside a feature" decision, and an earlier card that is ready is built while it waits. A stopped, refused or held card is the exception, since
 the spec's "A card stops only when..." has a stop hold back only that card and the cards depending
 on it, and a refused card is the same case: it waits for the owner, as a stopped one does, for an
 answer that may take days, and holding the whole feature for it would stop work that does not need
@@ -852,9 +857,43 @@ build on a guess, and the guess is found at the review or by him, when it is dea
 before is cheap: a reading reads and writes nothing, so it costs a fraction of a build, and it is
 the one moment a choice that is his can reach him while he is still there, as the feature's "What I
 want" puts it, rather than after the night's work. A card read as ready costs one short run; one
-with questions is built on the reader's recommendations, which Dev flow posts on the card so the
-owner sees what was chosen for him; and one too thin is not built at all, `refused` with what it
-lacks, rather than built badly. Answering the questions himself is "Questions before starting".
+with questions waits for the owner's answers, or, with the project's questions off, is built on the
+reader's recommendations, below; and one too thin is not built at all, `refused` with what it lacks,
+rather than built badly.
+
+**Questions on and off.** The setting `questions` decides what a card with questions does, read
+when its reading comes back, as every setting is read at the next decision. On, the card is
+`needs_answers`, the owner's turn, and nothing about it reaches GitHub until he answers: asking him
+is the point of reading before building, the feature's "What I want", and a comment or a label on
+the card before he has answered would be noise on an issue he is about to settle from the page. It
+waits under "Questions before starting", first on "Waiting for you" as the spec's round 7 has it,
+since answering it is what lets a night's work start. Off, the card goes on the reader's
+recommendations, which the app posts on the card so the owner sees what was chosen for him, and the
+build's brief carries them as the answers; a project that wants the agents to run without him,
+"Fully automatic" or "Guided" among the presets, gets that. On is the default, and every project
+there was is on, since a new project starts as "Only I merge", the feature's decision, whose
+preset has questions on. A card already waiting is not let go when the setting is turned off: the
+decision was made when it was read, and the owner can answer it from the page; turning it off
+counts from the next reading. A card picked again after its label came off and on keeps its
+reading, and is held for answers again on the project's read while nobody has answered its
+questions, so it is never built on the recommendations by accident.
+
+**His answers are his comment, posted as him.** The spec's round 2 answers questions on the page of
+what waits for him, and his answers are posted on the card as his comment, with his linked token,
+under "Acting as the owner": the issue then carries the decision in his name, where anyone reading
+the card later sees it, and the build's brief carries the same answers. One comment holds all of a
+card's answers, each question with its answer and "(recommended)" where he accepted the reader's
+recommendation, since the questions are one decision about one card and a comment per question
+would scatter it. Every answer is required: a card is built on all of its answers or not at all,
+and an unanswered question would leave the build guessing, which is what asking was for. The
+answers name the reading they answer, and a page showing an older reading's questions is refused,
+so answers never land on questions that were not the ones shown. They are kept with the reading
+that asked, not on the card, so a later reading's questions never take an earlier reading's
+answers. The comment's id is kept with the reading too, so Dev flow's own answers never read the
+card again, and the card is queued without another reading: the reader's questions are answered,
+and nothing about the card changed. GitHub taking the comment while its answer was lost would
+otherwise post it twice; the same answers sent again find his comment by its exact text and keep
+it, as the app's comments are found by their last line.
 
 **A refusal is marked where the owner reads the card, as a stop is.** The spec's "A stopped or
 refused card is marked on the card itself" settles it: the attention label and one comment from the

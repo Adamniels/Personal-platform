@@ -241,6 +241,12 @@ const actionsApi: ActionsApi = {
 			{ comment },
 		);
 	},
+	answerCard: async (cardId, readingId, answers) => {
+		await client.send("POST", `/cards/${encodeURIComponent(cardId)}/answers`, {
+			reading_id: readingId,
+			answers,
+		});
+	},
 };
 
 /** Dev flow's page, with React Query for what it reads and the toasts its

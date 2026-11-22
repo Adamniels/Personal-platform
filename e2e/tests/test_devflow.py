@@ -1713,6 +1713,9 @@ def test_a_feature_is_read_before_it_is_built(
         headers={"Origin": base_url},
     )
     assert given.status == 200, given.text()
+    # Questions off, so the card with a question goes on the recommendation;
+    # with them on, it waits for my answers, test_i_answer_a_cards_questions.
+    _waits_for_me(page, base_url, project, "never", questions=False)
     _read(page, base_url, project)
 
     # A worker on the image released asks for work and is handed the reading
@@ -3116,6 +3119,132 @@ def _stage_ci(page: Page, devflow_world, commit: str, check_runs: list[dict]) ->
         each for each in repository(world)["commits"] if each["id"] != commit
     ] + [{"id": commit, "statuses": [], "check_runs": check_runs}]
     devflow_world(world)
+
+
+QUESTIONS = [
+    {
+        "question": "Is the list sorted by name or by date?",
+        "recommendation": "By date, newest first",
+        "why": "The habits page beside it sorts so",
+    },
+    {
+        "question": "Does an empty list show a sentence or nothing?",
+        "recommendation": "A sentence saying there are no habits yet",
+        "why": "An empty page looks broken",
+    },
+    {
+        "question": "Is the count shown beside the heading?",
+        "recommendation": "Yes, in the mono font",
+        "why": "Every group on the platform shows its count so",
+    },
+]
+
+
+def test_i_answer_a_cards_questions(
+    page: Page, invite_code: str, base_url: str, viewport: str, devflow_world
+):
+    """With questions on, as a new project has them, a card read with
+    questions waits for me under "Questions before starting" on "Waiting for
+    you". I accept two recommendations and write the third answer myself, and
+    send them: they are posted on the card's issue as my comment, and the card
+    is Queued. See "Reading a card" under "Jobs" in devflow/README.md."""
+    register_and_log_in(page, invite_code, base_url)
+    world = one_repository()
+    add_issue(world, CARD, CARD_TITLE, labels=["devflow"])
+    add_file(
+        world,
+        ".devflow/project.json",
+        json.dumps({"version": 1, "check": CHECK, "start": "", "url": ""}).encode(),
+    )
+    _open_project(page, base_url, devflow_world, world)
+    project = page.url.rsplit("/", 1)[1]
+    given = page.request.put(
+        "/devflow/api/claude-login",
+        data={"token": CLAUDE_TOKEN},
+        headers={"Origin": base_url},
+    )
+    assert given.status == 200, given.text()
+    _read(page, base_url, project)
+    _fake_read(
+        page,
+        base_url,
+        project,
+        [
+            {
+                "number": CARD,
+                "outcome": "questions",
+                "questions": QUESTIONS,
+                "missing": [],
+            }
+        ],
+    )
+
+    # Nothing is posted on the card while it waits for me.
+    world = repository(page.request.get("/devflow/api/fake/world").json())
+    assert not [
+        conversation
+        for conversation in world["conversations"]
+        if conversation["number"] == CARD and conversation["comments"]
+    ]
+
+    # "Waiting for you" lists it first, under "Questions before starting",
+    # each question with the recommendation and why, and counts it.
+    page.goto("/devflow")
+    group = page.get_by_role("region", name=re.compile("^Questions before starting"))
+    asked = group.get_by_role("article", name=CARD_TITLE)
+    expect(asked).to_be_visible()
+    expect(asked).to_contain_text(f"{OWNER}/{NAME}")
+    questions = asked.get_by_role("group")
+    expect(questions).to_have_count(3)
+    for at, question in enumerate(QUESTIONS):
+        expect(questions.nth(at)).to_contain_text(question["question"])
+        expect(questions.nth(at)).to_contain_text(question["recommendation"])
+        expect(questions.nth(at)).to_contain_text(question["why"])
+    expect(page.get_by_role("tab", name="Waiting for you 1")).to_be_visible()
+    send = asked.get_by_role("button", name="Send answers")
+    expect(send).to_be_disabled()
+
+    # One answer written; the look of the three questions with it.
+    questions.nth(1).get_by_label("Or your own answer").fill(
+        "Nothing at all, the page hides the list"
+    )
+    _look(page, "devflow-waiting-questions")
+
+    # The other two accepted, and sent.
+    questions.nth(0).get_by_role("button", name="Accept").click()
+    questions.nth(2).get_by_role("button", name="Accept").click()
+    expect(send).to_be_enabled()
+    send.click()
+    expect(page.get_by_text(f"Answers sent; #{CARD} is queued")).to_be_visible()
+    expect(group).to_have_count(0)
+
+    # The card is Queued, and my answers are on its issue as my comment.
+    page.goto(f"/devflow/projects/{project}")
+    row = (
+        page.get_by_role("list", name="Cards")
+        .get_by_role("listitem")
+        .filter(has=page.get_by_text(f"#{CARD}", exact=True))
+    )
+    expect(row).to_contain_text("Queued")
+    world = repository(page.request.get("/devflow/api/fake/world").json())
+    mine = [
+        comment
+        for conversation in world["conversations"]
+        if conversation["number"] == CARD
+        for comment in conversation["comments"]
+        if comment["author"] == OWNER_LOGIN
+    ]
+    assert len(mine) == 1, mine
+    body = mine[0]["body"]
+    assert (
+        "1. Is the list sorted by name or by date?\n"
+        "   - Answer: By date, newest first (recommended)\n"
+    ) in body
+    assert (
+        "2. Does an empty list show a sentence or nothing?\n"
+        "   - Answer: Nothing at all, the page hides the list\n"
+    ) in body
+    assert "   - Answer: Yes, in the mono font (recommended)\n" in body
 
 
 def _waits_for_me(

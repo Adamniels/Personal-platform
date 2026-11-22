@@ -18,9 +18,10 @@ ALTER TABLE cards ADD CONSTRAINT cards_state_check
 -- the reading's order, each {answer, recommended}, the recommendation accepted or his own text,
 -- kept with the reading that asked them, so a later reading's questions never take an earlier
 -- reading's answers. comment_id holds the comment they were posted in, as him, so it never reads
--- the card again. Null until he answers, and for any outcome but questions.
+-- the card again, when GitHub's answer named it. Null until he answers, and for any outcome but
+-- questions.
 ALTER TABLE card_readings
     ADD COLUMN answers jsonb CHECK (jsonb_typeof(answers) = 'array'),
     ADD COLUMN answered_at timestamptz,
     ADD CONSTRAINT card_readings_answered CHECK ((answers IS NULL) = (answered_at IS NULL)),
-    ADD CONSTRAINT card_readings_answers_outcome CHECK (answers IS NULL OR (outcome = 'questions' AND comment_id IS NOT NULL));
+    ADD CONSTRAINT card_readings_answers_outcome CHECK (answers IS NULL OR outcome = 'questions');

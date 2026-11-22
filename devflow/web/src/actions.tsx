@@ -37,7 +37,19 @@ export type ActionsApi = FeatureMergeApi & {
 	/** Sends a whole feature back with the owner's comment, posted as him on
 	 * its pull request, which starts its fix. */
 	sendBackFeature: SendBackFeature;
+	/** Sends the owner's answers to a card's questions, one for each in
+	 * order, for the reading the page showed; posted as him on its issue,
+	 * which queues it. */
+	answerCard: (
+		cardId: string,
+		readingId: string,
+		answers: GivenAnswer[],
+	) => Promise<void>;
 };
+
+/** One answer as it is sent: the recommendation accepted, or the owner's
+ * own text. */
+export type GivenAnswer = { accept: true } | { text: string };
 
 /** The caller's GitHub link, undefined until the status has been read. */
 export type LinkState = Status["github"]["state"] | undefined;

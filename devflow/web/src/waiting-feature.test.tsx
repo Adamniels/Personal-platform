@@ -126,6 +126,7 @@ function openLinked(
 				loadFeatureMerge: () => Promise.reject(new Error("not offered")),
 				mergeFeature: () => Promise.resolve(),
 				sendBackFeature,
+				answerCard: () => Promise.resolve(),
 			}}
 			now={() => NOW}
 		/>,
@@ -163,6 +164,7 @@ function openActing(
 				loadFeatureMerge: () => Promise.reject(new Error("not offered")),
 				mergeFeature: () => Promise.resolve(),
 				sendBackFeature: () => Promise.resolve(),
+				answerCard: () => Promise.resolve(),
 				...actions,
 			}}
 			now={() => NOW}

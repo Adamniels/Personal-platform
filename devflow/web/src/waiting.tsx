@@ -10,6 +10,7 @@ import { navigate } from "./address";
 import type { GetAnswer } from "./api/client";
 import { DecisionIssue, type DecisionItem } from "./decision-issue";
 import { Inline } from "./format";
+import { QuestionCard } from "./question-card";
 import { RefusedCard } from "./refused-card";
 import { Screenshots, waitingScreenshot } from "./screenshots";
 import { StoppedProject } from "./stopped";
@@ -24,6 +25,7 @@ export type OwnItem = WaitingList["own_items"][number];
 export type CardItem = WaitingList["cards"][number];
 export type StoppedCardItem = WaitingList["stopped_cards"][number];
 export type RefusedCardItem = WaitingList["refused_cards"][number];
+export type QuestionCardItem = WaitingList["question_cards"][number];
 export type FailingProjectItem = WaitingList["failing_projects"][number];
 type Decision = WaitingItem["decisions"][number];
 type Freshness = WaitingList["projects"][number];
@@ -67,6 +69,9 @@ type Group = {
 	stopped?: StoppedCardItem[];
 	/** Dev flow's own cards refused as too thin to build. */
 	refused?: RefusedCardItem[];
+	/** Dev flow's own cards that wait for the owner's answers to their
+	 * questions. */
+	asked?: QuestionCardItem[];
 	/** The decisions to look at, the issues Dev flow opened for them. */
 	decided?: DecisionItem[];
 	/** Dev flow's own features ready for the owner's review, or waiting for
@@ -85,7 +90,8 @@ type Act = {
 	reload: () => Promise<unknown>;
 };
 
-/** The six groups, in their order: Dev flow's waiting cards and the
+/** The seven groups, in their order: Dev flow's cards that wait for the
+ * owner's answers before they start; Dev flow's waiting cards and the
  * waiting items not sent back; Dev flow's features ready for the owner's
  * review, or waiting for him; what stopped, Dev flow's stopped projects
  * first, then the projects that cannot run their cards, its stopped cards and
@@ -98,6 +104,11 @@ function groups(list: WaitingList, name: (item: WaitingItem) => string) {
 		(a, b) => compare(name(a), name(b)) || a.number - b.number,
 	);
 	const all: Group[] = [
+		{
+			label: "Questions before starting",
+			items: [],
+			asked: list.question_cards,
+		},
 		{
 			label: "Pull requests waiting",
 			items: sorted.filter(
@@ -139,6 +150,7 @@ const size = (group: Group) =>
 	(group.failing?.length ?? 0) +
 	(group.stopped?.length ?? 0) +
 	(group.refused?.length ?? 0) +
+	(group.asked?.length ?? 0) +
 	(group.decided?.length ?? 0) +
 	(group.features?.length ?? 0);
 
@@ -222,6 +234,7 @@ export function Waiting({
 					list.cards.length === 0 &&
 					list.stopped_cards.length === 0 &&
 					list.refused_cards.length === 0 &&
+					list.question_cards.length === 0 &&
 					list.failing_projects.length === 0 &&
 					list.decisions.length === 0 &&
 					list.features.length === 0 ? (
@@ -358,6 +371,16 @@ function GroupSection({
 				<span id={id}>{group.label}</span>{" "}
 				<span className={styles.count}>{size(group)}</span>
 			</h2>
+			{(group.asked ?? []).map((card) => (
+				<QuestionCard
+					key={`${card.project_id}/${card.number}`}
+					card={card}
+					link={act.link}
+					api={act.api}
+					reload={act.reload}
+					linkable={linkable}
+				/>
+			))}
 			{(group.own ?? []).map((stop) => (
 				<StoppedProject
 					key={stop.project_id}

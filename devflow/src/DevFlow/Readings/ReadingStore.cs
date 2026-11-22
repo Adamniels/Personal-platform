@@ -335,11 +335,11 @@ public static class ReadingStore
             UPDATE cards SET state = 'needs_answers', reason = @needsAnswers, changed_at = @now
             WHERE project_id = @projectId AND state = 'queued' AND picked_body IS NOT NULL
               AND (SELECT s.questions FROM project_settings s WHERE s.project_id = cards.project_id)
-              AND EXISTS (SELECT 1 FROM (SELECT cr.outcome, cr.comment_id FROM card_readings cr
+              AND EXISTS (SELECT 1 FROM (SELECT cr.outcome, cr.comment_id, cr.answers FROM card_readings cr
                                          WHERE cr.project_id = cards.project_id AND cr.card_number = cards.number AND cr.outcome IS NOT NULL
                                          ORDER BY cr.read_at DESC, cr.run_id DESC
                                          LIMIT 1) newest
-                          WHERE newest.outcome = 'questions' AND newest.comment_id IS NULL)
+                          WHERE newest.outcome = 'questions' AND newest.comment_id IS NULL AND newest.answers IS NULL)
               AND NOT EXISTS (SELECT 1 FROM runs r WHERE r.project_id = cards.project_id AND r.card_number = cards.number AND r.finished_at IS NULL)
             """,
             new { projectId, needsAnswers = NeedsAnswers, now },
@@ -475,8 +475,8 @@ public static class ReadingStore
     }
 
     /// <summary>The project's cards whose newest reading has questions Dev flow has yet to post,
-    /// read as the project's user, cards still kept, not ignored and not waiting for the owner's
-    /// answers, in number order.</summary>
+    /// read as the project's user, cards still kept, not ignored, not waiting for the owner's
+    /// answers and not answered by him, in number order.</summary>
     public static async Task<IReadOnlyList<PendingQuestions>> Pending(UserDb database, Guid userId, Guid projectId, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(database);
@@ -485,7 +485,7 @@ public static class ReadingStore
             SELECT cr.run_id AS RunId, cr.card_number AS Number, cr.questions::text AS Questions
             FROM card_readings cr
             JOIN cards c ON c.project_id = cr.project_id AND c.number = cr.card_number AND c.state NOT IN ('ignored', 'needs_answers')
-            WHERE cr.project_id = @projectId AND cr.outcome = 'questions' AND cr.comment_id IS NULL
+            WHERE cr.project_id = @projectId AND cr.outcome = 'questions' AND cr.comment_id IS NULL AND cr.answers IS NULL
               AND NOT EXISTS (SELECT 1 FROM card_readings newer
                               WHERE newer.project_id = cr.project_id AND newer.card_number = cr.card_number
                                 AND newer.outcome IS NOT NULL AND newer.read_at > cr.read_at)
@@ -528,7 +528,9 @@ public static class ReadingStore
     /// queues the card, inside <paramref name="transaction"/>, which runs as its user: only while the
     /// card still needs answers and that reading is still its newest, its row locked first, so two
     /// sends never both keep theirs. The comment's id is kept with the reading, so it never reads
-    /// the card again. False, with nothing kept, when the card moved on meanwhile.
+    /// the card again; when GitHub's answer named none, the answers alone mark the reading answered,
+    /// so neither the app's comment nor holding for answers takes it as unanswered. False, with
+    /// nothing kept, when the card moved on meanwhile.
     /// </summary>
     public static async Task<bool> Answered(NpgsqlTransaction transaction, Guid projectId, int number, Guid runId, IReadOnlyList<OwnerAnswer> answers, long? commentId, DateTimeOffset now, CancellationToken cancellationToken)
     {

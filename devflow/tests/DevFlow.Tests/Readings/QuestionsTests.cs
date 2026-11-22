@@ -335,4 +335,20 @@ public sealed class QuestionsTests
                 "SELECT comment_id FROM card_readings WHERE project_id = @project AND card_number = 1", new { project = jobs.Project }, cancellationToken: Ct)));
         Assert.Equal(posted.Body, Mine(jobs)[0].Body);
     }
+
+    [Fact]
+    public async Task AnAnswerWithoutItsCommentsIdStaysAnswered()
+    {
+        await using var jobs = await ReadWithQuestions(signIn: true);
+        var asked = await Asked(jobs);
+        Assert.Equal(StatusCodes.Status204NoContent, (await Answer(jobs, (Guid)asked["id"]!, (Guid)asked["reading_id"]!, null, null, null)).Response.StatusCode);
+
+        // GitHub's answer named no id: the answers alone mark the reading answered, so the app
+        // posts nothing on the recommendations and the project's read does not hold it again.
+        await Merged.Sql(jobs, "UPDATE card_readings SET comment_id = NULL WHERE project_id = @project AND card_number = 1");
+        await PostPending(jobs);
+        await jobs.Routes.Read(jobs.Project, User);
+        Assert.Empty(Stops.Stop.ByApp(jobs, "comment", 1));
+        Assert.Equal("queued", (await jobs.Card(1)).State);
+    }
 }

@@ -127,6 +127,7 @@ function open(
 				loadFeatureMerge: () => Promise.reject(new Error("not offered")),
 				mergeFeature: () => Promise.resolve(),
 				sendBackFeature: () => Promise.resolve(),
+				answerCard: () => Promise.resolve(),
 			}}
 			now={() => NOW}
 		/>,

@@ -329,3 +329,34 @@
 	list-style: disc;
 	overflow-wrap: anywhere;
 }
+
+/* A question to answer, on an inset row as a decision is: what it asks in
+ * the chosen text's weight, the recommendation and why, Accept, then the box
+ * for another answer, a step apart. A fieldset, so its legend names it; the
+ * browser's own border and padding are replaced. */
+.question {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-2);
+	box-sizing: border-box;
+	min-width: 0;
+	margin: 0;
+	padding: 8px 12px 12px;
+	border: 0;
+	border-radius: var(--radius-md);
+	background: var(--surface-2);
+}
+
+/* A legend sits on the fieldset's edge unless it floats; this puts it in the
+ * row's flow, as the first line of the question. */
+.asked {
+	float: left;
+	width: 100%;
+	padding: 0;
+	font-weight: 600;
+	overflow-wrap: anywhere;
+}
+
+.asked + * {
+	clear: both;
+}

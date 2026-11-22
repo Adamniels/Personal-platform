@@ -9,6 +9,8 @@ import {
 	within,
 } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
+import type { ActionsApi } from "./actions";
+import { ApiError } from "./api/client";
 import { App } from "./app";
 import type { WaitingApi, WaitingItem, WaitingList } from "./waiting";
 
@@ -765,5 +767,162 @@ describe("text from the code host is text", () => {
 		expect(
 			sources.filter((path) => readFileSync(path, "utf8").includes(insert)),
 		).toEqual([]);
+	});
+});
+
+describe("questions before starting", () => {
+	const CARD_ID = "33333333-3333-3333-3333-333333333333";
+	const READING = "44444444-4444-4444-4444-444444444444";
+
+	function asked(): WaitingList["question_cards"][number] {
+		return {
+			id: CARD_ID,
+			project_id: PROJECT,
+			project_name: "Personal-platform",
+			owner: "Adamniels",
+			number: 9,
+			title: "Add the habits list",
+			web_url: "https://github.com/Adamniels/Personal-platform/issues/9",
+			feature: { number: 8, title: "Habits" },
+			reading_id: READING,
+			questions: [
+				{
+					question: "Is the list sorted by name or by date?",
+					recommendation: "By date, newest first",
+					why: "The page beside it sorts so",
+				},
+				{
+					question: "Does an empty list show a sentence?",
+					recommendation: "A sentence",
+					why: "Nothing on the page looks broken",
+				},
+				{
+					question: "Is the count beside the heading?",
+					recommendation: "Yes",
+					why: "As every group does",
+				},
+			],
+			read_at: minutesAgo(3),
+		};
+	}
+
+	function openAnswering(answerCard: ActionsApi["answerCard"]) {
+		window.history.pushState(null, "", "/devflow");
+		render(
+			<App
+				loadStatus={() =>
+					Promise.resolve({
+						code_host: "fake",
+						github: { state: "linked", login: "octo-owner" },
+					})
+				}
+				projects={{
+					loadProjects: () => Promise.resolve([]),
+					loadRepositories: () => new Promise(() => {}),
+					connect: () => Promise.resolve(),
+					disconnect: () => Promise.resolve(),
+				}}
+				waiting={answering(
+					list({
+						count: 2,
+						items: [item({ number: 304, kind: "waiting" })],
+						question_cards: [asked()],
+					}),
+				)}
+				actions={{
+					merge: () => Promise.resolve(),
+					sendBack: () => Promise.resolve(),
+					resume: () => Promise.resolve(),
+					mergeCard: () => Promise.resolve(),
+					sendBackCard: () => Promise.resolve(),
+					loadFeatureMerge: () => Promise.reject(new Error("not offered")),
+					mergeFeature: () => Promise.resolve(),
+					sendBackFeature: () => Promise.resolve(),
+					answerCard,
+				}}
+				now={() => NOW}
+			/>,
+		);
+	}
+
+	test("a card's questions are answered in place", async () => {
+		const answerCard = vi
+			.fn<ActionsApi["answerCard"]>()
+			.mockRejectedValueOnce(
+				new ApiError({
+					status: 503,
+					title: "GitHub did not answer",
+					detail: "Nothing was sent. Try again in a moment.",
+				}),
+			)
+			.mockResolvedValueOnce(undefined);
+		openAnswering(answerCard);
+
+		// The group comes first, one entry for the card, with its feature.
+		const group = await panel().findByRole("region", {
+			name: "Questions before starting",
+		});
+		expect(
+			panel()
+				.getAllByRole("region")
+				.map((region) => region.getAttribute("aria-labelledby"))
+				.map((id) => document.getElementById(id ?? "")?.textContent),
+		).toEqual(["Questions before starting", "Pull requests waiting"]);
+		const entry = within(
+			within(group).getByRole("article", { name: "Add the habits list" }),
+		);
+		expect(entry.getByText("Adamniels/Personal-platform")).toBeTruthy();
+		expect(entry.getByText("#9")).toBeTruthy();
+		expect(entry.getByText("#8 Habits")).toBeTruthy();
+
+		// Each question with the recommendation and why; nothing is sent
+		// until every question has an answer.
+		const questions = entry.getAllByRole("group");
+		expect(questions).toHaveLength(3);
+		const first = within(questions[0] as HTMLElement);
+		const second = within(questions[1] as HTMLElement);
+		const third = within(questions[2] as HTMLElement);
+		expect(
+			first.getByText("Is the list sorted by name or by date?"),
+		).toBeTruthy();
+		expect(first.getByText("By date, newest first")).toBeTruthy();
+		expect(first.getByText("The page beside it sorts so")).toBeTruthy();
+		const send = entry.getByRole("button", { name: "Send answers" });
+		expect((send as HTMLButtonElement).disabled).toBe(true);
+
+		// Accept the first and third, write another answer for the second.
+		fireEvent.click(first.getByRole("button", { name: "Accept" }));
+		expect(
+			first
+				.getByRole("button", { name: "Accepted" })
+				.getAttribute("aria-pressed"),
+		).toBe("true");
+		fireEvent.change(second.getByLabelText("Or your own answer"), {
+			target: { value: "No, nothing at all" },
+		});
+		expect((send as HTMLButtonElement).disabled).toBe(true);
+		fireEvent.click(third.getByRole("button", { name: "Accept" }));
+		expect((send as HTMLButtonElement).disabled).toBe(false);
+
+		// A failed send says why and keeps what was typed.
+		fireEvent.click(send);
+		expect((await entry.findByRole("alert")).textContent).toBe(
+			"GitHub did not answer. Nothing was sent. Try again in a moment.",
+		);
+		expect(
+			(second.getByLabelText("Or your own answer") as HTMLTextAreaElement)
+				.value,
+		).toBe("No, nothing at all");
+		expect(first.getByRole("button", { name: "Accepted" })).toBeTruthy();
+
+		// Sent again, the answers go in the order of the questions.
+		fireEvent.click(entry.getByRole("button", { name: "Send answers" }));
+		await waitFor(() => expect(answerCard).toHaveBeenCalledTimes(2));
+		expect(answerCard).toHaveBeenLastCalledWith(CARD_ID, READING, [
+			{ accept: true },
+			{ text: "No, nothing at all" },
+			{ accept: true },
+		]);
+		expect(await screen.findByText("Answers sent; #9 is queued")).toBeTruthy();
 	});
 });
