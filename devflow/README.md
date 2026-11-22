@@ -2041,9 +2041,10 @@ that ran with `0` ends `succeeded`, any other exit code `check_failed`.
 version, the commit, whether it passed, its exit code, its last 200 lines, its pictures' names or
 why there are none, when, and `again_at`, when the owner asked for another after it failed; and
 `recipe_check_pictures`, each picture's bytes under its check and name. A version counts as checked
-once one check of it passed. A project is `setting_up` until any version has passed and its settings
-step is done, then `registered`; a later version that fails holds back only its own workers. Every project connected
-before this, Fodr among them, starts `setting_up` and is checked once. The migration is
+once one check of it passed. A project is `setting_up` until any version has passed and its
+settings step is done, then `registered`; a later version that fails holds back only its own
+workers. Every project connected before this, Fodr among them, starts `setting_up` and is checked
+once. The migration is
 `migrations/0042_recipe_checks.sql`, which also lets a run of kind `check` name neither card nor
 feature and adds `runs.recipe_version` with one check of a version under way at a time.
 
