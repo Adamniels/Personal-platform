@@ -15,7 +15,9 @@ namespace DevFlow.Worker.Build;
 /// feature's branch from the commit it was handed, with the default branch's commit beside it, held
 /// to one merge commit of the two and pushed only once its check passed, see "A conflict" there; and
 /// a whole feature's fix as a card's fix, on the feature's branch, pushed only once its agent reported
-/// it done and its check passed, see "Fixing a feature" there. Root clones the repository with the push key into a bare
+/// it done and its check passed, see "Fixing a feature" there; and a setup job as a build with no
+/// card and no check, on the setup's branch, whose files Dev flow validates, see "Setting up a
+/// project" there. Root clones the repository with the push key into a bare
 /// repository of its own; the agent clones that, through a bundle root writes in a folder only root
 /// can write, into its working copy, and works
 /// there as <c>agent</c> within the time limit; what it left uncommitted is committed in its copy,
@@ -58,18 +60,22 @@ internal sealed partial class BuildJob(DevFlowClient devFlow, Guid workerId, Job
             return;
         }
 
-        if (job?.Card is null || !(job.Kind == Job.Build || (job.Kind is Job.Fix or Job.FeatureFix && job.ToFix is not null) || (job.Kind == Job.Conflict && job.ToResolve is not null)))
+        // A setup is no card's: it sets the project up on a branch of its own.
+        var setup = job is { Kind: Job.Setup, Card: null };
+        if (job is null || !(setup || (job.Card is not null && (job.Kind == Job.Build || (job.Kind is Job.Fix or Job.FeatureFix && job.ToFix is not null) || (job.Kind == Job.Conflict && job.ToResolve is not null)))))
         {
-            Log.Write("The job is not a build, a fix, a conflict or a check job this worker can read; it is left.");
+            Log.Write("The job is not a build, a fix, a conflict, a setup or a check job this worker can read; it is left.");
             return;
         }
 
         Log.Write(job.Kind switch
         {
-            Job.Fix => $"Fixing card #{job.Card.Number} on {job.Branch}, job {job.JobId}.",
-            Job.FeatureFix => $"Fixing feature #{job.Card.Number} on its branch {job.Branch}, job {job.JobId}.",
-            Job.Conflict => $"Bringing {job.Base} into {job.Branch}, the branch of feature #{job.Card.Number}, job {job.JobId}.",
-            _ => $"Building card #{job.Card.Number} on {job.Branch}, job {job.JobId}.",
+            Job.Setup when job.ToFix is not null => $"Fixing the project's setup on {job.Branch}, job {job.JobId}.",
+            Job.Setup => $"Setting the project up on {job.Branch}, job {job.JobId}.",
+            Job.Fix => $"Fixing card #{job.Card!.Number} on {job.Branch}, job {job.JobId}.",
+            Job.FeatureFix => $"Fixing feature #{job.Card!.Number} on its branch {job.Branch}, job {job.JobId}.",
+            Job.Conflict => $"Bringing {job.Base} into {job.Branch}, the branch of feature #{job.Card!.Number}, job {job.JobId}.",
+            _ => $"Building card #{job.Card!.Number} on {job.Branch}, job {job.JobId}.",
         });
         var started = Time.GetTimestamp();
         Outcome outcome;
@@ -142,7 +148,9 @@ internal sealed partial class BuildJob(DevFlowClient devFlow, Guid workerId, Job
             // so the check is not run for it.
             var featureFixDone = job.Kind != Job.FeatureFix || ReportedDone(result);
             CheckResult? check = null;
-            if (result.Succeeded && featureFixDone)
+            // A setup runs on a worker started from the base image, which cannot install the
+            // project's tools, so it runs no check: what it pushed is validated by Dev flow.
+            if (result.Succeeded && featureFixDone && job.Kind != Job.Setup)
             {
                 await Progress(job, stopping);
                 check = await Check(job, paths, stopping);
@@ -163,7 +171,7 @@ internal sealed partial class BuildJob(DevFlowClient devFlow, Guid workerId, Job
             // Pictures only of a card's work that passed its check and was pushed: of any other,
             // a feature's fix among them, nobody reads them, and taking them would spend minutes of
             // a worker.
-            var screenshots = result.Succeeded && check is { ExitCode: 0 } && job.Kind != Job.FeatureFix
+            var screenshots = result.Succeeded && check is { ExitCode: 0 } && job.Kind is not (Job.FeatureFix or Job.Setup)
                 ? await WhileSeen(job, () => Screenshots(job, paths, head, result, stopping), stopping)
                 : null;
             return new Outcome(result.Failure, result, check, head, screenshots);

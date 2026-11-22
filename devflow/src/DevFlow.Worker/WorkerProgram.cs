@@ -60,7 +60,7 @@ internal static class WorkerProgram
             : null;
         switch (kind)
         {
-            case Job.Build or Job.Fix or Job.Conflict or Job.FeatureFix or Job.RecipeCheck:
+            case Job.Build or Job.Fix or Job.Conflict or Job.FeatureFix or Job.RecipeCheck or Job.Setup:
                 return build.Run(job, stopping);
             case Job.Review or Job.FeatureReview:
                 return review.Run(job, stopping);
