@@ -46,6 +46,7 @@ public sealed class RunSettingsTests
             ["run_turns"] = 200,
             ["fix_rounds_card"] = 3,
             ["fix_rounds_feature"] = 3,
+            ["questions"] = true,
         };
         foreach (var (field, value) in changes)
         {

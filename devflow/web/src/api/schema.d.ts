@@ -431,12 +431,12 @@ export interface paths {
         };
         /**
          * A project's settings
-         * @description The labels that pick and hold its cards, mark what needs the caller and mark a card for their review; whether a card's pull request waits for them, never, sometimes or always, with the three conditions of sometimes and the paths it watches; and its trusted accounts, the GitHub logins whose cards, edits and comments count, the caller's linked login first and marked as theirs. 404 for a project the caller does not have. Without a valid token, 401 with an empty body; a change from another origin, 403.
+         * @description The labels that pick and hold its cards, mark what needs the caller and mark a card for their review; whether a card's pull request waits for them, never, sometimes or always, with the three conditions of sometimes and the paths it watches; its trusted accounts, the GitHub logins whose cards, edits and comments count, the caller's linked login first and marked as theirs; the model that reads, builds and reviews its cards and the limits of its runs; and questions, whether a card its reading found questions in waits for the caller's answers rather than going on the reader's recommendations. 404 for a project the caller does not have. Without a valid token, 401 with an empty body; a change from another origin, 403.
          */
         get: operations["getProjectSettings"];
         /**
          * Change a project's settings
-         * @description Takes all ten and answers them as saved. A label is written, at most 50 characters, with no space at either end and no comma, and the four are different names whatever their case; waits_for_owner is never, sometimes or always, and sometimes has at least one of wait_when_marked, wait_when_paths and wait_when_decision; wait_paths is at most 100 glob patterns of at most 200 characters, none starting with ! or /, and a pattern given twice is kept once; trusted_logins is a list of GitHub logins that holds the caller's linked login, and a login given twice whatever its case is kept once. 422 naming each field that breaks a rule, 404 for a project the caller does not have. Without a valid token, 401 with an empty body; a change from another origin, 403.
+         * @description Takes all eighteen and answers them as saved. A label is written, at most 50 characters, with no space at either end and no comma, and the four are different names whatever their case; waits_for_owner is never, sometimes or always, and sometimes has at least one of wait_when_marked, wait_when_paths and wait_when_decision; wait_paths is at most 100 glob patterns of at most 200 characters, none starting with ! or /, and a pattern given twice is kept once; trusted_logins is a list of GitHub logins that holds the caller's linked login, and a login given twice whatever its case is kept once; each model is opus, sonnet or haiku, and each limit within its range; questions is true or false. 422 naming each field that breaks a rule, 404 for a project the caller does not have. Without a valid token, 401 with an empty body; a change from another origin, 403.
          */
         put: operations["saveProjectSettings"];
         post?: never;
@@ -1336,6 +1336,7 @@ export interface components {
             model_reading: string;
             model_reviewing: string;
             pickup_label: string;
+            questions: boolean;
             review_label: string;
             /** Format: int32 */
             run_minutes: number;
@@ -1476,6 +1477,7 @@ export interface components {
             model_reading: null | string;
             model_reviewing: null | string;
             pickup_label: null | string;
+            questions: null | boolean;
             review_label: null | string;
             /** Format: int32 */
             run_minutes: null | number;

@@ -52,6 +52,7 @@ public sealed class SometimesSettingsTests
             ["run_turns"] = 200,
             ["fix_rounds_card"] = 3,
             ["fix_rounds_feature"] = 3,
+            ["questions"] = true,
         };
 
     private static JsonArray Patterns(params string[] patterns) => new([.. patterns.Select(pattern => (JsonNode)pattern)]);
