@@ -64,7 +64,7 @@ public static partial class JobEndpoints
                 : WorkerEndpoints.NoSuchJob();
     }
 
-    private static async Task<Results<NoContent, ProblemHttpResult>> Result(Guid id, ResultRequest request, HttpContext context, [FromServices] UserDb database, [FromServices] WorkerStore workers, [FromServices] WorkerStart start, [FromServices] MergeRequests merges, [FromServices] ICodeHost host, [FromServices] TimeProvider time)
+    private static async Task<Results<NoContent, ProblemHttpResult>> Result(Guid id, ResultRequest request, HttpContext context, [FromServices] UserDb database, [FromServices] Values.ProjectValues values, [FromServices] WorkerStore workers, [FromServices] WorkerStart start, [FromServices] MergeRequests merges, [FromServices] ICodeHost host, [FromServices] TimeProvider time)
     {
         var caller = context.Worker();
         // The rules depend on the job's kind, a check's being its own; a run the worker does not
@@ -96,7 +96,7 @@ public static partial class JobEndpoints
             result = validated;
         }
 
-        var recorded = await Complete(database, caller, id, worker, result, Now(time), context.RequestAborted);
+        var recorded = await Complete(database, values, caller, id, worker, result, Now(time), context.RequestAborted);
         if (recorded == Recorded.Stored)
         {
             // A review that approved has its card checked for a merge now, without the worker
@@ -113,10 +113,45 @@ public static partial class JobEndpoints
         };
     }
 
-    /// <summary>Records a result for the run, as a worker's result route does; the fake worker
-    /// completes its jobs through it too.</summary>
-    internal static Task<Recorded> Complete(UserDb database, WorkerCaller caller, Guid runId, Guid workerId, RunResult result, DateTimeOffset now, CancellationToken cancellationToken) =>
-        RunStore.Record(database, caller.UserId, caller.ProjectId, runId, workerId, result, now, cancellationToken);
+    /// <summary>Records a result for the run, as a worker's result route does, every known value
+    /// of the project scrubbed from it first; the fake worker completes its jobs through it too, so
+    /// nothing a worker sends is stored any other way.</summary>
+    internal static async Task<Recorded> Complete(UserDb database, Values.ProjectValues values, WorkerCaller caller, Guid runId, Guid workerId, RunResult result, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(values);
+        ArgumentNullException.ThrowIfNull(caller);
+        var scrub = await values.ScrubFor(caller.UserId, caller.ProjectId, cancellationToken);
+        return await RunStore.Record(database, caller.UserId, caller.ProjectId, runId, workerId, Scrubbed(result, scrub), now, cancellationToken);
+    }
+
+    /// <summary>
+    /// <paramref name="result"/> with each of <paramref name="scrub"/>'s values scrubbed from every
+    /// text it holds: the report, a reading's and a verdict's among them, the failure's reason, the
+    /// check's output, the auth method, Claude's usage, the standard error the worker kept, the
+    /// refused actions, the pictures' note and a conflict's remerge diff. The branch and the commit
+    /// are the job's own and checked against it, a picture's name is one Dev flow's rule allows and
+    /// its bytes are not text, so these are kept. A text with a length limit is cut to it after,
+    /// the placeholder being longer than some values.
+    /// </summary>
+    internal static RunResult Scrubbed(RunResult result, ValueScrub scrub)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        ArgumentNullException.ThrowIfNull(scrub);
+        return scrub.IsEmpty ? result : result with
+        {
+            Report = scrub.ScrubOrNull(result.Report),
+            FailureReason = scrub.ScrubOrNull(result.FailureReason),
+            CheckOutput = scrub.ScrubOrNull(result.CheckOutput),
+            AuthMethod = Cut(scrub.ScrubOrNull(result.AuthMethod), MaxText),
+            Usage = scrub.Scrub(result.Usage),
+            Stderr = scrub.Scrub(result.Stderr),
+            PermissionDenials = scrub.ScrubOrNull(result.PermissionDenials),
+            Screenshots = result.Screenshots is { } taken ? taken with { Note = Cut(scrub.ScrubOrNull(taken.Note), PageShots.MostNote) } : null,
+            RemergeDiff = scrub.ScrubOrNull(result.RemergeDiff),
+        };
+    }
+
+    private static string? Cut(string? text, int most) => text is not null && text.Length > most ? text[..most] : text;
 
     /// <summary>The result, when <paramref name="request"/> breaks no rule for a job of
     /// <paramref name="kind"/>; null otherwise, and <see cref="Errors"/> names each.</summary>

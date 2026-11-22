@@ -150,7 +150,9 @@ public sealed class GitHubSettingsTests
     {
         await using var harness = await Harness.Start(Load());
 
-        Assert.IsType<GitHubCodeHost>(harness.Services.GetRequiredService<ICodeHost>());
+        // Every part of Dev flow gets the scrub of the project's values, GitHub's adapter behind it.
+        Assert.IsType<ScrubbingCodeHost>(harness.Services.GetRequiredService<ICodeHost>());
+        Assert.IsType<GitHubCodeHost>(harness.Services.GetRequiredKeyedService<ICodeHost>(ScrubbingCodeHost.Unscrubbed));
         // The fake's addresses do not exist.
         Assert.Equal(404, (await harness.Get("/devflow/api/fake/world", Contract.Token)).Response.StatusCode);
     }

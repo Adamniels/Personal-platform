@@ -51,32 +51,42 @@ internal abstract partial class WorkerJob(DevFlowClient client, Guid workerId, J
     /// <paramref name="failure"/>, failed with it otherwise; the check's result when one ran, the
     /// commit, the agent's usage, standard error and refused actions as they came, and a build's
     /// pictures when they were tried, and a conflict's remerge diff; for a check, its pictures'
-    /// bytes, since it pushes nothing.
+    /// bytes, since it pushes nothing. Every text in it has each of the project's values the job
+    /// carried scrubbed first, so none leaves the container in clear, even to Dev flow, which scrubs
+    /// it again; a picture's bytes are not text, and are sent as they are.
     /// </summary>
     protected async Task Send(Job job, AgentFailure? failure, AgentResult? agent, CheckResult? check, string? head, TimeSpan duration, CancellationToken stopping, ResultScreenshots? screenshots = null, string? remergeDiff = null, IReadOnlyList<ResultPicture>? pictures = null)
     {
         ArgumentNullException.ThrowIfNull(job);
+        var scrub = new ValueScrub(job.Values ?? []);
         var request = new ResultRequest(
             WorkerId,
             failure is null ? ResultRequest.Succeeded : ResultRequest.Failed,
-            failure is null && agent?.Report is { } report ? JsonSerializer.SerializeToElement(report, WorkerApi.Json) : null,
-            failure is { } failed ? new RunFailure(failed.Reason, failed.Side == FailureSide.Card, failed.TimedOut, failed.ResetsAt) : null,
-            check,
+            failure is null && agent?.Report is { } report ? JsonSerializer.SerializeToElement(scrub.Scrub(report), WorkerApi.Json) : null,
+            failure is { } failed ? new RunFailure(scrub.Scrub(failed.Reason), failed.Side == FailureSide.Card, failed.TimedOut, failed.ResetsAt) : null,
+            check is null ? null : check with { Output = scrub.ScrubOrNull(check.Output) },
             job.Branch,
             head,
-            agent?.AuthMethod,
-            JsonSerializer.SerializeToElement(agent?.Usage ?? new JsonObject(), WorkerApi.Json),
+            Cut(scrub.ScrubOrNull(agent?.AuthMethod), MostAuthMethod),
+            JsonSerializer.SerializeToElement(scrub.Scrub(agent?.Usage ?? new JsonObject()), WorkerApi.Json),
             (long)duration.TotalMilliseconds,
-            Last(agent?.Stderr ?? "", TailLines),
-            JsonSerializer.SerializeToElement(agent?.Denials ?? new JsonArray(), WorkerApi.Json),
-            screenshots,
-            remergeDiff,
+            scrub.Scrub(Last(agent?.Stderr ?? "", TailLines)),
+            JsonSerializer.SerializeToElement(scrub.Scrub(agent?.Denials ?? new JsonArray()), WorkerApi.Json),
+            screenshots is null ? null : screenshots with { Note = Cut(scrub.ScrubOrNull(screenshots.Note), PageShots.MostNote) },
+            scrub.ScrubOrNull(remergeDiff),
             pictures);
         var answer = await Patiently(() => Client.Result(job.JobId, request, stopping), "the result", stopping);
         Log.Write(answer.Kind == AnswerKind.Done
             ? $"Sent the result: {request.Outcome}{(request.Failure is { } sent ? $", {sent.Reason}" : "")}."
             : $"Dev flow did not take the result: {answer.Detail}.");
     }
+
+    /// <summary>The longest auth method Dev flow takes.</summary>
+    private const int MostAuthMethod = 255;
+
+    /// <summary><paramref name="text"/> cut to <paramref name="most"/> characters, a scrubbed text
+    /// being longer than the value it replaced; null for null.</summary>
+    private static string? Cut(string? text, int most) => text is { Length: > 0 } && text.Length > most ? text[..most] : text;
 
     /// <summary>The agent, as <c>agent</c>, in <paramref name="workingDirectory"/> with
     /// <paramref name="access"/>, with the job's brief, schema, model, limits, Claude token and the

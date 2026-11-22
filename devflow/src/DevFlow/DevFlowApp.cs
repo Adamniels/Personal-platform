@@ -278,9 +278,37 @@ public static class DevFlowApp
     /// </summary>
     private static void AddCodeHost(IServiceCollection services, DevFlowSettings settings)
     {
+        AddUnscrubbedCodeHost(services, settings);
+        ScrubPosts(services);
+    }
+
+    /// <summary>
+    /// Puts <see cref="ScrubbingCodeHost"/> in front of the code host registered, which moves to
+    /// the key <see cref="ScrubbingCodeHost.Unscrubbed"/>: so every part of Dev flow that asks for
+    /// an <see cref="ICodeHost"/>, a test's own behind it included, posts through the one scrub of
+    /// the project's values. See "Setting up a project" in devflow/README.md.
+    /// </summary>
+    private static void ScrubPosts(IServiceCollection services)
+    {
+        var registered = services.Last(service => service.ServiceType == typeof(ICodeHost) && !service.IsKeyedService);
+        services.Remove(registered);
+        services.Add(registered switch
+        {
+            { ImplementationInstance: ICodeHost instance } => ServiceDescriptor.KeyedSingleton(ScrubbingCodeHost.Unscrubbed, instance),
+            { ImplementationFactory: { } factory } => ServiceDescriptor.KeyedSingleton<ICodeHost>(ScrubbingCodeHost.Unscrubbed, (provider, _) => (ICodeHost)factory(provider)),
+            { ImplementationType: { } type } => ServiceDescriptor.KeyedSingleton(typeof(ICodeHost), ScrubbingCodeHost.Unscrubbed, type),
+            _ => throw new InvalidOperationException("the code host is registered in a way Dev flow does not know"),
+        });
+        services.AddSingleton<ICodeHost>(provider => new ScrubbingCodeHost(
+            provider.GetRequiredKeyedService<ICodeHost>(ScrubbingCodeHost.Unscrubbed), provider.GetRequiredService<ProjectValues>()));
+    }
+
+    private static void AddUnscrubbedCodeHost(IServiceCollection services, DevFlowSettings settings)
+    {
         if (services.Any(service => service.ServiceType == typeof(ICodeHost)))
         {
-            services.TryAddSingleton(provider => provider.GetRequiredService<ICodeHost>() as ICodeHostSignIn
+            // The test's own code host, not the scrub in front of it, is the sign in when it signs in.
+            services.TryAddSingleton(provider => provider.GetRequiredKeyedService<ICodeHost>(ScrubbingCodeHost.Unscrubbed) as ICodeHostSignIn
                 ?? throw new InvalidOperationException("the code host a test registered does not sign in, and registered no ICodeHostSignIn"));
             return;
         }
