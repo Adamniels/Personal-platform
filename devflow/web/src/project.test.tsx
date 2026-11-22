@@ -7,6 +7,7 @@ import {
 	within,
 } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
+import { ApiError } from "./api/client";
 import {
 	heldNotice,
 	NO_WORKER,
@@ -24,7 +25,10 @@ import {
 import type { Project } from "./projects";
 import {
 	CHECK_RUNNING,
+	COMMENT_ON_PULL,
+	COMMENT_RUNS_AGAIN,
 	type ProjectSetup,
+	RUN_SETUP_AGAIN,
 	SETTING_UP,
 	type SetupCheck,
 } from "./setup";
@@ -77,16 +81,24 @@ const EMPTY: WorkerList = {
 	held: null,
 };
 
+/** The command that starts the project's setup worker. */
+const SETUP_COMMAND =
+	"{ docker rm -f devflow-fodr-setup 2>/dev/null; docker run -d --name devflow-fodr-setup --memory 2g --env-file ~/.devflow/fodr.env -e DEVFLOW_URL=http://host.docker.internal:9080 -e DEVFLOW_BASE_IMAGE=devflow-worker:dev devflow-worker:dev; }";
+
 /** A project registered, every step done, with no check to show. */
 const REGISTERED: ProjectSetup = {
 	state: "registered",
 	steps: [
+		{ step: "setup", done: true },
 		{ step: "recipe", done: true },
 		{ step: "worker", done: true },
 		{ step: "check", done: true },
 	],
 	check: null,
 	checking: false,
+	problem: null,
+	setup_command: SETUP_COMMAND,
+	setup: null,
 };
 
 function renderPage(
@@ -132,6 +144,8 @@ function renderPage(
 		),
 		loadCards: vi.fn(() => Promise.resolve({ cards: [], features: [] })),
 		loadSetup: vi.fn(() => Promise.resolve(setup)),
+		mergeSetup: vi.fn(() => Promise.resolve()),
+		runSetupAgain: vi.fn(() => Promise.resolve()),
 		checkAgain: vi.fn(() => {
 			if (setup.check)
 				setup = { ...setup, check: { ...setup.check, again_asked: true } };
@@ -164,13 +178,192 @@ describe("a project's setup", () => {
 	const failed: ProjectSetup = {
 		state: "setting_up",
 		steps: [
+			{ step: "setup", done: true },
 			{ step: "recipe", done: true },
 			{ step: "worker", done: true },
 			{ step: "check", done: false },
 		],
 		check: failedCheck,
 		checking: false,
+		problem: null,
+		setup_command: SETUP_COMMAND,
+		setup: null,
 	};
+
+	const HEAD = "9b1c0de4f6c1c36b0bd2c24e3d5a8f5d8c0e0a3a";
+
+	/** A project with no .devflow/, its setup run approved and waiting. */
+	const waiting: ProjectSetup = {
+		state: "setting_up",
+		steps: [
+			{ step: "setup", done: false },
+			{ step: "recipe", done: false },
+			{ step: "worker", done: false },
+			{ step: "check", done: false },
+		],
+		check: null,
+		checking: false,
+		problem: ".devflow/Dockerfile is missing.",
+		setup_command: SETUP_COMMAND,
+		setup: {
+			number: 1,
+			branch: "devflow/setup",
+			state: "waiting_for_owner",
+			reason: "Approved; it waits for you to merge it",
+			pull_request_number: 7,
+			pull_request_url: "https://github.com/Adamniels/fodr/pull/7",
+			running: false,
+			head_commit: HEAD,
+			report: {
+				summary: "Wrote a recipe with Postgres, and a check that starts it.",
+				proposed: { preset: "guided", why: "Its migrations.", paths: [] },
+				variables: [
+					{ name: "STRIPE_TEST_KEY", why: "The payment tests call Stripe." },
+				],
+				unsettled: [
+					{
+						kind: "real_secret",
+						detail: "The export tests upload to the real bucket.",
+					},
+					{
+						kind: "containers_in_tests",
+						detail: "The integration tests start Redis.",
+					},
+				],
+				decisions: [],
+				handover: "",
+			},
+			review: {
+				verdict: "approve",
+				summary: "The recipe installs only Postgres.",
+				blocking: 0,
+				commit: HEAD,
+			},
+		},
+	};
+
+	test("a project without .devflow/ shows its setup run, its command and what it could not settle", async () => {
+		const { mergeSetup, copy } = renderPage({ setup: waiting });
+
+		const panel = await screen.findByRole("article", { name: "Setting up" });
+		const run = within(panel).getByRole("region", { name: "The setup run" });
+		// Why it is due, and the command that starts its worker, to copy.
+		expect(
+			within(run).getByText(".devflow/Dockerfile is missing."),
+		).toBeTruthy();
+		expect(within(run).getByText(SETUP_COMMAND)).toBeTruthy();
+		fireEvent.click(
+			within(run).getByRole("button", { name: "Copy the command" }),
+		);
+		expect(copy).toHaveBeenCalledWith(SETUP_COMMAND);
+		// Where it is, its review, and its pull request.
+		expect(within(run).getByText("Waits for you")).toBeTruthy();
+		expect(
+			within(run).getByText("Approved; it waits for you to merge it."),
+		).toBeTruthy();
+		expect(
+			within(run).getByText("The recipe installs only Postgres."),
+		).toBeTruthy();
+		expect(
+			within(run)
+				.getByRole("link", { name: "Pull request #7" })
+				.getAttribute("href"),
+		).toBe("https://github.com/Adamniels/fodr/pull/7");
+		// What it could not settle, each by its kind.
+		const unsettled = within(run).getByRole("list", {
+			name: "What it could not settle",
+		});
+		expect(
+			within(unsettled)
+				.getAllByRole("listitem")
+				.map((item) => item.textContent),
+		).toEqual([
+			"Needs a real secretThe export tests upload to the real bucket.",
+			"Its tests start containersThe integration tests start Redis.",
+		]);
+		expect(within(run).getByText("STRIPE_TEST_KEY")).toBeTruthy();
+		// Merged from the step as the owner, at the commit shown.
+		fireEvent.click(within(run).getByRole("button", { name: "Merge" }));
+		await waitFor(() => expect(mergeSetup).toHaveBeenCalledWith(ID, HEAD));
+	});
+
+	/** The setup stopped before it had a pull request, twice in a row. */
+	const stoppedSetup = (pull: number | null): ProjectSetup => ({
+		...waiting,
+		setup: {
+			...(waiting.setup as NonNullable<ProjectSetup["setup"]>),
+			state: "stopped",
+			reason:
+				"Failed twice in a row: The setup failed: it reached the most turns",
+			pull_request_number: pull,
+			pull_request_url:
+				pull === null ? null : `https://github.com/Adamniels/fodr/pull/${pull}`,
+			head_commit: null,
+			report: null,
+			review: null,
+		},
+	});
+
+	test("a setup stopped before it had a pull request runs again on a comment from its step", async () => {
+		const { runSetupAgain, loadSetup } = renderPage({
+			setup: stoppedSetup(null),
+		});
+
+		const panel = await screen.findByRole("article", { name: "Setting up" });
+		const run = within(panel).getByRole("region", { name: "The setup run" });
+		expect(within(run).getByText("Stopped")).toBeTruthy();
+		expect(
+			within(run).getByText(
+				"Failed twice in a row: The setup failed: it reached the most turns.",
+			),
+		).toBeTruthy();
+		expect(within(run).queryByRole("button", { name: "Merge" })).toBeNull();
+		fireEvent.click(within(run).getByRole("button", { name: RUN_SETUP_AGAIN }));
+		const send = within(run).getByRole("button", { name: "Send" });
+		expect((send as HTMLButtonElement).disabled).toBe(true);
+		fireEvent.change(within(run).getByLabelText(COMMENT_RUNS_AGAIN), {
+			target: { value: "Use Postgres 16." },
+		});
+		fireEvent.click(send);
+		await waitFor(() =>
+			expect(runSetupAgain).toHaveBeenCalledWith(ID, "Use Postgres 16."),
+		);
+		await waitFor(() => expect(loadSetup).toHaveBeenCalledTimes(2));
+	});
+
+	test("a refused comment from the step says why", async () => {
+		const { runSetupAgain } = renderPage({ setup: stoppedSetup(null) });
+		runSetupAgain.mockImplementation(() =>
+			Promise.reject(
+				new ApiError({
+					status: 409,
+					title: "This setup is not run again from here",
+					detail:
+						"It has a pull request; comment on it on GitHub to run it again.",
+				}),
+			),
+		);
+
+		const run = await screen.findByRole("region", { name: "The setup run" });
+		fireEvent.click(within(run).getByRole("button", { name: RUN_SETUP_AGAIN }));
+		fireEvent.change(within(run).getByLabelText(COMMENT_RUNS_AGAIN), {
+			target: { value: "Again." },
+		});
+		fireEvent.click(within(run).getByRole("button", { name: "Send" }));
+		expect((await within(run).findByRole("alert")).textContent).toBe(
+			"This setup is not run again from here. It has a pull request; comment on it on GitHub to run it again.",
+		);
+	});
+
+	test("a setup stopped with a pull request is run again by a comment on it", async () => {
+		renderPage({ setup: stoppedSetup(9) });
+
+		const run = await screen.findByRole("region", { name: "The setup run" });
+		expect(within(run).getByText(COMMENT_ON_PULL)).toBeTruthy();
+		expect(
+			within(run).queryByRole("button", { name: RUN_SETUP_AGAIN }),
+		).toBeNull();
+	});
 
 	test("a project setting up shows its steps in place of its features", async () => {
 		const { loadCards, loadSetup } = renderPage({ setup: failed });
@@ -184,6 +377,7 @@ describe("a project's setup", () => {
 				.getAllByRole("listitem")
 				.map((step) => step.textContent),
 		).toEqual([
+			"DoneA valid .devflow/ on the default branch",
 			"DoneThe recipe on the default branch",
 			"DoneA worker on the recipe",
 			"To doThe check passed",

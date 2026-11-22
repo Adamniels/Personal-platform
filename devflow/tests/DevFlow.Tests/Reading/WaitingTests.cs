@@ -117,6 +117,7 @@ public sealed class WaitingTests
             ["question_cards"] = new JsonArray(),
             // Nor has a check of its setup failed.
             ["setup_projects"] = new JsonArray(),
+            ["setup_runs"] = new JsonArray(),
         };
         Assert.True(JsonNode.DeepEquals(expected, waited), waited.ToJsonString());
         // Bob's two are stored, and none of them is the caller's.

@@ -62,6 +62,7 @@ function list(decisions: DecisionItem[]): WaitingList {
 		question_cards: [],
 		failing_projects: [],
 		setup_projects: [],
+		setup_runs: [],
 		features: [],
 		decisions,
 	};

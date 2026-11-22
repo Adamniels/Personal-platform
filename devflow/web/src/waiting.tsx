@@ -13,7 +13,12 @@ import { Inline } from "./format";
 import { QuestionCard } from "./question-card";
 import { RefusedCard } from "./refused-card";
 import { Screenshots, waitingScreenshot } from "./screenshots";
-import { type SetupProjectItem, WaitingSetup } from "./setup";
+import {
+	type SetupProjectItem,
+	type SetupRunItem,
+	WaitingSetup,
+	WaitingSetupRun,
+} from "./setup";
 import { StoppedProject } from "./stopped";
 import { FailingProject, StoppedCard } from "./stopped-card";
 import styles from "./waiting.module.css";
@@ -80,6 +85,8 @@ type Group = {
 	features?: FeatureItem[];
 	/** Dev flow's projects whose newest check of their setup failed. */
 	setup?: SetupProjectItem[];
+	/** Dev flow's projects whose setup run waits for the owner or stopped. */
+	setupRuns?: SetupRunItem[];
 	muted?: boolean;
 	/** Whether the first item's Merge is the view's one primary button,
 	 * design/DESIGN.md's rule; the others are secondary. */
@@ -134,7 +141,12 @@ function groups(list: WaitingList, name: (item: WaitingItem) => string) {
 			failing: list.failing_projects,
 			stopped: list.stopped_cards,
 		},
-		{ label: "Setup", items: [], setup: list.setup_projects },
+		{
+			label: "Setup",
+			items: [],
+			setup: list.setup_projects,
+			setupRuns: list.setup_runs,
+		},
 		{ label: "Refused", items: [], refused: list.refused_cards },
 		{ label: "Decisions to look at", items: [], decided },
 		{
@@ -157,7 +169,8 @@ const size = (group: Group) =>
 	(group.asked?.length ?? 0) +
 	(group.decided?.length ?? 0) +
 	(group.features?.length ?? 0) +
-	(group.setup?.length ?? 0);
+	(group.setup?.length ?? 0) +
+	(group.setupRuns?.length ?? 0);
 
 const compare = new Intl.Collator("en", { sensitivity: "base" }).compare;
 
@@ -242,6 +255,7 @@ export function Waiting({
 					list.question_cards.length === 0 &&
 					list.failing_projects.length === 0 &&
 					list.setup_projects.length === 0 &&
+					list.setup_runs.length === 0 &&
 					list.decisions.length === 0 &&
 					list.features.length === 0 ? (
 						<EmptyState
@@ -398,6 +412,9 @@ function GroupSection({
 			))}
 			{(group.failing ?? []).map((project) => (
 				<FailingProject key={project.project_id} project={project} />
+			))}
+			{(group.setupRuns ?? []).map((project) => (
+				<WaitingSetupRun key={project.project_id} project={project} />
 			))}
 			{(group.setup ?? []).map((project) => (
 				<WaitingSetup key={project.project_id} project={project} />

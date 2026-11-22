@@ -110,6 +110,8 @@ export function ProjectPage({
 	loadCards,
 	loadSetup,
 	checkAgain,
+	mergeSetup,
+	runSetupAgain,
 }: ProjectPageProps) {
 	const [project, setProject] = useState<Project | null>();
 	const [failed, setFailed] = useState(false);
@@ -220,6 +222,9 @@ export function ProjectPage({
 							id={id}
 							setup={setup}
 							checkAgain={checkAgain}
+							mergeSetup={mergeSetup}
+							runSetupAgain={runSetupAgain}
+							copy={copy}
 							reload={reloadSetup}
 						/>
 					) : null}

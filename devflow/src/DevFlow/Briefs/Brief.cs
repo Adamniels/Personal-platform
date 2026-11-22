@@ -50,6 +50,10 @@ public sealed record BriefFacts(string Check, string Branch, string Base, Guid J
 /// review.</summary>
 public sealed record ReviewFacts(string Commit, string Branch, string Base, int EarlierRounds = 0);
 
+/// <summary>Where a setup run works: the setup's branch, <c>devflow/setup</c> or
+/// <c>devflow/setup-&lt;k&gt;</c>, and the default branch it is made from.</summary>
+public sealed record SetupFacts(string Branch, string Base);
+
 /// <summary>What a fix brief answers: the round, the report of the run before it, the review that
 /// sent the card back and the owner's comments, each exactly as stored.</summary>
 /// <param name="Round">The fix round, or null when the owner's comment started it.</param>
@@ -116,6 +120,10 @@ public static class Brief
     private static readonly Lazy<string> FeatureFixerTemplate = new(() => Embedded("feature-fixer"));
 
     private static readonly Lazy<string> ReaderTemplate = new(() => Embedded("reader"));
+
+    private static readonly Lazy<string> SetupTemplate = new(() => Embedded("setup"));
+
+    private static readonly Lazy<string> SetupReviewerTemplate = new(() => Embedded("setup-reviewer"));
 
     /// <summary>What the brief says in place of looking, for a project without a <c>start</c> or a
     /// <c>url</c>: nothing can be started, so no page is looked at.</summary>
@@ -539,6 +547,67 @@ public static class Brief
             ["earlier"] = facts.EarlierRounds == 0
                 ? "This is the card's first review.\n"
                 : string.Create(CultureInfo.InvariantCulture, $"This is not the card's first review: it was sent back {facts.EarlierRounds} {(facts.EarlierRounds == 1 ? "time" : "times")} before, and `review/earlier.json` holds each round. Judge the whole change again, from `{facts.Base}` to the commit, not only what changed since: a finding that still holds is still blocking, a reply that argues one is weighed on its merits, and a new finding counts as any other.\n"),
+        });
+    }
+
+    /// <summary>
+    /// The setup run's brief, <c>setup.md</c>, the same for every project, as Settled in the slice
+    /// "The setup run": read the repository and write <c>.devflow/Dockerfile</c> and
+    /// <c>.devflow/project.json</c> by their format, every value of a test a throwaway, what it could
+    /// not settle said rather than guessed, and no check, which the base image cannot run. A fix of
+    /// the setup's pull request adds what to fix, <see cref="SetupFix"/>; a setup started again by
+    /// the owner's comment on one that stopped adds his comments the same way.
+    /// </summary>
+    public static string Setup(SetupFacts facts, FixInput? fix = null)
+    {
+        ArgumentNullException.ThrowIfNull(facts);
+        return Fill(SetupTemplate.Value, new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["branch"] = facts.Branch,
+            ["base"] = facts.Base,
+            ["fix"] = fix is null ? "" : SetupFix(fix),
+        });
+    }
+
+    /// <summary>
+    /// What a setup's fix answers, as a card's fix section has it: the round or the owner's comment,
+    /// the earlier report as it came, the review's blocking findings and its nits, and each of his
+    /// comments exactly as written, each fenced so none can end its quote. A setup's report has no
+    /// replies, so each finding and comment is answered in <c>decisions</c>.
+    /// </summary>
+    private static string SetupFix(FixInput fix)
+    {
+        var opening = fix.Round is { } round
+            ? string.Create(CultureInfo.InvariantCulture, $"The setup was written before, and its pull request is open. You continue its branch from where the last run left it: fix what is asked below, and do not start again. This is fix round {round} of {fix.Rounds}: the reviewer asked for changes.\n\n")
+            : "The setup ran before, and the owner commented on it, on its pull request or, when it stopped before it had one, on its step. His comment below is your input, and it is not one of the review's rounds. Where the branch already holds an earlier run's work, continue from it rather than start again.\n\n";
+        var section = new StringBuilder(WhatToFix(fix, opening, "setup"));
+        var replies = section.ToString().LastIndexOf("Every finding gets a reply in `replies`", StringComparison.Ordinal);
+        if (replies >= 0)
+        {
+            section.Length = replies;
+        }
+
+        return section.Append("Your report has no `replies`: answer every finding and each comment of the owner's in `decisions`, with what you changed or why you did not as `chosen`, and the finding in a few words in `why`.\n\n").ToString();
+    }
+
+    /// <summary>
+    /// The setup's reviewer brief, <c>setup-reviewer.md</c>, the same for every project: the commit
+    /// to review on the setup's branch, and, as Settled in the slice "The setup run", whether the
+    /// recipe installs only what the check and the start need, beside whether the check would pass,
+    /// no real secret, and what it could not settle said. Its first review or a later one that judges
+    /// the whole again with the earlier rounds beside it.
+    /// </summary>
+    public static string SetupReviewer(ReviewFacts facts)
+    {
+        ArgumentNullException.ThrowIfNull(facts);
+        return Fill(SetupReviewerTemplate.Value, new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["commit"] = facts.Commit,
+            ["branch"] = facts.Branch,
+            ["base"] = facts.Base,
+            ["earlier"] = facts.EarlierRounds == 0
+                ? "This is the setup's first review.\n"
+                : string.Create(CultureInfo.InvariantCulture, $"This is not the setup's first review: it was sent back {facts.EarlierRounds} {(facts.EarlierRounds == 1 ? "time" : "times")} before, and `review/earlier.json` holds each round. Judge the whole change again, not only what changed since.\n"),
         });
     }
 

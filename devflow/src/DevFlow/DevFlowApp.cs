@@ -175,6 +175,10 @@ public static class DevFlowApp
             database, provider.GetRequiredService<ICodeHost>(), settings.PublicOrigin, provider.GetRequiredService<ILogger<Readings.RefusalMarker>>()));
         builder.Services.AddSingleton(provider => new Readings.QuestionComments(
             database, provider.GetRequiredService<ICodeHost>(), settings.PublicOrigin, provider.GetRequiredService<ILogger<Readings.QuestionComments>>()));
+        // Opening, following and taking the owner's comments on each setup's pull request, on the
+        // same minute. See "Setting up a project" in devflow/README.md.
+        builder.Services.AddSingleton(provider => new Setup.SetupLoop(
+            database, provider.GetRequiredService<ICodeHost>(), provider.GetRequiredService<TimeProvider>(), provider.GetRequiredService<ILogger<Setup.SetupLoop>>()));
         if (settings.PollInterval is { } interval)
         {
             builder.Services.AddHostedService(provider => new Poller(
@@ -192,6 +196,7 @@ public static class DevFlowApp
                 provider.GetRequiredService<StopMarker>(),
                 provider.GetRequiredService<Readings.QuestionComments>(),
                 provider.GetRequiredService<Readings.RefusalMarker>(),
+                provider.GetRequiredService<Setup.SetupLoop>(),
                 provider.GetRequiredService<TimeProvider>(),
                 interval,
                 provider.GetRequiredService<ILogger<OpeningLoop>>()));

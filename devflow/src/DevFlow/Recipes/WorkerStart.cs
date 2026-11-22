@@ -88,6 +88,22 @@ public sealed record WorkerStart(string Image, Uri WorkerUrl, string Origin)
             $"{{ docker rm -f devflow-{name}-1 2>/dev/null; docker run -d --name devflow-{name}-1 --restart unless-stopped --memory 2g --env-file {file} -e DEVFLOW_URL={url} devflow-{name}; }}");
     }
 
+    /// <summary>
+    /// The command a project's setup step shows while it has no valid <c>.devflow/</c>: it replaces
+    /// the project's setup worker, <c>devflow-&lt;project&gt;-setup</c>, with one started from the base
+    /// image itself, with the key from the file the first command saved, 2 GB of memory and the base
+    /// image named, so it is not held back for another. No recipe is fetched and nothing is built:
+    /// the image sets no recipe version, so the worker reports none and is handed only the setup's
+    /// jobs. It is not restarted with the machine: once the setup is merged it gets no work, and is
+    /// told to build the recipe instead. See "Setting up a project" in devflow/README.md.
+    /// </summary>
+    public string SetupCommand(string repository)
+    {
+        var name = ProjectName(repository);
+        var url = WorkerUrl.GetLeftPart(UriPartial.Authority);
+        return $"{{ docker rm -f devflow-{name}-setup 2>/dev/null; docker run -d --name devflow-{name}-setup --memory 2g --env-file ~/.devflow/{name}.env -e DEVFLOW_URL={url} -e DEVFLOW_BASE_IMAGE={Image} {Image}; }}";
+    }
+
     /// <summary>The shell that prints the recipe's version from the headers <c>curl -D</c> wrote
     /// to <paramref name="headers"/>, whatever the case of the header's name and without the
     /// carriage return each line ends in.</summary>

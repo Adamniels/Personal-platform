@@ -27,8 +27,8 @@ public enum VersionCheck
 }
 
 /// <summary>A step of setting a project up, and whether it is done.</summary>
-/// <param name="Step"><see cref="SetupStore.RecipeStep"/>, <see cref="SetupStore.WorkerStep"/> or
-/// <see cref="SetupStore.CheckStep"/>.</param>
+/// <param name="Step"><see cref="SetupRunStore.SetupStep"/>, <see cref="SetupStore.RecipeStep"/>,
+/// <see cref="SetupStore.WorkerStep"/> or <see cref="SetupStore.CheckStep"/>.</param>
 /// <param name="Done">Whether it is done.</param>
 public sealed record SetupStep(string Step, bool Done);
 
@@ -54,7 +54,12 @@ public sealed record SetupCheck(Guid Id, string Version, string Commit, bool Pas
 /// <param name="Check">The newest check of the project's setup version, or, before that version is
 /// known, of any; null before one has run.</param>
 /// <param name="Checking">Whether a check of that version is running now.</param>
-public sealed record ProjectSetup(string State, IReadOnlyList<SetupStep> Steps, SetupCheck? Check, bool Checking);
+/// <param name="Problem">Why the default branch's <c>.devflow/</c> is not valid, as the loop last
+/// read it, so the setup step is due; null when it is valid or not read yet.</param>
+/// <param name="SetupCommand">The command that starts the project's setup worker from the base
+/// image, <see cref="Recipes.WorkerStart.SetupCommand"/>.</param>
+/// <param name="Setup">The project's newest setup run, null before it has one.</param>
+public sealed record ProjectSetup(string State, IReadOnlyList<SetupStep> Steps, SetupCheck? Check, bool Checking, string? Problem, string SetupCommand, SetupRun? Setup);
 
 /// <summary>What asking for another check comes to.</summary>
 public enum CheckAgain
@@ -118,14 +123,15 @@ public static class SetupStore
     /// or null when the user has no such project. The later parts of setting up add their steps
     /// among these.
     /// </summary>
-    public static async Task<ProjectSetup?> Of(UserDb database, Guid userId, Guid projectId, CancellationToken cancellationToken)
+    public static async Task<ProjectSetup?> Of(UserDb database, Guid userId, Guid projectId, Recipes.WorkerStart start, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(database);
+        ArgumentNullException.ThrowIfNull(start);
         return await database.InUserTransaction(userId, async transaction =>
         {
             var row = await transaction.Connection!.QuerySingleOrDefaultAsync<StepsRow>(new CommandDefinition(
                 $"""
-                SELECT p.recipe_version IS NOT NULL AS Recipe,
+                SELECT p.name AS Name, p.devflow_problem AS Problem, p.devflow_valid IS TRUE AS Setup, p.recipe_version IS NOT NULL AS Recipe,
                        EXISTS (SELECT 1 FROM workers w WHERE w.project_id = p.id AND w.recipe_version = p.recipe_version) AS Worker,
                        EXISTS (SELECT 1 FROM recipe_checks c WHERE c.project_id = p.id AND c.version = p.recipe_version AND c.passed) AS Passed,
                        EXISTS (SELECT 1 FROM recipe_checks c WHERE c.project_id = p.id AND c.passed) AS Registered,
@@ -159,9 +165,12 @@ public static class SetupStore
 
             return new ProjectSetup(
                 row.Registered ? Registered : SettingUp,
-                [new SetupStep(RecipeStep, row.Recipe), new SetupStep(WorkerStep, row.Worker), new SetupStep(CheckStep, row.Passed)],
+                [new SetupStep(SetupRunStore.SetupStep, row.Setup), new SetupStep(RecipeStep, row.Recipe), new SetupStep(WorkerStep, row.Worker), new SetupStep(CheckStep, row.Passed)],
                 check,
-                row.Checking);
+                row.Checking,
+                row.Problem,
+                start.SetupCommand(row.Name),
+                await SetupRunStore.Newest(transaction, projectId, cancellationToken));
         }, cancellationToken);
     }
 
@@ -205,7 +214,7 @@ public static class SetupStore
             cancellationToken: cancellationToken)), cancellationToken);
     }
 
-    private sealed record StepsRow(bool Recipe, bool Worker, bool Passed, bool Registered, bool Checking, Guid? Newest);
+    private sealed record StepsRow(string Name, string? Problem, bool Setup, bool Recipe, bool Worker, bool Passed, bool Registered, bool Checking, Guid? Newest);
 
     /// <summary>A check's row; a class rather than a positional record, since Npgsql answers a
     /// <c>text[]</c> column as an array Dapper matches only to a property.</summary>

@@ -995,7 +995,7 @@ public static class JobStore
         return await database.InUserTransaction(userId, transaction => transaction.Connection!.ExecuteScalarAsync<bool>(new CommandDefinition(
             """
             SELECT EXISTS (SELECT 1 FROM runs
-                           WHERE id = @runId AND project_id = @projectId AND worker_id = @workerId AND kind IN ('build', 'fix', 'conflict', 'feature_fix')
+                           WHERE id = @runId AND project_id = @projectId AND worker_id = @workerId AND kind IN ('build', 'fix', 'conflict', 'feature_fix', 'setup')
                              AND finished_at IS NULL)
             """,
             new { runId, projectId, workerId },

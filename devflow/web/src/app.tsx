@@ -109,6 +109,20 @@ const projectApi: ProjectApi = {
 			`/projects/${encodeURIComponent(id)}/setup/check-again`,
 		);
 	},
+	mergeSetup: async (id, head) => {
+		await client.send(
+			"POST",
+			`/projects/${encodeURIComponent(id)}/setup/merge`,
+			{ head_commit: head },
+		);
+	},
+	runSetupAgain: async (id, comment) => {
+		await client.send(
+			"POST",
+			`/projects/${encodeURIComponent(id)}/setup/run-again`,
+			{ comment },
+		);
+	},
 	saveSettings: (id, settings) =>
 		client.send<ProjectSettings>(
 			"PUT",

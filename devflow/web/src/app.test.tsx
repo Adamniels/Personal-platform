@@ -40,6 +40,8 @@ function openAt(path: string) {
 				loadCards: () => new Promise(() => {}),
 				loadSetup: () => new Promise(() => {}),
 				checkAgain: () => Promise.resolve(),
+				mergeSetup: () => Promise.resolve(),
+				runSetupAgain: () => Promise.resolve(),
 			}}
 			projects={{
 				loadProjects: () => Promise.resolve([]),
@@ -57,6 +59,7 @@ function openAt(path: string) {
 						question_cards: [],
 						failing_projects: [],
 						setup_projects: [],
+						setup_runs: [],
 						features: [],
 						items: [],
 						projects: [],

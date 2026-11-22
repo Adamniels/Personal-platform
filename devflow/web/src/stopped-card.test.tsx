@@ -82,6 +82,7 @@ function list(
 		question_cards: [],
 		failing_projects: failingProjects,
 		setup_projects: [],
+		setup_runs: [],
 		decisions: [],
 	};
 }

@@ -1923,6 +1923,71 @@ worker built from that version runs, before that worker takes any other job. Why
 "Setting up a project" in `docs/devflow-architecture.md`. The code is `src/DevFlow/Setup/`, the
 worker's side `src/DevFlow.Worker/Build/BuildJob.Checking.cs`.
 
+**A valid `.devflow/`** is both files on the default branch, `.devflow/Dockerfile` by the recipe
+route's rules and `.devflow/project.json` by its schema, `SetupFiles.Problem`. Each read of the
+project records whether it is, `projects.devflow_valid`, and why not, `devflow_problem`, from
+`migrations/0043_setup_runs.sql`; null before the first read, which hands out no setup on a guess.
+Missing or invalid, the project's first step is the setup run.
+
+**The setup run.** The setup step shows a command, `WorkerStart.SetupCommand`, that starts a worker
+from the base image itself, with no recipe and no build, under the key file "Make a key" saved:
+
+```zsh
+{ docker rm -f devflow-fodr-setup 2>/dev/null; docker run -d --name devflow-fodr-setup --memory 2g --env-file ~/.devflow/fodr.env -e DEVFLOW_URL=<DEVFLOW_WORKER_URL> -e DEVFLOW_BASE_IMAGE=<DEVFLOW_WORKER_IMAGE> <DEVFLOW_WORKER_IMAGE>; }
+```
+
+It names its base image so it is not held back for another, and is not restarted with the
+machine. Its image sets no recipe version, so it reports `unset`, `WorkerApi.NoVersion`. A worker
+with no recipe version is handed only a setup's jobs, `SetupRunStore.NextKind`, while its project's
+`.devflow/` is not valid, and otherwise nothing, needing a rebuild, `recipe`, as a worker on an old
+recipe does; it is never handed a check. Its jobs need the Claude login, as a card's do.
+
+- **The run**, kind `setup`: no card, `devflow/setup`, or `devflow/setup-<k>` for the project's
+  `k`th setup, made from the default branch, the brief `Briefs/setup.md`, the form
+  `contracts/devflow/setup.schema.json`, an empty `check`, the building model, the project's limits
+  and a key that pushes. The worker runs the agent, commits what it left and pushes, and runs no
+  check, see "The worker".
+- **The report**, `DevFlow.Protocol`'s `SetupReport`: `summary`; `proposed`, `preset`
+  (`fully_automatic`, `guided` or `only_i_merge`), `why` and `paths`; `variables`, each `name` and
+  `why`; `unsettled`, each `kind`, `real_secret`, `containers_in_tests`, `macos_needed` or `other`, and
+  `detail`; and a build's `decisions` and `handover`. `SetupReport.Schema()` writes the schema,
+  pinned by the worker's `SetupFormTests`.
+- **What it pushed is validated** by the result route, before the run is judged: both files are
+  read as the app at the commit it names, and the result is recorded as its check,
+  `Dev flow's validation of .devflow/`, exit 0 or 1 with why; GitHub not answering is `503`, and the
+  worker sends the result again. A failure in the setup, a report out of its form, nothing pushed and
+  a validation that failed each run it again once, "Failed once, so it runs again", and stop it the
+  second time in a row, as a card's do; a failure outside puts it back and makes the project wait.
+- **Its pull request**, on the minute, `SetupLoop`: opened as the app from its branch into the
+  default branch, titled "Set up Dev flow", its body `SetupText` with the summary, what it could not
+  settle, what it proposes, the values its tests need, its decisions and the validation, every text
+  made safe as a card's is, and rewritten after each fix. It opens only once what it wrote is
+  valid: one that stopped before then has none, and is run again from its step.
+- **Reviewed and fixed like a card's**: a `review` job, the setup's pull request as its card,
+  `Briefs/setup-reviewer.md`, which also asks whether the recipe installs only what the check and
+  the start need, the reviewing model, a key that only fetches; `changes` starts a fix round, a
+  `setup` job with `to_fix`, in the project's `fix_rounds_card`, and its rounds used up stop it.
+  The run's kinds in the database are `setup` and `setup_review`.
+- **It always waits for me.** Approved, it is `waiting_for_owner`, "Approved; it waits for you to
+  merge it", whatever the settings: the merge check reads only cards. I merge it from the step,
+  `POST /devflow/api/projects/{id}/setup/merge` with `{"head_commit"}`, as myself with my linked
+  token, refused as a card's merge is, or on GitHub; the minute follows it, merged is `done`, closed
+  is stopped, "The pull request was closed".
+- **Stopped**, my comment on its pull request, by a trusted account, after it stopped, runs it again
+  as a fix with the comment, or opens a new pull request from the same branch when the old one
+  closed. One that stopped before it had a pull request, whatever stopped it, has nothing on GitHub
+  to comment on, so my comment from its step, `POST /devflow/api/projects/{id}/setup/run-again`,
+  runs it again the same way: a fix of its branch when a run pushed to it, a first run again when
+  none did, with the comment in its brief, its failures counted afresh, "You commented on it; it
+  runs again next". A run under way when its pull request closes leaves it stopped, "The pull
+  request was closed", until my comment there.
+
+The table, `setups`, guarded like every scoped one: one row per setup, `(project_id, number)`,
+its branch, state (`queued`, `checking`, `reviewing`, `fixing`, `waiting_for_owner`, `stopped`,
+`done`), reason, pull request, which every state but `queued`, `checking`, `fixing` and `stopped`
+has, fix rounds, the comments its next run answers, and its failures in a row; at most one not done
+per project. `runs.setup_number` names a setup's runs.
+
 **The check job**, kind `check`, handed out by `jobs/next` to a worker whose version has no check
 that passed, when no check of that version is running and its newest check, if any, failed and
 the owner asked for another; a worker on a version whose newest check failed gets `204` until then
@@ -1957,24 +2022,37 @@ feature and adds `runs.recipe_version` with one check of a version under way at 
 **The routes**, under the `Api` policy:
 
 - `GET /devflow/api/projects/{id}/setup`: `{"state": "setting_up" or "registered", "steps": [{"step", "done"}], "check": … or null, "checking"}`.
-  The steps in their order: `recipe`, a version of `.devflow/` read from the default branch;
-  `worker`, a worker built from that version said hello; `check`, a check of that version passed.
-  The later slices of part 6 add the setup run before the first, and the settings and the values
-  before the second. `check` is the newest check of the project's version, or of any before it is
-  known, with `id`, `version`, `commit`, `passed`, `exit_code`, `output`, `pictures`,
-  `pictures_note`, `checked_at` and `again_asked`; `checking` says a check of that version runs.
+  The steps in their order: `setup`, a valid `.devflow/` on the default branch; `recipe`, a version
+  of `.devflow/` read from the default branch; `worker`, a worker built from that version said
+  hello; `check`, a check of that version passed. The later slices of part 6 add the settings and
+  the values before `worker`. It also answers `problem`, why `.devflow/` is not valid, or null;
+  `setup_command`; and `setup`, the newest setup run with its state, reason, pull request, head,
+  newest report in its form and the review of its head, or null. `check` is the newest check of
+  the project's version, or of any before it is known, with `id`, `version`, `commit`, `passed`,
+  `exit_code`, `output`, `pictures`, `pictures_note`, `checked_at` and `again_asked`; `checking`
+  says a check of that version runs.
 - `POST /devflow/api/projects/{id}/setup/check-again`: `204`, and the next worker on that version
   that asks is handed another check; `409` when the newest check did not fail or another was
   already asked for.
+- `POST /devflow/api/projects/{id}/setup/run-again` with `{"comment"}`: `204`, and the setup that
+  stopped before it had a pull request runs again with the comment; `422` for a comment missing,
+  empty or over 10,000 characters, as a send back's; `409` when the newest setup has not stopped, has
+  a pull request, is running, or the project no longer needs one.
 - `GET /devflow/api/projects/{id}/setup/checks/{check}/pictures/{name}`: the PNG as stored, as
   `image/png` with `nosniff`, `default-src 'none'` and `private, max-age=3600`; `404` otherwise.
 
 **On the page**: while the project is setting up, its Setup panel stands in place of its Cards
 panel, with the steps, each done or to do, the newest check with its output and its pictures, and
 "Check again" when it failed; a registered project whose newest check failed shows the panel above
-its cards. "Waiting for you" lists under "Setup" a project whose newest check failed with no other
-asked for, and counts it; a project merely setting up is not listed, since a project connected only
-so Dev flow reads this repository's runner would sit there for good.
+its cards; while the setup step is due it shows why, the setup command to copy, and the setup run,
+where it is, its pull request, its review, what it could not settle by kind, what it proposes, the
+values its tests need, "Merge" when it waits for me, and, when it stopped, "Comment on its pull
+request, and it runs again." or, with no pull request, "Comment to run again", which opens a box
+labelled "A comment runs it again." with Send. "Waiting for you" lists under "Setup" a project
+whose newest check failed with no other asked for, and one whose setup run waits for me or stopped
+while its `.devflow/` is not valid, `setup_runs`, `src/setup.tsx`'s `WaitingSetupRun`, and counts
+each; a project merely setting up is not listed, since a project connected only so Dev flow reads
+this repository's runner would sit there for good.
 
 **In the fake mode**, the fake worker passes a check it is handed unasked, so a test of anything
 after setting up never meets it; with `for_check`, its prepared result ends the check instead. The
