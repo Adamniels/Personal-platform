@@ -76,6 +76,13 @@ const OUTCOMES: Record<string, { word: string; tone: StatusTone }> = {
 	too_thin: { word: "Too thin to build", tone: "failed" },
 };
 
+/** What an earlier reading answered, as a word and a tone, by its outcome. */
+const EARLIER: Record<string, { word: string; tone: StatusTone }> = {
+	ready: { word: "Ready", tone: "done" },
+	questions: { word: "Questions", tone: "idle" },
+	too_thin: { word: "Too thin", tone: "failed" },
+};
+
 /** What the review of a fix's commit said of it, after "the review of it". */
 const AFTER: Record<string, string> = {
 	approve: "approved it",
@@ -215,7 +222,11 @@ export function CardPage({
 				</div>
 			</Panel>
 			{story.reading === null ? null : (
-				<Reading reading={story.reading} state={story.state} />
+				<Reading
+					reading={story.reading}
+					earlier={story.earlier_readings}
+					state={story.state}
+				/>
 			)}
 			{story.merge === null ? null : (
 				<Panel title="The merge" className={styles.panel}>
@@ -559,8 +570,19 @@ export function ReviewRow({ review }: { review: Review }) {
 
 /** What the card was read as before it was built: the outcome and when, each
  * question with the answer it is built on and why, and what it lacks when it
- * is too thin. Every text is the reader's, shown as text. */
-function Reading({ reading, state }: { reading: CardReading; state: string }) {
+ * is too thin; then, for a card read again, the readings before, as they were.
+ * Every text is the reader's, shown as text. */
+function Reading({
+	reading,
+	earlier,
+	state,
+}: {
+	reading: CardReading;
+	/** The readings before the newest, newest first. */
+	earlier: CardReading[];
+	state: string;
+}) {
+	const earlierId = useId();
 	const waits = state === "needs_answers";
 	const { word, tone } = waits
 		? { word: "Waits for your answers", tone: "needs-you" as const }
@@ -606,8 +628,63 @@ function Reading({ reading, state }: { reading: CardReading; state: string }) {
 				<Section label="Missing" items={reading.missing}>
 					{(missing) => <Inline text={missing} />}
 				</Section>
+				{earlier.length === 0 ? null : (
+					<div className={styles.section}>
+						<h3 id={earlierId} className={styles.label}>
+							Earlier readings
+						</h3>
+						<p className={styles.muted}>
+							It was read again before it was built. The readings before are
+							kept as they were, with any answers given to them, and none is
+							carried into its build.
+						</p>
+						<ul aria-labelledby={earlierId} className={styles.runs}>
+							{earlier.map((one) => (
+								<EarlierReading key={one.read_at} reading={one} />
+							))}
+						</ul>
+					</div>
+				)}
 			</div>
 		</Panel>
+	);
+}
+
+/** A reading before the newest, on an inset: when it was read and what it
+ * answered, each question with the answer the owner gave or the reader's
+ * recommendation, and what it lacked. */
+function EarlierReading({ reading }: { reading: CardReading }) {
+	const when = `Read on ${DATE_TIME.format(new Date(reading.read_at))}`;
+	const { word, tone } = EARLIER[reading.outcome] ?? {
+		word: reading.outcome,
+		tone: "idle" as const,
+	};
+	return (
+		<li className={`${styles.run} ${styles.review}`} aria-label={when}>
+			<span className={styles.head}>
+				<span className={styles.kind}>{when}</span>
+				<Status tone={tone}>{reading.answered ? "Answered" : word}</Status>
+			</span>
+			<Section label="Questions then" items={reading.questions}>
+				{(question) => (
+					<>
+						<Inline text={question.question} />
+						<span className={styles.sub}>
+							<span className={styles.mark}>
+								{reading.answered ? "Your answer" : "Recommended"}
+							</span>{" "}
+							<Inline text={question.answer} />
+							{reading.answered && question.recommended
+								? " (recommended)"
+								: null}
+						</span>
+					</>
+				)}
+			</Section>
+			<Section label="Missing then" items={reading.missing}>
+				{(missing) => <Inline text={missing} />}
+			</Section>
+		</li>
 	);
 }
 

@@ -182,7 +182,7 @@ public sealed class RefusalTests
         Edit(jobs, 1, Jobs.Jobs.Owner, body: Body);
         await jobs.Routes.Read(jobs.Project, User);
         var card = await jobs.Card(1);
-        Assert.Equal(("queued", Refusals.Edited), (card.State, card.Reason));
+        Assert.Equal(("queued", ReadingAgain.Edited), (card.State, card.Reason));
         var job = await jobs.Job();
         Assert.Equal((Job.Read, 1), ((string)job["kind"]!, (int)job["card"]!["number"]!));
         var read = Assert.Single(job["to_read"]!["cards"]!.AsArray())!;
@@ -210,7 +210,7 @@ public sealed class RefusalTests
         again.Routes.Time.Advance(TimeSpan.FromMinutes(1));
         Edit(again, 1, Jobs.Jobs.Owner, title: "Add the empty state to the habits list");
         await again.Routes.Read(again.Project, User);
-        Assert.Equal(("queued", Refusals.Edited), ((await again.Card(1)).State, (await again.Card(1)).Reason));
+        Assert.Equal(("queued", ReadingAgain.Edited), ((await again.Card(1)).State, (await again.Card(1)).Reason));
         await Read(again, Prepared(ReadJobTests.Reading(Thin(1, "What an empty list says"))));
         Assert.Equal("refused", (await again.Card(1)).State);
         Assert.Equal(2, Stops.Stop.ByApp(again, "comment", 1).Count);
@@ -243,7 +243,7 @@ public sealed class RefusalTests
         // His comment after it does: queued to be read again.
         Fixed.Comment(jobs, First, Jobs.Jobs.Owner, "They come from GitHub's sub-issues API, a hundred at a time.");
         await jobs.Routes.Read(jobs.Project, User);
-        Assert.Equal(("queued", Refusals.Commented), ((await jobs.Card(First)).State, (await jobs.Card(First)).Reason));
+        Assert.Equal(("queued", ReadingAgain.Commented), ((await jobs.Card(First)).State, (await jobs.Card(First)).Reason));
 
         // Read alone, not with the feature's other cards, with the feature's note and his comment in
         // the reader's brief, fenced as his input; the others' are not.

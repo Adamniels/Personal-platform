@@ -196,7 +196,8 @@ public sealed partial class MergeChecker(UserDb database, ICodeHost host, AppMer
                 subIssues,
                 featureEdits,
                 featureLabelEvents)
-            : null);
+            : null,
+        card.ReadBodySha256 is { } readSha && card.ReadTitle is { } readTitle ? new CardRecord(readSha, readTitle, null) : null);
 
     /// <summary>A read that was not made, which the check takes as one that could not be.</summary>
     private static CodeHostResult<T> Unread<T>() => new CodeHostResult<T>.Unavailable(RetryAt: null);
@@ -204,7 +205,8 @@ public sealed partial class MergeChecker(UserDb database, ICodeHost host, AppMer
     private static DateTimeOffset Utc(DateTime at) => new(DateTime.SpecifyKind(at, DateTimeKind.Utc));
 
     /// <summary>The project as the check reads it, with whether it holds, and its cards due for the
-    /// check, each with the record of what was picked, what its newest build or fix that succeeded
+    /// check, each with the record of what was picked and of what its newest reading read, what its
+    /// newest build or fix that succeeded
     /// left and the base it ran on, its latest review, and for a card of a feature the parent's
     /// number and record and whether the feature's branch was read lately; read in one transaction
     /// as the user. Null for a project the user does not have.</summary>
@@ -219,13 +221,18 @@ public sealed partial class MergeChecker(UserDb database, ICodeHost host, AppMer
                        v.verdict AS Verdict, v.reviewed_commit AS ReviewedCommit,
                        f.number AS FeatureNumber, f.picked_body_sha256 AS FeatureBodySha256, f.picked_title AS FeatureTitle,
                        f.picked_edit AS FeatureNewestEdit, NOT {WatchStore.FeatureWatchedSql} AS FeatureUnwatched,
-                       EXISTS (SELECT 1 {DecisionStore.MarkedFrom("cards.project_id", "cards.number")}) AS DecisionForOwner
+                       EXISTS (SELECT 1 {DecisionStore.MarkedFrom("cards.project_id", "cards.number")}) AS DecisionForOwner,
+                       rd.body_sha256 AS ReadBodySha256, rd.title AS ReadTitle
                 FROM cards
                 LEFT JOIN features f ON f.id = cards.feature_id
                 LEFT JOIN LATERAL (SELECT head_commit, check_exit_code, finished_at, base FROM runs
                                    WHERE runs.project_id = cards.project_id AND runs.card_number = cards.number
                                      AND runs.kind IN ('build', 'fix') AND runs.result = 'succeeded'
                                    ORDER BY started_at DESC, id DESC LIMIT 1) h ON true
+                LEFT JOIN LATERAL (SELECT body_sha256, title FROM card_readings
+                                   WHERE card_readings.project_id = cards.project_id AND card_readings.card_number = cards.number
+                                     AND card_readings.outcome IS NOT NULL
+                                   ORDER BY read_at DESC, run_id DESC LIMIT 1) rd ON true
                 LEFT JOIN LATERAL (SELECT verdict, reviewed_commit FROM reviews
                                    WHERE reviews.project_id = cards.project_id AND reviews.card_number = cards.number
                                    ORDER BY reviewed_at DESC, run_id DESC LIMIT 1) v ON true
@@ -345,5 +352,10 @@ public sealed partial class MergeChecker(UserDb database, ICodeHost host, AppMer
         public bool FeatureUnwatched { get; init; }
 
         public bool DecisionForOwner { get; init; }
+
+        /// <summary>What the card's newest reading read of it, null for a card with no reading.</summary>
+        public byte[]? ReadBodySha256 { get; init; }
+
+        public string? ReadTitle { get; init; }
     }
 }

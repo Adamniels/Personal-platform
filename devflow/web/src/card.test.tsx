@@ -92,6 +92,7 @@ function story(overrides: Partial<CardStory> = {}): CardStory {
 		feature: null,
 		most_rounds: 3,
 		reading: null,
+		earlier_readings: [],
 		...overrides,
 	};
 }
@@ -399,6 +400,102 @@ describe("a card's page", () => {
 		const ready = await screen.findByRole("article", { name: "The reading" });
 		expect(within(ready).getByText("Ready to build")).toBeTruthy();
 		expect(within(ready).queryAllByRole("list")).toHaveLength(0);
+	});
+
+	test("a card read again keeps its earlier readings, with the answers given to them", async () => {
+		open(() =>
+			Promise.resolve(
+				story({
+					state: "needs_answers",
+					reason: "Waits for your answers to its questions",
+					reading: {
+						outcome: "questions",
+						questions: [
+							{
+								question: "Is the count shown?",
+								recommendation: "Yes",
+								why: "It is one line",
+								answer: "Yes",
+								recommended: true,
+							},
+						],
+						missing: [],
+						read_at: "2026-11-19T09:00:00+00:00",
+						commented: false,
+						answered: false,
+					},
+					earlier_readings: [
+						{
+							outcome: "questions",
+							questions: [
+								{
+									question: "Is the list sorted by date?",
+									recommendation: "By date",
+									why: "Newest matters",
+									answer: "By name",
+									recommended: false,
+								},
+							],
+							missing: [],
+							read_at: "2026-11-18T09:00:00+00:00",
+							commented: true,
+							answered: true,
+						},
+						{
+							outcome: "too_thin",
+							questions: [],
+							missing: ["Which page shows the list"],
+							read_at: "2026-11-17T09:00:00+00:00",
+							commented: true,
+							answered: false,
+						},
+					],
+				}),
+			),
+		);
+
+		const reading = await screen.findByRole("article", { name: "The reading" });
+		// The newest reading is the one shown first, with its own question.
+		expect(
+			within(reading).getByRole("list", { name: "Questions" }).textContent,
+		).toContain("Is the count shown?");
+		const earlier = within(reading).getByRole("list", {
+			name: "Earlier readings",
+		});
+		const rows = within(earlier).getAllByRole("listitem", {
+			name: /^Read on /,
+		});
+		expect(rows).toHaveLength(2);
+		const [answered, thin] = rows as [HTMLElement, HTMLElement];
+		expect(within(answered).getByText("Answered")).toBeTruthy();
+		const then = within(answered).getByRole("list", { name: "Questions then" });
+		expect(then.textContent).toContain("Is the list sorted by date?");
+		expect(then.textContent).toContain("Your answer By name");
+		expect(within(thin).getByText("Too thin")).toBeTruthy();
+		expect(
+			within(thin).getByRole("list", { name: "Missing then" }).textContent,
+		).toBe("Which page shows the list");
+	});
+
+	test("a card read once shows no earlier readings", async () => {
+		open(() =>
+			Promise.resolve(
+				story({
+					reading: {
+						outcome: "ready",
+						questions: [],
+						missing: [],
+						read_at: "2026-11-18T09:00:00+00:00",
+						commented: false,
+						answered: false,
+					},
+				}),
+			),
+		);
+		const reading = await screen.findByRole("article", { name: "The reading" });
+		expect(
+			within(reading).queryByRole("list", { name: "Earlier readings" }),
+		).toBeNull();
 	});
 
 	test("a card not read yet shows no reading", async () => {

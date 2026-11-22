@@ -897,6 +897,7 @@ export interface components {
             times: number;
         };
         CardStoryView: {
+            earlier_readings: components["schemas"]["CardReadingView"][];
             feature: null | components["schemas"]["CardFeature"];
             merge: null | components["schemas"]["CardMerge"];
             /** Format: int32 */
