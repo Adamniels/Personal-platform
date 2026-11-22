@@ -91,6 +91,7 @@ const REGISTERED: ProjectSetup = {
 	steps: [
 		{ step: "setup", done: true },
 		{ step: "recipe", done: true },
+		{ step: "settings", done: true },
 		{ step: "worker", done: true },
 		{ step: "check", done: true },
 	],
@@ -98,6 +99,7 @@ const REGISTERED: ProjectSetup = {
 	checking: false,
 	problem: null,
 	setup_command: SETUP_COMMAND,
+	proposal: null,
 	setup: null,
 };
 
@@ -180,6 +182,7 @@ describe("a project's setup", () => {
 		steps: [
 			{ step: "setup", done: true },
 			{ step: "recipe", done: true },
+			{ step: "settings", done: true },
 			{ step: "worker", done: true },
 			{ step: "check", done: false },
 		],
@@ -187,6 +190,7 @@ describe("a project's setup", () => {
 		checking: false,
 		problem: null,
 		setup_command: SETUP_COMMAND,
+		proposal: null,
 		setup: null,
 	};
 
@@ -198,6 +202,7 @@ describe("a project's setup", () => {
 		steps: [
 			{ step: "setup", done: false },
 			{ step: "recipe", done: false },
+			{ step: "settings", done: true },
 			{ step: "worker", done: false },
 			{ step: "check", done: false },
 		],
@@ -205,6 +210,7 @@ describe("a project's setup", () => {
 		checking: false,
 		problem: ".devflow/Dockerfile is missing.",
 		setup_command: SETUP_COMMAND,
+		proposal: null,
 		setup: {
 			number: 1,
 			branch: "devflow/setup",
@@ -379,6 +385,7 @@ describe("a project's setup", () => {
 		).toEqual([
 			"DoneA valid .devflow/ on the default branch",
 			"DoneThe recipe on the default branch",
+			"DoneThe settings accepted",
 			"DoneA worker on the recipe",
 			"To doThe check passed",
 		]);

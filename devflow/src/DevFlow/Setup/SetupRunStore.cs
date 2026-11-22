@@ -716,6 +716,28 @@ public static class SetupRunStore
         return new SetupRun(row.Number, row.Branch, row.State, row.Reason, row.PullRequestNumber, row.PullRequestUrl, row.Running, row.HeadCommit, report, review);
     }
 
+    /// <summary>The settings the project's newest setup run that succeeded proposed, read inside
+    /// <paramref name="transaction"/> as the project's user; null before one did.</summary>
+    internal static async Task<SetupProposal?> Proposal(NpgsqlTransaction transaction, Guid projectId, CancellationToken cancellationToken)
+    {
+        var text = await transaction.Connection!.QuerySingleOrDefaultAsync<string?>(new CommandDefinition(
+            """
+            SELECT r.report::text FROM runs r
+            WHERE r.project_id = @projectId AND r.kind = 'setup' AND r.result = 'succeeded' AND r.report IS NOT NULL
+            ORDER BY r.started_at DESC, r.id DESC LIMIT 1
+            """,
+            new { projectId },
+            transaction,
+            cancellationToken: cancellationToken));
+        if (text is null)
+        {
+            return null;
+        }
+
+        using var document = JsonDocument.Parse(text);
+        return SetupReport.TryRead(document.RootElement, out var report, out _) ? report.Proposed : null;
+    }
+
     private sealed record ToFix(int Number, string Branch, string FromCommit, int? Round, Guid? ReviewId, string Comments, string? Report, string? Verdict);
 
     private sealed record ToReview(int Number, string Branch, int PullRequest, string Commit, string Report, int? ExitCode, string? Output);

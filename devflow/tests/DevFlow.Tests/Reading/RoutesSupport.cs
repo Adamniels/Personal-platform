@@ -84,10 +84,17 @@ internal sealed class Routes : IAsyncDisposable
     /// </summary>
     public bool RecipesChecked { get; set; } = true;
 
+    /// <summary>
+    /// Whether the project's settings are taken as accepted, as the owner saving them on the
+    /// settings step would leave them, so a test of anything after setting up hands out its
+    /// readings and builds at once. True unless a test of the settings step itself turns it off.
+    /// </summary>
+    public bool SettingsAccepted { get; set; } = true;
+
     /// <summary>Reads the project as its user, as the loop would, then, with
     /// <see cref="CardsRead"/>, takes each card it picked that has no reading as read and
-    /// ready, and with <see cref="RecipesChecked"/>, each version its workers report as
-    /// checked.</summary>
+    /// ready, with <see cref="RecipesChecked"/>, each version its workers report as checked, and
+    /// with <see cref="SettingsAccepted"/>, its settings as accepted.</summary>
     public async Task<ReadResult> Read(Guid project, Guid user)
     {
         var read = await Reader.Read(project, user, Reading.Ct);
@@ -99,6 +106,11 @@ internal sealed class Routes : IAsyncDisposable
         if (RecipesChecked)
         {
             await Setup.SetupFixture.AllChecked(Database, project, Reading.Ct);
+        }
+
+        if (SettingsAccepted)
+        {
+            await Setup.SetupFixture.Accepted(Database, project, Reading.Ct);
         }
 
         return read;

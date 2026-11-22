@@ -5296,13 +5296,14 @@ def test_a_project_is_checked_before_its_first_card(
     page.reload()
     setup = page.get_by_role("article", name="Setting up")
     steps = setup.get_by_role("list", name="Setup steps").get_by_role("listitem")
-    expect(steps).to_have_count(4)
+    expect(steps).to_have_count(5)
     expect(steps.nth(0)).to_contain_text("Done")
     expect(steps.nth(0)).to_contain_text("A valid .devflow/ on the default branch")
     expect(steps.nth(1)).to_contain_text("Done")
     expect(steps.nth(1)).to_contain_text("The recipe on the default branch")
     expect(steps.nth(2)).to_contain_text("To do")
     expect(steps.nth(3)).to_contain_text("To do")
+    expect(steps.nth(4)).to_contain_text("To do")
     expect(page.get_by_role("article", name="Cards")).to_have_count(0)
     assert (
         page.request.get(f"/devflow/api/projects/{project}/setup").json()["state"]
@@ -5310,7 +5311,9 @@ def test_a_project_is_checked_before_its_first_card(
     )
 
     # Its worker's first job is the check, which fails: nothing else is handed
-    # out, and the page shows the output and Check again.
+    # out, and the page shows the output and Check again. The fake worker takes
+    # the settings as accepted, as the owner saving them would; their step is
+    # test_i_accept_the_proposed_settings'.
     output = "\n".join(
         ["> fodr@1.0.0 test", "> vitest run", ""]
         + [f" ✓ src/habit-{n}.test.ts (3 tests)" for n in range(1, 9)]
@@ -5331,7 +5334,8 @@ def test_a_project_is_checked_before_its_first_card(
     expect(check.get_by_text("exited with 1", exact=False)).to_be_visible()
     expect(check.locator("pre")).to_contain_text("Tests  1 failed | 24 passed")
     expect(steps.nth(2)).to_contain_text("Done")
-    expect(steps.nth(3)).to_contain_text("To do")
+    expect(steps.nth(3)).to_contain_text("Done")
+    expect(steps.nth(4)).to_contain_text("To do")
     expect(setup.get_by_role("button", name="Check again")).to_be_visible()
     assert _axe_violations(page) == []
     capture(page, "devflow-project-setting-up")
@@ -5361,7 +5365,7 @@ def test_a_project_is_checked_before_its_first_card(
     assert passed["kind"] == "check"
     answered = page.request.get(f"/devflow/api/projects/{project}/setup").json()
     assert answered["state"] == "registered"
-    assert [step["done"] for step in answered["steps"]] == [True, True, True, True]
+    assert [step["done"] for step in answered["steps"]] == [True] * 5
     shown = page.request.get(
         f"/devflow/api/projects/{project}/setup/checks/{answered['check']['id']}"
         "/pictures/home-desktop"
@@ -5466,7 +5470,7 @@ def test_a_project_is_set_up_by_an_agent(
     page.reload()
     setup = page.get_by_role("article", name="Setting up")
     steps = setup.get_by_role("list", name="Setup steps").get_by_role("listitem")
-    expect(steps).to_have_count(4)
+    expect(steps).to_have_count(5)
     expect(steps.nth(0)).to_contain_text("To do")
     expect(steps.nth(0)).to_contain_text("A valid .devflow/ on the default branch")
     run = setup.get_by_role("region", name="The setup run")
@@ -5516,12 +5520,14 @@ def test_a_project_is_set_up_by_an_agent(
     assert listed["project_id"] == project
     assert listed["state"] == "waiting_for_owner"
 
-    # I merge it, and the next step is a worker on the recipe.
+    # I merge it, and the next step is a worker on the recipe, the settings
+    # taken as accepted by the fake worker.
     run.get_by_role("button", name="Merge").click()
     expect(steps.nth(0)).to_contain_text("Done")
     expect(steps.nth(1)).to_contain_text("Done")
-    expect(steps.nth(2)).to_contain_text("To do")
-    expect(steps.nth(2)).to_contain_text("A worker on the recipe")
+    expect(steps.nth(2)).to_contain_text("Done")
+    expect(steps.nth(3)).to_contain_text("To do")
+    expect(steps.nth(3)).to_contain_text("A worker on the recipe")
     assert page.request.get("/devflow/api/waiting").json()["setup_runs"] == []
 
 

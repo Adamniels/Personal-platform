@@ -61,8 +61,10 @@ public sealed class FeaturePickerTests
 
         // None is queued as a card on its own; the feature's cards are read first, together, and its
         // first card is then its next build, by the feature's own rule, see FeatureDispatchTests
-        // and ReadJobTests.
+        // and ReadJobTests. Its settings are taken as accepted, as the harness's reads do, since
+        // no reading is handed out before; see SetupSettingsTests.
         Assert.Empty(await CardStore.Queue(reading.Door, Reading.Reading.Alice, project, Ct));
+        await Setup.SetupFixture.Accepted(reading.Database, project, Ct);
         Assert.Equal("read", await DevFlow.Jobs.JobStore.NextKind(reading.Door, Reading.Reading.Alice, project, DateTimeOffset.UtcNow, Ct));
     }
 

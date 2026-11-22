@@ -35,6 +35,7 @@ export type SetupRunItem = GetAnswer<"/waiting">["setup_runs"][number];
 export const STEP_NAMES: Record<string, string> = {
 	setup: "A valid .devflow/ on the default branch",
 	recipe: "The recipe on the default branch",
+	settings: "The settings accepted",
 	worker: "A worker on the recipe",
 	check: "The check passed",
 };

@@ -439,7 +439,7 @@ public sealed class WaitingStore(UserDb database, TimeProvider time)
             var setup = await transaction.Connection!.QueryAsync<SetupRow>(new CommandDefinition(
                 $"""
                 SELECT p.id AS ProjectId, p.name AS ProjectName, p.owner AS Owner,
-                       EXISTS (SELECT 1 FROM recipe_checks r WHERE r.project_id = p.id AND r.passed) AS Registered,
+                       {Setup.SetupStore.RegisteredSql} AS Registered,
                        c.version AS Version, c.exit_code AS ExitCode, c.checked_at AS CheckedAt
                 FROM projects p JOIN recipe_checks c ON c.run_id = {Setup.SetupStore.NewestSql}
                 WHERE NOT c.passed AND c.again_at IS NULL
