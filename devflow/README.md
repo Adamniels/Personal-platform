@@ -184,7 +184,10 @@ page.
 
 A project's page, `src/project.tsx`, is at `/devflow/projects/<id>`, under the Projects tab, which
 stays selected there. Its header is a link "Back to Projects" over the repository's
-"<owner>/<name>" as a section heading; a project the caller does not have is the `EmptyState`
+"<owner>/<name>" as a section heading, with beside it, once the settings are read, a `Badge`
+naming the preset they match, "Fully automatic", "Guided", "Only I merge" or "Custom", see
+"Presets" under "Settings": the settings as last read or saved, never the form while it is edited,
+the badge going under the name where a long name leaves no room. A project the caller does not have is the `EmptyState`
 "There is no such project". Under the header is the Settings panel, then the Cards panel, see
 "Cards", then the Workers panel, the package's `Card` titled "Workers",
 read from `GET /devflow/api/projects/{id}/workers` as the page loads: a line saying a worker holds
@@ -218,21 +221,34 @@ Claude login is past its renewal. Give a new one on the Projects tab", see "Jobs
 see "Stops".
 
 The Settings panel, `src/settings.tsx`, the package's `Card` titled "Settings", read from
-`GET /devflow/api/projects/{id}/settings` as the page loads, is a form: a line saying Dev flow picks
-up the open issues the owner's trusted accounts wrote that carry the pick-up label, then the text
-fields "Pick-up label", "Hold label" and "Attention label" and the select "Pull requests wait for
-you", "Never", "Sometimes" or "Always", each with a help line saying what it does, two by two at
-desktop width and one under another at phone width. On "Sometimes", the group "Waits for you when"
-follows, a line saying a pull request waits when any of these holds and merges by itself otherwise,
-the checkboxes "The card or its feature is marked for your review", "The change touches a path on
-the list" and "The agent made a decision for you", then the text field "Review label" and the
-textarea "Paths", one pattern a line in the mono font, each with its help; on the other two the
-group is not shown and its values are kept and saved as they are. Lines of "Paths" are trimmed and
-blank ones dropped as it is saved. Then "Trusted accounts", the list with the owner's own login
-marked "You" and the others each with "Remove", and the field "Add a trusted account" with "Add".
-A secondary "Save" puts all ten and then says "Saved.". A value Dev flow refuses is shown under its
-field as the field's error, from the problem's `errors`; any other failure is the alert "The
-settings were not saved. Try again.", and what was typed is kept.
+`GET /devflow/api/projects/{id}/settings` as the page loads, is a form in three groups, each a
+region with a heading and a line on what it holds, fields two by two at desktop width and one
+under another at phone width, each with a help line saying what it does:
+
+- **"How cards are picked"**: a line saying Dev flow picks up the open issues the owner's trusted
+  accounts wrote that carry the pick-up label; the text fields "Pick-up label", "Hold label",
+  "Attention label" and "Review label"; then "Trusted accounts", the list with the owner's own
+  login marked "You" and the others each with "Remove", and the field "Add a trusted account" with
+  "Add".
+- **"How much happens alone"**: a line saying a preset fills in the settings below and is saved as
+  any change; the buttons "Fully automatic", "Guided" and "Only I merge", the one the form matches
+  pressed and inverted, and beside them "Preset" with the name the form matches as it is typed, or
+  "Custom", by the rule of "Presets" below; the checkbox "Questions before starting"; the select
+  "Pull requests wait for you", "Never", "Sometimes" or "Always". On "Sometimes", the group "Waits
+  for you when" follows, a line saying a pull request waits when any of these holds and merges by
+  itself otherwise, the checkboxes "The card or its feature is marked for your review", "The change
+  touches a path on the list" and "The agent made a decision for you", and the textarea "Paths",
+  one pattern a line in the mono font; on the other two the group is not shown and its values are
+  kept and saved as they are. A preset's button changes only what it covers, in the form; nothing
+  is saved until "Save".
+- **"Models and limits"**: a line saying a change counts from the next job, the selects "Reading
+  model", "Building model" and "Reviewing model", then the four limits as number fields.
+
+Lines of "Paths" are trimmed and blank ones dropped as it is saved. A secondary "Save" puts all
+eighteen, never the preset, and then says "Saved."; the page's heading takes the preset the answer
+names. A value Dev flow refuses is shown under its field as the field's error, from the problem's
+`errors`; any other failure is the alert "The settings were not saved. Try again.", and what was
+typed is kept.
 
 The Cards panel, `src/cards.tsx`, the package's `Card` titled "Cards", read from
 `GET /devflow/api/projects/{id}/cards` as the page loads, is the list "Cards", in the order the
@@ -1246,7 +1262,7 @@ in `src/DevFlow/Cards/`.
 
 ### Settings
 
-Eighteen, and only the eighteen something reads:
+Eighteen, and only the eighteen something reads, with the preset they match, see "Presets" below:
 
 | Setting | Default | What it does |
 |---|---|---|
@@ -1254,7 +1270,7 @@ Eighteen, and only the eighteen something reads:
 | `hold_label` | `devflow-hold` | A card carrying it is held |
 | `attention_label` | `devflow-attention` | The label of the issue Dev flow opens for a decision marked for the owner on a card it merged, see "The merge check"; part 3's "Stops" marks a stopped card with it too |
 | `review_label` | `devflow-review` | A card carrying it, or every card of a feature whose parent carries it, is marked for the owner's review, which `sometimes` waits for when `wait_when_marked` is ticked |
-| `waits_for_owner` | `never` | `never`, `sometimes` or `always`: with `never` the merge check merges an approved card when every condition holds; with `sometimes` it does too, unless a ticked condition below holds; with `always` it waits for the owner, "This project waits for you on every pull request", see "The merge check" |
+| `waits_for_owner` | `always` | `never`, `sometimes` or `always`: with `never` the merge check merges an approved card when every condition holds; with `sometimes` it does too, unless a ticked condition below holds; with `always` it waits for the owner, "This project waits for you on every pull request", see "The merge check" |
 | `wait_when_marked` | ticked | On `sometimes`, a card marked for the owner's review waits |
 | `wait_when_paths` | ticked | On `sometimes`, a change touching a path on `wait_paths` waits |
 | `wait_when_decision` | ticked | On `sometimes`, a card whose agent marked a decision for the owner in any build's or fix's report waits |
@@ -1285,6 +1301,25 @@ the next search for lost runs read the settings fresh, the search judging each r
 its own job carried, which the run records. The page's "Round n of m" lines count against
 the setting as it is now.
 
+**Presets.** Three shortcuts, never stored: a project's preset is the one its settings match, which
+`Presets.Of` in `src/DevFlow/Projects/Presets.cs` answers, and the panel works out the same way
+from the form as it is typed. Each covers three settings, `questions`, `waits_for_owner` and the
+three conditions of `sometimes`, and nothing else: labels, trusted accounts, paths, models and
+limits are outside every preset and never change which one matches.
+
+| Preset | `preset` | `questions` | `waits_for_owner` |
+|---|---|---|---|
+| Fully automatic | `fully_automatic` | off | `never` |
+| Guided | `guided` | off | `sometimes`, all three conditions ticked |
+| Only I merge | `only_i_merge` | on | `always` |
+
+On `never` and `always` the conditions are not read and do not count for matching; any other
+combination is `custom`. A new project starts as "Only I merge", and
+`migrations/0041_presets.sql` made every project there was the same. Choosing a preset in the panel
+fills in what it covers and leaves every other field as typed, Guided ticking all three
+conditions and the other two leaving them as they are; it is saved with "Save" like any change. Why
+presets are not stored is "Projects" in `docs/devflow-architecture.md`.
+
 **Paths.** `wait_paths` is a list of glob patterns, as `Microsoft.Extensions.FileSystemGlobbing`'s
 `Matcher` reads them, each from the repository's top: `*` within one folder, so `*.sql` is a file
 at the top and `**/*.sql` one anywhere; `**` across folders, as in `src/auth/**`; and a pattern
@@ -1307,16 +1342,17 @@ not; without a link nobody is known to be him, and nothing is trusted. A login i
 letters, digits and single hyphens, with no hyphen at either end, GitHub's rule. Who changes a label
 is read by the list too, see "Cards" below.
 
-- `GET /devflow/api/projects/{id}/settings` answers the eighteen,
+- `GET /devflow/api/projects/{id}/settings` answers the eighteen and `preset`,
   `{"pickup_label", "hold_label", "attention_label", "review_label", "waits_for_owner",
   "wait_when_marked", "wait_when_paths", "wait_when_decision", "wait_paths", "trusted_logins",
   "model_reading", "model_building", "model_reviewing", "run_minutes", "run_turns",
   "fix_rounds_card", "fix_rounds_feature", "questions"}`, the three conditions and `questions` booleans, `wait_paths` a list of
   patterns in their order, `trusted_logins` a list of `{"login", "mine"}`, the caller's linked login
-  first with `mine` true, then the others in the order they were given, and the four limits whole
-  numbers. Another user's project, or none, is `404`.
+  first with `mine` true, then the others in the order they were given, the four limits whole
+  numbers, and `preset` one of `fully_automatic`, `guided`, `only_i_merge` and `custom`, computed
+  and never stored. Another user's project, or none, is `404`.
 - `PUT /devflow/api/projects/{id}/settings` takes all eighteen, `trusted_logins` as a list of logins,
-  and answers them as saved. One that breaks a rule, or is missing, is `422`, a validation problem
+  and answers them as saved, with the preset they match. A `preset` sent with them is not read. One that breaks a rule, or is missing, is `422`, a validation problem
   whose `errors` names each field, and nothing changes: a label that is another's whatever its case,
   named on the later of the two, `sometimes` with no condition ticked, under `waits_for_owner`, a
   pattern that breaks a rule, under `wait_paths` with the first one named, a model outside the three
@@ -1340,7 +1376,10 @@ named a label `devflow-review` the review label `devflow-review-1`. From
 one of the three, and the four limits, `int`, with the defaults and ranges above as checks; the
 migration also raises the checks on the rounds a card, a feature and a run record from 3 to 10, and
 gives each run its `run_minutes`, see "Jobs". From `migrations/0040_questions.sql`, `questions`,
-`boolean`, true by default, which makes it true for every project there was. A
+`boolean`, true by default, which makes it true for every project there was. From
+`migrations/0041_presets.sql`, `waits_for_owner` is `always` by default, and every project there
+was was set to `questions` true and `always`, "Only I merge", its three conditions kept; the
+policy is forced, so the migration lifts it for that one update and forces it again. A
 trigger on `projects`
 makes a project's row when the project is made, running as the caller, and the migration made one
 for every project before it.

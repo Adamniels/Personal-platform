@@ -1,11 +1,11 @@
 // A project's page, /devflow/projects/<id>, opened from its row on the Projects tab: a header with
-// the repository's name, the Settings panel under it, the Cards panel, and the Workers panel, with the project's worker key, the two commands
+// the repository's name and the preset its saved settings match, the Settings panel under it, the Cards panel, and the Workers panel, with the project's worker key, the two commands
 // that start a worker, and the workers that have said hello with it, each saying when it needs
 // building again, and why no work is handed out when the user's Claude login is missing or past
 // its renewal. The key is shown once, as the answer that made it, with the command that saves
 // it, and never read back: after a reload the page knows only when it was made. See "The pages",
 // "Workers" and "Starting a worker" in devflow/README.md.
-import { Button, Card, Dialog, EmptyState, Status } from "@platform/ui";
+import { Badge, Button, Card, Dialog, EmptyState, Status } from "@platform/ui";
 import { useCallback, useEffect, useState } from "react";
 import { plainClick } from "./address";
 import type { GetAnswer } from "./api/client";
@@ -13,7 +13,13 @@ import type { components } from "./api/schema";
 import { type CardsApi, CardsPanel } from "./cards";
 import styles from "./project.module.css";
 import type { Project } from "./projects";
-import { type SettingsApi, SettingsPanel } from "./settings";
+import {
+	PRESET_NAMES,
+	type Preset,
+	type ProjectSettings,
+	type SettingsApi,
+	SettingsPanel,
+} from "./settings";
 import { duration } from "./waiting";
 
 export type WorkerList = GetAnswer<"/projects/{id}/workers">;
@@ -97,6 +103,13 @@ export function ProjectPage({
 }: ProjectPageProps) {
 	const [project, setProject] = useState<Project | null>();
 	const [failed, setFailed] = useState(false);
+	// The preset of the settings as last read or saved, never of the form
+	// while it is edited.
+	const [preset, setPreset] = useState<Preset>();
+	const showPreset = useCallback(
+		(settings: ProjectSettings) => setPreset(settings.preset),
+		[],
+	);
 
 	useEffect(() => {
 		let current = true;
@@ -150,12 +163,16 @@ export function ProjectPage({
 		<>
 			<header className={styles.header}>
 				{backLink}
-				<h2 className={styles.name}>{fullName(project)}</h2>
+				<div className={styles.title}>
+					<h2 className={styles.name}>{fullName(project)}</h2>
+					{preset === undefined ? null : <Badge>{PRESET_NAMES[preset]}</Badge>}
+				</div>
 			</header>
 			<SettingsPanel
 				id={id}
 				loadSettings={loadSettings}
 				saveSettings={saveSettings}
+				onSettings={showPreset}
 			/>
 			<CardsPanel id={id} loadCards={loadCards} />
 			<WorkersPanel

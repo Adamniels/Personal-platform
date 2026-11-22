@@ -100,6 +100,18 @@ internal sealed class Jobs : IAsyncDisposable
         try
         {
             var project = await routes.Project(User);
+
+            // The project merges an approved card by itself, waits_for_owner never, which the tests of
+            // what follows a review are about; a new project's own, "Only I merge", is PresetTests',
+            // and a test of waiting sets it, see MergeSupport.Waits.
+            await using (var admin = await routes.Database.OpenAdmin(Ct))
+            {
+                await admin.ExecuteAsync(new CommandDefinition(
+                    "UPDATE project_settings SET waits_for_owner = 'never' WHERE project_id = @project",
+                    new { project },
+                    cancellationToken: Ct));
+            }
+
             routes.Fake.Replace(User, World(cards ?? [Card(1)], projectFile ?? ProjectFile()));
             if (signIn)
             {

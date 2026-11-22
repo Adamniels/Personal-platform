@@ -1,9 +1,10 @@
-// A project's Settings panel, under its page's header: the labels that pick and hold its cards and
-// mark what needs the owner, whether a card's pull request waits for him, with what "sometimes"
-// waits for, whether a card's questions wait for his answers before it starts, the trusted accounts
-// whose cards, edits and comments count, and the models and limits its runs get. All eighteen are
-// saved together, and a value Dev flow refuses is named under its
-// field. See "Settings" in devflow/README.md.
+// A project's Settings panel, under its page's header, in three groups: how cards are picked, the
+// four labels and the trusted accounts whose cards, edits and comments count; how much happens
+// alone, the presets, whether a card's questions wait for the owner's answers, and whether a card's
+// pull request waits for him, with what "sometimes" waits for; and the models and limits its runs
+// get. A preset fills in the settings it covers in the form, and the panel names the preset the
+// form matches, or Custom. All eighteen are saved together, never the preset, and a value Dev flow
+// refuses is named under its field. See "Settings" in devflow/README.md.
 import {
 	Badge,
 	Button,
@@ -39,7 +40,11 @@ export type SettingsApi = {
 
 type Field = keyof ProjectSettings;
 
-type LabelField = "pickup_label" | "hold_label" | "attention_label";
+type LabelField =
+	| "pickup_label"
+	| "hold_label"
+	| "attention_label"
+	| "review_label";
 
 type ConditionField =
 	| "wait_when_marked"
@@ -48,7 +53,7 @@ type ConditionField =
 
 type TickField = ConditionField | "questions";
 
-/** The three labels, in the order they are shown, with what each does. */
+/** The four labels, in the order they are shown, with what each does. */
 const LABELS: { field: LabelField; label: string; help: string }[] = [
 	{
 		field: "pickup_label",
@@ -65,6 +70,11 @@ const LABELS: { field: LabelField; label: string; help: string }[] = [
 		label: "Attention label",
 		help: "What Dev flow marks a card that needs you with.",
 	},
+	{
+		field: "review_label",
+		label: "Review label",
+		help: "A card, or a feature's parent, with this label is marked for your review, which sometimes waits for. Anyone may put it on; only a trusted account takes it off.",
+	},
 ];
 
 /** The three conditions of "sometimes", in the order the merge check reads
@@ -77,6 +87,73 @@ const CONDITIONS: { field: ConditionField; label: string }[] = [
 	{ field: "wait_when_paths", label: "The change touches a path on the list" },
 	{ field: "wait_when_decision", label: "The agent made a decision for you" },
 ];
+
+/** A preset's name, or custom when the settings match none. */
+export type Preset = ProjectSettings["preset"];
+
+/** The settings a preset covers. */
+type Covered = Pick<
+	ProjectSettings,
+	"questions" | "waits_for_owner" | ConditionField
+>;
+
+/** The three presets, in the order they are offered, with what each fills
+ * in. Guided ticks every condition; on never and always the conditions are
+ * not read, so the others leave them as they are. */
+const PRESETS: {
+	value: Exclude<Preset, "custom">;
+	name: string;
+	fills: Partial<Covered>;
+}[] = [
+	{
+		value: "fully_automatic",
+		name: "Fully automatic",
+		fills: { questions: false, waits_for_owner: "never" },
+	},
+	{
+		value: "guided",
+		name: "Guided",
+		fills: {
+			questions: false,
+			waits_for_owner: "sometimes",
+			wait_when_marked: true,
+			wait_when_paths: true,
+			wait_when_decision: true,
+		},
+	},
+	{
+		value: "only_i_merge",
+		name: "Only I merge",
+		fills: { questions: true, waits_for_owner: "always" },
+	},
+];
+
+/** Each preset's name as the panel and the page's heading show it. */
+export const PRESET_NAMES: Record<Preset, string> = {
+	fully_automatic: "Fully automatic",
+	guided: "Guided",
+	only_i_merge: "Only I merge",
+	custom: "Custom",
+};
+
+/** The preset the settings match, or custom: the same rule as Dev flow's
+ * own answer, Presets.Of, applied to the form as it is typed, before it is
+ * saved. */
+export const presetOf = (settings: Covered): Preset => {
+	if (!settings.questions && settings.waits_for_owner === "never")
+		return "fully_automatic";
+	if (
+		!settings.questions &&
+		settings.waits_for_owner === "sometimes" &&
+		settings.wait_when_marked &&
+		settings.wait_when_paths &&
+		settings.wait_when_decision
+	)
+		return "guided";
+	if (settings.questions && settings.waits_for_owner === "always")
+		return "only_i_merge";
+	return "custom";
+};
 
 type ModelField = "model_reading" | "model_building" | "model_reviewing";
 
@@ -190,7 +267,13 @@ export function SettingsPanel({
 	id,
 	loadSettings,
 	saveSettings,
-}: SettingsApi & { id: string }) {
+	onSettings,
+}: SettingsApi & {
+	id: string;
+	/** The settings as read and as each save answers them, for the page's
+	 * heading. */
+	onSettings?: (settings: ProjectSettings) => void;
+}) {
 	const [values, setValues] = useState<ProjectSettings>();
 	const [readFailed, setReadFailed] = useState(false);
 	const [saving, setSaving] = useState(false);
@@ -207,6 +290,7 @@ export function SettingsPanel({
 			(answer) => {
 				if (!current) return;
 				setValues(answer);
+				onSettings?.(answer);
 				setLines(asLines(answer.wait_paths));
 				setLimits(asTexts(answer));
 			},
@@ -217,10 +301,10 @@ export function SettingsPanel({
 		return () => {
 			current = false;
 		};
-	}, [id, loadSettings]);
+	}, [id, loadSettings, onSettings]);
 
 	const change = (
-		field: LabelField | ModelField | "review_label" | "waits_for_owner",
+		field: LabelField | ModelField | "waits_for_owner",
 		value: string,
 	) => {
 		setValues((before) => (before ? { ...before, [field]: value } : before));
@@ -234,6 +318,13 @@ export function SettingsPanel({
 
 	const tick = (field: TickField, checked: boolean) => {
 		setValues((before) => (before ? { ...before, [field]: checked } : before));
+		setSaved(false);
+	};
+
+	/** Fills in what the preset covers, and nothing else; saved only with
+	 * Save, as any change. */
+	const choose = (fills: Partial<Covered>) => {
+		setValues((before) => (before ? { ...before, ...fills } : before));
 		setSaved(false);
 	};
 
@@ -301,13 +392,15 @@ export function SettingsPanel({
 		}
 		setSaving(true);
 		try {
+			const { preset: _, ...settings } = values;
 			const answer = await saveSettings(id, {
-				...values,
+				...settings,
 				...(numbers as Record<LimitField, number>),
 				wait_paths: asPaths(lines),
 				trusted_logins: values.trusted_logins.map((entry) => entry.login),
 			});
 			setValues(answer);
+			onSettings?.(answer);
 			setLines(asLines(answer.wait_paths));
 			setLimits(asTexts(answer));
 			setInvalid({});
@@ -332,122 +425,51 @@ export function SettingsPanel({
 		setSaving(false);
 	};
 
+	const preset = values === undefined ? undefined : presetOf(values);
+
 	return (
 		<Card title="Settings" className={styles.card}>
 			{readFailed ? (
 				<p className={styles.error} role="alert">
 					{NOT_READ}
 				</p>
-			) : values === undefined || limits === undefined ? null : (
+			) : values === undefined ||
+				limits === undefined ||
+				preset === undefined ? null : (
 				// The browser's own checks are off, so a value out of range is named
 				// under its field as Dev flow judges it, as every other field is.
 				<form className={styles.form} onSubmit={save} noValidate>
-					<p className={styles.line}>
-						Dev flow picks up the open issues your trusted accounts wrote that
-						carry the pick-up label, as cards.
-					</p>
 					{error === null ? null : (
 						<p className={styles.error} role="alert">
 							{error}
 						</p>
 					)}
-					<div className={styles.fields}>
-						{LABELS.map(({ field, label, help }) => (
-							<TextField
-								key={field}
-								label={label}
-								help={help}
-								autoComplete="off"
-								spellCheck={false}
-								maxLength={50}
-								value={values[field]}
-								error={invalid[field]}
-								onChange={(event) => change(field, event.target.value)}
-							/>
-						))}
-						<Select
-							label="Pull requests wait for you"
-							help="Whether a card's pull request waits for you to merge it."
-							value={values.waits_for_owner}
-							error={invalid.waits_for_owner}
-							onChange={(event) =>
-								change("waits_for_owner", event.target.value)
-							}
-						>
-							<option value="never">Never</option>
-							<option value="sometimes">Sometimes</option>
-							<option value="always">Always</option>
-						</Select>
-					</div>
-					{values.waits_for_owner === "sometimes" ? (
-						<fieldset className={styles.sometimes}>
-							<legend className={styles.heading}>Waits for you when</legend>
-							<p className={styles.help}>
-								A card's pull request waits for you when any of these holds, and
-								merges by itself otherwise.
-							</p>
-							<div className={styles.conditions}>
-								{CONDITIONS.map(({ field, label }) => (
-									<Checkbox
-										key={field}
-										label={label}
-										checked={values[field]}
-										onChange={(event) => tick(field, event.target.checked)}
-									/>
-								))}
-							</div>
-							<div className={styles.fields}>
+					<section className={styles.group} aria-labelledby={`picked-${id}`}>
+						<h3 id={`picked-${id}`} className={styles.heading}>
+							How cards are picked
+						</h3>
+						<p className={styles.help}>
+							Dev flow picks up the open issues your trusted accounts wrote that
+							carry the pick-up label, as cards.
+						</p>
+						<div className={styles.fields}>
+							{LABELS.map(({ field, label, help }) => (
 								<TextField
-									label="Review label"
-									help="A card, or a feature's parent, with this label is marked for your review. Anyone may put it on; only a trusted account takes it off."
+									key={field}
+									label={label}
+									help={help}
 									autoComplete="off"
 									spellCheck={false}
 									maxLength={50}
-									value={values.review_label}
-									error={invalid.review_label}
-									onChange={(event) =>
-										change("review_label", event.target.value)
-									}
+									value={values[field]}
+									error={invalid[field]}
+									onChange={(event) => change(field, event.target.value)}
 								/>
-								<TextArea
-									label="Paths"
-									help="One pattern a line, from the repository's top: * within a folder, ** across folders, and a folder ending in / for everything under it."
-									autoComplete="off"
-									spellCheck={false}
-									rows={4}
-									className={styles.paths}
-									value={lines}
-									error={invalid.wait_paths}
-									onChange={(event) => {
-										setLines(event.target.value);
-										setSaved(false);
-									}}
-								/>
-							</div>
-						</fieldset>
-					) : null}
-					<section
-						className={styles.trusted}
-						aria-labelledby={`questions-${id}`}
-					>
-						<h3 id={`questions-${id}`} className={styles.heading}>
-							Before starting
-						</h3>
-						<p className={styles.help}>
-							Every card is read before anything is built. With this on, a card
-							the reading found questions in waits for your answers under
-							Waiting for you; off, it is built on the reader's recommendations.
-						</p>
-						<Checkbox
-							label="Questions before starting"
-							checked={values.questions}
-							onChange={(event) => tick("questions", event.target.checked)}
-						/>
-					</section>
-					<section className={styles.trusted} aria-labelledby={`trusted-${id}`}>
-						<h3 id={`trusted-${id}`} className={styles.heading}>
+							))}
+						</div>
+						<h4 id={`trusted-${id}`} className={styles.subheading}>
 							Trusted accounts
-						</h3>
+						</h4>
 						<p className={styles.help}>
 							Only the cards, edits and comments of these GitHub accounts are
 							instructions; anyone else's are shown and never acted on. A login
@@ -486,6 +508,95 @@ export function SettingsPanel({
 								Add
 							</Button>
 						</div>
+					</section>
+					<section className={styles.group} aria-labelledby={`alone-${id}`}>
+						<h3 id={`alone-${id}`} className={styles.heading}>
+							How much happens alone
+						</h3>
+						<p className={styles.help}>
+							A preset fills in the settings below; you save it as any change.
+							Labels, trusted accounts, models and limits are outside every
+							preset.
+						</p>
+						<div className={styles.presets}>
+							<fieldset className={styles.choices}>
+								<legend className={styles.legend}>Presets</legend>
+								{PRESETS.map(({ value, name, fills }) => (
+									<Button
+										key={value}
+										kind="secondary"
+										aria-pressed={preset === value}
+										onClick={() => choose(fills)}
+									>
+										{name}
+									</Button>
+								))}
+							</fieldset>
+							<p className={styles.matched}>
+								<span id={`preset-${id}`}>Preset</span>{" "}
+								<output aria-labelledby={`preset-${id}`}>
+									{PRESET_NAMES[preset]}
+								</output>
+							</p>
+						</div>
+						<Checkbox
+							label="Questions before starting"
+							checked={values.questions}
+							onChange={(event) => tick("questions", event.target.checked)}
+						/>
+						<p className={styles.help}>
+							Every card is read before anything is built. With this on, a card
+							the reading found questions in waits for your answers under
+							Waiting for you; off, it is built on the reader's recommendations.
+						</p>
+						<div className={styles.fields}>
+							<Select
+								label="Pull requests wait for you"
+								help="Whether a card's pull request waits for you to merge it."
+								value={values.waits_for_owner}
+								error={invalid.waits_for_owner}
+								onChange={(event) =>
+									change("waits_for_owner", event.target.value)
+								}
+							>
+								<option value="never">Never</option>
+								<option value="sometimes">Sometimes</option>
+								<option value="always">Always</option>
+							</Select>
+						</div>
+						{values.waits_for_owner === "sometimes" ? (
+							<fieldset className={styles.sometimes}>
+								<legend className={styles.legend}>Waits for you when</legend>
+								<p className={styles.help}>
+									A card's pull request waits for you when any of these holds,
+									and merges by itself otherwise.
+								</p>
+								<div className={styles.conditions}>
+									{CONDITIONS.map(({ field, label }) => (
+										<Checkbox
+											key={field}
+											label={label}
+											checked={values[field]}
+											onChange={(event) => tick(field, event.target.checked)}
+										/>
+									))}
+								</div>
+								<TextArea
+									label="Paths"
+									help="One pattern a line, from the repository's top: * within a folder, ** across folders, and a folder ending in / for everything under it."
+									autoComplete="off"
+									spellCheck={false}
+									rows={4}
+									className={styles.paths}
+									value={lines}
+									error={invalid.wait_paths}
+									onChange={(event) => {
+										setLines(event.target.value);
+										setSaved(false);
+									}}
+								/>
+							</fieldset>
+						) : null}
 					</section>
 					<section className={styles.runs} aria-labelledby={`runs-${id}`}>
 						<h3 id={`runs-${id}`} className={styles.heading}>

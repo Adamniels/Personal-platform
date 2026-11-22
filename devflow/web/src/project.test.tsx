@@ -102,6 +102,7 @@ function renderPage(
 				fix_rounds_card: 3,
 				fix_rounds_feature: 3,
 				questions: true,
+				preset: "custom" as const,
 			}),
 		),
 		saveSettings: vi.fn(() =>
@@ -134,6 +135,56 @@ describe("a project's page", () => {
 		expect(link.getAttribute("href")).toBe("/devflow/projects");
 		fireEvent.click(link);
 		expect(back).toHaveBeenCalledOnce();
+	});
+
+	test("its heading shows the preset the saved settings match", async () => {
+		const saved = {
+			pickup_label: "devflow",
+			hold_label: "devflow-hold",
+			attention_label: "devflow-attention",
+			review_label: "devflow-review",
+			waits_for_owner: "always",
+			wait_when_marked: true,
+			wait_when_paths: true,
+			wait_when_decision: true,
+			wait_paths: [],
+			trusted_logins: [{ login: "octo-owner", mine: true }],
+			model_reading: "opus",
+			model_building: "opus",
+			model_reviewing: "opus",
+			run_minutes: 90,
+			run_turns: 200,
+			fix_rounds_card: 3,
+			fix_rounds_feature: 3,
+			questions: true,
+			preset: "only_i_merge" as const,
+		};
+		renderPage({
+			loadSettings: () => Promise.resolve(saved),
+			saveSettings: (_, settings) =>
+				Promise.resolve({
+					...saved,
+					questions: settings.questions ?? true,
+					waits_for_owner: settings.waits_for_owner ?? "",
+					preset: "fully_automatic" as const,
+				}),
+		});
+		const header = () => document.querySelector("header");
+		await waitFor(() =>
+			expect(header()?.textContent).toContain("Only I merge"),
+		);
+
+		// The form's choice is not the project's until it is saved.
+		const settings = within(
+			await screen.findByRole("article", { name: "Settings" }),
+		);
+		fireEvent.click(settings.getByRole("button", { name: "Fully automatic" }));
+		expect(header()?.textContent).toContain("Only I merge");
+		fireEvent.click(settings.getByRole("button", { name: "Save" }));
+		await waitFor(() =>
+			expect(header()?.textContent).toContain("Fully automatic"),
+		);
+		expect(header()?.textContent).not.toContain("Only I merge");
 	});
 
 	test("a project the caller does not have is not found", async () => {

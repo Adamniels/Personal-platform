@@ -55,6 +55,15 @@ public sealed class SometimesSettingsTests
             ["questions"] = true,
         };
 
+    /// <summary>What the route answers for <paramref name="body"/>: the settings, and the preset
+    /// they match, see PresetTests.</summary>
+    private static JsonObject Answer(JsonObject body, string preset)
+    {
+        var answer = body.DeepClone().AsObject();
+        answer["preset"] = preset;
+        return answer;
+    }
+
     private static JsonArray Patterns(params string[] patterns) => new([.. patterns.Select(pattern => (JsonNode)pattern)]);
 
     private static Task<HttpContext> Put(Routes routes, Guid project, JsonObject settings) =>
@@ -97,17 +106,18 @@ public sealed class SometimesSettingsTests
         var project = await routes.Project(Routes.User);
 
         // A new project's: the review label devflow-review, the three conditions ticked, no paths.
-        Assert.Equal(("never", "devflow-review", true, true, true, ""), await Row(routes, project));
-        Assert.Equal(Settings(waits: "never").ToJsonString(), (await Get(routes, project)).ToJsonString());
+        Assert.Equal(("always", "devflow-review", true, true, true, ""), await Row(routes, project));
+        Assert.Equal(Answer(Settings(waits: "always"), "only_i_merge").ToJsonString(), (await Get(routes, project)).ToJsonString());
 
-        // Each of the three values is taken, and answered as saved.
-        foreach (var waits in new[] { "sometimes", "always", "never" })
+        // Each of the three values is taken, and answered as saved; with questions on, only always
+        // is a preset's.
+        foreach (var (waits, preset) in new[] { ("sometimes", "custom"), ("always", "only_i_merge"), ("never", "custom") })
         {
             var body = Settings(waits: waits, patterns: Patterns("src/auth/**", "*.sql", ".github/"));
             var saved = await Put(routes, project, body);
             Assert.Equal(StatusCodes.Status200OK, saved.Response.StatusCode);
-            Assert.Equal(body.ToJsonString(), JsonNode.Parse(await Harness.Body(saved))!.ToJsonString());
-            Assert.Equal(body.ToJsonString(), (await Get(routes, project)).ToJsonString());
+            Assert.Equal(Answer(body, preset).ToJsonString(), JsonNode.Parse(await Harness.Body(saved))!.ToJsonString());
+            Assert.Equal(Answer(body, preset).ToJsonString(), (await Get(routes, project)).ToJsonString());
         }
 
         // The conditions are read only on sometimes, so any of them may be off on the others.

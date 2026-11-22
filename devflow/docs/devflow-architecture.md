@@ -240,12 +240,35 @@ never reachable as another's.
 
 ## Projects
 
-A project is one connected repository with its settings, as the spec defines it. In this part it
-has almost none: every project is read the way this repository's runner writes, through the
-reader below, and `bot_login` names the login whose pull requests that reader looks at, this
-repository's bot by default and a column without a page. The settings and presets of the spec
-are part 5. How the owner connects one, the routes and the tables are "Connecting a repository"
-in `devflow/README.md`.
+A project is one connected repository with its settings, as the spec defines it. Part 5 built the
+whole settings model, which "Settings" under "Cards" in `devflow/README.md` lists, with the three
+presets; schedules and the daily budget are part 8's. Every project is also read the way this
+repository's runner writes, through the reader below, and `bot_login` names the login whose pull
+requests that reader looks at, this repository's bot by default and a column without a page. How
+the owner connects one, the routes and the tables are "Connecting a repository" in
+`devflow/README.md`.
+
+**Presets are shortcuts, never stored.** A preset fills in the settings it covers, questions,
+"waits for the owner" and the three conditions of `sometimes`, and the settings route answers the
+preset the stored settings match, or `custom`. Storing the choice would give two sources of truth
+for the same three settings: the owner may change any one of them afterwards, as the spec has it,
+and a stored preset would then either lie or have to be cleared by every change. Computing it keeps
+one truth, the settings, and the name always follows them. The panel works the name out from the
+form as it is typed with the same rule, so it can say "Custom" before anything is saved; that rule
+is written twice, in `Presets.Of` and in `presetOf` in `web/src/settings.tsx`, and is small enough
+that the duplication is cheaper than a round trip per keystroke.
+
+**"Straight to main" was dropped**, which the spec's round 2 had as a value of where a feature's
+cards land, so no preset sets it. A feature's cards always land in its branch, and the owner always
+merges a feature into the default branch himself; a card on its own already goes to the default
+branch through its own pull request, so work that should reach `main` card by card is planned as
+single cards linked by blocked by. As a setting it would have been a second life for a feature
+beside everything part 4 built, as the feature issue, "Dev flow: reading, questions and settings",
+records.
+
+**A new project starts as "Only I merge"**, questions on and `always`, the most cautious of the
+three, and the migration gave every project there was the same, so Fodr, on `always` before, became
+exactly "Only I merge". Part 6's setup run proposes a preset for each project.
 
 **A person connects only what GitHub lists for them.** The repositories to choose from are read as
 the person, with their user token, `GET /user/installations` and each installation's
