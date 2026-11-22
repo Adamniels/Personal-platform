@@ -83,6 +83,17 @@
 	border: 0;
 }
 
+/* The preset the form matches: active means inverted (hard rule 11), as a
+ * selected tab is, and stays so under the pointer, over the secondary
+ * button's own hover. */
+.choices > button[aria-pressed="true"],
+.choices > button[aria-pressed="true"]:hover:not(:disabled) {
+	background: var(--text);
+	border-color: var(--text);
+	color: var(--bg);
+	font-weight: 600;
+}
+
 .matched {
 	margin: 0;
 	color: var(--text-2);

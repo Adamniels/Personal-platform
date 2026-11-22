@@ -3452,6 +3452,78 @@ def test_an_approved_card_merges_by_itself(
     capture(page, "devflow-card-merged")
 
 
+def test_i_choose_a_preset(
+    page: Page, invite_code: str, base_url: str, viewport: str, devflow_world
+):
+    register_and_log_in(page, invite_code, base_url)
+    project, ran = _built_card(page, base_url, devflow_world, review=False, green=True)
+    pull = _opened(page)
+    # Back to what a new project starts as, questions on and always.
+    _waits_for_me(page, base_url, project, "always", questions=True)
+
+    page.goto(f"/devflow/projects/{project}")
+    header = page.locator("header").filter(has=page.get_by_role("heading", level=2))
+    expect(header).to_contain_text("Only I merge")
+    settings = page.get_by_role("article", name="Settings")
+    alone = settings.get_by_role("region", name="How much happens alone")
+    matched = alone.get_by_role("status", name="Preset")
+    expect(matched).to_have_text("Only I merge")
+
+    # Guided fills in its settings in the form, and nothing is saved yet.
+    alone.get_by_role("button", name="Guided").click()
+    expect(matched).to_have_text("Guided")
+    expect(alone.get_by_label("Pull requests wait for you")).to_have_value("sometimes")
+    expect(alone.get_by_label("Questions before starting")).not_to_be_checked()
+    conditions = alone.get_by_role("group", name="Waits for you when")
+    for condition in (
+        "The card or its feature is marked for your review",
+        "The change touches a path on the list",
+        "The agent made a decision for you",
+    ):
+        expect(conditions.get_by_label(condition)).to_be_checked()
+    expect(header).to_contain_text("Only I merge")
+    page.evaluate("document.fonts.ready.then(() => null)")
+    for check in (assert_headings_are_capitals, assert_nothing_scrolls_sideways):
+        check(page)
+    assert _axe_violations(page) == []
+    capture(page, "devflow-settings")
+
+    # One covered setting changed by hand is Custom.
+    conditions.get_by_label("The agent made a decision for you").uncheck()
+    expect(matched).to_have_text("Custom")
+
+    # Fully automatic, saved: the heading shows it, and so does a fresh load.
+    alone.get_by_role("button", name="Fully automatic").click()
+    expect(matched).to_have_text("Fully automatic")
+    settings.get_by_role("button", name="Save").click()
+    expect(settings.get_by_text("Saved.")).to_be_visible()
+    expect(header).to_contain_text("Fully automatic")
+    page.reload()
+    expect(header).to_contain_text("Fully automatic")
+    expect(
+        page.get_by_role("article", name="Settings").get_by_label(
+            "Pull requests wait for you"
+        )
+    ).to_have_value("never")
+    page.evaluate("document.fonts.ready.then(() => null)")
+    for check in (assert_headings_are_capitals, assert_nothing_scrolls_sideways):
+        check(page)
+    assert _axe_violations(page) == []
+    capture(page, "devflow-project-preset")
+
+    # The card merges without waiting for me once the reviewer approves.
+    _fake_review(page, base_url, project, _verdict("approve"))
+    page.goto(f"/devflow/projects/{project}/cards/{CARD}")
+    expect(page.get_by_text("Done", exact=True).first).to_be_visible()
+    expect(page.get_by_role("article", name="The merge")).to_contain_text(
+        f"Dev flow merged #{pull['number']} into main"
+    )
+    merges = [write for write in _writes(page) if write["kind"] == "merge"]
+    assert [merge["commit"] for merge in merges] == [ran["head_commit"]]
+    page.goto("/devflow")
+    expect(_waiting_card(page)).to_have_count(0)
+
+
 def test_with_always_an_approved_card_waits_for_me(
     page: Page, invite_code: str, base_url: str, devflow_world
 ):
