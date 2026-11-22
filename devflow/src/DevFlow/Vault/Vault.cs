@@ -41,14 +41,7 @@ public sealed partial class Vault(VaultSettings keys)
         ArgumentNullException.ThrowIfNull(transaction);
         ArgumentNullException.ThrowIfNull(value);
         CheckPurpose(purpose);
-        var key = _keys.Current;
-        var nonce = RandomNumberGenerator.GetBytes(NonceLength);
-        var sealedValue = new byte[value.Length + TagLength];
-        using (var cipher = new AesGcm(key.Bytes, TagLength))
-        {
-            cipher.Encrypt(nonce, value, sealedValue.AsSpan(0, value.Length), sealedValue.AsSpan(value.Length), AssociatedData(userId, purpose));
-        }
-
+        var (keyId, nonce, sealedValue) = Seal(userId, purpose, value);
         await transaction.Connection!.ExecuteAsync(new CommandDefinition(
             """
             INSERT INTO secrets (user_id, purpose, key_id, nonce, ciphertext, updated_at)
@@ -56,7 +49,7 @@ public sealed partial class Vault(VaultSettings keys)
             ON CONFLICT (user_id, purpose) DO UPDATE
             SET key_id = excluded.key_id, nonce = excluded.nonce, ciphertext = excluded.ciphertext, updated_at = excluded.updated_at
             """,
-            new { userId, purpose, keyId = key.Id, nonce, sealedValue }, transaction, cancellationToken: cancellationToken));
+            new { userId, purpose, keyId, nonce, sealedValue }, transaction, cancellationToken: cancellationToken));
     }
 
     /// <summary>
@@ -78,28 +71,7 @@ public sealed partial class Vault(VaultSettings keys)
             return null;
         }
 
-        var key = KeyFor(row.KeyId)
-            ?? throw new VaultException(
-                $"the secret {purpose} is sealed with the key {row.KeyId}, which is not configured: list it in {VaultSettings.OldKeysSetting} to open it");
-        if (row.Nonce.Length != NonceLength || row.Ciphertext.Length < TagLength)
-        {
-            throw DidNotOpen(purpose);
-        }
-
-        var length = row.Ciphertext.Length - TagLength;
-        var value = new byte[length];
-        try
-        {
-            using var cipher = new AesGcm(key.Bytes, TagLength);
-            cipher.Decrypt(row.Nonce, row.Ciphertext.AsSpan(0, length), row.Ciphertext.AsSpan(length), value, AssociatedData(userId, purpose));
-        }
-        catch (AuthenticationTagMismatchException)
-        {
-            // Decrypt clears what it wrote, so no part of a forged value is left behind.
-            throw DidNotOpen(purpose);
-        }
-
-        return value;
+        return Open(userId, purpose, new SealedValue(row.KeyId, row.Nonce, row.Ciphertext), purpose);
     }
 
     /// <summary>Removes <paramref name="userId"/>'s secret for <paramref name="purpose"/>.</summary>
@@ -114,6 +86,79 @@ public sealed partial class Vault(VaultSettings keys)
             new { userId, purpose }, transaction, cancellationToken: cancellationToken)) > 0;
     }
 
+    /// <summary>
+    /// Seals <paramref name="value"/>, the value named <paramref name="name"/> of
+    /// <paramref name="userId"/>'s project <paramref name="projectId"/>, under the current key, for
+    /// the caller to store in its own row: a project's values live in <c>project_values</c>, gone
+    /// with their project, rather than in <c>secrets</c>. The associated data binds it to the user,
+    /// the project and the name, so a value moved to another of any of them does not open.
+    /// </summary>
+    public SealedValue SealProjectValue(Guid userId, Guid projectId, string name, byte[] value)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        return Seal(userId, ProjectValueBinding(projectId, name), value);
+    }
+
+    /// <summary>A project's value sealed by <see cref="SealProjectValue"/>, opened.</summary>
+    /// <exception cref="VaultException">It names a key that is not configured, or does not open: it
+    /// was changed, or moved from another user, project or name.</exception>
+    public byte[] OpenProjectValue(Guid userId, Guid projectId, string name, SealedValue sealedValue)
+    {
+        ArgumentNullException.ThrowIfNull(sealedValue);
+        return Open(userId, ProjectValueBinding(projectId, name), sealedValue, $"the value {name} of a project");
+    }
+
+    /// <summary>What a project's value is bound to after the user, as a purpose is. A purpose
+    /// never holds a colon, so no secret's binding is ever a project value's.</summary>
+    private static string ProjectValueBinding(Guid projectId, string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+        return $"project-value:{projectId.ToString("D", CultureInfo.InvariantCulture)}:{name}";
+    }
+
+    /// <summary>Seals <paramref name="value"/> under the current key with a random nonce, bound to
+    /// the user and <paramref name="binding"/>.</summary>
+    private SealedValue Seal(Guid userId, string binding, byte[] value)
+    {
+        var key = _keys.Current;
+        var nonce = RandomNumberGenerator.GetBytes(NonceLength);
+        var sealedValue = new byte[value.Length + TagLength];
+        using (var cipher = new AesGcm(key.Bytes, TagLength))
+        {
+            cipher.Encrypt(nonce, value, sealedValue.AsSpan(0, value.Length), sealedValue.AsSpan(value.Length), AssociatedData(userId, binding));
+        }
+
+        return new SealedValue(key.Id, nonce, sealedValue);
+    }
+
+    /// <summary>Opens a sealed value bound to the user and <paramref name="binding"/>; a refusal
+    /// names <paramref name="what"/> and the key's id, never the value.</summary>
+    private byte[] Open(Guid userId, string binding, SealedValue sealedValue, string what)
+    {
+        var key = KeyFor(sealedValue.KeyId)
+            ?? throw new VaultException(
+                $"the secret {what} is sealed with the key {sealedValue.KeyId}, which is not configured: list it in {VaultSettings.OldKeysSetting} to open it");
+        if (sealedValue.Nonce.Length != NonceLength || sealedValue.Ciphertext.Length < TagLength)
+        {
+            throw DidNotOpen(what);
+        }
+
+        var length = sealedValue.Ciphertext.Length - TagLength;
+        var value = new byte[length];
+        try
+        {
+            using var cipher = new AesGcm(key.Bytes, TagLength);
+            cipher.Decrypt(sealedValue.Nonce, sealedValue.Ciphertext.AsSpan(0, length), sealedValue.Ciphertext.AsSpan(length), value, AssociatedData(userId, binding));
+        }
+        catch (AuthenticationTagMismatchException)
+        {
+            // Decrypt clears what it wrote, so no part of a forged value is left behind.
+            throw DidNotOpen(what);
+        }
+
+        return value;
+    }
+
     /// <summary>The key ids alone, never a key.</summary>
     public override string ToString() => $"Vault {{ {_keys} }}";
 
@@ -123,13 +168,14 @@ public sealed partial class Vault(VaultSettings keys)
     private VaultKey? KeyFor(string id) =>
         id == _keys.Current.Id ? _keys.Current : _keys.Old.FirstOrDefault(key => key.Id == id);
 
-    /// <summary>What binds a sealed value to its user and its purpose. The version lets a later
-    /// format change what is bound without opening an older row as the newer.</summary>
-    private static byte[] AssociatedData(Guid userId, string purpose) =>
-        Encoding.UTF8.GetBytes($"devflow:v1:{userId.ToString("D", CultureInfo.InvariantCulture)}:{purpose}");
+    /// <summary>What binds a sealed value to its user and its purpose, or a project's value's
+    /// binding. The version lets a later format change what is bound without opening an older row
+    /// as the newer.</summary>
+    private static byte[] AssociatedData(Guid userId, string binding) =>
+        Encoding.UTF8.GetBytes($"devflow:v1:{userId.ToString("D", CultureInfo.InvariantCulture)}:{binding}");
 
-    private static VaultException DidNotOpen(string purpose) =>
-        new($"the secret {purpose} did not open: it was changed, or moved from another user or purpose");
+    private static VaultException DidNotOpen(string what) =>
+        new($"the secret {what} did not open: it was changed, or moved from another user or purpose");
 
     /// <summary>A purpose is a short fixed name the caller chooses, such as <c>github.access</c> or
     /// <c>claude-login</c>.</summary>
@@ -149,4 +195,11 @@ public sealed partial class Vault(VaultSettings keys)
 
     /// <summary>A row as stored.</summary>
     private sealed record Sealed(string KeyId, byte[] Nonce, byte[] Ciphertext);
+}
+
+/// <summary>A value as the vault sealed it: the id of the key, the nonce and the ciphertext with
+/// its tag. Prints the key's id alone.</summary>
+public sealed record SealedValue(string KeyId, byte[] Nonce, byte[] Ciphertext)
+{
+    public override string ToString() => $"SealedValue {{ KeyId = {KeyId} }}";
 }

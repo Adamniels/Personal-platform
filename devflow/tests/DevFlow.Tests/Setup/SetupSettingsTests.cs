@@ -79,10 +79,10 @@ public sealed class SetupSettingsTests
     {
         await using var jobs = await Proposed();
 
-        // The step "Settings" comes after the recipe and before a worker on it, and is not done; it
-        // shows the preset the setup run proposed, with why, and the paths.
+        // The step "Settings" comes after the recipe and before the values and a worker on it, and
+        // is not done; it shows the preset the setup run proposed, with why, and the paths.
         var setup = await SetupRunTests.Steps(jobs);
-        Assert.Equal(["setup", "recipe", "settings", "worker", "check"], Steps(setup).Select(step => step.Item1));
+        Assert.Equal(["setup", "recipe", "settings", "values", "worker", "check"], Steps(setup).Select(step => step.Item1));
         Assert.False(SettingsDone(setup));
         Assert.Equal("setting_up", (string)setup["state"]!);
         var proposal = setup["proposal"]!;

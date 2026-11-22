@@ -475,7 +475,7 @@ export interface paths {
         };
         /**
          * A project's setup
-         * @description state, setting_up until a check of any version of its .devflow/ has passed and its settings are accepted, then registered, and a project setting up starts no card's work, no reading or build; steps, in their order, each with whether it is done: setup, both files of .devflow/ on its default branch and valid, which a setup run writes when they are not, recipe, a version of .devflow/ read from its default branch, settings, the caller accepted the proposed settings or saved the settings once while the step waited, after the setup's pull request, without which it hands out no reading or build, worker, a worker built from that version said hello, and check, a check of that version passed; check, the newest check of that version, or of any before it is known, with its version, its commit, whether it passed, its exit code, the last 200 lines it printed, the names of its pictures of the project's address, why there are none, when, and whether another was asked for, or null before one ran; checking, whether a check of that version is running; problem, why .devflow/ is not valid as last read, or null; setup_command, the command that starts the project's setup worker from the base image, never holding the key; and setup, its newest setup run or null: its number, branch, state, queued, checking, reviewing, fixing, waiting_for_owner, stopped or done, reason, pull request, whether a run of it is under way, the commit it waits at, its newest report in its form, with what it proposes, the values its tests need and what it could not settle, and the review of that commit; and proposal, the preset, why and the paths its newest setup run that succeeded proposed, which the settings step offers to accept, or null; can_send_back, whether the newest check failed and may be sent back; and settings_waits, whether the settings step waits: not done, .devflow/ valid on the default branch and no sent back setup under way, the only time it is offered and a save does it. 404 for a project the caller does not have. Without a valid token, 401 with an empty body; a change from another origin, 403.
+         * @description state, setting_up until a check of any version of its .devflow/ has passed and its settings are accepted, then registered, and a project setting up starts no card's work, no reading or build; steps, in their order, each with whether it is done: setup, both files of .devflow/ on its default branch and valid, which a setup run writes when they are not, recipe, a version of .devflow/ read from its default branch, settings, the caller accepted the proposed settings or saved the settings once while the step waited, after the setup's pull request, without which it hands out no reading or build, values, each variable the project's newest setup run that succeeded listed and that can be given has a value, done when it listed none, worker, a worker built from that version said hello, and check, a check of that version passed; check, the newest check of that version, or of any before it is known, with its version, its commit, whether it passed, its exit code, the last 200 lines it printed, the names of its pictures of the project's address, why there are none, when, and whether another was asked for, or null before one ran; checking, whether a check of that version is running; problem, why .devflow/ is not valid as last read, or null; setup_command, the command that starts the project's setup worker from the base image, never holding the key; and setup, its newest setup run or null: its number, branch, state, queued, checking, reviewing, fixing, waiting_for_owner, stopped or done, reason, pull request, whether a run of it is under way, the commit it waits at, its newest report in its form, with what it proposes, the values its tests need and what it could not settle, and the review of that commit; and proposal, the preset, why and the paths its newest setup run that succeeded proposed, which the settings step offers to accept, or null; can_send_back, whether the newest check failed and may be sent back; and settings_waits, whether the settings step waits: not done, .devflow/ valid on the default branch and no sent back setup under way, the only time it is offered and a save does it. 404 for a project the caller does not have. Without a valid token, 401 with an empty body; a change from another origin, 403.
          */
         get: operations["getProjectSetup"];
         put?: never;
@@ -581,6 +581,50 @@ export interface paths {
          */
         post: operations["sendProjectSetupBack"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/devflow/api/projects/{id}/values": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A project's values step
+         * @description values, each name the project's newest setup run that succeeded listed, in its order, then every other name the caller gave, by name: its name; why, what needs it as the setup said, or null for one it did not list; asked, whether it listed it; set_at, when the caller last gave it, or null while it has none; and problem, why a listed name cannot be given, or null. Never a value. done, whether every listed name that can be given has a value, true when none is listed. 404 for a project the caller does not have. Without a valid token, 401 with an empty body; a change from another origin, 403.
+         */
+        get: operations["getProjectValues"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/devflow/api/projects/{id}/values/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Give one of a project's values
+         * @description Seals value in the vault as the project's value named name, replacing any before it, for every job that runs the project's code, a build, a fix, a conflict, a feature's fix, a setup and a check, to carry into the environment of the agent, the check and the start; Dev flow scrubs it from everything it stores and posts. It is never answered again. In order: 404 for a project the caller does not have; 422 naming name when it is not capital letters, digits and underscores not beginning with a digit, is over 100 characters, begins with DEVFLOW_, CLAUDE_, ANTHROPIC_, GIT_ or PLAYWRIGHT_, or is PATH, HOME, LANG, USER, SHELL or TERM; 422 naming value when it is missing, holds a line break or a NUL, or is under 8 or over 4,096 characters, a shorter one being one scrubbing could not find without scrubbing ordinary words. 204 once sealed. Without a valid token, 401 with an empty body; a change from another origin, 403.
+         */
+        put: operations["setProjectValue"];
+        post?: never;
+        /**
+         * Remove one of a project's values
+         * @description Removes the project's value named name; jobs handed out after carry it no more. 204. 404 for a project the caller does not have, or a name it has no value for. Without a valid token, 401 with an empty body; a change from another origin, 403.
+         */
+        delete: operations["removeProjectValue"];
         options?: never;
         head?: never;
         patch?: never;
@@ -1519,6 +1563,21 @@ export interface components {
             setup_command: string;
             state: string;
             steps: components["schemas"]["SetupStep"][];
+        };
+        ProjectValueList: {
+            done: boolean;
+            values: components["schemas"]["ProjectValueName"][];
+        };
+        ProjectValueName: {
+            asked: boolean;
+            name: string;
+            problem: null | string;
+            /** Format: date-time */
+            set_at: null | string;
+            why: null | string;
+        };
+        ProjectValueRequest: {
+            value: null | string;
         };
         PushKeyAnswer: {
             /** Format: date-time */
@@ -3483,6 +3542,131 @@ export interface operations {
             };
             /** @description Service Unavailable */
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    getProjectValues: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectValueList"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    setProjectValue: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProjectValueRequest"];
+            };
+        };
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    removeProjectValue: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not Found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

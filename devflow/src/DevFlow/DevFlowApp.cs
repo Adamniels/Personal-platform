@@ -22,6 +22,7 @@ using DevFlow.Settings;
 using DevFlow.Setup;
 using DevFlow.Status;
 using DevFlow.Stops;
+using DevFlow.Values;
 using DevFlow.Watching;
 using DevFlow.Workers;
 
@@ -83,6 +84,10 @@ public static class DevFlowApp
         // devflow/README.md.
         builder.Services.AddSingleton(new Vault(settings.Vault));
         builder.Services.AddSingleton(new WorkerStart(settings.WorkerImage, settings.WorkerUrl, settings.PublicOrigin));
+        // A project's values, sealed in the vault, carried by every job that runs its code and
+        // scrubbed from what Dev flow stores and posts. See "Setting up a project" in
+        // devflow/README.md.
+        builder.Services.AddSingleton(provider => new ProjectValues(database, provider.GetRequiredService<Vault>()));
         // Linking a user's GitHub account, and the one way to a token that acts as them. See
         // "Linking GitHub" in devflow/README.md.
         var redirect = GitHubLink.RedirectFor(settings.PublicOrigin);
@@ -244,6 +249,7 @@ public static class DevFlowApp
         app.MapFeatures();
         app.MapRecipe();
         app.MapSetup();
+        app.MapValues();
         app.MapClaudeLogin();
         app.MapPages(webRoot);
         if (settings.CodeHost == CodeHostMode.Fake)
