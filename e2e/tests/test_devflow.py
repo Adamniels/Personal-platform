@@ -1356,8 +1356,10 @@ def test_i_trust_another_account(
     # trusted.
     world = one_repository()
     add_issue(world, 12, "The friend's card", author="octo-friend", labels=["devflow"])
+    _with_setup(world)
     _open_project(page, base_url, devflow_world, world)
     project = page.url.rsplit("/", 1)[1]
+    _registered(page, base_url, project)
 
     def read_again():
         refreshed = page.request.post(
@@ -1431,8 +1433,10 @@ def test_a_card_i_label_shows_as_queued(
         edits=[edit("UCE_17", "octo-stranger")],
     )
     add_pull_request(world, 18, labels=["devflow"])
+    _with_setup(world)
     _open_project(page, base_url, devflow_world, world)
     project = page.url.rsplit("/", 1)[1]
+    _registered(page, base_url, project)
 
     refreshed = page.request.post(
         f"/devflow/api/projects/{project}/refresh", headers={"Origin": base_url}
@@ -1503,8 +1507,10 @@ def test_a_strangers_label_starts_nothing(
             label_event("devflow-hold", "octo-stranger", change="removed"),
         ],
     )
+    _with_setup(world)
     _open_project(page, base_url, devflow_world, world)
     project = page.url.rsplit("/", 1)[1]
+    _registered(page, base_url, project)
 
     refreshed = page.request.post(
         f"/devflow/api/projects/{project}/refresh", headers={"Origin": base_url}
@@ -1552,8 +1558,10 @@ def test_a_labelled_feature_shows_its_cards_in_order(
     add_issue(world, 43, "Store the feature")
     add_issue(world, 44, "A plain issue it waits for")
     add_issue(world, 50, "A card on its own", labels=["devflow"])
+    _with_setup(world)
     _open_project(page, base_url, devflow_world, world)
     project = page.url.rsplit("/", 1)[1]
+    _registered(page, base_url, project)
 
     refreshed = page.request.post(
         f"/devflow/api/projects/{project}/refresh", headers={"Origin": base_url}
@@ -1744,6 +1752,7 @@ def test_a_feature_is_read_before_it_is_built(
             headers={"Authorization": f"Bearer {key}"},
         )
         assert hello.status == 204, hello.text()
+        _pass_the_check(worker, key, worker_id)
         asked = worker.post(
             "/devflow/api/worker/jobs/next",
             data={"worker_id": worker_id},
@@ -3138,6 +3147,7 @@ def test_an_edited_card_is_read_again(
             headers={"Authorization": f"Bearer {key}"},
         )
         assert hello.status == 204, hello.text()
+        _pass_the_check(worker, key, worker_id)
         asked = worker.post(
             "/devflow/api/worker/jobs/next",
             data={"worker_id": worker_id},
@@ -3734,6 +3744,7 @@ def test_i_set_the_models_and_limits(
             headers={"Authorization": f"Bearer {key}"},
         )
         assert hello.status == 204, hello.text()
+        _pass_the_check(worker, key, worker_id)
         asked = worker.post(
             "/devflow/api/worker/jobs/next",
             data={"worker_id": worker_id},
@@ -5188,6 +5199,62 @@ def _fake_check(
     )
     assert ran.status == 200, ran.text()
     return ran.json()
+
+
+def _with_setup(world: dict) -> None:
+    """Puts a project.json on the world's default branch, so a check of its
+    setup can be handed out; a project without one stays setting up."""
+    add_file(
+        world,
+        ".devflow/project.json",
+        json.dumps({"version": 1, "check": CHECK, "start": "", "url": ""}).encode(),
+    )
+
+
+def _registered(page: Page, base_url: str, project: str) -> None:
+    """The fake worker passes the check of the project's setup, so the project
+    is registered and its page shows its cards rather than its setup steps.
+    See "Setting up a project" in devflow/README.md. The project is read first,
+    since a project whose default branch was not watched lately hands out no
+    job."""
+    refreshed = page.request.post(
+        f"/devflow/api/projects/{project}/refresh", headers={"Origin": base_url}
+    )
+    assert refreshed.status == 204, refreshed.text()
+    passed = _fake_check(page, base_url, project, 0, "Tests  1 passed")
+    assert passed["kind"] == "check", passed
+
+
+def _pass_the_check(worker, key: str, worker_id: str) -> None:
+    """A worker on a version no check has passed is handed that check before
+    anything else: it takes it and ends it passed, as a working recipe's
+    worker does, so its next job is the one the test is about."""
+    asked = worker.post(
+        "/devflow/api/worker/jobs/next",
+        data={"worker_id": worker_id},
+        headers={"Authorization": f"Bearer {key}"},
+    )
+    assert asked.status == 200, asked.text()
+    job = asked.json()
+    assert (job["kind"], job["card"]) == ("check", None), job["kind"]
+    result = worker.post(
+        f"/devflow/api/worker/jobs/{job['job_id']}/result",
+        data={
+            "worker_id": worker_id,
+            "outcome": "succeeded",
+            "report": None,
+            "failure": None,
+            "check": {"exit_code": 0, "output": "Tests  1 passed"},
+            "branch": job["branch"],
+            "head_commit": None,
+            "auth_method": None,
+            "usage": {},
+            "duration_ms": 61000,
+            "stderr": "",
+        },
+        headers={"Authorization": f"Bearer {key}"},
+    )
+    assert result.status == 204, result.text()
 
 
 def test_a_project_is_checked_before_its_first_card(
