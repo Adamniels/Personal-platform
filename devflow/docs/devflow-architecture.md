@@ -802,6 +802,33 @@ request for that. So the page takes his comment instead, the same input a commen
 be, and the setup runs again with it, whatever stopped it. A pull request opens only for what is
 valid, so he never reads a broken setup on GitHub.
 
+**Cards wait for the settings, beside the check.** The settings decide what merges without the
+owner, so a project that took cards on a new project's defaults, or on settings he never looked at,
+could merge work he meant to see. The step is done by his first save, not by a separate "accepted"
+flag he sets, since saving the panel is already him confirming them, and "Accept" goes through the
+same route, so a preset is never stored, as "Projects" has it. The setup run and the check go out
+before it: neither merges anything, and the proposal he accepts comes from the first. Only readings
+and builds are held, the start of a card's work, so reviews and fixes of work already under way
+finish.
+
+**Existing projects confirm their settings once.** Fodr's settings were set before any setup run
+proposed them, and every project connected before the step would otherwise count as accepted
+without him having been asked. The migration leaves the step not done for all of them, so each is
+held until he saves its settings once, which costs one click and leaves no project that skipped the
+step.
+
+**A failed check is sent back to a setup run, not fixed in place.** The check failed on what the
+recipe installs or what the check runs, which is the setup agent's work, so the fix is a new setup
+run with the failure in hand rather than a card. It starts from the default branch, where the
+recipe that failed is, on a new branch, since the earlier setup's branch merged. The files are read
+as they were checked and kept with the setup, so its brief quotes what failed even if the default
+branch moves; the comment is taken on the page, as the stopped setup's is, since a check has nothing
+on GitHub to comment on. The setup is needed only while the version it was sent back from is the
+project's, so a recipe fixed by hand ends the need. A setup not done that the project no longer
+needs, one whose pull request was closed after `.devflow/` was fixed by hand, still holds the one
+open setup a project may have, and so stops a later send back until it is done; that is accepted for
+now as rare.
+
 **"Waiting for you" lists only a check that failed.** The feature has a project setting up shown
 there, but a project connected only so Dev flow reads this repository's runner, the platform
 itself until part 10, would sit there for good with nothing for the owner to do. So "Setup" lists a

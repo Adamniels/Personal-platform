@@ -23,13 +23,21 @@ import {
 	type WorkerList,
 } from "./project";
 import type { Project } from "./projects";
+import type { ProjectSettings, SettingsRequest } from "./settings";
 import {
 	CHECK_RUNNING,
 	COMMENT_ON_PULL,
 	COMMENT_RUNS_AGAIN,
+	NO_DEVFLOW,
+	NOT_ACCEPTED,
 	type ProjectSetup,
 	RUN_SETUP_AGAIN,
+	SEND_BACK,
+	SEND_BACK_LABEL,
+	SENT_BACK_RUN,
 	SETTING_UP,
+	SETTINGS_PROPOSED,
+	SETTINGS_SAVE_ONCE,
 	type SetupCheck,
 } from "./setup";
 
@@ -142,13 +150,15 @@ function renderPage(
 				preset: "custom" as const,
 			}),
 		),
-		saveSettings: vi.fn(() =>
-			Promise.reject(new Error("the project page's tests do not save")),
+		saveSettings: vi.fn(
+			(_id: string, _settings: SettingsRequest): Promise<ProjectSettings> =>
+				Promise.reject(new Error("the project page's tests do not save")),
 		),
 		loadCards: vi.fn(() => Promise.resolve({ cards: [], features: [] })),
 		loadSetup: vi.fn(() => Promise.resolve(setup)),
 		mergeSetup: vi.fn(() => Promise.resolve()),
 		runSetupAgain: vi.fn(() => Promise.resolve()),
+		sendSetupBack: vi.fn((_id: string, _comment: string) => Promise.resolve()),
 		checkAgain: vi.fn(() => {
 			if (setup.check)
 				setup = { ...setup, check: { ...setup.check, again_asked: true } };
@@ -410,6 +420,162 @@ describe("a project's setup", () => {
 		expect(
 			await screen.findByRole("article", { name: "Workers" }),
 		).toBeTruthy();
+	});
+
+	/** A project whose setup run proposed guided and a path, its settings
+	 * step waiting. */
+	const proposed: ProjectSetup = {
+		...REGISTERED,
+		state: "setting_up",
+		steps: [
+			{ step: "setup", done: true },
+			{ step: "recipe", done: true },
+			{ step: "settings", done: false },
+			{ step: "worker", done: true },
+			{ step: "check", done: true },
+		],
+		proposal: {
+			preset: "guided",
+			why: "Its migrations are worth a look before they merge.",
+			paths: ["migrations/**"],
+		},
+	};
+
+	test("the settings step shows the proposal with accept and change", async () => {
+		const { saveSettings, loadSettings, loadSetup } = renderPage({
+			setup: proposed,
+		});
+		saveSettings.mockImplementation((_id, saved) =>
+			Promise.resolve({
+				...saved,
+				trusted_logins: [{ login: "octo-owner", mine: true }],
+				preset: "guided",
+			} as ProjectSettings),
+		);
+
+		const step = await screen.findByRole("region", { name: "The settings" });
+		expect(within(step).getByText(SETTINGS_PROPOSED)).toBeTruthy();
+		expect(within(step).getByText("Guided")).toBeTruthy();
+		expect(
+			within(step).getByText(
+				"Its migrations are worth a look before they merge.",
+			),
+		).toBeTruthy();
+		expect(
+			within(
+				within(step).getByRole("list", { name: "Paths that wait for you" }),
+			).getByText("migrations/**"),
+		).toBeTruthy();
+
+		// Accept fills in the preset's settings and the paths over the settings
+		// as saved, and saves them through the settings route; the Settings
+		// panel and the steps are read again.
+		fireEvent.click(within(step).getByRole("button", { name: "Accept" }));
+		await waitFor(() => expect(saveSettings).toHaveBeenCalledTimes(1));
+		const [id, saved] = saveSettings.mock.calls[0] as unknown as [
+			string,
+			Record<string, unknown>,
+		];
+		expect(id).toBe(ID);
+		expect(saved).toMatchObject({
+			questions: false,
+			waits_for_owner: "sometimes",
+			wait_when_marked: true,
+			wait_when_paths: true,
+			wait_when_decision: true,
+			wait_paths: ["migrations/**"],
+			hold_label: "devflow-hold",
+			trusted_logins: ["octo-owner"],
+		});
+		expect(saved).not.toHaveProperty("preset");
+		await waitFor(() => expect(loadSetup).toHaveBeenCalledTimes(2));
+		await waitFor(() => expect(loadSettings).toHaveBeenCalledTimes(3));
+	});
+
+	test("the settings step without a proposal asks to save the panel once", async () => {
+		renderPage({ setup: { ...proposed, proposal: null } });
+
+		const step = await screen.findByRole("region", { name: "The settings" });
+		expect(within(step).getByText(SETTINGS_SAVE_ONCE)).toBeTruthy();
+		expect(within(step).queryByRole("button", { name: "Accept" })).toBeNull();
+	});
+
+	test("a proposal that is not saved says why", async () => {
+		const { saveSettings } = renderPage({ setup: proposed });
+		saveSettings.mockImplementation(() =>
+			Promise.reject(
+				new ApiError({
+					status: 422,
+					title: "The settings break a rule",
+					detail: "wait_paths must not start with /",
+				}),
+			),
+		);
+
+		const step = await screen.findByRole("region", { name: "The settings" });
+		fireEvent.click(within(step).getByRole("button", { name: "Accept" }));
+		expect((await within(step).findByRole("alert")).textContent).toBe(
+			`${NOT_ACCEPTED} The settings break a rule. wait_paths must not start with /`,
+		);
+	});
+
+	test("a failed check is sent back with a comment", async () => {
+		const { sendSetupBack, loadSetup } = renderPage({
+			setup: { ...failed, can_send_back: true },
+		});
+
+		const check = await screen.findByRole("region", {
+			name: "The newest check",
+		});
+		fireEvent.click(within(check).getByRole("button", { name: SEND_BACK }));
+		const send = within(check).getByRole("button", { name: "Send" });
+		expect((send as HTMLButtonElement).disabled).toBe(true);
+		fireEvent.change(within(check).getByLabelText(SEND_BACK_LABEL), {
+			target: { value: "Install Redis for the cache tests." },
+		});
+		fireEvent.click(send);
+		await waitFor(() =>
+			expect(sendSetupBack).toHaveBeenCalledWith(
+				ID,
+				"Install Redis for the cache tests.",
+			),
+		);
+		await waitFor(() => expect(loadSetup).toHaveBeenCalledTimes(2));
+	});
+
+	test("a check that cannot be sent back offers no comment", async () => {
+		renderPage({ setup: failed });
+
+		const check = await screen.findByRole("region", {
+			name: "The newest check",
+		});
+		expect(within(check).queryByRole("button", { name: SEND_BACK })).toBeNull();
+	});
+
+	test("a sent back setup says why its worker is to be started", async () => {
+		renderPage({
+			setup: {
+				...failed,
+				setup: {
+					number: 2,
+					branch: "devflow/setup-2",
+					sent_back: true,
+					state: "queued",
+					reason:
+						"You sent the failed check back; an agent writes .devflow/ again next",
+					pull_request_number: null,
+					pull_request_url: null,
+					running: false,
+					head_commit: null,
+					report: null,
+					review: null,
+				},
+			},
+		});
+
+		const run = await screen.findByRole("region", { name: "The setup run" });
+		expect(within(run).getByText(SENT_BACK_RUN)).toBeTruthy();
+		expect(within(run).queryByText(NO_DEVFLOW)).toBeNull();
 	});
 
 	test("Check again asks for another check and says so", async () => {

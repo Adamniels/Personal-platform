@@ -15,9 +15,11 @@ import { type CardsApi, CardsPanel } from "./cards";
 import styles from "./project.module.css";
 import type { Project } from "./projects";
 import {
+	PRESET_FILLS,
 	PRESET_NAMES,
 	type Preset,
 	type ProjectSettings,
+	requestOf,
 	type SettingsApi,
 	SettingsPanel,
 } from "./settings";
@@ -25,6 +27,7 @@ import {
 	type ProjectSetup,
 	type SetupApi,
 	SetupPanel,
+	type SetupProposal,
 	setupShows,
 } from "./setup";
 import { duration } from "./waiting";
@@ -112,6 +115,7 @@ export function ProjectPage({
 	checkAgain,
 	mergeSetup,
 	runSetupAgain,
+	sendSetupBack,
 }: ProjectPageProps) {
 	const [project, setProject] = useState<Project | null>();
 	const [failed, setFailed] = useState(false);
@@ -132,6 +136,26 @@ export function ProjectPage({
 	const showPreset = useCallback(
 		(settings: ProjectSettings) => setPreset(settings.preset),
 		[],
+	);
+	// Bumped when the settings are saved from outside the Settings panel, by
+	// accepting a setup run's proposal, so the panel reads them again.
+	const [settingsRead, setSettingsRead] = useState(0);
+	const acceptProposal = useCallback(
+		async (proposal: SetupProposal) => {
+			const settings = await loadSettings(id);
+			const saved = await saveSettings(
+				id,
+				requestOf({
+					...settings,
+					...PRESET_FILLS[proposal.preset],
+					wait_paths: proposal.paths,
+				}),
+			);
+			setPreset(saved.preset);
+			setSettingsRead((count) => count + 1);
+			await reloadSetup();
+		},
+		[id, loadSettings, saveSettings, reloadSetup],
 	);
 
 	useEffect(() => {
@@ -207,10 +231,12 @@ export function ProjectPage({
 				</div>
 			</header>
 			<SettingsPanel
+				key={settingsRead}
 				id={id}
 				loadSettings={loadSettings}
 				saveSettings={saveSettings}
 				onSettings={showPreset}
+				onSaved={reloadSetup}
 			/>
 			{/* While the project is setting up, its steps stand in place of its
 			    cards; a registered project whose newer version failed its check
@@ -224,6 +250,8 @@ export function ProjectPage({
 							checkAgain={checkAgain}
 							mergeSetup={mergeSetup}
 							runSetupAgain={runSetupAgain}
+							sendSetupBack={sendSetupBack}
+							acceptProposal={acceptProposal}
 							copy={copy}
 							reload={reloadSetup}
 						/>
