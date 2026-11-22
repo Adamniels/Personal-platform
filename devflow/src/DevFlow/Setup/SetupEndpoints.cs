@@ -11,9 +11,10 @@ namespace DevFlow.Setup;
 
 /// <summary>
 /// A project's setup over HTTP, every route under the <c>Api</c> policy and the origin check: its
-/// steps and its newest check, asking for another check of a version whose check failed, a check's
-/// pictures, the owner's merge of his setup's pull request, and his comment that runs a setup
-/// stopped before it had a pull request again. See "Setting up a project" in
+/// steps and its newest check, asking for another check of a version whose check failed, sending a
+/// failed check back with his comment as a new setup run, a check's pictures, the owner's merge of
+/// his setup's pull request, and his comment that runs a setup stopped before it had a pull request
+/// again. See "Setting up a project" in
 /// devflow/README.md.
 /// </summary>
 public static class SetupEndpoints
@@ -51,6 +52,11 @@ public static class SetupEndpoints
             .Route("runProjectSetupAgain", "Run a stopped setup again with a comment",
                 "Takes comment, trimmed, as the owner's comment on a setup run that stopped before it had a pull request, which has nothing on GitHub to comment on: the setup runs again with it, a fix of its branch, or a first run when nothing was pushed, with comment in its brief to be answered, as his comment on a setup's pull request runs one again. In order: 404 for a project the caller does not have; 422 when comment is missing, empty once trimmed, or longer than 10,000 characters; 409 when the project's newest setup has not stopped, has a pull request, which his comment on GitHub runs again, or is running, or the project no longer needs a setup. 204 once taken.",
                 StatusCodes.Status404NotFound, StatusCodes.Status409Conflict, StatusCodes.Status422UnprocessableEntity);
+
+        setup.MapPost("/send-back", SendBack)
+            .Route("sendProjectSetupBack", "Send a failed check back with a comment",
+                "Takes comment, trimmed, as the owner's comment on the failed check of the project's newest version of .devflow/: a new setup run starts from the default branch on the next free devflow/setup-<k>, its brief holding the two files as they were at the commit checked, the check's output and comment, and its pull request is the setup's, reviewed, fixed and waiting for the caller. In order: 404 for a project the caller does not have; 422 when comment is missing, empty once trimmed, or longer than 4,000 characters; 409 when the newest check of the project's version did not fail, another check of it runs, or a setup is under way; 503 when GitHub did not answer for the files. 204 once taken.",
+                StatusCodes.Status404NotFound, StatusCodes.Status409Conflict, StatusCodes.Status422UnprocessableEntity, StatusCodes.Status503ServiceUnavailable);
 
         setup.MapGet("/checks/{check:guid}/pictures/{name}", async Task<Results<FileContentHttpResult, ProblemHttpResult>> (Guid id, Guid check, string name, HttpContext context, [FromServices] UserDb database) =>
                 {
@@ -185,6 +191,88 @@ public static class SetupEndpoints
                     : "Only a setup that stopped before it had a pull request is run again from its step.");
     }
 
+    /// <summary>
+    /// The owner's comment on a failed check of his project's newest version of <c>.devflow/</c>,
+    /// which starts a new setup run with it, the check's output and the files as they were checked,
+    /// read as the app at the commit checked before anything is stored. Only on the newest check of
+    /// the version, failed, with no other check of it running and no setup under way. His comment
+    /// on GitHub is not read for this: the check has no issue or pull request to comment on.
+    /// </summary>
+    private static async Task<Results<NoContent, ProblemHttpResult>> SendBack(
+        Guid id,
+        SetupSendBackRequest request,
+        HttpContext context,
+        [FromServices] UserDb database,
+        [FromServices] Recipes.WorkerStart start,
+        [FromServices] Workers.WorkerStore workers,
+        [FromServices] CodeHost.ICodeHost host,
+        [FromServices] TimeProvider time)
+    {
+        var userId = context.UserId();
+        var cancellationToken = context.RequestAborted;
+        if (await SetupStore.Of(database, userId, id, start, cancellationToken) is not { } project
+            || await workers.RepositoryOf(new Workers.WorkerCaller(id, userId), cancellationToken) is not { } repository)
+        {
+            return NoSuchProject();
+        }
+
+        var comment = request.Comment?.Trim();
+        if (comment is null)
+        {
+            return Acting.ActionEndpoints.Invalid("comment", "is missing");
+        }
+
+        if (comment.Length == 0)
+        {
+            return Acting.ActionEndpoints.Invalid("comment", "is empty; write what the setup should do differently");
+        }
+
+        if (comment.Length > SetupRunStore.MostSentBackComment)
+        {
+            return Acting.ActionEndpoints.Invalid("comment", string.Create(System.Globalization.CultureInfo.InvariantCulture, $"is {comment.Length:N0} characters; it may have at most {SetupRunStore.MostSentBackComment:N0}"));
+        }
+
+        if (!project.CanSendBack || project.Check is not { Passed: false } check)
+        {
+            return NotSentBack();
+        }
+
+        if (await Checked(host, userId, repository, Recipes.RecipeEndpoints.RecipePath, check.Commit, cancellationToken) is not { } recipe
+            || await Checked(host, userId, repository, Jobs.Dispatcher.ProjectFilePath, check.Commit, cancellationToken) is not { } projectFile)
+        {
+            return TypedResults.Problem(statusCode: StatusCodes.Status503ServiceUnavailable, title: "GitHub did not answer", detail: "The files that were checked could not be read. Try again.");
+        }
+
+        return await SetupRunStore.SendBack(database, userId, id, check.Id, comment, recipe.Text, projectFile.Text, Now(time), cancellationToken)
+            ? TypedResults.NoContent()
+            : NotSentBack();
+    }
+
+    /// <summary>The longest a file sent back is kept, in characters, as its column takes it.</summary>
+    private const int MostSentBackFile = 65536;
+
+    /// <summary>A file of <c>.devflow/</c> at the commit checked, read as the app, as text with no
+    /// NUL, which Postgres's text cannot hold, cut to <see cref="MostSentBackFile"/>; its text null
+    /// inside when it is not there; null when the code host did not answer.</summary>
+    private static async Task<SentBackFile?> Checked(CodeHost.ICodeHost host, Guid userId, CodeHost.Repository repository, string path, string commit, CancellationToken cancellationToken)
+    {
+        switch (await host.File(userId, repository, path, commit, cancellationToken))
+        {
+            case CodeHost.CodeHostResult<byte[]>.Found { Value: var bytes }:
+                var text = System.Text.Encoding.UTF8.GetString(bytes).Replace("\0", "", StringComparison.Ordinal);
+                return new SentBackFile(text.Length > MostSentBackFile ? text[..MostSentBackFile] : text);
+            case CodeHost.CodeHostResult<byte[]>.NotFound:
+                return new SentBackFile(null);
+            default:
+                return null;
+        }
+    }
+
+    private static ProblemHttpResult NotSentBack() =>
+        Acting.ActionEndpoints.Conflict("This check is not sent back", "Only the newest check of the project's setup that failed is sent back, while no other check of it runs and no setup is under way.");
+
+    private sealed record SentBackFile(string? Text);
+
     private static ProblemHttpResult NoSuchProject() =>
         TypedResults.Problem(statusCode: StatusCodes.Status404NotFound, title: "No such project", detail: "the project does not exist");
 
@@ -214,6 +302,10 @@ public static class SetupEndpoints
 }
 /// <summary>What the page sends to merge a project's setup: the commit it showed.</summary>
 public sealed record SetupMergeRequest(string? HeadCommit);
+
+/// <summary>What the step sends to send a failed check back.</summary>
+/// <param name="Comment">What the owner wrote, taken trimmed and quoted in the setup's brief.</param>
+public sealed record SetupSendBackRequest(string? Comment);
 
 /// <summary>What the step sends to run a stopped setup again.</summary>
 /// <param name="Comment">What the owner wrote, taken trimmed and quoted in the setup's brief.</param>

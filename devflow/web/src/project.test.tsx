@@ -100,6 +100,7 @@ const REGISTERED: ProjectSetup = {
 	problem: null,
 	setup_command: SETUP_COMMAND,
 	proposal: null,
+	can_send_back: false,
 	setup: null,
 };
 
@@ -191,6 +192,7 @@ describe("a project's setup", () => {
 		problem: null,
 		setup_command: SETUP_COMMAND,
 		proposal: null,
+		can_send_back: false,
 		setup: null,
 	};
 
@@ -211,9 +213,11 @@ describe("a project's setup", () => {
 		problem: ".devflow/Dockerfile is missing.",
 		setup_command: SETUP_COMMAND,
 		proposal: null,
+		can_send_back: false,
 		setup: {
 			number: 1,
 			branch: "devflow/setup",
+			sent_back: false,
 			state: "waiting_for_owner",
 			reason: "Approved; it waits for you to merge it",
 			pull_request_number: 7,

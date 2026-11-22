@@ -566,6 +566,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/devflow/api/projects/{id}/setup/send-back": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Send a failed check back with a comment
+         * @description Takes comment, trimmed, as the owner's comment on the failed check of the project's newest version of .devflow/: a new setup run starts from the default branch on the next free devflow/setup-<k>, its brief holding the two files as they were at the commit checked, the check's output and comment, and its pull request is the setup's, reviewed, fixed and waiting for the caller. In order: 404 for a project the caller does not have; 422 when comment is missing, empty once trimmed, or longer than 4,000 characters; 409 when the newest check of the project's version did not fail, another check of it runs, or a setup is under way; 503 when GitHub did not answer for the files. 204 once taken. Without a valid token, 401 with an empty body; a change from another origin, 403.
+         */
+        post: operations["sendProjectSetupBack"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/devflow/api/projects/{id}/worker-key": {
         parameters: {
             query?: never;
@@ -1489,6 +1509,7 @@ export interface components {
             waits_for_owner: string;
         };
         ProjectSetup: {
+            can_send_back: boolean;
             check: null | components["schemas"]["SetupCheck"];
             checking: boolean;
             problem: null | string;
@@ -1733,6 +1754,7 @@ export interface components {
             report: null | components["schemas"]["SetupReport"];
             review: null | components["schemas"]["SetupReview"];
             running: boolean;
+            sent_back: boolean;
             state: string;
         };
         SetupRunAgainRequest: {
@@ -1752,6 +1774,9 @@ export interface components {
             pull_request_url: null | string;
             reason: null | string;
             state: string;
+        };
+        SetupSendBackRequest: {
+            comment: null | string;
         };
         SetupStep: {
             done: boolean;
@@ -3390,6 +3415,73 @@ export interface operations {
             };
             /** @description Unprocessable Entity */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    sendProjectSetupBack: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetupSendBackRequest"];
+            };
+        };
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

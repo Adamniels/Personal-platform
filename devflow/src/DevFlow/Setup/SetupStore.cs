@@ -63,7 +63,9 @@ public sealed record SetupCheck(Guid Id, string Version, string Commit, bool Pas
 /// <param name="Proposal">The preset, why and the paths the project's newest setup run that
 /// succeeded proposed, which the settings step offers to accept; null without one, as for a project
 /// whose <c>.devflow/</c> was valid when it was connected.</param>
-public sealed record ProjectSetup(string State, IReadOnlyList<SetupStep> Steps, SetupCheck? Check, bool Checking, string? Problem, string SetupCommand, SetupRun? Setup, SetupProposal? Proposal);
+/// <param name="CanSendBack">Whether the newest check, of the project's version, failed and may be
+/// sent back with a comment: no check of it runs and no setup is under way.</param>
+public sealed record ProjectSetup(string State, IReadOnlyList<SetupStep> Steps, SetupCheck? Check, bool Checking, string? Problem, string SetupCommand, SetupRun? Setup, SetupProposal? Proposal, bool CanSendBack);
 
 /// <summary>What asking for another check comes to.</summary>
 public enum CheckAgain
@@ -154,7 +156,8 @@ public static class SetupStore
                        {RegisteredSql} AS Registered,
                        EXISTS (SELECT 1 FROM runs r WHERE r.project_id = p.id AND r.kind = 'check' AND r.finished_at IS NULL
                                AND r.recipe_version = coalesce(p.recipe_version, r.recipe_version)) AS Checking,
-                       {NewestSql} AS Newest
+                       {NewestSql} AS Newest,
+                       {SetupRunStore.SendBackSql} AS CanSendBack
                 FROM projects p WHERE p.id = @projectId
                 """,
                 new { projectId },
@@ -191,7 +194,8 @@ public static class SetupStore
                 row.Problem,
                 start.SetupCommand(row.Name),
                 await SetupRunStore.Newest(transaction, projectId, cancellationToken),
-                await SetupRunStore.Proposal(transaction, projectId, cancellationToken));
+                await SetupRunStore.Proposal(transaction, projectId, cancellationToken),
+                row.CanSendBack);
         }, cancellationToken);
     }
 
@@ -235,7 +239,7 @@ public static class SetupStore
             cancellationToken: cancellationToken)), cancellationToken);
     }
 
-    private sealed record StepsRow(string Name, string? Problem, bool Setup, bool Recipe, bool Worker, bool Passed, bool Settings, bool Registered, bool Checking, Guid? Newest);
+    private sealed record StepsRow(string Name, string? Problem, bool Setup, bool Recipe, bool Worker, bool Passed, bool Settings, bool Registered, bool Checking, Guid? Newest, bool CanSendBack);
 
     /// <summary>A check's row; a class rather than a positional record, since Npgsql answers a
     /// <c>text[]</c> column as an array Dapper matches only to a property.</summary>

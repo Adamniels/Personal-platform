@@ -27,7 +27,9 @@ namespace DevFlow.Setup;
 /// <param name="Report">The report of its newest run that succeeded, as stored, null without one.</param>
 /// <param name="Review">The review the fix answers, null when there is none.</param>
 /// <param name="Comments">The owner's comments it answers, each exactly as he wrote it.</param>
-public sealed record ClaimedSetup(Guid RunId, int Number, string Branch, string Base, string? FromCommit, int? Round, string? Report, ReviewVerdict? Review, IReadOnlyList<string> Comments);
+/// <param name="SentBack">What the owner sent back, for a setup started from a failed check; null for
+/// one the project needed because its <c>.devflow/</c> was not valid.</param>
+public sealed record ClaimedSetup(Guid RunId, int Number, string Branch, string Base, string? FromCommit, int? Round, string? Report, ReviewVerdict? Review, IReadOnlyList<string> Comments, Briefs.SetupSentBack? SentBack);
 
 /// <summary>A setup taken for its review, with the run made for it and what the review reads.</summary>
 /// <param name="RunId">The review run's id, the job's.</param>
@@ -61,7 +63,8 @@ public sealed record SetupReview(string Verdict, string Summary, int Blocking, s
 /// names.</param>
 /// <param name="Report">The newest report in its form, null before one came back.</param>
 /// <param name="Review">The review of its head, null without one.</param>
-public sealed record SetupRun(int Number, string Branch, string State, string? Reason, int? PullRequestNumber, string? PullRequestUrl, bool Running, string? HeadCommit, SetupReport? Report, SetupReview? Review);
+/// <param name="SentBack">Whether the owner started it by sending a failed check back.</param>
+public sealed record SetupRun(int Number, string Branch, string State, string? Reason, int? PullRequestNumber, string? PullRequestUrl, bool Running, string? HeadCommit, SetupReport? Report, SetupReview? Review, bool SentBack);
 
 /// <summary>A setup whose pull request is to be opened, or whose body is to be written again.</summary>
 public sealed record PendingSetup(int Number, string Branch, string State, int? PullRequestNumber, Guid RunId, string Report, string HeadCommit);
@@ -105,6 +108,12 @@ public static class SetupRunStore
     /// <summary>What a setup the owner commented on from its step says until its run begins.</summary>
     public const string RunAgainReason = "You commented on it; it runs again next";
 
+    /// <summary>What a setup the owner sent back from a failed check says until its run begins.</summary>
+    public const string SentBackReason = "You sent the failed check back; an agent writes .devflow/ again next";
+
+    /// <summary>The most characters the owner's comment sending a failed check back may have.</summary>
+    public const int MostSentBackComment = 4000;
+
     /// <summary>What a merged setup says.</summary>
     public const string Merged = "Merged; .devflow/ is on the default branch";
 
@@ -135,9 +144,33 @@ public static class SetupRunStore
          ORDER BY b.started_at DESC, b.id DESC LIMIT 1)
         """;
 
+    /// <summary>
+    /// Whether project <c>p</c> has a setup the owner sent back from a failed check of its current
+    /// version that is not done, as SQL: it needs that setup run whatever its <c>.devflow/</c> is. Once
+    /// the version changes, merged from that setup or written by hand, it no longer does.
+    /// </summary>
+    internal const string SentBackPending = """
+        EXISTS (SELECT 1 FROM setups sb JOIN recipe_checks sc ON sc.run_id = sb.sent_back_check
+                WHERE sb.project_id = p.id AND sb.state <> 'done' AND sc.version = p.recipe_version)
+        """;
+
     /// <summary>Whether project <c>@projectId</c> needs a setup, as SQL: its <c>.devflow/</c> was read
-    /// and is not valid. Before the loop has read it, nothing is handed out on a guess.</summary>
-    private const string NeedsSetup = "EXISTS (SELECT 1 FROM projects p WHERE p.id = @projectId AND p.devflow_valid IS FALSE)";
+    /// and is not valid, or the owner sent a failed check back, <see cref="SentBackPending"/>. Before
+    /// the loop has read it, nothing is handed out on a guess.</summary>
+    private const string NeedsSetup = $"EXISTS (SELECT 1 FROM projects p WHERE p.id = @projectId AND (p.devflow_valid IS FALSE OR {SentBackPending}))";
+
+    /// <summary>
+    /// Whether project <c>p</c>'s failed check may be sent back, as SQL: its version is known, the
+    /// newest check of it, the one the page shows, failed, no check of it runs, and no setup of the
+    /// project is under way, one not done.
+    /// </summary>
+    internal const string SendBackSql = $"""
+        (p.recipe_version IS NOT NULL
+         AND EXISTS (SELECT 1 FROM recipe_checks fc WHERE fc.run_id = {SetupStore.NewestSql} AND NOT fc.passed)
+         AND NOT EXISTS (SELECT 1 FROM runs fr WHERE fr.project_id = p.id AND fr.kind = 'check' AND fr.finished_at IS NULL
+                         AND fr.recipe_version = p.recipe_version)
+         AND NOT EXISTS (SELECT 1 FROM setups fs WHERE fs.project_id = p.id AND fs.state <> 'done'))
+        """;
 
     private const string Reviewable = $"""
         s.project_id = @projectId AND s.state = 'reviewing' AND s.pull_request_number IS NOT NULL AND NOT {Running}
@@ -238,7 +271,7 @@ public static class SetupRunStore
 
         var (taken, branch, comments) = setup.Value;
         var said = JsonSerializer.Deserialize<List<string>>(comments) ?? [];
-        var claimed = new ClaimedSetup(Guid.CreateVersion7(now), taken, branch, defaultBranch, null, null, null, null, said);
+        var claimed = new ClaimedSetup(Guid.CreateVersion7(now), taken, branch, defaultBranch, null, null, null, null, said, await SentBackOf(transaction, projectId, taken, cancellationToken));
         await transaction.Connection!.ExecuteAsync(new CommandDefinition(
             """
             INSERT INTO runs (id, project_id, user_id, setup_number, worker_id, kind, branch, base, check_command, owner_comments, started_at, run_minutes)
@@ -286,7 +319,7 @@ public static class SetupRunStore
             review = ReviewVerdict.TryRead(document.RootElement, out var read, out _) ? read : null;
         }
 
-        var claimed = new ClaimedSetup(Guid.CreateVersion7(now), setup.Number, setup.Branch, defaultBranch, setup.FromCommit, setup.Round, setup.Report, review, comments);
+        var claimed = new ClaimedSetup(Guid.CreateVersion7(now), setup.Number, setup.Branch, defaultBranch, setup.FromCommit, setup.Round, setup.Report, review, comments, await SentBackOf(transaction, projectId, setup.Number, cancellationToken));
         await transaction.Connection!.ExecuteAsync(new CommandDefinition(
             """
             UPDATE setups SET reason = @reason, changed_at = @now WHERE project_id = @projectId AND number = @number
@@ -685,7 +718,8 @@ public static class SetupRunStore
                    (SELECT r.report::text FROM runs r WHERE r.project_id = s.project_id AND r.setup_number = s.number AND r.kind = 'setup'
                     AND r.report IS NOT NULL ORDER BY r.started_at DESC, r.id DESC LIMIT 1) AS Report,
                    (SELECT v.report::text FROM runs v WHERE v.project_id = s.project_id AND v.setup_number = s.number AND v.kind = 'setup_review'
-                    AND v.result = 'succeeded' AND v.head_commit = {HeadOf} ORDER BY v.started_at DESC, v.id DESC LIMIT 1) AS Verdict
+                    AND v.result = 'succeeded' AND v.head_commit = {HeadOf} ORDER BY v.started_at DESC, v.id DESC LIMIT 1) AS Verdict,
+                   s.sent_back_check IS NOT NULL AS SentBack
             FROM setups s WHERE s.project_id = @projectId ORDER BY s.number DESC LIMIT 1
             """,
             new { projectId },
@@ -713,8 +747,57 @@ public static class SetupRunStore
             }
         }
 
-        return new SetupRun(row.Number, row.Branch, row.State, row.Reason, row.PullRequestNumber, row.PullRequestUrl, row.Running, row.HeadCommit, report, review);
+        return new SetupRun(row.Number, row.Branch, row.State, row.Reason, row.PullRequestNumber, row.PullRequestUrl, row.Running, row.HeadCommit, report, review, row.SentBack);
     }
+
+    /// <summary>
+    /// Sends the project's failed check <paramref name="check"/> back with the owner's
+    /// <paramref name="comment"/>: a new setup, queued, numbered after the last on its own branch, so
+    /// it is run from the default branch, holding the comment and the two files as Dev flow read them
+    /// at the commit checked, each null when it was missing. Only while the check may be sent back,
+    /// <see cref="SendBackSql"/>, and is still the newest of its version. Whether it was taken.
+    /// </summary>
+    public static async Task<bool> SendBack(UserDb database, Guid userId, Guid projectId, Guid check, string comment, string? recipe, string? projectFile, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(database);
+        ArgumentNullException.ThrowIfNull(comment);
+        return await database.InUserTransaction(userId, async transaction =>
+        {
+            // The project's row, locked, so two sends of the same check cannot both see it free.
+            await transaction.Connection!.ExecuteAsync(new CommandDefinition(
+                "SELECT 1 FROM projects WHERE id = @projectId FOR UPDATE",
+                new { projectId },
+                transaction,
+                cancellationToken: cancellationToken));
+            return await transaction.Connection!.ExecuteAsync(new CommandDefinition(
+                $"""
+                INSERT INTO setups (project_id, user_id, number, branch, state, reason, created_at, changed_at,
+                                    sent_back_check, sent_back_comment, sent_back_recipe, sent_back_project_file)
+                SELECT p.id, p.user_id, next.n, CASE WHEN next.n = 1 THEN 'devflow/setup' ELSE 'devflow/setup-' || next.n END,
+                       'queued', @reason, @now, @now, @check, @comment, @recipe, @projectFile
+                FROM projects p, (SELECT coalesce(max(number), 0) + 1 AS n FROM setups WHERE project_id = @projectId) next
+                WHERE p.id = @projectId AND {SendBackSql} AND {SetupStore.NewestSql} = @check
+                ON CONFLICT DO NOTHING
+                """,
+                new { projectId, check, comment, recipe, projectFile, reason = SentBackReason, now },
+                transaction,
+                cancellationToken: cancellationToken));
+        }, cancellationToken) == 1;
+    }
+
+    /// <summary>What the owner sent back of setup <paramref name="number"/>, for its runs' brief, or
+    /// null for a setup not started so.</summary>
+    private static async Task<Briefs.SetupSentBack?> SentBackOf(NpgsqlTransaction transaction, Guid projectId, int number, CancellationToken cancellationToken) =>
+        await transaction.Connection!.QuerySingleOrDefaultAsync<Briefs.SetupSentBack>(new CommandDefinition(
+            """
+            SELECT s.sent_back_recipe AS Recipe, s.sent_back_project_file AS ProjectFile, c.exit_code AS ExitCode, c.output AS Output,
+                   s.sent_back_comment AS Comment
+            FROM setups s JOIN recipe_checks c ON c.run_id = s.sent_back_check
+            WHERE s.project_id = @projectId AND s.number = @number
+            """,
+            new { projectId, number },
+            transaction,
+            cancellationToken: cancellationToken));
 
     /// <summary>The settings the project's newest setup run that succeeded proposed, read inside
     /// <paramref name="transaction"/> as the project's user; null before one did.</summary>
@@ -742,5 +825,5 @@ public static class SetupRunStore
 
     private sealed record ToReview(int Number, string Branch, int PullRequest, string Commit, string Report, int? ExitCode, string? Output);
 
-    private sealed record NewestRow(int Number, string Branch, string State, string? Reason, int? PullRequestNumber, string? PullRequestUrl, bool Running, string? HeadCommit, string? Report, string? Verdict);
+    private sealed record NewestRow(int Number, string Branch, string State, string? Reason, int? PullRequestNumber, string? PullRequestUrl, bool Running, string? HeadCommit, string? Report, string? Verdict, bool SentBack);
 }

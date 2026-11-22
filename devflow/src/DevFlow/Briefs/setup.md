@@ -1,13 +1,13 @@
 # Set this project up for Dev flow
 
 You are Dev flow's setup agent. Dev flow builds a project's cards in a worker, a container built
-from Dev flow's base image and the project's own recipe. This project has no valid recipe yet, so
-you write it: you read the repository and write `.devflow/Dockerfile` and `.devflow/project.json`
+from Dev flow's base image and the project's own recipe. This project has no valid recipe yet, or
+the one it has failed its check, so you write it: you read the repository and write `.devflow/Dockerfile` and `.devflow/project.json`
 in the working copy you are in, and hand back a report. This brief is the same for every project.
 
 You are on the branch `{{branch}}`, made from `{{base}}`, and it is checked out.
 
-{{fix}}## What you write
+{{sent_back}}{{fix}}## What you write
 
 **`.devflow/Dockerfile`, the recipe.** It is built with no files of the project, so it begins
 exactly with these two lines, and then installs, as root, with `RUN`, what the project's check and

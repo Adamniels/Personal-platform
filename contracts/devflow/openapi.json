@@ -2619,6 +2619,9 @@
       },
       "ProjectSetup": {
         "properties": {
+          "can_send_back": {
+            "type": "boolean"
+          },
           "check": {
             "oneOf": [
               {
@@ -2679,7 +2682,8 @@
           "problem",
           "setup_command",
           "setup",
-          "proposal"
+          "proposal",
+          "can_send_back"
         ],
         "type": "object"
       },
@@ -3725,6 +3729,9 @@
           "running": {
             "type": "boolean"
           },
+          "sent_back": {
+            "type": "boolean"
+          },
           "state": {
             "type": "string"
           }
@@ -3739,7 +3746,8 @@
           "running",
           "head_commit",
           "report",
-          "review"
+          "review",
+          "sent_back"
         ],
         "type": "object"
       },
@@ -3813,6 +3821,20 @@
           "pull_request_url",
           "head_commit",
           "changed_at"
+        ],
+        "type": "object"
+      },
+      "SetupSendBackRequest": {
+        "properties": {
+          "comment": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "required": [
+          "comment"
         ],
         "type": "object"
       },
@@ -6094,6 +6116,85 @@
           }
         },
         "summary": "Run a stopped setup again with a comment",
+        "tags": [
+          "SetupEndpoints"
+        ]
+      }
+    },
+    "/devflow/api/projects/{id}/setup/send-back": {
+      "post": {
+        "description": "Takes comment, trimmed, as the owner's comment on the failed check of the project's newest version of .devflow/: a new setup run starts from the default branch on the next free devflow/setup-<k>, its brief holding the two files as they were at the commit checked, the check's output and comment, and its pull request is the setup's, reviewed, fixed and waiting for the caller. In order: 404 for a project the caller does not have; 422 when comment is missing, empty once trimmed, or longer than 4,000 characters; 409 when the newest check of the project's version did not fail, another check of it runs, or a setup is under way; 503 when GitHub did not answer for the files. 204 once taken. Without a valid token, 401 with an empty body; a change from another origin, 403.",
+        "operationId": "sendProjectSetupBack",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetupSendBackRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Send a failed check back with a comment",
         "tags": [
           "SetupEndpoints"
         ]

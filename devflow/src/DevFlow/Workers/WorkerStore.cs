@@ -122,13 +122,13 @@ public sealed class WorkerStore(UserDb database, TimeProvider time)
     /// back for what Dev flow does not know. Compared in the database rather than here, so no code
     /// in this namespace compares strings, see <c>TheKeyIsComparedInConstantTime</c>.
     /// A worker built from no recipe, <see cref="Protocol.WorkerApi.NoVersion"/>, the base image
-    /// itself as a setup run starts it, needs one only once its project's <c>.devflow/</c> is valid:
-    /// until then it is the worker the setup's jobs go to. See "Setting up a project" in
-    /// devflow/README.md.
+    /// itself as a setup run starts it, needs one only once its project's <c>.devflow/</c> is valid
+    /// and no failed check of it was sent back to a setup not done: until then it is the worker the
+    /// setup's jobs go to. See "Setting up a project" in devflow/README.md.
     /// </summary>
     private const string RebuildSql = $"""
         CASE
-            WHEN w.recipe_version = '{Protocol.WorkerApi.NoVersion}' AND p.devflow_valid THEN 'recipe'
+            WHEN w.recipe_version = '{Protocol.WorkerApi.NoVersion}' AND p.devflow_valid AND NOT {Setup.SetupRunStore.SentBackPending} THEN 'recipe'
             WHEN w.recipe_version <> '{Protocol.WorkerApi.NoVersion}' AND p.recipe_version IS NOT NULL AND w.recipe_version <> p.recipe_version THEN 'recipe'
             WHEN w.base_image <> @image THEN 'base_image'
         END AS Rebuild
