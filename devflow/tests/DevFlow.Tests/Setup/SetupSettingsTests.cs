@@ -202,6 +202,13 @@ public sealed class SetupSettingsTests
         await Valid(jobs);
         await Save(jobs, await Settings(jobs));
         Assert.Equal(Job.Read, (string)(await jobs.Job())["kind"]!);
+
+        // A card already read and ready to build: no build either, until the settings are saved.
+        await using var ready = await Jobs.Start([Jobs.Card(1)], settingsAccepted: false);
+        Assert.Equal(StatusCodes.Status204NoContent, (await ready.Next()).Response.StatusCode);
+        await Valid(ready);
+        await Save(ready, await Settings(ready));
+        Assert.Equal(Job.Build, (string)(await ready.Job())["kind"]!);
     }
 
     [Fact]
