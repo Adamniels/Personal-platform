@@ -55,6 +55,7 @@ function list(cards: CardItem[], items: WaitingItem[] = []): WaitingList {
 		needs_relink: false,
 		stopped_cards: [],
 		refused_cards: [],
+		question_cards: [],
 		failing_projects: [],
 		features: [],
 		items,

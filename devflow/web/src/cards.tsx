@@ -28,6 +28,7 @@ export type CardsApi = {
 const STATES: Record<string, { word: string; tone: StatusTone }> = {
 	queued: { word: "Queued", tone: "idle" },
 	reading: { word: "Reading", tone: "running" },
+	needs_answers: { word: "Needs your answers", tone: "needs-you" },
 	held: { word: "Held", tone: "idle" },
 	ignored: { word: "Ignored", tone: "failed" },
 	building: { word: "Building", tone: "running" },

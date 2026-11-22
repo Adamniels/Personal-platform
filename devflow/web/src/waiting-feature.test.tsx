@@ -50,6 +50,7 @@ function list(
 		needs_relink: false,
 		stopped_cards: [],
 		refused_cards: [],
+		question_cards: [],
 		failing_projects: [],
 		features,
 		items: [],

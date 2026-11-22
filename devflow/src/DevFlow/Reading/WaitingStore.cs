@@ -6,6 +6,7 @@ using Dapper;
 using DevFlow.Cards;
 using DevFlow.CodeHost;
 using DevFlow.Link;
+using DevFlow.Protocol;
 using DevFlow.Runner;
 using DevFlow.Stops;
 
@@ -222,6 +223,26 @@ public sealed record StoppedCard(Guid ProjectId, string ProjectName, string Owne
 /// <param name="RefusedAt">When that reading came back.</param>
 public sealed record RefusedCard(Guid ProjectId, string ProjectName, string Owner, int Number, string Title, Uri WebUrl, IReadOnlyList<string> Missing, DateTimeOffset RefusedAt);
 
+/// <summary>A card of Dev flow's own whose reading found questions, with the project's questions on,
+/// shown under "Questions before starting" until the owner sends its answers from the page, which
+/// queues it. Nothing about it is on GitHub until then. Its title and every question came from the
+/// code host or the reader, and are shown as text. See "Reading a card" under "Jobs" in
+/// devflow/README.md.</summary>
+/// <param name="Id">The card's id, which <c>POST /devflow/api/cards/{id}/answers</c> names.</param>
+/// <param name="ProjectName">The repository's name, as connected.</param>
+/// <param name="Owner">The repository's owner, as connected.</param>
+/// <param name="Number">The card's issue number.</param>
+/// <param name="Title">The card's title, as it was picked.</param>
+/// <param name="WebUrl">Where the card's issue is on the code host.</param>
+/// <param name="Feature">The feature it is a card of, by its parent's number and title; null for
+/// a card on its own.</param>
+/// <param name="ReadingId">The reading that asked the questions, which the answers name, so a page
+/// showing an older reading's questions is refused.</param>
+/// <param name="Questions">Each question, with the reader's recommendation and why, in the order
+/// the answers follow.</param>
+/// <param name="ReadAt">When that reading came back.</param>
+public sealed record QuestionCard(Guid Id, Guid ProjectId, string ProjectName, string Owner, int Number, string Title, Uri WebUrl, Cards.CardFeature? Feature, Guid ReadingId, IReadOnlyList<ReadingQuestion> Questions, DateTimeOffset ReadAt);
+
 /// <summary>A project whose runs keep failing outside their cards, so it cannot run them, shown
 /// until a run succeeds. See "Stops" in devflow/README.md.</summary>
 /// <param name="ProjectName">The repository's name, as connected.</param>
@@ -278,8 +299,8 @@ public sealed record FeatureItem(
 
 /// <summary>What <c>GET /devflow/api/waiting</c> answers.</summary>
 /// <param name="Count">The items not sent back, Dev flow's own items, cards, stopped and refused
-/// cards, failing projects, decisions to look at and features, and one more when the link needs
-/// renewing: what waits for the owner to act.</param>
+/// cards, failing projects, decisions to look at, features and cards waiting for answers, and one
+/// more when the link needs renewing: what waits for the owner to act.</param>
 /// <param name="NeedsRelink">Whether GitHub stopped taking the owner's link.</param>
 /// <param name="OwnItems">Dev flow's own items, read from its own tables beside the runner's, by
 /// project.</param>
@@ -294,7 +315,9 @@ public sealed record FeatureItem(
 /// cards it merged, by project, oldest first.</param>
 /// <param name="Features">Dev flow's own features that are ready for the owner's review or wait for
 /// him, by project and number.</param>
-public sealed record WaitingList(int Count, bool NeedsRelink, IReadOnlyList<WaitingItem> Items, IReadOnlyList<ProjectFreshness> Projects, IReadOnlyList<OwnItem> OwnItems, IReadOnlyList<CardItem> Cards, IReadOnlyList<StoppedCard> StoppedCards, IReadOnlyList<RefusedCard> RefusedCards, IReadOnlyList<FailingProject> FailingProjects, IReadOnlyList<DecisionItem> Decisions, IReadOnlyList<FeatureItem> Features);
+/// <param name="QuestionCards">Dev flow's own cards that wait for the owner's answers to their
+/// reading's questions, by project and number.</param>
+public sealed record WaitingList(int Count, bool NeedsRelink, IReadOnlyList<WaitingItem> Items, IReadOnlyList<ProjectFreshness> Projects, IReadOnlyList<OwnItem> OwnItems, IReadOnlyList<CardItem> Cards, IReadOnlyList<StoppedCard> StoppedCards, IReadOnlyList<RefusedCard> RefusedCards, IReadOnlyList<FailingProject> FailingProjects, IReadOnlyList<DecisionItem> Decisions, IReadOnlyList<FeatureItem> Features, IReadOnlyList<QuestionCard> QuestionCards);
 
 /// <summary>
 /// What waits for a user, read from the snapshot <see cref="ProjectReader"/> stores and never from
@@ -311,7 +334,7 @@ public sealed class WaitingStore(UserDb database, TimeProvider time)
     /// name, and whether their link needs renewing, read in one transaction.</summary>
     public async Task<WaitingList> For(Guid userId, CancellationToken cancellationToken)
     {
-        var (items, projects, relink, stops, cardRows, stoppedRows, refusedRows, failingRows, decisionRows, features, cardDecisions) = await database.InUserTransaction(userId, async transaction =>
+        var (items, projects, relink, stops, cardRows, stoppedRows, refusedRows, failingRows, decisionRows, features, cardDecisions, askedRows) = await database.InUserTransaction(userId, async transaction =>
         {
             var items = await transaction.Connection!.QueryAsync<ItemRow>(new CommandDefinition(
                 """
@@ -420,6 +443,26 @@ public sealed class WaitingStore(UserDb database, TimeProvider time)
                 """,
                 transaction: transaction,
                 cancellationToken: cancellationToken));
+            // A card that needs answers with the questions of its newest reading, the one that asked
+            // them, and its feature.
+            var asked = await transaction.Connection!.QueryAsync<AskedRow>(new CommandDefinition(
+                """
+                SELECT c.id AS Id, c.project_id AS ProjectId, p.name AS ProjectName, p.owner AS Owner, c.number AS Number,
+                       coalesce(c.picked_title, c.title) AS Title, c.web_url AS WebUrl, f.number AS FeatureNumber,
+                       coalesce(f.picked_title, f.title) AS FeatureTitle, cr.run_id AS ReadingId, cr.questions::text AS Questions,
+                       cr.read_at AS ReadAt
+                FROM cards c
+                JOIN projects p ON p.id = c.project_id
+                LEFT JOIN features f ON f.id = c.feature_id
+                JOIN LATERAL (SELECT * FROM card_readings newest
+                              WHERE newest.project_id = c.project_id AND newest.card_number = c.number AND newest.outcome IS NOT NULL
+                              ORDER BY newest.read_at DESC, newest.run_id DESC
+                              LIMIT 1) cr ON true
+                WHERE c.state = 'needs_answers' AND cr.outcome = 'questions'
+                ORDER BY lower(p.owner), lower(p.name), p.id, c.number
+                """,
+                transaction: transaction,
+                cancellationToken: cancellationToken));
             var decisions = await transaction.Connection!.QueryAsync<DecisionRow>(new CommandDefinition(
                 """
                 SELECT d.id AS Id, d.project_id AS ProjectId, p.name AS ProjectName, p.owner AS Owner, d.card_number AS CardNumber,
@@ -460,7 +503,7 @@ public sealed class WaitingStore(UserDb database, TimeProvider time)
                 features.Add(Feature(row, story?.Cards.Sum(card => card.Decisions.Count(decision => decision.Answer is null)) ?? 0));
             }
 
-            return (items.ToList(), projects.ToList(), relink, stops.ToList(), cards.ToList(), stopped.ToList(), refused.ToList(), failing.ToList(), decisions.ToList(), features, marked.ToList());
+            return (items.ToList(), projects.ToList(), relink, stops.ToList(), cards.ToList(), stopped.ToList(), refused.ToList(), failing.ToList(), decisions.ToList(), features, marked.ToList(), asked.ToList());
         }, cancellationToken);
 
         var now = time.GetUtcNow();
@@ -523,8 +566,20 @@ public sealed class WaitingStore(UserDb database, TimeProvider time)
             new Uri(row.WebUrl),
             JsonSerializer.Deserialize<List<string>>(row.Missing) ?? [],
             GitHubLink.Utc(row.RefusedAt))).ToList();
+        var questionCards = askedRows.Select(row => new QuestionCard(
+            row.Id,
+            row.ProjectId,
+            row.ProjectName,
+            row.Owner,
+            row.Number,
+            row.Title,
+            new Uri(row.WebUrl),
+            row.FeatureNumber is { } feature && row.FeatureTitle is { } featureTitle ? new Cards.CardFeature(feature, featureTitle) : null,
+            row.ReadingId,
+            JsonSerializer.Deserialize<List<ReadingQuestion>>(row.Questions, DevFlow.Protocol.Reading.Json) ?? [],
+            GitHubLink.Utc(row.ReadAt))).ToList();
         return new WaitingList(
-            waiting.Count(item => !item.SentBack) + own.Count + cards.Count + stoppedCards.Count + refusedCards.Count + failingProjects.Count + decided.Count + features.Count + (relink ? 1 : 0),
+            waiting.Count(item => !item.SentBack) + own.Count + cards.Count + stoppedCards.Count + refusedCards.Count + failingProjects.Count + decided.Count + features.Count + questionCards.Count + (relink ? 1 : 0),
             relink,
             waiting,
             [.. projects.Select(project =>
@@ -538,7 +593,8 @@ public sealed class WaitingStore(UserDb database, TimeProvider time)
             refusedCards,
             failingProjects,
             decided,
-            features);
+            features,
+            questionCards);
     }
 
     /// <summary>A feature as the list answers it, from its row, with how many of its decisions are
@@ -702,6 +758,8 @@ public sealed class WaitingStore(UserDb database, TimeProvider time)
         string? ScreenshotsNote);
 
     private sealed record StoppedRow(Guid ProjectId, string ProjectName, string Owner, int Number, string Title, string WebUrl, string Reason, DateTime StoppedAt, string? PullRequestUrl);
+
+    private sealed record AskedRow(Guid Id, Guid ProjectId, string ProjectName, string Owner, int Number, string Title, string WebUrl, int? FeatureNumber, string? FeatureTitle, Guid ReadingId, string Questions, DateTime ReadAt);
 
     private sealed record RefusedRow(Guid ProjectId, string ProjectName, string Owner, int Number, string Title, string WebUrl, string Missing, DateTime RefusedAt);
 

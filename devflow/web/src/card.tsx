@@ -214,7 +214,9 @@ export function CardPage({
 					</p>
 				</div>
 			</Panel>
-			{story.reading === null ? null : <Reading reading={story.reading} />}
+			{story.reading === null ? null : (
+				<Reading reading={story.reading} state={story.state} />
+			)}
 			{story.merge === null ? null : (
 				<Panel title="The merge" className={styles.panel}>
 					<div className={styles.body}>
@@ -558,11 +560,16 @@ export function ReviewRow({ review }: { review: Review }) {
 /** What the card was read as before it was built: the outcome and when, each
  * question with the answer it is built on and why, and what it lacks when it
  * is too thin. Every text is the reader's, shown as text. */
-function Reading({ reading }: { reading: CardReading }) {
-	const { word, tone } = OUTCOMES[reading.outcome] ?? {
-		word: reading.outcome,
-		tone: "idle",
-	};
+function Reading({ reading, state }: { reading: CardReading; state: string }) {
+	const waits = state === "needs_answers";
+	const { word, tone } = waits
+		? { word: "Waits for your answers", tone: "needs-you" as const }
+		: reading.answered
+			? { word: "Built on your answers", tone: "idle" as const }
+			: (OUTCOMES[reading.outcome] ?? {
+					word: reading.outcome,
+					tone: "idle" as const,
+				});
 	return (
 		<Panel title="The reading" className={styles.panel}>
 			<div className={styles.body}>
@@ -573,21 +580,20 @@ function Reading({ reading }: { reading: CardReading }) {
 					</span>
 				</p>
 				{reading.questions.length === 0 ? null : (
-					<p className={styles.muted}>
-						The card leaves choices open that it does not settle, so it is built
-						on the reader's recommendations.{" "}
-						{reading.commented
-							? "Dev flow posted them on the card."
-							: "Dev flow posts them on the card."}
-					</p>
+					<p className={styles.muted}>{questionsLine(reading, state)}</p>
 				)}
 				<Section label="Questions" items={reading.questions}>
 					{(question) => (
 						<>
 							<Inline text={question.question} />
 							<span className={styles.sub}>
-								<span className={styles.mark}>Answer</span>{" "}
+								<span className={styles.mark}>
+									{waits ? "Recommended" : "Answer"}
+								</span>{" "}
 								<Inline text={question.answer} />
+								{reading.answered && question.recommended
+									? " (recommended)"
+									: null}
 							</span>
 							{question.why.trim() === "" ? null : (
 								<span className={styles.sub}>
@@ -603,6 +609,21 @@ function Reading({ reading }: { reading: CardReading }) {
 			</div>
 		</Panel>
 	);
+}
+
+/** What the questions are to the card: waiting for the owner's answers under
+ * Waiting for you, answered by him, or built on the reader's recommendations
+ * that Dev flow posts on it. */
+function questionsLine(reading: CardReading, state: string): string {
+	if (state === "needs_answers")
+		return "The card leaves choices open that it does not settle. It waits for your answers under Questions before starting on Waiting for you, and nothing is posted on it until you send them.";
+	if (reading.answered)
+		return "The card leaves choices open that it does not settle, and it is built on your answers, posted on it as your comment.";
+	return `The card leaves choices open that it does not settle, so it is built on the reader's recommendations. ${
+		reading.commented
+			? "Dev flow posted them on the card."
+			: "Dev flow posts them on the card."
+	}`;
 }
 
 /** The latest report, in its form: the summary, then each list the agent

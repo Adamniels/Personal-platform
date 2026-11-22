@@ -534,6 +534,11 @@ public sealed partial class ProjectReader(UserDb database, ICodeHost host, TimeP
 
             await Refusals.TakeEdits(transaction, projectId, now, cancellationToken);
 
+            // A card picked again whose reading's questions nobody has answered waits for the
+            // owner's answers again, while the project asks them, rather than being built on the
+            // recommendations.
+            await ReadingStore.HoldForAnswers(transaction, projectId, now, cancellationToken);
+
             // A feature whose pull request merged is merged, before its end is decided, which
             // leaves it alone from then on.
             foreach (var pull in features)

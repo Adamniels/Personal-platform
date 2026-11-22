@@ -18,8 +18,8 @@ namespace DevFlow.Tests.Readings;
 /// <summary>
 /// Every card is read before anything is built: a feature's cards together in one reading, a card
 /// on its own alone, each answered ready, with questions, or too thin; a ready card is queued, a card
-/// with questions is queued on the reader's recommendations, which Dev flow posts on it once and its
-/// build's brief carries as the answers, and a card too thin is not built. The feature's note of the
+/// with questions waits for the owner's answers or goes on the recommendations, see QuestionsTests,
+/// and a card too thin is not built. The feature's note of the
 /// code it touches goes into every brief of the feature. A reading is judged as any run. Against the
 /// fake code host and a real Postgres, with the fake worker. See "Jobs" in devflow/README.md and
 /// "Reading a card" in devflow/docs/devflow-architecture.md.
@@ -32,7 +32,7 @@ public sealed class ReadJobTests
     private const int Third = FeaturePage.Third;
 
     /// <summary>The note the reader writes of the code the cards touch.</summary>
-    private const string Note = "devflow/src/DevFlow/Jobs/Dispatcher.cs: where a job is handed out, which each card changes.";
+    internal const string Note = "devflow/src/DevFlow/Jobs/Dispatcher.cs: where a job is handed out, which each card changes.";
 
     private static CancellationToken Ct => Jobs.Jobs.Ct;
 
@@ -207,57 +207,6 @@ public sealed class ReadJobTests
 
         // And it is built next.
         Assert.Equal(Job.Build, (string)(await jobs.Job())["kind"]!);
-    }
-
-    [Fact]
-    public async Task ACardWithQuestionsGoesOnTheRecommendations()
-    {
-        await using var jobs = await Jobs.Jobs.Start(read: false);
-        (string, string)[] questions =
-        [
-            ("Is the list sorted by name or by date?", "By date, newest first"),
-            ("Does an empty list show a sentence or nothing?", "A sentence"),
-        ];
-
-        // The fake worker waits for what follows a result on the minute, the comment among it.
-        await Read(jobs, Prepared(Reading(Asks(1, questions))));
-
-        // Queued on the recommendations, without the owner.
-        Assert.Equal(("queued", null), ((await jobs.Card(1)).State, (await jobs.Card(1)).Reason));
-
-        // One comment on the card, as the app, listing each question and the recommendation chosen;
-        // the minute after posts none again.
-        await jobs.Routes.App.Services.GetRequiredService<QuestionComments>().PostPending(jobs.Project, User, Ct);
-        var comment = Assert.Single(Stops.Stop.ByApp(jobs, "comment", 1));
-        foreach (var (question, recommendation) in questions)
-        {
-            Assert.Contains(question, comment.Body, StringComparison.Ordinal);
-            Assert.Contains(recommendation, comment.Body, StringComparison.Ordinal);
-        }
-
-        // Its id is kept, and the page shows the questions with the recommendations as the answers.
-        var reading = (await Story(jobs, 1))["reading"]!;
-        Assert.Equal("questions", (string)reading["outcome"]!);
-        Assert.True((bool)reading["commented"]!);
-        Assert.Equal(
-            questions.Select(question => (question.Item1, question.Item2)),
-            reading["questions"]!.AsArray().Select(asked => ((string)asked!["question"]!, (string)asked["answer"]!)));
-        await using (var admin = await jobs.Routes.Database.OpenAdmin(Ct))
-        {
-            Assert.NotNull(await admin.ExecuteScalarAsync<long?>(new CommandDefinition(
-                "SELECT comment_id FROM card_readings WHERE project_id = @project AND card_number = 1", new { project = jobs.Project }, cancellationToken: Ct)));
-        }
-
-        // Its build's brief carries them as the answers, each question with the recommendation.
-        var brief = (string)(await jobs.Job())["brief"]!;
-        var answers = brief[brief.IndexOf("## Answers to its questions", StringComparison.Ordinal)..];
-        Assert.Contains("Is the list sorted by name or by date?", answers, StringComparison.Ordinal);
-        Assert.Contains("By date, newest first", answers, StringComparison.Ordinal);
-        Assert.Contains("A sentence", answers, StringComparison.Ordinal);
-
-        // A card on its own is told the code it touches, from its own reading.
-        Assert.Contains("## The code this card touches", brief, StringComparison.Ordinal);
-        Assert.Contains(Note, brief, StringComparison.Ordinal);
     }
 
     [Fact]

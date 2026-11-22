@@ -299,8 +299,9 @@ public static class CardStore
     /// <summary>
     /// The number of the card that holds a card of a feature back, as SQL over <c>cards</c>: the
     /// nearest before it in its feature that is not <c>done</c>, <c>stopped</c>, <c>refused</c> or
-    /// <c>held</c>, so whatever else it is, queued, ignored, read, under way or waiting for the owner,
-    /// it comes first. Null for a card with none before it in such a state, and for a card on its
+    /// <c>held</c>, so whatever else it is, queued, ignored, read, needing the owner's answers, under
+    /// way or waiting for the owner, it comes first: a card that needs answers is meant to come
+    /// first, as a queued card is, and later cards build on it. Null for a card with none before it in such a state, and for a card on its
     /// own. A stopped, refused or held card holds back only itself, and what is blocked by it on
     /// GitHub, which picking records in <c>waits_for</c>. See "A feature's cards, one at a time" in
     /// devflow/docs/devflow-architecture.md.
