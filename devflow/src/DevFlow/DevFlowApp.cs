@@ -161,7 +161,8 @@ public static class DevFlowApp
             provider.GetRequiredService<ICodeHost>(),
             provider.GetRequiredService<WorkerStart>(),
             provider.GetRequiredService<TimeProvider>(),
-            provider.GetRequiredService<ILogger<Dispatcher>>()));
+            provider.GetRequiredService<ILogger<Dispatcher>>(),
+            provider.GetRequiredService<ProjectValues>()));
         // Opening each built card's pull request as the app, on the same minute as the reads. See
         // "The pull request Dev flow opens" in devflow/README.md.
         builder.Services.AddSingleton(provider => new PullRequestOpener(

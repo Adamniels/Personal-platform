@@ -72,4 +72,27 @@ internal sealed record AgentUser(string? Name, string Home, string Path, string 
 
         return environment;
     }
+
+    /// <summary>
+    /// The environment of a process that runs the project's code, the check or the start: the
+    /// project's <paramref name="values"/> its job carried, then its home, <c>PATH</c> and
+    /// <c>LANG</c> and <paramref name="extra"/>, which win over a value of the same name; nothing of
+    /// the worker's. Only these two are given the values; every other process of a job gets
+    /// <see cref="Environment"/>.
+    /// </summary>
+    public Dictionary<string, string> WithValues(IReadOnlyList<DevFlow.Protocol.JobValue>? values, params (string Name, string Value)[] extra)
+    {
+        var environment = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var value in values ?? [])
+        {
+            environment[value.Name] = value.Value;
+        }
+
+        foreach (var (name, value) in Environment(extra))
+        {
+            environment[name] = value;
+        }
+
+        return environment;
+    }
 }

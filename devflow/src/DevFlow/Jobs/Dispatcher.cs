@@ -74,7 +74,8 @@ public sealed partial class Dispatcher(
     ICodeHost host,
     WorkerStart start,
     TimeProvider time,
-    ILogger<Dispatcher> log)
+    ILogger<Dispatcher> log,
+    Values.ProjectValues values)
 {
     /// <summary>Where a project keeps its facts for Dev flow, on its default branch.</summary>
     public const string ProjectFilePath = ".devflow/project.json";
@@ -205,7 +206,10 @@ public sealed partial class Dispatcher(
                 return null;
             }
 
-            return kind switch
+            // The project's values are opened in the same transaction, only for a kind that runs the
+            // project's code, so they leave Dev flow only inside this job's answer.
+            IReadOnlyList<JobValue> carried = Values.ProjectValues.Carries(kind) ? await values.Open(transaction, userId, projectId, cancellationToken) : [];
+            var handed = kind switch
             {
                 Job.Review => ReviewJob(await JobStore.ClaimReview(transaction, projectId, userId, workerId, run, now, cancellationToken), repository, facts, run, token, key),
                 Job.FeatureReview => FeatureReviewJob(await JobStore.ClaimFeatureReview(transaction, projectId, userId, workerId, run, facts.DefaultBranch, facts.Check, now, cancellationToken), repository, facts, run, token, key),
@@ -215,6 +219,7 @@ public sealed partial class Dispatcher(
                 Job.Read => ReadJob(await Readings.ReadingStore.Claim(transaction, projectId, userId, workerId, run, facts.DefaultBranch, now, cancellationToken), repository, facts, run, token, key),
                 _ => BuildJob(await JobStore.Claim(transaction, projectId, userId, workerId, run, facts.DefaultBranch, facts.Check, now, cancellationToken), repository, facts, run, token, key),
             };
+            return handed is null ? null : handed with { Values = carried };
         }, cancellationToken);
         if (job is null)
         {
@@ -246,11 +251,17 @@ public sealed partial class Dispatcher(
         }
 
         var now = Now();
-        var claimed = await database.InUserTransaction<ClaimedCheck?>(userId, async transaction =>
-            await watch.HoldUnderLock(transaction, projectId, cancellationToken) != ProjectHold.None
-                ? null
-                : await SetupStore.Claim(transaction, projectId, userId, workerId, version, facts.DefaultBranch, head, facts.Check, now, cancellationToken),
-            cancellationToken);
+        var (claimed, carried) = await database.InUserTransaction<(ClaimedCheck?, IReadOnlyList<JobValue>)>(userId, async transaction =>
+        {
+            if (await watch.HoldUnderLock(transaction, projectId, cancellationToken) != ProjectHold.None
+                || await SetupStore.Claim(transaction, projectId, userId, workerId, version, facts.DefaultBranch, head, facts.Check, now, cancellationToken) is not { } taken)
+            {
+                return (null, []);
+            }
+
+            // A check runs the project's check and its start, so it carries the project's values.
+            return (taken, await values.Open(transaction, userId, projectId, cancellationToken));
+        }, cancellationToken);
         if (claimed is null)
         {
             // Another worker on the version took its check since, or the project was stopped
@@ -277,7 +288,8 @@ public sealed partial class Dispatcher(
             "",
             Start: facts.Start,
             Url: facts.Url,
-            ToCheck: new JobCheck(claimed.Version, claimed.Commit)));
+            ToCheck: new JobCheck(claimed.Version, claimed.Commit),
+            Values: carried));
     }
 
     /// <summary>
@@ -321,8 +333,9 @@ public sealed partial class Dispatcher(
 
             if (kind == SetupRunStore.ReviewKind)
             {
+                // A setup's review runs none of the project's code, so it carries none of its values.
                 return await SetupRunStore.ClaimReview(transaction, projectId, userId, workerId, run, defaultBranch, now, cancellationToken) is { } review
-                    ? SetupReviewJob(review, where, run, token, key, by)
+                    ? SetupReviewJob(review, where, run, token, key, by) with { Values = [] }
                     : null;
             }
 
@@ -353,7 +366,8 @@ public sealed partial class Dispatcher(
                 by,
                 run.Limits,
                 run.ModelFor(Job.Setup),
-                ToFix: claimed.FromCommit is { } from ? new JobFix(from, claimed.Round) : null);
+                ToFix: claimed.FromCommit is { } from ? new JobFix(from, claimed.Round) : null,
+                Values: await values.Open(transaction, userId, projectId, cancellationToken));
         }, cancellationToken);
         if (job is null)
         {

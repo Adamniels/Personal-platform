@@ -79,12 +79,13 @@ internal abstract partial class WorkerJob(DevFlowClient client, Guid workerId, J
     }
 
     /// <summary>The agent, as <c>agent</c>, in <paramref name="workingDirectory"/> with
-    /// <paramref name="access"/>, with the job's brief, schema, model, limits and Claude token, ended
+    /// <paramref name="access"/>, with the job's brief, schema, model, limits, Claude token and the
+    /// project's values, ended
     /// at the job's time limit whatever it is doing; and a failure in the card if it was.</summary>
     protected async Task<AgentResult> RunAgent(Job job, string workingDirectory, AgentAccess access, CancellationToken stopping)
     {
         var limits = new AgentLimits(job.Limits.Turns, job.Limits.BudgetUsd, TimeSpan.FromMinutes(job.Limits.Minutes));
-        var run = new AgentRun(workingDirectory, job.Brief, job.ReportSchema.GetRawText(), job.Model, limits, new AgentCredential(job.ClaudeToken), access);
+        var run = new AgentRun(workingDirectory, job.Brief, job.ReportSchema.GetRawText(), job.Model, limits, new AgentCredential(job.ClaudeToken), access, job.Values);
         using var limit = new CancellationTokenSource(limits.Time, Time);
         using var either = CancellationTokenSource.CreateLinkedTokenSource(stopping, limit.Token);
         Log.Write($"Starting the agent, for at most {limits.Time.TotalMinutes:0} minutes.");
