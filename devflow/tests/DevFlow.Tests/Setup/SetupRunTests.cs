@@ -41,6 +41,17 @@ public sealed class SetupRunTests
         return jobs;
     }
 
+    /// <summary>The project's building model sonnet, its reviewing model haiku, 45 minutes and 300
+    /// turns, so a setup job's model and limits are told apart from each other and from the
+    /// defaults, which are all opus, as <c>JobModelTests</c> does for a card's kinds.</summary>
+    private static Task DistinctModels(Jobs jobs) => DevFlow.Tests.Merging.Merged.Sql(
+        jobs,
+        """
+        UPDATE project_settings
+        SET model_building = 'sonnet', model_reviewing = 'haiku', run_minutes = 45, run_turns = 300
+        WHERE project_id = @project
+        """);
+
     /// <summary>The setup worker says hello, built from no recipe on the base image.</summary>
     private static async Task Hello(Jobs jobs)
     {
@@ -137,10 +148,11 @@ public sealed class SetupRunTests
     public async Task AProjectWithoutDevflowGetsASetupRun()
     {
         await using var jobs = await Unset();
+        await DistinctModels(jobs);
 
         // A worker with no recipe version, of a project whose default branch has no .devflow/,
         // gets a setup job: no card and no check, the setup's branch from the default branch, the
-        // setup report's form, the building model and a key that pushes.
+        // setup report's form, the building model, the project's limits and a key that pushes.
         var job = await Next(jobs);
         Assert.Equal(Job.Setup, (string)job["kind"]!);
         Assert.Null(job["card"]);
@@ -149,7 +161,8 @@ public sealed class SetupRunTests
         Assert.Equal("", (string)job["check"]!);
         Assert.Null(job["to_fix"]);
         Assert.Equal(SetupReport.Schema().ToJsonString(), job["report_schema"]!.ToJsonString());
-        Assert.Equal("opus", (string)job["model"]!);
+        Assert.Equal("sonnet", (string)job["model"]!);
+        Assert.Equal((45, 300), ((int)job["limits"]!["minutes"]!, (int)job["limits"]!["turns"]!));
         Assert.Equal(Jobs.ClaudeToken, (string)job["claude_token"]!);
         Assert.Equal(WritePurpose.Push, jobs.Fake.Issued(Jobs.User, (string)job["push_key"]!)!.Value.Purpose);
         var brief = (string)job["brief"]!;
@@ -203,6 +216,7 @@ public sealed class SetupRunTests
     public async Task ItsPullRequestIsReviewedAndFixed()
     {
         await using var jobs = await Unset();
+        await DistinctModels(jobs);
         var job = await Next(jobs);
         Stage(jobs, (".devflow/Dockerfile", "devflow/setup", GoodRecipe), (".devflow/project.json", "devflow/setup", Jobs.ProjectFile()));
         var first = await Push(jobs);
@@ -223,6 +237,7 @@ public sealed class SetupRunTests
         // Its review, with the reviewing model and the setup reviewer's brief, of the commit pushed.
         var review = await Next(jobs);
         Assert.Equal(Job.Review, (string)review["kind"]!);
+        Assert.Equal("haiku", (string)review["model"]!);
         Assert.Equal(opened.Number, (int)review["card"]!["number"]!);
         Assert.Equal("devflow/setup", (string)review["branch"]!);
         Assert.Equal(first, (string)review["to_review"]!["commit"]!);
@@ -239,6 +254,7 @@ public sealed class SetupRunTests
         Assert.Equal(("fixing", 1), ((await Setup(jobs)).State, (await Setup(jobs)).FixRounds));
         var fix = await Next(jobs);
         Assert.Equal(Job.Setup, (string)fix["kind"]!);
+        Assert.Equal("sonnet", (string)fix["model"]!);
         Assert.Equal(first, (string)fix["to_fix"]!["commit"]!);
         Assert.Equal(1, (int)fix["to_fix"]!["round"]!);
         Assert.Contains("This is fix round 1 of 3", (string)fix["brief"]!, StringComparison.Ordinal);
