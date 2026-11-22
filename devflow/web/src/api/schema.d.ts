@@ -22,6 +22,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/devflow/api/cards/{id}/answers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Answer a card's questions, as the caller, and queue it
+         * @description Sends the caller's answers to the questions of the reading reading_id of a card of Dev flow's own that needs answers: answers holds one for each question, in the reading's order, each either accept true, the reader's recommendation, or text, the caller's own, 1 to 4,000 characters once trimmed, never both. They are posted as one comment on the card's issue, as the caller's linked GitHub account and never as the app, listing each question with its answer and (recommended) where it was accepted; the comment's id is kept, so it never reads the card again, the answers are kept with the reading, and the card is queued, its build's brief carrying them under "Answers to its questions". A comment of the caller's on the issue that is exactly the one to post, left by a send whose answer was lost, is kept instead of posting it again. In order: 404 for a card the caller does not have; 422 without reading_id or answers; 409 when the card does not need answers; 409 when reading_id is not its newest reading; 422 when answers does not hold exactly one valid answer for each question; 409 when GitHub is not linked or the link has expired; then GitHub is asked. 204 once posted and kept. 409 when the card moved on while GitHub answered, the comment posted; 409 when GitHub refuses, with its reason; 503 when GitHub did not answer, nothing kept, and sending the same answers again finds a comment it took. Without a valid token, 401 with an empty body; a change from another origin, 403.
+         */
+        post: operations["answerCard"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/devflow/api/claude-login": {
         parameters: {
             query?: never;
@@ -730,6 +750,11 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        AnswersRequest: {
+            answers: null | components["schemas"]["GivenAnswer"][];
+            /** Format: uuid */
+            reading_id: null | string;
+        };
         Attention: {
             attention: boolean;
         };
@@ -1126,6 +1151,10 @@ export interface components {
         GitHubLinkStatus: {
             login: null | string;
             state: components["schemas"]["GitHubLinkState"];
+        };
+        GivenAnswer: {
+            accept: null | boolean;
+            text: null | string;
         };
         Health: {
             status: string;
@@ -1644,6 +1673,73 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    answerCard: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AnswersRequest"];
+            };
+        };
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
             };
         };
     };

@@ -64,8 +64,10 @@ public abstract record CommentResult
     {
     }
 
-    /// <summary>The comment is posted, as the person.</summary>
-    public sealed record Posted : CommentResult;
+    /// <summary>The comment is posted, as the person, with its <paramref name="Id"/> as the host
+    /// answered it; null when the answer did not hold one, which the host's documented answer
+    /// always does.</summary>
+    public sealed record Posted(long? Id) : CommentResult;
 
     /// <summary>The host refused it, with its HTTP <paramref name="Status"/> and its own words,
     /// data, or null when it gave none.</summary>

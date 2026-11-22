@@ -227,6 +227,7 @@ public static class DevFlowApp
         app.MapWaiting();
         app.MapScreenshots();
         app.MapActions();
+        app.MapAnswers();
         app.MapDisplay();
         app.MapAttention();
         app.MapWorkers();

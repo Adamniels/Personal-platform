@@ -57,8 +57,8 @@ public sealed partial class GitHubCodeHost
     }
 
     /// <summary><c>POST /repos/{owner}/{repo}/issues/{number}/comments</c> with <c>body</c>, the
-    /// text exactly. <c>201</c> is posted, any other status refused with it, and no answer
-    /// unavailable.</summary>
+    /// text exactly. <c>201</c> is posted, with the comment's id when its answer holds a positive
+    /// one, any other status refused with it, and no answer unavailable.</summary>
     public async Task<CommentResult> Comment(Guid userId, UserAccessToken token, Repository repository, int number, string body, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(body);
@@ -69,7 +69,7 @@ public sealed partial class GitHubCodeHost
         }
 
         return answer.Status == HttpStatusCode.Created
-            ? new CommentResult.Posted()
+            ? new CommentResult.Posted(Parse<PostedAnswer>(answer.Body) is { Id: > 0 } posted ? posted.Id : null)
             : new CommentResult.Refused((int)answer.Status, Message(answer.Body));
     }
 
@@ -115,4 +115,7 @@ public sealed partial class GitHubCodeHost
 
     /// <summary>The one field read from a refusal; optional, since not every answer has it.</summary>
     private sealed record MessageAnswer(string? Message = null);
+
+    /// <summary>The part of GitHub's answer to a posted comment that is read: its id.</summary>
+    private sealed record PostedAnswer(long Id);
 }

@@ -22,10 +22,11 @@ public sealed record BriefCard(int Number, string Title, string Body);
 public sealed record BriefFeature(int Number, string Title, string Body, IReadOnlyList<BriefHandover> Earlier, string? Touches = null);
 
 /// <summary>What a card's reading gives its own briefs: the note of the code its work touches, its
-/// feature's or its own, an agent's words, null before a reading or when it is empty; and each
+/// feature's or its own, an agent's words, null before a reading or when it is empty; each
 /// question the reading asked with the answer the card is built on, which only its build's brief
-/// quotes.</summary>
-public sealed record BriefReading(string? Touches, IReadOnlyList<Readings.CardQuestion> Answers);
+/// quotes; and whether the owner gave those answers, rather than the card going on the reader's
+/// recommendations.</summary>
+public sealed record BriefReading(string? Touches, IReadOnlyList<Readings.CardQuestion> Answers, bool Answered = false);
 
 /// <summary>A done card of a feature and the handover note its report left, an agent's words and
 /// so information.</summary>
@@ -360,7 +361,7 @@ public static class Brief
             ["card"] = Fenced("text", Quoted(card)),
             ["feature"] = feature is null ? "" : FeatureSections(feature),
             ["touches"] = Touches(reading?.Touches, feature is null ? "card" : "feature", "##"),
-            ["answers"] = Answers(reading?.Answers ?? []),
+            ["answers"] = Answers(reading?.Answers ?? [], reading?.Answered ?? false),
             ["fix"] = fix,
             ["check"] = Fenced("sh", facts.Check),
             ["look"] = Looking(facts),
@@ -425,11 +426,12 @@ public static class Brief
 
     /// <summary>
     /// The section "Answers to its questions": each question the card's reading asked, and the answer
-    /// it is built on, here the reader's recommendation since the owner gave none, each quoted inside
-    /// a fenced block longer than any run of backticks in it, the question and the answer an agent's
-    /// words; nothing when the reading asked none.
+    /// it is built on, each quoted inside a fenced block longer than any run of backticks in it, the
+    /// question an agent's words. When the owner <paramref name="answered"/>, each answer is his,
+    /// his own text or the reader's recommendation he accepted, said so; otherwise each is the
+    /// reader's recommendation, since he was not asked. Nothing when the reading asked none.
     /// </summary>
-    private static string Answers(IReadOnlyList<Readings.CardQuestion> answers)
+    private static string Answers(IReadOnlyList<Readings.CardQuestion> answers, bool answered)
     {
         if (answers.Count == 0)
         {
@@ -438,10 +440,14 @@ public static class Brief
 
         var section = new StringBuilder("## Answers to its questions\n\n")
             .Append("Before it was built, the card was read, and it left choices open that it does not settle. Each is below with the answer to build on, between the fences: ")
-            .Append("build the card on these answers, as if the card said so. The owner was not asked, so each answer is the reader's recommendation, and Dev flow posted them on the card.\n\n");
+            .Append("build the card on these answers, as if the card said so. ")
+            .Append(answered
+                ? "The owner answered each before it started, and his answers were posted on the card as his comment; where he accepted the reader's recommendation, it says so.\n\n"
+                : "The owner was not asked, so each answer is the reader's recommendation, and Dev flow posted them on the card.\n\n");
         foreach (var answer in answers)
         {
-            section.Append(Fenced("text", $"Question: {answer.Question}\n\nAnswer: {answer.Answer}\n\nWhy: {answer.Why}")).Append("\n\n");
+            var given = answered && answer.Recommended ? $"{answer.Answer} (the reader's recommendation, which the owner accepted)" : answer.Answer;
+            section.Append(Fenced("text", $"Question: {answer.Question}\n\nAnswer: {given}\n\nWhy the reader recommended {answer.Recommendation}: {answer.Why}")).Append("\n\n");
         }
 
         return section.ToString();

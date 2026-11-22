@@ -162,13 +162,13 @@ public sealed partial class FakeCodeHost
             }
             else
             {
-                var (changed, _) = WithComment(found, number, person.Login, body);
+                var (changed, comment) = WithComment(found, number, person.Login, body);
                 _accounts[userId] = account with
                 {
                     World = WithRepository(account.World, repository, changed),
                     Writes = [.. account.Writes, new FakeWrite("comment", repository.Id, number, null, null, body, person.Login)],
                 };
-                result = new CommentResult.Posted();
+                result = new CommentResult.Posted(comment.Id);
             }
 
             return Task.FromResult(result);

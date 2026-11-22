@@ -1,15 +1,20 @@
+using System.Text.Json;
 using System.Text.Json.Nodes;
 
 using Dapper;
 
+using DevFlow.CodeHost;
 using DevFlow.Protocol;
 using DevFlow.Readings;
 using DevFlow.Tests.Jobs;
 using DevFlow.Tests.Merging;
 using DevFlow.Tests.PullRequests;
+using DevFlow.Tests.Reading;
 
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
+
+using PlatformData.Testing;
 
 using static DevFlow.Tests.Readings.ReadJobTests;
 
@@ -38,9 +43,9 @@ public sealed class QuestionsTests
 
     /// <summary>Card 1 on its own, read with <see cref="Three"/> questions, the setting as a new
     /// project has it, on.</summary>
-    internal static async Task<Jobs.Jobs> ReadWithQuestions()
+    internal static async Task<Jobs.Jobs> ReadWithQuestions(bool signIn = false)
     {
-        var jobs = await Jobs.Jobs.Start([Jobs.Jobs.Card(1, "Add the habits list")], read: false);
+        var jobs = await Jobs.Jobs.Start([Jobs.Jobs.Card(1, "Add the habits list")], read: false, signIn: signIn);
         await Read(jobs, Prepared(ReadJobTests.Reading(Asks(1, Three))));
         return jobs;
     }
@@ -175,5 +180,159 @@ public sealed class QuestionsTests
         Assert.Equal(StatusCodes.Status204NoContent, (await jobs.Next()).Response.StatusCode);
         await PostPending(jobs);
         Assert.Equal(writes, jobs.Fake.Writes(User).Count);
+    }
+
+    /// <summary>The card waiting for answers, as "Waiting for you" lists it.</summary>
+    internal static async Task<JsonNode> Asked(Jobs.Jobs jobs)
+    {
+        var (_, list) = await Built.Get(jobs, "/devflow/api/waiting");
+        return Assert.Single(list!["question_cards"]!.AsArray())!;
+    }
+
+    /// <summary>The owner's answers to the card <paramref name="id"/>, sent from the page for the
+    /// reading <paramref name="reading"/>: each null to accept the recommendation, or his own text.</summary>
+    internal static Task<HttpContext> Answer(Jobs.Jobs jobs, Guid id, Guid reading, params string?[] answers) =>
+        jobs.Routes.App.SendJson("POST", $"/devflow/api/cards/{id}/answers", Contract.Token, new JsonObject
+        {
+            ["reading_id"] = reading,
+            ["answers"] = new JsonArray([.. answers.Select(answer => (JsonNode)(answer is null
+                ? new JsonObject { ["accept"] = true }
+                : new JsonObject { ["text"] = answer }))]),
+        }.ToJsonString());
+
+    /// <summary>The comments the owner posted, as him, on GitHub.</summary>
+    private static List<FakeWrite> Mine(Jobs.Jobs jobs) =>
+        [.. jobs.Fake.Writes(User).Where(write => write.Kind == "comment" && write.By == Jobs.Jobs.Owner)];
+
+    /// <summary>The issue's comments as the fake's world holds them.</summary>
+    private static List<Comment> OnIssue(Jobs.Jobs jobs, int number) =>
+        jobs.Fake.World(User).Installations.SelectMany(installation => installation.Repositories)
+            .SelectMany(repository => repository.Conversations).Where(conversation => conversation.Number == number)
+            .SelectMany(conversation => conversation.Comments).ToList();
+
+    [Fact]
+    public async Task MyAnswersArePostedAsMe()
+    {
+        await using var jobs = await ReadWithQuestions(signIn: true);
+        var asked = await Asked(jobs);
+        var (id, reading) = ((Guid)asked["id"]!, (Guid)asked["reading_id"]!);
+
+        // The first and third accepted, the second written.
+        var sent = await Answer(jobs, id, reading, null, "  Nothing at all, the list hides  ", null);
+        Assert.Equal(StatusCodes.Status204NoContent, sent.Response.StatusCode);
+
+        // One comment, posted with his linked token, as him: each question with its answer, and
+        // "(recommended)" where he accepted it; nothing as the app.
+        var comment = Assert.Single(Mine(jobs));
+        Assert.Equal(1, comment.Number);
+        Assert.Contains("1. Is the list sorted by name or by date?\n   - Answer: By date, newest first (recommended)\n", comment.Body, StringComparison.Ordinal);
+        Assert.Contains("2. Does an empty list show a sentence or nothing?\n   - Answer: Nothing at all, the list hides\n", comment.Body, StringComparison.Ordinal);
+        Assert.Contains("3. Is the count shown beside the heading?\n   - Answer: Yes, in the mono font (recommended)\n", comment.Body, StringComparison.Ordinal);
+        Assert.EndsWith(AnswerText.Trail(1, reading) + "\n", comment.Body, StringComparison.Ordinal);
+        Assert.Empty(Stops.Stop.ByApp(jobs, "comment", 1));
+
+        // Its id is kept with the reading, so it never reads the card again.
+        var posted = Assert.Single(OnIssue(jobs, 1), each => each.Author == Jobs.Jobs.Owner);
+        await using (var admin = await jobs.Routes.Database.OpenAdmin(Ct))
+        {
+            Assert.Equal(posted.Id, await admin.ExecuteScalarAsync<long?>(new CommandDefinition(
+                "SELECT comment_id FROM card_readings WHERE project_id = @project AND run_id = @reading AND card_number = 1",
+                new { project = jobs.Project, reading },
+                cancellationToken: Ct)));
+        }
+
+        // The card is queued, no longer listed, and the minute after posts nothing of the app's.
+        Assert.Equal(("queued", null), ((await jobs.Card(1)).State, (await jobs.Card(1)).Reason));
+        var (_, list) = await Built.Get(jobs, "/devflow/api/waiting");
+        Assert.Empty(list!["question_cards"]!.AsArray());
+        await PostPending(jobs);
+        Assert.Empty(Stops.Stop.ByApp(jobs, "comment", 1));
+
+        // Its page shows his answers, the accepted ones marked.
+        var story = (await Story(jobs, 1))["reading"]!;
+        Assert.True((bool)story["answered"]!);
+        Assert.True((bool)story["commented"]!);
+        Assert.Equal(
+            [("By date, newest first", true), ("Nothing at all, the list hides", false), ("Yes, in the mono font", true)],
+            story["questions"]!.AsArray().Select(question => ((string)question!["answer"]!, (bool)question["recommended"]!)));
+
+        // Its build's brief carries them under "Answers to its questions", as his.
+        var brief = (string)(await jobs.Job())["brief"]!;
+        var answers = brief[brief.IndexOf("## Answers to its questions", StringComparison.Ordinal)..];
+        Assert.Contains("The owner answered each", answers, StringComparison.Ordinal);
+        Assert.Contains("Answer: Nothing at all, the list hides", answers, StringComparison.Ordinal);
+        Assert.Contains("Answer: By date, newest first (the reader's recommendation, which the owner accepted)", answers, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task EveryQuestionNeedsAnAnswer()
+    {
+        await using var jobs = await ReadWithQuestions(signIn: true);
+        var asked = await Asked(jobs);
+        var (id, reading) = ((Guid)asked["id"]!, (Guid)asked["reading_id"]!);
+        var path = $"/devflow/api/cards/{id}/answers";
+
+        // Refused before anything is posted: 422 naming answers, for one missing, one too many, one
+        // both accepted and written, one neither, one empty, and one longer than 4000 characters.
+        var refused = new JsonArray[]
+        {
+            [new JsonObject { ["accept"] = true }, new JsonObject { ["accept"] = true }],
+            [new JsonObject { ["accept"] = true }, new JsonObject { ["accept"] = true }, new JsonObject { ["accept"] = true }, new JsonObject { ["accept"] = true }],
+            [new JsonObject { ["accept"] = true, ["text"] = "Both" }, new JsonObject { ["accept"] = true }, new JsonObject { ["accept"] = true }],
+            [new JsonObject(), new JsonObject { ["accept"] = true }, new JsonObject { ["accept"] = true }],
+            [new JsonObject { ["text"] = "   " }, new JsonObject { ["accept"] = true }, new JsonObject { ["accept"] = true }],
+            [new JsonObject { ["text"] = new string('a', 4001) }, new JsonObject { ["accept"] = true }, new JsonObject { ["accept"] = true }],
+        };
+        foreach (var answers in refused)
+        {
+            var answer = await jobs.Routes.App.SendJson("POST", path, Contract.Token, new JsonObject { ["reading_id"] = reading, ["answers"] = answers }.ToJsonString());
+            Assert.Equal(StatusCodes.Status422UnprocessableEntity, answer.Response.StatusCode);
+            Assert.True(JsonNode.Parse(await Harness.Body(answer))!["errors"]!.AsObject().ContainsKey("answers"), answers.ToJsonString());
+        }
+
+        // Without the reading, 422; for a reading that is not the one asking, 409.
+        var noReading = await jobs.Routes.App.SendJson("POST", path, Contract.Token, JsonSerializer.Serialize(new { answers = new[] { new { accept = true } } }));
+        Assert.Equal(StatusCodes.Status422UnprocessableEntity, noReading.Response.StatusCode);
+        Assert.Equal(StatusCodes.Status409Conflict, (await Answer(jobs, id, Guid.CreateVersion7(), null, null, null)).Response.StatusCode);
+
+        // A card the caller does not have is 404, and from another origin 403.
+        Assert.Equal(StatusCodes.Status404NotFound, (await Answer(jobs, Guid.CreateVersion7(), reading, null, null, null)).Response.StatusCode);
+        var elsewhere = await jobs.Routes.App.Send("POST", path, Contract.Token, ("Origin", "https://evil.example"));
+        Assert.Equal(StatusCodes.Status403Forbidden, elsewhere.Response.StatusCode);
+
+        // Nothing was posted, and the card still waits.
+        Assert.Empty(Mine(jobs));
+        Assert.Equal("needs_answers", (await jobs.Card(1)).State);
+
+        // Four thousand characters are taken; once answered, the card no longer needs answers, so
+        // sending again is 409 and posts nothing more.
+        Assert.Equal(StatusCodes.Status204NoContent, (await Answer(jobs, id, reading, new string('a', 4000), null, null)).Response.StatusCode);
+        Assert.Equal(StatusCodes.Status409Conflict, (await Answer(jobs, id, reading, null, null, null)).Response.StatusCode);
+        Assert.Single(Mine(jobs));
+    }
+
+    [Fact]
+    public async Task AnAnswerAlreadyPostedIsNotPostedTwice()
+    {
+        await using var jobs = await ReadWithQuestions(signIn: true);
+        var asked = await Asked(jobs);
+        var (id, reading) = ((Guid)asked["id"]!, (Guid)asked["reading_id"]!);
+
+        // GitHub took the comment but the answer was lost: the card still waits, and the same
+        // answers sent again find the comment by its last line and keep it, posting nothing more.
+        Assert.Equal(StatusCodes.Status204NoContent, (await Answer(jobs, id, reading, null, "Nothing", null)).Response.StatusCode);
+        var posted = Assert.Single(Mine(jobs));
+        await Merged.Sql(jobs, "UPDATE cards SET state = 'needs_answers', reason = 'x' WHERE project_id = @project AND number = 1");
+        await Merged.Sql(jobs, "UPDATE card_readings SET comment_id = NULL, answers = NULL, answered_at = NULL WHERE project_id = @project AND card_number = 1");
+
+        Assert.Equal(StatusCodes.Status204NoContent, (await Answer(jobs, id, reading, null, "Nothing", null)).Response.StatusCode);
+        Assert.Single(Mine(jobs));
+        Assert.Equal("queued", (await jobs.Card(1)).State);
+        await using var admin = await jobs.Routes.Database.OpenAdmin(Ct);
+        Assert.Equal(
+            Assert.Single(OnIssue(jobs, 1), each => each.Author == Jobs.Jobs.Owner).Id,
+            await admin.ExecuteScalarAsync<long?>(new CommandDefinition(
+                "SELECT comment_id FROM card_readings WHERE project_id = @project AND card_number = 1", new { project = jobs.Project }, cancellationToken: Ct)));
+        Assert.Equal(posted.Body, Mine(jobs)[0].Body);
     }
 }
