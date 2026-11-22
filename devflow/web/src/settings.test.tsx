@@ -41,6 +41,7 @@ const DEFAULTS: ProjectSettings = {
 	fix_rounds_card: 3,
 	fix_rounds_feature: 3,
 	questions: true,
+	preset: "custom",
 };
 
 /** What saving answers: the request, with the owner's login marked. */
@@ -66,6 +67,7 @@ const answered = (settings: SettingsRequest): ProjectSettings => ({
 	fix_rounds_card: settings.fix_rounds_card ?? 0,
 	fix_rounds_feature: settings.fix_rounds_feature ?? 0,
 	questions: settings.questions ?? false,
+	preset: "custom",
 });
 
 function renderPanel(

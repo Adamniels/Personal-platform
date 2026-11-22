@@ -1315,7 +1315,7 @@ def test_i_set_a_projects_settings(
     expect(settings.get_by_label("Pick-up label")).to_have_value("devflow")
     expect(settings.get_by_label("Hold label")).to_have_value("devflow-hold")
     expect(settings.get_by_label("Attention label")).to_have_value("devflow-attention")
-    expect(settings.get_by_label("Pull requests wait for you")).to_have_value("never")
+    expect(settings.get_by_label("Pull requests wait for you")).to_have_value("always")
 
     # The same name twice is refused under the field, and nothing is saved.
     settings.get_by_label("Hold label").fill("DevFlow")
@@ -1329,7 +1329,7 @@ def test_i_set_a_projects_settings(
 
     settings.get_by_label("Pick-up label").fill("agent: go")
     settings.get_by_label("Hold label").fill("agent: wait")
-    settings.get_by_label("Pull requests wait for you").select_option("always")
+    settings.get_by_label("Pull requests wait for you").select_option("never")
     settings.get_by_role("button", name="Save").click()
     expect(settings.get_by_text("Saved.")).to_be_visible()
     expect(settings.get_by_label("Hold label")).not_to_have_attribute(
@@ -1343,7 +1343,7 @@ def test_i_set_a_projects_settings(
     expect(settings.get_by_label("Pick-up label")).to_have_value("agent: go")
     expect(settings.get_by_label("Hold label")).to_have_value("agent: wait")
     expect(settings.get_by_label("Attention label")).to_have_value("devflow-attention")
-    expect(settings.get_by_label("Pull requests wait for you")).to_have_value("always")
+    expect(settings.get_by_label("Pull requests wait for you")).to_have_value("never")
 
 
 def test_i_trust_another_account(
@@ -2147,6 +2147,7 @@ def _card_project(page: Page, base_url: str, devflow_world) -> str:
     )
     _open_project(page, base_url, devflow_world, world)
     project = page.url.rsplit("/", 1)[1]
+    _merges_by_itself(page, base_url, project)
     given = page.request.put(
         "/devflow/api/claude-login",
         data={"token": CLAUDE_TOKEN},
@@ -3378,6 +3379,13 @@ def test_i_answer_a_cards_questions(
     assert "   - Answer: Yes, in the mono font (recommended)\n" in body
 
 
+def _merges_by_itself(page: Page, base_url: str, project: str) -> None:
+    """Sets the project to merge an approved card by itself, never waiting for
+    me, which the tests of what follows a review are about. A new project's
+    own is "Only I merge", test_i_choose_a_preset."""
+    _waits_for_me(page, base_url, project, "never")
+
+
 def _waits_for_me(
     page: Page, base_url: str, project: str, waits: str, **changes
 ) -> None:
@@ -3800,6 +3808,7 @@ def test_a_features_card_lands_in_its_branch(
     )
     _open_project(page, base_url, devflow_world, world)
     project = page.url.rsplit("/", 1)[1]
+    _merges_by_itself(page, base_url, project)
     given = page.request.put(
         "/devflow/api/claude-login",
         data={"token": CLAUDE_TOKEN},
@@ -3930,6 +3939,7 @@ def _landed_feature(
     )
     _open_project(page, base_url, devflow_world, world)
     project = page.url.rsplit("/", 1)[1]
+    _merges_by_itself(page, base_url, project)
     given = page.request.put(
         "/devflow/api/claude-login",
         data={"token": CLAUDE_TOKEN},
@@ -4190,6 +4200,7 @@ def test_a_finished_feature_gets_its_pull_request(
     )
     _open_project(page, base_url, devflow_world, world)
     project = page.url.rsplit("/", 1)[1]
+    _merges_by_itself(page, base_url, project)
     given = page.request.put(
         "/devflow/api/claude-login",
         data={"token": CLAUDE_TOKEN},
@@ -4316,6 +4327,7 @@ def test_a_conflict_is_resolved_by_an_agent(
     repository(world)["conflicts"] = [FEATURE_BRANCH]
     _open_project(page, base_url, devflow_world, world)
     project = page.url.rsplit("/", 1)[1]
+    _merges_by_itself(page, base_url, project)
     given = page.request.put(
         "/devflow/api/claude-login",
         data={"token": CLAUDE_TOKEN},
@@ -4459,6 +4471,7 @@ def _published_feature(page: Page, base_url: str, devflow_world) -> tuple[str, i
     )
     _open_project(page, base_url, devflow_world, world)
     project = page.url.rsplit("/", 1)[1]
+    _merges_by_itself(page, base_url, project)
     given = page.request.put(
         "/devflow/api/claude-login",
         data={"token": CLAUDE_TOKEN},
@@ -4818,6 +4831,7 @@ def _reviewed_feature(
     )
     _open_project(page, base_url, devflow_world, world)
     project = page.url.rsplit("/", 1)[1]
+    _merges_by_itself(page, base_url, project)
     given = page.request.put(
         "/devflow/api/claude-login",
         data={"token": CLAUDE_TOKEN},

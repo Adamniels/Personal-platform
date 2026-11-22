@@ -23,7 +23,7 @@ public sealed class SettingsTests
 
     private static string PathOf(Guid project) => $"/devflow/api/projects/{project}/settings";
 
-    private static JsonObject Settings(string pickup = "devflow", string hold = "devflow-hold", string attention = "devflow-attention", string waits = "never") => new()
+    private static JsonObject Settings(string pickup = "devflow", string hold = "devflow-hold", string attention = "devflow-attention", string waits = "always") => new()
     {
         ["pickup_label"] = pickup,
         ["hold_label"] = hold,
@@ -44,6 +44,15 @@ public sealed class SettingsTests
         ["fix_rounds_feature"] = 3,
         ["questions"] = true,
     };
+
+    /// <summary>What the route answers for <paramref name="body"/>: the settings, and the preset
+    /// they match, see PresetTests.</summary>
+    private static JsonObject Answer(JsonObject body, string preset)
+    {
+        var answer = body.DeepClone().AsObject();
+        answer["preset"] = preset;
+        return answer;
+    }
 
     private static JsonObject Without(JsonObject settings, string field)
     {
@@ -79,12 +88,12 @@ public sealed class SettingsTests
         var project = await routes.Project(Routes.User);
 
         // Made with the project, in the project's user's name.
-        Assert.Equal((Routes.User, "devflow", "devflow-hold", "devflow-attention", "never"), await Row(routes, project));
+        Assert.Equal((Routes.User, "devflow", "devflow-hold", "devflow-attention", "always"), await Row(routes, project));
 
         // Answered with exactly the ten, and nothing else: no login is linked, so nobody is
         // trusted, see TrustedAccountsTests.
         var settings = await Get(routes, project);
-        Assert.Equal(Settings().ToJsonString(), settings.ToJsonString());
+        Assert.Equal(Answer(Settings(), "only_i_merge").ToJsonString(), settings.ToJsonString());
     }
 
     [Fact]
@@ -93,11 +102,11 @@ public sealed class SettingsTests
         await using var routes = await Routes.Start();
         var project = await routes.Project(Routes.User);
 
-        var changed = Settings(pickup: "agent: go", hold: "agent: wait", attention: "agent: look", waits: "always");
+        var changed = Settings(pickup: "agent: go", hold: "agent: wait", attention: "agent: look", waits: "never");
         var saved = await Put(routes, project, changed);
         Assert.Equal(StatusCodes.Status200OK, saved.Response.StatusCode);
-        Assert.Equal(changed.ToJsonString(), JsonNode.Parse(await Harness.Body(saved))!.ToJsonString());
-        Assert.Equal(changed.ToJsonString(), (await Get(routes, project)).ToJsonString());
+        Assert.Equal(Answer(changed, "custom").ToJsonString(), JsonNode.Parse(await Harness.Body(saved))!.ToJsonString());
+        Assert.Equal(Answer(changed, "custom").ToJsonString(), (await Get(routes, project)).ToJsonString());
 
         // Each refused with 422 naming the field, and nothing changed.
         var refused = new (JsonObject Body, string Field)[]
@@ -123,7 +132,7 @@ public sealed class SettingsTests
         // Fifty characters is the most GitHub takes, and is taken.
         var longest = Settings(pickup: new string('p', 50));
         Assert.Equal(StatusCodes.Status200OK, (await Put(routes, project, longest)).Response.StatusCode);
-        Assert.Equal(longest.ToJsonString(), (await Get(routes, project)).ToJsonString());
+        Assert.Equal(Answer(longest, "only_i_merge").ToJsonString(), (await Get(routes, project)).ToJsonString());
     }
 
     [Fact]

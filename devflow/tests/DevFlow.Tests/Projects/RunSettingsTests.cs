@@ -33,7 +33,7 @@ public sealed class RunSettingsTests
             ["hold_label"] = "devflow-hold",
             ["attention_label"] = "devflow-attention",
             ["review_label"] = "devflow-review",
-            ["waits_for_owner"] = "never",
+            ["waits_for_owner"] = "always",
             ["wait_when_marked"] = true,
             ["wait_when_paths"] = true,
             ["wait_when_decision"] = true,
@@ -54,6 +54,15 @@ public sealed class RunSettingsTests
         }
 
         return settings;
+    }
+
+    /// <summary>What the route answers for <paramref name="body"/>: the settings, and the preset
+    /// they match, see PresetTests.</summary>
+    private static JsonObject Answer(JsonObject body, string preset)
+    {
+        var answer = body.DeepClone().AsObject();
+        answer["preset"] = preset;
+        return answer;
     }
 
     private static Task<HttpContext> Put(Routes routes, Guid project, JsonObject settings) =>
@@ -112,7 +121,7 @@ public sealed class RunSettingsTests
 
         // opus for each job, 90 minutes, 200 turns, and 3 fix rounds a card and 3 a feature.
         Assert.Equal(("opus", "opus", "opus", 90, 200, 3, 3), await Row(routes, project));
-        Assert.Equal(Settings().ToJsonString(), (await Get(routes, project)).ToJsonString());
+        Assert.Equal(Answer(Settings(), "only_i_merge").ToJsonString(), (await Get(routes, project)).ToJsonString());
 
         // Each is changed and answered as saved, the extremes included.
         var changed = Settings(
@@ -120,8 +129,8 @@ public sealed class RunSettingsTests
             ("run_minutes", 240), ("run_turns", 20), ("fix_rounds_card", 0), ("fix_rounds_feature", 10));
         var saved = await Put(routes, project, changed);
         Assert.Equal(StatusCodes.Status200OK, saved.Response.StatusCode);
-        Assert.Equal(changed.ToJsonString(), JsonNode.Parse(await Harness.Body(saved))!.ToJsonString());
-        Assert.Equal(changed.ToJsonString(), (await Get(routes, project)).ToJsonString());
+        Assert.Equal(Answer(changed, "only_i_merge").ToJsonString(), JsonNode.Parse(await Harness.Body(saved))!.ToJsonString());
+        Assert.Equal(Answer(changed, "only_i_merge").ToJsonString(), (await Get(routes, project)).ToJsonString());
         Assert.Equal(("haiku", "sonnet", "opus", 240, 20, 0, 10), await Row(routes, project));
 
         Assert.Equal(StatusCodes.Status200OK, (await Put(routes, project, Settings(("run_minutes", 10), ("run_turns", 1000)))).Response.StatusCode);

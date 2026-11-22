@@ -102,6 +102,7 @@ function renderPage(
 				fix_rounds_card: 3,
 				fix_rounds_feature: 3,
 				questions: true,
+				preset: "custom" as const,
 			}),
 		),
 		saveSettings: vi.fn(() =>

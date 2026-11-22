@@ -9,8 +9,9 @@ using PlatformData;
 namespace DevFlow.Projects;
 
 /// <summary>
-/// A project's settings, as the API answers them and picking cards reads them. Only the settings
-/// something reads; the design's others arrive with the parts that read them. See "Cards" in
+/// A project's settings, as the API answers them and picking cards reads them, with the preset they
+/// match. Only the settings something reads; the design's others arrive with the parts that read
+/// them. See "Cards" in
 /// devflow/README.md and in devflow/docs/devflow-architecture.md.
 /// </summary>
 /// <param name="PickupLabel">A card is an open issue carrying it.</param>
@@ -62,6 +63,10 @@ public sealed record ProjectSettings(
     int FixRoundsFeature,
     bool Questions)
 {
+    /// <summary>The preset these settings match, or <c>custom</c>, never stored; see
+    /// <see cref="Presets"/>.</summary>
+    public string Preset => Presets.Of(this);
+
     /// <summary>The most characters a label has, the most GitHub takes.</summary>
     public const int LongestLabel = 50;
 
@@ -70,7 +75,7 @@ public sealed record ProjectSettings(
 
     /// <summary>A new project's, as the table's defaults make them.</summary>
     public static ProjectSettings Defaults { get; } = new(
-        "devflow", "devflow-hold", "devflow-attention", "devflow-review", "never", true, true, true, [], [],
+        "devflow", "devflow-hold", "devflow-attention", "devflow-review", "always", true, true, true, [], [],
         RunSettings.Defaults.ModelReading, RunSettings.Defaults.ModelBuilding, RunSettings.Defaults.ModelReviewing,
         RunSettings.Defaults.Minutes, RunSettings.Defaults.Turns, RunSettings.Defaults.FixRoundsCard, RunSettings.Defaults.FixRoundsFeature, true);
 }
