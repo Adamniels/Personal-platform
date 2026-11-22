@@ -925,11 +925,13 @@ public static class JobStore
         var sentBack = card is { SentBacks: > 0, SentBackFrom: { } from }
             ? new BriefSentBack(from, card.Report, JsonSerializer.Deserialize<List<string>>(card.SentBackComments) ?? [])
             : null;
+        var reading = await Readings.ReadingStore.Of(transaction, projectId, card.Number, cancellationToken);
         var claimed = new ClaimedCard(Guid.CreateVersion7(now), card.Number, card.Title, card.Body, Branch(card.Number, card.Title, card.SentBacks), comments, card.FeatureBranch ?? baseBranch,
             await FeatureOf(transaction, projectId, card.Number, cancellationToken), sentBack,
             new BriefReading(
                 await Readings.ReadingStore.NoteOfCard(transaction, projectId, card.Number, cancellationToken),
-                await Readings.ReadingStore.Answers(transaction, projectId, card.Number, cancellationToken)));
+                reading?.Questions ?? [],
+                reading?.Answered ?? false));
         // The run keeps every comment of his its brief quotes as his input: what sent it back, then
         // what ran it again.
         List<string> input = [.. sentBack?.Comments ?? [], .. comments];

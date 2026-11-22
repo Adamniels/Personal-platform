@@ -40,6 +40,7 @@ const DEFAULTS: ProjectSettings = {
 	run_turns: 200,
 	fix_rounds_card: 3,
 	fix_rounds_feature: 3,
+	questions: true,
 };
 
 /** What saving answers: the request, with the owner's login marked. */
@@ -64,6 +65,7 @@ const answered = (settings: SettingsRequest): ProjectSettings => ({
 	run_turns: settings.run_turns ?? 0,
 	fix_rounds_card: settings.fix_rounds_card ?? 0,
 	fix_rounds_feature: settings.fix_rounds_feature ?? 0,
+	questions: settings.questions ?? false,
 });
 
 function renderPanel(
@@ -347,6 +349,25 @@ describe("the settings panel", () => {
 			...DEFAULTS,
 			pickup_label: "agent: go",
 			waits_for_owner: "always",
+			trusted_logins: ["octo-owner"],
+		});
+	});
+
+	test("questions before starting is ticked, and saved off once unticked", async () => {
+		const { saveSettings } = renderPanel();
+		const settings = await panel();
+
+		const questions = await settings.findByRole("checkbox", {
+			name: "Questions before starting",
+		});
+		expect((questions as HTMLInputElement).checked).toBe(true);
+		fireEvent.click(questions);
+		fireEvent.click(settings.getByRole("button", { name: "Save" }));
+
+		expect(await settings.findByText(SAVED)).toBeTruthy();
+		expect(saveSettings).toHaveBeenCalledWith(ID, {
+			...DEFAULTS,
+			questions: false,
 			trusted_logins: ["octo-owner"],
 		});
 	});

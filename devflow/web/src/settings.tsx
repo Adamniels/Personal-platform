@@ -1,7 +1,8 @@
 // A project's Settings panel, under its page's header: the labels that pick and hold its cards and
 // mark what needs the owner, whether a card's pull request waits for him, with what "sometimes"
-// waits for, the trusted accounts whose cards, edits and comments count, and the models and limits
-// its runs get. All seventeen are saved together, and a value Dev flow refuses is named under its
+// waits for, whether a card's questions wait for his answers before it starts, the trusted accounts
+// whose cards, edits and comments count, and the models and limits its runs get. All eighteen are
+// saved together, and a value Dev flow refuses is named under its
 // field. See "Settings" in devflow/README.md.
 import {
 	Badge,
@@ -29,7 +30,7 @@ export const SAVED = "Saved.";
  * the page and a test's own in a test. */
 export type SettingsApi = {
 	loadSettings: (id: string) => Promise<ProjectSettings>;
-	/** Saves all seventeen and answers them as saved. */
+	/** Saves all eighteen and answers them as saved. */
 	saveSettings: (
 		id: string,
 		settings: SettingsRequest,
@@ -44,6 +45,8 @@ type ConditionField =
 	| "wait_when_marked"
 	| "wait_when_paths"
 	| "wait_when_decision";
+
+type TickField = ConditionField | "questions";
 
 /** The three labels, in the order they are shown, with what each does. */
 const LABELS: { field: LabelField; label: string; help: string }[] = [
@@ -229,7 +232,7 @@ export function SettingsPanel({
 		setSaved(false);
 	};
 
-	const tick = (field: ConditionField, checked: boolean) => {
+	const tick = (field: TickField, checked: boolean) => {
 		setValues((before) => (before ? { ...before, [field]: checked } : before));
 		setSaved(false);
 	};
@@ -423,6 +426,24 @@ export function SettingsPanel({
 							</div>
 						</fieldset>
 					) : null}
+					<section
+						className={styles.trusted}
+						aria-labelledby={`questions-${id}`}
+					>
+						<h3 id={`questions-${id}`} className={styles.heading}>
+							Before starting
+						</h3>
+						<p className={styles.help}>
+							Every card is read before anything is built. With this on, a card
+							the reading found questions in waits for your answers under
+							Waiting for you; off, it is built on the reader's recommendations.
+						</p>
+						<Checkbox
+							label="Questions before starting"
+							checked={values.questions}
+							onChange={(event) => tick("questions", event.target.checked)}
+						/>
+					</section>
 					<section className={styles.trusted} aria-labelledby={`trusted-${id}`}>
 						<h3 id={`trusted-${id}`} className={styles.heading}>
 							Trusted accounts

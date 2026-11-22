@@ -50,6 +50,7 @@ function list(
 		needs_relink: false,
 		stopped_cards: [],
 		refused_cards: [],
+		question_cards: [],
 		failing_projects: [],
 		features,
 		items: [],
@@ -125,6 +126,7 @@ function openLinked(
 				loadFeatureMerge: () => Promise.reject(new Error("not offered")),
 				mergeFeature: () => Promise.resolve(),
 				sendBackFeature,
+				answerCard: () => Promise.resolve(),
 			}}
 			now={() => NOW}
 		/>,
@@ -162,6 +164,7 @@ function openActing(
 				loadFeatureMerge: () => Promise.reject(new Error("not offered")),
 				mergeFeature: () => Promise.resolve(),
 				sendBackFeature: () => Promise.resolve(),
+				answerCard: () => Promise.resolve(),
 				...actions,
 			}}
 			now={() => NOW}

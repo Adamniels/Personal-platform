@@ -44,6 +44,7 @@ public sealed class TrustedAccountsTests
         ["run_turns"] = 200,
         ["fix_rounds_card"] = 3,
         ["fix_rounds_feature"] = 3,
+        ["questions"] = true,
     };
 
     /// <summary>The list as the route answers it: each login with whether it is the caller's.</summary>

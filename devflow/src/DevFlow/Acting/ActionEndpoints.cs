@@ -631,7 +631,7 @@ public static class ActionEndpoints
     }
 
     /// <summary>Why there is no token to act with.</summary>
-    private static ProblemHttpResult TokenProblem(UserToken token, HttpContext context, TimeProvider time) => token switch
+    internal static ProblemHttpResult TokenProblem(UserToken token, HttpContext context, TimeProvider time) => token switch
     {
         UserToken.NotLinked => Conflict("GitHub is not linked", "Link your GitHub account on the Projects tab to merge and comment as yourself."),
         UserToken.NeedsRelink => Conflict("Your GitHub link has expired", "Link GitHub again on the Projects tab to merge and comment as yourself."),
@@ -653,7 +653,7 @@ public static class ActionEndpoints
         }
     }
 
-    private static string HostSaid(int status, string? message) =>
+    internal static string HostSaid(int status, string? message) =>
         message is null
             ? string.Create(CultureInfo.InvariantCulture, $"GitHub answered {status}.")
             : string.Create(CultureInfo.InvariantCulture, $"GitHub answered {status}: {message}");
@@ -667,10 +667,10 @@ public static class ActionEndpoints
     private static ProblemHttpResult ChangedSinceShown() =>
         Conflict(Changed, "It was read again. Look at it before you merge.");
 
-    private static ProblemHttpResult Conflict(string title, string detail) =>
+    internal static ProblemHttpResult Conflict(string title, string detail) =>
         TypedResults.Problem(statusCode: StatusCodes.Status409Conflict, title: title, detail: detail);
 
-    private static ProblemHttpResult Invalid(string field, string reason) =>
+    internal static ProblemHttpResult Invalid(string field, string reason) =>
         TypedResults.Problem(new HttpValidationProblemDetails(new Dictionary<string, string[]> { [field] = [reason] })
         {
             Status = StatusCodes.Status422UnprocessableEntity,
@@ -679,7 +679,7 @@ public static class ActionEndpoints
         });
 
     /// <summary>503, with <c>Retry-After</c> when the code host said when to try again.</summary>
-    private static ProblemHttpResult Unavailable(HttpContext context, TimeProvider time, DateTimeOffset? retryAt, string detail)
+    internal static ProblemHttpResult Unavailable(HttpContext context, TimeProvider time, DateTimeOffset? retryAt, string detail)
     {
         if (retryAt is { } at)
         {

@@ -79,6 +79,7 @@ function list(
 		cards: [],
 		stopped_cards: stoppedCards,
 		refused_cards: [],
+		question_cards: [],
 		failing_projects: failingProjects,
 		decisions: [],
 	};
@@ -129,6 +130,7 @@ function open(
 				loadFeatureMerge: () => Promise.reject(new Error("not offered")),
 				mergeFeature: () => Promise.resolve(),
 				sendBackFeature: () => Promise.resolve(),
+				answerCard: () => Promise.resolve(),
 			}}
 			now={() => NOW}
 		/>,

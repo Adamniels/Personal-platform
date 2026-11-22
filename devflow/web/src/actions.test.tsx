@@ -56,6 +56,7 @@ function list(items: WaitingItem[]): WaitingList {
 		needs_relink: false,
 		stopped_cards: [],
 		refused_cards: [],
+		question_cards: [],
 		failing_projects: [],
 		features: [],
 		items,
@@ -126,6 +127,7 @@ function open(
 				loadFeatureMerge: () => Promise.reject(new Error("not offered")),
 				mergeFeature: () => Promise.resolve(),
 				sendBackFeature: () => Promise.resolve(),
+				answerCard: () => Promise.resolve(),
 			}}
 			now={() => NOW}
 		/>,

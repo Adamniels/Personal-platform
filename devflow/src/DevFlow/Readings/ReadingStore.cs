@@ -37,18 +37,28 @@ public sealed record ClaimedRead(Guid RunId, BriefCard Card, BriefFeature? Featu
 /// built on.</param>
 /// <param name="Missing">What the card lacks, when it is too thin.</param>
 /// <param name="ReadAt">When the reading came back.</param>
-/// <param name="Commented">Whether Dev flow's comment for the reading is on the card yet: the one
-/// listing the questions and the answers chosen, or the refusal's listing what is missing; false for
-/// a ready card.</param>
-public sealed record CardReadingView(string Outcome, IReadOnlyList<CardQuestion> Questions, IReadOnlyList<string> Missing, DateTimeOffset ReadAt, bool Commented);
+/// <param name="Commented">Whether the comment for the reading is on the card yet: Dev flow's listing
+/// the questions and the answers chosen, the owner's answers posted as him, or the refusal's listing
+/// what is missing; false for a ready card.</param>
+/// <param name="Answered">Whether the owner answered its questions, rather than the card going on
+/// the recommendations; false for any outcome but <c>questions</c>.</param>
+public sealed record CardReadingView(string Outcome, IReadOnlyList<CardQuestion> Questions, IReadOnlyList<string> Missing, DateTimeOffset ReadAt, bool Commented, bool Answered);
 
 /// <summary>A question a reading asked of a card, and the answer it is built on.</summary>
 /// <param name="Question">The question.</param>
 /// <param name="Recommendation">The reader's recommendation.</param>
 /// <param name="Why">Why it recommends so.</param>
-/// <param name="Answer">The answer the card is built on: the recommendation, while questions are
-/// never asked of the owner.</param>
-public sealed record CardQuestion(string Question, string Recommendation, string Why, string Answer);
+/// <param name="Answer">The answer the card is built on: the owner's, once he answered, and the
+/// recommendation otherwise.</param>
+/// <param name="Recommended">Whether the answer is the recommendation, accepted by the owner or
+/// chosen without him.</param>
+public sealed record CardQuestion(string Question, string Recommendation, string Why, string Answer, bool Recommended);
+
+/// <summary>The owner's answer to one of a reading's questions, as it is kept.</summary>
+/// <param name="Answer">What the card is built on: the recommendation he accepted, or his own text,
+/// trimmed.</param>
+/// <param name="Recommended">Whether he accepted the recommendation.</param>
+public sealed record OwnerAnswer(string Answer, bool Recommended);
 
 /// <summary>A card's questions whose comment Dev flow has yet to post, with the reading that asked
 /// them.</summary>
@@ -75,6 +85,10 @@ public static class ReadingStore
 {
     /// <summary>What a card says while it is read.</summary>
     public const string BeingRead = "An agent reads it before anything is built";
+
+    /// <summary>What a card says while it waits for the owner's answers to its reading's
+    /// questions, <c>needs_answers</c>.</summary>
+    public const string NeedsAnswers = "Waits for your answers to its questions";
 
     /// <summary>Whether a card has been read, as SQL over <c>cards</c>: a reading of it came back in
     /// its form.</summary>
@@ -259,9 +273,11 @@ public static class ReadingStore
 
     /// <summary>
     /// What a reading in its form does, inside the transaction that records its result: each card's
-    /// answer is kept on its row, and each card still <c>reading</c> moves on, a ready card and one
-    /// with questions to <c>queued</c>, on the recommendations, and one too thin to <c>refused</c>, with
-    /// what is missing as its reason, <see cref="TooThin"/>. A card whose label was taken off while it
+    /// answer is kept on its row, and each card still <c>reading</c> moves on: a ready card to
+    /// <c>queued</c>; one with questions to <c>needs_answers</c>, <see cref="NeedsAnswers"/>, while
+    /// the project's setting <c>questions</c> is on, as it is read now, and otherwise to
+    /// <c>queued</c>, on the recommendations; and one too thin to <c>refused</c>, with what is
+    /// missing as its reason, <see cref="TooThin"/>. A card whose label was taken off while it
     /// was read is removed instead, as any card whose run ends is. The count of failures in the card
     /// starts afresh for each, and the comments that asked for a card to be read again are let go.
     /// </summary>
@@ -269,6 +285,7 @@ public static class ReadingStore
     {
         ArgumentNullException.ThrowIfNull(transaction);
         ArgumentNullException.ThrowIfNull(reading);
+        var asks = await Asks(transaction, projectId, cancellationToken);
         foreach (var card in reading.Cards)
         {
             await transaction.Connection!.ExecuteAsync(new CommandDefinition(
@@ -287,7 +304,12 @@ public static class ReadingStore
                 },
                 transaction,
                 cancellationToken: cancellationToken));
-            var (state, reason) = card.Outcome == ReadingOutcome.TooThin ? ("refused", TooThin(card.Missing)) : ("queued", (string?)null);
+            var (state, reason) = card.Outcome switch
+            {
+                ReadingOutcome.TooThin => ("refused", TooThin(card.Missing)),
+                ReadingOutcome.Questions when asks => ("needs_answers", NeedsAnswers),
+                _ => ("queued", (string?)null),
+            };
             await Move(transaction, projectId, card.Number, state, reason, now, cancellationToken);
             await transaction.Connection!.ExecuteAsync(new CommandDefinition(
                 "UPDATE cards SET in_card_failures = 0, failed_at_commit = NULL, read_again_comments = NULL WHERE project_id = @projectId AND number = @number",
@@ -296,6 +318,44 @@ public static class ReadingStore
                 cancellationToken: cancellationToken));
         }
     }
+
+    /// <summary>
+    /// Holds for the owner's answers, inside the read's transaction, after the cards are stored,
+    /// every queued card of the project whose newest reading found questions nobody has answered yet,
+    /// neither the owner nor Dev flow's comment on the recommendations, while the setting
+    /// <c>questions</c> is on: it moves to <c>needs_answers</c>, <see cref="NeedsAnswers"/>. So a card
+    /// picked again, after its label was taken off and put back, still waits for his answers rather
+    /// than going on the recommendations. Only a card with no run under way.
+    /// </summary>
+    public static Task<int> HoldForAnswers(NpgsqlTransaction transaction, Guid projectId, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(transaction);
+        return transaction.Connection!.ExecuteAsync(new CommandDefinition(
+            """
+            UPDATE cards SET state = 'needs_answers', reason = @needsAnswers, changed_at = @now
+            WHERE project_id = @projectId AND state = 'queued' AND picked_body IS NOT NULL
+              AND (SELECT s.questions FROM project_settings s WHERE s.project_id = cards.project_id)
+              AND EXISTS (SELECT 1 FROM (SELECT cr.outcome, cr.comment_id, cr.answers FROM card_readings cr
+                                         WHERE cr.project_id = cards.project_id AND cr.card_number = cards.number AND cr.outcome IS NOT NULL
+                                         ORDER BY cr.read_at DESC, cr.run_id DESC
+                                         LIMIT 1) newest
+                          WHERE newest.outcome = 'questions' AND newest.comment_id IS NULL AND newest.answers IS NULL)
+              AND NOT EXISTS (SELECT 1 FROM runs r WHERE r.project_id = cards.project_id AND r.card_number = cards.number AND r.finished_at IS NULL)
+            """,
+            new { projectId, needsAnswers = NeedsAnswers, now },
+            transaction,
+            cancellationToken: cancellationToken));
+    }
+
+    /// <summary>Whether the project's questions wait for the owner, its setting <c>questions</c> as
+    /// it is now, read inside <paramref name="transaction"/>; false for a project the user does not
+    /// have.</summary>
+    private static async Task<bool> Asks(NpgsqlTransaction transaction, Guid projectId, CancellationToken cancellationToken) =>
+        await transaction.Connection!.ExecuteScalarAsync<bool?>(new CommandDefinition(
+            "SELECT questions FROM project_settings WHERE project_id = @projectId",
+            new { projectId },
+            transaction,
+            cancellationToken: cancellationToken)) ?? false;
 
     /// <summary>
     /// A reading that ended without one in its form, inside the transaction that records it, or one
@@ -386,11 +446,6 @@ public static class ReadingStore
         return Kept(note);
     }
 
-    /// <summary>The questions of a card's reading, each with the answer it is built on, read inside
-    /// <paramref name="transaction"/>, as its user; empty when its reading has none.</summary>
-    public static async Task<IReadOnlyList<CardQuestion>> Answers(NpgsqlTransaction transaction, Guid projectId, int number, CancellationToken cancellationToken) =>
-        (await Of(transaction, projectId, number, cancellationToken))?.Questions ?? [];
-
     /// <summary>A card's reading, its newest with an outcome, read inside
     /// <paramref name="transaction"/>, as its user; null before one came back.</summary>
     public static async Task<CardReadingView?> Of(NpgsqlTransaction transaction, Guid projectId, int number, CancellationToken cancellationToken)
@@ -398,7 +453,8 @@ public static class ReadingStore
         ArgumentNullException.ThrowIfNull(transaction);
         var row = await transaction.Connection!.QuerySingleOrDefaultAsync<ReadingRow>(new CommandDefinition(
             """
-            SELECT outcome AS Outcome, questions::text AS Questions, missing::text AS Missing, read_at AS ReadAt, comment_id AS CommentId
+            SELECT outcome AS Outcome, questions::text AS Questions, missing::text AS Missing, read_at AS ReadAt, comment_id AS CommentId,
+                   answers::text AS Answers
             FROM card_readings
             WHERE project_id = @projectId AND card_number = @number AND outcome IS NOT NULL
             ORDER BY read_at DESC, run_id DESC
@@ -411,14 +467,16 @@ public static class ReadingStore
             ? null
             : new CardReadingView(
                 row.Outcome,
-                Questions(row.Questions),
+                Questions(row.Questions, row.Answers),
                 JsonSerializer.Deserialize<List<string>>(row.Missing) ?? [],
                 new DateTimeOffset(DateTime.SpecifyKind(row.ReadAt, DateTimeKind.Utc)),
-                row.CommentId is not null);
+                row.CommentId is not null,
+                row.Answers is not null);
     }
 
     /// <summary>The project's cards whose newest reading has questions Dev flow has yet to post,
-    /// read as the project's user, cards still kept and not ignored, in number order.</summary>
+    /// read as the project's user, cards still kept, not ignored, not waiting for the owner's
+    /// answers and not answered by him, in number order.</summary>
     public static async Task<IReadOnlyList<PendingQuestions>> Pending(UserDb database, Guid userId, Guid projectId, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(database);
@@ -426,8 +484,8 @@ public static class ReadingStore
             """
             SELECT cr.run_id AS RunId, cr.card_number AS Number, cr.questions::text AS Questions
             FROM card_readings cr
-            JOIN cards c ON c.project_id = cr.project_id AND c.number = cr.card_number AND c.state <> 'ignored'
-            WHERE cr.project_id = @projectId AND cr.outcome = 'questions' AND cr.comment_id IS NULL
+            JOIN cards c ON c.project_id = cr.project_id AND c.number = cr.card_number AND c.state NOT IN ('ignored', 'needs_answers')
+            WHERE cr.project_id = @projectId AND cr.outcome = 'questions' AND cr.comment_id IS NULL AND cr.answers IS NULL
               AND NOT EXISTS (SELECT 1 FROM card_readings newer
                               WHERE newer.project_id = cr.project_id AND newer.card_number = cr.card_number
                                 AND newer.outcome IS NOT NULL AND newer.read_at > cr.read_at)
@@ -436,7 +494,7 @@ public static class ReadingStore
             new { projectId },
             transaction,
             cancellationToken: cancellationToken)), cancellationToken);
-        return [.. rows.Select(row => new PendingQuestions(row.RunId, row.Number, Questions(row.Questions)))];
+        return [.. rows.Select(row => new PendingQuestions(row.RunId, row.Number, Questions(row.Questions, null)))];
     }
 
     /// <summary>The project's refused cards whose newest reading, too thin, waits to be marked on the
@@ -464,6 +522,63 @@ public static class ReadingStore
         return [.. rows.Select(row => new PendingRefusal(row.RunId, row.Number, JsonSerializer.Deserialize<List<string>>(row.Missing) ?? [], row.Commented, row.Labelled))];
     }
 
+    /// <summary>
+    /// Keeps the owner's <paramref name="answers"/> to the questions of the reading
+    /// <paramref name="runId"/>, posted as him in the comment <paramref name="commentId"/>, and
+    /// queues the card, inside <paramref name="transaction"/>, which runs as its user: only while the
+    /// card still needs answers and that reading is still its newest, its row locked first, so two
+    /// sends never both keep theirs. The comment's id is kept with the reading, so it never reads
+    /// the card again; when GitHub's answer named none, the answers alone mark the reading answered,
+    /// so neither the app's comment nor holding for answers takes it as unanswered. False, with
+    /// nothing kept, when the card moved on meanwhile.
+    /// </summary>
+    public static async Task<bool> Answered(NpgsqlTransaction transaction, Guid projectId, int number, Guid runId, IReadOnlyList<OwnerAnswer> answers, long? commentId, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(transaction);
+        ArgumentNullException.ThrowIfNull(answers);
+        var state = await transaction.Connection!.ExecuteScalarAsync<string?>(new CommandDefinition(
+            "SELECT state FROM cards WHERE project_id = @projectId AND number = @number FOR UPDATE",
+            new { projectId, number },
+            transaction,
+            cancellationToken: cancellationToken));
+        if (state != "needs_answers" || await NewestRun(transaction, projectId, number, cancellationToken) != runId)
+        {
+            return false;
+        }
+
+        await transaction.Connection!.ExecuteAsync(new CommandDefinition(
+            """
+            UPDATE card_readings SET answers = @answers::jsonb, answered_at = @now, comment_id = coalesce(@commentId, comment_id)
+            WHERE project_id = @projectId AND run_id = @runId AND card_number = @number AND outcome = 'questions'
+            """,
+            new { projectId, runId, number, answers = JsonSerializer.Serialize(answers, ReadingForm.Json), commentId, now },
+            transaction,
+            cancellationToken: cancellationToken));
+        await transaction.Connection!.ExecuteAsync(new CommandDefinition(
+            "UPDATE cards SET state = 'queued', reason = NULL, changed_at = @now WHERE project_id = @projectId AND number = @number",
+            new { projectId, number, now },
+            transaction,
+            cancellationToken: cancellationToken));
+        return true;
+    }
+
+    /// <summary>The run of a card's newest reading that came back in its form, read inside
+    /// <paramref name="transaction"/>; null before one did.</summary>
+    public static async Task<Guid?> NewestRun(NpgsqlTransaction transaction, Guid projectId, int number, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(transaction);
+        return await transaction.Connection!.ExecuteScalarAsync<Guid?>(new CommandDefinition(
+            """
+            SELECT run_id FROM card_readings
+            WHERE project_id = @projectId AND card_number = @number AND outcome IS NOT NULL
+            ORDER BY read_at DESC, run_id DESC
+            LIMIT 1
+            """,
+            new { projectId, number },
+            transaction,
+            cancellationToken: cancellationToken));
+    }
+
     /// <summary>Records Dev flow's comment on the card, by its id, for the reading it is for: the one
     /// that asked its questions, or the one that refused it. As the project's user.</summary>
     public static async Task Commented(UserDb database, Guid userId, Guid projectId, Guid runId, int number, long commentId, CancellationToken cancellationToken)
@@ -476,11 +591,17 @@ public static class ReadingStore
             cancellationToken: cancellationToken)), cancellationToken);
     }
 
-    /// <summary>Questions as stored, each with the answer the card is built on: the recommendation,
-    /// since the owner is asked none in this part.</summary>
-    private static List<CardQuestion> Questions(string stored) =>
-        [.. (JsonSerializer.Deserialize<List<ReadingQuestion>>(stored, ReadingForm.Json) ?? [])
-            .Select(question => new CardQuestion(question.Question, question.Recommendation, question.Why, question.Recommendation))];
+    /// <summary>Questions as stored, each with the answer the card is built on: the owner's, from
+    /// <paramref name="answers"/> as stored, once he answered, and the recommendation until
+    /// then.</summary>
+    private static List<CardQuestion> Questions(string stored, string? answers)
+    {
+        var given = answers is null ? [] : JsonSerializer.Deserialize<List<OwnerAnswer>>(answers, ReadingForm.Json) ?? [];
+        return [.. (JsonSerializer.Deserialize<List<ReadingQuestion>>(stored, ReadingForm.Json) ?? [])
+            .Select((question, at) => at < given.Count
+                ? new CardQuestion(question.Question, question.Recommendation, question.Why, given[at].Answer, given[at].Recommended)
+                : new CardQuestion(question.Question, question.Recommendation, question.Why, question.Recommendation, true))];
+    }
 
     private static string? Kept(string? note) => note is { } text && text.Trim().Length > 0 ? text : null;
 
@@ -505,7 +626,7 @@ public static class ReadingStore
 
     private sealed record ToRead(int Number, string Title, string Body, byte[] BodySha256);
 
-    private sealed record ReadingRow(string Outcome, string Questions, string Missing, DateTime ReadAt, long? CommentId);
+    private sealed record ReadingRow(string Outcome, string Questions, string Missing, DateTime ReadAt, long? CommentId, string? Answers);
 
     private sealed record PendingRow(Guid RunId, int Number, string Questions);
 

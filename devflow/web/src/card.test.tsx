@@ -245,11 +245,13 @@ describe("a card's page", () => {
 								recommendation: "By date, newest first",
 								why: "The page beside it sorts so",
 								answer: "By date, newest first",
+								recommended: true,
 							},
 						],
 						missing: [],
 						read_at: "2026-11-18T09:00:00+00:00",
 						commented: true,
+						answered: false,
 					},
 				}),
 			),
@@ -272,6 +274,86 @@ describe("a card's page", () => {
 		expect(within(reading).queryByRole("list", { name: "Missing" })).toBeNull();
 	});
 
+	test("a card that needs answers says it waits for them, with the recommendations", async () => {
+		open(() =>
+			Promise.resolve(
+				story({
+					state: "needs_answers",
+					reason: "Waits for your answers to its questions",
+					reading: {
+						outcome: "questions",
+						questions: [
+							{
+								question: "Is the list sorted by name or by date?",
+								recommendation: "By date, newest first",
+								why: "The page beside it sorts so",
+								answer: "By date, newest first",
+								recommended: true,
+							},
+						],
+						missing: [],
+						read_at: "2026-11-18T09:00:00+00:00",
+						commented: false,
+						answered: false,
+					},
+				}),
+			),
+		);
+
+		const reading = await screen.findByRole("article", { name: "The reading" });
+		expect(within(reading).getByText("Waits for your answers")).toBeTruthy();
+		expect(reading.textContent).toContain(
+			"It waits for your answers under Questions before starting on Waiting for you",
+		);
+		const questions = within(reading).getByRole("list", { name: "Questions" });
+		expect(questions.textContent).toContain(
+			"Recommended By date, newest first",
+		);
+	});
+
+	test("a card the owner answered shows his answers, the accepted ones marked", async () => {
+		open(() =>
+			Promise.resolve(
+				story({
+					reading: {
+						outcome: "questions",
+						questions: [
+							{
+								question: "Is the list sorted by name or by date?",
+								recommendation: "By date, newest first",
+								why: "The page beside it sorts so",
+								answer: "By date, newest first",
+								recommended: true,
+							},
+							{
+								question: "Does an empty list show a sentence?",
+								recommendation: "A sentence",
+								why: "Nothing looks broken",
+								answer: "Nothing at all",
+								recommended: false,
+							},
+						],
+						missing: [],
+						read_at: "2026-11-18T09:00:00+00:00",
+						commented: true,
+						answered: true,
+					},
+				}),
+			),
+		);
+
+		const reading = await screen.findByRole("article", { name: "The reading" });
+		expect(within(reading).getByText("Built on your answers")).toBeTruthy();
+		const items = within(
+			within(reading).getByRole("list", { name: "Questions" }),
+		).getAllByRole("listitem");
+		expect(items[0]?.textContent).toContain(
+			"Answer By date, newest first (recommended)",
+		);
+		expect(items[1]?.textContent).toContain("Answer Nothing at all");
+		expect(items[1]?.textContent).not.toContain("(recommended)");
+	});
+
 	test("a card read as too thin lists what it lacks, and one read as ready nothing more", async () => {
 		open(() =>
 			Promise.resolve(
@@ -284,6 +366,7 @@ describe("a card's page", () => {
 						missing: ["Which page shows the list"],
 						read_at: "2026-11-18T09:00:00+00:00",
 						commented: false,
+						answered: false,
 					},
 				}),
 			),
@@ -308,6 +391,7 @@ describe("a card's page", () => {
 						missing: [],
 						read_at: "2026-11-18T09:00:00+00:00",
 						commented: false,
+						answered: false,
 					},
 				}),
 			),

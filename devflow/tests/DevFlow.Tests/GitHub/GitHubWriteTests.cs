@@ -39,7 +39,8 @@ public sealed class GitHubWriteTests
         var posted = await host.CodeHost.Comment(GitHubHost.User, Token, GitHubHost.Platform, 42, "Rename it.\n\nThen merge.", Ct);
 
         Assert.IsType<MergeResult.Merged>(merged);
-        Assert.IsType<CommentResult.Posted>(posted);
+        // The comment's id, from GitHub's answer, by which Dev flow knows it later.
+        Assert.Equal(1, Assert.IsType<CommentResult.Posted>(posted).Id);
         // As the person, and never as the app: no installation token was asked for.
         Assert.Empty(host.Stub.TokenRequests);
         var (merge, comment) = (host.Stub.Reads[0], host.Stub.Reads[1]);

@@ -59,6 +59,7 @@ function list(decisions: DecisionItem[]): WaitingList {
 		cards: [],
 		stopped_cards: [],
 		refused_cards: [],
+		question_cards: [],
 		failing_projects: [],
 		features: [],
 		decisions,
@@ -89,6 +90,7 @@ function open(decisions: DecisionItem[]) {
 				loadFeatureMerge: () => Promise.reject(new Error("not offered")),
 				mergeFeature: () => Promise.resolve(),
 				sendBackFeature: () => Promise.resolve(),
+				answerCard: () => Promise.resolve(),
 			}}
 			now={() => NOW}
 		/>,

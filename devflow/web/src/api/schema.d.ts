@@ -11,11 +11,31 @@ export interface paths {
         };
         /**
          * Whether something needs the caller, for the nav bar
-         * @description Read from what Dev flow stored and never from GitHub. attention is true when the caller has a pull request, waiting or stopped, that is not sent back, a stopped project, a card of Dev flow's whose pull request waits, a card of Dev flow's refused as too thin, a feature of Dev flow's ready for review or waiting for the caller, a GitHub link that has expired, or a Claude login due for renewal within a month or past it, and false otherwise. The nav bar asks it with the session's cookie. Without a valid token, 401 with an empty body.
+         * @description Read from what Dev flow stored and never from GitHub. attention is true when the caller has a pull request, waiting or stopped, that is not sent back, a stopped project, a card of Dev flow's whose pull request waits, a card of Dev flow's refused as too thin, a card of Dev flow's waiting for the caller's answers to its questions, a feature of Dev flow's ready for review or waiting for the caller, a GitHub link that has expired, or a Claude login due for renewal within a month or past it, and false otherwise. The nav bar asks it with the session's cookie. Without a valid token, 401 with an empty body.
          */
         get: operations["getAttention"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/devflow/api/cards/{id}/answers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Answer a card's questions, as the caller, and queue it
+         * @description Sends the caller's answers to the questions of the reading reading_id of a card of Dev flow's own that needs answers: answers holds one for each question, in the reading's order, each either accept true, the reader's recommendation, or text, the caller's own, 1 to 4,000 characters once trimmed, never both. They are posted as one comment on the card's issue, as the caller's linked GitHub account and never as the app, listing each question with its answer and (recommended) where it was accepted; the comment's id is kept, so it never reads the card again, the answers are kept with the reading, and the card is queued, its build's brief carrying them under "Answers to its questions". A comment of the caller's on the issue that is exactly the one to post, left by a send whose answer was lost, is kept instead of posting it again. In order: 404 for a card the caller does not have; 422 without reading_id or answers; 409 when the card does not need answers; 409 when reading_id is not its newest reading; 422 when answers does not hold exactly one valid answer for each question; 409 when GitHub is not linked or the link has expired; then GitHub is asked. 204 once posted and kept. 409 when the card moved on while GitHub answered, the comment posted; 409 when GitHub refuses, with its reason; 503 when GitHub did not answer, nothing kept, and sending the same answers again finds a comment it took. Without a valid token, 401 with an empty body; a change from another origin, 403.
+         */
+        post: operations["answerCard"];
         delete?: never;
         options?: never;
         head?: never;
@@ -59,7 +79,7 @@ export interface paths {
         };
         /**
          * What waits, for the front page
-         * @description Read from what Dev flow stored and never from GitHub. waiting, the pull requests that wait for the caller and were not sent back, the runner's and Dev flow's own cards', with Dev flow's own cards refused as too thin and its features ready for review or waiting for the caller; stopped, those the runner stopped on, not sent back, and the caller's projects stopped because something landed on their default branch that Dev flow did not put there; projects, how many the caller has connected; stale, whether any project is stale or failing, as the waiting list says them; needs_relink, whether the caller's GitHub link has expired; and claude_login, where their Claude login stands, none, ok, due_soon or expired, as GET /devflow/api/claude-login says it. The core calls it with the user's token in the Authorization header. Without a valid token, 401 with an empty body.
+         * @description Read from what Dev flow stored and never from GitHub. waiting, the pull requests that wait for the caller and were not sent back, the runner's and Dev flow's own cards', with Dev flow's own cards refused as too thin, its cards waiting for the caller's answers to their questions and its features ready for review or waiting for the caller; stopped, those the runner stopped on, not sent back, and the caller's projects stopped because something landed on their default branch that Dev flow did not put there; projects, how many the caller has connected; stale, whether any project is stale or failing, as the waiting list says them; needs_relink, whether the caller's GitHub link has expired; and claude_login, where their Claude login stands, none, ok, due_soon or expired, as GET /devflow/api/claude-login says it. The core calls it with the user's token in the Authorization header. Without a valid token, 401 with an empty body.
          */
         get: operations["getDisplay"];
         put?: never;
@@ -431,12 +451,12 @@ export interface paths {
         };
         /**
          * A project's settings
-         * @description The labels that pick and hold its cards, mark what needs the caller and mark a card for their review; whether a card's pull request waits for them, never, sometimes or always, with the three conditions of sometimes and the paths it watches; and its trusted accounts, the GitHub logins whose cards, edits and comments count, the caller's linked login first and marked as theirs. 404 for a project the caller does not have. Without a valid token, 401 with an empty body; a change from another origin, 403.
+         * @description The labels that pick and hold its cards, mark what needs the caller and mark a card for their review; whether a card's pull request waits for them, never, sometimes or always, with the three conditions of sometimes and the paths it watches; its trusted accounts, the GitHub logins whose cards, edits and comments count, the caller's linked login first and marked as theirs; the model that reads, builds and reviews its cards and the limits of its runs; and questions, whether a card its reading found questions in waits for the caller's answers rather than going on the reader's recommendations. 404 for a project the caller does not have. Without a valid token, 401 with an empty body; a change from another origin, 403.
          */
         get: operations["getProjectSettings"];
         /**
          * Change a project's settings
-         * @description Takes all ten and answers them as saved. A label is written, at most 50 characters, with no space at either end and no comma, and the four are different names whatever their case; waits_for_owner is never, sometimes or always, and sometimes has at least one of wait_when_marked, wait_when_paths and wait_when_decision; wait_paths is at most 100 glob patterns of at most 200 characters, none starting with ! or /, and a pattern given twice is kept once; trusted_logins is a list of GitHub logins that holds the caller's linked login, and a login given twice whatever its case is kept once. 422 naming each field that breaks a rule, 404 for a project the caller does not have. Without a valid token, 401 with an empty body; a change from another origin, 403.
+         * @description Takes all eighteen and answers them as saved. A label is written, at most 50 characters, with no space at either end and no comma, and the four are different names whatever their case; waits_for_owner is never, sometimes or always, and sometimes has at least one of wait_when_marked, wait_when_paths and wait_when_decision; wait_paths is at most 100 glob patterns of at most 200 characters, none starting with ! or /, and a pattern given twice is kept once; trusted_logins is a list of GitHub logins that holds the caller's linked login, and a login given twice whatever its case is kept once; each model is opus, sonnet or haiku, and each limit within its range; questions is true or false. 422 naming each field that breaks a rule, 404 for a project the caller does not have. Without a valid token, 401 with an empty body; a change from another origin, 403.
          */
         put: operations["saveProjectSettings"];
         post?: never;
@@ -515,7 +535,7 @@ export interface paths {
         };
         /**
          * What waits for the caller, as last read
-         * @description Read from what Dev flow stored and never from GitHub. items are the pull requests that are the caller's turn in every project, by project and number; own_items are Dev flow's own, read from its own tables, in this part each a project stopped because something landed on its default branch that Dev flow did not put there, with the commit, who did it, when, and the commit's address on GitHub, by project; cards are Dev flow's own cards whose pull requests wait for the caller, each with its pull request, the head commit its run built and checked, the branch it merges into, the report's summary, the decisions the agent marked for the caller with the count of the others, the check Dev flow ran, review, the reviewer's verdict on its head commit with its summary and how many findings block, null when it has none, and can_merge, false while the project is stopped, by project and number; stopped_cards are Dev flow's own cards that stopped, each with its issue's address, where a comment runs it again, why it stopped, when, and its pull request's address or null, by project and number; refused_cards are Dev flow's own cards refused as too thin to build, each with its issue's address, where an edit or a comment reads it again, what is missing, each a line, and when it was refused, by project and number; failing_projects are the projects whose runs have failed outside their cards six times in a row, each with message, "Dev flow cannot run <project>'s cards: <the last reason>", the reason, how many failures, since when and until when it hands out no job, shown until a run succeeds, by project; decisions are the open issues Dev flow opened for the decisions the agent marked for the caller on cards it merged, each with what was chosen, the alternative, why and the reviewer's view, by project, oldest first, until the caller closes it on GitHub; count is the items not sent back, the own items, the cards, the stopped and refused cards, the failing projects, the decisions and the features, plus one when needs_relink; projects says for each when it was last read, stale when that is more than five minutes ago or never, and failing when its last read failed. Without a valid token, 401 with an empty body.
+         * @description Read from what Dev flow stored and never from GitHub. items are the pull requests that are the caller's turn in every project, by project and number; own_items are Dev flow's own, read from its own tables, in this part each a project stopped because something landed on its default branch that Dev flow did not put there, with the commit, who did it, when, and the commit's address on GitHub, by project; cards are Dev flow's own cards whose pull requests wait for the caller, each with its pull request, the head commit its run built and checked, the branch it merges into, the report's summary, the decisions the agent marked for the caller with the count of the others, the check Dev flow ran, review, the reviewer's verdict on its head commit with its summary and how many findings block, null when it has none, and can_merge, false while the project is stopped, by project and number; stopped_cards are Dev flow's own cards that stopped, each with its issue's address, where a comment runs it again, why it stopped, when, and its pull request's address or null, by project and number; refused_cards are Dev flow's own cards refused as too thin to build, each with its issue's address, where an edit or a comment reads it again, what is missing, each a line, and when it was refused, by project and number; question_cards are Dev flow's own cards whose reading found questions, with the project's questions on, that wait for the caller's answers, each with its id, which the answers route names, its issue's address, its feature, number and title, or null for a card on its own, reading_id, the reading that asked them, each question with the reader's recommendation and why, in order, and when it was read, by project and number; failing_projects are the projects whose runs have failed outside their cards six times in a row, each with message, "Dev flow cannot run <project>'s cards: <the last reason>", the reason, how many failures, since when and until when it hands out no job, shown until a run succeeds, by project; decisions are the open issues Dev flow opened for the decisions the agent marked for the caller on cards it merged, each with what was chosen, the alternative, why and the reviewer's view, by project, oldest first, until the caller closes it on GitHub; count is the items not sent back, the own items, the cards, the stopped and refused cards, the failing projects, the decisions, the features and the question cards, plus one when needs_relink; projects says for each when it was last read, stale when that is more than five minutes ago or never, and failing when its last read failed. Without a valid token, 401 with an empty body.
          */
         get: operations["listWaiting"];
         put?: never;
@@ -730,6 +750,11 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        AnswersRequest: {
+            answers: null | components["schemas"]["GivenAnswer"][];
+            /** Format: uuid */
+            reading_id: null | string;
+        };
         Attention: {
             attention: boolean;
         };
@@ -799,9 +824,11 @@ export interface components {
             answer: string;
             question: string;
             recommendation: string;
+            recommended: boolean;
             why: string;
         };
         CardReadingView: {
+            answered: boolean;
             commented: boolean;
             missing: string[];
             outcome: string;
@@ -1125,6 +1152,10 @@ export interface components {
             login: null | string;
             state: components["schemas"]["GitHubLinkState"];
         };
+        GivenAnswer: {
+            accept: null | boolean;
+            text: null | string;
+        };
         Health: {
             status: string;
         };
@@ -1336,6 +1367,7 @@ export interface components {
             model_reading: string;
             model_reviewing: string;
             pickup_label: string;
+            questions: boolean;
             review_label: string;
             /** Format: int32 */
             run_minutes: number;
@@ -1356,6 +1388,30 @@ export interface components {
         PushKeyRequest: {
             /** Format: uuid */
             worker_id: null | string;
+        };
+        QuestionCard: {
+            feature: null | components["schemas"]["CardFeature"];
+            /** Format: uuid */
+            id: string;
+            /** Format: int32 */
+            number: number;
+            owner: string;
+            /** Format: uuid */
+            project_id: string;
+            project_name: string;
+            questions: components["schemas"]["ReadingQuestion"][];
+            /** Format: date-time */
+            read_at: string;
+            /** Format: uuid */
+            reading_id: string;
+            title: string;
+            /** Format: uri */
+            web_url: string;
+        };
+        ReadingQuestion: {
+            question: string;
+            recommendation: string;
+            why: string;
         };
         RefusedCard: {
             missing: string[];
@@ -1476,6 +1532,7 @@ export interface components {
             model_reading: null | string;
             model_reviewing: null | string;
             pickup_label: null | string;
+            questions: null | boolean;
             review_label: null | string;
             /** Format: int32 */
             run_minutes: null | number;
@@ -1550,6 +1607,7 @@ export interface components {
             needs_relink: boolean;
             own_items: components["schemas"]["OwnItem"][];
             projects: components["schemas"]["ProjectFreshness"][];
+            question_cards: components["schemas"]["QuestionCard"][];
             refused_cards: components["schemas"]["RefusedCard"][];
             stopped_cards: components["schemas"]["StoppedCard"][];
         };
@@ -1615,6 +1673,73 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    answerCard: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AnswersRequest"];
+            };
+        };
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
             };
         };
     };

@@ -40,6 +40,8 @@ namespace DevFlow.Projects;
 /// <param name="RunTurns">The most turns a run may take.</param>
 /// <param name="FixRoundsCard">The fix rounds a card's reviews may start.</param>
 /// <param name="FixRoundsFeature">The fix rounds a whole feature's reviews may start.</param>
+/// <param name="Questions">Whether a card its reading found questions in waits for the owner's
+/// answers, <c>needs_answers</c>, rather than going on the reader's recommendations.</param>
 public sealed record ProjectSettings(
     string PickupLabel,
     string HoldLabel,
@@ -57,7 +59,8 @@ public sealed record ProjectSettings(
     int RunMinutes,
     int RunTurns,
     int FixRoundsCard,
-    int FixRoundsFeature)
+    int FixRoundsFeature,
+    bool Questions)
 {
     /// <summary>The most characters a label has, the most GitHub takes.</summary>
     public const int LongestLabel = 50;
@@ -69,10 +72,10 @@ public sealed record ProjectSettings(
     public static ProjectSettings Defaults { get; } = new(
         "devflow", "devflow-hold", "devflow-attention", "devflow-review", "never", true, true, true, [], [],
         RunSettings.Defaults.ModelReading, RunSettings.Defaults.ModelBuilding, RunSettings.Defaults.ModelReviewing,
-        RunSettings.Defaults.Minutes, RunSettings.Defaults.Turns, RunSettings.Defaults.FixRoundsCard, RunSettings.Defaults.FixRoundsFeature);
+        RunSettings.Defaults.Minutes, RunSettings.Defaults.Turns, RunSettings.Defaults.FixRoundsCard, RunSettings.Defaults.FixRoundsFeature, true);
 }
 
-/// <summary>What <c>PUT /devflow/api/projects/{id}/settings</c> takes: all seventeen, every time,
+/// <summary>What <c>PUT /devflow/api/projects/{id}/settings</c> takes: all eighteen, every time,
 /// the trusted accounts as plain logins.</summary>
 public sealed record SettingsRequest(
     string? PickupLabel,
@@ -91,7 +94,8 @@ public sealed record SettingsRequest(
     int? RunMinutes,
     int? RunTurns,
     int? FixRoundsCard,
-    int? FixRoundsFeature)
+    int? FixRoundsFeature,
+    bool? Questions)
 {
     /// <summary>
     /// The settings, with the trusted accounts to store, or what is wrong with each field, by its
@@ -106,7 +110,7 @@ public sealed record SettingsRequest(
     /// <paramref name="mine"/>, the owner's linked login, whatever its case, when he has one; a
     /// login given twice is kept once. Each model is one of <see cref="RunSettings.Models"/>, exactly;
     /// <c>run_minutes</c>, <c>run_turns</c>, <c>fix_rounds_card</c> and <c>fix_rounds_feature</c> are
-    /// within <see cref="RunSettings"/>'s ranges.
+    /// within <see cref="RunSettings"/>'s ranges. <c>questions</c> is given.
     /// </summary>
     public (ProjectSettings? Settings, TrustedAccounts? Trusted, Dictionary<string, string[]> Errors) Check(string? mine)
     {
@@ -130,7 +134,7 @@ public sealed record SettingsRequest(
         }
 
         var conditions = new (string Field, bool? Value)[] { ("wait_when_marked", WaitWhenMarked), ("wait_when_paths", WaitWhenPaths), ("wait_when_decision", WaitWhenDecision) };
-        foreach (var (field, _) in conditions.Where(condition => condition.Value is null))
+        foreach (var (field, _) in conditions.Append((Field: "questions", Value: Questions)).Where(condition => condition.Value is null))
         {
             errors[field] = ["is missing"];
         }
@@ -186,7 +190,7 @@ public sealed record SettingsRequest(
         return (
             new ProjectSettings(
                 PickupLabel!, HoldLabel!, AttentionLabel!, ReviewLabel!, WaitsForOwner!, WaitWhenMarked!.Value, WaitWhenPaths!.Value, WaitWhenDecision!.Value, paths, trusted.Listed,
-                ModelReading!, ModelBuilding!, ModelReviewing!, RunMinutes!.Value, RunTurns!.Value, FixRoundsCard!.Value, FixRoundsFeature!.Value),
+                ModelReading!, ModelBuilding!, ModelReviewing!, RunMinutes!.Value, RunTurns!.Value, FixRoundsCard!.Value, FixRoundsFeature!.Value, Questions!.Value),
             trusted,
             errors);
     }
@@ -264,7 +268,8 @@ public sealed class ProjectSettingsStore(UserDb database)
                    s.wait_when_paths AS WaitWhenPaths, s.wait_when_decision AS WaitWhenDecision, s.wait_paths AS WaitPaths,
                    s.trusted_logins AS TrustedLogins, a.login AS Mine, s.model_reading AS ModelReading,
                    s.model_building AS ModelBuilding, s.model_reviewing AS ModelReviewing, s.run_minutes AS RunMinutes,
-                   s.run_turns AS RunTurns, s.fix_rounds_card AS FixRoundsCard, s.fix_rounds_feature AS FixRoundsFeature
+                   s.run_turns AS RunTurns, s.fix_rounds_card AS FixRoundsCard, s.fix_rounds_feature AS FixRoundsFeature,
+                   s.questions AS Questions
             FROM project_settings s
             LEFT JOIN github_accounts a ON a.user_id = s.user_id
             WHERE s.project_id = @projectId
@@ -277,7 +282,7 @@ public sealed class ProjectSettingsStore(UserDb database)
             : new ProjectSettings(
                 row.PickupLabel, row.HoldLabel, row.AttentionLabel, row.ReviewLabel, row.WaitsForOwner, row.WaitWhenMarked, row.WaitWhenPaths,
                 row.WaitWhenDecision, row.WaitPaths, TrustedAccounts.Of(row.Mine, row.TrustedLogins).Listed, row.ModelReading, row.ModelBuilding,
-                row.ModelReviewing, row.RunMinutes, row.RunTurns, row.FixRoundsCard, row.FixRoundsFeature);
+                row.ModelReviewing, row.RunMinutes, row.RunTurns, row.FixRoundsCard, row.FixRoundsFeature, row.Questions);
     }
 
     /// <summary>The owner's linked login, whatever the link's state, or null without one.</summary>
@@ -302,7 +307,8 @@ public sealed class ProjectSettingsStore(UserDb database)
                 waits_for_owner = @WaitsForOwner, wait_when_marked = @WaitWhenMarked, wait_when_paths = @WaitWhenPaths,
                 wait_when_decision = @WaitWhenDecision, wait_paths = @waitPaths, trusted_logins = @trustedLogins,
                 model_reading = @ModelReading, model_building = @ModelBuilding, model_reviewing = @ModelReviewing,
-                run_minutes = @RunMinutes, run_turns = @RunTurns, fix_rounds_card = @FixRoundsCard, fix_rounds_feature = @FixRoundsFeature
+                run_minutes = @RunMinutes, run_turns = @RunTurns, fix_rounds_card = @FixRoundsCard, fix_rounds_feature = @FixRoundsFeature,
+                questions = @Questions
             WHERE project_id = @projectId
             """,
             new
@@ -325,6 +331,7 @@ public sealed class ProjectSettingsStore(UserDb database)
                 settings.RunTurns,
                 settings.FixRoundsCard,
                 settings.FixRoundsFeature,
+                settings.Questions,
             },
             transaction,
             cancellationToken: cancellationToken)), cancellationToken) > 0;
@@ -352,5 +359,6 @@ public sealed class ProjectSettingsStore(UserDb database)
         public int RunTurns { get; init; }
         public int FixRoundsCard { get; init; }
         public int FixRoundsFeature { get; init; }
+        public bool Questions { get; init; }
     }
 }
