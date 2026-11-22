@@ -86,7 +86,10 @@ public sealed record ReaderFacts(string Branch);
 /// for a card its newest reading did not refuse.</param>
 /// <param name="Note">The note of the code the work touches, null when there is none.</param>
 /// <param name="Comments">Each comment that asked for it, oldest first, exactly as written.</param>
-public sealed record ReaderAgain(IReadOnlyList<string> Missing, string? Note, IReadOnlyList<Readings.ReadAgainComment> Comments);
+/// <param name="Added">Whether it was never read: a card added to a feature already read, or
+/// released from a hold since, read alone in the section "Read alone" rather than "Read
+/// again".</param>
+public sealed record ReaderAgain(IReadOnlyList<string> Missing, string? Note, IReadOnlyList<Readings.ReadAgainComment> Comments, bool Added = false);
 
 /// <summary>
 /// The briefs an agent gets, <c>developer.md</c>, <c>reviewer.md</c>, <c>conflict.md</c>,
@@ -593,7 +596,8 @@ public static class Brief
         return Fill(ReaderTemplate.Value, new Dictionary<string, string>(StringComparer.Ordinal)
         {
             ["what"] = again is not null
-                ? feature is null ? "one card, on its own, again," : "one card of a feature, alone and again,"
+                ? again.Added ? "one card of a feature, alone,"
+                : feature is null ? "one card, on its own, again," : "one card of a feature, alone and again,"
                 : feature is null ? "one card, on its own," : "the cards of one feature together,",
             ["whose"] = feature is null || again is not null ? "this card" : "this feature",
             ["feature"] = feature is null ? "" : ReaderFeature(feature),
@@ -604,9 +608,10 @@ public static class Brief
     }
 
     /// <summary>
-    /// A reading's sections for a card read again, alone, as Settled in the slices "Refusing a thin
-    /// card" and "Reading again": the note of the code the work touches, "The code this feature
-    /// touches" or this card; then "Read again", that it was read before, and for a refused card what
+    /// A reading's sections for a card read alone, as Settled in the slices "Refusing a thin card"
+    /// and "Reading again": the note of the code the work touches, "The code this feature touches"
+    /// or this card; then, for a card of a feature never read, "Read alone", that the rest of the
+    /// feature was read before it; and otherwise "Read again", that it was read before, and for a refused card what
     /// that reading found missing, an agent's words fenced as information, or for any other that an
     /// earlier reading's questions and answers do not carry over; and each trusted account's comment
     /// that asked for it, under its login, exactly as written in a fence longer than any run of
@@ -616,6 +621,15 @@ public static class Brief
     /// </summary>
     private static string ReadAgain(ReaderAgain again, string subject)
     {
+        if (again.Added)
+        {
+            return new StringBuilder("\n\n")
+                .Append(Touches(again.Note, subject, "##"))
+                .Append("## Read alone\n\n")
+                .Append("The rest of this feature was read before this card was added to it, or released from a hold, and the cards read then are not read again. So this card is read alone, against the feature and the note of the code it touches above, and with what its done cards left. Judge it as any reading does.")
+                .ToString();
+        }
+
         var section = new StringBuilder("\n\n")
             .Append(Touches(again.Note, subject, "##"))
             .Append("## Read again\n\n");

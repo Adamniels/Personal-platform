@@ -152,6 +152,18 @@ public static class ReadingStore
     /// <see cref="ReadAgain"/>; with <c>@projectId</c> and <c>@watchedSince</c>.</summary>
     public const string Due = $"{Jobs.JobStore.FreeToStart} AND (NOT {IsRead} OR {ReadAgain})";
 
+    /// <summary>Whether a card's feature was read, as SQL over <c>cards</c>: a reading of the
+    /// feature, a run by its parent's number, came back in its form. A card of it that reading
+    /// never read, one added to the feature since or released from a hold, is then read alone, as
+    /// one changed since its reading is, so the cards already read are not read again and the
+    /// feature's note stays what the whole feature was read to write. False for a card on its
+    /// own.</summary>
+    public const string FeatureRead = """
+        EXISTS (SELECT 1 FROM features f
+                JOIN runs fr ON fr.project_id = f.project_id AND fr.feature_number = f.number AND fr.kind = 'read' AND fr.result = 'succeeded'
+                WHERE f.id = cards.feature_id)
+        """;
+
     /// <summary>Why a card read as too thin is refused: what it lacks, each on its own.</summary>
     public static string TooThin(IReadOnlyList<string> missing)
     {
@@ -162,8 +174,10 @@ public static class ReadingStore
     /// <summary>
     /// Takes the project's first card due a reading, by <see cref="CardStore.QueueOrder"/>, inside
     /// <paramref name="transaction"/>, which runs as the project's user: <see cref="Due"/>; locks it with <c>FOR UPDATE SKIP LOCKED</c>. A
-    /// card on its own is read alone. A card of a feature is read with every queued card of its
-    /// feature that is not read, in the feature's order, while no run of
+    /// card on its own is read alone. A card of a feature not yet read, <see cref="FeatureRead"/>,
+    /// is read with every queued card of its feature that is not read, in the feature's order, and
+    /// one of a feature already read, added since or released from a hold, alone, with the feature,
+    /// its note and its done cards' handover notes; either only while no run of
     /// the feature itself is under way, its row locked as well, so one reading of a feature runs at a
     /// time; the code read is the feature's branch where it is made, and otherwise
     /// <paramref name="defaultBranch"/>. Records the reading's run and a row of
@@ -185,7 +199,7 @@ public static class ReadingStore
         var watchedSince = Watching.WatchStore.WatchedSince(now);
         var first = await transaction.Connection!.QuerySingleOrDefaultAsync<FirstCard>(new CommandDefinition(
             $"""
-            SELECT number AS Number, feature_id AS FeatureId, {ReadAgain} AS Again FROM cards
+            SELECT number AS Number, feature_id AS FeatureId, {ReadAgain} AS Again, {IsRead} AS WasRead, {FeatureRead} AS FeatureRead FROM cards
             WHERE {Due}
             ORDER BY {CardStore.QueueOrder}
             LIMIT 1
@@ -220,8 +234,11 @@ public static class ReadingStore
             }
         }
 
+        // A card on its own, one to be read again, and one added to a feature already read, or
+        // released from a hold after it, are read alone, in a run of the card.
+        var alone = feature is null || first.Again || first.FeatureRead;
         var cards = (await transaction.Connection!.QueryAsync<ToRead>(new CommandDefinition(
-            feature is null || first.Again
+            alone
                 ? "SELECT number AS Number, picked_title AS Title, picked_body AS Body, picked_body_sha256 AS BodySha256 FROM cards WHERE project_id = @projectId AND number = @number"
                 : $"""
                   SELECT number AS Number, picked_title AS Title, picked_body AS Body, picked_body_sha256 AS BodySha256
@@ -243,7 +260,7 @@ public static class ReadingStore
             INSERT INTO runs (id, project_id, user_id, card_number, feature_number, worker_id, kind, branch, base, started_at, run_minutes)
             VALUES (@runId, @projectId, @userId, @card, @feature, @workerId, 'read', @branch, @baseBranch, @now, @minutes)
             """,
-            new { runId, projectId, userId, card = feature is null || first.Again ? first.Number : (int?)null, feature = first.Again ? null : feature?.Number, workerId, branch, baseBranch = defaultBranch, now, minutes = run.Minutes },
+            new { runId, projectId, userId, card = alone ? first.Number : (int?)null, feature = alone ? null : feature?.Number, workerId, branch, baseBranch = defaultBranch, now, minutes = run.Minutes },
             transaction,
             cancellationToken: cancellationToken));
         foreach (var card in cards)
@@ -265,7 +282,9 @@ public static class ReadingStore
             cancellationToken: cancellationToken));
 
         var read = cards.Select(card => new BriefCard(card.Number, card.Title, card.Body)).ToList();
-        var again = first.Again ? await Again(transaction, projectId, first.Number, cancellationToken) : null;
+        var again = first.Again ? await Again(transaction, projectId, first.Number, cancellationToken)
+            : feature is not null && first.FeatureRead && !first.WasRead ? new ReaderAgain([], await NoteOfCard(transaction, projectId, first.Number, cancellationToken), [], Added: true)
+            : null;
         if (feature is null)
         {
             return new ClaimedRead(runId, read[0], null, read, branch, defaultBranch, again);
@@ -273,7 +292,7 @@ public static class ReadingStore
 
         var parent = new BriefCard(feature.Number, feature.Title, feature.Body);
         var done = await Jobs.JobStore.FeatureOf(transaction, projectId, first.Number, cancellationToken) ?? new BriefFeature(feature.Number, feature.Title, feature.Body, []);
-        return new ClaimedRead(runId, again is null ? parent : read[0], done, read, branch, defaultBranch, again);
+        return new ClaimedRead(runId, alone ? read[0] : parent, done, read, branch, defaultBranch, again);
     }
 
     /// <summary>What a card read again is given beside it: what its newest reading found missing,
@@ -663,7 +682,7 @@ public static class ReadingStore
         : char.IsHighSurrogate(reason[Jobs.RunStore.MostReason - 1]) ? reason[..(Jobs.RunStore.MostReason - 1)]
         : reason[..Jobs.RunStore.MostReason];
 
-    private sealed record FirstCard(int Number, Guid? FeatureId, bool Again);
+    private sealed record FirstCard(int Number, Guid? FeatureId, bool Again, bool WasRead, bool FeatureRead);
 
     private sealed record FeatureRow(int Number, string Title, string Body, string? Branch);
 
