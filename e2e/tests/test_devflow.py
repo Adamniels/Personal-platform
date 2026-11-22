@@ -5502,7 +5502,9 @@ def test_a_project_is_set_up_by_an_agent(
     assert reviewed.json()["kind"] == "review"
     page.reload()
     expect(run.get_by_text("Waits for you", exact=True)).to_be_visible()
-    expect(run.get_by_role("link", name=re.compile(r"Pull request #\d+"))).to_be_visible()
+    expect(
+        run.get_by_role("link", name=re.compile(r"Pull request #\d+"))
+    ).to_be_visible()
     unsettled = run.get_by_role("list", name="What it could not settle")
     expect(unsettled.get_by_role("listitem")).to_have_count(2)
     expect(unsettled.get_by_text("Needs a real secret")).to_be_visible()
