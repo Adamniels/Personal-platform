@@ -7,6 +7,7 @@ using DevFlow.CodeHost;
 using DevFlow.Projects;
 using DevFlow.Protocol;
 using DevFlow.Recipes;
+using DevFlow.Setup;
 using DevFlow.Stops;
 using DevFlow.Watching;
 using DevFlow.Workers;
@@ -51,8 +52,10 @@ public abstract record FreshKey
 
 /// <summary>
 /// Hands out work. A worker asking for it is answered nothing when it needs a rebuild, when its
-/// project is stopped or its default branch not watched lately, when its project's user has no
-/// Claude login or one past its renewal, or when its project has no card to take; otherwise the
+/// project is stopped or its default branch not watched lately or waits after failures outside; a
+/// worker on a setup version with no check that passed is handed that check and nothing else, see
+/// <see cref="SetupStore"/>; then it is answered nothing when its project's user has no Claude
+/// login or one past its renewal, or when its project has no card to take; otherwise the
 /// kind of job is chosen, a card's review before a whole feature's before a card's fix before a
 /// whole feature's before a conflict before a reading before a build, everything that job needs from the code host is
 /// read first, as the app, with a key for that kind, a feature's branch made for its first card,
@@ -81,6 +84,9 @@ public sealed partial class Dispatcher(
 
     /// <summary>The verdict's schema as every review job carries it, written once from its type.</summary>
     private static readonly JsonElement VerdictSchema = JsonSerializer.SerializeToElement(ReviewVerdict.Schema());
+
+    /// <summary>The report's schema a check carries, null, since it runs no agent.</summary>
+    private static readonly JsonElement NoSchema = JsonSerializer.SerializeToElement<object?>(null);
 
     /// <summary>The reading's schema as every reading job carries it, written once from its type.</summary>
     private static readonly JsonElement ReadingSchema = JsonSerializer.SerializeToElement(Protocol.Reading.Schema());
@@ -122,8 +128,24 @@ public sealed partial class Dispatcher(
         // Waiting after failures outside its cards, until its wait is over. See "Stops" in
         // devflow/README.md.
         if (await watch.Hold(userId, projectId, cancellationToken) != ProjectHold.None
-            || await ProjectWaits.Of(database, userId, projectId, cancellationToken) is { } wait && wait.WaitUntil > time.GetUtcNow()
-            || HeldFor(await logins.Status(userId, cancellationToken)) is not null
+            || await ProjectWaits.Of(database, userId, projectId, cancellationToken) is { } wait && wait.WaitUntil > time.GetUtcNow())
+        {
+            return new NextJob.None();
+        }
+
+        // Every version of .devflow/ is checked once before its workers take any other job: a
+        // worker on a version with no check that passed is handed only that check, which runs no
+        // agent and so needs no Claude login, or nothing while one runs or the last one failed. See
+        // "Setting up a project" in devflow/README.md.
+        switch (await SetupStore.Of(database, userId, projectId, workerId, cancellationToken))
+        {
+            case null or { State: VersionCheck.Waiting }:
+                return new NextJob.None();
+            case { State: VersionCheck.Due, Version: var version }:
+                return await HandOutCheck(caller, workerId, version, cancellationToken);
+        }
+
+        if (HeldFor(await logins.Status(userId, cancellationToken)) is not null
             || await JobStore.NextKind(database, userId, projectId, time.GetUtcNow(), cancellationToken) is not { } kind
             || await workers.RepositoryOf(caller, cancellationToken) is not { } repository)
         {
@@ -195,6 +217,71 @@ public sealed partial class Dispatcher(
 
         LogHandedOut(log, job.Kind, projectId, job.Card?.Number ?? 0, job.JobId);
         return new NextJob.Handed(job);
+    }
+
+    /// <summary>
+    /// Hands the worker the check of <paramref name="version"/>: what the job needs is read first,
+    /// as the app, outside the lock, the project's <c>project.json</c>, the default branch's head
+    /// and a key that only fetches; then the check is taken under the project's lock, while it is
+    /// still due and the project not stopped or unwatched. No work when any of it is not there now.
+    /// </summary>
+    private async Task<NextJob> HandOutCheck(WorkerCaller caller, Guid workerId, string version, CancellationToken cancellationToken)
+    {
+        var (userId, projectId) = (caller.UserId, caller.ProjectId);
+        if (await workers.RepositoryOf(caller, cancellationToken) is not { } repository
+            || await Facts(projectId, userId, repository, cancellationToken) is not { } facts
+            || await Head(projectId, userId, repository, facts.DefaultBranch, cancellationToken) is not { } head
+            || await Key(projectId, userId, repository, WritePurpose.Fetch, cancellationToken) is not { } key)
+        {
+            return new NextJob.None();
+        }
+
+        var now = Now();
+        var claimed = await database.InUserTransaction<ClaimedCheck?>(userId, async transaction =>
+            await watch.HoldUnderLock(transaction, projectId, cancellationToken) != ProjectHold.None
+                ? null
+                : await SetupStore.Claim(transaction, projectId, userId, workerId, version, facts.DefaultBranch, head, facts.Check, now, cancellationToken),
+            cancellationToken);
+        if (claimed is null)
+        {
+            // Another worker on the version took its check since, or the project was stopped
+            // meanwhile; the key made for it runs out unused.
+            return new NextJob.None();
+        }
+
+        LogCheckHandedOut(log, version, projectId, claimed.RunId);
+        return new NextJob.Handed(new Job(
+            claimed.RunId,
+            Job.RecipeCheck,
+            null,
+            new JobRepository(repository.Owner, repository.Name, facts.CloneAddress, facts.DefaultBranch),
+            facts.DefaultBranch,
+            facts.DefaultBranch,
+            "",
+            NoSchema,
+            facts.Check,
+            "",
+            key.Value,
+            key.ExpiresAt,
+            new JobCommitter(facts.Committer.Name, facts.Committer.Email),
+            new JobLimits(0, 0m, SetupStore.CheckMinutes),
+            "",
+            Start: facts.Start,
+            Url: facts.Url,
+            ToCheck: new JobCheck(claimed.Version, claimed.Commit)));
+    }
+
+    /// <summary>The commit <paramref name="branch"/> is at, read as the app, or null when the code
+    /// host did not answer it now.</summary>
+    private async Task<string?> Head(Guid projectId, Guid userId, Repository repository, string branch, CancellationToken cancellationToken)
+    {
+        if (await host.BranchHead(userId, repository, branch, cancellationToken) is CodeHostResult<string>.Found { Value: var head })
+        {
+            return head;
+        }
+
+        LogNotRead(log, projectId, "its default branch's head");
+        return null;
     }
 
     /// <summary>The build job for a card taken to build, or null when none was.</summary>
@@ -590,6 +677,9 @@ public sealed partial class Dispatcher(
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Handed out the {Kind} of #{Card} of project {ProjectId} as run {RunId}")]
     private static partial void LogHandedOut(ILogger logger, string kind, Guid projectId, int card, Guid runId);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Handed out the check of version {Version} of project {ProjectId} as run {RunId}")]
+    private static partial void LogCheckHandedOut(ILogger logger, string version, Guid projectId, Guid runId);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "No job for project {ProjectId}: the code host did not answer {What}")]
     private static partial void LogNotRead(ILogger logger, Guid projectId, string what);

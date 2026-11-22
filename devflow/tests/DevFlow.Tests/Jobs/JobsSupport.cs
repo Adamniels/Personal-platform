@@ -93,10 +93,14 @@ internal sealed class Jobs : IAsyncDisposable
     /// <param name="read">Whether every card the harness's reads pick is taken as already read and
     /// ready, <see cref="Routes.CardsRead"/>; false for a test of reading itself, whose cards are
     /// read by a reading job first.</param>
-    public static async Task<Jobs> Start(IReadOnlyList<FakeIssue>? cards = null, bool login = true, string? projectFile = null, bool signIn = false, Action<Microsoft.AspNetCore.Builder.WebApplicationBuilder>? configure = null, bool read = true)
+    /// <param name="checkedRecipe">Whether the worker's setup version is taken as already checked,
+    /// <see cref="Routes.RecipesChecked"/>; false for a test of setting up itself, whose first job
+    /// is the check.</param>
+    public static async Task<Jobs> Start(IReadOnlyList<FakeIssue>? cards = null, bool login = true, string? projectFile = null, bool signIn = false, Action<Microsoft.AspNetCore.Builder.WebApplicationBuilder>? configure = null, bool read = true, bool checkedRecipe = true)
     {
         var routes = await Routes.Start(configure);
         routes.CardsRead = read;
+        routes.RecipesChecked = checkedRecipe;
         try
         {
             var project = await routes.Project(User);

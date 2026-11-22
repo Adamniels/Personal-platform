@@ -30,8 +30,11 @@ namespace DevFlow.Jobs;
 /// result lists pictures, <paramref name="Pictures"/> holds their bytes by name, base64 in the
 /// JSON, which it puts where a worker pushes them. With <paramref name="KeepRunning"/>, it takes the
 /// job and sends nothing back, as a worker still at it, so the card stays where taking it put it;
-/// no result is needed then.</summary>
-public sealed record FakeWorkerRun(Guid? ProjectId, ResultRequest? Result, bool? LeaveNoCommit = null, IReadOnlyDictionary<string, byte[]>? Pictures = null, bool? KeepRunning = null);
+/// no result is needed then. With <paramref name="ForCheck"/>, the prepared result is a check's and
+/// ends the check the worker is handed, as a check's worker sends it; without it, a check the worker
+/// is handed first is passed, as a recipe that works, and the next job taken, so a test of anything
+/// after setting up never meets it.</summary>
+public sealed record FakeWorkerRun(Guid? ProjectId, ResultRequest? Result, bool? LeaveNoCommit = null, IReadOnlyDictionary<string, byte[]>? Pictures = null, bool? KeepRunning = null, bool? ForCheck = null);
 
 /// <summary>What the fake worker did: the job it took, its kind, its card, or for a conflict or a
 /// reading its feature, null for a check, the commit it left on the branch, or for a review the commit it reviewed,
@@ -100,7 +103,8 @@ public static class FakeWorkerEndpoints
 
         // The prepared result is checked before a job is taken, with stand ins for what the fake
         // fills, so a result that breaks a rule leaves the card where it was.
-        if (request.Result is { } given && JobEndpoints.Errors(given with { WorkerId = WorkerId, Branch = "devflow/0", HeadCommit = null }) is { Count: > 0 } errors)
+        var forCheck = request.ForCheck == true;
+        if (request.Result is { } given && JobEndpoints.Errors(given with { WorkerId = WorkerId, Branch = "devflow/0", HeadCommit = null }, forCheck ? Job.RecipeCheck : null) is { Count: > 0 } errors)
         {
             return Invalid(string.Join("; ", errors.Select(pair => $"result.{pair.Key} {pair.Value[0]}")));
         }
@@ -121,6 +125,32 @@ public static class FakeWorkerEndpoints
             || await workers.RepositoryOf(caller, cancellationToken) is not { } repository)
         {
             return TypedResults.NoContent();
+        }
+
+        if (job.Kind == Job.RecipeCheck && !forCheck)
+        {
+            // Not the job the test prepared a result for: the check passes, as a recipe that works
+            // would, and the worker asks again.
+            await JobEndpoints.Complete(database, caller, job.JobId, WorkerId, PassedCheck(job.Branch), Now(time), cancellationToken);
+            if (await dispatcher.Next(caller, WorkerId, cancellationToken) is not NextJob.Handed { Job: var next })
+            {
+                return TypedResults.NoContent();
+            }
+
+            job = next;
+        }
+
+        if (forCheck)
+        {
+            if (job.Kind != Job.RecipeCheck)
+            {
+                return TypedResults.Problem(statusCode: StatusCodes.Status409Conflict, title: "Not a check", detail: $"the job handed out is a {job.Kind}, not a check; it was taken and is left running");
+            }
+
+            // A check reads the commit it was handed and pushes nothing, so it names no commit.
+            var checkedOne = request.Result! with { WorkerId = WorkerId, Branch = job.Branch, HeadCommit = null };
+            await JobEndpoints.Complete(database, caller, job.JobId, WorkerId, JobEndpoints.Read(checkedOne, Job.RecipeCheck)!, Now(time), cancellationToken);
+            return TypedResults.Ok(new FakeWorkerRan(job.JobId, job.Kind, null, job.Branch, null, job.Brief));
         }
 
         if (keepRunning)
@@ -299,6 +329,20 @@ public static class FakeWorkerEndpoints
         return commit is null
             ? TypedResults.Problem(statusCode: StatusCodes.Status503ServiceUnavailable, title: "The fake's git failed", detail: "no commit was made on the job's branch, so the job ended as a failure outside the card and the card is queued again")
             : TypedResults.Ok(new FakeWorkerRan(job.JobId, job.Kind, job.Card?.Number, job.Branch, commit, job.Brief));
+    }
+
+    /// <summary>What the fake sends for a check it passes unasked: the check ran and exited 0, and
+    /// the project has no pages to show.</summary>
+    public const string PassedOutput = "The fake's check passed";
+
+    private static RunResult PassedCheck(string branch) =>
+        new(true, null, null, false, 0, PassedOutput, branch, null, null, System.Text.Json.JsonSerializer.SerializeToElement(new { }), 0, "", Screenshots: new ResultScreenshots([], PageShots.NoPages));
+
+    /// <summary>Now, as Postgres keeps it, to the microsecond.</summary>
+    private static DateTimeOffset Now(TimeProvider time)
+    {
+        var now = time.GetUtcNow();
+        return now.AddTicks(-(now.Ticks % 10));
     }
 
     private static ProblemHttpResult Invalid(string detail) =>

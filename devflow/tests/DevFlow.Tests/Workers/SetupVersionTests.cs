@@ -99,6 +99,25 @@ public sealed class SetupVersionTests
         Assert.Equal("NotFound { }", (await host.CodeHost.FolderFile(GitHubHost.User, GitHubHost.Platform, ".devflow", ".devflow/Dockerfile", Ct)).ToString());
     }
 
+    [Fact]
+    public async Task GitHubAnswersABranchsHead()
+    {
+        // The commit a check is handed: the default branch's head, read from its ref, each segment
+        // of the branch's name escaped.
+        using var host = new GitHubHost();
+        const string commit = "4f6c1c36b0bd2c24e3d5a8f5d8c0e0a3a0e3b9a1";
+        host.Stub.Answer = request => request.Path == $"{Repo}/git/ref/heads/release/2026%2011"
+            ? StubGitHub.Json($$$"""{"ref": "refs/heads/release/2026 11", "object": {"sha": "{{{commit}}}", "type": "commit"}}""")
+            : new HttpResponseMessage(HttpStatusCode.NotFound);
+
+        Assert.Equal(commit, GitHub.Results.Value(await host.CodeHost.BranchHead(GitHubHost.User, GitHubHost.Platform, "release/2026 11", Ct)));
+        Assert.Equal("NotFound { }", (await host.CodeHost.BranchHead(GitHubHost.User, GitHubHost.Platform, "gone", Ct)).ToString());
+
+        // A sha that is not a commit id is an answer that does not parse.
+        host.Stub.Answer = _ => StubGitHub.Json("""{"object": {"sha": "main"}}""");
+        Assert.Equal("Unavailable { RetryAt =  }", (await host.CodeHost.BranchHead(GitHubHost.User, GitHubHost.Platform, "main", Ct)).ToString());
+    }
+
     private static async Task Hello(Routes routes, string key, Guid worker, string recipe)
     {
         var json = $$"""{"worker_id": "{{worker}}", "name": "fodr-worker-1", "recipe_version": "{{recipe}}", "base_image": "{{WorkerStart.DefaultImage}}"}""";

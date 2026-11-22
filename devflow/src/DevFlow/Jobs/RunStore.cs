@@ -35,6 +35,8 @@ namespace DevFlow.Jobs;
 /// answer said so.</param>
 /// <param name="RemergeDiff">A conflict's remerge diff of the merge commit it pushed, null for any
 /// other run.</param>
+/// <param name="Pictures">A check's pictures of the project's address, null for any other run and
+/// when none were taken.</param>
 public sealed record RunResult(
     bool Succeeded,
     JsonElement? Report,
@@ -52,7 +54,8 @@ public sealed record RunResult(
     ResultScreenshots? Screenshots = null,
     bool TimedOut = false,
     DateTimeOffset? ResetsAt = null,
-    string? RemergeDiff = null);
+    string? RemergeDiff = null,
+    IReadOnlyList<ResultPicture>? Pictures = null);
 
 /// <summary>How a run ended and what it does to its card: the run's <c>result</c>, the reason,
 /// the state the card moves to, and what the card says there when that is not the run's reason or
@@ -349,6 +352,18 @@ public static class RunStore
         return kept[(char.IsLowSurrogate(kept[start]) && char.IsHighSurrogate(kept[start - 1]) ? start + 1 : start)..];
     }
 
+    /// <summary>The kind of the run the worker holds under way, or null when it holds no such
+    /// run.</summary>
+    public static async Task<string?> KindOf(UserDb database, Guid userId, Guid projectId, Guid runId, Guid workerId, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(database);
+        return await database.InUserTransaction(userId, transaction => transaction.Connection!.QuerySingleOrDefaultAsync<string?>(new CommandDefinition(
+            "SELECT kind FROM runs WHERE id = @runId AND project_id = @projectId AND worker_id = @workerId AND finished_at IS NULL",
+            new { runId, projectId, workerId },
+            transaction,
+            cancellationToken: cancellationToken)), cancellationToken);
+    }
+
     /// <summary>Marks the run's check begun and its card <c>checking</c>, a feature's run moving no
     /// card, when the worker holds it under way. False otherwise.</summary>
     public static async Task<bool> Checking(UserDb database, Guid userId, Guid projectId, Guid runId, Guid workerId, DateTimeOffset now, CancellationToken cancellationToken)
@@ -418,7 +433,8 @@ public static class RunStore
                 """
                 SELECT card_number AS CardNumber, feature_number AS FeatureNumber, branch AS Branch, base AS Base, kind AS Kind,
                        head_commit AS HeadCommit, from_commit AS FromCommit, default_commit AS DefaultCommit, fix_round AS FixRound,
-                       coalesce((SELECT c.fix_rounds FROM cards c WHERE c.project_id = runs.project_id AND c.number = runs.card_number), 0) AS RoundsUsed
+                       coalesce((SELECT c.fix_rounds FROM cards c WHERE c.project_id = runs.project_id AND c.number = runs.card_number), 0) AS RoundsUsed,
+                       recipe_version AS RecipeVersion
                 FROM runs
                 WHERE id = @runId AND project_id = @projectId AND worker_id = @workerId AND finished_at IS NULL
                 FOR UPDATE OF runs
@@ -438,6 +454,7 @@ public static class RunStore
 
             var review = run.Kind is Job.Review or Job.FeatureReview;
             var read = run.Kind == Job.Read;
+            var check = run.Kind == Job.RecipeCheck;
             // The cards a reading was handed, which its reading must name each exactly once.
             var readCards = read ? await Readings.ReadingStore.CardsOf(transaction, runId, cancellationToken) : [];
             // A review, of a card or of a whole feature, is for the commit it was handed, which the
@@ -457,6 +474,7 @@ public static class RunStore
                 Job.FeatureReview => JudgeFeatureReview(result),
                 Job.FeatureFix => JudgeFeatureFix(result, run.FromCommit!),
                 Job.Read => JudgeRead(result, readCards),
+                Job.RecipeCheck => Setup.SetupStore.Judge(result),
                 _ => Judge(result),
             };
             var usage = result.Usage;
@@ -483,8 +501,8 @@ public static class RunStore
                     report = result.Report?.GetRawText(),
                     checkExitCode = result.CheckExitCode,
                     checkOutput = result.CheckOutput is { } output ? Tail(output) : null,
-                    // A reading pushes nothing, so it names no commit whatever its worker sent.
-                    headCommit = read ? null : result.HeadCommit,
+                    // A reading and a check push nothing, so they name no commit whatever their worker sent.
+                    headCommit = read || check ? null : result.HeadCommit,
                     authMethod = result.AuthMethod,
                     usage = usage.GetRawText(),
                     inputTokens = Count(usage, "input_tokens"),
@@ -511,7 +529,7 @@ public static class RunStore
             // A review, of a whole feature among them, names the commit it read and pushed nothing,
             // a fix that names the commit it was handed pushed nothing new, and a reading pushes
             // nothing at all.
-            if (!read && await transaction.Connection!.ExecuteScalarAsync<bool>(new CommandDefinition(
+            if (!read && !check && await transaction.Connection!.ExecuteScalarAsync<bool>(new CommandDefinition(
                     "SELECT EXISTS (SELECT 1 FROM features WHERE project_id = @projectId AND branch = @branch)",
                     new { projectId, branch = run.Branch },
                     transaction,
@@ -539,9 +557,17 @@ public static class RunStore
             {
                 await ProjectWaits.Failed(transaction, projectId, userId, ending.Reason ?? "", result.ResetsAt, now, cancellationToken);
             }
-            else if (ending.Result == "succeeded")
+            else if (ending.Result == "succeeded" || (check && ending.Result == "check_failed"))
             {
+                // A check that ran, whatever it found, is a run the machine could do.
                 await ProjectWaits.Succeeded(transaction, projectId, cancellationToken);
+            }
+
+            // A check moves no card: what it found is recorded for its version.
+            if (check)
+            {
+                await Setup.SetupStore.Record(transaction, projectId, userId, runId, run.RecipeVersion!, run.FromCommit!, result, now, cancellationToken);
+                return Recorded.Stored;
             }
 
             // A reading moves the cards it read, whether it was a feature's or a card's.
@@ -863,12 +889,12 @@ public static class RunStore
 
     /// <summary>A reason from a worker or an agent, cut to <see cref="MostReason"/>, one fewer
     /// where the cut would split a surrogate pair.</summary>
-    private static string Cut(string reason) =>
+    internal static string Cut(string reason) =>
         reason.Length <= MostReason ? reason
         : char.IsHighSurrogate(reason[MostReason - 1]) && char.IsLowSurrogate(reason[MostReason]) ? reason[..(MostReason - 1)]
         : reason[..MostReason];
 
-    private sealed record HeldRun(int? CardNumber, int? FeatureNumber, string Branch, string Base, string Kind, string? HeadCommit, string? FromCommit, string? DefaultCommit, int? FixRound, int RoundsUsed);
+    private sealed record HeldRun(int? CardNumber, int? FeatureNumber, string Branch, string Base, string Kind, string? HeadCommit, string? FromCommit, string? DefaultCommit, int? FixRound, int RoundsUsed, string? RecipeVersion);
 
     /// <summary>
     /// Moves a feature whose conflict run has just ended to <paramref name="ending"/>'s state, only

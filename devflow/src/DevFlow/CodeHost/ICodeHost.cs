@@ -82,6 +82,10 @@ public interface ICodeHost
     /// <c>main</c>.</summary>
     Task<CodeHostResult<string>> DefaultBranch(Guid userId, Repository repository, CancellationToken cancellationToken);
 
+    /// <summary>The full id of the commit <paramref name="branch"/> is at now, read as the app. Not
+    /// found when the repository has no such branch.</summary>
+    Task<CodeHostResult<string>> BranchHead(Guid userId, Repository repository, string branch, CancellationToken cancellationToken);
+
     /// <summary>
     /// The paths of the files <paramref name="head"/> changed since its merge base with
     /// <paramref name="from"/>, both full commit ids, as the host compares them, <c>from...head</c>:

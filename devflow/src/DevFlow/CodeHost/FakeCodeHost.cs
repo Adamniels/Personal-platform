@@ -217,6 +217,33 @@ public sealed partial class FakeCodeHost : ICodeHost, ICodeHostSignIn
     public Task<CodeHostResult<string>> DefaultBranch(Guid userId, Repository repository, CancellationToken cancellationToken) =>
         Answer(userId, repository, found => found.Default);
 
+    /// <summary>
+    /// The commit the branch is at in the repository's git repository. The default branch with no
+    /// commit is given the fake's first commit first, by the app, as a real repository has one and
+    /// as <see cref="MakeBranch"/> gives it; any other branch with none is not found.
+    /// </summary>
+    public async Task<CodeHostResult<string>> BranchHead(Guid userId, Repository repository, string branch, CancellationToken cancellationToken)
+    {
+        var known = await DefaultBranch(userId, repository, cancellationToken);
+        if (known is not CodeHostResult<string>.Found { Value: var defaultBranch })
+        {
+            return known;
+        }
+
+        if (await CloneAddress(userId, repository, cancellationToken) is not CodeHostResult<Uri>.Found)
+        {
+            return new CodeHostResult<string>.Unavailable(RetryAt: null);
+        }
+
+        var head = await BranchCommit(userId, repository, branch, cancellationToken);
+        if (head is null && branch == defaultBranch)
+        {
+            head = await CommitOnBranch(userId, repository, branch, branch, "The first commit, by the fake", new Committer(AppLogin, AppEmail), cancellationToken);
+        }
+
+        return head is null ? new CodeHostResult<string>.NotFound() : new CodeHostResult<string>.Found(head);
+    }
+
     /// <summary>As GitHub compares two commits: unavailable when the account says so, not found
     /// for a repository the world does not hold or a commit its git repository does not; and
     /// otherwise the files <paramref name="head"/> changed since its merge base with
