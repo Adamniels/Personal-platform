@@ -448,7 +448,8 @@ public static class SetupRunStore
     /// it, and a success starts the count afresh; changes start the round the review asked for; a
     /// run that succeeded clears the comments it answered; and a setup whose pull request is not
     /// open, as after one closed, opens one again rather than going to review. A merged setup is not
-    /// moved.
+    /// moved, nor one whose pull request was closed while the run was under way: it stays stopped
+    /// until the owner's comment on that pull request runs it again.
     /// </summary>
     internal static async Task End(NpgsqlTransaction transaction, Guid projectId, int number, Guid runId, string kind, string? fromCommit, int roundsUsed, RunEnding ending, DateTimeOffset now, CancellationToken cancellationToken)
     {
@@ -498,11 +499,13 @@ public static class SetupRunStore
                 fix_comments = CASE WHEN @changes OR (@succeeded AND @kind = 'setup') THEN NULL ELSE fix_comments END,
                 changed_at = @now
             WHERE project_id = @projectId AND number = @number AND state <> 'done'
+              AND NOT (state = 'stopped' AND reason = @closed AND pull_request_number IS NOT NULL)
             """,
             new
             {
                 projectId,
                 number,
+                closed = Closed,
                 state,
                 reason,
                 failures,

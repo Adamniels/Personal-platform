@@ -408,6 +408,43 @@ public sealed class SetupRunTests
         Assert.Equal(StatusCodes.Status409Conflict, (await RunAgain(jobs, "Run it again.")).Response.StatusCode);
     }
 
+    [Fact]
+    public async Task AClosedPullRequestStaysStoppedWhileItsRunEnds()
+    {
+        await using var jobs = await Unset();
+        var job = await Next(jobs);
+        Stage(jobs, (".devflow/Dockerfile", "devflow/setup", GoodRecipe), (".devflow/project.json", "devflow/setup", Jobs.ProjectFile()));
+        var head = await Push(jobs);
+        Assert.Equal(StatusCodes.Status204NoContent, (await Send(jobs, job, Result(head))).Response.StatusCode);
+        await Tend(jobs);
+        var review = await Next(jobs);
+
+        // Closed while its review runs: it stops, and the approve that lands after leaves it so,
+        // with no Merge offered for a closed pull request.
+        PullRequestSupport.OnGitHub(jobs, (await Setup(jobs)).PullRequest!.Value, PullRequestState.Closed);
+        await Tend(jobs);
+        Assert.Equal(("stopped", DevFlow.Setup.SetupRunStore.Closed), ((await Setup(jobs)).State, (await Setup(jobs)).Reason));
+        var approve = Jobs.Result(SetupWorker, "devflow/setup", PullRequestSupport.Verdict(), checkExit: null);
+        approve["head_commit"] = head;
+        Assert.Equal(StatusCodes.Status204NoContent, (await Send(jobs, review, approve)).Response.StatusCode);
+        Assert.Equal(("stopped", DevFlow.Setup.SetupRunStore.Closed), ((await Setup(jobs)).State, (await Setup(jobs)).Reason));
+
+        // His comment on the closed pull request runs it again, a fix with no pull request, and the
+        // fix's valid push opens a new one from the same branch.
+        jobs.Routes.Time.Advance(TimeSpan.FromMinutes(1));
+        Fixing.Fixed.Comment(jobs, (await Setup(jobs)).PullRequest!.Value, Jobs.Owner, "Keep the recipe, and open it again.");
+        await Tend(jobs);
+        Assert.Equal(("fixing", (int?)null), ((await Setup(jobs)).State, (await Setup(jobs)).PullRequest));
+        var fix = await Next(jobs);
+        Assert.Equal(head, (string)fix["to_fix"]!["commit"]!);
+        Assert.Contains("Keep the recipe, and open it again.", (string)fix["brief"]!, StringComparison.Ordinal);
+        Assert.Equal(StatusCodes.Status204NoContent, (await Send(jobs, fix, Result(await Push(jobs, from: "devflow/setup")))).Response.StatusCode);
+        Assert.Equal("checking", (await Setup(jobs)).State);
+        await Tend(jobs);
+        Assert.Equal(2, jobs.Fake.Writes(Jobs.User).Count(write => write.Kind == "pull_request"));
+        Assert.Equal("reviewing", (await Setup(jobs)).State);
+    }
+
     /// <summary>The setup run through to its approved pull request, valid and reviewed; the commit
     /// it waits at.</summary>
     private static async Task<string> Approved(Jobs jobs)

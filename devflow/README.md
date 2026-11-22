@@ -1979,7 +1979,8 @@ recipe does; it is never handed a check. Its jobs need the Claude login, as a ca
   to comment on, so my comment from its step, `POST /devflow/api/projects/{id}/setup/run-again`,
   runs it again the same way: a fix of its branch when a run pushed to it, a first run again when
   none did, with the comment in its brief, its failures counted afresh, "You commented on it; it
-  runs again next".
+  runs again next". A run under way when its pull request closes leaves it stopped, "The pull
+  request was closed", until my comment there.
 
 The table, `setups`, guarded like every scoped one: one row per setup, `(project_id, number)`,
 its branch, state (`queued`, `checking`, `reviewing`, `fixing`, `waiting_for_owner`, `stopped`,
