@@ -55,7 +55,8 @@ internal sealed partial class ReviewJob(DevFlowClient devFlow, Guid workerId, Jo
             { Kind: Job.FeatureReview, ToReviewFeature: { } toReviewFeature } => toReviewFeature.Commit,
             _ => null,
         };
-        if (job is null || commit is null)
+        // A review is always of a card or a feature, which its job names.
+        if (job?.Card is null || commit is null)
         {
             Log.Write("The job is not a review job this worker can read; it is left.");
             return;
@@ -193,7 +194,7 @@ internal sealed partial class ReviewJob(DevFlowClient devFlow, Guid workerId, Jo
         var check = toReview.Check;
         return new Evidence(
             [
-                ("card.md", Line(string.Create(CultureInfo.InvariantCulture, $"#{job.Card.Number} {job.Card.Title}\n\n{job.Card.Body}"))),
+                ("card.md", Line(string.Create(CultureInfo.InvariantCulture, $"#{job.Card!.Number} {job.Card.Title}\n\n{job.Card.Body}"))),
                 ("diff.patch", diff),
                 ("report.json", Line(toReview.Report.GetRawText())),
                 ("check.txt", Line(string.Create(CultureInfo.InvariantCulture, $"$ {job.Check}\nexit {check.ExitCode}\n\n{check.Output}"))),
@@ -218,7 +219,7 @@ internal sealed partial class ReviewJob(DevFlowClient devFlow, Guid workerId, Jo
     {
         List<(string Name, string Text)> files =
         [
-            ("feature.md", Line(string.Create(CultureInfo.InvariantCulture, $"#{job.Card.Number} {job.Card.Title}\n\n{job.Card.Body}"))),
+            ("feature.md", Line(string.Create(CultureInfo.InvariantCulture, $"#{job.Card!.Number} {job.Card.Title}\n\n{job.Card.Body}"))),
             ("cards.md", CardsText(toReview)),
             ("diff.patch", await Diff(job, toReview.Commit, paths, stopping)),
         ];
@@ -332,7 +333,7 @@ internal sealed partial class ReviewJob(DevFlowClient devFlow, Guid workerId, Jo
         var archive = Path.Combine(paths.Handover, "pictures.tar");
         var made = await Git.AsRoot(
             paths,
-            ["archive", "--format=tar", $"--output={archive}", $"refs/heads/{PageShots.Branch}:{PageShots.Folder(job.Card.Number, toReview.Commit)}", "--", .. names.Select(name => $"{name}.png")],
+            ["archive", "--format=tar", $"--output={archive}", $"refs/heads/{PageShots.Branch}:{PageShots.Folder(job.Card!.Number, toReview.Commit)}", "--", .. names.Select(name => $"{name}.png")],
             stopping);
         if (made.ExitCode != 0)
         {

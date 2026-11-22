@@ -1775,7 +1775,14 @@
             "type": "string"
           },
           "card": {
-            "$ref": "#/components/schemas/JobCard"
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JobCard"
+              }
+            ]
           },
           "check": {
             "type": "string"
@@ -1815,6 +1822,16 @@
           "start": {
             "default": "",
             "type": "string"
+          },
+          "to_check": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JobCheck"
+              }
+            ]
           },
           "to_fix": {
             "oneOf": [
@@ -1907,6 +1924,21 @@
           "number",
           "title",
           "body"
+        ],
+        "type": "object"
+      },
+      "JobCheck": {
+        "properties": {
+          "commit": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "commit"
         ],
         "type": "object"
       },
@@ -2913,6 +2945,28 @@
         ],
         "type": "object"
       },
+      "ResultPicture": {
+        "properties": {
+          "name": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "png": {
+            "format": "byte",
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "required": [
+          "name",
+          "png"
+        ],
+        "type": "object"
+      },
       "ResultRequest": {
         "properties": {
           "auth_method": {
@@ -2967,6 +3021,15 @@
             ]
           },
           "permission_denials": {},
+          "pictures": {
+            "items": {
+              "$ref": "#/components/schemas/ResultPicture"
+            },
+            "type": [
+              "null",
+              "array"
+            ]
+          },
           "remerge_diff": {
             "type": [
               "null",

@@ -284,7 +284,7 @@ internal sealed partial class BuildJob
     /// </summary>
     private async Task PushPictures(Job job, JobPaths paths, string head, List<(string Name, byte[] Bytes)> pictures, CancellationToken stopping)
     {
-        var folder = PageShots.Folder(job.Card.Number, head);
+        var folder = PageShots.Folder(job.Card!.Number, head);
         var blobs = new List<(string Path, string Blob)>();
         var file = Path.Combine(paths.Secret, "picture.png");
         foreach (var (name, bytes) in pictures)
@@ -348,7 +348,7 @@ internal sealed partial class BuildJob
             throw new StepFailed(FailureSide.OutsideCard, $"the pictures could not be written: {Said(tree.Stderr)}");
         }
 
-        var message = string.Create(CultureInfo.InvariantCulture, $"Screenshots of #{job.Card.Number} at {head[..7]}");
+        var message = string.Create(CultureInfo.InvariantCulture, $"Screenshots of #{job.Card!.Number} at {head[..7]}");
         string[] who = ["-c", $"user.name={job.Committer.Name}", "-c", $"user.email={job.Committer.Email}"];
         var made = await Git.AsRoot(paths, [.. who, "commit-tree", tree.Stdout.Trim(), .. parent is null ? Array.Empty<string>() : ["-p", parent], "-m", message], stopping);
         if (made.ExitCode != 0)

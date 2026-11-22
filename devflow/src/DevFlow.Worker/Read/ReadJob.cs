@@ -34,7 +34,7 @@ internal sealed class ReadJob(DevFlowClient devFlow, Guid workerId, JobTools too
             job = null;
         }
 
-        if (job is not { Kind: Job.Read, ToRead: { } toRead })
+        if (job is not { Kind: Job.Read, ToRead: { } toRead, Card: not null })
         {
             Log.Write("The job is not a reading job this worker can read; it is left.");
             return;

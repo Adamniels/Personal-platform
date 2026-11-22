@@ -193,7 +193,7 @@ public sealed partial class Dispatcher(
             return new NextJob.None();
         }
 
-        LogHandedOut(log, job.Kind, projectId, job.Card.Number, job.JobId);
+        LogHandedOut(log, job.Kind, projectId, job.Card?.Number ?? 0, job.JobId);
         return new NextJob.Handed(job);
     }
 

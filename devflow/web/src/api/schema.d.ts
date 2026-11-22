@@ -1182,7 +1182,7 @@ export interface components {
             base: string;
             branch: string;
             brief: string;
-            card: components["schemas"]["JobCard"];
+            card: null | components["schemas"]["JobCard"];
             check: string;
             claude_token: string;
             committer: components["schemas"]["JobCommitter"];
@@ -1198,6 +1198,7 @@ export interface components {
             repository: components["schemas"]["JobRepository"];
             /** @default  */
             start: string;
+            to_check?: null | components["schemas"]["JobCheck"];
             to_fix?: null | components["schemas"]["JobFix"];
             to_read?: null | components["schemas"]["JobRead"];
             to_resolve?: null | components["schemas"]["JobConflict"];
@@ -1211,6 +1212,10 @@ export interface components {
             /** Format: int32 */
             number: number;
             title: string;
+        };
+        JobCheck: {
+            commit: string;
+            version: string;
         };
         JobCommitter: {
             email: string;
@@ -1468,6 +1473,11 @@ export interface components {
             result: string;
             what: string;
         };
+        ResultPicture: {
+            name: null | string;
+            /** Format: byte */
+            png: null | string;
+        };
         ResultRequest: {
             auth_method: null | string;
             branch: null | string;
@@ -1478,6 +1488,7 @@ export interface components {
             head_commit: null | string;
             outcome: null | string;
             permission_denials?: unknown;
+            pictures?: null | components["schemas"]["ResultPicture"][];
             remerge_diff?: null | string;
             report: null | components["schemas"]["JsonElement"];
             screenshots?: null | components["schemas"]["ResultScreenshots"];
