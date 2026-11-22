@@ -14,8 +14,9 @@ ALTER TABLE projects ADD CONSTRAINT projects_devflow_problem_when_invalid
     CHECK ((devflow_problem IS NOT NULL) = (devflow_valid IS FALSE));
 
 -- One row per setup of a project, numbered from 1: the first on devflow/setup, each later one on
--- devflow/setup-<k>, so a branch whose pull request closed is never used again. Its state, as a
--- card's: queued, to be run; checking, its run succeeded and its pull request opens next;
+-- devflow/setup-<k>, so a branch whose pull request merged is never used again; a setup whose pull
+-- request closed unmerged keeps its branch, and the owner's comment opens a new pull request from
+-- it. Its state, as a card's: queued, to be run; checking, its run succeeded and its pull request opens next;
 -- reviewing, fixing and waiting_for_owner, as a card's pull request; stopped, with why; done, its
 -- pull request merged. A run under way is read from runs, never stored here, so a lost run leaves
 -- nothing to put back. fix_rounds counts the review rounds used; fix_round, fix_review_id and
