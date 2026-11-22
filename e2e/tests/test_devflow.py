@@ -5523,3 +5523,71 @@ def test_a_project_is_set_up_by_an_agent(
     expect(steps.nth(2)).to_contain_text("To do")
     expect(steps.nth(2)).to_contain_text("A worker on the recipe")
     assert page.request.get("/devflow/api/waiting").json()["setup_runs"] == []
+
+
+def test_a_stopped_setup_runs_again_on_my_comment(
+    page: Page, invite_code: str, base_url: str, viewport: str, devflow_world
+):
+    register_and_log_in(page, invite_code, base_url)
+    world = one_repository(name="Fodr")
+    _open_project(page, base_url, devflow_world, world)
+    project = page.url.rsplit("/", 1)[1]
+    given = page.request.put(
+        "/devflow/api/claude-login",
+        data={"token": CLAUDE_TOKEN},
+        headers={"Origin": base_url},
+    )
+    assert given.status == 200, given.text()
+    refreshed = page.request.post(
+        f"/devflow/api/projects/{project}/refresh", headers={"Origin": base_url}
+    )
+    assert refreshed.status == 204, refreshed.text()
+
+    # The setup reaches its time limit with nothing pushed: it stops at once,
+    # before it had a pull request, so there is nothing on GitHub to comment on.
+    stopped = page.request.post(
+        "/devflow/api/fake/worker/run",
+        data={
+            "project_id": project,
+            "setup": True,
+            "leave_no_commit": True,
+            "result": {
+                "outcome": "failed",
+                "report": None,
+                "failure": {
+                    "reason": "The run reached its time limit, 90 minutes",
+                    "in_card": True,
+                    "timed_out": True,
+                },
+                "check": None,
+                "auth_method": "oauth_token",
+                "usage": {},
+                "duration_ms": 5400000,
+                "stderr": "",
+            },
+        },
+        headers={"Origin": base_url},
+    )
+    assert stopped.status == 200, stopped.text()
+    assert stopped.json()["kind"] == "setup"
+    (listed,) = page.request.get("/devflow/api/waiting").json()["setup_runs"]
+    assert listed["state"] == "stopped"
+
+    # Its step says why, and my comment from it runs it again.
+    page.reload()
+    run = page.get_by_role("article", name="Setting up").get_by_role(
+        "region", name="The setup run"
+    )
+    expect(run.get_by_text("Stopped", exact=True)).to_be_visible()
+    expect(run.get_by_text("reached its time limit", exact=False)).to_be_visible()
+    expect(run.get_by_role("link", name=re.compile(r"Pull request"))).to_have_count(0)
+    run.get_by_role("button", name="Comment to run again").click()
+    run.get_by_label("A comment runs it again.").fill(
+        "Give it more time: the test suite alone takes an hour."
+    )
+    assert _axe_violations(page) == []
+    capture(page, "devflow-project-setup-stopped")
+    run.get_by_role("button", name="Send").click()
+    expect(run.get_by_text("Queued", exact=True)).to_be_visible()
+    expect(run.get_by_text("You commented on it; it runs again next.")).to_be_visible()
+    assert page.request.get("/devflow/api/waiting").json()["setup_runs"] == []
