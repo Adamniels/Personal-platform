@@ -876,7 +876,11 @@ preset has questions on. A card already waiting is not let go when the setting i
 decision was made when it was read, and the owner can answer it from the page; turning it off
 counts from the next reading. A card picked again after its label came off and on keeps its
 reading, and is held for answers again on the project's read while nobody has answered its
-questions, so it is never built on the recommendations by accident.
+questions, so it is never built on the recommendations by accident. Turning it on has one
+window the other way: a card queued on the recommendations whose comment the app has not posted
+yet, about a minute, is held for answers on the project's next read, since nothing records yet that
+its questions were answered. That fails safe, asking him rather than building on choices nobody has
+seen.
 
 **His answers are his comment, posted as him.** The spec's round 2 answers questions on the page of
 what waits for him, and his answers are posted on the card as his comment, with his linked token,
