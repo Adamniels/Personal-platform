@@ -150,6 +150,9 @@ public sealed record CardRound(
 /// the page counts each round against.</param>
 /// <param name="Reading">What the card was read as before it was built, its newest reading; null
 /// before one came back.</param>
+/// <param name="EarlierReadings">The readings before its newest, newest first, each with the
+/// questions it asked and the answers given; kept as history once a card is read again, and never
+/// carried into its brief.</param>
 public sealed record CardStoryView(
     int Number,
     string Title,
@@ -165,7 +168,8 @@ public sealed record CardStoryView(
     CardMerge? Merge,
     CardFeature? Feature,
     int MostRounds,
-    Readings.CardReadingView? Reading);
+    Readings.CardReadingView? Reading,
+    IReadOnlyList<Readings.CardReadingView> EarlierReadings);
 
 /// <summary>The feature a card is a card of, by its parent's number and title as last read.</summary>
 public sealed record CardFeature(int Number, string Title);
@@ -239,6 +243,7 @@ public static class CardStory
                     transaction,
                     cancellationToken: cancellationToken))
                 : null;
+            var readings = await Readings.ReadingStore.All(transaction, projectId, number, cancellationToken);
             return new CardStoryView(
                 card.Number,
                 card.Title,
@@ -263,7 +268,8 @@ public static class CardStory
                 merge is null || head is null ? null : new CardMerge(merge.Commit, head, merge.Base ?? "", new DateTimeOffset(DateTime.SpecifyKind(merge.MergedAt, DateTimeKind.Utc))),
                 card.FeatureNumber is { } feature && card.FeatureTitle is { } featureTitle ? new CardFeature(feature, featureTitle) : null,
                 (await Projects.RunSettings.Read(transaction, projectId, cancellationToken))?.FixRoundsCard ?? Projects.RunSettings.Defaults.FixRoundsCard,
-                await Readings.ReadingStore.Of(transaction, projectId, number, cancellationToken));
+                readings.Count == 0 ? null : readings[0],
+                [.. readings.Skip(1)]);
         }, cancellationToken);
     }
 

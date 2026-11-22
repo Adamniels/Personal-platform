@@ -604,6 +604,12 @@
       },
       "CardStoryView": {
         "properties": {
+          "earlier_readings": {
+            "items": {
+              "$ref": "#/components/schemas/CardReadingView"
+            },
+            "type": "array"
+          },
           "feature": {
             "oneOf": [
               {
@@ -721,7 +727,8 @@
           "merge",
           "feature",
           "most_rounds",
-          "reading"
+          "reading",
+          "earlier_readings"
         ],
         "type": "object"
       },

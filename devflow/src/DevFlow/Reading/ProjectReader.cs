@@ -109,7 +109,7 @@ public sealed partial class ProjectReader(UserDb database, ICodeHost host, TimeP
         IReadOnlyList<FollowedFeature> features = [];
         IReadOnlyList<TakenComments> commented = [];
         IReadOnlyList<TakenComments> featureCommented = [];
-        IReadOnlyList<RefusalComments> readAgain = [];
+        IReadOnlyList<ReadAgainComments> readAgain = [];
         IReadOnlyList<OpenDecisions> decisions = [];
         try
         {
@@ -184,7 +184,7 @@ public sealed partial class ProjectReader(UserDb database, ICodeHost host, TimeP
     /// features' that left the open ones, and the owner's new comments on its cards' and its
     /// features' open pull requests, as the code host answers now, or why it could not be
     /// read.</summary>
-    private async Task<(IReadOnlyList<RunnerItem> Items, PickedProject Cards, IReadOnlyList<FollowedPull> Followed, IReadOnlyList<FollowedFeature> Features, IReadOnlyList<TakenComments> Commented, IReadOnlyList<TakenComments> FeatureCommented, IReadOnlyList<RefusalComments> ReadAgain, string? Failure)> Fetch(Guid projectId, ProjectTarget target, Guid userId, CancellationToken cancellationToken)
+    private async Task<(IReadOnlyList<RunnerItem> Items, PickedProject Cards, IReadOnlyList<FollowedPull> Followed, IReadOnlyList<FollowedFeature> Features, IReadOnlyList<TakenComments> Commented, IReadOnlyList<TakenComments> FeatureCommented, IReadOnlyList<ReadAgainComments> ReadAgain, string? Failure)> Fetch(Guid projectId, ProjectTarget target, Guid userId, CancellationToken cancellationToken)
     {
         var (items, open, failure) = await FetchItems(target, userId, cancellationToken);
         if (failure is not null)
@@ -236,31 +236,32 @@ public sealed partial class ProjectReader(UserDb database, ICodeHost host, TimeP
             return ([], NothingPicked, [], [], [], [], [], featureFailure);
         }
 
-        var (readAgain, refusalFailure) = await ReadRefusalComments(projectId, userId, repository, trusted, cancellationToken);
-        return refusalFailure is null ? (items, cards, followed, features, commented, featureCommented, readAgain, null) : ([], NothingPicked, [], [], [], [], [], refusalFailure);
+        var (readAgain, readAgainFailure) = await CommentsToReadAgain(projectId, userId, repository, trusted, cancellationToken);
+        return readAgainFailure is null ? (items, cards, followed, features, commented, featureCommented, readAgain, null) : ([], NothingPicked, [], [], [], [], [], readAgainFailure);
     }
 
     /// <summary>
-    /// The trusted accounts' new comments on each refused card's issue, by <see cref="Refusals"/>'s
-    /// rule, which read it again; nothing without the owner's linked login. Every other comment is
-    /// passed over unread. See "Reading a card" under "Jobs" in devflow/README.md.
+    /// The trusted accounts' new comments on the issue of each card not yet started that was read,
+    /// by <see cref="ReadingAgain"/>'s rule, which read it again; nothing without the owner's linked
+    /// login. Every other comment is passed over unread. See "Reading a card" under "Jobs" in
+    /// devflow/README.md.
     /// </summary>
-    private async Task<(IReadOnlyList<RefusalComments> ReadAgain, string? Failure)> ReadRefusalComments(Guid projectId, Guid userId, Repository repository, TrustedAccounts trusted, CancellationToken cancellationToken)
+    private async Task<(IReadOnlyList<ReadAgainComments> ReadAgain, string? Failure)> CommentsToReadAgain(Guid projectId, Guid userId, Repository repository, TrustedAccounts trusted, CancellationToken cancellationToken)
     {
         if (trusted.Mine is null)
         {
             return ([], null);
         }
 
-        var readAgain = new List<RefusalComments>();
-        foreach (var card in await Refusals.Cards(database, userId, projectId, cancellationToken))
+        var readAgain = new List<ReadAgainComments>();
+        foreach (var card in await ReadingAgain.Cards(database, userId, projectId, cancellationToken))
         {
             if (Listed(await host.Comments(userId, repository, card.Number, cancellationToken)) is not { } listed)
             {
                 return ([], HostUnavailable);
             }
 
-            if (Refusals.New(card, listed, trusted) is { } taken)
+            if (ReadingAgain.New(card, listed, trusted) is { } taken)
             {
                 readAgain.Add(taken);
             }
@@ -481,8 +482,9 @@ public sealed partial class ProjectReader(UserDb database, ICodeHost host, TimeP
     /// <paramref name="cards"/>, features among them, by <see cref="CardStore.Store"/>, each waiting card whose pull
     /// request merged or closed moved on by <see cref="CardStore.Follow"/>, the owner's new comments
     /// taken into their cards by <see cref="OwnerComments.Take"/> and into their features by
-    /// <see cref="FeatureComments.Take"/>, each refused card commented on or edited since queued to
-    /// be read again by <see cref="Refusals"/>, each feature whose pull request left the open ones moved
+    /// <see cref="FeatureComments.Take"/>, each card not yet started commented on or edited since its
+    /// reading queued to be read again by <see cref="ReadingAgain"/>, each card whose questions nobody
+    /// answered held for answers by <see cref="ReadingStore.HoldForAnswers"/>, each feature whose pull request left the open ones moved
     /// on by <see cref="FeaturePulls.Follow"/>, each feature moved to its end, or
     /// back from it, by <see cref="FeatureEnd.Advance"/>, and the read recorded as a success, in one
     /// transaction through the door: an item still there is updated in place and
@@ -490,7 +492,7 @@ public sealed partial class ProjectReader(UserDb database, ICodeHost host, TimeP
     /// for the transaction, and a project disconnected before it stores nothing.
     /// </summary>
     /// <returns>Whether the project was still there.</returns>
-    private async Task<bool> Store(Guid projectId, Guid userId, IReadOnlyList<RunnerItem> items, PickedProject cards, IReadOnlyList<FollowedPull> followed, IReadOnlyList<FollowedFeature> features, IReadOnlyList<TakenComments> commented, IReadOnlyList<TakenComments> featureCommented, IReadOnlyList<RefusalComments> readAgain, IReadOnlyList<OpenDecisions> decisions, DateTimeOffset now, CancellationToken cancellationToken) =>
+    private async Task<bool> Store(Guid projectId, Guid userId, IReadOnlyList<RunnerItem> items, PickedProject cards, IReadOnlyList<FollowedPull> followed, IReadOnlyList<FollowedFeature> features, IReadOnlyList<TakenComments> commented, IReadOnlyList<TakenComments> featureCommented, IReadOnlyList<ReadAgainComments> readAgain, IReadOnlyList<OpenDecisions> decisions, DateTimeOffset now, CancellationToken cancellationToken) =>
         await database.InUserTransaction(userId, async transaction =>
         {
             if (await transaction.Connection!.ExecuteScalarAsync<int?>(new CommandDefinition(
@@ -525,18 +527,19 @@ public sealed partial class ProjectReader(UserDb database, ICodeHost host, TimeP
                 await FeatureComments.Take(transaction, projectId, comments, now, cancellationToken);
             }
 
-            // A refused card is read again on a trusted account's comment, its comments taken first
-            // so they reach the reader, or on an edit, which the cards just stored show.
+            // A card not yet started is read again on a trusted account's comment since its
+            // reading, its comments taken first so they reach the reader, or on an edit, which the
+            // cards just stored show; one that waited for the owner is queued for it.
             foreach (var comments in readAgain)
             {
-                await Refusals.Take(transaction, projectId, comments, now, cancellationToken);
+                await ReadingAgain.Take(transaction, projectId, comments, now, cancellationToken);
             }
 
-            await Refusals.TakeEdits(transaction, projectId, now, cancellationToken);
+            await ReadingAgain.TakeEdits(transaction, projectId, now, cancellationToken);
 
             // A card picked again whose reading's questions nobody has answered waits for the
             // owner's answers again, while the project asks them, rather than being built on the
-            // recommendations.
+            // recommendations; one to be read again does not, its next reading asks afresh.
             await ReadingStore.HoldForAnswers(transaction, projectId, now, cancellationToken);
 
             // A feature whose pull request merged is merged, before its end is decided, which

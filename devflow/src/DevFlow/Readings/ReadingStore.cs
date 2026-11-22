@@ -25,8 +25,8 @@ namespace DevFlow.Readings;
 /// <param name="Branch">The branch whose code is read: the feature's where it is made, otherwise the
 /// default branch.</param>
 /// <param name="Base">The default branch.</param>
-/// <param name="Again">For a refused card read again, alone, what its reading is given beside it;
-/// null for a first reading.</param>
+/// <param name="Again">For a card read again, alone, what its reading is given beside it; null for
+/// a first reading.</param>
 public sealed record ClaimedRead(Guid RunId, BriefCard Card, BriefFeature? Feature, IReadOnlyList<BriefCard> Cards, string Branch, string Base, ReaderAgain? Again = null);
 
 /// <summary>A card's reading, as its page shows it: what the reader answered, the questions with the
@@ -97,26 +97,54 @@ public static class ReadingStore
                 WHERE cr.project_id = cards.project_id AND cr.card_number = cards.number AND cr.outcome IS NOT NULL)
         """;
 
-    /// <summary>Whether a card may be built by its reading, as SQL over <c>cards</c>: its newest
-    /// reading that came back in its form found it ready or with questions. A card read as too thin
-    /// is never built, however it came to be queued again; reading it again after it changes is
-    /// "Reading again".</summary>
-    public const string ReadToBuild = """
-        (SELECT cr.outcome FROM card_readings cr
-         WHERE cr.project_id = cards.project_id AND cr.card_number = cards.number AND cr.outcome IS NOT NULL
-         ORDER BY cr.read_at DESC, cr.run_id DESC
-         LIMIT 1) IN ('ready', 'questions')
+    /// <summary>Whether a card has started, as SQL over <c>cards</c>: a run of it that is not a
+    /// reading was ever handed out, a build first of all. A card that started is never read again;
+    /// from then on a change to it is "A card that changes", in devflow/docs/devflow-architecture.md,
+    /// so one queued again after it was built, run again or sent back, is built, not read.</summary>
+    public const string Started = """
+        EXISTS (SELECT 1 FROM runs started
+                WHERE started.project_id = cards.project_id AND started.card_number = cards.number AND started.kind <> 'read')
         """;
 
-    /// <summary>Whether a card is to be read again, as SQL over <c>cards</c>: its newest reading that
-    /// came back in its form found it too thin. Only a refused card a trusted account edited or
-    /// commented on since is queued with such a reading, <see cref="Refusals"/>, and it is read
-    /// again, alone, rather than built.</summary>
-    public const string ReadAgain = """
-        coalesce((SELECT cr.outcome FROM card_readings cr
-                  WHERE cr.project_id = cards.project_id AND cr.card_number = cards.number AND cr.outcome IS NOT NULL
-                  ORDER BY cr.read_at DESC, cr.run_id DESC
-                  LIMIT 1) = 'too_thin', false)
+    /// <summary>Whether a card's record, as picking last stored it, differs from what its newest
+    /// reading that came back in its form was handed, its body's SHA-256 or its title, as SQL over
+    /// <c>cards</c>: a trusted account edited it since it was read, since picking replaces the
+    /// record only when every editor is trusted. False for a card with no such reading.</summary>
+    public const string ChangedSinceRead = """
+        coalesce((SELECT newest.body_sha256 <> cards.picked_body_sha256 OR newest.title <> cards.picked_title
+                  FROM card_readings newest
+                  WHERE newest.project_id = cards.project_id AND newest.card_number = cards.number AND newest.outcome IS NOT NULL
+                  ORDER BY newest.read_at DESC, newest.run_id DESC
+                  LIMIT 1), false)
+        """;
+
+    /// <summary>
+    /// Whether a card is to be read again, alone, rather than built, as SQL over <c>cards</c>: it has
+    /// not started, <see cref="Started"/>, and its newest reading that came back in its form found it
+    /// too thin, or it changed since that reading, <see cref="ChangedSinceRead"/>, or a trusted
+    /// account's comment newer than that reading was taken for it, <see cref="ReadingAgain"/>. So a
+    /// card is never built from a reading of a card that no longer says the same.
+    /// </summary>
+    public const string ReadAgain = $"""
+        (NOT {Started} AND (
+            coalesce((SELECT cr.outcome FROM card_readings cr
+                      WHERE cr.project_id = cards.project_id AND cr.card_number = cards.number AND cr.outcome IS NOT NULL
+                      ORDER BY cr.read_at DESC, cr.run_id DESC
+                      LIMIT 1) = 'too_thin', false)
+            OR {ChangedSinceRead}
+            OR cards.read_again_comments IS NOT NULL))
+        """;
+
+    /// <summary>Whether a card may be built by its reading, as SQL over <c>cards</c>: its newest
+    /// reading that came back in its form found it ready or with questions, and it is not to be read
+    /// again, <see cref="ReadAgain"/>. A card read as too thin is never built, however it came to be
+    /// queued again, and nor is one that changed since its reading before it started.</summary>
+    public const string ReadToBuild = $"""
+        ((SELECT cr.outcome FROM card_readings cr
+          WHERE cr.project_id = cards.project_id AND cr.card_number = cards.number AND cr.outcome IS NOT NULL
+          ORDER BY cr.read_at DESC, cr.run_id DESC
+          LIMIT 1) IN ('ready', 'questions')
+         AND NOT {ReadAgain})
         """;
 
     /// <summary>What makes a card due a reading, as SQL over <c>cards</c>: free to start, as
@@ -143,8 +171,10 @@ public static class ReadingStore
     /// each to <c>reading</c>. A held card is left out, since it would not be handed out: it is read
     /// once released, when its turn comes, so no reading's outcome waits on a card it cannot move.
     /// A card to be read again, <see cref="ReadAgain"/>, is read alone, of a feature or not, as a run
-    /// of the card, with what the reading that refused it found missing, the note of the code its
-    /// work touches, <see cref="NoteOfCard"/>, and the comments that asked for it.
+    /// of the card, so the feature's note is not rewritten by it, with the note of the code its work
+    /// touches, <see cref="NoteOfCard"/>, the feature with its done cards' handover notes for a card
+    /// of one, what its newest reading found missing when it refused it, and the comments that asked
+    /// for it.
     /// Null when there is none.
     /// </summary>
     public static async Task<ClaimedRead?> Claim(NpgsqlTransaction transaction, Guid projectId, Guid userId, Guid workerId, RunSettings run, string defaultBranch, DateTimeOffset now, CancellationToken cancellationToken)
@@ -247,7 +277,8 @@ public static class ReadingStore
     }
 
     /// <summary>What a card read again is given beside it: what its newest reading found missing,
-    /// the note of the code its work touches, and the comments kept that asked for it.</summary>
+    /// none unless it refused it, the note of the code its work touches, and the comments kept that
+    /// asked for it, none when an edit did.</summary>
     private static async Task<ReaderAgain> Again(NpgsqlTransaction transaction, Guid projectId, int number, CancellationToken cancellationToken)
     {
         var missing = (await Of(transaction, projectId, number, cancellationToken))?.Missing ?? [];
@@ -256,7 +287,7 @@ public static class ReadingStore
             new { projectId, number },
             transaction,
             cancellationToken: cancellationToken));
-        return new ReaderAgain(missing, await NoteOfCard(transaction, projectId, number, cancellationToken), Refusals.Kept(comments));
+        return new ReaderAgain(missing, await NoteOfCard(transaction, projectId, number, cancellationToken), ReadingAgain.Kept(comments));
     }
 
     /// <summary>The numbers of the cards a reading run reads, read inside
@@ -325,13 +356,14 @@ public static class ReadingStore
     /// neither the owner nor Dev flow's comment on the recommendations, while the setting
     /// <c>questions</c> is on: it moves to <c>needs_answers</c>, <see cref="NeedsAnswers"/>. So a card
     /// picked again, after its label was taken off and put back, still waits for his answers rather
-    /// than going on the recommendations. Only a card with no run under way.
+    /// than going on the recommendations. Only a card with no run under way, and never one to be read
+    /// again, <see cref="ReadAgain"/>, whose questions the next reading asks afresh.
     /// </summary>
     public static Task<int> HoldForAnswers(NpgsqlTransaction transaction, Guid projectId, DateTimeOffset now, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(transaction);
         return transaction.Connection!.ExecuteAsync(new CommandDefinition(
-            """
+            $"""
             UPDATE cards SET state = 'needs_answers', reason = @needsAnswers, changed_at = @now
             WHERE project_id = @projectId AND state = 'queued' AND picked_body IS NOT NULL
               AND (SELECT s.questions FROM project_settings s WHERE s.project_id = cards.project_id)
@@ -341,6 +373,7 @@ public static class ReadingStore
                                          LIMIT 1) newest
                           WHERE newest.outcome = 'questions' AND newest.comment_id IS NULL AND newest.answers IS NULL)
               AND NOT EXISTS (SELECT 1 FROM runs r WHERE r.project_id = cards.project_id AND r.card_number = cards.number AND r.finished_at IS NULL)
+              AND NOT {ReadAgain}
             """,
             new { projectId, needsAnswers = NeedsAnswers, now },
             transaction,
@@ -450,28 +483,38 @@ public static class ReadingStore
     /// <paramref name="transaction"/>, as its user; null before one came back.</summary>
     public static async Task<CardReadingView?> Of(NpgsqlTransaction transaction, Guid projectId, int number, CancellationToken cancellationToken)
     {
+        var readings = await All(transaction, projectId, number, cancellationToken);
+        return readings.Count == 0 ? null : readings[0];
+    }
+
+    /// <summary>
+    /// Every reading of a card that came back in its form, newest first, read inside
+    /// <paramref name="transaction"/>, as its user: the first is its reading, and the rest the
+    /// readings before it, each with the questions it asked and the answers given to them, which a
+    /// card read again keeps on its page as history and never carries into a brief. Empty before one
+    /// came back.
+    /// </summary>
+    public static async Task<IReadOnlyList<CardReadingView>> All(NpgsqlTransaction transaction, Guid projectId, int number, CancellationToken cancellationToken)
+    {
         ArgumentNullException.ThrowIfNull(transaction);
-        var row = await transaction.Connection!.QuerySingleOrDefaultAsync<ReadingRow>(new CommandDefinition(
+        var rows = await transaction.Connection!.QueryAsync<ReadingRow>(new CommandDefinition(
             """
             SELECT outcome AS Outcome, questions::text AS Questions, missing::text AS Missing, read_at AS ReadAt, comment_id AS CommentId,
                    answers::text AS Answers
             FROM card_readings
             WHERE project_id = @projectId AND card_number = @number AND outcome IS NOT NULL
             ORDER BY read_at DESC, run_id DESC
-            LIMIT 1
             """,
             new { projectId, number },
             transaction,
             cancellationToken: cancellationToken));
-        return row is null
-            ? null
-            : new CardReadingView(
-                row.Outcome,
-                Questions(row.Questions, row.Answers),
-                JsonSerializer.Deserialize<List<string>>(row.Missing) ?? [],
-                new DateTimeOffset(DateTime.SpecifyKind(row.ReadAt, DateTimeKind.Utc)),
-                row.CommentId is not null,
-                row.Answers is not null);
+        return [.. rows.Select(row => new CardReadingView(
+            row.Outcome,
+            Questions(row.Questions, row.Answers),
+            JsonSerializer.Deserialize<List<string>>(row.Missing) ?? [],
+            new DateTimeOffset(DateTime.SpecifyKind(row.ReadAt, DateTimeKind.Utc)),
+            row.CommentId is not null,
+            row.Answers is not null))];
     }
 
     /// <summary>The project's cards whose newest reading has questions Dev flow has yet to post,
