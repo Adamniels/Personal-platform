@@ -182,6 +182,11 @@ public sealed class SetupSettingsTests
         Assert.True(SettingsDone(await SetupRunTests.Steps(jobs)));
     }
 
+    /// <summary>Takes the project's <c>.devflow/</c> as read and valid, as once its setup merged,
+    /// without changing its files, so the worker's version stays the one checked.</summary>
+    private static Task ValidAsIs(Jobs jobs) =>
+        DevFlow.Tests.Merging.Merged.Sql(jobs, "UPDATE projects SET devflow_valid = true, devflow_problem = NULL WHERE id = @project");
+
     [Fact]
     public async Task NoCardBeforeTheSettings()
     {
@@ -199,14 +204,14 @@ public sealed class SetupSettingsTests
         Assert.False(SettingsDone(await SetupRunTests.Steps(jobs)));
 
         // Saved once its .devflow/ is valid, the card's reading is handed out.
-        await Valid(jobs);
+        await ValidAsIs(jobs);
         await Save(jobs, await Settings(jobs));
         Assert.Equal(Job.Read, (string)(await jobs.Job())["kind"]!);
 
         // A card already read and ready to build: no build either, until the settings are saved.
         await using var ready = await Jobs.Start([Jobs.Card(1)], settingsAccepted: false);
         Assert.Equal(StatusCodes.Status204NoContent, (await ready.Next()).Response.StatusCode);
-        await Valid(ready);
+        await ValidAsIs(ready);
         await Save(ready, await Settings(ready));
         Assert.Equal(Job.Build, (string)(await ready.Job())["kind"]!);
     }
