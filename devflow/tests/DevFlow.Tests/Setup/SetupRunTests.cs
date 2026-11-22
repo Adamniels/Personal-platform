@@ -298,6 +298,115 @@ public sealed class SetupRunTests
         Assert.Equal("report_invalid", DevFlow.Setup.SetupRunStore.Judge(DevFlow.Setup.SetupRunStore.SetupKind, Read(Result(new string('0', 40), new JsonObject { ["summary"] = "no form" })), null, 0, 3).Result);
     }
 
+    /// <summary>The setup run through to its approved pull request, valid and reviewed; the commit
+    /// it waits at.</summary>
+    private static async Task<string> Approved(Jobs jobs)
+    {
+        var job = await Next(jobs);
+        Stage(jobs, (".devflow/Dockerfile", "devflow/setup", GoodRecipe), (".devflow/project.json", "devflow/setup", Jobs.ProjectFile()));
+        var head = await Push(jobs);
+        Assert.Equal(StatusCodes.Status204NoContent, (await Send(jobs, job, Result(head))).Response.StatusCode);
+        await Tend(jobs);
+        var review = await Next(jobs);
+        var approve = Jobs.Result(SetupWorker, "devflow/setup", PullRequestSupport.Verdict(), checkExit: null);
+        approve["head_commit"] = head;
+        Assert.Equal(StatusCodes.Status204NoContent, (await Send(jobs, review, approve)).Response.StatusCode);
+        return head;
+    }
+
+    /// <summary>The owner merges the setup's pull request from its step, naming the commit the page
+    /// showed.</summary>
+    private static Task<HttpContext> MergeFromStep(Jobs jobs, string head) =>
+        jobs.Routes.App.SendJson("POST", $"/devflow/api/projects/{jobs.Project}/setup/merge", Contract.Token,
+            new JsonObject { ["head_commit"] = head }.ToJsonString());
+
+    [Theory]
+    [InlineData("never", false)]
+    [InlineData("sometimes", false)]
+    [InlineData("always", false)]
+    [InlineData("never", true)]
+    public async Task ItAlwaysWaitsForMe(string waits, bool onGitHub)
+    {
+        await using var jobs = await Jobs.Start([Jobs.Card(1)], projectFile: null, checkedRecipe: false, signIn: true);
+        await Merging.Merged.Waits(jobs, waits);
+        await Hello(jobs);
+        var head = await Approved(jobs);
+
+        // Approved, it waits for the owner whatever the project's settings: the merge check, run as
+        // on the minute, never takes it.
+        Assert.Equal(("waiting_for_owner", DevFlow.Setup.SetupRunStore.Approved), ((await Setup(jobs)).State, (await Setup(jobs)).Reason));
+        await jobs.Routes.App.Services.GetRequiredService<DevFlow.Merging.MergeChecker>().CheckPending(jobs.Project, Jobs.User, Ct);
+        await Tend(jobs);
+        Assert.DoesNotContain(jobs.Fake.Writes(Jobs.User), write => write.Kind == "merge");
+        Assert.Equal("waiting_for_owner", (await Setup(jobs)).State);
+
+        // On "Waiting for you", under Setup, counted.
+        var waiting = JsonNode.Parse(await Harness.Body(await jobs.Routes.App.Get("/devflow/api/waiting", Contract.Token)))!;
+        var listed = Assert.Single(waiting["setup_runs"]!.AsArray())!;
+        Assert.Equal(jobs.Project.ToString(), (string)listed["project_id"]!);
+        Assert.Equal("waiting_for_owner", (string)listed["state"]!);
+        Assert.Equal(head, (string)listed["head_commit"]!);
+        Assert.Equal(1, (int)waiting["count"]!);
+
+        // Merged by the owner, from the step or on GitHub: the step is done once the default branch
+        // has the files.
+        if (onGitHub)
+        {
+            var token = Assert.IsType<DevFlow.Link.UserToken.Usable>(await jobs.Routes.App.Services.GetRequiredService<DevFlow.Link.UserTokens>().For(Jobs.User, Ct)).Token;
+            Assert.IsType<MergeResult.Merged>(await jobs.Fake.Merge(Jobs.User, token, Repo, (await Setup(jobs)).PullRequest!.Value, head, Ct));
+        }
+        else
+        {
+            Assert.Equal(StatusCodes.Status409Conflict, (await MergeFromStep(jobs, new string('e', 40))).Response.StatusCode);
+            Assert.Equal(StatusCodes.Status204NoContent, (await MergeFromStep(jobs, head)).Response.StatusCode);
+            var merged = Assert.Single(jobs.Fake.Writes(Jobs.User), write => write.Kind == "merge");
+            Assert.Equal(Jobs.Owner, merged.By);
+        }
+
+        Stage(jobs, (".devflow/Dockerfile", "main", GoodRecipe), (".devflow/project.json", "main", Jobs.ProjectFile()));
+        await Tend(jobs);
+        Assert.Equal(DevFlow.Reading.ReadResult.Read, await jobs.Routes.Read(jobs.Project, Jobs.User));
+        Assert.Equal("done", (await Setup(jobs)).State);
+        var steps = (await Steps(jobs))["steps"]!.AsArray();
+        Assert.Equal([true, true, false, false], steps.Select(step => (bool)step!["done"]!));
+        waiting = JsonNode.Parse(await Harness.Body(await jobs.Routes.App.Get("/devflow/api/waiting", Contract.Token)))!;
+        Assert.Empty(waiting["setup_runs"]!.AsArray());
+    }
+
+    [Fact]
+    public async Task WhatItCouldNotSettleIsShown()
+    {
+        await using var jobs = await Unset();
+
+        // Before any run, the step says why it is due and shows the command that starts its worker.
+        var before = await Steps(jobs);
+        Assert.Equal(".devflow/Dockerfile is missing.", (string)before["problem"]!);
+        Assert.Contains("--name devflow-personal-platform-setup", (string)before["setup_command"]!, StringComparison.Ordinal);
+        Assert.Null(before["setup"]);
+
+        await Approved(jobs);
+
+        // The report's unsettled, each with its kind, on the step, with the review and the pull
+        // request to merge.
+        var setup = (await Steps(jobs))["setup"]!;
+        Assert.Equal("waiting_for_owner", (string)setup["state"]!);
+        Assert.Equal("devflow/setup", (string)setup["branch"]!);
+        Assert.NotNull(setup["pull_request_url"]);
+        Assert.Equal("approve", (string)setup["review"]!["verdict"]!);
+        var unsettled = setup["report"]!["unsettled"]!.AsArray();
+        Assert.Equal(["real_secret", "containers_in_tests"], unsettled.Select(each => (string)each!["kind"]!));
+        Assert.Equal("The export tests upload to the real bucket.", (string)unsettled[0]!["detail"]!);
+        Assert.Equal("guided", (string)setup["report"]!["proposed"]!["preset"]!);
+        Assert.Equal(["STRIPE_TEST_KEY"], setup["report"]!["variables"]!.AsArray().Select(each => (string)each!["name"]!));
+
+        // And in the pull request's body, named by kind.
+        var opened = Assert.Single(jobs.Fake.Writes(Jobs.User), write => write.Kind == "pull_request");
+        Assert.Contains("## What it could not settle", opened.Body, StringComparison.Ordinal);
+        Assert.Contains("- **Needs a real secret.** The export tests upload to the real bucket.", opened.Body, StringComparison.Ordinal);
+        Assert.Contains("- **Its tests start containers.** The integration tests start Redis with Testcontainers.", opened.Body, StringComparison.Ordinal);
+        Assert.Contains("`STRIPE_TEST_KEY`: The payment tests call Stripe's test mode.", opened.Body, StringComparison.Ordinal);
+    }
+
     private static DevFlow.Jobs.RunResult Read(JsonObject result) =>
         DevFlow.Jobs.JobEndpoints.Read(System.Text.Json.JsonSerializer.Deserialize<ResultRequest>(result.ToJsonString(), WorkerApi.Json)!)!;
 

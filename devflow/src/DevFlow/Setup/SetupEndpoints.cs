@@ -11,8 +11,9 @@ namespace DevFlow.Setup;
 
 /// <summary>
 /// A project's setup over HTTP, every route under the <c>Api</c> policy and the origin check: its
-/// steps and its newest check, asking for another check of a version whose check failed, and a
-/// check's pictures. See "Setting up a project" in devflow/README.md.
+/// steps and its newest check, asking for another check of a version whose check failed, a check's
+/// pictures, and the owner's merge of his setup's pull request. See "Setting up a project" in
+/// devflow/README.md.
 /// </summary>
 public static class SetupEndpoints
 {
@@ -21,13 +22,18 @@ public static class SetupEndpoints
         ArgumentNullException.ThrowIfNull(routes);
         var setup = routes.MapGroup("/devflow/api/projects/{id:guid}/setup");
 
-        setup.MapGet("", async Task<Results<Ok<ProjectSetup>, ProblemHttpResult>> (Guid id, HttpContext context, [FromServices] UserDb database) =>
-                await SetupStore.Of(database, context.UserId(), id, context.RequestAborted) is { } answer
+        setup.MapGet("", async Task<Results<Ok<ProjectSetup>, ProblemHttpResult>> (Guid id, HttpContext context, [FromServices] UserDb database, [FromServices] Recipes.WorkerStart start) =>
+                await SetupStore.Of(database, context.UserId(), id, start, context.RequestAborted) is { } answer
                     ? TypedResults.Ok(answer)
                     : NoSuchProject())
             .Route("getProjectSetup", "A project's setup",
-                "state, setting_up until a check of any version of its .devflow/ has passed, then registered, and a project setting up hands out no card; steps, in their order, each with whether it is done: recipe, a version of .devflow/ read from its default branch, worker, a worker built from that version said hello, and check, a check of that version passed; check, the newest check of that version, or of any before it is known, with its version, its commit, whether it passed, its exit code, the last 200 lines it printed, the names of its pictures of the project's address, why there are none, when, and whether another was asked for, or null before one ran; and checking, whether a check of that version is running. 404 for a project the caller does not have.",
+                "state, setting_up until a check of any version of its .devflow/ has passed, then registered, and a project setting up hands out no card; steps, in their order, each with whether it is done: setup, both files of .devflow/ on its default branch and valid, which a setup run writes when they are not, recipe, a version of .devflow/ read from its default branch, worker, a worker built from that version said hello, and check, a check of that version passed; check, the newest check of that version, or of any before it is known, with its version, its commit, whether it passed, its exit code, the last 200 lines it printed, the names of its pictures of the project's address, why there are none, when, and whether another was asked for, or null before one ran; checking, whether a check of that version is running; problem, why .devflow/ is not valid as last read, or null; setup_command, the command that starts the project's setup worker from the base image, never holding the key; and setup, its newest setup run or null: its number, branch, state, queued, checking, reviewing, fixing, waiting_for_owner, stopped or done, reason, pull request, whether a run of it is under way, the commit it waits at, its newest report in its form, with what it proposes, the values its tests need and what it could not settle, and the review of that commit. 404 for a project the caller does not have.",
                 StatusCodes.Status404NotFound);
+
+        setup.MapPost("/merge", MergeSetup)
+            .Route("mergeProjectSetup", "Merge a project's setup as yourself",
+                "Merges the pull request of the project's setup run as the caller, with their linked GitHub token, naming head_commit, the commit the page showed: only while it waits for them, its review approved, and its project is not stopped. A setup's pull request is never merged by Dev flow, whatever the project's settings. 204, and the setup is followed and the project read again. 404 for a project the caller does not have; 422 without head_commit; 409 when no setup waits, the project is stopped, the commit moved since it was shown, GitHub is not linked, or GitHub would not merge it; 503 when GitHub did not answer.",
+                StatusCodes.Status404NotFound, StatusCodes.Status409Conflict, StatusCodes.Status422UnprocessableEntity, StatusCodes.Status503ServiceUnavailable);
 
         setup.MapPost("/check-again", async Task<Results<NoContent, ProblemHttpResult>> (Guid id, HttpContext context, [FromServices] UserDb database, [FromServices] TimeProvider time) =>
                 await SetupStore.Again(database, context.UserId(), id, Now(time), context.RequestAborted) switch
@@ -60,6 +66,84 @@ public static class SetupEndpoints
         return routes;
     }
 
+    /// <summary>
+    /// The owner's merge of his project's setup's pull request, as a card's merge from the page is:
+    /// only while it waits for him, its project not stopped, at the commit the page showed, as him
+    /// with his linked token and never as the app. Merged, the setup is followed at once and the
+    /// project read again, so its step is done as soon as the default branch has the files.
+    /// </summary>
+    private static async Task<Results<NoContent, ProblemHttpResult>> MergeSetup(
+        Guid id,
+        SetupMergeRequest request,
+        HttpContext context,
+        [FromServices] UserDb database,
+        [FromServices] Recipes.WorkerStart start,
+        [FromServices] Workers.WorkerStore workers,
+        [FromServices] Watching.WatchStore watch,
+        [FromServices] Link.UserTokens tokens,
+        [FromServices] CodeHost.ICodeHost host,
+        [FromServices] SetupLoop loop,
+        [FromServices] Reading.ProjectRefresher refresher,
+        [FromServices] TimeProvider time)
+    {
+        var userId = context.UserId();
+        var cancellationToken = context.RequestAborted;
+        if (await SetupStore.Of(database, userId, id, start, cancellationToken) is not { } project
+            || await workers.RepositoryOf(new Workers.WorkerCaller(id, userId), cancellationToken) is not { } repository)
+        {
+            return NoSuchProject();
+        }
+
+        if (string.IsNullOrEmpty(request.HeadCommit))
+        {
+            return Acting.ActionEndpoints.Invalid("head_commit", "is missing; it is the commit the page showed");
+        }
+
+        if (project.Setup is not { State: "waiting_for_owner", PullRequestNumber: { } pull, HeadCommit: { } head })
+        {
+            return Acting.ActionEndpoints.Conflict("The setup is not waiting for you", "Only a setup whose pull request waits for you is merged from its step.");
+        }
+
+        if (await watch.Hold(userId, id, cancellationToken) == Watching.ProjectHold.Stopped)
+        {
+            return Acting.ActionEndpoints.Conflict("This project is stopped", "Something landed on its default branch that Dev flow did not put there. Look at it and resume the project first.");
+        }
+
+        if (!string.Equals(request.HeadCommit, head, StringComparison.Ordinal))
+        {
+            return Acting.ActionEndpoints.Conflict("It changed since you saw it", "Look at it again before you merge.");
+        }
+
+        var userToken = await tokens.For(userId, cancellationToken);
+        if (userToken is not Link.UserToken.Usable { Token: var access })
+        {
+            return Acting.ActionEndpoints.TokenProblem(userToken, context, time);
+        }
+
+        var result = await host.Merge(userId, access, repository, pull, head, cancellationToken);
+        if (result is CodeHost.MergeResult.Merged or CodeHost.MergeResult.HeadMoved or CodeHost.MergeResult.Unavailable)
+        {
+            // It may have merged, so the setup is followed and the project read again.
+            await loop.TendPending(id, userId, cancellationToken);
+            try
+            {
+                await refresher.Request(id, userId).WaitAsync(Reading.WaitingEndpoints.RefreshWait, time, cancellationToken);
+            }
+            catch (TimeoutException)
+            {
+            }
+        }
+
+        return result switch
+        {
+            CodeHost.MergeResult.Merged => TypedResults.NoContent(),
+            CodeHost.MergeResult.HeadMoved => Acting.ActionEndpoints.Conflict("It changed since you saw it", "It was read again. Look at it before you merge."),
+            CodeHost.MergeResult.NotMergeable { Message: var message } => Acting.ActionEndpoints.Conflict("GitHub would not merge it", message is null ? "GitHub did not say why." : $"GitHub said: {message}"),
+            CodeHost.MergeResult.Refused { Status: var status, Message: var message } => Acting.ActionEndpoints.Conflict("GitHub refused the merge", Acting.ActionEndpoints.HostSaid(status, message)),
+            _ => TypedResults.Problem(statusCode: StatusCodes.Status503ServiceUnavailable, title: "GitHub did not answer", detail: "It is not known whether it merged; the project was read again."),
+        };
+    }
+
     private static ProblemHttpResult NoSuchProject() =>
         TypedResults.Problem(statusCode: StatusCodes.Status404NotFound, title: "No such project", detail: "the project does not exist");
 
@@ -87,3 +171,5 @@ public static class SetupEndpoints
         return route;
     }
 }
+/// <summary>What the page sends to merge a project's setup: the commit it showed.</summary>
+public sealed record SetupMergeRequest(string? HeadCommit);

@@ -2632,6 +2632,25 @@
           "checking": {
             "type": "boolean"
           },
+          "problem": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "setup": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SetupRun"
+              }
+            ]
+          },
+          "setup_command": {
+            "type": "string"
+          },
           "state": {
             "type": "string"
           },
@@ -2646,7 +2665,10 @@
           "state",
           "steps",
           "check",
-          "checking"
+          "checking",
+          "problem",
+          "setup_command",
+          "setup"
         ],
         "type": "object"
       },
@@ -3490,6 +3512,27 @@
         ],
         "type": "object"
       },
+      "SetupMergeRequest": {
+        "properties": {
+          "head_commit": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "required": [
+          "head_commit"
+        ],
+        "type": "object"
+      },
+      "SetupPreset": {
+        "enum": [
+          "fully_automatic",
+          "guided",
+          "only_i_merge"
+        ]
+      },
       "SetupProject": {
         "properties": {
           "checked_at": {
@@ -3528,6 +3571,226 @@
         ],
         "type": "object"
       },
+      "SetupProposal": {
+        "properties": {
+          "paths": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "preset": {
+            "$ref": "#/components/schemas/SetupPreset"
+          },
+          "why": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "preset",
+          "why",
+          "paths"
+        ],
+        "type": "object"
+      },
+      "SetupReport": {
+        "properties": {
+          "decisions": {
+            "items": {
+              "$ref": "#/components/schemas/ReportDecision"
+            },
+            "type": "array"
+          },
+          "handover": {
+            "type": "string"
+          },
+          "proposed": {
+            "$ref": "#/components/schemas/SetupProposal"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "unsettled": {
+            "items": {
+              "$ref": "#/components/schemas/SetupUnsettled"
+            },
+            "type": "array"
+          },
+          "variables": {
+            "items": {
+              "$ref": "#/components/schemas/SetupVariable"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "summary",
+          "proposed",
+          "variables",
+          "unsettled",
+          "decisions",
+          "handover"
+        ],
+        "type": "object"
+      },
+      "SetupReview": {
+        "properties": {
+          "blocking": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "commit": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "verdict": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "verdict",
+          "summary",
+          "blocking",
+          "commit"
+        ],
+        "type": "object"
+      },
+      "SetupRun": {
+        "properties": {
+          "branch": {
+            "type": "string"
+          },
+          "head_commit": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "number": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "pull_request_number": {
+            "format": "int32",
+            "type": [
+              "null",
+              "integer"
+            ]
+          },
+          "pull_request_url": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "reason": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "report": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SetupReport"
+              }
+            ]
+          },
+          "review": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SetupReview"
+              }
+            ]
+          },
+          "running": {
+            "type": "boolean"
+          },
+          "state": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "number",
+          "branch",
+          "state",
+          "reason",
+          "pull_request_number",
+          "pull_request_url",
+          "running",
+          "head_commit",
+          "report",
+          "review"
+        ],
+        "type": "object"
+      },
+      "SetupRunItem": {
+        "properties": {
+          "changed_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "head_commit": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "owner": {
+            "type": "string"
+          },
+          "project_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "project_name": {
+            "type": "string"
+          },
+          "pull_request_number": {
+            "format": "int32",
+            "type": [
+              "null",
+              "integer"
+            ]
+          },
+          "pull_request_url": {
+            "format": "uri",
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "reason": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "state": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "project_name",
+          "owner",
+          "state",
+          "reason",
+          "pull_request_number",
+          "pull_request_url",
+          "head_commit",
+          "changed_at"
+        ],
+        "type": "object"
+      },
       "SetupStep": {
         "properties": {
           "done": {
@@ -3540,6 +3803,44 @@
         "required": [
           "step",
           "done"
+        ],
+        "type": "object"
+      },
+      "SetupUnsettled": {
+        "properties": {
+          "detail": {
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/SetupUnsettledKind"
+          }
+        },
+        "required": [
+          "kind",
+          "detail"
+        ],
+        "type": "object"
+      },
+      "SetupUnsettledKind": {
+        "enum": [
+          "real_secret",
+          "containers_in_tests",
+          "macos_needed",
+          "other"
+        ]
+      },
+      "SetupVariable": {
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "why": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "why"
         ],
         "type": "object"
       },
@@ -3786,6 +4087,12 @@
             },
             "type": "array"
           },
+          "setup_runs": {
+            "items": {
+              "$ref": "#/components/schemas/SetupRunItem"
+            },
+            "type": "array"
+          },
           "stopped_cards": {
             "items": {
               "$ref": "#/components/schemas/StoppedCard"
@@ -3806,7 +4113,8 @@
           "decisions",
           "features",
           "question_cards",
-          "setup_projects"
+          "setup_projects",
+          "setup_runs"
         ],
         "type": "object"
       },
@@ -5462,7 +5770,7 @@
     },
     "/devflow/api/projects/{id}/setup": {
       "get": {
-        "description": "state, setting_up until a check of any version of its .devflow/ has passed, then registered, and a project setting up hands out no card; steps, in their order, each with whether it is done: recipe, a version of .devflow/ read from its default branch, worker, a worker built from that version said hello, and check, a check of that version passed; check, the newest check of that version, or of any before it is known, with its version, its commit, whether it passed, its exit code, the last 200 lines it printed, the names of its pictures of the project's address, why there are none, when, and whether another was asked for, or null before one ran; and checking, whether a check of that version is running. 404 for a project the caller does not have. Without a valid token, 401 with an empty body; a change from another origin, 403.",
+        "description": "state, setting_up until a check of any version of its .devflow/ has passed, then registered, and a project setting up hands out no card; steps, in their order, each with whether it is done: setup, both files of .devflow/ on its default branch and valid, which a setup run writes when they are not, recipe, a version of .devflow/ read from its default branch, worker, a worker built from that version said hello, and check, a check of that version passed; check, the newest check of that version, or of any before it is known, with its version, its commit, whether it passed, its exit code, the last 200 lines it printed, the names of its pictures of the project's address, why there are none, when, and whether another was asked for, or null before one ran; checking, whether a check of that version is running; problem, why .devflow/ is not valid as last read, or null; setup_command, the command that starts the project's setup worker from the base image, never holding the key; and setup, its newest setup run or null: its number, branch, state, queued, checking, reviewing, fixing, waiting_for_owner, stopped or done, reason, pull request, whether a run of it is under way, the commit it waits at, its newest report in its form, with what it proposes, the values its tests need and what it could not settle, and the review of that commit. 404 for a project the caller does not have. Without a valid token, 401 with an empty body; a change from another origin, 403.",
         "operationId": "getProjectSetup",
         "parameters": [
           {
@@ -5615,6 +5923,85 @@
         "summary": "One of a check's pictures of the project's address",
         "tags": [
           "DevFlow"
+        ]
+      }
+    },
+    "/devflow/api/projects/{id}/setup/merge": {
+      "post": {
+        "description": "Merges the pull request of the project's setup run as the caller, with their linked GitHub token, naming head_commit, the commit the page showed: only while it waits for them, its review approved, and its project is not stopped. A setup's pull request is never merged by Dev flow, whatever the project's settings. 204, and the setup is followed and the project read again. 404 for a project the caller does not have; 422 without head_commit; 409 when no setup waits, the project is stopped, the commit moved since it was shown, GitHub is not linked, or GitHub would not merge it; 503 when GitHub did not answer. Without a valid token, 401 with an empty body; a change from another origin, 403.",
+        "operationId": "mergeProjectSetup",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetupMergeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Merge a project's setup as yourself",
+        "tags": [
+          "SetupEndpoints"
         ]
       }
     },
@@ -6409,6 +6796,9 @@
     },
     {
       "name": "ProjectEndpoints"
+    },
+    {
+      "name": "SetupEndpoints"
     }
   ]
 }

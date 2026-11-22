@@ -475,7 +475,7 @@ export interface paths {
         };
         /**
          * A project's setup
-         * @description state, setting_up until a check of any version of its .devflow/ has passed, then registered, and a project setting up hands out no card; steps, in their order, each with whether it is done: recipe, a version of .devflow/ read from its default branch, worker, a worker built from that version said hello, and check, a check of that version passed; check, the newest check of that version, or of any before it is known, with its version, its commit, whether it passed, its exit code, the last 200 lines it printed, the names of its pictures of the project's address, why there are none, when, and whether another was asked for, or null before one ran; and checking, whether a check of that version is running. 404 for a project the caller does not have. Without a valid token, 401 with an empty body; a change from another origin, 403.
+         * @description state, setting_up until a check of any version of its .devflow/ has passed, then registered, and a project setting up hands out no card; steps, in their order, each with whether it is done: setup, both files of .devflow/ on its default branch and valid, which a setup run writes when they are not, recipe, a version of .devflow/ read from its default branch, worker, a worker built from that version said hello, and check, a check of that version passed; check, the newest check of that version, or of any before it is known, with its version, its commit, whether it passed, its exit code, the last 200 lines it printed, the names of its pictures of the project's address, why there are none, when, and whether another was asked for, or null before one ran; checking, whether a check of that version is running; problem, why .devflow/ is not valid as last read, or null; setup_command, the command that starts the project's setup worker from the base image, never holding the key; and setup, its newest setup run or null: its number, branch, state, queued, checking, reviewing, fixing, waiting_for_owner, stopped or done, reason, pull request, whether a run of it is under way, the commit it waits at, its newest report in its form, with what it proposes, the values its tests need and what it could not settle, and the review of that commit. 404 for a project the caller does not have. Without a valid token, 401 with an empty body; a change from another origin, 403.
          */
         get: operations["getProjectSetup"];
         put?: never;
@@ -520,6 +520,26 @@ export interface paths {
         get: operations["getSetupPicture"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/devflow/api/projects/{id}/setup/merge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Merge a project's setup as yourself
+         * @description Merges the pull request of the project's setup run as the caller, with their linked GitHub token, naming head_commit, the commit the page showed: only while it waits for them, its review approved, and its project is not stopped. A setup's pull request is never merged by Dev flow, whatever the project's settings. 204, and the setup is followed and the project read again. 404 for a project the caller does not have; 422 without head_commit; 409 when no setup waits, the project is stopped, the commit moved since it was shown, GitHub is not linked, or GitHub would not merge it; 503 when GitHub did not answer. Without a valid token, 401 with an empty body; a change from another origin, 403.
+         */
+        post: operations["mergeProjectSetup"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1451,6 +1471,9 @@ export interface components {
         ProjectSetup: {
             check: null | components["schemas"]["SetupCheck"];
             checking: boolean;
+            problem: null | string;
+            setup: null | components["schemas"]["SetupRun"];
+            setup_command: string;
             state: string;
             steps: components["schemas"]["SetupStep"][];
         };
@@ -1640,6 +1663,11 @@ export interface components {
             pictures_note: null | string;
             version: string;
         };
+        SetupMergeRequest: {
+            head_commit: null | string;
+        };
+        /** @enum {unknown} */
+        SetupPreset: "fully_automatic" | "guided" | "only_i_merge";
         SetupProject: {
             /** Format: date-time */
             checked_at: string;
@@ -1652,9 +1680,68 @@ export interface components {
             state: string;
             version: string;
         };
+        SetupProposal: {
+            paths: string[];
+            preset: components["schemas"]["SetupPreset"];
+            why: string;
+        };
+        SetupReport: {
+            decisions: components["schemas"]["ReportDecision"][];
+            handover: string;
+            proposed: components["schemas"]["SetupProposal"];
+            summary: string;
+            unsettled: components["schemas"]["SetupUnsettled"][];
+            variables: components["schemas"]["SetupVariable"][];
+        };
+        SetupReview: {
+            /** Format: int32 */
+            blocking: number;
+            commit: string;
+            summary: string;
+            verdict: string;
+        };
+        SetupRun: {
+            branch: string;
+            head_commit: null | string;
+            /** Format: int32 */
+            number: number;
+            /** Format: int32 */
+            pull_request_number: null | number;
+            pull_request_url: null | string;
+            reason: null | string;
+            report: null | components["schemas"]["SetupReport"];
+            review: null | components["schemas"]["SetupReview"];
+            running: boolean;
+            state: string;
+        };
+        SetupRunItem: {
+            /** Format: date-time */
+            changed_at: string;
+            head_commit: null | string;
+            owner: string;
+            /** Format: uuid */
+            project_id: string;
+            project_name: string;
+            /** Format: int32 */
+            pull_request_number: null | number;
+            /** Format: uri */
+            pull_request_url: null | string;
+            reason: null | string;
+            state: string;
+        };
         SetupStep: {
             done: boolean;
             step: string;
+        };
+        SetupUnsettled: {
+            detail: string;
+            kind: components["schemas"]["SetupUnsettledKind"];
+        };
+        /** @enum {unknown} */
+        SetupUnsettledKind: "real_secret" | "containers_in_tests" | "macos_needed" | "other";
+        SetupVariable: {
+            name: string;
+            why: string;
         };
         StoppedCard: {
             /** Format: int32 */
@@ -1721,6 +1808,7 @@ export interface components {
             question_cards: components["schemas"]["QuestionCard"][];
             refused_cards: components["schemas"]["RefusedCard"][];
             setup_projects: components["schemas"]["SetupProject"][];
+            setup_runs: components["schemas"]["SetupRunItem"][];
             stopped_cards: components["schemas"]["StoppedCard"][];
         };
         WhoAmI: {
@@ -3153,6 +3241,73 @@ export interface operations {
             };
             /** @description Not Found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    mergeProjectSetup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetupMergeRequest"];
+            };
+        };
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -145,3 +145,35 @@
 	outline: var(--focus-ring);
 	outline-offset: var(--focus-offset);
 }
+
+/* The setup run: why it is due, its worker's command, and its newest run. */
+.run {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-3);
+}
+
+/* What it could not settle and the values its tests need, each on an inset,
+ * hard rule 3, wrapping at phone width, hard rule 13. */
+.list {
+	display: flex;
+	flex-direction: column;
+	gap: var(--inset-gap);
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.unsettled {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-1);
+	padding: 8px 12px;
+	border-radius: var(--radius-md);
+	background: var(--surface-2);
+	overflow-wrap: anywhere;
+}
+
+.kind {
+	font-weight: 600;
+}

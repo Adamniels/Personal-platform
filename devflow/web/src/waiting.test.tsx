@@ -71,6 +71,7 @@ function list(overrides: Partial<WaitingList> = {}): WaitingList {
 		question_cards: [],
 		failing_projects: [],
 		setup_projects: [],
+		setup_runs: [],
 		features: [],
 		items,
 		projects: [project()],
@@ -252,6 +253,43 @@ describe("the list and its groups", () => {
 				.getAttribute("href"),
 		).toBe(`/devflow/projects/${PROJECT}`);
 		expect(screen.queryByText("Nothing waits for you")).toBeNull();
+	});
+
+	test("a project whose setup run waits for me is listed under Setup", async () => {
+		openWith(
+			answering(
+				list({
+					count: 1,
+					setup_runs: [
+						{
+							project_id: PROJECT,
+							project_name: "fodr",
+							owner: "Adamniels",
+							state: "waiting_for_owner",
+							reason: "Approved; it waits for you to merge it",
+							pull_request_number: 7,
+							pull_request_url: "https://github.com/Adamniels/fodr/pull/7",
+							head_commit: "4f6c1c36b0bd2c24e3d5a8f5d8c0e0a3a0e3b9a1",
+							changed_at: minutesAgo(5),
+						},
+					],
+				}),
+			),
+		);
+
+		const group = await screen.findByRole("region", { name: "Setup" });
+		const item = within(group).getByRole("article", {
+			name: "fodr's setup waits for you",
+		});
+		expect(within(item).getByText("Needs you")).toBeTruthy();
+		expect(
+			within(item).getByText("Approved; it waits for you to merge it."),
+		).toBeTruthy();
+		expect(
+			within(item)
+				.getByRole("link", { name: "Merge it from the project's page" })
+				.getAttribute("href"),
+		).toBe(`/devflow/projects/${PROJECT}`);
 	});
 
 	test("an empty group is not shown", async () => {

@@ -44,6 +44,7 @@ function list(own: OwnItem[]): WaitingList {
 		question_cards: [],
 		failing_projects: [],
 		setup_projects: [],
+		setup_runs: [],
 		features: [],
 		items: [],
 		projects: [
