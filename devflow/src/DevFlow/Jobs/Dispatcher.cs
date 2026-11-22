@@ -233,9 +233,9 @@ public sealed partial class Dispatcher(
     }
 
     /// <summary>The reading job for the cards taken to read, or null when none were: the feature's
-    /// parent or the card on its own as its card, on the branch whose code is read, from the default
-    /// branch, with the reader's brief, the reading's form, no check, the reading model, and every
-    /// card to read as picked.</summary>
+    /// parent or the card on its own as its card, or a refused card read again, alone, on the branch
+    /// whose code is read, from the default branch, with the reader's brief, the reading's form, no
+    /// check, the reading model, and every card to read as picked.</summary>
     private static Job? ReadJob(Readings.ClaimedRead? claimed, Repository repository, RepositoryFacts facts, RunSettings run, ClaudeToken token, AppWriteToken key)
     {
         if (claimed is null)
@@ -243,7 +243,7 @@ public sealed partial class Dispatcher(
             return null;
         }
 
-        var brief = Brief.Reader(claimed.Feature, claimed.Cards, new ReaderFacts(claimed.Branch));
+        var brief = Brief.Reader(claimed.Feature, claimed.Cards, new ReaderFacts(claimed.Branch), claimed.Again);
         return new Job(
             claimed.RunId,
             Job.Read,

@@ -25,7 +25,9 @@ namespace DevFlow.Readings;
 /// <param name="Branch">The branch whose code is read: the feature's where it is made, otherwise the
 /// default branch.</param>
 /// <param name="Base">The default branch.</param>
-public sealed record ClaimedRead(Guid RunId, BriefCard Card, BriefFeature? Feature, IReadOnlyList<BriefCard> Cards, string Branch, string Base);
+/// <param name="Again">For a refused card read again, alone, what its reading is given beside it;
+/// null for a first reading.</param>
+public sealed record ClaimedRead(Guid RunId, BriefCard Card, BriefFeature? Feature, IReadOnlyList<BriefCard> Cards, string Branch, string Base, ReaderAgain? Again = null);
 
 /// <summary>A card's reading, as its page shows it: what the reader answered, the questions with the
 /// answer each is built on, here the recommendation, and what is missing. Every text is the reader's,
@@ -35,8 +37,9 @@ public sealed record ClaimedRead(Guid RunId, BriefCard Card, BriefFeature? Featu
 /// built on.</param>
 /// <param name="Missing">What the card lacks, when it is too thin.</param>
 /// <param name="ReadAt">When the reading came back.</param>
-/// <param name="Commented">Whether Dev flow's comment listing the questions and the answers chosen is
-/// on the card yet; false for any outcome but <c>questions</c>.</param>
+/// <param name="Commented">Whether Dev flow's comment for the reading is on the card yet: the one
+/// listing the questions and the answers chosen, or the refusal's listing what is missing; false for
+/// a ready card.</param>
 public sealed record CardReadingView(string Outcome, IReadOnlyList<CardQuestion> Questions, IReadOnlyList<string> Missing, DateTimeOffset ReadAt, bool Commented);
 
 /// <summary>A question a reading asked of a card, and the answer it is built on.</summary>
@@ -50,6 +53,14 @@ public sealed record CardQuestion(string Question, string Recommendation, string
 /// <summary>A card's questions whose comment Dev flow has yet to post, with the reading that asked
 /// them.</summary>
 public sealed record PendingQuestions(Guid RunId, int Number, IReadOnlyList<CardQuestion> Questions);
+
+/// <summary>A refused card whose refusal waits to be marked on its issue.</summary>
+/// <param name="RunId">The reading that refused it, which its comment names.</param>
+/// <param name="Number">The card's issue number.</param>
+/// <param name="Missing">What that reading found missing.</param>
+/// <param name="Commented">Whether that reading's comment is posted.</param>
+/// <param name="Labelled">Whether the app's attention label is on the issue.</param>
+public sealed record PendingRefusal(Guid RunId, int Number, IReadOnlyList<string> Missing, bool Commented, bool Labelled);
 
 /// <summary>
 /// Readings in the database, through the door as the project's user: which cards are read, taking a
@@ -83,10 +94,21 @@ public static class ReadingStore
          LIMIT 1) IN ('ready', 'questions')
         """;
 
+    /// <summary>Whether a card is to be read again, as SQL over <c>cards</c>: its newest reading that
+    /// came back in its form found it too thin. Only a refused card a trusted account edited or
+    /// commented on since is queued with such a reading, <see cref="Refusals"/>, and it is read
+    /// again, alone, rather than built.</summary>
+    public const string ReadAgain = """
+        coalesce((SELECT cr.outcome FROM card_readings cr
+                  WHERE cr.project_id = cards.project_id AND cr.card_number = cards.number AND cr.outcome IS NOT NULL
+                  ORDER BY cr.read_at DESC, cr.run_id DESC
+                  LIMIT 1) = 'too_thin', false)
+        """;
+
     /// <summary>What makes a card due a reading, as SQL over <c>cards</c>: free to start, as
-    /// <see cref="Jobs.JobStore.FreeToStart"/> says, and not read; with <c>@projectId</c> and
-    /// <c>@watchedSince</c>.</summary>
-    public const string Due = $"{Jobs.JobStore.FreeToStart} AND NOT {IsRead}";
+    /// <see cref="Jobs.JobStore.FreeToStart"/> says, and not read, or to be read again,
+    /// <see cref="ReadAgain"/>; with <c>@projectId</c> and <c>@watchedSince</c>.</summary>
+    public const string Due = $"{Jobs.JobStore.FreeToStart} AND (NOT {IsRead} OR {ReadAgain})";
 
     /// <summary>Why a card read as too thin is refused: what it lacks, each on its own.</summary>
     public static string TooThin(IReadOnlyList<string> missing)
@@ -106,6 +128,9 @@ public static class ReadingStore
     /// <c>card_readings</c> for each card read, with its body's SHA-256 and title as handed, and moves
     /// each to <c>reading</c>. A held card is left out, since it would not be handed out: it is read
     /// once released, when its turn comes, so no reading's outcome waits on a card it cannot move.
+    /// A card to be read again, <see cref="ReadAgain"/>, is read alone, of a feature or not, as a run
+    /// of the card, with what the reading that refused it found missing, the note of the code its
+    /// work touches, <see cref="NoteOfCard"/>, and the comments that asked for it.
     /// Null when there is none.
     /// </summary>
     public static async Task<ClaimedRead?> Claim(NpgsqlTransaction transaction, Guid projectId, Guid userId, Guid workerId, RunSettings run, string defaultBranch, DateTimeOffset now, CancellationToken cancellationToken)
@@ -116,7 +141,7 @@ public static class ReadingStore
         var watchedSince = Watching.WatchStore.WatchedSince(now);
         var first = await transaction.Connection!.QuerySingleOrDefaultAsync<FirstCard>(new CommandDefinition(
             $"""
-            SELECT number AS Number, feature_id AS FeatureId FROM cards
+            SELECT number AS Number, feature_id AS FeatureId, {ReadAgain} AS Again FROM cards
             WHERE {Due}
             ORDER BY {CardStore.QueueOrder}
             LIMIT 1
@@ -152,7 +177,7 @@ public static class ReadingStore
         }
 
         var cards = (await transaction.Connection!.QueryAsync<ToRead>(new CommandDefinition(
-            feature is null
+            feature is null || first.Again
                 ? "SELECT number AS Number, picked_title AS Title, picked_body AS Body, picked_body_sha256 AS BodySha256 FROM cards WHERE project_id = @projectId AND number = @number"
                 : $"""
                   SELECT number AS Number, picked_title AS Title, picked_body AS Body, picked_body_sha256 AS BodySha256
@@ -174,7 +199,7 @@ public static class ReadingStore
             INSERT INTO runs (id, project_id, user_id, card_number, feature_number, worker_id, kind, branch, base, started_at, run_minutes)
             VALUES (@runId, @projectId, @userId, @card, @feature, @workerId, 'read', @branch, @baseBranch, @now, @minutes)
             """,
-            new { runId, projectId, userId, card = feature is null ? first.Number : (int?)null, feature = feature?.Number, workerId, branch, baseBranch = defaultBranch, now, minutes = run.Minutes },
+            new { runId, projectId, userId, card = feature is null || first.Again ? first.Number : (int?)null, feature = first.Again ? null : feature?.Number, workerId, branch, baseBranch = defaultBranch, now, minutes = run.Minutes },
             transaction,
             cancellationToken: cancellationToken));
         foreach (var card in cards)
@@ -196,14 +221,28 @@ public static class ReadingStore
             cancellationToken: cancellationToken));
 
         var read = cards.Select(card => new BriefCard(card.Number, card.Title, card.Body)).ToList();
+        var again = first.Again ? await Again(transaction, projectId, first.Number, cancellationToken) : null;
         if (feature is null)
         {
-            return new ClaimedRead(runId, read[0], null, read, branch, defaultBranch);
+            return new ClaimedRead(runId, read[0], null, read, branch, defaultBranch, again);
         }
 
         var parent = new BriefCard(feature.Number, feature.Title, feature.Body);
-        var done = await Jobs.JobStore.FeatureOf(transaction, projectId, first.Number, cancellationToken);
-        return new ClaimedRead(runId, parent, done ?? new BriefFeature(feature.Number, feature.Title, feature.Body, []), read, branch, defaultBranch);
+        var done = await Jobs.JobStore.FeatureOf(transaction, projectId, first.Number, cancellationToken) ?? new BriefFeature(feature.Number, feature.Title, feature.Body, []);
+        return new ClaimedRead(runId, again is null ? parent : read[0], done, read, branch, defaultBranch, again);
+    }
+
+    /// <summary>What a card read again is given beside it: what its newest reading found missing,
+    /// the note of the code its work touches, and the comments kept that asked for it.</summary>
+    private static async Task<ReaderAgain> Again(NpgsqlTransaction transaction, Guid projectId, int number, CancellationToken cancellationToken)
+    {
+        var missing = (await Of(transaction, projectId, number, cancellationToken))?.Missing ?? [];
+        var comments = await transaction.Connection!.ExecuteScalarAsync<string?>(new CommandDefinition(
+            "SELECT read_again_comments::text FROM cards WHERE project_id = @projectId AND number = @number",
+            new { projectId, number },
+            transaction,
+            cancellationToken: cancellationToken));
+        return new ReaderAgain(missing, await NoteOfCard(transaction, projectId, number, cancellationToken), Refusals.Kept(comments));
     }
 
     /// <summary>The numbers of the cards a reading run reads, read inside
@@ -224,7 +263,7 @@ public static class ReadingStore
     /// with questions to <c>queued</c>, on the recommendations, and one too thin to <c>refused</c>, with
     /// what is missing as its reason, <see cref="TooThin"/>. A card whose label was taken off while it
     /// was read is removed instead, as any card whose run ends is. The count of failures in the card
-    /// starts afresh for each.
+    /// starts afresh for each, and the comments that asked for a card to be read again are let go.
     /// </summary>
     public static async Task Read(NpgsqlTransaction transaction, Guid projectId, Guid runId, ReadingForm reading, DateTimeOffset now, CancellationToken cancellationToken)
     {
@@ -251,7 +290,7 @@ public static class ReadingStore
             var (state, reason) = card.Outcome == ReadingOutcome.TooThin ? ("refused", TooThin(card.Missing)) : ("queued", (string?)null);
             await Move(transaction, projectId, card.Number, state, reason, now, cancellationToken);
             await transaction.Connection!.ExecuteAsync(new CommandDefinition(
-                "UPDATE cards SET in_card_failures = 0, failed_at_commit = NULL WHERE project_id = @projectId AND number = @number",
+                "UPDATE cards SET in_card_failures = 0, failed_at_commit = NULL, read_again_comments = NULL WHERE project_id = @projectId AND number = @number",
                 new { projectId, number = card.Number },
                 transaction,
                 cancellationToken: cancellationToken));
@@ -400,8 +439,33 @@ public static class ReadingStore
         return [.. rows.Select(row => new PendingQuestions(row.RunId, row.Number, Questions(row.Questions)))];
     }
 
-    /// <summary>Records Dev flow's comment on the card, by its id, for the reading that asked its
-    /// questions, as the project's user.</summary>
+    /// <summary>The project's refused cards whose newest reading, too thin, waits to be marked on the
+    /// issue: the attention label not on it, or the refusal's comment not posted. Read as the
+    /// project's user, in number order.</summary>
+    public static async Task<IReadOnlyList<PendingRefusal>> PendingRefusals(UserDb database, Guid userId, Guid projectId, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(database);
+        var rows = await database.InUserTransaction(userId, transaction => transaction.Connection!.QueryAsync<RefusalRow>(new CommandDefinition(
+            """
+            SELECT cr.run_id AS RunId, c.number AS Number, cr.missing::text AS Missing, cr.comment_id IS NOT NULL AS Commented,
+                   c.attention_labelled AS Labelled
+            FROM cards c
+            JOIN LATERAL (SELECT * FROM card_readings newest
+                          WHERE newest.project_id = c.project_id AND newest.card_number = c.number AND newest.outcome IS NOT NULL
+                          ORDER BY newest.read_at DESC, newest.run_id DESC
+                          LIMIT 1) cr ON true
+            WHERE c.project_id = @projectId AND c.state = 'refused' AND cr.outcome = 'too_thin'
+              AND (cr.comment_id IS NULL OR NOT c.attention_labelled)
+            ORDER BY c.number
+            """,
+            new { projectId },
+            transaction,
+            cancellationToken: cancellationToken)), cancellationToken);
+        return [.. rows.Select(row => new PendingRefusal(row.RunId, row.Number, JsonSerializer.Deserialize<List<string>>(row.Missing) ?? [], row.Commented, row.Labelled))];
+    }
+
+    /// <summary>Records Dev flow's comment on the card, by its id, for the reading it is for: the one
+    /// that asked its questions, or the one that refused it. As the project's user.</summary>
     public static async Task Commented(UserDb database, Guid userId, Guid projectId, Guid runId, int number, long commentId, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(database);
@@ -435,7 +499,7 @@ public static class ReadingStore
         : char.IsHighSurrogate(reason[Jobs.RunStore.MostReason - 1]) ? reason[..(Jobs.RunStore.MostReason - 1)]
         : reason[..Jobs.RunStore.MostReason];
 
-    private sealed record FirstCard(int Number, Guid? FeatureId);
+    private sealed record FirstCard(int Number, Guid? FeatureId, bool Again);
 
     private sealed record FeatureRow(int Number, string Title, string Body, string? Branch);
 
@@ -444,4 +508,6 @@ public static class ReadingStore
     private sealed record ReadingRow(string Outcome, string Questions, string Missing, DateTime ReadAt, long? CommentId);
 
     private sealed record PendingRow(Guid RunId, int Number, string Questions);
+
+    private sealed record RefusalRow(Guid RunId, int Number, string Missing, bool Commented, bool Labelled);
 }

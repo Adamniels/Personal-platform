@@ -49,6 +49,7 @@ function list(
 		count: features.length + cards.length,
 		needs_relink: false,
 		stopped_cards: [],
+		refused_cards: [],
 		failing_projects: [],
 		features,
 		items: [],

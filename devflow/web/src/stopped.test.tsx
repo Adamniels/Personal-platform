@@ -40,6 +40,7 @@ function list(own: OwnItem[]): WaitingList {
 		count: own.length,
 		needs_relink: false,
 		stopped_cards: [],
+		refused_cards: [],
 		failing_projects: [],
 		features: [],
 		items: [],

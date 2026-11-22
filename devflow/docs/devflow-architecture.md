@@ -813,7 +813,9 @@ GitHub, ignored, or waiting for the owner, because its work is what the later ca
 card that is not finished might still change the code under it, and one that is ignored or waits
 for its own blockers is still meant to come first. A stopped, refused or held card is the exception, since
 the spec's "A card stops only when..." has a stop hold back only that card and the cards depending
-on it, and the owner's hold label says the same of one card: the rest of the feature goes on, and
+on it, and a refused card is the same case: it waits for the owner, as a stopped one does, for an
+answer that may take days, and holding the whole feature for it would stop work that does not need
+it, which the feature's "Inside a feature" decision rules out; and the owner's hold label says the same of one card: the rest of the feature goes on, and
 a card that does depend on it says so with a blocked by link on GitHub, which holds it as any
 blocker does. The rule is one SQL expression, `CardStore.HeldBackBy`, which handing out and the
 page's reason both read, so the page can never say a card waits while a worker takes it. The
@@ -852,8 +854,34 @@ the one moment a choice that is his can reach him while he is still there, as th
 want" puts it, rather than after the night's work. A card read as ready costs one short run; one
 with questions is built on the reader's recommendations, which Dev flow posts on the card so the
 owner sees what was chosen for him; and one too thin is not built at all, `refused` with what it
-lacks, rather than built badly. Its marking on GitHub and "Waiting for you" are the slice "Refusing
-a thin card", and answering the questions himself is "Questions before starting".
+lacks, rather than built badly. Answering the questions himself is "Questions before starting".
+
+**A refusal is marked where the owner reads the card, as a stop is.** The spec's "A stopped or
+refused card is marked on the card itself" settles it: the attention label and one comment from the
+app listing what is missing, on the issue he will edit anyway, and the card under "Refused" on
+"Waiting for you", after "Stopped" and counted as everything that waits, so a thin card is never
+silent. Nothing is offered on the page: the answer to a refusal is a better card, which is written
+on GitHub, and a box on the page would only post a comment there. The comment is found again by its
+last line, as a stop's is, and its id is kept with the reading that refused, not on the card, since
+a card refused again gets a comment of its own for its new reading. Dev flow's own comments never
+start a reading; they are known by their ids.
+
+**A refused card is read again on his edit or his comment after the refusal.** Either is the owner
+answering it, the spec's round 4 having `Refused` wait for him. An edit is seen without reading
+anything more from GitHub: picking already replaces a card's record whenever every editor is
+trusted, and ignores one anyone else edited, so the record no longer matching what the refusing
+reading was handed, its body's SHA-256 or its title, is a trusted edit. A comment counts only from
+a trusted account and only when newer than the refusal, as a stop's does, since one from before it
+was written while it was read and is not an answer to it. Either queues the card, and a queued card
+whose newest reading is too thin is due a reading rather than a build: the rule "a build takes only
+a card whose newest reading is ready or has questions" already keeps it from being built, so being
+read again is the one way on, and the same holds however else it came to be queued again. It is
+read alone, with the note of the code the feature touches, what was missing and the comments,
+fenced as that account's input: the rest of the feature was read already, and reading it all again
+would spend a run on cards nobody changed, and could move cards that are under way since. The run is
+the card's, not the feature's, so the feature's note stays what the whole feature was read to
+write. The attention label comes off as soon as the card is queued, since it is no longer his turn,
+and goes back on with a new comment if it is refused again.
 
 **Why a feature's cards are read together.** The spec's round 2 reads all of a feature's cards at
 once, not each as its turn comes, and this keeps it: the owner gets every question of the feature in
