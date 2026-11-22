@@ -33,10 +33,11 @@ namespace DevFlow.Jobs;
 /// no result is needed then.</summary>
 public sealed record FakeWorkerRun(Guid? ProjectId, ResultRequest? Result, bool? LeaveNoCommit = null, IReadOnlyDictionary<string, byte[]>? Pictures = null, bool? KeepRunning = null);
 
-/// <summary>What the fake worker did: the job it took, its kind, its card, or for a conflict its
-/// feature, and the commit it left on the branch, or for a review the commit it reviewed; null for
-/// a build or a conflict that left none.</summary>
-public sealed record FakeWorkerRan(Guid JobId, string Kind, int Card, string Branch, string? HeadCommit);
+/// <summary>What the fake worker did: the job it took, its kind, its card, or for a conflict or a
+/// reading its feature, the commit it left on the branch, or for a review the commit it reviewed,
+/// null for a build or a conflict that left none and for a reading; and the brief the job carried,
+/// so a test reads what the agent would have been asked.</summary>
+public sealed record FakeWorkerRan(Guid JobId, string Kind, int Card, string Branch, string? HeadCommit, string Brief);
 
 /// <summary>
 /// The fake worker, in the fake mode only, under the <c>Api</c> policy and the origin check, acting
@@ -86,6 +87,7 @@ public static class FakeWorkerEndpoints
         [FromServices] FeatureEnds ends,
         [FromServices] FeatureReadiness readiness,
         [FromServices] StopMarker marker,
+        [FromServices] Readings.QuestionComments questions,
         [FromServices] TimeProvider time)
     {
         var cancellationToken = context.RequestAborted;
@@ -123,13 +125,25 @@ public static class FakeWorkerEndpoints
         if (keepRunning)
         {
             // Taken and still running: nothing is pushed and no result comes back.
-            return TypedResults.Ok(new FakeWorkerRan(job.JobId, job.Kind, job.Card.Number, job.Branch, null));
+            return TypedResults.Ok(new FakeWorkerRan(job.JobId, job.Kind, job.Card.Number, job.Branch, null, job.Brief));
         }
 
         // Checked above: a result is given unless the job keeps running.
         var prepared = request.Result!;
         var now = time.GetUtcNow();
         now = now.AddTicks(-(now.Ticks % 10));
+        if (job.ToRead is not null)
+        {
+            // A reading reads the code and changes nothing, so it names no commit.
+            var read = prepared with { WorkerId = WorkerId, Branch = job.Branch, HeadCommit = null };
+            await JobEndpoints.Complete(database, caller, job.JobId, WorkerId, JobEndpoints.Read(read)!, now, cancellationToken);
+            // The questions' comment is posted and a stopped card marked, on the next minute for a
+            // real worker; the fake worker waits for both.
+            await questions.PostPending(projectId, userId, cancellationToken);
+            await marker.MarkPending(projectId, userId, cancellationToken);
+            return TypedResults.Ok(new FakeWorkerRan(job.JobId, job.Kind, job.Card.Number, job.Branch, null, job.Brief));
+        }
+
         if (job.ToReview is { } toReview)
         {
             // A review reads the commit it was handed and changes nothing.
@@ -146,7 +160,7 @@ public static class FakeWorkerEndpoints
             await ends.EndPending(projectId, userId, cancellationToken);
             await readiness.DecidePending(projectId, userId, cancellationToken);
             await marker.MarkPending(projectId, userId, cancellationToken);
-            return TypedResults.Ok(new FakeWorkerRan(job.JobId, job.Kind, job.Card.Number, job.Branch, toReview.Commit));
+            return TypedResults.Ok(new FakeWorkerRan(job.JobId, job.Kind, job.Card.Number, job.Branch, toReview.Commit, job.Brief));
         }
 
         if (job.ToReviewFeature is { } toReviewFeature)
@@ -158,7 +172,7 @@ public static class FakeWorkerEndpoints
             // real worker; the fake worker waits for both.
             await poster.PostPending(projectId, userId, cancellationToken);
             await readiness.DecidePending(projectId, userId, cancellationToken);
-            return TypedResults.Ok(new FakeWorkerRan(job.JobId, job.Kind, job.Card.Number, job.Branch, toReviewFeature.Commit));
+            return TypedResults.Ok(new FakeWorkerRan(job.JobId, job.Kind, job.Card.Number, job.Branch, toReviewFeature.Commit, job.Brief));
         }
 
         var committer = new Committer(job.Committer.Name, job.Committer.Email);
@@ -183,7 +197,7 @@ public static class FakeWorkerEndpoints
             await readiness.DecidePending(projectId, userId, cancellationToken);
             return passed && merged is null
                 ? TypedResults.Problem(statusCode: StatusCodes.Status503ServiceUnavailable, title: "The fake's git failed", detail: "no merge commit was made on the feature's branch, so the job ended as a failure outside it and the feature is resolving again")
-                : TypedResults.Ok(new FakeWorkerRan(job.JobId, job.Kind, job.Card.Number, job.Branch, merged));
+                : TypedResults.Ok(new FakeWorkerRan(job.JobId, job.Kind, job.Card.Number, job.Branch, merged, job.Brief));
         }
 
         // Each picture the result lists, on pr-screenshots under the commit's folder, as a worker
@@ -220,7 +234,7 @@ public static class FakeWorkerEndpoints
             await readiness.DecidePending(projectId, userId, cancellationToken);
             return lost
                 ? TypedResults.Problem(statusCode: StatusCodes.Status503ServiceUnavailable, title: "The fake's git failed", detail: "no commit was made on the feature's branch, so the job ended as a failure outside it and the feature is fixing again")
-                : TypedResults.Ok(new FakeWorkerRan(job.JobId, job.Kind, job.Card.Number, job.Branch, pushed));
+                : TypedResults.Ok(new FakeWorkerRan(job.JobId, job.Kind, job.Card.Number, job.Branch, pushed, job.Brief));
         }
 
         if (job.ToFix is { } toFix)
@@ -241,7 +255,7 @@ public static class FakeWorkerEndpoints
             await marker.MarkPending(projectId, userId, cancellationToken);
             return fixedUp is null
                 ? TypedResults.Problem(statusCode: StatusCodes.Status503ServiceUnavailable, title: "The fake's git failed", detail: "no commit was made on the job's branch, so the job ended as a failure outside the card and the card is fixing again")
-                : TypedResults.Ok(new FakeWorkerRan(job.JobId, job.Kind, job.Card.Number, job.Branch, fixedUp));
+                : TypedResults.Ok(new FakeWorkerRan(job.JobId, job.Kind, job.Card.Number, job.Branch, fixedUp, job.Brief));
         }
 
         var message = string.Create(CultureInfo.InvariantCulture, $"Build #{job.Card.Number}, by the fake worker");
@@ -259,7 +273,7 @@ public static class FakeWorkerEndpoints
             var unpushed = prepared with { WorkerId = WorkerId, Branch = job.Branch, HeadCommit = null };
             await JobEndpoints.Complete(database, caller, job.JobId, WorkerId, JobEndpoints.Read(unpushed)!, now, cancellationToken);
             await marker.MarkPending(projectId, userId, cancellationToken);
-            return TypedResults.Ok(new FakeWorkerRan(job.JobId, job.Kind, job.Card.Number, job.Branch, null));
+            return TypedResults.Ok(new FakeWorkerRan(job.JobId, job.Kind, job.Card.Number, job.Branch, null, job.Brief));
         }
 
         var commit = await fake.CommitOnBranch(userId, repository, job.Branch, job.Base, message, committer, cancellationToken);
@@ -281,7 +295,7 @@ public static class FakeWorkerEndpoints
         await marker.MarkPending(projectId, userId, cancellationToken);
         return commit is null
             ? TypedResults.Problem(statusCode: StatusCodes.Status503ServiceUnavailable, title: "The fake's git failed", detail: "no commit was made on the job's branch, so the job ended as a failure outside the card and the card is queued again")
-            : TypedResults.Ok(new FakeWorkerRan(job.JobId, job.Kind, job.Card.Number, job.Branch, commit));
+            : TypedResults.Ok(new FakeWorkerRan(job.JobId, job.Kind, job.Card.Number, job.Branch, commit, job.Brief));
     }
 
     private static ProblemHttpResult Invalid(string detail) =>

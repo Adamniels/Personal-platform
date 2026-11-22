@@ -795,6 +795,20 @@ export interface components {
             number: number;
             url: string;
         };
+        CardQuestion: {
+            answer: string;
+            question: string;
+            recommendation: string;
+            why: string;
+        };
+        CardReadingView: {
+            commented: boolean;
+            missing: string[];
+            outcome: string;
+            questions: components["schemas"]["CardQuestion"][];
+            /** Format: date-time */
+            read_at: string;
+        };
         CardReview: {
             commit: string;
             current: boolean;
@@ -863,6 +877,7 @@ export interface components {
             /** Format: int32 */
             number: number;
             pull_request: null | components["schemas"]["CardPullRequest"];
+            reading: null | components["schemas"]["CardReadingView"];
             reason: null | string;
             report: null | components["schemas"]["Report"];
             reviews: components["schemas"]["CardReview"][];
@@ -1152,6 +1167,7 @@ export interface components {
             /** @default  */
             start: string;
             to_fix?: null | components["schemas"]["JobFix"];
+            to_read?: null | components["schemas"]["JobRead"];
             to_resolve?: null | components["schemas"]["JobConflict"];
             to_review?: null | components["schemas"]["JobReview"];
             to_review_feature?: null | components["schemas"]["JobFeatureReview"];
@@ -1206,6 +1222,9 @@ export interface components {
             minutes: number;
             /** Format: int32 */
             turns: number;
+        };
+        JobRead: {
+            cards: components["schemas"]["JobCard"][];
         };
         JobRepository: {
             /** Format: uri */

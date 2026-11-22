@@ -246,6 +246,63 @@
         ],
         "type": "object"
       },
+      "CardQuestion": {
+        "properties": {
+          "answer": {
+            "type": "string"
+          },
+          "question": {
+            "type": "string"
+          },
+          "recommendation": {
+            "type": "string"
+          },
+          "why": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "question",
+          "recommendation",
+          "why",
+          "answer"
+        ],
+        "type": "object"
+      },
+      "CardReadingView": {
+        "properties": {
+          "commented": {
+            "type": "boolean"
+          },
+          "missing": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "outcome": {
+            "type": "string"
+          },
+          "questions": {
+            "items": {
+              "$ref": "#/components/schemas/CardQuestion"
+            },
+            "type": "array"
+          },
+          "read_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "outcome",
+          "questions",
+          "missing",
+          "read_at",
+          "commented"
+        ],
+        "type": "object"
+      },
       "CardReview": {
         "properties": {
           "commit": {
@@ -552,6 +609,16 @@
               }
             ]
           },
+          "reading": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CardReadingView"
+              }
+            ]
+          },
           "reason": {
             "type": [
               "null",
@@ -620,7 +687,8 @@
           "screenshots",
           "merge",
           "feature",
-          "most_rounds"
+          "most_rounds",
+          "reading"
         ],
         "type": "object"
       },
@@ -1697,6 +1765,16 @@
               }
             ]
           },
+          "to_read": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JobRead"
+              }
+            ]
+          },
           "to_resolve": {
             "oneOf": [
               {
@@ -1942,6 +2020,20 @@
           "turns",
           "budget_usd",
           "minutes"
+        ],
+        "type": "object"
+      },
+      "JobRead": {
+        "properties": {
+          "cards": {
+            "items": {
+              "$ref": "#/components/schemas/JobCard"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "cards"
         ],
         "type": "object"
       },

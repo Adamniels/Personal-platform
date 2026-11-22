@@ -15,7 +15,7 @@ exactly as it was picked, its number and title first, then its body:
 {{feature}}The developer worked on the branch `{{branch}}`, made from `{{base}}`, and the commit you review is
 `{{commit}}`. Your verdict is for that commit and no other.
 
-## Where everything is
+{{touches}}## Where everything is
 
 You are in a folder that holds two others:
 

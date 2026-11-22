@@ -18,7 +18,7 @@ Its cards were built on the branch `{{branch}}`, made from `{{default}}`, and th
 is `{{commit}}`, where that branch is now. Your verdict is for that commit and no other.
 
 {{earlier}}
-## Where everything is
+{{touches}}## Where everything is
 
 You are in a folder that holds two others:
 

@@ -9,6 +9,7 @@ using DevFlow.PullRequests;
 using DevFlow.Worker.Agents;
 using DevFlow.Worker.Build;
 using DevFlow.Worker.Pages;
+using DevFlow.Worker.Read;
 using DevFlow.Worker.Review;
 
 using Microsoft.Extensions.DependencyInjection;
@@ -99,13 +100,14 @@ internal sealed class Bench : IAsyncDisposable
     /// The bench, its project's check <paramref name="check"/>, with <see cref="Out"/> standing in
     /// for <see cref="OutFile"/>. <c>main</c> holds a README and a <c>.gitignore</c> ignoring
     /// <c>build/</c>; <paramref name="before"/> may push more to the remote before the job is
-    /// handed out. <paramref name="cards"/> are the repository's issues, card 1 unless given.
+    /// handed out. <paramref name="cards"/> are the repository's issues, card 1 unless given. With
+    /// <paramref name="read"/> false, the cards are not taken as read, so a reading is the first job.
     /// </summary>
-    public static async Task<Bench> Start(string check = "true", Func<Bench, Task>? before = null, string start = "", string url = "", IReadOnlyList<FakeIssue>? cards = null)
+    public static async Task<Bench> Start(string check = "true", Func<Bench, Task>? before = null, string start = "", string url = "", IReadOnlyList<FakeIssue>? cards = null, bool read = true)
     {
         var root = Directory.CreateTempSubdirectory("devflow-build-").FullName;
         var outFile = Path.Combine(root, "out");
-        var jobs = await Jobs.Start(cards ?? [Jobs.Card(1, Title)], projectFile: Jobs.ProjectFile(check.Replace(Out, outFile, StringComparison.Ordinal), start, url));
+        var jobs = await Jobs.Start(cards ?? [Jobs.Card(1, Title)], projectFile: Jobs.ProjectFile(check.Replace(Out, outFile, StringComparison.Ordinal), start, url), read: read);
         try
         {
             var repository = new Repository(Reading.Installation, Reading.RepositoryId, "Adamniels", "Personal-platform");
@@ -147,6 +149,10 @@ internal sealed class Bench : IAsyncDisposable
 
     /// <summary>A review job for the bench's worker, with <paramref name="agent"/>.</summary>
     public ReviewJob Review(IAgent agent) =>
+        new(Client, Jobs.FirstWorker, new JobTools(agent, AsRoot, AsAgent, Folders, User, Pages), Clock, new WorkerLog(TextWriter.Synchronized(new StringWriter(Log)), Clock));
+
+    /// <summary>A reading job for the bench's worker, with <paramref name="agent"/>.</summary>
+    public ReadJob Read(IAgent agent) =>
         new(Client, Jobs.FirstWorker, new JobTools(agent, AsRoot, AsAgent, Folders, User, Pages), Clock, new WorkerLog(TextWriter.Synchronized(new StringWriter(Log)), Clock));
 
     /// <summary>

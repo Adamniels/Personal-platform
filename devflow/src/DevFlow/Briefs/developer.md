@@ -11,7 +11,7 @@ exactly as it was picked, its number and title first, then its body:
 
 {{card}}
 
-{{feature}}{{fix}}## Where the project's facts are
+{{feature}}{{touches}}{{answers}}{{fix}}## Where the project's facts are
 
 What is particular to this project is in the repository, not here:
 

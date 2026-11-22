@@ -91,6 +91,7 @@ function story(overrides: Partial<CardStory> = {}): CardStory {
 		merge: null,
 		feature: null,
 		most_rounds: 3,
+		reading: null,
 		...overrides,
 	};
 }
@@ -230,6 +231,96 @@ describe("a card's page", () => {
 			`/devflow/projects/${PROJECT}/features/10`,
 		);
 		expect(link.getAttribute("target")).toBeNull();
+	});
+
+	test("shows what the card was read as: each question with the answer it is built on", async () => {
+		open(() =>
+			Promise.resolve(
+				story({
+					reading: {
+						outcome: "questions",
+						questions: [
+							{
+								question: "Is the list sorted by name or by `date`?",
+								recommendation: "By date, newest first",
+								why: "The page beside it sorts so",
+								answer: "By date, newest first",
+							},
+						],
+						missing: [],
+						read_at: "2026-11-18T09:00:00+00:00",
+						commented: true,
+					},
+				}),
+			),
+		);
+
+		const reading = await screen.findByRole("article", { name: "The reading" });
+		expect(
+			within(reading).getByText("Built on the recommendations"),
+		).toBeTruthy();
+		expect(reading.textContent).toContain("Dev flow posted them on the card.");
+		const questions = within(reading).getByRole("list", { name: "Questions" });
+		expect(within(questions).getAllByRole("listitem")).toHaveLength(1);
+		expect(questions.textContent).toContain(
+			"Is the list sorted by name or by date?",
+		);
+		expect(questions.textContent).toContain("Answer By date, newest first");
+		expect(questions.textContent).toContain(
+			"Because The page beside it sorts so",
+		);
+		expect(within(reading).queryByRole("list", { name: "Missing" })).toBeNull();
+	});
+
+	test("a card read as too thin lists what it lacks, and one read as ready nothing more", async () => {
+		open(() =>
+			Promise.resolve(
+				story({
+					state: "refused",
+					reason: "Too thin to build; it lacks: Which page shows the list",
+					reading: {
+						outcome: "too_thin",
+						questions: [],
+						missing: ["Which page shows the list"],
+						read_at: "2026-11-18T09:00:00+00:00",
+						commented: false,
+					},
+				}),
+			),
+		);
+
+		const reading = await screen.findByRole("article", { name: "The reading" });
+		expect(within(reading).getAllByText("Too thin to build")).toHaveLength(1);
+		expect(
+			within(reading).getByRole("list", { name: "Missing" }).textContent,
+		).toBe("Which page shows the list");
+		expect(
+			within(reading).queryByRole("list", { name: "Questions" }),
+		).toBeNull();
+		cleanup();
+
+		open(() =>
+			Promise.resolve(
+				story({
+					reading: {
+						outcome: "ready",
+						questions: [],
+						missing: [],
+						read_at: "2026-11-18T09:00:00+00:00",
+						commented: false,
+					},
+				}),
+			),
+		);
+		const ready = await screen.findByRole("article", { name: "The reading" });
+		expect(within(ready).getByText("Ready to build")).toBeTruthy();
+		expect(within(ready).queryAllByRole("list")).toHaveLength(0);
+	});
+
+	test("a card not read yet shows no reading", async () => {
+		open(() => Promise.resolve(story()));
+		await screen.findByRole("heading", { name: "Add the empty state" });
+		expect(screen.queryByRole("article", { name: "The reading" })).toBeNull();
 	});
 
 	test("names no feature when it is a card on its own", async () => {

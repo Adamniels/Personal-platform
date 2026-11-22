@@ -66,6 +66,7 @@ public static class StopText
         {
             "review" => "Review",
             "fix" => "Fix",
+            "read" => "Reading",
             _ => "Build",
         };
         var ended = run.Result switch

@@ -674,6 +674,7 @@ def test_a_change_on_a_features_branch_stops_the_project(
     )
     assert given.status == 200, given.text()
     _read(page, base_url, project)
+    _fake_read(page, base_url, project, [_ready(61), _ready(62)])
 
     # The feature's first card is handed out, so the app makes its branch,
     # and the next read begins the branch's watch at its creation.
@@ -1628,6 +1629,7 @@ def test_a_features_cards_are_built_in_order(
         f"/devflow/api/projects/{project}/refresh", headers={"Origin": base_url}
     )
     assert refreshed.status == 204, refreshed.text()
+    _fake_read(page, base_url, project, [_ready(62), _ready(61), _ready(63)])
 
     # The fake worker takes the project's next job and keeps it running: the
     # feature's first card, on a branch of its own from the feature's.
@@ -1678,6 +1680,151 @@ def test_a_features_cards_are_built_in_order(
     ):
         check(page)
     capture(page, "devflow-feature-building")
+
+
+def test_a_feature_is_read_before_it_is_built(
+    page: Page,
+    invite_code: str,
+    base_url: str,
+    viewport: str,
+    devflow_world,
+    playwright,
+):
+    """Every card is read before anything is built: a labelled feature's cards
+    are read together, shown as Reading while a worker reads them and Queued
+    once the reading is back, and a card's page shows what it was read as, its
+    question with the recommendation it is built on. See "Reading a card" in
+    devflow/README.md."""
+    register_and_log_in(page, invite_code, base_url)
+    world = one_repository()
+    add_issue(world, 60, "The reading job", labels=["devflow"], sub_issues=[61, 62])
+    add_issue(world, 61, "Add the reading form")
+    add_issue(world, 62, "Show the reading")
+    add_file(
+        world,
+        ".devflow/project.json",
+        json.dumps({"version": 1, "check": CHECK, "start": "", "url": ""}).encode(),
+    )
+    _open_project(page, base_url, devflow_world, world)
+    project = page.url.rsplit("/", 1)[1]
+    given = page.request.put(
+        "/devflow/api/claude-login",
+        data={"token": CLAUDE_TOKEN},
+        headers={"Origin": base_url},
+    )
+    assert given.status == 200, given.text()
+    _read(page, base_url, project)
+
+    # A worker on the image released asks for work and is handed the reading
+    # of the whole feature, before any build: the parent as its card, and both
+    # cards to read.
+    key = _make_key(page)
+    command = (
+        page.get_by_role("region", name="Build and start the worker")
+        .locator("code")
+        .inner_text()
+    )
+    image = re.search(r"--build-arg DEVFLOW_BASE=(\S+) ", command).group(1)
+    worker_id = "0190a8f0-0000-7000-8000-0000000000f4"
+    worker = playwright.request.new_context(base_url=base_url, ignore_https_errors=True)
+    try:
+        hello = worker.post(
+            "/devflow/api/worker/hello",
+            data={
+                "worker_id": worker_id,
+                "name": "reader-worker-1",
+                "recipe_version": "1",
+                "base_image": image,
+            },
+            headers={"Authorization": f"Bearer {key}"},
+        )
+        assert hello.status == 204, hello.text()
+        asked = worker.post(
+            "/devflow/api/worker/jobs/next",
+            data={"worker_id": worker_id},
+            headers={"Authorization": f"Bearer {key}"},
+        )
+        assert asked.status == 200, asked.text()
+        job = asked.json()
+        assert (job["kind"], job["card"]["number"]) == ("read", 60)
+        assert [card["number"] for card in job["to_read"]["cards"]] == [61, 62]
+
+        # While it reads, both cards show as Reading, and nothing of the
+        # feature is handed out to another worker.
+        page.reload()
+        rows = page.get_by_role("list", name="Cards of #60", exact=True).get_by_role(
+            "listitem"
+        )
+        expect(rows).to_have_count(2)
+        expect(rows.nth(0)).to_contain_text("Reading")
+        expect(rows.nth(1)).to_contain_text("Reading")
+        again = page.request.post(
+            "/devflow/api/fake/worker/run",
+            data={"project_id": project, "keep_running": True},
+            headers={"Origin": base_url},
+        )
+        assert again.status == 204, again.text()
+
+        # The reading comes back: 61 ready, 62 with a question.
+        question = {
+            "number": 62,
+            "outcome": "questions",
+            "questions": [
+                {
+                    "question": "Does the reading show on the list or on the card's page?",
+                    "recommendation": "On the card's page, with its state on the list",
+                    "why": "The list stays one line a card",
+                }
+            ],
+            "missing": [],
+        }
+        result = worker.post(
+            f"/devflow/api/worker/jobs/{job['job_id']}/result",
+            data={
+                "worker_id": worker_id,
+                "outcome": "succeeded",
+                "report": _reading([_ready(61), question]),
+                "failure": None,
+                "check": None,
+                "branch": job["branch"],
+                "head_commit": None,
+                "auth_method": "oauth_token",
+                "usage": {"num_turns": 6},
+                "duration_ms": 52000,
+                "stderr": "",
+            },
+            headers={"Authorization": f"Bearer {key}"},
+        )
+        assert result.status == 204, result.text()
+    finally:
+        worker.dispose()
+
+    page.reload()
+    rows = page.get_by_role("list", name="Cards of #60", exact=True).get_by_role(
+        "listitem"
+    )
+    expect(rows.nth(0)).to_contain_text("Queued")
+    expect(rows.nth(1)).to_contain_text("Queued")
+
+    # The card's page shows its reading: built on the recommendation, the
+    # question with the answer chosen and why, and the reading among its runs.
+    page.goto(f"/devflow/projects/{project}/cards/62")
+    reading = page.get_by_role("article", name="The reading")
+    expect(reading).to_contain_text("Built on the recommendations")
+    questions = reading.get_by_role("list", name="Questions")
+    expect(questions.get_by_role("listitem")).to_have_count(1)
+    expect(questions).to_contain_text(
+        "Does the reading show on the list or on the card's page?"
+    )
+    expect(questions).to_contain_text(
+        "Answer On the card's page, with its state on the list"
+    )
+    expect(questions).to_contain_text("Because The list stays one line a card")
+    runs = page.get_by_role("list", name="Runs").get_by_role("listitem")
+    expect(runs).to_have_count(1)
+    expect(runs.first).to_contain_text("Reading")
+    expect(runs.first).to_contain_text("Succeeded")
+    _look(page, "devflow-card-reading")
 
 
 RECIPE = b"ARG DEVFLOW_BASE\nFROM ${DEVFLOW_BASE}\nRUN apt-get update\n"
@@ -1908,6 +2055,45 @@ CARD_TITLE = "Add the empty state"
 CHECK = "npm ci && npm test"
 
 
+def _reading(cards: list[dict]) -> dict:
+    """A reading in its form of `cards`, with a note of the code they touch."""
+    return {
+        "cards": cards,
+        "touches": "web/src/list.tsx: the habits list the cards change.",
+    }
+
+
+def _ready(number: int) -> dict:
+    """A card read as ready to build."""
+    return {"number": number, "outcome": "ready", "questions": [], "missing": []}
+
+
+def _fake_read(page: Page, base_url: str, project: str, cards: list[dict]) -> dict:
+    """The fake worker takes the project's next job, a reading, and ends it
+    with `cards` read, as a reader hands them back: before anything is built,
+    each card is read. What it answered."""
+    ran = page.request.post(
+        "/devflow/api/fake/worker/run",
+        data={
+            "project_id": project,
+            "result": {
+                "outcome": "succeeded",
+                "report": _reading(cards),
+                "failure": None,
+                "check": None,
+                "auth_method": "oauth_token",
+                "usage": {"num_turns": 4},
+                "duration_ms": 41000,
+                "stderr": "",
+            },
+        },
+        headers={"Origin": base_url},
+    )
+    assert ran.status == 200, ran.text()
+    assert ran.json()["kind"] == "read", ran.text()
+    return ran.json()
+
+
 def _report() -> dict:
     """A report in its form, as an agent hands one back, with a decision for
     the owner beside one that is not."""
@@ -1946,8 +2132,9 @@ def _report() -> dict:
 
 def _card_project(page: Page, base_url: str, devflow_world) -> str:
     """Connects a repository with one card the owner labelled and the project's
-    .devflow/project.json, gives Dev flow a Claude login, and reads the project
-    so the card is picked. The project's id."""
+    .devflow/project.json, gives Dev flow a Claude login, reads the project so
+    the card is picked, and has the fake worker read the card as ready, so its
+    build is the next job. The project's id."""
     world = one_repository()
     add_issue(world, CARD, CARD_TITLE, labels=["devflow"])
     add_file(
@@ -1967,6 +2154,7 @@ def _card_project(page: Page, base_url: str, devflow_world) -> str:
         f"/devflow/api/projects/{project}/refresh", headers={"Origin": base_url}
     )
     assert refreshed.status == 204, refreshed.text()
+    _fake_read(page, base_url, project, [_ready(CARD)])
     return project
 
 
@@ -2208,9 +2396,9 @@ def test_a_cards_page_tells_its_story(
 
     # Its runs, newest first: the review, then the build with its kind,
     # worker, outcome, auth method, tokens and the check, with the output's
-    # tail behind Show.
+    # tail behind Show, then the reading that read it before it was built.
     runs = page.get_by_role("list", name="Runs")
-    expect(runs.get_by_role("listitem")).to_have_count(2)
+    expect(runs.get_by_role("listitem")).to_have_count(3)
     expect(runs.get_by_role("listitem").first).to_contain_text("Review")
     run = runs.get_by_role("listitem").nth(1)
     expect(run).to_contain_text("Build")
@@ -2219,6 +2407,7 @@ def test_a_cards_page_tells_its_story(
     expect(run).to_contain_text("oauth_token")
     expect(run).to_contain_text("41 in, 6,113 out")
     expect(run).to_contain_text(f"exit 0 on {ran['head_commit'][:7]}")
+    expect(runs.get_by_role("listitem").nth(2)).to_contain_text("Reading")
     expect(run.get_by_text("Tests: 12 passed")).to_be_hidden()
     run.get_by_role("button", name="Show").click()
     expect(run.get_by_text("Tests: 12 passed")).to_be_visible()
@@ -2625,7 +2814,7 @@ def test_a_card_with_changes_is_fixed_and_reviewed_again(
     expect(reviews).to_contain_text(f"Review of {ran['head_commit'][:7]}")
     expect(reviews).to_contain_text("For an older commit, so it does not count")
     runs = page.get_by_role("list", name="Runs").get_by_role("listitem")
-    expect(runs).to_have_count(4)
+    expect(runs).to_have_count(5)
     expect(runs.nth(1)).to_contain_text("Fix")
 
     page.evaluate("document.fonts.ready.then(() => null)")
@@ -2979,6 +3168,9 @@ def test_a_card_marked_for_my_review_waits(
         f"/devflow/api/projects/{project}/refresh", headers={"Origin": base_url}
     )
     assert refreshed.status == 204, refreshed.text()
+    # Each card on its own is read alone, the older first.
+    _fake_read(page, base_url, project, [_ready(CARD)])
+    _fake_read(page, base_url, project, [_ready(OTHER_CARD)])
 
     # Both built with nothing marked for the owner, CI green, and approved.
     plain = [decision | {"for_owner": False} for decision in _report()["decisions"]]
@@ -3258,6 +3450,7 @@ def test_a_features_card_lands_in_its_branch(
         f"/devflow/api/projects/{project}/refresh", headers={"Origin": base_url}
     )
     assert refreshed.status == 204, refreshed.text()
+    _fake_read(page, base_url, project, [_ready(61), _ready(62)])
 
     # The fake worker builds the first card with a passing check, on a branch
     # of its own from the feature's, and its pull request goes into the
@@ -3387,6 +3580,7 @@ def _landed_feature(
         f"/devflow/api/projects/{project}/refresh", headers={"Origin": base_url}
     )
     assert refreshed.status == 204, refreshed.text()
+    _fake_read(page, base_url, project, [_ready(61), _ready(62), _ready(63)])
 
     pictures = {
         "plan-desktop": png(640, 400, (96, 140, 200)),
@@ -3646,6 +3840,7 @@ def test_a_finished_feature_gets_its_pull_request(
         f"/devflow/api/projects/{project}/refresh", headers={"Origin": base_url}
     )
     assert refreshed.status == 204, refreshed.text()
+    _fake_read(page, base_url, project, [_ready(61)])
 
     # The fake worker builds the one card into its own branch from the
     # feature's, with a passing check.
@@ -3771,6 +3966,7 @@ def test_a_conflict_is_resolved_by_an_agent(
         f"/devflow/api/projects/{project}/refresh", headers={"Origin": base_url}
     )
     assert refreshed.status == 204, refreshed.text()
+    _fake_read(page, base_url, project, [_ready(61)])
 
     # The fake worker builds the one card; meanwhile I push to main, and the
     # project is read, so the watch judges my push fine.
@@ -3869,15 +4065,16 @@ def test_a_conflict_is_resolved_by_an_agent(
     assert workers.status == 200, workers.text()
     assert workers.json()["held"] is None
 
-    # Its page shows the run that resolved it.
+    # Its page shows the run that resolved it, newest first, after the reading
+    # of its cards.
     page.goto(f"/devflow/projects/{project}/features/60")
     feature = page.get_by_role("article", name="The feature")
     expect(feature).to_contain_text("Reviewing")
     runs = page.get_by_role("article", name="Runs").get_by_role(
         "list", name="Runs of the feature"
     )
-    run = runs.get_by_role("listitem")
-    expect(run).to_have_count(1)
+    expect(runs.get_by_role("listitem")).to_have_count(2)
+    run = runs.get_by_role("listitem").first
     expect(run).to_contain_text("Conflict")
     expect(run).to_contain_text("Succeeded")
     expect(run).to_contain_text(f"on {resolved.json()['head_commit'][:7]}")
@@ -3912,6 +4109,7 @@ def _published_feature(page: Page, base_url: str, devflow_world) -> tuple[str, i
         f"/devflow/api/projects/{project}/refresh", headers={"Origin": base_url}
     )
     assert refreshed.status == 204, refreshed.text()
+    _fake_read(page, base_url, project, [_ready(61)])
 
     # The fake worker builds the one card; meanwhile I push to main, and the
     # project is read, so the watch judges my push fine.
@@ -4270,6 +4468,7 @@ def _reviewed_feature(
         f"/devflow/api/projects/{project}/refresh", headers={"Origin": base_url}
     )
     assert refreshed.status == 204, refreshed.text()
+    _fake_read(page, base_url, project, [_ready(61)])
 
     # The fake worker builds the one card; meanwhile I push to main, and the
     # project is read, so the watch judges my push fine.

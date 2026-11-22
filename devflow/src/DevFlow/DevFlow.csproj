@@ -23,6 +23,7 @@
     <EmbeddedResource Include="Briefs/conflict.md" LogicalName="briefs/conflict.md" />
     <EmbeddedResource Include="Briefs/feature-reviewer.md" LogicalName="briefs/feature-reviewer.md" />
     <EmbeddedResource Include="Briefs/feature-fixer.md" LogicalName="briefs/feature-fixer.md" />
+    <EmbeddedResource Include="Briefs/reader.md" LogicalName="briefs/reader.md" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../../libs/dotnet/PlatformAuth/src/PlatformAuth/PlatformAuth.csproj" />

@@ -239,9 +239,9 @@ The Cards panel, `src/cards.tsx`, the package's `Card` titled "Cards", read from
 answer gives, each card an inset row: its number, `#12` in the mono font, a link to the issue on
 GitHub in a new tab when its address is https and plain text otherwise; its title, as text, a link
 to the card's page; its
-state as a status, "Queued" and "Held" `idle`, "Ignored" and "Stopped" `failed`, "Building",
-"Checking", "Reviewing" and "Fixing" `running`, "Waiting for you" and a feature's "Ready for you"
-`needs-you` and "Done" `done`;
+state as a status, "Queued" and "Held" `idle`, "Ignored", "Stopped" and "Too thin to build",
+a card read as too thin, `failed`, "Reading", "Building", "Checking", "Reviewing" and "Fixing"
+`running`, "Waiting for you" and a feature's "Ready for you" `needs-you` and "Done" `done`;
 and its reason under them as a caption. With none, "No cards yet. An open issue you wrote with the
 pick-up label becomes one."; a list that could not be read is an alert. Features come first, in the
 list "Features", each its parent's number linked to the issue as a card's is, its title, a link to
@@ -256,7 +256,14 @@ read an alert. Under it the package's `Card`s: "The card", its state as the Card
 shows it with its reason beside it, and the links "Issue #<number>" and "Pull request #<number>",
 each in a new tab with `rel="noreferrer"` when its address is https and plain text otherwise, with,
 between them for a card of a feature, "Feature #<number>: <title>", to the feature's page;
-"The merge", once Dev flow merged its pull request as the app, "Dev flow merged #<pull request>
+"The reading", once a reading of the card came back, see "Reading a card", its outcome as a
+status, "Ready to build" `done`, "Built on the recommendations" `idle` or "Too thin to build"
+`failed`, with "Read on <time>" beside it; for a card with questions, "The card leaves choices
+open that it does not settle, so it is built on the reader's recommendations." and "Dev flow posted
+them on the card." once its comment is there, "Dev flow posts them on the card." before, muted,
+and the list "Questions", each question an inset row with "Answer <the answer it is built on>"
+and "Because <why>" under it; and for one too thin, the list "Missing", what it lacks; every text
+the reader's, as text; "The merge", once Dev flow merged its pull request as the app, "Dev flow merged #<pull request>
 into <base> as the app, once every condition of the merge check held." and, muted, "Merge commit
 <commit> of the approved <commit>, on <time>.", both commits in the mono font; "Rounds", once the card has been sent back, the list "Rounds", newest first, each fix an inset row
 named "Round <n> of <m>", `m` the project's `fix_rounds_card` as it is now, or "Your comment" for one the owner's comment started, with its outcome as
@@ -1844,8 +1851,10 @@ address and a project's key, it introduces itself, asks for work in a loop, and 
 behind one narrow interface. What it says to Dev flow is `src/DevFlow.Protocol/`, the worker API's
 paths, its requests and their JSON, which Dev flow's worker routes take too, so a change that breaks
 either side fails to compile. Why it is built so is "Workers" in `docs/devflow-architecture.md`.
-A job Dev flow hands it, see "Jobs", it builds, see "A build job" below. The image it runs in and
-the commands that start it are "Starting a worker".
+A job Dev flow hands it, see "Jobs", it builds, see "A build job" below, reviews, see "Review", or
+reads, see "Reading a card" under "Jobs", by its kind; one of a kind it does not know is left, and
+Dev flow finds its run lost. The image it runs in and the commands that start it are "Starting a
+worker".
 
 **Its settings**, from the environment:
 
@@ -1903,7 +1912,11 @@ standard error, and how it was logged in. Two implementations:
 
   for a build, the `Write` access of `AgentRun`. A review's reviewer, `ReadOnly`, runs in the job's
   folder instead, with `--permission-mode default --permission-prompts none --allowedTools
-  Read,Grep,Glob` in place of `--permission-mode bypassPermissions`, see "Review".
+  Read,Grep,Glob` in place of `--permission-mode bypassPermissions`, see "Review". A reading's
+  reader, `ReadOnly` too, runs the same way in its copy of the branch it reads, `ReadJob` in the
+  worker's `Read/`: root clones the repository with the job's key, which only fetches, into its own
+  bare repository, the agent clones the job's branch from it through a bundle, and the reading goes
+  back with no commit and no check, see "Reading a card".
 
   never with `--bare`, which refuses the subscription token. Both get an environment built from
   nothing: `HOME`, the agent's home, `/home/agent`; `PATH`; `LANG`; `CLAUDE_CONFIG_DIR`, `.claude`
@@ -2163,7 +2176,7 @@ token removes the login.
 
 ## Jobs
 
-A job is one card, or for a conflict or a whole feature's review or fix one feature, handed to one worker, with what the worker needs
+A job is one card, or for a conflict or a whole feature's review or fix one feature, or for a reading the cards of a feature or a card on its own, handed to one worker, with what the worker needs
 for it and nothing more; a run is Dev flow's record of it, from when it was handed out to when its result came back or it was
 found lost. Why it is built so is "Handing out work" in `docs/devflow-architecture.md`. It is
 `Dispatcher`, `JobStore`, `RunStore`, `JobEndpoints` and `FakeWorkerEndpoints` in `src/DevFlow/Jobs/`,
@@ -2181,7 +2194,8 @@ then answers `204`, no work, when:
 - the worker needs a rebuild, see "Starting a worker";
 - the project's user has no Claude login, or one past `renew_by`; one due soon still works;
 - the project has no card that is `queued`, waits for nothing, and was picked with its body,
-  and, for a card of a feature, is let start by its feature, see "A feature's cards" below;
+  and, for a card of a feature, is let start by its feature, see "A feature's cards" below; such a
+  card is built only once it was read, and read first otherwise, see "Reading a card" below;
 - or the code host does not answer something a job needs: the repository's default branch,
   `.devflow/project.json` on it, valid as "The format of .devflow/" says, its clone address, the
   app's committer, a push key, or, for a feature's first card, the feature's branch. Each is logged as a warning naming what was missing, and the
@@ -2196,21 +2210,22 @@ queued; moves it to `building`; records a run for the worker; and answers `200` 
 | Field | What it is |
 |---|---|
 | `job_id` | The run's id, which the job's routes take |
-| `kind` | `build`, `review`, see "Review", `fix`, see "Fixing", `conflict`, see "A conflict" under "The end of a feature", `feature_review`, see "Reviewing a feature", or `feature_fix`, see "Fixing a feature" there |
-| `card` | `number`, `title` and `body`, as the card was picked; for a conflict or a whole feature's review or fix, the feature's parent's |
+| `kind` | `build`, `review`, see "Review", `fix`, see "Fixing", `conflict`, see "A conflict" under "The end of a feature", `feature_review`, see "Reviewing a feature", `feature_fix`, see "Fixing a feature" there, or `read`, see "Reading a card" below |
+| `card` | `number`, `title` and `body`, as the card was picked; for a conflict or a whole feature's review or fix, the feature's parent's; for a reading, the feature's parent's, or the card's on its own |
 | `repository` | `owner`, `name`, `clone_address`, where git fetches and pushes it, and `default_branch` |
 | `branch` | `devflow/<number>-<slug>`: the title lowercased, each run of anything but ASCII letters and digits one hyphen, trimmed, cut to 40 characters; `devflow/<number>` when nothing is left |
 | `base` | The branch the card's branch is made from: the default branch, or the feature's branch for a card of a feature |
 | `brief` | What the agent is asked, see "The brief" below |
-| `report_schema` | `contracts/devflow/report.schema.json`, the report's form |
-| `check` | `check` from the project's `.devflow/project.json` on its default branch, read as the app |
+| `report_schema` | `contracts/devflow/report.schema.json`, the report's form; for a review the verdict's, and for a reading `contracts/devflow/reading.schema.json`, the reading's |
+| `check` | `check` from the project's `.devflow/project.json` on its default branch, read as the app; empty for a reading, which runs none |
 | `claude_token` | The run's user's Claude token, see "Claude login" |
 | `push_key`, `push_key_expires_at` | A key the app made for this job, narrowed to fetching and pushing the repository's code, and when it stops working, an hour on |
 | `committer` | `name` and `email`, the app's bot, `<app-slug>[bot]` and `<id>+<app-slug>[bot]@users.noreply.github.com`, read once from GitHub's `GET /users/<app-slug>[bot]` and kept; `devflow-fake[bot]` with a fixed address in the fake mode |
 | `limits` | `turns` and `minutes`, the project's `run_turns` and `run_minutes` when the job was handed out, 200 and 90 by default, and `budget_usd`, 25 for every job until part 8's budget |
-| `model` | The model Claude Code runs on, given as `--model`: the project's `model_building` for a build, a fix, a conflict and a feature's fix, its `model_reviewing` for a review of a card or of a feature, `opus` by default; read when the job was handed out |
+| `model` | The model Claude Code runs on, given as `--model`: the project's `model_building` for a build, a fix, a conflict and a feature's fix, its `model_reviewing` for a review of a card or of a feature, its `model_reading` for a reading, `opus` by default; read when the job was handed out |
 | `to_resolve` | For a conflict, `feature_commit`, the commit the feature's branch is at, and `default_commit`, the default branch's commit to bring in; null on any other job |
 | `to_review_feature` | For a whole feature's review, what it reads besides the code, see "Reviewing a feature"; null on any other job |
+| `to_read` | For a reading, `cards`, each card it reads, `number`, `title` and `body` as picked, in the feature's order, which the reading must answer for each exactly once; null on any other job |
 
 The model and the limits are read from the project's settings in the transaction that takes the
 card, so the job carries them as they are then, and the run keeps them whatever is changed after;
@@ -2228,9 +2243,11 @@ order is `done`, `stopped` or held, `CardStore.HeldBackBy`. A card before it in 
 queued, ignored, under way or waiting for the owner, holds it back, and the page shows a queued card
 with no reason of its own as "Waits for #<n>, earlier in the feature", naming the nearest such card,
 computed when the cards are read and never stored. A stopped or held card holds back only itself,
-and what is blocked by it on GitHub, which waits as `waits_for` says. Between features and cards
-on their own the order above stands: reviews of cards, then of whole features, then fixes, then conflicts, then builds, each by
-priority and age.
+and what is blocked by it on GitHub, which waits as `waits_for` says; so does a card `refused` as too
+thin to build, see "Reading a card". Nothing of a feature is let start while a run of the feature
+itself is under way, its reading among them. Between features and cards on their own the order
+above stands: reviews of cards, then of whole features, then fixes, then conflicts, then readings,
+then builds, each by priority and age.
 
 **A feature's branch.** Before a build is taken, the dispatcher looks at the card it would take,
 `FeatureBranchStore.Due`; when that is a feature's card and the feature has no branch made, it
@@ -2248,6 +2265,86 @@ way on, taking the label off the parent and putting it back starts the feature a
 branch is gone. Any other refusal, or no answer, drops the claim, queues the feature again and is
 no work now. Each card of the feature is then built from the feature's branch at its head, on its
 own `devflow/<number>-<slug>`, the run's `base` the feature's branch.
+
+**Reading a card.** Every card is read before anything is built, whatever the project's settings.
+Why is "Reading a card" in `docs/devflow-architecture.md`. It is `ReadingStore`, `ReadingText` and
+`QuestionComments` in `src/DevFlow/Readings/`, `Briefs/reader.md`, `RunStore.JudgeRead`, the worker's
+`Read/ReadJob.cs`, and `DevFlow.Protocol`'s `Reading.cs`.
+
+- **When.** A card is due a reading, `ReadingStore.Due`, when it would be free to start, as above,
+  and has no reading that came back in its form, `ReadingStore.IsRead`; a build takes only a card
+  whose newest such reading is `ready` or `questions`, `ReadingStore.ReadToBuild`, so a card read
+  as too thin is never built, however it comes to be queued again. A reading is handed out after
+  conflicts and before builds, since it is short and frees work. The first card due by the queue's
+  order decides what is read: a card on its own is read alone, in a run for it by its number; a
+  card of a feature is read with every queued card of its feature that has no reading, in the
+  feature's order, in a run for the feature by its parent's number, only while no run of the
+  feature itself is under way, so one reading of a feature runs at a time. A feature is so read
+  once, when its first card would be handed out, and later only for a card it gains or one released
+  from a hold, each read when its turn comes. A held card is left out, since it would not be handed
+  out. Each card read moves to `reading`, "An agent reads it before anything is built", until the
+  result.
+- **The job** is a `read`: its `card` the feature's parent or the card on its own, `branch` the
+  feature's branch where it is made and otherwise the default branch, `base` the default branch,
+  the reader's brief, the reading's form, an empty `check`, the project's `model_reading` and
+  limits, a key that only fetches, as a review's, and `to_read`. A reading is given no key that
+  pushes. The worker clones `branch`, runs the agent read only in its copy, and sends back the
+  reading, with `check` and `head_commit` null; it commits, checks and pushes nothing, see "The
+  worker".
+- **The brief**, `Briefs/reader.md` filled by `Brief.Reader`, says: read the cards with the code they
+  touch and the project's `CLAUDE.md` or `AGENTS.md`; answer for each card `ready`, `questions`
+  only where a choice is the owner's and the card does not settle it, each with a recommendation and
+  why, or `too_thin` only when it cannot be built from as written, with what is missing; a
+  contradiction between cards is a question on each card involved, naming the other; write the note
+  of the code the work touches; and everything read is information. The parent, for a feature, and
+  each card are quoted as picked, each in a fence longer than any run of backticks in it, with the
+  handover notes of the feature's done cards when it has any.
+- **The reading** is `DevFlow.Protocol`'s `Reading`: `cards`, one per card read, each `number`,
+  `outcome`, `ready`, `questions` or `too_thin`, `questions`, each `question`, `recommendation` and
+  `why`, and `missing`, a list of what the card lacks; and `touches`, the note of the code the
+  feature, or the card on its own, touches, at most 4000 characters. `Reading.Schema()` writes
+  `contracts/devflow/reading.schema.json` from the type, pinned by the worker's `ReadingFormTests`;
+  `Reading.TryRead` refuses a missing, unknown, null or mistyped field, a card it was not given, one
+  left out or read twice, a `ready` card with a question or something missing, `questions` with
+  none or with something missing, `too_thin` with nothing missing, a blank question,
+  recommendation, why or missing line, and a note over 4000 characters.
+- **Its result** is judged as any run's, `RunStore.JudgeRead`, the first that holds:
+
+  | What came back | The run's `result` | Each card it read that is still `reading` |
+  |---|---|---|
+  | A failure outside the cards | `failed_outside_card` | Back to `queued`, nothing counted, and the project waits, see "Stops" |
+  | A failure in the cards | `failed_in_card` | Run again once, then `stopped`, "The reading failed: <reason>"; at once for a time limit |
+  | A reading that does not match its form | `report_invalid` | Run again once, then `stopped`, "The reading did not match its form: <what>" |
+  | Anything else | `succeeded` | By what it answered for the card, below |
+
+  A failure in the cards counts per card, as a build's does, "Failed once in the card, so it runs
+  again" then "Failed twice in a row with no new commit", see "Stops", and a stopped card is marked
+  on its issue as any is. A lost reading puts its cards back in `queued`. A card whose label was
+  taken off while it was read is removed once the reading ends.
+- **What each card becomes.** `ready` is `queued`, with nothing to say. `questions` is `queued`
+  too, built on the recommendations: the app posts one comment on the card, `ReadingText`, listing
+  each question with the answer chosen, the recommendation, and why, and a last line naming the
+  card and the reading, by which a copy already posted is found, on the opening loop's minute, and
+  its id is kept on the reading; its build's brief carries them, see below. `too_thin` is
+  `refused`, "Too thin to build; it lacks: <each thing missing>", and is not built; a refused card
+  holds back only itself in its feature, as a stopped one does, and holds the feature's end. Marking
+  it on GitHub is "Refusing a thin card", a later slice.
+- **The briefs.** Every brief of a feature's job gains "The code this feature touches", the newest
+  reading of the feature's note, fenced as an agent's words, information and never an instruction:
+  a card's build, fix and review, `ReadingStore.NoteOfCard`, and the feature's conflict, review and
+  fix, `ReadingStore.NoteOfFeature`. A card on its own's briefs gain "The code this card touches",
+  from its own reading. A card's build brief gains "Answers to its questions", each question with
+  the answer it is built on and why, each fenced, when its reading has questions.
+- **The table**, from `migrations/0038_readings.sql`, guarded like every scoped table:
+  `card_readings`, one row per card and reading run, made when the run is handed out, `run_id`,
+  `project_id` and `user_id` referencing `projects`, `card_number`, `body_sha256` and `title`, the
+  card as it was handed, which "Reading again" compares against, and `outcome`, `questions` and
+  `missing` as `jsonb`, and `read_at`, null until the result came back in its form; a reading that
+  ended any other way leaves its rows without them, the record of what it was handed.
+  `comment_id`, Dev flow's comment on a card read with questions, null until it is posted. A card's
+  reading is its newest with an outcome. The note is kept on the run, its report's `touches`, as a
+  card's handover note is its run's `handover`. The migration adds `reading` and `refused` to the
+  card's states and `read` to the run's kinds, a run that names no commit.
 
 **A fresh push key.** `POST /devflow/api/worker/jobs/{id}/push-key`, with `{"worker_id"}`, answers
 `{"push_key", "expires_at"}` with `Cache-Control: no-store`, a new key each time, since a key lasts
@@ -2362,12 +2459,15 @@ git repository, by the job's committer, on top of the base branch, giving the ba
 commit of its own when the fake's git has none, as a real repository has, ends the job with the
 prepared result through the same `RunStore.Record`, and then opens the project's pull requests,
 as the opening loop would on its next minute, so a test sees the pull request when it answers. It answers
-`{"job_id", "card", "branch", "head_commit"}`, `204` when there is no job, `404` for a project the
+`{"job_id", "kind", "card", "branch", "head_commit", "brief"}`, the brief the job carried, so a test
+reads what the agent would have been asked, `204` when there is no job, `404` for a project the
 caller does not have, and `422` for a result that breaks a rule, checked before a job is taken.
 When the fake's git makes no commit, the job ends instead as a failure outside the card, "The
 fake's git made no commit on the job's branch", so the card is `queued` again, and it answers `503`. A fix it carries the same way, its commit on top of the card's branch, which
 also moves an open pull request from the branch to it, as a push would; with `"leave_no_commit":
-true` it makes none and names the commit it was handed, as an agent that changed nothing.
+true` it makes none and names the commit it was handed, as an agent that changed nothing. A reading
+it ends with the prepared result, the reading as its `report`, changing nothing and naming no
+commit, and then posts the questions' comments and marks the stops, as the opening loop would.
 
 **The table**, from `migrations/0012_runs.sql`, guarded like every scoped table: `runs`, `id`,
 `project_id` and `user_id` referencing `projects`, `card_number`, by number so a removed card leaves
@@ -2596,7 +2696,8 @@ hello with, `started_at`, `finished_at`, `duration_ms`, `result`, `reason`, `in_
 failure whether it lay in the card, true for `failed_in_card`, `report_invalid`, `stopped` and
 `check_failed` and false for `failed_outside_card` and `lost`, null otherwise, `auth_method`,
 `input_tokens`, `output_tokens`, `check`, `{"exit_code", "output"}` or null when it did not run,
-and `head_commit`, for a review the commit it reviewed; `report`, the latest build's or fix's
+and `head_commit`, for a review the commit it reviewed; a reading that read the card is among them,
+its feature's for a card of a feature; `report`, the latest build's or fix's
 report that reads in its form, or null; `reviews`, newest first, each `run_id`, `commit`,
 `verdict`, `summary`, `findings`, `for_owner`, `reviewed_at`, `posted`, and `current`, whether it
 is for the card's head commit, so it counts; `rounds`, newest first, each fix as "Fixing" says:
@@ -2609,8 +2710,12 @@ pictures the worker took of the head commit, the one its newest build or fix tha
 `note`, the worker's, or null; null when that run tried none; and `merge`, the merge Dev flow made
 of its pull request as the app, `{"commit", "approved", "base", "merged_at"}`, the merge commit
 from `merges_made`, the card's head it merged, and the branch, or null when it made none, the
-owner's own merge from the page among them; and `feature`, `{"number", "title"}`, the feature it is
-a card of, as last read, or null for a card on its own. A project or
+owner's own merge from the page among them; `feature`, `{"number", "title"}`, the feature it is
+a card of, as last read, or null for a card on its own; and `reading`, what it was read as before it
+was built, its newest reading in its form, `{"outcome", "questions", "missing", "read_at",
+"commented"}`, each question `{"question", "recommendation", "why", "answer"}`, the answer the card is
+built on, the recommendation while the owner is asked none, and `commented`, whether Dev flow's
+comment of them is on the card yet; or null before a reading came back, see "Reading a card". A project or
 card the caller does not have is `404` "No such card". It is `CardStory` and `CardEndpoints` in
 `src/DevFlow/Cards/`. The page is "A card's page" under "The pages".
 

@@ -244,12 +244,18 @@ public sealed class ContractTests
     [Theory]
     [InlineData("report")]
     [InlineData("verdict")]
+    [InlineData("reading")]
     public void TheFormSchemasAreDraft07WhichClaudeCodeReads(string form)
     {
         // Claude Code's --json-schema refuses a draft it does not know, 2020-12 among them, and
         // the run fails before the agent starts; so each form says draft-07 and uses no keyword
         // that draft lacks.
-        var schema = form == "report" ? DevFlow.Protocol.Report.Schema() : DevFlow.Protocol.ReviewVerdict.Schema();
+        var schema = form switch
+        {
+            "report" => DevFlow.Protocol.Report.Schema(),
+            "verdict" => DevFlow.Protocol.ReviewVerdict.Schema(),
+            _ => DevFlow.Protocol.Reading.Schema(),
+        };
         Assert.Equal("http://json-schema.org/draft-07/schema#", (string)schema["$schema"]!);
         string[] newer = ["$defs", "$anchor", "$dynamicRef", "$dynamicAnchor", "prefixItems", "unevaluatedProperties", "unevaluatedItems", "dependentRequired", "dependentSchemas"];
         foreach (var keyword in newer)

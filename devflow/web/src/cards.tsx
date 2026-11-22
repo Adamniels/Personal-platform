@@ -27,6 +27,7 @@ export type CardsApi = {
 
 const STATES: Record<string, { word: string; tone: StatusTone }> = {
 	queued: { word: "Queued", tone: "idle" },
+	reading: { word: "Reading", tone: "running" },
 	held: { word: "Held", tone: "idle" },
 	ignored: { word: "Ignored", tone: "failed" },
 	building: { word: "Building", tone: "running" },
@@ -41,6 +42,7 @@ const STATES: Record<string, { word: string; tone: StatusTone }> = {
 	merged: { word: "Merged", tone: "done" },
 	closed: { word: "Closed", tone: "idle" },
 	stopped: { word: "Stopped", tone: "failed" },
+	refused: { word: "Too thin to build", tone: "failed" },
 };
 
 /** A card's or a feature's state as a word and a tone; one the page does not

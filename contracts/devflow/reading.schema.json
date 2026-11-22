@@ -1,0 +1,70 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Dev flow's reading",
+  "type": "object",
+  "properties": {
+    "cards": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "number": {
+            "type": "integer"
+          },
+          "outcome": {
+            "enum": [
+              "ready",
+              "questions",
+              "too_thin"
+            ]
+          },
+          "questions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "question": {
+                  "type": "string"
+                },
+                "recommendation": {
+                  "type": "string"
+                },
+                "why": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "question",
+                "recommendation",
+                "why"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "missing": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "number",
+          "outcome",
+          "questions",
+          "missing"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "touches": {
+      "type": "string",
+      "maxLength": 4000
+    }
+  },
+  "required": [
+    "cards",
+    "touches"
+  ],
+  "additionalProperties": false
+}

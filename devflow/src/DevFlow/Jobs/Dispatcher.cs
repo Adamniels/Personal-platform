@@ -54,7 +54,7 @@ public abstract record FreshKey
 /// project is stopped or its default branch not watched lately, when its project's user has no
 /// Claude login or one past its renewal, or when its project has no card to take; otherwise the
 /// kind of job is chosen, a card's review before a whole feature's before a card's fix before a
-/// whole feature's before a conflict before a build, everything that job needs from the code host is
+/// whole feature's before a conflict before a reading before a build, everything that job needs from the code host is
 /// read first, as the app, with a key for that kind, a feature's branch made for its first card,
 /// and only then is a card, or for a conflict a feature, of that kind taken, in
 /// one short transaction as the project's user, so no lock is held while GitHub is asked.
@@ -81,6 +81,9 @@ public sealed partial class Dispatcher(
 
     /// <summary>The verdict's schema as every review job carries it, written once from its type.</summary>
     private static readonly JsonElement VerdictSchema = JsonSerializer.SerializeToElement(ReviewVerdict.Schema());
+
+    /// <summary>The reading's schema as every reading job carries it, written once from its type.</summary>
+    private static readonly JsonElement ReadingSchema = JsonSerializer.SerializeToElement(Protocol.Reading.Schema());
 
     /// <summary>
     /// Why a user's project hands out no work for their Claude login, as the project's page says
@@ -128,9 +131,9 @@ public sealed partial class Dispatcher(
         }
 
         // The key is made for the kind found, before anything is taken: a review's, of a card or of a
-        // whole feature, only fetches, and a build's, a fix's, a conflict's and a feature's fix's
-        // fetch and push.
-        var purpose = kind is Job.Review or Job.FeatureReview ? WritePurpose.Fetch : WritePurpose.Push;
+        // whole feature, and a reading's only fetch, and a build's, a fix's, a conflict's and a
+        // feature's fix's fetch and push.
+        var purpose = kind is Job.Review or Job.FeatureReview or Job.Read ? WritePurpose.Fetch : WritePurpose.Push;
         if (await Facts(projectId, userId, repository, cancellationToken) is not { } facts
             || await logins.ForRun(userId, cancellationToken) is not { } token
             || await Key(projectId, userId, repository, purpose, cancellationToken) is not { } key)
@@ -178,6 +181,7 @@ public sealed partial class Dispatcher(
                 Job.Fix => FixJob(await JobStore.ClaimFix(transaction, projectId, userId, workerId, run, facts.Check, now, cancellationToken), repository, facts, run, token, key),
                 Job.FeatureFix => FeatureFixJob(await JobStore.ClaimFeatureFix(transaction, projectId, userId, workerId, run, facts.DefaultBranch, facts.Check, now, cancellationToken), repository, facts, run, token, key),
                 Job.Conflict => ConflictJob(await JobStore.ClaimConflict(transaction, projectId, userId, workerId, run, due!, facts.DefaultBranch, facts.Check, now, cancellationToken), repository, facts, run, token, key, files),
+                Job.Read => ReadJob(await Readings.ReadingStore.Claim(transaction, projectId, userId, workerId, run, facts.DefaultBranch, now, cancellationToken), repository, facts, run, token, key),
                 _ => BuildJob(await JobStore.Claim(transaction, projectId, userId, workerId, run, facts.DefaultBranch, facts.Check, now, cancellationToken), repository, facts, run, token, key),
             };
         }, cancellationToken);
@@ -206,7 +210,8 @@ public sealed partial class Dispatcher(
             new BriefFacts(facts.Check, claimed.Branch, claimed.Base, claimed.RunId, facts.Start, facts.Url),
             claimed.Comments,
             claimed.Feature,
-            claimed.SentBack);
+            claimed.SentBack,
+            claimed.Reading);
         return new Job(
             claimed.RunId,
             Job.Build,
@@ -225,6 +230,37 @@ public sealed partial class Dispatcher(
             run.ModelFor(Job.Build),
             Start: facts.Start,
             Url: facts.Url);
+    }
+
+    /// <summary>The reading job for the cards taken to read, or null when none were: the feature's
+    /// parent or the card on its own as its card, on the branch whose code is read, from the default
+    /// branch, with the reader's brief, the reading's form, no check, the reading model, and every
+    /// card to read as picked.</summary>
+    private static Job? ReadJob(Readings.ClaimedRead? claimed, Repository repository, RepositoryFacts facts, RunSettings run, ClaudeToken token, AppWriteToken key)
+    {
+        if (claimed is null)
+        {
+            return null;
+        }
+
+        var brief = Brief.Reader(claimed.Feature, claimed.Cards, new ReaderFacts(claimed.Branch));
+        return new Job(
+            claimed.RunId,
+            Job.Read,
+            new JobCard(claimed.Card.Number, claimed.Card.Title, claimed.Card.Body),
+            new JobRepository(repository.Owner, repository.Name, facts.CloneAddress, facts.DefaultBranch),
+            claimed.Branch,
+            claimed.Base,
+            brief,
+            ReadingSchema,
+            "",
+            token.Value,
+            key.Value,
+            key.ExpiresAt,
+            new JobCommitter(facts.Committer.Name, facts.Committer.Email),
+            run.Limits,
+            run.ModelFor(Job.Read),
+            ToRead: new JobRead([.. claimed.Cards.Select(card => new JobCard(card.Number, card.Title, card.Body))]));
     }
 
     /// <summary>The conflict job for a feature taken to resolve, or null when none was: on the
@@ -337,7 +373,8 @@ public sealed partial class Dispatcher(
             new BriefCard(claimed.Number, claimed.Title, claimed.Body),
             new BriefFacts(facts.Check, claimed.Branch, claimed.Base, claimed.RunId, facts.Start, facts.Url),
             new FixInput(claimed.Round, claimed.Report, claimed.Review?.Verdict, claimed.Comments, run.FixRoundsCard),
-            claimed.Feature);
+            claimed.Feature,
+            claimed.Reading);
         return new Job(
             claimed.RunId,
             Job.Fix,
@@ -370,7 +407,7 @@ public sealed partial class Dispatcher(
         }
 
         var card = new BriefCard(claimed.Number, claimed.Title, claimed.Body);
-        var brief = Brief.Reviewer(card, new ReviewFacts(claimed.Commit, claimed.Branch, claimed.Base, claimed.Earlier.Count), claimed.Feature);
+        var brief = Brief.Reviewer(card, new ReviewFacts(claimed.Commit, claimed.Branch, claimed.Base, claimed.Earlier.Count), claimed.Feature, claimed.Reading);
         using var report = JsonDocument.Parse(claimed.Report);
         return new Job(
             claimed.RunId,

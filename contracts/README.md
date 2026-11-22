@@ -136,10 +136,14 @@ flow is C#, so this is the same pin as `review/`.
   the agent, written by `DevFlow.Protocol`'s `ReviewVerdict.Schema()` the same way. It has no field
   for a commit, since a verdict is for the commit the worker reviewed. See "Review" in
   `devflow/README.md`.
+- `reading.schema.json`: the JSON Schema of a reader agent's reading, which every reading job hands
+  the agent, written by `DevFlow.Protocol`'s `Reading.Schema()` the same way, with the note's
+  `maxLength` of 4000 added. See "Jobs" in `devflow/README.md`.
 
 Dev flow's `ContractTests` check that the app still generates exactly these bytes, as review's do,
 and that `Report.Schema()` and `ReviewVerdict.Schema()` still write exactly `report.schema.json` and
-`verdict.schema.json`.
+`verdict.schema.json`; the worker's `ReadingFormTests` check that `Reading.Schema()` still writes
+exactly `reading.schema.json`.
 From `devflow/`:
 
 ```zsh

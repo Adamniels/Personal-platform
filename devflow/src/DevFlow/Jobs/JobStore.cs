@@ -31,7 +31,9 @@ namespace DevFlow.Jobs;
 /// card on its own.</param>
 /// <param name="SentBack">What it was sent back with after it landed in its feature's branch, null
 /// for a card never sent back.</param>
-public sealed record ClaimedCard(Guid RunId, int Number, string Title, string Body, string Branch, IReadOnlyList<string> Comments, string Base, BriefFeature? Feature = null, BriefSentBack? SentBack = null);
+/// <param name="Reading">What its reading gives its brief: the note of the code its work touches and
+/// the answers to its questions.</param>
+public sealed record ClaimedCard(Guid RunId, int Number, string Title, string Body, string Branch, IReadOnlyList<string> Comments, string Base, BriefFeature? Feature = null, BriefSentBack? SentBack = null, BriefReading? Reading = null);
 
 /// <summary>A card taken for its review, with the run made for it and what the review reads of the
 /// build that made the commit.</summary>
@@ -50,7 +52,8 @@ public sealed record ClaimedCard(Guid RunId, int Number, string Title, string Bo
 /// <param name="Screenshots">The pictures the worker took of the commit, and its note; null when
 /// it tried none.</param>
 /// <param name="Feature">The feature it is a card of, null for a card on its own.</param>
-public sealed record ClaimedReview(Guid RunId, int Number, string Title, string Body, string Branch, string Base, string Commit, string Report, string? Check, int CheckExitCode, string CheckOutput, IReadOnlyList<EarlierRound> Earlier, ResultScreenshots? Screenshots = null, BriefFeature? Feature = null);
+/// <param name="Reading">The note of the code its work touches, from its reading.</param>
+public sealed record ClaimedReview(Guid RunId, int Number, string Title, string Body, string Branch, string Base, string Commit, string Report, string? Check, int CheckExitCode, string CheckOutput, IReadOnlyList<EarlierRound> Earlier, ResultScreenshots? Screenshots = null, BriefFeature? Feature = null, BriefReading? Reading = null);
 
 /// <summary>An earlier round of a card as stored: a fix that succeeded, the review it answered, and
 /// its replies. Its texts are as they were stored.</summary>
@@ -79,7 +82,8 @@ public sealed record EarlierRound(int? Round, string? ReviewedCommit, string? Ve
 /// <param name="Comments">The owner's comments the fix answers, each exactly as he wrote it.</param>
 /// <param name="Feature">The feature it is a card of, with what its done cards left, null for a
 /// card on its own.</param>
-public sealed record ClaimedFix(Guid RunId, int Number, string Title, string Body, string Branch, string Base, string FromCommit, int? Round, string? Report, KeptReview? Review, IReadOnlyList<string> Comments, BriefFeature? Feature = null);
+/// <param name="Reading">The note of the code its work touches, from its reading.</param>
+public sealed record ClaimedFix(Guid RunId, int Number, string Title, string Body, string Branch, string Base, string FromCommit, int? Round, string? Report, KeptReview? Review, IReadOnlyList<string> Comments, BriefFeature? Feature = null, BriefReading? Reading = null);
 
 /// <summary>A feature taken to resolve its conflict with the default branch, with the run made for
 /// it.</summary>
@@ -147,15 +151,17 @@ public static class JobStore
 
     /// <summary>
     /// What lets a card of a feature start, as SQL over <c>cards</c>, and nothing for a card on its
-    /// own: its feature is queued or building, no card of the feature has a run under way, and no
-    /// card before it holds it back, <see cref="CardStore.HeldBackBy"/>. So one card of a feature
-    /// runs at a time, the first by position free to start, and a second worker asking meanwhile
-    /// finds the feature's next card held back by the one it took. See "A feature's cards, one at
-    /// a time" in devflow/docs/devflow-architecture.md.
+    /// own: its feature is queued or building, no card of the feature has a run under way, nor the
+    /// feature itself, a reading of it among them, and no card before it holds it back,
+    /// <see cref="CardStore.HeldBackBy"/>. So one card of a feature runs at a time, the first by
+    /// position free to start, a second worker asking meanwhile finds the feature's next card held
+    /// back by the one it took, and nothing of a feature is built while it is read. See "A feature's
+    /// cards, one at a time" in devflow/docs/devflow-architecture.md.
     /// </summary>
     private const string FeatureLetsItStart = $"""
         (cards.feature_id IS NULL OR (
-            EXISTS (SELECT 1 FROM features f WHERE f.id = cards.feature_id AND f.state IN ('queued', 'building'))
+            EXISTS (SELECT 1 FROM features f WHERE f.id = cards.feature_id AND f.state IN ('queued', 'building')
+                    AND NOT EXISTS (SELECT 1 FROM runs fr WHERE fr.project_id = f.project_id AND fr.feature_number = f.number AND fr.finished_at IS NULL))
             AND {CardStore.HeldBackBy} IS NULL
             AND NOT EXISTS (SELECT 1 FROM runs r JOIN cards s ON s.project_id = r.project_id AND s.number = r.card_number
                             WHERE r.project_id = cards.project_id AND s.feature_id = cards.feature_id AND r.finished_at IS NULL)))
@@ -176,11 +182,16 @@ public static class JobStore
         AND {Watching.WatchStore.FeatureWatchedSql}
         """;
 
-    /// <summary>What makes a card one to hand out, as SQL over <c>cards</c>: free to start, and,
+    /// <summary>What makes a card one to build, as SQL over <c>cards</c>: free to start and read as
+    /// one to build, <see cref="Readings.ReadingStore.ReadToBuild"/>, since nothing is built before
+    /// its card is read, and a card read as too thin never is.</summary>
+    internal const string Buildable = $"{FreeToStart} AND {Readings.ReadingStore.ReadToBuild}";
+
+    /// <summary>What makes a card one to hand out, as SQL over <c>cards</c>: one to build, and,
     /// for a card of a feature, its feature's branch made, which <see cref="FeatureBranchStore"/>
     /// records before the card is taken.</summary>
     private const string Takeable = $"""
-        {FreeToStart}
+        {Buildable}
         AND (cards.feature_id IS NULL
              OR EXISTS (SELECT 1 FROM features f WHERE f.id = cards.feature_id AND f.branch_base_commit IS NOT NULL))
         """;
@@ -351,8 +362,10 @@ public static class JobStore
     /// <summary>The kind of job the project has to hand out now, <see cref="DevFlow.Protocol.Job.Review"/>,
     /// then <see cref="DevFlow.Protocol.Job.FeatureReview"/>, then <see cref="DevFlow.Protocol.Job.Fix"/>,
     /// then <see cref="DevFlow.Protocol.Job.FeatureFix"/>, then <see cref="DevFlow.Protocol.Job.Conflict"/>,
-    /// then <see cref="DevFlow.Protocol.Job.Build"/>, so work in progress finishes before new work
-    /// starts; null when it has none. A build counts a
+    /// then <see cref="DevFlow.Protocol.Job.Read"/>, then <see cref="DevFlow.Protocol.Job.Build"/>, so
+    /// work in progress finishes before new work starts, and a reading, which is short and frees work,
+    /// before any build; null when it has none. A build counts only a card that was read, and a
+    /// reading one free to start that was not, <see cref="Readings.ReadingStore.Due"/>. A build counts a
     /// card of a feature whose branch is still to be made, which the dispatcher makes first; a card
     /// of a feature whose branch has not been read since five minutes before <paramref name="now"/>
     /// counts for none. Read without a lock, so a worker with nothing to do costs Dev flow one query and GitHub
@@ -367,7 +380,8 @@ public static class JobStore
                         WHEN EXISTS (SELECT 1 FROM cards WHERE {Fixable}) THEN 'fix'
                         WHEN EXISTS (SELECT 1 FROM features WHERE {FeatureFixable}) THEN 'feature_fix'
                         WHEN EXISTS (SELECT 1 FROM features WHERE {Resolvable}) THEN 'conflict'
-                        WHEN EXISTS (SELECT 1 FROM cards WHERE {FreeToStart}) THEN 'build' END
+                        WHEN EXISTS (SELECT 1 FROM cards WHERE {Readings.ReadingStore.Due}) THEN 'read'
+                        WHEN EXISTS (SELECT 1 FROM cards WHERE {Buildable}) THEN 'build' END
             """,
             new { projectId, watchedSince = Watching.WatchStore.WatchedSince(now) },
             transaction,
@@ -416,7 +430,8 @@ public static class JobStore
         var earlier = await Earlier(transaction, projectId, card.Number, cancellationToken);
         var claimed = new ClaimedReview(
             Guid.CreateVersion7(now), card.Number, card.Title, card.Body, card.Branch, card.Base, card.Commit, card.Report, card.Check, card.CheckExitCode, card.CheckOutput ?? "", earlier,
-            Pictures(card.Screenshots, card.ScreenshotsNote), await FeatureOf(transaction, projectId, card.Number, cancellationToken));
+            Pictures(card.Screenshots, card.ScreenshotsNote), await FeatureOf(transaction, projectId, card.Number, cancellationToken),
+            new BriefReading(await Readings.ReadingStore.NoteOfCard(transaction, projectId, card.Number, cancellationToken), []));
         await transaction.Connection!.ExecuteAsync(new CommandDefinition(
             """
             INSERT INTO runs (id, project_id, user_id, card_number, worker_id, kind, branch, base, check_command, head_commit, started_at, run_minutes)
@@ -497,7 +512,8 @@ public static class JobStore
         var review = card.ReviewId is { } reviewId ? await ReviewStore.Of(transaction, reviewId, cancellationToken) : null;
         var comments = JsonSerializer.Deserialize<List<string>>(card.Comments) ?? [];
         var claimed = new ClaimedFix(Guid.CreateVersion7(now), card.Number, card.Title, card.Body, card.Branch, card.Base, card.FromCommit, card.Round, card.Report, review, comments,
-            await FeatureOf(transaction, projectId, card.Number, cancellationToken));
+            await FeatureOf(transaction, projectId, card.Number, cancellationToken),
+            new BriefReading(await Readings.ReadingStore.NoteOfCard(transaction, projectId, card.Number, cancellationToken), []));
         await transaction.Connection!.ExecuteAsync(new CommandDefinition(
             """
             INSERT INTO runs (id, project_id, user_id, card_number, worker_id, kind, branch, base, check_command, from_commit, fix_round,
@@ -595,7 +611,9 @@ public static class JobStore
             transaction,
             cancellationToken: cancellationToken));
         var claimed = new ClaimedConflict(
-            Guid.CreateVersion7(now), new BriefFeature(feature.Number, feature.Title, feature.Body, [.. done]), feature.Branch, defaultBranch,
+            Guid.CreateVersion7(now),
+            new BriefFeature(feature.Number, feature.Title, feature.Body, [.. done], await Readings.ReadingStore.NoteOfFeature(transaction, projectId, feature.Number, cancellationToken)),
+            feature.Branch, defaultBranch,
             feature.FeatureCommit, feature.DefaultCommit);
         await transaction.Connection!.ExecuteAsync(new CommandDefinition(
             """
@@ -711,7 +729,7 @@ public static class JobStore
             cancellationToken: cancellationToken));
         var claimed = new ClaimedFeatureReview(
             Guid.CreateVersion7(now),
-            new BriefFeature(feature.Number, feature.Title, feature.Body, []),
+            new BriefFeature(feature.Number, feature.Title, feature.Body, [], await Readings.ReadingStore.NoteOfFeature(transaction, projectId, feature.Number, cancellationToken)),
             feature.Branch,
             defaultBranch,
             feature.Commit,
@@ -815,7 +833,9 @@ public static class JobStore
         var review = feature.ReviewId is { } reviewId ? await FeatureReviewStore.Of(transaction, reviewId, cancellationToken) : null;
         var comments = JsonSerializer.Deserialize<List<string>>(feature.Comments) ?? [];
         var claimed = new ClaimedFeatureFix(
-            Guid.CreateVersion7(now), new BriefFeature(feature.Number, feature.Title, feature.Body, [.. done]), feature.Branch, defaultBranch,
+            Guid.CreateVersion7(now),
+            new BriefFeature(feature.Number, feature.Title, feature.Body, [.. done], await Readings.ReadingStore.NoteOfFeature(transaction, projectId, feature.Number, cancellationToken)),
+            feature.Branch, defaultBranch,
             feature.FromCommit, feature.Round, feature.Report, review, comments);
         await transaction.Connection!.ExecuteAsync(new CommandDefinition(
             """
@@ -906,7 +926,10 @@ public static class JobStore
             ? new BriefSentBack(from, card.Report, JsonSerializer.Deserialize<List<string>>(card.SentBackComments) ?? [])
             : null;
         var claimed = new ClaimedCard(Guid.CreateVersion7(now), card.Number, card.Title, card.Body, Branch(card.Number, card.Title, card.SentBacks), comments, card.FeatureBranch ?? baseBranch,
-            await FeatureOf(transaction, projectId, card.Number, cancellationToken), sentBack);
+            await FeatureOf(transaction, projectId, card.Number, cancellationToken), sentBack,
+            new BriefReading(
+                await Readings.ReadingStore.NoteOfCard(transaction, projectId, card.Number, cancellationToken),
+                await Readings.ReadingStore.Answers(transaction, projectId, card.Number, cancellationToken)));
         // The run keeps every comment of his its brief quotes as his input: what sent it back, then
         // what ran it again.
         List<string> input = [.. sentBack?.Comments ?? [], .. comments];

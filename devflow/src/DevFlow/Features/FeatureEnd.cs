@@ -29,7 +29,7 @@ public static class FeatureEnd
 {
     /// <summary>The states of a card that is not done and holds its feature's end, since nothing
     /// moves it on without the owner.</summary>
-    private static readonly string[] Holding = ["stopped", "held", "waiting_for_owner", "ignored"];
+    private static readonly string[] Holding = ["stopped", "refused", "held", "waiting_for_owner", "ignored"];
 
     /// <summary>The states of a feature whose end this decides: building, waiting for the owner or
     /// ready at its end, and reviewing, which only a card not done moves.</summary>
@@ -56,6 +56,7 @@ public static class FeatureEnd
     private static string Word(string state) => state switch
     {
         "stopped" => "is stopped",
+        "refused" => "is too thin to build",
         "held" => "is held",
         "waiting_for_owner" => "waits for you",
         "ignored" => "is ignored",
