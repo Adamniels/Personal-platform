@@ -133,6 +133,40 @@ public sealed class RefusalTests
     }
 
     [Fact]
+    public async Task ItWaitsUnderRefused()
+    {
+        await using var jobs = await Jobs.Jobs.Start([Jobs.Jobs.Card(1, "Add the empty state")], read: false);
+        var (_, before) = await Built.Get(jobs, "/devflow/api/waiting");
+        var (_, display) = await Built.Get(jobs, "/devflow/api/display");
+        Assert.False((bool)(await Built.Get(jobs, "/devflow/api/attention")).Body!["attention"]!);
+
+        await Read(jobs, Prepared(ReadJobTests.Reading(Thin(1, "Which page shows the list", "What an empty list says"))));
+
+        // Listed under its own key, with its issue, where an edit or a comment reads it again, and
+        // what is missing; counted in the tab, the nav's dot and the front page.
+        var (_, list) = await Built.Get(jobs, "/devflow/api/waiting");
+        var refused = Assert.Single(list!["refused_cards"]!.AsArray())!;
+        Assert.Equal(jobs.Project, (Guid)refused["project_id"]!);
+        Assert.Equal(("Adamniels", "Personal-platform"), ((string)refused["owner"]!, (string)refused["project_name"]!));
+        Assert.Equal((1, "Add the empty state"), ((int)refused["number"]!, (string)refused["title"]!));
+        Assert.Equal("https://github.com/Adamniels/Personal-platform/issues/1", (string)refused["web_url"]!);
+        Assert.Equal(["Which page shows the list", "What an empty list says"], refused["missing"]!.AsArray().Select(line => (string)line!));
+        Assert.NotNull((string?)refused["refused_at"]);
+        Assert.Empty(list["stopped_cards"]!.AsArray());
+        Assert.Equal((int)before!["count"]! + 1, (int)list["count"]!);
+        Assert.True((bool)(await Built.Get(jobs, "/devflow/api/attention")).Body!["attention"]!);
+        Assert.Equal((int)display!["waiting"]! + 1, (int)(await Built.Get(jobs, "/devflow/api/display")).Body!["waiting"]!);
+
+        // Once his edit reads it again, it is no longer listed.
+        jobs.Routes.Time.Advance(TimeSpan.FromMinutes(1));
+        Edit(jobs, 1, Jobs.Jobs.Owner, body: "Show \"No habits yet\" on the habits list when it is empty.");
+        await jobs.Routes.Read(jobs.Project, User);
+        (_, list) = await Built.Get(jobs, "/devflow/api/waiting");
+        Assert.Empty(list!["refused_cards"]!.AsArray());
+        Assert.Equal((int)before["count"]!, (int)list["count"]!);
+    }
+
+    [Fact]
     public async Task MyEditReadsItAgain()
     {
         await using var jobs = await RefusedCard();

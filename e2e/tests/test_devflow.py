@@ -2967,6 +2967,106 @@ def test_a_stopped_card_tells_me_why_and_i_run_it_again(
     )
 
 
+def _thin(number: int, missing: list[str]) -> dict:
+    """A card read as too thin to build, lacking `missing`."""
+    return {
+        "number": number,
+        "outcome": "too_thin",
+        "questions": [],
+        "missing": missing,
+    }
+
+
+THIN = ["Which page shows the list", "What an empty list says"]
+
+
+def test_a_thin_card_is_refused_and_read_again(
+    page: Page, invite_code: str, base_url: str, viewport: str, devflow_world
+):
+    """A card read as too thin is refused: marked on its issue, listed under
+    Refused on "Waiting for you" with what is missing, and read again once I
+    edit it. See "Reading a card" under "Jobs" in devflow/README.md."""
+    register_and_log_in(page, invite_code, base_url)
+    world = one_repository()
+    add_issue(world, CARD, CARD_TITLE, labels=["devflow"])
+    add_file(
+        world,
+        ".devflow/project.json",
+        json.dumps({"version": 1, "check": CHECK, "start": "", "url": ""}).encode(),
+    )
+    _open_project(page, base_url, devflow_world, world)
+    project = page.url.rsplit("/", 1)[1]
+    given = page.request.put(
+        "/devflow/api/claude-login",
+        data={"token": CLAUDE_TOKEN},
+        headers={"Origin": base_url},
+    )
+    assert given.status == 200, given.text()
+    _read(page, base_url, project)
+    _fake_read(page, base_url, project, [_thin(CARD, THIN)])
+
+    # The app marked it on its issue: the attention label and one comment
+    # listing what is missing.
+    world = repository(page.request.get("/devflow/api/fake/world").json())
+    issue = next(each for each in world["issues"] if each["number"] == CARD)
+    assert "devflow-attention" in issue["labels"]
+    said = [
+        comment
+        for conversation in world["conversations"]
+        if conversation["number"] == CARD
+        for comment in conversation["comments"]
+        if comment["author"] == APP_LOGIN
+    ]
+    assert len(said) == 1, said
+    assert said[0]["body"].startswith(
+        "Dev flow read this card and will not build it as it is written"
+    )
+    assert "- Which page shows the list\n- What an empty list says\n" in said[0]["body"]
+
+    # "Waiting for you" lists it under Refused, with what is missing and its
+    # issue, and counts it.
+    page.goto("/devflow")
+    refused = page.get_by_role("region", name=re.compile("^Refused")).get_by_role(
+        "article", name=CARD_TITLE
+    )
+    expect(refused).to_be_visible()
+    expect(refused).to_contain_text(f"{OWNER}/{NAME}")
+    missing = refused.get_by_role("list", name="What is missing")
+    expect(missing.get_by_role("listitem")).to_have_text(THIN)
+    expect(refused.get_by_role("link", name="Open on GitHub")).to_have_attribute(
+        "href", f"https://github.com/{OWNER}/{NAME}/issues/{CARD}"
+    )
+    expect(refused.get_by_role("button")).to_have_count(0)
+    expect(page.get_by_role("tab", name="Waiting for you 1")).to_be_visible()
+    _look(page, "devflow-waiting-refused")
+
+    # My edit of it on GitHub reads it again; read as ready, it is Queued, its
+    # label comes off and it no longer waits for me.
+    staged = page.request.get("/devflow/api/fake/world").json()
+    issue = next(
+        each for each in repository(staged)["issues"] if each["number"] == CARD
+    )
+    issue["body"] = 'Show "No habits yet" on the habits list when it is empty.'
+    issue["edits"].append(edit("edit-1", OWNER_LOGIN, at=LATER))
+    devflow_world(staged)
+    _read(page, base_url, project)
+    ran = _fake_read(page, base_url, project, [_ready(CARD)])
+    assert ran["card"] == CARD
+    cards = page.request.get(f"/devflow/api/projects/{project}/cards").json()["cards"]
+    assert [card["state"] for card in cards if card["number"] == CARD] == ["queued"]
+    world = repository(page.request.get("/devflow/api/fake/world").json())
+    issue = next(each for each in world["issues"] if each["number"] == CARD)
+    assert "devflow-attention" not in issue["labels"]
+    page.goto("/devflow")
+    expect(page.get_by_role("region", name=re.compile("^Refused"))).to_have_count(0)
+    page.goto(f"/devflow/projects/{project}")
+    expect(
+        page.get_by_role("list", name="Cards")
+        .get_by_role("listitem")
+        .filter(has_text=CARD_TITLE)
+    ).to_contain_text("Queued")
+
+
 def test_a_project_that_cannot_run_its_cards_says_so(
     page: Page, invite_code: str, base_url: str, viewport: str, devflow_world
 ):

@@ -208,6 +208,20 @@ public sealed record DecisionItem(
 /// <param name="PullRequestUrl">Where its pull request is, null when it has none.</param>
 public sealed record StoppedCard(Guid ProjectId, string ProjectName, string Owner, int Number, string Title, Uri WebUrl, string Reason, DateTimeOffset StoppedAt, Uri? PullRequestUrl);
 
+/// <summary>A card of Dev flow's own refused as too thin to build, shown under "Refused" until a
+/// trusted account's edit of it, or comment on it, reads it again. Nothing is done from the page: the
+/// answer is on GitHub. Its title and what is missing came from the code host or the reader, and are
+/// shown as text. See "Reading a card" under "Jobs" in devflow/README.md.</summary>
+/// <param name="ProjectName">The repository's name, as connected.</param>
+/// <param name="Owner">The repository's owner, as connected.</param>
+/// <param name="Number">The card's issue number.</param>
+/// <param name="Title">The card's title, as it was picked.</param>
+/// <param name="WebUrl">Where the card's issue is on the code host, where an edit or a comment
+/// reads it again.</param>
+/// <param name="Missing">What the reading that refused it found missing, each on its own.</param>
+/// <param name="RefusedAt">When that reading came back.</param>
+public sealed record RefusedCard(Guid ProjectId, string ProjectName, string Owner, int Number, string Title, Uri WebUrl, IReadOnlyList<string> Missing, DateTimeOffset RefusedAt);
+
 /// <summary>A project whose runs keep failing outside their cards, so it cannot run them, shown
 /// until a run succeeds. See "Stops" in devflow/README.md.</summary>
 /// <param name="ProjectName">The repository's name, as connected.</param>
@@ -263,21 +277,24 @@ public sealed record FeatureItem(
     Features.FeatureMergeOffer? Merge);
 
 /// <summary>What <c>GET /devflow/api/waiting</c> answers.</summary>
-/// <param name="Count">The items not sent back, Dev flow's own items, cards, decisions to look at
-/// and features, and one more when the link needs renewing: what waits for the owner to act.</param>
+/// <param name="Count">The items not sent back, Dev flow's own items, cards, stopped and refused
+/// cards, failing projects, decisions to look at and features, and one more when the link needs
+/// renewing: what waits for the owner to act.</param>
 /// <param name="NeedsRelink">Whether GitHub stopped taking the owner's link.</param>
 /// <param name="OwnItems">Dev flow's own items, read from its own tables beside the runner's, by
 /// project.</param>
 /// <param name="Cards">Dev flow's own cards whose pull requests wait for the owner, by project and
 /// number.</param>
 /// <param name="StoppedCards">Dev flow's own cards that stopped, by project and number.</param>
+/// <param name="RefusedCards">Dev flow's own cards refused as too thin to build, by project and
+/// number.</param>
 /// <param name="FailingProjects">The projects whose runs have failed outside their cards six times
 /// in a row, by project.</param>
 /// <param name="Decisions">The open issues Dev flow opened for decisions marked for the owner on
 /// cards it merged, by project, oldest first.</param>
 /// <param name="Features">Dev flow's own features that are ready for the owner's review or wait for
 /// him, by project and number.</param>
-public sealed record WaitingList(int Count, bool NeedsRelink, IReadOnlyList<WaitingItem> Items, IReadOnlyList<ProjectFreshness> Projects, IReadOnlyList<OwnItem> OwnItems, IReadOnlyList<CardItem> Cards, IReadOnlyList<StoppedCard> StoppedCards, IReadOnlyList<FailingProject> FailingProjects, IReadOnlyList<DecisionItem> Decisions, IReadOnlyList<FeatureItem> Features);
+public sealed record WaitingList(int Count, bool NeedsRelink, IReadOnlyList<WaitingItem> Items, IReadOnlyList<ProjectFreshness> Projects, IReadOnlyList<OwnItem> OwnItems, IReadOnlyList<CardItem> Cards, IReadOnlyList<StoppedCard> StoppedCards, IReadOnlyList<RefusedCard> RefusedCards, IReadOnlyList<FailingProject> FailingProjects, IReadOnlyList<DecisionItem> Decisions, IReadOnlyList<FeatureItem> Features);
 
 /// <summary>
 /// What waits for a user, read from the snapshot <see cref="ProjectReader"/> stores and never from
@@ -294,7 +311,7 @@ public sealed class WaitingStore(UserDb database, TimeProvider time)
     /// name, and whether their link needs renewing, read in one transaction.</summary>
     public async Task<WaitingList> For(Guid userId, CancellationToken cancellationToken)
     {
-        var (items, projects, relink, stops, cardRows, stoppedRows, failingRows, decisionRows, features, cardDecisions) = await database.InUserTransaction(userId, async transaction =>
+        var (items, projects, relink, stops, cardRows, stoppedRows, refusedRows, failingRows, decisionRows, features, cardDecisions) = await database.InUserTransaction(userId, async transaction =>
         {
             var items = await transaction.Connection!.QueryAsync<ItemRow>(new CommandDefinition(
                 """
@@ -387,6 +404,22 @@ public sealed class WaitingStore(UserDb database, TimeProvider time)
                 """,
                 transaction: transaction,
                 cancellationToken: cancellationToken));
+            // A refused card with what its newest reading, the one that refused it, found missing.
+            var refused = await transaction.Connection!.QueryAsync<RefusedRow>(new CommandDefinition(
+                """
+                SELECT c.project_id AS ProjectId, p.name AS ProjectName, p.owner AS Owner, c.number AS Number,
+                       coalesce(c.picked_title, c.title) AS Title, c.web_url AS WebUrl, cr.missing::text AS Missing, cr.read_at AS RefusedAt
+                FROM cards c
+                JOIN projects p ON p.id = c.project_id
+                JOIN LATERAL (SELECT * FROM card_readings newest
+                              WHERE newest.project_id = c.project_id AND newest.card_number = c.number AND newest.outcome IS NOT NULL
+                              ORDER BY newest.read_at DESC, newest.run_id DESC
+                              LIMIT 1) cr ON true
+                WHERE c.state = 'refused' AND cr.outcome = 'too_thin'
+                ORDER BY lower(p.owner), lower(p.name), p.id, c.number
+                """,
+                transaction: transaction,
+                cancellationToken: cancellationToken));
             var decisions = await transaction.Connection!.QueryAsync<DecisionRow>(new CommandDefinition(
                 """
                 SELECT d.id AS Id, d.project_id AS ProjectId, p.name AS ProjectName, p.owner AS Owner, d.card_number AS CardNumber,
@@ -427,7 +460,7 @@ public sealed class WaitingStore(UserDb database, TimeProvider time)
                 features.Add(Feature(row, story?.Cards.Sum(card => card.Decisions.Count(decision => decision.Answer is null)) ?? 0));
             }
 
-            return (items.ToList(), projects.ToList(), relink, stops.ToList(), cards.ToList(), stopped.ToList(), failing.ToList(), decisions.ToList(), features, marked.ToList());
+            return (items.ToList(), projects.ToList(), relink, stops.ToList(), cards.ToList(), stopped.ToList(), refused.ToList(), failing.ToList(), decisions.ToList(), features, marked.ToList());
         }, cancellationToken);
 
         var now = time.GetUtcNow();
@@ -481,8 +514,17 @@ public sealed class WaitingStore(UserDb database, TimeProvider time)
             row.Reason,
             GitHubLink.Utc(row.StoppedAt),
             row.PullRequestUrl is { } address ? new Uri(address) : null)).ToList();
+        var refusedCards = refusedRows.Select(row => new RefusedCard(
+            row.ProjectId,
+            row.ProjectName,
+            row.Owner,
+            row.Number,
+            row.Title,
+            new Uri(row.WebUrl),
+            JsonSerializer.Deserialize<List<string>>(row.Missing) ?? [],
+            GitHubLink.Utc(row.RefusedAt))).ToList();
         return new WaitingList(
-            waiting.Count(item => !item.SentBack) + own.Count + cards.Count + stoppedCards.Count + failingProjects.Count + decided.Count + features.Count + (relink ? 1 : 0),
+            waiting.Count(item => !item.SentBack) + own.Count + cards.Count + stoppedCards.Count + refusedCards.Count + failingProjects.Count + decided.Count + features.Count + (relink ? 1 : 0),
             relink,
             waiting,
             [.. projects.Select(project =>
@@ -493,6 +535,7 @@ public sealed class WaitingStore(UserDb database, TimeProvider time)
             own,
             cards,
             stoppedCards,
+            refusedCards,
             failingProjects,
             decided,
             features);
@@ -659,6 +702,8 @@ public sealed class WaitingStore(UserDb database, TimeProvider time)
         string? ScreenshotsNote);
 
     private sealed record StoppedRow(Guid ProjectId, string ProjectName, string Owner, int Number, string Title, string WebUrl, string Reason, DateTime StoppedAt, string? PullRequestUrl);
+
+    private sealed record RefusedRow(Guid ProjectId, string ProjectName, string Owner, int Number, string Title, string WebUrl, string Missing, DateTime RefusedAt);
 
     private sealed record FailingRow(Guid ProjectId, string ProjectName, string Owner, string Reason, int Failures, DateTime Since, DateTime WaitUntil);
 

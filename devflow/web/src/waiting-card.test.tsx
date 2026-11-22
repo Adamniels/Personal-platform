@@ -54,6 +54,7 @@ function list(cards: CardItem[], items: WaitingItem[] = []): WaitingList {
 		count: cards.length + items.length,
 		needs_relink: false,
 		stopped_cards: [],
+		refused_cards: [],
 		failing_projects: [],
 		features: [],
 		items,

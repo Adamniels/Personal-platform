@@ -10,6 +10,7 @@ import { navigate } from "./address";
 import type { GetAnswer } from "./api/client";
 import { DecisionIssue, type DecisionItem } from "./decision-issue";
 import { Inline } from "./format";
+import { RefusedCard } from "./refused-card";
 import { Screenshots, waitingScreenshot } from "./screenshots";
 import { StoppedProject } from "./stopped";
 import { FailingProject, StoppedCard } from "./stopped-card";
@@ -22,6 +23,7 @@ export type WaitingItem = WaitingList["items"][number];
 export type OwnItem = WaitingList["own_items"][number];
 export type CardItem = WaitingList["cards"][number];
 export type StoppedCardItem = WaitingList["stopped_cards"][number];
+export type RefusedCardItem = WaitingList["refused_cards"][number];
 export type FailingProjectItem = WaitingList["failing_projects"][number];
 type Decision = WaitingItem["decisions"][number];
 type Freshness = WaitingList["projects"][number];
@@ -63,6 +65,8 @@ type Group = {
 	failing?: FailingProjectItem[];
 	/** Dev flow's own cards that stopped, before the runner's items. */
 	stopped?: StoppedCardItem[];
+	/** Dev flow's own cards refused as too thin to build. */
+	refused?: RefusedCardItem[];
 	/** The decisions to look at, the issues Dev flow opened for them. */
 	decided?: DecisionItem[];
 	/** Dev flow's own features ready for the owner's review, or waiting for
@@ -81,12 +85,13 @@ type Act = {
 	reload: () => Promise<unknown>;
 };
 
-/** The five groups, in their order: Dev flow's waiting cards and the
+/** The six groups, in their order: Dev flow's waiting cards and the
  * waiting items not sent back; Dev flow's features ready for the owner's
  * review, or waiting for him; what stopped, Dev flow's stopped projects
  * first, then the projects that cannot run their cards, its stopped cards and
- * the runner's stopped items not sent back; the decisions to look at on cards
- * Dev flow merged; and every item sent back. */
+ * the runner's stopped items not sent back; Dev flow's cards refused as too
+ * thin; the decisions to look at on cards Dev flow merged; and every item
+ * sent back. */
 function groups(list: WaitingList, name: (item: WaitingItem) => string) {
 	const { items, own_items: own, cards, decisions: decided } = list;
 	const sorted = [...items].sort(
@@ -115,6 +120,7 @@ function groups(list: WaitingList, name: (item: WaitingItem) => string) {
 			failing: list.failing_projects,
 			stopped: list.stopped_cards,
 		},
+		{ label: "Refused", items: [], refused: list.refused_cards },
 		{ label: "Decisions to look at", items: [], decided },
 		{
 			label: "Sent back, the runner has it",
@@ -132,6 +138,7 @@ const size = (group: Group) =>
 	(group.cards?.length ?? 0) +
 	(group.failing?.length ?? 0) +
 	(group.stopped?.length ?? 0) +
+	(group.refused?.length ?? 0) +
 	(group.decided?.length ?? 0) +
 	(group.features?.length ?? 0);
 
@@ -214,6 +221,7 @@ export function Waiting({
 					list.own_items.length === 0 &&
 					list.cards.length === 0 &&
 					list.stopped_cards.length === 0 &&
+					list.refused_cards.length === 0 &&
 					list.failing_projects.length === 0 &&
 					list.decisions.length === 0 &&
 					list.features.length === 0 ? (
@@ -369,6 +377,13 @@ function GroupSection({
 					link={act.link}
 					api={act.api}
 					reload={act.reload}
+					linkable={linkable}
+				/>
+			))}
+			{(group.refused ?? []).map((card) => (
+				<RefusedCard
+					key={`${card.project_id}/${card.number}`}
+					card={card}
 					linkable={linkable}
 				/>
 			))}

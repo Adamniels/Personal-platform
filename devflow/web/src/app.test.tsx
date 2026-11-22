@@ -51,6 +51,7 @@ function openAt(path: string) {
 						count: 0,
 						needs_relink: false,
 						stopped_cards: [],
+						refused_cards: [],
 						failing_projects: [],
 						features: [],
 						items: [],

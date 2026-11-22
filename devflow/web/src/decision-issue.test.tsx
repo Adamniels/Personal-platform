@@ -58,6 +58,7 @@ function list(decisions: DecisionItem[]): WaitingList {
 		own_items: [],
 		cards: [],
 		stopped_cards: [],
+		refused_cards: [],
 		failing_projects: [],
 		features: [],
 		decisions,

@@ -108,6 +108,7 @@ public sealed class WaitingTests
             ["own_items"] = new JsonArray(),
             ["cards"] = new JsonArray(),
             ["stopped_cards"] = new JsonArray(),
+            ["refused_cards"] = new JsonArray(),
             ["failing_projects"] = new JsonArray(),
             ["decisions"] = new JsonArray(),
             // No feature of its own is ready or waits.

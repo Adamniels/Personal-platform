@@ -78,6 +78,7 @@ function list(
 		own_items: [],
 		cards: [],
 		stopped_cards: stoppedCards,
+		refused_cards: [],
 		failing_projects: failingProjects,
 		decisions: [],
 	};

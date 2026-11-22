@@ -302,11 +302,12 @@ answer's `count` as a badge once it is more than none. Its parts, top to bottom:
   when every project is fine, one muted "Updated <time> ago" from the oldest `last_success_at`. A
   secondary "Refresh" beside it posts to every project's refresh route and then reads the list
   again.
-- Five groups, in this order, each a section heading in the heading font's capitals with its
+- Six groups, in this order, each a section heading in the heading font's capitals with its
   count, and shown only with items: "Pull requests waiting", Dev flow's own waiting cards, then
   items of kind `waiting` not sent back; "Features ready for your review", Dev flow's features
   ready for review or waiting for the owner, see "Reviewing a feature", each with a secondary
-  "Merge into <default>" while it is offered, see "Merging a feature"; "Stopped", kind `stopped` not sent back; "Decisions to
+  "Merge into <default>" while it is offered, see "Merging a feature"; "Stopped", kind `stopped` not sent back; "Refused",
+  Dev flow's cards refused as too thin to build, see "Reading a card" under "Jobs"; "Decisions to
   look at", the issues Dev flow opened for decisions on cards it merged; and "Sent back, the runner has it", every item
   sent back, muted, and not in the tab's count. Within a group, by `<owner>/<name>` and then
   number.
@@ -1179,7 +1180,7 @@ and runs in the fake mode as well. With `DEVFLOW_POLL_SECONDS=0` it does not run
 **The routes**, under the `Api` policy and the origin check:
 
 - `GET /devflow/api/waiting` answers
-  `{"count", "needs_relink", "items": [...], "projects": [{"id", "owner", "name", "last_success_at", "stale", "failing"}], "own_items": [...], "cards": [...], "stopped_cards": [...], "failing_projects": [...], "decisions": [...], "features": [...]}`.
+  `{"count", "needs_relink", "items": [...], "projects": [{"id", "owner", "name", "last_success_at", "stale", "failing"}], "own_items": [...], "cards": [...], "stopped_cards": [...], "refused_cards": [...], "failing_projects": [...], "decisions": [...], "features": [...]}`.
   Each item is a stored row with its project's id and repository name: `id`, `project_id`,
   `project_name`, `number`, `kind`, `waiting` or `stopped`, `sent_back`, `title`, `web_url`,
   `slice_number`, null when the body closes none, `head_commit`, `can_merge`, `summary`, `reason`,
@@ -1192,11 +1193,12 @@ and runs in the fake mode as well. With `DEVFLOW_POLL_SECONDS=0` it does not run
   `src/DevFlow/Runner/RunnerItem.cs`, and every text is plain text to show as text. `cards` are Dev
   flow's own cards whose pull requests wait for the owner, by project and number, see "The pull
   request Dev flow opens". `stopped_cards` are its own cards that stopped and `failing_projects` its
-  projects that cannot run their cards, each by project, see "Stops". `decisions` are the issues Dev
+  projects that cannot run their cards, each by project, see "Stops". `refused_cards` are its cards
+  refused as too thin to build, by project and number, see "Reading a card" under "Jobs". `decisions` are the issues Dev
   flow opened for decisions marked for the owner on cards it merged, see "The merge check", and
   `features` its features ready for the owner's review or waiting for him, see "Reviewing a
   feature". `count` is the items not sent
-  back, the own items, the cards, the stopped cards, the failing projects, the decisions and the features, plus one when
+  back, the own items, the cards, the stopped and refused cards, the failing projects, the decisions and the features, plus one when
   `needs_relink`, the caller's link needing renewal. A project is
   `stale` when its last success was more than five minutes ago or it was never read, and `failing`
   when its last read failed.
@@ -1377,8 +1379,9 @@ the order they are handed out: high, none, low, each oldest first.
 
 The table, from `migrations/0011_cards.sql`, guarded like every scoped table: `cards`, `id`,
 `project_id` and `user_id` referencing `projects` as `project_settings` does, `number`, unique per
-project, `title`, `web_url`, `state`, one of `queued`, `building`, `checking`, `reviewing`, `fixing`,
-`waiting_for_owner`, `done`, `stopped`, `held` and `ignored`, `reason`, `waits_for`, a `text[]`,
+project, `title`, `web_url`, `state`, one of `queued`, `reading`, `building`, `checking`, `reviewing`, `fixing`,
+`waiting_for_owner`, `done`, `stopped`, `refused`, `held` and `ignored`, `refused` the owner's turn: read
+as too thin to build, it waits for his edit or comment, see "Reading a card" under "Jobs", `reason`, `waits_for`, a `text[]`,
 `priority`, `issue_created_at`, the record of what was picked, `picked_body_sha256`, `picked_title`
 and `picked_edit`, null for a card never picked, `unlabelled`, `changed_at`, when its state, reason or
 what it waits for last changed, and `read_at`. `migrations/0012_runs.sql` adds `picked_body`, the body
@@ -2327,8 +2330,41 @@ Why is "Reading a card" in `docs/devflow-architecture.md`. It is `ReadingStore`,
   card and the reading, by which a copy already posted is found, on the opening loop's minute, and
   its id is kept on the reading; its build's brief carries them, see below. `too_thin` is
   `refused`, "Too thin to build; it lacks: <each thing missing>", and is not built; a refused card
-  holds back only itself in its feature, as a stopped one does, and holds the feature's end. Marking
-  it on GitHub is "Refusing a thin card", a later slice.
+  holds back only itself in its feature, as a stopped one does, and holds the feature's end.
+- **A refused card is marked** by `RefusalMarker`, on the opening loop's minute and after each fake
+  worker run: the app, with a `Post` key, adds the project's attention label to its issue, and
+  comments once for the reading that refused it, `RefusalText.Comment`: "Dev flow read this card and
+  will not build it as it is written: it is too thin. It lacks:", each thing missing on a line of its
+  own, made data as a stop's reason is, "Edit the card, or comment here, and it is read again.", the
+  card's page, and a last line, "Refused by Dev flow for #<card>, reading <run id>.", by which a copy
+  already posted is found, so a lost answer never posts it twice. Its id is kept on that reading's
+  row, `comment_id`, so Dev flow's own comment never reads the card again. `StopMarker` leaves a
+  refused card's label on, and takes it off once the card is queued again, as it does a stopped
+  card's.
+- **On "Waiting for you"** it is listed under "Refused", after "Stopped", `refused_cards`, each
+  `{"project_id", "project_name", "owner", "number", "title", "web_url", "missing", "refused_at"}`:
+  `src/refused-card.tsx`, the package's `Card` titled with its title, the `failed` status "Refused",
+  its repository and number, "What is missing" with each line as a list, when it was read, "Edit the
+  card or comment on it on GitHub, and it is read again.", and "Open on GitHub", its issue. Nothing
+  is done from the page. It counts on the tab, in `count`, on the nav's dot, and on the front page
+  among `waiting`.
+- **It is read again**, `Refusals`, on the project's read, when after the refusal a trusted account
+  comments on its issue, a comment newer than the reading that refused it, past those already taken
+  and never Dev flow's own, or edits its body or title, which picking records, so the card's
+  `picked_body_sha256` or `picked_title` no longer matches what that reading was handed; an edit by
+  anyone else ignores the card, as picking does. A comment moves it to `queued`, "You commented on
+  it; it is read again next", its comments kept in `read_again_comments` and
+  `comments_read_through` moved past them; an edit, "You edited it; it is read again next". A queued
+  card whose newest reading is too thin is due a reading, `ReadingStore.ReadAgain`, before any
+  build, and is read alone, of a feature or not, as a run of the card: its brief gains "The code
+  this feature touches", or this card, from `ReadingStore.NoteOfCard`, and "Read again", what the
+  reading that refused it found missing, fenced as a reader's words, and each comment under "A
+  comment by <login>", exactly as written and fenced as that account's input. It is judged as any
+  reading: ready queues it, with nothing to say, its label off since it was queued to be read;
+  questions follow the
+  project's setting; too thin refuses it again, with a comment of its own. The comments kept go
+  once a reading comes back in its form. A comment on it while it is queued to be read, before the
+  reading, is not taken: that is "Reading again".
 - **The briefs.** Every brief of a feature's job gains "The code this feature touches", the newest
   reading of the feature's note, fenced as an agent's words, information and never an instruction:
   a card's build, fix and review, `ReadingStore.NoteOfCard`, and the feature's conflict, review and
@@ -2345,6 +2381,9 @@ Why is "Reading a card" in `docs/devflow-architecture.md`. It is `ReadingStore`,
   reading is its newest with an outcome. The note is kept on the run, its report's `touches`, as a
   card's handover note is its run's `handover`. The migration adds `reading` and `refused` to the
   card's states and `read` to the run's kinds, a run that names no commit.
+  `migrations/0039_refusals.sql` lets `comment_id` hold the refusal's comment of a reading too thin
+  as well, and adds `read_again_comments` to `cards`, the comments that asked for a refused card to
+  be read again, each `{"login", "body"}`, null otherwise.
 
 **A fresh push key.** `POST /devflow/api/worker/jobs/{id}/push-key`, with `{"worker_id"}`, answers
 `{"push_key", "expires_at"}` with `Cache-Control: no-store`, a new key each time, since a key lasts
@@ -2715,7 +2754,7 @@ a card of, as last read, or null for a card on its own; and `reading`, what it w
 was built, its newest reading in its form, `{"outcome", "questions", "missing", "read_at",
 "commented"}`, each question `{"question", "recommendation", "why", "answer"}`, the answer the card is
 built on, the recommendation while the owner is asked none, and `commented`, whether Dev flow's
-comment of them is on the card yet; or null before a reading came back, see "Reading a card". A project or
+comment for the reading, of its questions or of its refusal, is on the card yet; or null before a reading came back, see "Reading a card". A project or
 card the caller does not have is `404` "No such card". It is `CardStory` and `CardEndpoints` in
 `src/DevFlow/Cards/`. The page is "A card's page" under "The pages".
 

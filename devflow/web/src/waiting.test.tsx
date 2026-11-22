@@ -65,6 +65,7 @@ function list(overrides: Partial<WaitingList> = {}): WaitingList {
 		count: items.filter((each) => !each.sent_back).length,
 		needs_relink: false,
 		stopped_cards: [],
+		refused_cards: [],
 		failing_projects: [],
 		features: [],
 		items,
@@ -139,6 +140,80 @@ describe("the list and its groups", () => {
 		).toEqual(["Pull requests waiting", "Stopped"]);
 		expect(within(waiting).getAllByRole("article")).toHaveLength(2);
 		expect(within(stopped).getAllByRole("article")).toHaveLength(1);
+	});
+
+	test("refused cards are a group with what is missing", async () => {
+		openWith(
+			answering(
+				list({
+					count: 2,
+					stopped_cards: [
+						{
+							project_id: PROJECT,
+							project_name: "Personal-platform",
+							owner: "Adamniels",
+							number: 7,
+							title: "Count the habits",
+							web_url:
+								"https://github.com/Adamniels/Personal-platform/issues/7",
+							reason: "The run failed: it reached its time limit",
+							stopped_at: minutesAgo(30),
+							pull_request_url: null,
+						},
+					],
+					refused_cards: [
+						{
+							project_id: PROJECT,
+							project_name: "Personal-platform",
+							owner: "Adamniels",
+							number: 4,
+							title: "Add the empty state",
+							web_url:
+								"https://github.com/Adamniels/Personal-platform/issues/4",
+							missing: ["Which page shows the list", "What an empty list says"],
+							refused_at: minutesAgo(5),
+						},
+					],
+				}),
+			),
+		);
+
+		// A group of its own after Stopped, counted, one entry per card.
+		const refused = await panel().findByRole("region", { name: "Refused" });
+		expect(within(refused).getByText("1")).toBeTruthy();
+		expect(
+			panel()
+				.getAllByRole("region")
+				.map((region) => region.getAttribute("aria-labelledby"))
+				.map((id) => document.getElementById(id ?? "")?.textContent),
+		).toEqual(["Stopped", "Refused"]);
+		const entry = within(
+			within(refused).getByRole("article", { name: "Add the empty state" }),
+		);
+		expect(entry.getByText("Refused", { selector: "span" })).toBeTruthy();
+		expect(entry.getByText("Adamniels/Personal-platform")).toBeTruthy();
+		expect(entry.getByText("#4")).toBeTruthy();
+
+		// What is missing, each a line of its own.
+		const missing = entry.getByRole("list", { name: "What is missing" });
+		expect(
+			within(missing)
+				.getAllByRole("listitem")
+				.map((line) => line.textContent),
+		).toEqual(["Which page shows the list", "What an empty list says"]);
+
+		// The answer is on GitHub: a link to the issue, and nothing to do here.
+		const open = entry.getByRole("link", { name: "Open on GitHub" });
+		expect(open.getAttribute("href")).toBe(
+			"https://github.com/Adamniels/Personal-platform/issues/4",
+		);
+		expect(open.getAttribute("target")).toBe("_blank");
+		expect(entry.queryAllByRole("button")).toHaveLength(0);
+		expect(
+			entry.getByText(
+				"Edit the card or comment on it on GitHub, and it is read again.",
+			),
+		).toBeTruthy();
 	});
 
 	test("an empty group is not shown", async () => {
