@@ -793,9 +793,9 @@ containers on his machine, so whatever the project's settings, Dev flow never me
 check reads only cards, so no setting can reach it. It is reviewed and fixed like a card's first,
 so what he reads is a reviewed recipe with what it could not settle said plainly.
 
-**A setup that stopped gets its pull request.** Settled has the owner's comment on its pull request
-run a stopped setup again; one that stopped before its pull request opened would leave nothing to
-comment on, so its pull request is opened all the same, saying why it stopped.
+**A setup that stopped gets its pull request.** The owner's comment on its pull request is what runs
+a stopped setup again, as it is for a stopped card; one that stopped before its pull request opened
+would leave nothing to comment on, so its pull request is opened all the same, saying why it stopped.
 
 **"Waiting for you" lists only a check that failed.** The feature has a project setting up shown
 there, but a project connected only so Dev flow reads this repository's runner, the platform
