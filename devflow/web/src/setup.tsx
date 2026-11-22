@@ -47,7 +47,7 @@ export const STEP_NAMES: Record<string, string> = {
 };
 
 export const SETTING_UP =
-	"Dev flow hands out no card until this project's setup has passed its check.";
+	"Dev flow starts no card's work until this project's setup has passed its check and its settings are accepted.";
 export const NEWER_FAILED =
 	"The newest version of this project's setup failed its check, so its workers on that version get no work.";
 export const CHECK_RUNNING = "The check is running.";
@@ -709,7 +709,7 @@ export function WaitingSetup({ project }: { project: SetupProjectItem }) {
 				</p>
 				<p className={styles.line}>
 					{project.state === "setting_up"
-						? "It hands out no card until its setup passes its check."
+						? "It starts no card's work until its setup passes its check."
 						: "Its workers on the newest version of its setup get no work until it passes its check."}{" "}
 					The check of version{" "}
 					<span className={styles.mono}>{project.version.slice(0, 7)}</span>{" "}
