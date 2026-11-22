@@ -65,7 +65,11 @@ public sealed record SetupCheck(Guid Id, string Version, string Commit, bool Pas
 /// whose <c>.devflow/</c> was valid when it was connected.</param>
 /// <param name="CanSendBack">Whether the newest check, of the project's version, failed and may be
 /// sent back with a comment: no check of it runs and no setup is under way.</param>
-public sealed record ProjectSetup(string State, IReadOnlyList<SetupStep> Steps, SetupCheck? Check, bool Checking, string? Problem, string SetupCommand, SetupRun? Setup, SetupProposal? Proposal, bool CanSendBack);
+/// <param name="SettingsWaits">Whether the settings step waits for the owner: it is not done, the
+/// setup's pull request merged and no sent back setup is under way,
+/// <see cref="SetupStore.SettingsDueSql"/>. Only then is it offered, and only then does a save do
+/// it.</param>
+public sealed record ProjectSetup(string State, IReadOnlyList<SetupStep> Steps, SetupCheck? Check, bool Checking, string? Problem, string SetupCommand, SetupRun? Setup, SetupProposal? Proposal, bool CanSendBack, bool SettingsWaits);
 
 /// <summary>What asking for another check comes to.</summary>
 public enum CheckAgain
@@ -110,11 +114,18 @@ public static class SetupStore
     public const string RecipeStep = "recipe";
 
     /// <summary>The step of the settings: the owner accepted the proposed ones or saved the panel,
-    /// once. It comes after the setup's pull request and before a worker on the recipe.</summary>
+    /// once, while it waited. It comes after the setup's pull request and before a worker on the
+    /// recipe, <see cref="SettingsDueSql"/>.</summary>
     public const string SettingsStep = "settings";
 
     /// <summary>Whether project <c>p</c>'s settings step is done, as SQL.</summary>
     internal const string AcceptedSql = "EXISTS (SELECT 1 FROM project_settings ps WHERE ps.project_id = p.id AND ps.accepted_at IS NOT NULL)";
+
+    /// <summary>Whether project <c>p</c>'s setup is behind it, so its settings step may be done, as
+    /// SQL: its <c>.devflow/</c> is valid on the default branch, the setup's pull request merged, and
+    /// no setup sent back from a check of its version is under way, whose fix may propose other
+    /// settings. Only then does a save of the settings do the step.</summary>
+    internal const string SettingsDueSql = $"(p.devflow_valid IS TRUE AND NOT {SetupRunStore.SentBackPending})";
 
     /// <summary>Whether project <c>p</c> is registered, as SQL: a check of any version passed, and
     /// its settings are accepted.</summary>
@@ -157,7 +168,8 @@ public static class SetupStore
                        EXISTS (SELECT 1 FROM runs r WHERE r.project_id = p.id AND r.kind = 'check' AND r.finished_at IS NULL
                                AND r.recipe_version = coalesce(p.recipe_version, r.recipe_version)) AS Checking,
                        {NewestSql} AS Newest,
-                       {SetupRunStore.SendBackSql} AS CanSendBack
+                       {SetupRunStore.SendBackSql} AS CanSendBack,
+                       ({SettingsDueSql} AND NOT {AcceptedSql}) AS SettingsWaits
                 FROM projects p WHERE p.id = @projectId
                 """,
                 new { projectId },
@@ -195,7 +207,8 @@ public static class SetupStore
                 start.SetupCommand(row.Name),
                 await SetupRunStore.Newest(transaction, projectId, cancellationToken),
                 await SetupRunStore.Proposal(transaction, projectId, cancellationToken),
-                row.CanSendBack);
+                row.CanSendBack,
+                row.SettingsWaits);
         }, cancellationToken);
     }
 
@@ -239,7 +252,7 @@ public static class SetupStore
             cancellationToken: cancellationToken)), cancellationToken);
     }
 
-    private sealed record StepsRow(string Name, string? Problem, bool Setup, bool Recipe, bool Worker, bool Passed, bool Settings, bool Registered, bool Checking, Guid? Newest, bool CanSendBack);
+    private sealed record StepsRow(string Name, string? Problem, bool Setup, bool Recipe, bool Worker, bool Passed, bool Settings, bool Registered, bool Checking, Guid? Newest, bool CanSendBack, bool SettingsWaits);
 
     /// <summary>A check's row; a class rather than a positional record, since Npgsql answers a
     /// <c>text[]</c> column as an array Dapper matches only to a property.</summary>

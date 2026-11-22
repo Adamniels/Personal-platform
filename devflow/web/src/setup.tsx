@@ -154,12 +154,9 @@ export function SetupPanel({
 	const [error, setError] = useState<string | null>(null);
 	const { check } = setup;
 	const canAsk = check !== null && !check.passed && !check.again_asked;
-	const done = (name: string) =>
-		setup.steps.some((step) => step.step === name && step.done);
-	// The settings step waits once there is something to accept, or once the
-	// project's .devflow/ is valid and its setup run has nothing to propose.
-	const settingsWait =
-		!done("settings") && (setup.proposal !== null || done("setup"));
+	// The settings step waits, and is offered, only after the setup's pull
+	// request, as the route decides: a save before then does not do it.
+	const settingsWait = setup.settings_waits;
 
 	const ask = async () => {
 		setAsking(true);

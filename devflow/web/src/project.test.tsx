@@ -109,6 +109,7 @@ const REGISTERED: ProjectSetup = {
 	setup_command: SETUP_COMMAND,
 	proposal: null,
 	can_send_back: false,
+	settings_waits: false,
 	setup: null,
 };
 
@@ -203,6 +204,7 @@ describe("a project's setup", () => {
 		setup_command: SETUP_COMMAND,
 		proposal: null,
 		can_send_back: false,
+		settings_waits: false,
 		setup: null,
 	};
 
@@ -224,6 +226,7 @@ describe("a project's setup", () => {
 		setup_command: SETUP_COMMAND,
 		proposal: null,
 		can_send_back: false,
+		settings_waits: false,
 		setup: {
 			number: 1,
 			branch: "devflow/setup",
@@ -439,7 +442,28 @@ describe("a project's setup", () => {
 			why: "Its migrations are worth a look before they merge.",
 			paths: ["migrations/**"],
 		},
+		settings_waits: true,
 	};
+
+	test("the settings step is not offered before the setup's pull request merged", async () => {
+		// The setup run proposed its settings and waits for the owner to merge
+		// it: the step does not wait yet, so it offers nothing to accept, and
+		// the proposal is shown with the run.
+		renderPage({
+			setup: {
+				...waiting,
+				steps: waiting.steps.map((step) =>
+					step.step === "settings" ? { ...step, done: false } : step,
+				),
+				proposal: proposed.proposal,
+			},
+		});
+
+		const run = await screen.findByRole("region", { name: "The setup run" });
+		expect(within(run).getByText("What it proposes")).toBeTruthy();
+		expect(screen.queryByRole("region", { name: "The settings" })).toBeNull();
+		expect(screen.queryByRole("button", { name: "Accept" })).toBeNull();
+	});
 
 	test("the settings step shows the proposal with accept and change", async () => {
 		const { saveSettings, loadSettings, loadSetup } = renderPage({

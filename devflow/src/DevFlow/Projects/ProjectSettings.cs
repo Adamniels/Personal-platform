@@ -299,9 +299,11 @@ public sealed class ProjectSettingsStore(UserDb database)
             cancellationToken: cancellationToken)), cancellationToken);
 
     /// <summary>Replaces the project's settings with <paramref name="settings"/>, and its trusted
-    /// accounts with <paramref name="trusted"/>'s others, never the owner's own; and, the first time,
-    /// marks them accepted at <paramref name="now"/>, which does the setup's settings step, whether
-    /// the owner pressed "Accept" on a proposal or saved the panel. See "Setting up a project" in
+    /// accounts with <paramref name="trusted"/>'s others, never the owner's own; and, the first time
+    /// it is saved while the setup's settings step waits, after the setup's pull request,
+    /// <see cref="Setup.SetupStore.SettingsDueSql"/>, marks them accepted at <paramref name="now"/>,
+    /// which does the step, whether the owner pressed "Accept" on a proposal or saved the panel. A
+    /// save before then is kept but does not do it. See "Setting up a project" in
     /// devflow/README.md.</summary>
     /// <returns>Whether the user has such a project.</returns>
     public async Task<bool> Save(Guid userId, Guid projectId, ProjectSettings settings, TrustedAccounts trusted, DateTimeOffset now, CancellationToken cancellationToken)
@@ -309,14 +311,15 @@ public sealed class ProjectSettingsStore(UserDb database)
         ArgumentNullException.ThrowIfNull(settings);
         ArgumentNullException.ThrowIfNull(trusted);
         return await database.InUserTransaction(userId, transaction => transaction.Connection!.ExecuteAsync(new CommandDefinition(
-            """
+            $"""
             UPDATE project_settings
             SET pickup_label = @PickupLabel, hold_label = @HoldLabel, attention_label = @AttentionLabel, review_label = @ReviewLabel,
                 waits_for_owner = @WaitsForOwner, wait_when_marked = @WaitWhenMarked, wait_when_paths = @WaitWhenPaths,
                 wait_when_decision = @WaitWhenDecision, wait_paths = @waitPaths, trusted_logins = @trustedLogins,
                 model_reading = @ModelReading, model_building = @ModelBuilding, model_reviewing = @ModelReviewing,
                 run_minutes = @RunMinutes, run_turns = @RunTurns, fix_rounds_card = @FixRoundsCard, fix_rounds_feature = @FixRoundsFeature,
-                questions = @Questions, accepted_at = coalesce(accepted_at, @now)
+                questions = @Questions,
+                accepted_at = coalesce(accepted_at, CASE WHEN EXISTS (SELECT 1 FROM projects p WHERE p.id = @projectId AND {Setup.SetupStore.SettingsDueSql}) THEN @now END)
             WHERE project_id = @projectId
             """,
             new

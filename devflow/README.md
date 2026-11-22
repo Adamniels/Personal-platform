@@ -1993,10 +1993,13 @@ owner accepts the settings the newest setup run that succeeded proposed, its `pr
 paths, or saves the settings panel; either does the step, once, `project_settings.accepted_at`, from
 `migrations/0044_settings_step.sql`. "Accept" fills in what the preset covers over the settings as
 saved, as the panel's preset buttons do, sets `wait_paths` to the proposed paths, and saves them
-through `PUT /devflow/api/projects/{id}/settings`; nothing is stored as a preset. The first save of
-that route, whatever it changes, marks the step done. A project with no setup run, one whose
-`.devflow/` was valid when it was connected, has no proposal, and its step asks for the panel to be
-saved once. Until the step is done the project hands out no reading or build, `JobStore.NextKind`,
+through `PUT /devflow/api/projects/{id}/settings`; nothing is stored as a preset. The step waits,
+`settings_waits` on the setup route, `SetupStore.SettingsDueSql`, only once the setup is behind it:
+`.devflow/` is valid on the default branch, so the setup's pull request merged, and no setup sent back
+from a check of its version is under way. The first save of the route while it waits, whatever it
+changes, marks the step done; a save before then is kept but does not, so the proposal is still put.
+The page offers the step only while it waits. A project with no setup run, one whose `.devflow/` was
+valid when it was connected, has no proposal, and its step asks for the panel to be saved once. Until the step is done the project hands out no reading or build, `JobStore.NextKind`,
 though its check and its setup runs go out before it; every project connected before the migration,
 Fodr and the registered ones among them, starts with it not done. In the fake mode the fake worker
 takes the settings as accepted before it asks for a job, unless `settings_wait` is true, and the

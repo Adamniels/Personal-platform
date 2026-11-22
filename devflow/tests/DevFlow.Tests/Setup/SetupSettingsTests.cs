@@ -66,6 +66,14 @@ public sealed class SetupSettingsTests
         return jobs;
     }
 
+    /// <summary>A valid <c>.devflow/</c> is on the default branch and the loop read it, as once the
+    /// setup's pull request merged.</summary>
+    private static async Task Valid(Jobs jobs)
+    {
+        SetupRunTests.Stage(jobs, (".devflow/Dockerfile", "main", SetupRunTests.GoodRecipe), (".devflow/project.json", "main", Jobs.ProjectFile()));
+        Assert.Equal(DevFlow.Reading.ReadResult.Read, await jobs.Routes.Read(jobs.Project, Jobs.User));
+    }
+
     [Fact]
     public async Task TheProposalWaitsOnItsStep()
     {
@@ -86,12 +94,44 @@ public sealed class SetupSettingsTests
         var settings = await Settings(jobs);
         Assert.Equal(("never", true), ((string)settings["waits_for_owner"]!, (bool)settings["questions"]!));
         Assert.Empty(settings["wait_paths"]!.AsArray());
+
+        // The step waits once the setup's pull request merged, with the same proposal.
+        Assert.False((bool)setup["settings_waits"]!);
+        await Valid(jobs);
+        setup = await SetupRunTests.Steps(jobs);
+        Assert.True((bool)setup["settings_waits"]!);
+        Assert.False(SettingsDone(setup));
+        Assert.Equal("guided", (string)setup["proposal"]!["preset"]!);
+    }
+
+    [Fact]
+    public async Task NotBeforeTheSetupsPullRequest()
+    {
+        // The setup run proposed its settings and its pull request is open: the step does not wait
+        // yet, and a save of the panel is kept but does not do it, so the proposal is still put.
+        await using var jobs = await Proposed();
+        var settings = await Settings(jobs);
+        settings["hold_label"] = "agent: wait";
+        await Save(jobs, settings);
+        var setup = await SetupRunTests.Steps(jobs);
+        Assert.False(SettingsDone(setup));
+        Assert.False((bool)setup["settings_waits"]!);
+        Assert.Equal("agent: wait", (string)(await Settings(jobs))["hold_label"]!);
+
+        // Merged, it waits, and the next save does it.
+        await Valid(jobs);
+        Assert.True((bool)(await SetupRunTests.Steps(jobs))["settings_waits"]!);
+        await Save(jobs, await Settings(jobs));
+        setup = await SetupRunTests.Steps(jobs);
+        Assert.True(SettingsDone(setup));
+        Assert.False((bool)setup["settings_waits"]!);
     }
 
     [Fact]
     public async Task AcceptingSavesTheProposal()
     {
         await using var jobs = await Proposed();
+        await Valid(jobs);
         var proposal = (await SetupRunTests.Steps(jobs))["proposal"]!;
 
         // "Accept" fills in the proposed preset's settings and the paths, and saves them through
@@ -124,6 +164,7 @@ public sealed class SetupSettingsTests
         var setup = await SetupRunTests.Steps(jobs);
         Assert.False(SettingsDone(setup));
         Assert.Null(setup["proposal"]);
+        Assert.True((bool)setup["settings_waits"]!);
         Assert.Equal("setting_up", (string)setup["state"]!);
 
         // Saving the panel while it waits marks it done with what was saved: here a changed hold
@@ -157,7 +198,8 @@ public sealed class SetupSettingsTests
         Assert.Equal(StatusCodes.Status204NoContent, (await jobs.Next()).Response.StatusCode);
         Assert.False(SettingsDone(await SetupRunTests.Steps(jobs)));
 
-        // Saved, the card's reading is handed out.
+        // Saved once its .devflow/ is valid, the card's reading is handed out.
+        await Valid(jobs);
         await Save(jobs, await Settings(jobs));
         Assert.Equal(Job.Read, (string)(await jobs.Job())["kind"]!);
     }

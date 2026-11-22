@@ -5640,25 +5640,39 @@ def test_i_accept_the_proposed_settings(
     )
     assert refreshed.status == 204, refreshed.text()
 
-    # The setup run proposes guided and its migrations; the settings step
-    # waits for me, the fake worker leaving it so.
-    ran = page.request.post(
-        "/devflow/api/fake/worker/run",
-        data={
-            "project_id": project,
-            "setup": True,
-            "settings_wait": True,
-            "result": _setup_result(_setup_report()),
-        },
-        headers={"Origin": base_url},
-    )
-    assert ran.status == 200, ran.text()
-    assert ran.json()["kind"] == "setup"
+    # The setup run proposes guided and its migrations, and is reviewed; the
+    # fake worker leaves the settings for me in both runs.
+    for result, kind in (
+        (_setup_result(_setup_report()), "setup"),
+        (_setup_result(_verdict("approve")), "review"),
+    ):
+        ran = page.request.post(
+            "/devflow/api/fake/worker/run",
+            data={
+                "project_id": project,
+                "setup": True,
+                "settings_wait": True,
+                "result": result,
+            },
+            headers={"Origin": base_url},
+        )
+        assert ran.status == 200, ran.text()
+        assert ran.json()["kind"] == kind
 
+    # While its pull request waits for me, the settings step is not offered:
+    # it comes after the setup's pull request.
     page.reload()
     setup = page.get_by_role("article", name="Setting up")
     steps = setup.get_by_role("list", name="Setup steps").get_by_role("listitem")
     expect(steps.nth(2)).to_contain_text("The settings accepted")
+    expect(steps.nth(2)).to_contain_text("To do")
+    run = setup.get_by_role("region", name="The setup run")
+    expect(run.get_by_text("Waits for you", exact=True)).to_be_visible()
+    expect(setup.get_by_role("region", name="The settings")).to_have_count(0)
+
+    # I merge it, and the settings step waits with the proposal.
+    run.get_by_role("button", name="Merge").click()
+    expect(steps.nth(0)).to_contain_text("Done")
     expect(steps.nth(2)).to_contain_text("To do")
     step = setup.get_by_role("region", name="The settings")
     expect(step.get_by_text("Guided", exact=True)).to_be_visible()

@@ -53,11 +53,12 @@ public sealed class SetupSendBackTests
     /// <summary>
     /// A registered project whose first setup ran and merged, the setup's row standing for it, and
     /// whose .devflow/ is on the default branch, valid; a worker built from it says hello, and is
-    /// handed its check. The check job.
+    /// handed its check. The check job. With <paramref name="settingsAccepted"/> false, its settings
+    /// step is not done, for a test of how a setup sent back holds it.
     /// </summary>
-    private static async Task<(Jobs Jobs, JsonObject Check)> Checking()
+    private static async Task<(Jobs Jobs, JsonObject Check)> Checking(bool settingsAccepted = true)
     {
-        var jobs = await Jobs.Start([Jobs.Card(1)], checkedRecipe: false);
+        var jobs = await Jobs.Start([Jobs.Card(1)], checkedRecipe: false, settingsAccepted: settingsAccepted);
         SetupRunTests.Stage(jobs, (".devflow/Dockerfile", "main", SetupRunTests.GoodRecipe), (".devflow/project.json", "main", Jobs.ProjectFile()));
         Assert.Equal(DevFlow.Reading.ReadResult.Read, await jobs.Routes.Read(jobs.Project, Jobs.User));
         await DevFlow.Tests.Merging.Merged.Sql(
@@ -77,6 +78,27 @@ public sealed class SetupSendBackTests
 
     private static async Task Ends(Jobs jobs, JsonObject check, int exit) =>
         Assert.Equal(StatusCodes.Status204NoContent, (await jobs.Post(WorkerApi.ResultPath((Guid)check["job_id"]!), Checked(exit))).Response.StatusCode);
+
+    [Fact]
+    public async Task ASetupSentBackHoldsTheSettingsStep()
+    {
+        // Its settings step waits, its setup behind it, and its check failed.
+        var (jobs, check) = await Checking(settingsAccepted: false);
+        await using var _ = jobs;
+        await Ends(jobs, check, 1);
+        Assert.True((bool)(await SetupRunTests.Steps(jobs))["settings_waits"]!);
+
+        // Sent back, the setup under way may propose other settings: the step no longer waits, and a
+        // save of the panel does not do it.
+        Assert.Equal(StatusCodes.Status204NoContent, (await SendBack(jobs, Comment)).Response.StatusCode);
+        var setup = await SetupRunTests.Steps(jobs);
+        Assert.False((bool)setup["settings_waits"]!);
+        var path = $"/devflow/api/projects/{jobs.Project}/settings";
+        var settings = JsonNode.Parse(await Harness.Body(await jobs.Routes.App.Get(path, Contract.Token)))!.AsObject();
+        settings["trusted_logins"] = new JsonArray([.. settings["trusted_logins"]!.AsArray().Select(entry => (JsonNode?)(string)entry!["login"]!)]);
+        Assert.Equal(StatusCodes.Status200OK, (await jobs.Routes.App.SendJson("PUT", path, Contract.Token, settings.ToJsonString())).Response.StatusCode);
+        Assert.False((bool)(await SetupRunTests.Steps(jobs))["steps"]!.AsArray().Single(step => (string)step!["step"]! == "settings")!["done"]!);
+    }
 
     [Fact]
     public async Task AFailedCheckIsSentBack()

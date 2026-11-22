@@ -811,6 +811,14 @@ before it: neither merges anything, and the proposal he accepts comes from the f
 and builds are held, the start of a card's work, so reviews and fixes of work already under way
 finish.
 
+**The settings step waits for the setup's pull request.** It is offered, and a save does it, only
+once `.devflow/` is valid on the default branch and no setup sent back is under way. Before then the
+setup run's proposal can still change: a fix round after its review, or a setup sent back, proposes
+again, and the proposal shown is the newest that succeeded. A step done earlier would leave the
+proposal that finally merged unasked. The cost is that a project whose `.devflow/` is not valid
+takes no card until its setup merges, even when a check of its recipe passed; that project needs
+its setup anyway.
+
 **Existing projects confirm their settings once.** Fodr's settings were set before any setup run
 proposed them, and every project connected before the step would otherwise count as accepted
 without him having been asked. The migration leaves the step not done for all of them, so each is
