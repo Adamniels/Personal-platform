@@ -777,11 +777,32 @@ price of one version naming the whole setup. The column keeps its name, `recipe_
 passed, read from the checks themselves, so the state can never disagree with them; the later
 slices of part 6 add their steps to what registers a project the same way.
 
+**The setup run is a worker's job too, on the base image itself.** A project with no valid
+`.devflow/` has no recipe to build a worker from, so the page's command starts one from the base
+image, which reports no recipe version and is handed only that project's setup jobs. The worker is
+told apart by its version, not by a kind of key, so one key still serves every worker of a project.
+
+**Its worker runs no check.** In the base image the agent runs without root and cannot install
+what its own recipe installs, so a check there would fail for reasons that say nothing about the
+recipe. Dev flow validates what it pushed instead, both files at the commit, judged as a card's
+check that failed; and the check that counts is the check at registration, which the first worker
+built from the merged recipe runs before any card.
+
+**Its pull request always waits for the owner.** The recipe decides what runs as root in his
+containers on his machine, so whatever the project's settings, Dev flow never merges it: the merge
+check reads only cards, so no setting can reach it. It is reviewed and fixed like a card's first,
+so what he reads is a reviewed recipe with what it could not settle said plainly.
+
+**A setup that stopped gets its pull request.** Settled has the owner's comment on its pull request
+run a stopped setup again; one that stopped before its pull request opened would leave nothing to
+comment on, so its pull request is opened all the same, saying why it stopped.
+
 **"Waiting for you" lists only a check that failed.** The feature has a project setting up shown
 there, but a project connected only so Dev flow reads this repository's runner, the platform
 itself until part 10, would sit there for good with nothing for the owner to do. So "Setup" lists a
 project whose newest check failed with no other asked for, where the owner is needed; the steps of
-one still setting up are on its own page.
+one still setting up are on its own page. A setup run that waits for him to merge it, or stopped,
+is listed there too, for the same reason: he is needed.
 
 ## Handing out work
 

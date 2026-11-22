@@ -5296,11 +5296,13 @@ def test_a_project_is_checked_before_its_first_card(
     page.reload()
     setup = page.get_by_role("article", name="Setting up")
     steps = setup.get_by_role("list", name="Setup steps").get_by_role("listitem")
-    expect(steps).to_have_count(3)
+    expect(steps).to_have_count(4)
     expect(steps.nth(0)).to_contain_text("Done")
-    expect(steps.nth(0)).to_contain_text("The recipe on the default branch")
-    expect(steps.nth(1)).to_contain_text("To do")
+    expect(steps.nth(0)).to_contain_text("A valid .devflow/ on the default branch")
+    expect(steps.nth(1)).to_contain_text("Done")
+    expect(steps.nth(1)).to_contain_text("The recipe on the default branch")
     expect(steps.nth(2)).to_contain_text("To do")
+    expect(steps.nth(3)).to_contain_text("To do")
     expect(page.get_by_role("article", name="Cards")).to_have_count(0)
     assert (
         page.request.get(f"/devflow/api/projects/{project}/setup").json()["state"]
@@ -5328,8 +5330,8 @@ def test_a_project_is_checked_before_its_first_card(
     expect(check.get_by_text("Failed", exact=True)).to_be_visible()
     expect(check.get_by_text("exited with 1", exact=False)).to_be_visible()
     expect(check.locator("pre")).to_contain_text("Tests  1 failed | 24 passed")
-    expect(steps.nth(1)).to_contain_text("Done")
-    expect(steps.nth(2)).to_contain_text("To do")
+    expect(steps.nth(2)).to_contain_text("Done")
+    expect(steps.nth(3)).to_contain_text("To do")
     expect(setup.get_by_role("button", name="Check again")).to_be_visible()
     assert _axe_violations(page) == []
     capture(page, "devflow-project-setting-up")
@@ -5359,7 +5361,7 @@ def test_a_project_is_checked_before_its_first_card(
     assert passed["kind"] == "check"
     answered = page.request.get(f"/devflow/api/projects/{project}/setup").json()
     assert answered["state"] == "registered"
-    assert [step["done"] for step in answered["steps"]] == [True, True, True]
+    assert [step["done"] for step in answered["steps"]] == [True, True, True, True]
     shown = page.request.get(
         f"/devflow/api/projects/{project}/setup/checks/{answered['check']['id']}"
         "/pictures/home-desktop"
@@ -5376,3 +5378,146 @@ def test_a_project_is_checked_before_its_first_card(
     page.reload()
     expect(page.get_by_role("article", name="Cards")).to_be_visible()
     expect(page.get_by_role("article", name="Setting up")).to_have_count(0)
+
+
+def _setup_report() -> dict:
+    """A setup run's report in its form, with two things it could not
+    settle."""
+    return {
+        "summary": "Wrote a recipe with Postgres, and a check that starts it.",
+        "proposed": {
+            "preset": "guided",
+            "why": "Its migrations are worth a look before they merge.",
+            "paths": ["migrations/**"],
+        },
+        "variables": [
+            {"name": "STRIPE_TEST_KEY", "why": "The payment tests call Stripe."}
+        ],
+        "unsettled": [
+            {
+                "kind": "real_secret",
+                "detail": "The export tests upload to the real bucket.",
+            },
+            {
+                "kind": "containers_in_tests",
+                "detail": "The integration tests start Redis with Testcontainers.",
+            },
+        ],
+        "decisions": [],
+        "handover": "The check starts Postgres before the tests.",
+    }
+
+
+def _fake_setup(page: Page, base_url: str, project: str, report: dict) -> dict:
+    """The fake worker, started from the base image with no recipe, takes
+    the project's next setup job and ends it with `report`. What it
+    answered."""
+    ran = page.request.post(
+        "/devflow/api/fake/worker/run",
+        data={
+            "project_id": project,
+            "setup": True,
+            "result": {
+                "outcome": "succeeded",
+                "report": report,
+                "failure": None,
+                "check": None,
+                "auth_method": "oauth_token",
+                "usage": {},
+                "duration_ms": 61000,
+                "stderr": "",
+            },
+        },
+        headers={"Origin": base_url},
+    )
+    assert ran.status == 200, ran.text()
+    return ran.json()
+
+
+def test_a_project_is_set_up_by_an_agent(
+    page: Page, invite_code: str, base_url: str, viewport: str, devflow_world
+):
+    register_and_log_in(page, invite_code, base_url)
+    # A repository with no .devflow/ on its default branch; what its setup
+    # run writes is staged on the setup's branch.
+    world = one_repository(name="Fodr")
+    add_file(world, ".devflow/Dockerfile", RECIPE, branch="devflow/setup")
+    add_file(
+        world,
+        ".devflow/project.json",
+        json.dumps({"version": 1, "check": CHECK, "start": "", "url": ""}).encode(),
+        branch="devflow/setup",
+    )
+    _open_project(page, base_url, devflow_world, world)
+    project = page.url.rsplit("/", 1)[1]
+    given = page.request.put(
+        "/devflow/api/claude-login",
+        data={"token": CLAUDE_TOKEN},
+        headers={"Origin": base_url},
+    )
+    assert given.status == 200, given.text()
+    refreshed = page.request.post(
+        f"/devflow/api/projects/{project}/refresh", headers={"Origin": base_url}
+    )
+    assert refreshed.status == 204, refreshed.text()
+
+    # Its step shows why a setup run is due and the command that starts its
+    # worker from the base image.
+    page.reload()
+    setup = page.get_by_role("article", name="Setting up")
+    steps = setup.get_by_role("list", name="Setup steps").get_by_role("listitem")
+    expect(steps).to_have_count(4)
+    expect(steps.nth(0)).to_contain_text("To do")
+    expect(steps.nth(0)).to_contain_text("A valid .devflow/ on the default branch")
+    run = setup.get_by_role("region", name="The setup run")
+    expect(run.get_by_text(".devflow/Dockerfile is missing.")).to_be_visible()
+    expect(
+        run.get_by_text("--name devflow-fodr-setup --memory 2g", exact=False)
+    ).to_be_visible()
+
+    # The fake worker's setup opens a pull request, which is reviewed, and
+    # waits for me with what it could not settle.
+    ran = _fake_setup(page, base_url, project, _setup_report())
+    assert ran["kind"] == "setup"
+    assert ran["branch"] == "devflow/setup"
+    reviewed = page.request.post(
+        "/devflow/api/fake/worker/run",
+        data={
+            "project_id": project,
+            "setup": True,
+            "result": {
+                "outcome": "succeeded",
+                "report": _verdict("approve"),
+                "failure": None,
+                "check": None,
+                "auth_method": "oauth_token",
+                "usage": {},
+                "duration_ms": 61000,
+                "stderr": "",
+            },
+        },
+        headers={"Origin": base_url},
+    )
+    assert reviewed.status == 200, reviewed.text()
+    assert reviewed.json()["kind"] == "review"
+    page.reload()
+    expect(run.get_by_text("Waits for you", exact=True)).to_be_visible()
+    expect(run.get_by_role("link", name=re.compile(r"Pull request #\d+"))).to_be_visible()
+    unsettled = run.get_by_role("list", name="What it could not settle")
+    expect(unsettled.get_by_role("listitem")).to_have_count(2)
+    expect(unsettled.get_by_text("Needs a real secret")).to_be_visible()
+    expect(unsettled.get_by_text("Its tests start containers")).to_be_visible()
+    assert _axe_violations(page) == []
+    capture(page, "devflow-project-setup-run")
+    waiting = page.request.get("/devflow/api/waiting").json()
+    (listed,) = waiting["setup_runs"]
+    assert listed["project_id"] == project
+    assert listed["state"] == "waiting_for_owner"
+
+    # I merge it, and the next step is a worker on the recipe.
+    run.get_by_role("button", name="Merge").click()
+    expect(steps.nth(0)).to_contain_text("Done")
+    expect(steps.nth(1)).to_contain_text("Done")
+    expect(steps.nth(2)).to_contain_text("To do")
+    expect(steps.nth(2)).to_contain_text("A worker on the recipe")
+    assert page.request.get("/devflow/api/waiting").json()["setup_runs"] == []

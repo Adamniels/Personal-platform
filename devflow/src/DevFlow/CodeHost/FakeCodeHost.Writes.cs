@@ -198,7 +198,8 @@ public sealed partial class FakeCodeHost
     /// before any, to <paramref name="mergeCommit"/>, the one made in its git repository, or a new
     /// one, random, without; and that commit. Merged into the default branch, each issue of the
     /// repository its body names with a closing keyword is closed, as GitHub closes it, see
-    /// <see cref="Closes"/>. Its git repository is not changed here.
+    /// <see cref="Closes"/>. The files staged on its branch are staged on the branch it merges into.
+    /// Its git repository is not changed here.
     /// </summary>
     private (FakeRepository Changed, string Commit) WithMerge(FakeRepository found, int number, string actor, string? mergeCommit)
     {
@@ -210,8 +211,12 @@ public sealed partial class FakeCodeHost
         var commit = mergeCommit ?? Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(20));
         var id = activity.Select(each => each.Id).DefaultIfEmpty(0).Max() + 1;
         var closed = into == found.Default ? Closes(pull?.Body) : new HashSet<int>();
+        // The files staged on its branch land on the branch it merges into, as a merge brings them
+        // there, each replacing the one at its path.
+        var brought = pull is null ? [] : found.Files.Where(file => file.Branch == pull.HeadBranch).Select(file => file with { Branch = into }).ToList();
         return (found with
         {
+            Files = [.. found.Files.Where(file => file.Branch != into || !brought.Any(each => each.Path == file.Path)), .. brought],
             PullRequests = [.. found.PullRequests.Select(each => each.Number == number ? each with { State = PullRequestState.Merged, UpdatedAt = now } : each)],
             Issues = [.. found.Issues.Select(each => closed.Contains(each.Number) ? each with { Open = false } : each)],
             Activity = [.. activity, new FakeActivity(id, into, before, commit, now, ActivityKind.PullRequestMerge, actor)],
