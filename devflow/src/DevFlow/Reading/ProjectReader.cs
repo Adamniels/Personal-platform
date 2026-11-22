@@ -635,8 +635,9 @@ public sealed partial class ProjectReader(UserDb database, ICodeHost host, TimeP
     private static partial void LogSweepFailed(ILogger logger, Guid project, Exception failed);
 
     /// <summary>
-    /// Records the version of the project's recipe as its default branch has it now, so a worker
-    /// built from an older one is told apart; null when the branch has none. When the code host
+    /// Records the project's setup version as its default branch has it now, the newest commit that
+    /// changed anything under <c>.devflow/</c>, so a worker built from an older one is told apart;
+    /// null when the branch has no recipe. When the code host
     /// does not answer, or reading fails, the version stays as it was, and the project's own read
     /// is not failed for it: the recipe is the workers' business, not the waiting list's.
     /// </summary>
@@ -646,7 +647,9 @@ public sealed partial class ProjectReader(UserDb database, ICodeHost host, TimeP
         {
             var repository = new Repository(target.Installation, target.RepositoryId, target.Owner, target.Name);
             string? version;
-            switch (await host.DefaultBranchFile(userId, repository, Recipes.RecipeEndpoints.RecipePath, cancellationToken))
+            // The setup version: the newest commit that changed anything under .devflow/, so a
+            // change to project.json alone asks the workers to rebuild too.
+            switch (await host.FolderFile(userId, repository, Recipes.RecipeEndpoints.SetupFolder, Recipes.RecipeEndpoints.RecipePath, cancellationToken))
             {
                 case CodeHostResult<FileAtCommit>.Found { Value: var file }:
                     version = file.Commit;

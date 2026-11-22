@@ -45,6 +45,16 @@ public interface ICodeHost
     /// </summary>
     Task<CodeHostResult<FileAtCommit>> DefaultBranchFile(Guid userId, Repository repository, string path, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// The file at <paramref name="path"/>, inside <paramref name="folder"/>, on the repository's
+    /// default branch, read at the newest commit of that branch that changed anything under the
+    /// folder, and that commit's id: so the id changes when any file of the folder does, and not
+    /// when the rest of the repository does. A project's setup version is read so, the folder
+    /// <c>.devflow</c>. Not found when no commit of the default branch changed the folder, or the
+    /// file is not in it at that commit.
+    /// </summary>
+    Task<CodeHostResult<FileAtCommit>> FolderFile(Guid userId, Repository repository, string folder, string path, CancellationToken cancellationToken);
+
     /// <summary>The repository's open issues carrying <paramref name="label"/>, as GitHub lists
     /// them: pull requests among them, each marked, in no particular order. A label the repository
     /// does not have lists nothing.</summary>

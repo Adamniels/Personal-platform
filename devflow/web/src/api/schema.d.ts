@@ -735,7 +735,7 @@ export interface paths {
         };
         /**
          * The project's recipe, to build a worker from
-         * @description The file .devflow/Dockerfile of the key's project, from its repository's default branch, read as the app at the newest commit that changed it: text/plain, with that commit's id in X-Devflow-Recipe-Version, X-Content-Type-Options: nosniff and Cache-Control: no-store. 404 when the repository has none; 422 naming the line when it copies files into the image, a COPY or an ADD in any case, after continued lines are joined, or when it is not UTF-8 text of at most 64 KB; 503 when GitHub did not answer. Takes the project's worker key as Authorization: Bearer dfw_…, and nothing else: without a key the project has now, 401 with an empty body.
+         * @description The file .devflow/Dockerfile of the key's project, from its repository's default branch, read as the app at the newest commit that changed anything under .devflow/, the project's setup version: text/plain, with that commit's id in X-Devflow-Recipe-Version, X-Content-Type-Options: nosniff and Cache-Control: no-store. 404 when the repository has none; 422 naming the line when it copies files into the image, a COPY or an ADD in any case, after continued lines are joined, or when it is not UTF-8 text of at most 64 KB; 503 when GitHub did not answer. Takes the project's worker key as Authorization: Bearer dfw_…, and nothing else: without a key the project has now, 401 with an empty body.
          */
         get: operations["workerRecipe"];
         put?: never;

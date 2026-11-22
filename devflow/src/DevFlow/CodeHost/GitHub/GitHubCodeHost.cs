@@ -142,6 +142,37 @@ public sealed partial class GitHubCodeHost : ICodeHost, ICodeHostSignIn, IDispos
         return Map(await File(userId, repository, path, commit, cancellationToken), bytes => new FileAtCommit(bytes, commit));
     }
 
+    /// <summary>
+    /// <see cref="DefaultBranchFile"/>'s two reads, with the commits listed by the folder rather
+    /// than the file: GitHub's <c>path</c> takes a folder, and lists the commits that changed
+    /// anything under it.
+    /// </summary>
+    public async Task<CodeHostResult<FileAtCommit>> FolderFile(Guid userId, Repository repository, string folder, string path, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(folder);
+        ArgumentNullException.ThrowIfNull(path);
+        var commits = Map(
+            await Get(repository, Address($"{Repo(repository)}/commits?path={Escape(folder)}&per_page=1"), GitHubHttp.JsonMediaType, cancellationToken),
+            page => Parse<IReadOnlyList<CommitAnswer>>(page.Body) ?? throw new JsonException("the answer does not parse"));
+        if (commits is not CodeHostResult<IReadOnlyList<CommitAnswer>>.Found found)
+        {
+            return Fail<IReadOnlyList<CommitAnswer>, FileAtCommit>(commits);
+        }
+
+        if (found.Value.Count == 0)
+        {
+            return new CodeHostResult<FileAtCommit>.NotFound();
+        }
+
+        var commit = found.Value[0].Sha;
+        if (!CommitId().IsMatch(commit))
+        {
+            return new CodeHostResult<FileAtCommit>.Unavailable(RetryAt: null);
+        }
+
+        return Map(await File(userId, repository, path, commit, cancellationToken), bytes => new FileAtCommit(bytes, commit));
+    }
+
     /// <summary><c>GET /user/installations</c>, as the person: the installations of this app they
     /// can reach.</summary>
     public async Task<CodeHostResult<IReadOnlyList<Installation>>> Installations(Guid userId, string userToken, CancellationToken cancellationToken) =>

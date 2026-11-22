@@ -14,8 +14,10 @@ namespace DevFlow.Recipes;
 /// The recipe route, under <see cref="WorkerAuthentication.Policy"/>: the project's
 /// <c>.devflow/Dockerfile</c> from its default branch, read as the app, handed to whoever holds the
 /// project's key, which is the command on the project's page building a worker. Served as text
-/// whose type is fixed and never the host's, never sniffed or kept, with the commit it was read at
-/// in <see cref="VersionHeader"/>, which the build turns into the version the worker reports. A
+/// whose type is fixed and never the host's, never sniffed or kept, with the project's setup
+/// version in <see cref="VersionHeader"/>, the newest commit that changed anything under
+/// <see cref="SetupFolder"/>, at which it was read, which the build turns into the version the
+/// worker reports. A
 /// recipe that would copy files into the image is refused naming the line. See "Starting a worker"
 /// in devflow/README.md, and the screenshot route, the other place a code host's bytes are handed
 /// on, in <c>Reading/ScreenshotEndpoints.cs</c>.
@@ -24,6 +26,10 @@ public static class RecipeEndpoints
 {
     /// <summary>Where the recipe is.</summary>
     public const string Path = WorkerApi.Prefix + "/recipe";
+
+    /// <summary>The folder a project keeps its setup in, its recipe and its <c>project.json</c>,
+    /// whose newest change on the default branch is the project's setup version.</summary>
+    public const string SetupFolder = ".devflow";
 
     /// <summary>The recipe's path in the project's repository.</summary>
     public const string RecipePath = ".devflow/Dockerfile";
@@ -46,7 +52,7 @@ public static class RecipeEndpoints
             .RequireAuthorization(WorkerAuthentication.Policy)
             .WithName("workerRecipe")
             .WithSummary("The project's recipe, to build a worker from")
-            .WithDescription($"The file {RecipePath} of the key's project, from its repository's default branch, read as the app at the newest commit that changed it: text/plain, with that commit's id in {VersionHeader}, X-Content-Type-Options: nosniff and Cache-Control: no-store. 404 when the repository has none; 422 naming the line when it copies files into the image, a COPY or an ADD in any case, after continued lines are joined, or when it is not UTF-8 text of at most 64 KB; 503 when GitHub did not answer. Takes the project's worker key as Authorization: Bearer dfw_…, and nothing else: without a key the project has now, 401 with an empty body.")
+            .WithDescription($"The file {RecipePath} of the key's project, from its repository's default branch, read as the app at the newest commit that changed anything under {SetupFolder}/, the project's setup version: text/plain, with that commit's id in {VersionHeader}, X-Content-Type-Options: nosniff and Cache-Control: no-store. 404 when the repository has none; 422 naming the line when it copies files into the image, a COPY or an ADD in any case, after continued lines are joined, or when it is not UTF-8 text of at most 64 KB; 503 when GitHub did not answer. Takes the project's worker key as Authorization: Bearer dfw_…, and nothing else: without a key the project has now, 401 with an empty body.")
             .Produces<string>(StatusCodes.Status200OK, "text/plain")
             .Produces(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status404NotFound)
@@ -71,7 +77,7 @@ public static class RecipeEndpoints
             return NotFound("The key's project is gone.");
         }
 
-        switch (await host.DefaultBranchFile(caller.UserId, repository, RecipePath, cancellationToken))
+        switch (await host.FolderFile(caller.UserId, repository, SetupFolder, RecipePath, cancellationToken))
         {
             case CodeHostResult<FileAtCommit>.Found { Value: var file }:
                 if (file.Content.Length > MostBytes || Text(file.Content) is not { } text)

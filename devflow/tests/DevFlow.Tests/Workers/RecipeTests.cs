@@ -1,4 +1,3 @@
-using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json.Nodes;
 
@@ -44,11 +43,11 @@ public sealed class RecipeTests
         Assert.Equal(StatusCodes.Status200OK, response.Response.StatusCode);
         Assert.Equal("text/plain; charset=utf-8", response.Response.ContentType);
         Assert.Equal(Recipe, await Harness.Body(response));
-        // The fake has no history: the commit it answers for a file is the SHA-256 of its content.
-        Assert.Equal(Convert.ToHexStringLower(SHA256.HashData(bytes)), (string?)response.Response.Headers[RecipeEndpoints.VersionHeader]);
+        // The fake has no history: the version it answers is a hash of the folder's files.
+        Assert.Equal(FakeCodeHost.FolderVersion([(".devflow/Dockerfile", bytes)]), (string?)response.Response.Headers[RecipeEndpoints.VersionHeader]);
         Assert.Equal("no-store", (string?)response.Response.Headers.CacheControl);
         Assert.Equal("nosniff", (string?)response.Response.Headers.XContentTypeOptions);
-        Assert.Contains(routes.Host.Calls, call => call.Operation == "DefaultBranchFile" && call.User == Workers.User);
+        Assert.Contains(routes.Host.Calls, call => call.Operation == "FolderFile" && call.User == Workers.User);
 
         // Without a key, or with another project's, nothing is read.
         Assert.Equal(StatusCodes.Status401Unauthorized, (await Workers.GetRecipe(routes, null)).Response.StatusCode);
