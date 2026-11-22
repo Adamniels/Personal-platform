@@ -3681,8 +3681,8 @@ def test_i_set_sometimes(
     _open_project(page, base_url, devflow_world)
     settings = page.get_by_role("article", name="Settings")
 
-    # Sometimes shows its conditions, all three ticked, the review label, and
-    # an empty list of paths.
+    # Sometimes shows its conditions, all three ticked, and an empty list of
+    # paths; the review label it reads is with the other labels.
     expect(settings.get_by_label("Paths")).to_have_count(0)
     settings.get_by_label("Pull requests wait for you").select_option("sometimes")
     conditions = settings.get_by_role("group", name="Waits for you when")
@@ -3692,7 +3692,7 @@ def test_i_set_sometimes(
         "The agent made a decision for you",
     ):
         expect(conditions.get_by_label(condition)).to_be_checked()
-    expect(conditions.get_by_label("Review label")).to_have_value("devflow-review")
+    expect(settings.get_by_label("Review label")).to_have_value("devflow-review")
     expect(conditions.get_by_label("Paths")).to_have_value("")
 
     # A pattern Dev flow refuses is named under the list, and nothing is saved.

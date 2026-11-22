@@ -12,10 +12,6 @@
 	gap: var(--space-4);
 }
 
-.line {
-	margin: 0;
-}
-
 /* What did not happen: the attention text, read as an alert, as the
  * Workers panel says its own. */
 .error {
@@ -43,9 +39,11 @@
 	color: var(--text-2);
 }
 
-/* The trusted accounts, under the fields: a heading, a line on what they are,
- * the list, and the field that adds one. */
-.trusted {
+/* Each of the panel's three groups, how cards are picked, how much happens
+ * alone, and the models and limits: a heading, a line on what it holds, then
+ * its fields, one under another. */
+.group,
+.runs {
 	display: flex;
 	flex-direction: column;
 	gap: var(--space-3);
@@ -54,6 +52,44 @@
 .heading {
 	margin: 0;
 	font-size: inherit;
+	font-weight: 600;
+}
+
+/* The trusted accounts' heading inside how cards are picked, quieter than
+ * the group's own. */
+.subheading {
+	margin: var(--space-2) 0 0;
+	font-size: inherit;
+	font-weight: 600;
+	color: var(--text-2);
+}
+
+/* The presets and the one the form matches: the three buttons in a row that
+ * wraps at phone width, and the name beside them where there is room. */
+.presets {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-3);
+}
+
+.choices {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-2);
+	min-width: 0;
+	margin: 0;
+	padding: 0;
+	border: 0;
+}
+
+.matched {
+	margin: 0;
+	color: var(--text-2);
+}
+
+.matched > output {
+	color: var(--text);
 	font-weight: 600;
 }
 
@@ -112,25 +148,28 @@
 	border: 0;
 }
 
-/* A legend sits in its fieldset's border unless it is laid out as a block. */
-.sometimes > legend {
+/* A legend sits in its fieldset's border unless it is laid out as a block;
+ * the presets' is read by a screen reader, the buttons saying the rest. */
+.legend {
 	float: left;
 	width: 100%;
 	padding: 0;
+	font-weight: 600;
+}
+
+.choices > .legend {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	overflow: hidden;
+	clip-path: inset(50%);
+	white-space: nowrap;
 }
 
 .conditions {
 	display: flex;
 	flex-direction: column;
 	gap: var(--space-2);
-}
-
-/* The models and limits, under the trusted accounts: a heading, a line on
- * when a change counts, the three models, then the four limits. */
-.runs {
-	display: flex;
-	flex-direction: column;
-	gap: var(--space-3);
 }
 
 /* Patterns are paths, read in the mono font. */

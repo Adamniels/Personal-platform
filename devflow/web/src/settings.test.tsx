@@ -13,6 +13,7 @@ import {
 	NOT_READ,
 	NOT_SAVED,
 	type ProjectSettings,
+	presetOf,
 	SAVED,
 	SettingsPanel,
 	type SettingsRequest,
@@ -44,6 +45,9 @@ const DEFAULTS: ProjectSettings = {
 	preset: "custom",
 };
 
+/** What saving the defaults sends: every setting, never the preset. */
+const { preset: _, ...REQUEST } = DEFAULTS;
+
 /** What saving answers: the request, with the owner's login marked. */
 const answered = (settings: SettingsRequest): ProjectSettings => ({
 	pickup_label: settings.pickup_label ?? "",
@@ -67,7 +71,13 @@ const answered = (settings: SettingsRequest): ProjectSettings => ({
 	fix_rounds_card: settings.fix_rounds_card ?? 0,
 	fix_rounds_feature: settings.fix_rounds_feature ?? 0,
 	questions: settings.questions ?? false,
-	preset: "custom",
+	preset: presetOf({
+		questions: settings.questions ?? false,
+		waits_for_owner: settings.waits_for_owner ?? "",
+		wait_when_marked: settings.wait_when_marked ?? false,
+		wait_when_paths: settings.wait_when_paths ?? false,
+		wait_when_decision: settings.wait_when_decision ?? false,
+	}),
 });
 
 function renderPanel(
@@ -138,7 +148,7 @@ describe("the settings panel", () => {
 
 		expect(await settings.findByText(SAVED)).toBeTruthy();
 		expect(saveSettings).toHaveBeenCalledWith(ID, {
-			...DEFAULTS,
+			...REQUEST,
 			model_building: "sonnet",
 			model_reviewing: "haiku",
 			run_minutes: 45,
@@ -205,11 +215,16 @@ describe("the settings panel", () => {
 			"Pull requests wait for you",
 		)) as HTMLSelectElement;
 
-		// On never, nothing of sometimes is shown.
+		// On never, nothing of sometimes is shown; the review label is with the
+		// other labels, under how cards are picked.
 		expect(
 			settings.queryByRole("group", { name: "Waits for you when" }),
 		).toBeNull();
-		expect(settings.queryByLabelText("Review label")).toBeNull();
+		expect(
+			within(
+				settings.getByRole("region", { name: "How cards are picked" }),
+			).getByLabelText("Review label"),
+		).toBeTruthy();
 		expect(settings.queryByLabelText("Paths")).toBeNull();
 
 		fireEvent.change(waits, { target: { value: "sometimes" } });
@@ -230,9 +245,7 @@ describe("the settings panel", () => {
 			true,
 			true,
 		]);
-		const review = conditions.getByLabelText(
-			"Review label",
-		) as HTMLInputElement;
+		const review = settings.getByLabelText("Review label") as HTMLInputElement;
 		expect(review.value).toBe("devflow-review");
 		const list = conditions.getByLabelText("Paths") as HTMLTextAreaElement;
 		expect(list.value).toBe("src/auth/**");
@@ -247,7 +260,7 @@ describe("the settings panel", () => {
 
 		expect(await settings.findByText(SAVED)).toBeTruthy();
 		expect(saveSettings).toHaveBeenCalledWith(ID, {
-			...DEFAULTS,
+			...REQUEST,
 			waits_for_owner: "sometimes",
 			review_label: "look at me",
 			wait_when_decision: false,
@@ -264,7 +277,7 @@ describe("the settings panel", () => {
 		fireEvent.click(settings.getByRole("button", { name: "Save" }));
 		await waitFor(() =>
 			expect(saveSettings).toHaveBeenLastCalledWith(ID, {
-				...DEFAULTS,
+				...REQUEST,
 				waits_for_owner: "always",
 				review_label: "look at me",
 				wait_when_decision: false,
@@ -348,7 +361,7 @@ describe("the settings panel", () => {
 
 		expect(await settings.findByText(SAVED)).toBeTruthy();
 		expect(saveSettings).toHaveBeenCalledWith(ID, {
-			...DEFAULTS,
+			...REQUEST,
 			pickup_label: "agent: go",
 			waits_for_owner: "always",
 			trusted_logins: ["octo-owner"],
@@ -368,7 +381,7 @@ describe("the settings panel", () => {
 
 		expect(await settings.findByText(SAVED)).toBeTruthy();
 		expect(saveSettings).toHaveBeenCalledWith(ID, {
-			...DEFAULTS,
+			...REQUEST,
 			questions: false,
 			trusted_logins: ["octo-owner"],
 		});
@@ -483,7 +496,7 @@ describe("the settings panel", () => {
 		fireEvent.click(settings.getByRole("button", { name: "Save" }));
 		expect(await settings.findByText(SAVED)).toBeTruthy();
 		expect(saveSettings).toHaveBeenCalledWith(ID, {
-			...DEFAULTS,
+			...REQUEST,
 			trusted_logins: ["octo-owner", "octo-pal", "octo-buddy"],
 		});
 	});
@@ -513,6 +526,129 @@ describe("the settings panel", () => {
 		expect(
 			settings.getByText("Error: must hold GitHub logins only"),
 		).toBeTruthy();
+	});
+
+	test("a preset fills in its three settings and leaves the rest", async () => {
+		const { saveSettings } = renderPanel({
+			loadSettings: () =>
+				Promise.resolve({
+					...DEFAULTS,
+					waits_for_owner: "always",
+					wait_when_paths: false,
+					preset: "only_i_merge",
+				}),
+		});
+		const settings = await panel();
+		const alone = within(
+			settings.getByRole("region", { name: "How much happens alone" }),
+		);
+		const matched = () =>
+			alone.getByRole("status", { name: "Preset" }).textContent;
+		expect(matched()).toBe("Only I merge");
+
+		// Typed before choosing, and kept after.
+		fireEvent.change(settings.getByLabelText("Pick-up label"), {
+			target: { value: "agent: go" },
+		});
+		fireEvent.change(settings.getByLabelText("Minutes a run may take"), {
+			target: { value: "45" },
+		});
+		const guided = alone.getByRole("button", { name: "Guided" });
+		expect(guided.getAttribute("aria-pressed")).toBe("false");
+		fireEvent.click(guided);
+
+		expect(guided.getAttribute("aria-pressed")).toBe("true");
+		expect(matched()).toBe("Guided");
+		expect(
+			(alone.getByLabelText("Pull requests wait for you") as HTMLSelectElement)
+				.value,
+		).toBe("sometimes");
+		expect(
+			(
+				alone.getByRole("checkbox", {
+					name: "Questions before starting",
+				}) as HTMLInputElement
+			).checked,
+		).toBe(false);
+		const conditions = within(
+			alone.getByRole("group", { name: "Waits for you when" }),
+		);
+		for (const condition of [
+			"The card or its feature is marked for your review",
+			"The change touches a path on the list",
+			"The agent made a decision for you",
+		]) {
+			expect(
+				(conditions.getByLabelText(condition) as HTMLInputElement).checked,
+			).toBe(true);
+		}
+		expect(
+			(settings.getByLabelText("Pick-up label") as HTMLInputElement).value,
+		).toBe("agent: go");
+		expect(
+			(settings.getByLabelText("Minutes a run may take") as HTMLInputElement)
+				.value,
+		).toBe("45");
+
+		// Nothing is saved until Save, and then as any change, with no preset.
+		expect(saveSettings).not.toHaveBeenCalled();
+		fireEvent.click(settings.getByRole("button", { name: "Save" }));
+		expect(await settings.findByText(SAVED)).toBeTruthy();
+		expect(saveSettings).toHaveBeenCalledWith(ID, {
+			...REQUEST,
+			pickup_label: "agent: go",
+			run_minutes: 45,
+			questions: false,
+			waits_for_owner: "sometimes",
+			wait_when_marked: true,
+			wait_when_paths: true,
+			wait_when_decision: true,
+			trusted_logins: ["octo-owner"],
+		});
+		expect(matched()).toBe("Guided");
+	});
+
+	test("the name follows the settings", async () => {
+		renderPanel({
+			loadSettings: () =>
+				Promise.resolve({
+					...DEFAULTS,
+					waits_for_owner: "always",
+					preset: "only_i_merge",
+				}),
+		});
+		const settings = await panel();
+		const alone = within(
+			settings.getByRole("region", { name: "How much happens alone" }),
+		);
+		const matched = () =>
+			alone.getByRole("status", { name: "Preset" }).textContent;
+		const pressed = () =>
+			["Fully automatic", "Guided", "Only I merge"].filter(
+				(name) =>
+					alone.getByRole("button", { name }).getAttribute("aria-pressed") ===
+					"true",
+			);
+		expect(matched()).toBe("Only I merge");
+		expect(pressed()).toEqual(["Only I merge"]);
+
+		// One covered setting changed by hand matches no preset.
+		fireEvent.click(
+			alone.getByRole("checkbox", { name: "Questions before starting" }),
+		);
+		expect(matched()).toBe("Custom");
+		expect(pressed()).toEqual([]);
+
+		fireEvent.click(alone.getByRole("button", { name: "Fully automatic" }));
+		expect(matched()).toBe("Fully automatic");
+		expect(pressed()).toEqual(["Fully automatic"]);
+
+		// On sometimes, every condition counts.
+		fireEvent.click(alone.getByRole("button", { name: "Guided" }));
+		fireEvent.click(
+			alone.getByLabelText("The change touches a path on the list"),
+		);
+		expect(matched()).toBe("Custom");
 	});
 
 	test("settings that could not be read say so", async () => {
