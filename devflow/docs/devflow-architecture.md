@@ -2258,7 +2258,7 @@ its reason, or a risk accepted on purpose; each slice adds the ones it builds.
   with `DEVFLOW_CODE_HOST=github` Dev flow refuses to start. How it works is "The vault" in
   `devflow/README.md`.
 - **The Claude token is sealed per user, never answered, and leaves Dev flow only inside a job.**
-  It is the one credential a run holds, and it can spend the owner's subscription, so: it is put
+  It is the credential a run holds that can spend the owner's subscription, so: it is put
   in the vault under `claude-login`, bound to its user, and nothing else in the database holds it;
   no route answers it or any part of it, the status route says only whether one is set and when,
   and a refused one is not repeated in the error; the page never reads it back, and its field is a
