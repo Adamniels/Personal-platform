@@ -35,8 +35,9 @@ public sealed record ClaimedRead(Guid RunId, BriefCard Card, BriefFeature? Featu
 /// built on.</param>
 /// <param name="Missing">What the card lacks, when it is too thin.</param>
 /// <param name="ReadAt">When the reading came back.</param>
-/// <param name="Commented">Whether Dev flow's comment listing the questions and the answers chosen is
-/// on the card yet; false for any outcome but <c>questions</c>.</param>
+/// <param name="Commented">Whether Dev flow's comment for the reading is on the card yet: the one
+/// listing the questions and the answers chosen, or the refusal's listing what is missing; false for
+/// a ready card.</param>
 public sealed record CardReadingView(string Outcome, IReadOnlyList<CardQuestion> Questions, IReadOnlyList<string> Missing, DateTimeOffset ReadAt, bool Commented);
 
 /// <summary>A question a reading asked of a card, and the answer it is built on.</summary>
@@ -50,6 +51,14 @@ public sealed record CardQuestion(string Question, string Recommendation, string
 /// <summary>A card's questions whose comment Dev flow has yet to post, with the reading that asked
 /// them.</summary>
 public sealed record PendingQuestions(Guid RunId, int Number, IReadOnlyList<CardQuestion> Questions);
+
+/// <summary>A refused card whose refusal waits to be marked on its issue.</summary>
+/// <param name="RunId">The reading that refused it, which its comment names.</param>
+/// <param name="Number">The card's issue number.</param>
+/// <param name="Missing">What that reading found missing.</param>
+/// <param name="Commented">Whether that reading's comment is posted.</param>
+/// <param name="Labelled">Whether the app's attention label is on the issue.</param>
+public sealed record PendingRefusal(Guid RunId, int Number, IReadOnlyList<string> Missing, bool Commented, bool Labelled);
 
 /// <summary>
 /// Readings in the database, through the door as the project's user: which cards are read, taking a
@@ -400,8 +409,33 @@ public static class ReadingStore
         return [.. rows.Select(row => new PendingQuestions(row.RunId, row.Number, Questions(row.Questions)))];
     }
 
-    /// <summary>Records Dev flow's comment on the card, by its id, for the reading that asked its
-    /// questions, as the project's user.</summary>
+    /// <summary>The project's refused cards whose newest reading, too thin, waits to be marked on the
+    /// issue: the attention label not on it, or the refusal's comment not posted. Read as the
+    /// project's user, in number order.</summary>
+    public static async Task<IReadOnlyList<PendingRefusal>> PendingRefusals(UserDb database, Guid userId, Guid projectId, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(database);
+        var rows = await database.InUserTransaction(userId, transaction => transaction.Connection!.QueryAsync<RefusalRow>(new CommandDefinition(
+            """
+            SELECT cr.run_id AS RunId, c.number AS Number, cr.missing::text AS Missing, cr.comment_id IS NOT NULL AS Commented,
+                   c.attention_labelled AS Labelled
+            FROM cards c
+            JOIN LATERAL (SELECT * FROM card_readings newest
+                          WHERE newest.project_id = c.project_id AND newest.card_number = c.number AND newest.outcome IS NOT NULL
+                          ORDER BY newest.read_at DESC, newest.run_id DESC
+                          LIMIT 1) cr ON true
+            WHERE c.project_id = @projectId AND c.state = 'refused' AND cr.outcome = 'too_thin'
+              AND (cr.comment_id IS NULL OR NOT c.attention_labelled)
+            ORDER BY c.number
+            """,
+            new { projectId },
+            transaction,
+            cancellationToken: cancellationToken)), cancellationToken);
+        return [.. rows.Select(row => new PendingRefusal(row.RunId, row.Number, JsonSerializer.Deserialize<List<string>>(row.Missing) ?? [], row.Commented, row.Labelled))];
+    }
+
+    /// <summary>Records Dev flow's comment on the card, by its id, for the reading it is for: the one
+    /// that asked its questions, or the one that refused it. As the project's user.</summary>
     public static async Task Commented(UserDb database, Guid userId, Guid projectId, Guid runId, int number, long commentId, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(database);
@@ -444,4 +478,6 @@ public static class ReadingStore
     private sealed record ReadingRow(string Outcome, string Questions, string Missing, DateTime ReadAt, long? CommentId);
 
     private sealed record PendingRow(Guid RunId, int Number, string Questions);
+
+    private sealed record RefusalRow(Guid RunId, int Number, string Missing, bool Commented, bool Labelled);
 }

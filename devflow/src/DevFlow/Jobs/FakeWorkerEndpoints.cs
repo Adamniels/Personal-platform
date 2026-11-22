@@ -88,6 +88,7 @@ public static class FakeWorkerEndpoints
         [FromServices] FeatureReadiness readiness,
         [FromServices] StopMarker marker,
         [FromServices] Readings.QuestionComments questions,
+        [FromServices] Readings.RefusalMarker refusals,
         [FromServices] TimeProvider time)
     {
         var cancellationToken = context.RequestAborted;
@@ -137,9 +138,11 @@ public static class FakeWorkerEndpoints
             // A reading reads the code and changes nothing, so it names no commit.
             var read = prepared with { WorkerId = WorkerId, Branch = job.Branch, HeadCommit = null };
             await JobEndpoints.Complete(database, caller, job.JobId, WorkerId, JobEndpoints.Read(read)!, now, cancellationToken);
-            // The questions' comment is posted and a stopped card marked, on the next minute for a
-            // real worker; the fake worker waits for both.
+            // The questions' comment is posted, a refused card marked and a stopped card marked, on
+            // the next minute for a real worker; the fake worker waits for each, and the label of a
+            // card queued again comes off.
             await questions.PostPending(projectId, userId, cancellationToken);
+            await refusals.MarkPending(projectId, userId, cancellationToken);
             await marker.MarkPending(projectId, userId, cancellationToken);
             return TypedResults.Ok(new FakeWorkerRan(job.JobId, job.Kind, job.Card.Number, job.Branch, null, job.Brief));
         }
