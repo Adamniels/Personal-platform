@@ -20,6 +20,25 @@ public sealed partial class GitHubCodeHost
             await One<RepositoryInfoAnswer>(repository, Repo(repository), cancellationToken),
             answer => answer.DefaultBranch is { Length: > 0 } branch ? branch : throw new JsonException("no default branch"));
 
+    /// <summary><c>GET /repos/{owner}/{repo}/git/ref/heads/{branch}</c>, of which the commit is
+    /// read, the smallest answer that names it; each segment of the branch escaped, its slashes
+    /// kept. A commit id that is not 40 or 64 lowercase hex digits is an answer that does not
+    /// parse.</summary>
+    public async Task<CodeHostResult<string>> BranchHead(Guid userId, Repository repository, string branch, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(branch);
+        var segments = string.Join('/', branch.Split('/').Select(Uri.EscapeDataString));
+        return Map(
+            await One<HeadRefAnswer>(repository, $"{Repo(repository)}/git/ref/heads/{segments}", cancellationToken),
+            answer => answer.Object?.Sha is { } sha && CommitId().IsMatch(sha) ? sha : throw new JsonException("no commit id"));
+    }
+
+    /// <summary>A branch's ref as GitHub answers one, of which only the commit is read.</summary>
+    private sealed record HeadRefAnswer(HeadRefObject? Object);
+
+    /// <summary>What a branch's ref points at.</summary>
+    private sealed record HeadRefObject(string? Sha);
+
     /// <summary>
     /// <c>GET /users/{slug}[bot]</c>, the app's bot, read once and kept: its login, and GitHub's
     /// no-reply address for it, <c>{id}+{login}@users.noreply.github.com</c>, which GitHub ties a

@@ -657,7 +657,8 @@ project's key, read from the default branch as the app, rather than asking the o
 repository on the machine; and the image is built with no context. A `COPY` or an `ADD` could then
 only fail, or, with `ADD`'s addresses, fetch something no lockfile pins, so Dev flow refuses it
 naming the line, before Docker gives a stranger error. The recipe's version is the newest commit of
-the default branch that changed it, so it changes when the recipe does and not with every push.
+the default branch that changed anything under `.devflow/`, so it changes when the setup does and
+not with every push; see "Setting up a project" below for why it covers `project.json` too.
 
 **A worker on an old recipe or base image gets no work**, and the page says to run the command
 again. The version Dev flow compares with is the one it last read, by the recipe route or the
@@ -739,6 +740,48 @@ through the Projects tab, the nav's dot and the front page's card, which say it 
 waits rather than counting it. It checks only that what is pasted looks like a setup token; whether
 it works is the worker's check before every run. The routes, the table and the section are "Claude
 login" and "The pages" in `devflow/README.md`.
+
+## Setting up a project
+
+A project hands out no card until its setup has been tried, the feature "Dev flow: setup run and
+recipe" has it, so a project never takes cards on a recipe nobody has run. How it is handed out,
+recorded and shown is "Setting up a project" in `devflow/README.md`.
+
+**Setting up is a worker's job, not the program's.** The spec's round 3 has the program build the
+recipe and run the project's tests in it, but the hosted program can neither build images nor
+start containers on the owner's machines until part 9's machine program. So the check is a job, as
+a card's build is: the worker that will take the project's cards is the one built from the recipe,
+so checking in it is checking the recipe itself, on the machine where it runs, and part 9 only
+starts its workers from the page. It runs no agent, so it needs no Claude login and is handed out
+before that is looked at; its key only fetches, so its pictures go to Dev flow in the result rather
+than to `pr-screenshots`.
+
+**Every version is checked once, and before any other job.** A card's own check ran in the
+container the old recipe built, so a version a card changed has never been tried as a whole, and
+the first worker built from it would otherwise take cards on it untried. Checking per version, not
+per worker, means a second worker on a checked version starts work at once, and one check at a
+time, by version, means two workers starting together do not run it twice. A failed check holds
+back only that version's workers, so a registered project whose new recipe breaks keeps nothing
+merged at risk, and it waits for the owner's "Check again" rather than retrying, since running the
+same commit again would only fail again; a new version starts afresh. A failure outside, the
+network or the machine, is no verdict on the recipe, so it is put back and makes the project wait,
+as "Stops" has it for any run.
+
+**The version covers `project.json` too.** The check, the start and the address are the setup as
+much as the Dockerfile is: a changed check command that never passes would otherwise reach cards
+unchecked. So the version is the newest commit changing anything under `.devflow/`, and a change to
+`project.json` alone asks workers to rebuild, a cheap rebuild of an unchanged image, which is the
+price of one version naming the whole setup. The column keeps its name, `recipe_version`.
+
+**Setting up or registered is computed, not stored.** A project is registered once any check has
+passed, read from the checks themselves, so the state can never disagree with them; the later
+slices of part 6 add their steps to what registers a project the same way.
+
+**"Waiting for you" lists only a check that failed.** The feature has a project setting up shown
+there, but a project connected only so Dev flow reads this repository's runner, the platform
+itself until part 10, would sit there for good with nothing for the owner to do. So "Setup" lists a
+project whose newest check failed with no other asked for, where the owner is needed; the steps of
+one still setting up are on its own page.
 
 ## Handing out work
 

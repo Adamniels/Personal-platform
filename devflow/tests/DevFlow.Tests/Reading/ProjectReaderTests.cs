@@ -186,7 +186,7 @@ public sealed class ProjectReaderTests
                 ("Comments", "42"), ("Statuses", World.Head), ("CheckRuns", World.Head), ("Comments", "7"),
                 ("Comments", "43"), ("Statuses", new string('c', 40)), ("CheckRuns", new string('c', 40)), ("Comments", "7"),
                 ("LabelledIssues", "devflow"),
-                ("DefaultBranchFile", ".devflow/Dockerfile"),
+                ("FolderFile", ".devflow/Dockerfile"),
             ],
             reading.Host.Calls.Select(call => (call.Operation, call.Argument)));
         Assert.All(reading.Host.Calls, call => Assert.Equal((Reading.Alice, Reading.RepositoryId), (call.User, call.Repository)));

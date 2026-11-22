@@ -5,17 +5,18 @@ namespace DevFlow.Protocol;
 
 /// <summary>
 /// A job, what <c>jobs/next</c> answers a worker with <c>200</c>: one card of its project to build,
-/// to review or to fix, a feature's conflict to resolve, or the cards of a feature or a card on its
-/// own to read, with everything the worker needs for it and nothing more. The Claude token and the
+/// to review or to fix, a feature's conflict to resolve, the cards of a feature or a card on its
+/// own to read, or a version of the project's <c>.devflow/</c> to check, with everything the worker
+/// needs for it and nothing more. The Claude token and the
 /// key leave Dev flow only here, to the worker holding the job. See "Jobs", "Review" and
 /// "Fixing" in devflow/README.md.
 /// </summary>
 /// <param name="JobId">The run's id, which the job's other routes take.</param>
 /// <param name="Kind"><see cref="Build"/>, <see cref="Review"/>, <see cref="Fix"/>,
 /// <see cref="Conflict"/>, <see cref="FeatureReview"/>, <see cref="FeatureFix"/> or
-/// <see cref="Read"/>.</param>
+/// <see cref="Read"/> or <see cref="RecipeCheck"/>.</param>
 /// <param name="Card">The card, as it was picked; for a conflict, the feature's parent; for a
-/// reading, the feature's parent, or the card on its own.</param>
+/// reading, the feature's parent, or the card on its own; null on a check, which is no card's.</param>
 /// <param name="Repository">Where the code is.</param>
 /// <param name="Branch">The branch the work goes on, <c>devflow/&lt;number&gt;-&lt;slug&gt;</c>.</param>
 /// <param name="Base">The branch it is made from, the repository's default branch.</param>
@@ -52,10 +53,12 @@ namespace DevFlow.Protocol;
 /// <param name="ToReviewFeature">For a whole feature's review, what it reads besides the code; null
 /// on any other job.</param>
 /// <param name="ToRead">For a reading, the cards it reads; null on any other job.</param>
+/// <param name="ToCheck">For a check, the version it checks and the commit it checks it at; null on
+/// any other job.</param>
 public sealed record Job(
     Guid JobId,
     string Kind,
-    JobCard Card,
+    JobCard? Card,
     JobRepository Repository,
     string Branch,
     string Base,
@@ -74,7 +77,8 @@ public sealed record Job(
     string Url = "",
     JobConflict? ToResolve = null,
     JobFeatureReview? ToReviewFeature = null,
-    JobRead? ToRead = null)
+    JobRead? ToRead = null,
+    JobCheck? ToCheck = null)
 {
     /// <summary>Building a card.</summary>
     public const string Build = "build";
@@ -108,9 +112,18 @@ public sealed record Job(
     /// and pushes nothing.</summary>
     public const string Read = "read";
 
+    /// <summary>Checking a version of the project's <c>.devflow/</c> before its workers take any
+    /// other job: a clean clone of the default branch's head, <see cref="ToCheck"/>'s commit, the
+    /// project's check on it, then, when it has a start and an address, the project started and its
+    /// address taken at both sizes. It runs no agent, so <see cref="Card"/> is null, its brief and
+    /// model empty and its report's schema null; <see cref="Branch"/> and <see cref="Base"/> are
+    /// the default branch, its key only fetches, and it commits and pushes nothing. See "Setting
+    /// up a project" in devflow/README.md.</summary>
+    public const string RecipeCheck = "check";
+
     /// <summary>Its kind and card, never the token or the key.</summary>
     public override string ToString() =>
-        string.Create(CultureInfo.InvariantCulture, $"Job {{ JobId = {JobId}, Kind = {Kind}, Card = {Card.Number}, Branch = {Branch} }}");
+        string.Create(CultureInfo.InvariantCulture, $"Job {{ JobId = {JobId}, Kind = {Kind}, Card = {Card?.Number}, Branch = {Branch} }}");
 }
 
 /// <summary>
@@ -207,6 +220,15 @@ public sealed record JobFeatureCheck(string Command, string Commit, int ExitCode
 /// <param name="Cards">The cards to read, each with its title and body as picked.</param>
 public sealed record JobRead(IReadOnlyList<JobCard> Cards);
 
+/// <summary>What a check checks: the project's setup version, the newest commit of its default
+/// branch that changed anything under <c>.devflow/</c>, which the worker asking was built from; and
+/// the default branch's head as Dev flow read it when the check was handed out, which the worker
+/// checks out exactly, so the check, its start and its address, which the job carries from that
+/// branch's <c>project.json</c>, run on one known commit.</summary>
+/// <param name="Version">The setup version, as the worker reported it.</param>
+/// <param name="Commit">The full id of the commit to check.</param>
+public sealed record JobCheck(string Version, string Commit);
+
 /// <summary>The card a job builds or reviews, as it was picked, or the feature a conflict job or a
 /// whole feature's review is for; its title and body are the owner's words.</summary>
 public sealed record JobCard(int Number, string Title, string Body);
@@ -252,10 +274,10 @@ public sealed record ProgressRequest(Guid? WorkerId, string? State)
 /// "Jobs" in devflow/README.md.
 /// </summary>
 /// <param name="WorkerId">The id it said hello with.</param>
-/// <param name="Outcome"><see cref="Succeeded"/> when the agent answered a report, or
-/// <see cref="Failed"/> when it did not.</param>
+/// <param name="Outcome"><see cref="Succeeded"/> when the agent answered a report, or for a check
+/// when the check ran, whatever its exit code; <see cref="Failed"/> when it did not.</param>
 /// <param name="Report">The agent's report as it came, on a success; Dev flow checks it against
-/// its schema.</param>
+/// its schema. Null on a check, which runs no agent.</param>
 /// <param name="Failure">Why the run failed, and whether that lies in the card, on a failure.</param>
 /// <param name="Check">The check's result, when it ran.</param>
 /// <param name="Branch">The branch the work was pushed to.</param>
@@ -273,6 +295,10 @@ public sealed record ProgressRequest(Guid? WorkerId, string? State)
 /// <param name="RemergeDiff">A conflict's <c>git show --remerge-diff</c> of the merge commit it
 /// pushed, cut by <see cref="RemergeDiffs.Cut"/>; null for any other job, and when nothing was
 /// pushed.</param>
+/// <param name="Pictures">A check's pictures of the project's address, each with its name, as
+/// <see cref="Screenshots"/> names it, and its bytes, a PNG of at most 5 MB, base64 in the JSON:
+/// a check's key only fetches, so it sends them to Dev flow rather than pushing them. Null for any
+/// other job, and when none were taken.</param>
 public sealed record ResultRequest(
     Guid? WorkerId,
     string? Outcome,
@@ -287,10 +313,22 @@ public sealed record ResultRequest(
     string? Stderr,
     JsonElement? PermissionDenials = null,
     ResultScreenshots? Screenshots = null,
-    string? RemergeDiff = null)
+    string? RemergeDiff = null,
+    IReadOnlyList<ResultPicture>? Pictures = null)
 {
     public const string Succeeded = "succeeded";
     public const string Failed = "failed";
+}
+
+/// <summary>A picture a check took of the project's address.</summary>
+/// <param name="Name">Its name, <c>&lt;page&gt;-desktop</c> or <c>&lt;page&gt;-phone</c>, as
+/// <see cref="PageShots"/> makes one.</param>
+/// <param name="Png">Its bytes.</param>
+public sealed record ResultPicture(string? Name, byte[]? Png)
+{
+    /// <summary>Its name and size, never its bytes.</summary>
+    public override string ToString() =>
+        string.Create(CultureInfo.InvariantCulture, $"ResultPicture {{ Name = {Name}, Bytes = {Png?.Length} }}");
 }
 
 /// <summary>Why a run failed.</summary>

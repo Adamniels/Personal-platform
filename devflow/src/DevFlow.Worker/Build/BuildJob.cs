@@ -52,9 +52,15 @@ internal sealed partial class BuildJob(DevFlowClient devFlow, Guid workerId, Job
             job = null;
         }
 
-        if (job is null || !(job.Kind == Job.Build || (job.Kind is Job.Fix or Job.FeatureFix && job.ToFix is not null) || (job.Kind == Job.Conflict && job.ToResolve is not null)))
+        if (job is { Kind: Job.RecipeCheck, ToCheck: { } toCheck })
         {
-            Log.Write("The job is not a build, a fix or a conflict job this worker can read; it is left.");
+            await RunCheck(job, toCheck, stopping);
+            return;
+        }
+
+        if (job?.Card is null || !(job.Kind == Job.Build || (job.Kind is Job.Fix or Job.FeatureFix && job.ToFix is not null) || (job.Kind == Job.Conflict && job.ToResolve is not null)))
+        {
+            Log.Write("The job is not a build, a fix, a conflict or a check job this worker can read; it is left.");
             return;
         }
 

@@ -133,6 +133,8 @@ public sealed class DispatchTests
         var otherKey = await Workers.Workers.NewKey(jobs.Routes, other);
         var hello = new JsonObject { ["worker_id"] = Jobs.SecondWorker, ["name"] = "fodr-worker", ["recipe_version"] = "1", ["base_image"] = Jobs.Image };
         await Workers.Workers.AsWorker(jobs.Routes.App, Workers.Workers.HelloPath, hello.ToJsonString(), null, Workers.Workers.Bearer(otherKey));
+        // Said hello after the project was read, so its setup is taken as checked here.
+        await Setup.SetupFixture.AllChecked(jobs.Routes.Database, other, Ct);
         var response = await jobs.Next(Jobs.SecondWorker, otherKey);
         Assert.Equal(StatusCodes.Status200OK, response.Response.StatusCode);
         Assert.Equal(7, (int)(await Workers.Workers.Json(response))["card"]!["number"]!);
@@ -159,6 +161,8 @@ public sealed class DispatchTests
         var bobsKey = await Workers.Workers.KeyOf(jobs.Routes, bob, bobs);
         var hello = new JsonObject { ["worker_id"] = Jobs.SecondWorker, ["name"] = "bobs-worker", ["recipe_version"] = "1", ["base_image"] = Jobs.Image };
         await Workers.Workers.AsWorker(jobs.Routes.App, Workers.Workers.HelloPath, hello.ToJsonString(), null, Workers.Workers.Bearer(bobsKey));
+        // Said hello after the project was read, so its setup is taken as checked here.
+        await Setup.SetupFixture.AllChecked(jobs.Routes.Database, bobs, Ct);
         var response = await jobs.Next(Jobs.SecondWorker, bobsKey);
         Assert.Equal(StatusCodes.Status200OK, response.Response.StatusCode);
         var job = await Workers.Workers.Json(response);
@@ -208,7 +212,7 @@ public sealed class DispatchTests
         var job = await jobs.Job();
 
         Assert.Equal(
-            ["base", "branch", "brief", "card", "check", "claude_token", "committer", "job_id", "kind", "limits", "model", "push_key", "push_key_expires_at", "report_schema", "repository", "start", "to_fix", "to_read", "to_resolve", "to_review", "to_review_feature", "url"],
+            ["base", "branch", "brief", "card", "check", "claude_token", "committer", "job_id", "kind", "limits", "model", "push_key", "push_key_expires_at", "report_schema", "repository", "start", "to_check", "to_fix", "to_read", "to_resolve", "to_review", "to_review_feature", "url"],
             job.Select(pair => pair.Key).Order(StringComparer.Ordinal));
         // How the worker starts the project for its pictures, from the same project.json as the
         // check.

@@ -22,6 +22,12 @@ import {
 	type WorkerList,
 } from "./project";
 import type { Project } from "./projects";
+import {
+	CHECK_RUNNING,
+	type ProjectSetup,
+	SETTING_UP,
+	type SetupCheck,
+} from "./setup";
 
 // jsdom has HTMLDialogElement and its `open` attribute, but neither showModal
 // nor close, as in projects.test.tsx.
@@ -71,10 +77,26 @@ const EMPTY: WorkerList = {
 	held: null,
 };
 
+/** A project registered, every step done, with no check to show. */
+const REGISTERED: ProjectSetup = {
+	state: "registered",
+	steps: [
+		{ step: "recipe", done: true },
+		{ step: "worker", done: true },
+		{ step: "check", done: true },
+	],
+	check: null,
+	checking: false,
+};
+
 function renderPage(
-	props: Partial<ProjectPageProps> & { list?: Partial<WorkerList> } = {},
+	props: Partial<ProjectPageProps> & {
+		list?: Partial<WorkerList>;
+		setup?: ProjectSetup;
+	} = {},
 ) {
 	let list: WorkerList = { ...EMPTY, ...props.list };
+	let setup: ProjectSetup = props.setup ?? REGISTERED;
 	const api = {
 		loadProjects: vi.fn(() => Promise.resolve([PLATFORM])),
 		loadWorkers: vi.fn(() => Promise.resolve(list)),
@@ -109,15 +131,145 @@ function renderPage(
 			Promise.reject(new Error("the project page's tests do not save")),
 		),
 		loadCards: vi.fn(() => Promise.resolve({ cards: [], features: [] })),
+		loadSetup: vi.fn(() => Promise.resolve(setup)),
+		checkAgain: vi.fn(() => {
+			if (setup.check)
+				setup = { ...setup, check: { ...setup.check, again_asked: true } };
+			return Promise.resolve();
+		}),
 		copy: vi.fn(() => Promise.resolve()),
 		back: vi.fn(),
 	};
-	const { list: _, ...rest } = props;
+	const { list: _, setup: __, ...rest } = props;
 	render(<ProjectPage id={ID} now={() => NOW} {...api} {...rest} />);
 	return api;
 }
 
 const panel = () => screen.findByRole("article", { name: "Workers" });
+
+describe("a project's setup", () => {
+	const failedCheck: SetupCheck = {
+		id: "0190a8f0-0000-7000-8000-00000000c4e1",
+		version: "4f6c1c36b0bd2c24e3d5a8f5d8c0e0a3a0e3b9a1",
+		commit: "9a1b2c3d4e5f60718293a4b5c6d7e8f901234567",
+		passed: false,
+		exit_code: 1,
+		output: "npm test\nFAIL src/list.test.ts\nTests: 1 failed, 11 passed",
+		pictures: [],
+		pictures_note: null,
+		checked_at: "2026-11-17T11:40:00+00:00",
+		again_asked: false,
+	};
+
+	const failed: ProjectSetup = {
+		state: "setting_up",
+		steps: [
+			{ step: "recipe", done: true },
+			{ step: "worker", done: true },
+			{ step: "check", done: false },
+		],
+		check: failedCheck,
+		checking: false,
+	};
+
+	test("a project setting up shows its steps in place of its features", async () => {
+		const { loadCards, loadSetup } = renderPage({ setup: failed });
+
+		const panel = await screen.findByRole("article", { name: "Setting up" });
+		expect(within(panel).getByText(SETTING_UP)).toBeTruthy();
+		// The steps in their order, each done or not.
+		const steps = within(panel).getByRole("list", { name: "Setup steps" });
+		expect(
+			within(steps)
+				.getAllByRole("listitem")
+				.map((step) => step.textContent),
+		).toEqual([
+			"DoneThe recipe on the default branch",
+			"DoneA worker on the recipe",
+			"To doThe check passed",
+		]);
+		// The failed check's output, as text.
+		const check = within(panel).getByRole("region", {
+			name: "The newest check",
+		});
+		expect(within(check).getByText("Failed")).toBeTruthy();
+		expect(within(check).getByText(/exited with 1/)).toBeTruthy();
+		expect(check.querySelector("pre")?.textContent).toBe(
+			"npm test\nFAIL src/list.test.ts\nTests: 1 failed, 11 passed",
+		);
+		// Its features and cards are not shown, nor read.
+		expect(loadSetup).toHaveBeenCalledWith(ID);
+		expect(screen.queryByRole("article", { name: "Cards" })).toBeNull();
+		expect(loadCards).not.toHaveBeenCalled();
+		// The workers are, since starting one is a step.
+		expect(
+			await screen.findByRole("article", { name: "Workers" }),
+		).toBeTruthy();
+	});
+
+	test("Check again asks for another check and says so", async () => {
+		const { checkAgain, loadSetup } = renderPage({ setup: failed });
+		const panel = await screen.findByRole("article", { name: "Setting up" });
+
+		fireEvent.click(within(panel).getByRole("button", { name: "Check again" }));
+
+		await waitFor(() => expect(checkAgain).toHaveBeenCalledWith(ID));
+		await waitFor(() => expect(loadSetup).toHaveBeenCalledTimes(2));
+		expect(
+			await within(panel).findByText(
+				"Another check was asked for: the next worker on this version runs it.",
+			),
+		).toBeTruthy();
+		expect(
+			within(panel).queryByRole("button", { name: "Check again" }),
+		).toBeNull();
+	});
+
+	test("a running check, and a check's pictures, are shown", async () => {
+		renderPage({
+			setup: {
+				...failed,
+				checking: true,
+				check: {
+					...failedCheck,
+					passed: true,
+					exit_code: 0,
+					pictures: ["home-desktop", "home-phone"],
+				},
+			},
+		});
+		const panel = await screen.findByRole("article", { name: "Setting up" });
+
+		expect(within(panel).getByText(CHECK_RUNNING)).toBeTruthy();
+		const pictures = within(panel).getAllByRole("img");
+		expect(pictures.map((picture) => picture.getAttribute("src"))).toEqual([
+			`/devflow/api/projects/${ID}/setup/checks/0190a8f0-0000-7000-8000-00000000c4e1/pictures/home-desktop`,
+			`/devflow/api/projects/${ID}/setup/checks/0190a8f0-0000-7000-8000-00000000c4e1/pictures/home-phone`,
+		]);
+		expect(
+			within(panel).queryByRole("button", { name: "Check again" }),
+		).toBeNull();
+	});
+
+	test("a registered project shows its cards, and a newer version's failed check above them", async () => {
+		renderPage({ setup: { ...failed, state: "registered" } });
+
+		const panel = await screen.findByRole("article", { name: "Setting up" });
+		expect(
+			within(panel).getByText(
+				"The newest version of this project's setup failed its check, so its workers on that version get no work.",
+			),
+		).toBeTruthy();
+		expect(await screen.findByRole("article", { name: "Cards" })).toBeTruthy();
+	});
+
+	test("a registered project with nothing failed shows no setup", async () => {
+		renderPage();
+
+		expect(await screen.findByRole("article", { name: "Cards" })).toBeTruthy();
+		expect(screen.queryByRole("article", { name: "Setting up" })).toBeNull();
+	});
+});
 
 describe("a project's page", () => {
 	test("is headed by the repository's name, with the way back", async () => {

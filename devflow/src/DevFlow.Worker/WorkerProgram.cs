@@ -50,9 +50,9 @@ internal static class WorkerProgram
         return await loop.Run(stopping);
     }
 
-    /// <summary>Runs the job by its kind: a build, or a fix or a conflict, which are carried as one,
-    /// a review of a card or of a whole feature, carried as one too, or a reading; a job of any other
-    /// kind is left, and Dev flow finds its run lost.</summary>
+    /// <summary>Runs the job by its kind: a build, or a fix, a conflict or a check, which are carried
+    /// as one, a review of a card or of a whole feature, carried as one too, or a reading; a job of
+    /// any other kind is left, and Dev flow finds its run lost.</summary>
     internal static Task RunJob(JsonElement job, BuildJob build, ReviewJob review, ReadJob read, WorkerLog log, CancellationToken stopping)
     {
         var kind = job.ValueKind == JsonValueKind.Object && job.TryGetProperty("kind", out var named) && named.ValueKind == JsonValueKind.String
@@ -60,7 +60,7 @@ internal static class WorkerProgram
             : null;
         switch (kind)
         {
-            case Job.Build or Job.Fix or Job.Conflict or Job.FeatureFix:
+            case Job.Build or Job.Fix or Job.Conflict or Job.FeatureFix or Job.RecipeCheck:
                 return build.Run(job, stopping);
             case Job.Review or Job.FeatureReview:
                 return review.Run(job, stopping);

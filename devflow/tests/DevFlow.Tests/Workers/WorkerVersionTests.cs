@@ -1,4 +1,3 @@
-using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json.Nodes;
 
@@ -21,7 +20,8 @@ public sealed class WorkerVersionTests
 
     private static CancellationToken Ct => Workers.Ct;
 
-    private static string Version(string recipe) => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(recipe)));
+    /// <summary>The setup version the fake answers for a folder holding only the recipe.</summary>
+    private static string Version(string recipe) => CodeHost.FakeCodeHost.FolderVersion([(".devflow/Dockerfile", Encoding.UTF8.GetBytes(recipe))]);
 
     [Fact]
     public async Task AWorkerOnAnOldRecipeGetsNoWork()

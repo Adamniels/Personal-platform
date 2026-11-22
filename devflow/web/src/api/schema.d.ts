@@ -466,6 +466,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/devflow/api/projects/{id}/setup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A project's setup
+         * @description state, setting_up until a check of any version of its .devflow/ has passed, then registered, and a project setting up hands out no card; steps, in their order, each with whether it is done: recipe, a version of .devflow/ read from its default branch, worker, a worker built from that version said hello, and check, a check of that version passed; check, the newest check of that version, or of any before it is known, with its version, its commit, whether it passed, its exit code, the last 200 lines it printed, the names of its pictures of the project's address, why there are none, when, and whether another was asked for, or null before one ran; and checking, whether a check of that version is running. 404 for a project the caller does not have. Without a valid token, 401 with an empty body; a change from another origin, 403.
+         */
+        get: operations["getProjectSetup"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/devflow/api/projects/{id}/setup/check-again": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Check a project's setup again
+         * @description Asks for another check of the version whose newest check, the one getProjectSetup answers, failed: the next worker on that version that asks is handed it. 204. 409 when that check did not fail or another was already asked for; 404 for a project the caller does not have. Without a valid token, 401 with an empty body; a change from another origin, 403.
+         */
+        post: operations["checkProjectAgain"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/devflow/api/projects/{id}/setup/checks/{check}/pictures/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One of a check's pictures of the project's address
+         * @description The PNG its worker sent, as Dev flow stored it, checked when it came to be a PNG of at most 5 MB. Always image/png, with X-Content-Type-Options: nosniff, Content-Security-Policy: default-src 'none' and Cache-Control: private, max-age=3600. 404 for a project the caller does not have, or a check or name it does not hold. Without a valid token, 401 with an empty body; a change from another origin, 403.
+         */
+        get: operations["getSetupPicture"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/devflow/api/projects/{id}/worker-key": {
         parameters: {
             query?: never;
@@ -535,7 +595,7 @@ export interface paths {
         };
         /**
          * What waits for the caller, as last read
-         * @description Read from what Dev flow stored and never from GitHub. items are the pull requests that are the caller's turn in every project, by project and number; own_items are Dev flow's own, read from its own tables, in this part each a project stopped because something landed on its default branch that Dev flow did not put there, with the commit, who did it, when, and the commit's address on GitHub, by project; cards are Dev flow's own cards whose pull requests wait for the caller, each with its pull request, the head commit its run built and checked, the branch it merges into, the report's summary, the decisions the agent marked for the caller with the count of the others, the check Dev flow ran, review, the reviewer's verdict on its head commit with its summary and how many findings block, null when it has none, and can_merge, false while the project is stopped, by project and number; stopped_cards are Dev flow's own cards that stopped, each with its issue's address, where a comment runs it again, why it stopped, when, and its pull request's address or null, by project and number; refused_cards are Dev flow's own cards refused as too thin to build, each with its issue's address, where an edit or a comment reads it again, what is missing, each a line, and when it was refused, by project and number; question_cards are Dev flow's own cards whose reading found questions, with the project's questions on, that wait for the caller's answers, each with its id, which the answers route names, its issue's address, its feature, number and title, or null for a card on its own, reading_id, the reading that asked them, each question with the reader's recommendation and why, in order, and when it was read, by project and number; failing_projects are the projects whose runs have failed outside their cards six times in a row, each with message, "Dev flow cannot run <project>'s cards: <the last reason>", the reason, how many failures, since when and until when it hands out no job, shown until a run succeeds, by project; decisions are the open issues Dev flow opened for the decisions the agent marked for the caller on cards it merged, each with what was chosen, the alternative, why and the reviewer's view, by project, oldest first, until the caller closes it on GitHub; count is the items not sent back, the own items, the cards, the stopped and refused cards, the failing projects, the decisions, the features and the question cards, plus one when needs_relink; projects says for each when it was last read, stale when that is more than five minutes ago or never, and failing when its last read failed. Without a valid token, 401 with an empty body.
+         * @description Read from what Dev flow stored and never from GitHub. items are the pull requests that are the caller's turn in every project, by project and number; own_items are Dev flow's own, read from its own tables, in this part each a project stopped because something landed on its default branch that Dev flow did not put there, with the commit, who did it, when, and the commit's address on GitHub, by project; cards are Dev flow's own cards whose pull requests wait for the caller, each with its pull request, the head commit its run built and checked, the branch it merges into, the report's summary, the decisions the agent marked for the caller with the count of the others, the check Dev flow ran, review, the reviewer's verdict on its head commit with its summary and how many findings block, null when it has none, and can_merge, false while the project is stopped, by project and number; stopped_cards are Dev flow's own cards that stopped, each with its issue's address, where a comment runs it again, why it stopped, when, and its pull request's address or null, by project and number; refused_cards are Dev flow's own cards refused as too thin to build, each with its issue's address, where an edit or a comment reads it again, what is missing, each a line, and when it was refused, by project and number; question_cards are Dev flow's own cards whose reading found questions, with the project's questions on, that wait for the caller's answers, each with its id, which the answers route names, its issue's address, its feature, number and title, or null for a card on its own, reading_id, the reading that asked them, each question with the reader's recommendation and why, in order, and when it was read, by project and number; failing_projects are the projects whose runs have failed outside their cards six times in a row, each with message, "Dev flow cannot run <project>'s cards: <the last reason>", the reason, how many failures, since when and until when it hands out no job, shown until a run succeeds, by project; decisions are the open issues Dev flow opened for the decisions the agent marked for the caller on cards it merged, each with what was chosen, the alternative, why and the reviewer's view, by project, oldest first, until the caller closes it on GitHub; setup_projects are the projects whose newest check of their setup failed with no other asked for since, so that version's workers get nothing, each with its state, setting_up or registered, the version, the check's exit code and when it failed, by project, its output and Check again being on the project's page; count is the items not sent back, the own items, the cards, the stopped and refused cards, the failing projects, the decisions, the features, the question cards and the setup projects, plus one when needs_relink; projects says for each when it was last read, stale when that is more than five minutes ago or never, and failing when its last read failed. Without a valid token, 401 with an empty body.
          */
         get: operations["listWaiting"];
         put?: never;
@@ -717,7 +777,7 @@ export interface paths {
         put?: never;
         /**
          * A job has ended
-         * @description What the worker sends when its job ends, whatever happened: outcome, succeeded with the agent's report or failed with the failure's reason and whether it lies in the card; the check's exit code and the last 200 lines of its output, null when it did not run; the branch, which must be the job's, and its head commit; the auth method; Claude's usage as it came, an object; the duration in milliseconds; the last 200 lines of stderr; and permission_denials, the actions the agent was refused, an array or null. Each is stored on the run as it came. A build's report is read against contracts/devflow/report.schema.json, and one that does not match is a failure in the card; a review's report is its verdict, read against contracts/devflow/verdict.schema.json, and one that does not match is a failure in the run, never a verdict. A review's head_commit is the commit it was handed, or null on a failure; any other is 422. A failure outside the card puts the card back in queued, counting nothing against it; a failure in the card, a report that does not match, a report that stopped, a check that did not run or failed stop it with why; otherwise the card waits, checked, for its pull request. 204. Only for the worker holding the job while it runs, and once; 404 otherwise. 422 naming a field that is missing or breaks a rule. Takes the project's worker key as Authorization: Bearer dfw_…, and nothing else: without a key the project has now, 401 with an empty body. No Origin is needed, and no cookie is read or set.
+         * @description What the worker sends when its job ends, whatever happened: outcome, succeeded with the agent's report or failed with the failure's reason and whether it lies in the card; the check's exit code and the last 200 lines of its output, null when it did not run; the branch, which must be the job's, and its head commit; the auth method; Claude's usage as it came, an object; the duration in milliseconds; the last 200 lines of stderr; and permission_denials, the actions the agent was refused, an array or null. Each is stored on the run as it came. A build's report is read against contracts/devflow/report.schema.json, and one that does not match is a failure in the card; a review's report is its verdict, read against contracts/devflow/verdict.schema.json, and one that does not match is a failure in the run, never a verdict. A review's head_commit is the commit it was handed, or null on a failure; any other is 422. A failure outside the card puts the card back in queued, counting nothing against it; a failure in the card, a report that does not match, a report that stopped, a check that did not run or failed stop it with why; otherwise the card waits, checked, for its pull request. A check runs no agent: its report is null, a success means the check ran and carries its result, which is the verdict on the version, and pictures, its address taken at both sizes as PNGs of at most 5 MB, base64, named as screenshots names them; pictures on any other job are 422. 204. Only for the worker holding the job while it runs, and once; 404 otherwise. 422 naming a field that is missing or breaks a rule. Takes the project's worker key as Authorization: Bearer dfw_…, and nothing else: without a key the project has now, 401 with an empty body. No Origin is needed, and no cookie is read or set.
          */
         post: operations["workerJobResult"];
         delete?: never;
@@ -735,7 +795,7 @@ export interface paths {
         };
         /**
          * The project's recipe, to build a worker from
-         * @description The file .devflow/Dockerfile of the key's project, from its repository's default branch, read as the app at the newest commit that changed it: text/plain, with that commit's id in X-Devflow-Recipe-Version, X-Content-Type-Options: nosniff and Cache-Control: no-store. 404 when the repository has none; 422 naming the line when it copies files into the image, a COPY or an ADD in any case, after continued lines are joined, or when it is not UTF-8 text of at most 64 KB; 503 when GitHub did not answer. Takes the project's worker key as Authorization: Bearer dfw_…, and nothing else: without a key the project has now, 401 with an empty body.
+         * @description The file .devflow/Dockerfile of the key's project, from its repository's default branch, read as the app at the newest commit that changed anything under .devflow/, the project's setup version: text/plain, with that commit's id in X-Devflow-Recipe-Version, X-Content-Type-Options: nosniff and Cache-Control: no-store. 404 when the repository has none; 422 naming the line when it copies files into the image, a COPY or an ADD in any case, after continued lines are joined, or when it is not UTF-8 text of at most 64 KB; 503 when GitHub did not answer. Takes the project's worker key as Authorization: Bearer dfw_…, and nothing else: without a key the project has now, 401 with an empty body.
          */
         get: operations["workerRecipe"];
         put?: never;
@@ -1182,7 +1242,7 @@ export interface components {
             base: string;
             branch: string;
             brief: string;
-            card: components["schemas"]["JobCard"];
+            card: null | components["schemas"]["JobCard"];
             check: string;
             claude_token: string;
             committer: components["schemas"]["JobCommitter"];
@@ -1198,6 +1258,7 @@ export interface components {
             repository: components["schemas"]["JobRepository"];
             /** @default  */
             start: string;
+            to_check?: null | components["schemas"]["JobCheck"];
             to_fix?: null | components["schemas"]["JobFix"];
             to_read?: null | components["schemas"]["JobRead"];
             to_resolve?: null | components["schemas"]["JobConflict"];
@@ -1211,6 +1272,10 @@ export interface components {
             /** Format: int32 */
             number: number;
             title: string;
+        };
+        JobCheck: {
+            commit: string;
+            version: string;
         };
         JobCommitter: {
             email: string;
@@ -1383,6 +1448,12 @@ export interface components {
             wait_when_paths: boolean;
             waits_for_owner: string;
         };
+        ProjectSetup: {
+            check: null | components["schemas"]["SetupCheck"];
+            checking: boolean;
+            state: string;
+            steps: components["schemas"]["SetupStep"][];
+        };
         PushKeyAnswer: {
             /** Format: date-time */
             expires_at: string;
@@ -1468,6 +1539,11 @@ export interface components {
             result: string;
             what: string;
         };
+        ResultPicture: {
+            name: null | string;
+            /** Format: byte */
+            png: null | string;
+        };
         ResultRequest: {
             auth_method: null | string;
             branch: null | string;
@@ -1478,6 +1554,7 @@ export interface components {
             head_commit: null | string;
             outcome: null | string;
             permission_denials?: unknown;
+            pictures?: null | components["schemas"]["ResultPicture"][];
             remerge_diff?: null | string;
             report: null | components["schemas"]["JsonElement"];
             screenshots?: null | components["schemas"]["ResultScreenshots"];
@@ -1548,6 +1625,37 @@ export interface components {
             wait_when_paths: null | boolean;
             waits_for_owner: null | string;
         };
+        SetupCheck: {
+            again_asked: boolean;
+            /** Format: date-time */
+            checked_at: string;
+            commit: string;
+            /** Format: int32 */
+            exit_code: number;
+            /** Format: uuid */
+            id: string;
+            output: string;
+            passed: boolean;
+            pictures: string[];
+            pictures_note: null | string;
+            version: string;
+        };
+        SetupProject: {
+            /** Format: date-time */
+            checked_at: string;
+            /** Format: int32 */
+            exit_code: number;
+            owner: string;
+            /** Format: uuid */
+            project_id: string;
+            project_name: string;
+            state: string;
+            version: string;
+        };
+        SetupStep: {
+            done: boolean;
+            step: string;
+        };
         StoppedCard: {
             /** Format: int32 */
             number: number;
@@ -1612,6 +1720,7 @@ export interface components {
             projects: components["schemas"]["ProjectFreshness"][];
             question_cards: components["schemas"]["QuestionCard"][];
             refused_cards: components["schemas"]["RefusedCard"][];
+            setup_projects: components["schemas"]["SetupProject"][];
             stopped_cards: components["schemas"]["StoppedCard"][];
         };
         WhoAmI: {
@@ -2926,6 +3035,129 @@ export interface operations {
                 };
                 content: {
                     "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                };
+            };
+        };
+    };
+    getProjectSetup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectSetup"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    checkProjectAgain: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    getSetupPicture: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                check: string;
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/png": components["schemas"]["Stream"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
                 };
             };
         };

@@ -19,6 +19,7 @@ using DevFlow.Reading;
 using DevFlow.Recipes;
 using DevFlow.Reviews;
 using DevFlow.Settings;
+using DevFlow.Setup;
 using DevFlow.Status;
 using DevFlow.Stops;
 using DevFlow.Watching;
@@ -237,6 +238,7 @@ public static class DevFlowApp
         app.MapCardScreenshots();
         app.MapFeatures();
         app.MapRecipe();
+        app.MapSetup();
         app.MapClaudeLogin();
         app.MapPages(webRoot);
         if (settings.CodeHost == CodeHostMode.Fake)

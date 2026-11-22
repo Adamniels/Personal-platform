@@ -5,6 +5,8 @@ nav bar. See devflow/README.md."""
 import base64
 import json
 import re
+import struct
+import zlib
 from pathlib import Path
 
 from playwright.sync_api import Browser, Page, expect
@@ -1354,8 +1356,10 @@ def test_i_trust_another_account(
     # trusted.
     world = one_repository()
     add_issue(world, 12, "The friend's card", author="octo-friend", labels=["devflow"])
+    _with_setup(world)
     _open_project(page, base_url, devflow_world, world)
     project = page.url.rsplit("/", 1)[1]
+    _registered(page, base_url, project)
 
     def read_again():
         refreshed = page.request.post(
@@ -1429,8 +1433,10 @@ def test_a_card_i_label_shows_as_queued(
         edits=[edit("UCE_17", "octo-stranger")],
     )
     add_pull_request(world, 18, labels=["devflow"])
+    _with_setup(world)
     _open_project(page, base_url, devflow_world, world)
     project = page.url.rsplit("/", 1)[1]
+    _registered(page, base_url, project)
 
     refreshed = page.request.post(
         f"/devflow/api/projects/{project}/refresh", headers={"Origin": base_url}
@@ -1501,8 +1507,10 @@ def test_a_strangers_label_starts_nothing(
             label_event("devflow-hold", "octo-stranger", change="removed"),
         ],
     )
+    _with_setup(world)
     _open_project(page, base_url, devflow_world, world)
     project = page.url.rsplit("/", 1)[1]
+    _registered(page, base_url, project)
 
     refreshed = page.request.post(
         f"/devflow/api/projects/{project}/refresh", headers={"Origin": base_url}
@@ -1550,8 +1558,10 @@ def test_a_labelled_feature_shows_its_cards_in_order(
     add_issue(world, 43, "Store the feature")
     add_issue(world, 44, "A plain issue it waits for")
     add_issue(world, 50, "A card on its own", labels=["devflow"])
+    _with_setup(world)
     _open_project(page, base_url, devflow_world, world)
     project = page.url.rsplit("/", 1)[1]
+    _registered(page, base_url, project)
 
     refreshed = page.request.post(
         f"/devflow/api/projects/{project}/refresh", headers={"Origin": base_url}
@@ -1742,6 +1752,7 @@ def test_a_feature_is_read_before_it_is_built(
             headers={"Authorization": f"Bearer {key}"},
         )
         assert hello.status == 204, hello.text()
+        _pass_the_check(worker, key, worker_id)
         asked = worker.post(
             "/devflow/api/worker/jobs/next",
             data={"worker_id": worker_id},
@@ -3136,6 +3147,7 @@ def test_an_edited_card_is_read_again(
             headers={"Authorization": f"Bearer {key}"},
         )
         assert hello.status == 204, hello.text()
+        _pass_the_check(worker, key, worker_id)
         asked = worker.post(
             "/devflow/api/worker/jobs/next",
             data={"worker_id": worker_id},
@@ -3732,6 +3744,7 @@ def test_i_set_the_models_and_limits(
             headers={"Authorization": f"Bearer {key}"},
         )
         assert hello.status == 204, hello.text()
+        _pass_the_check(worker, key, worker_id)
         asked = worker.post(
             "/devflow/api/worker/jobs/next",
             data={"worker_id": worker_id},
@@ -5132,3 +5145,234 @@ def test_merging_warns_when_the_review_did_not_approve(
         if write["kind"] == "merge" and "purpose" not in write
     ] == []
     assert _staged_pull(page, pull)["state"] == "open"
+
+
+def _png() -> bytes:
+    """A real one by one PNG, so a page showing it shows a picture."""
+
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        body = kind + data
+        return struct.pack(">I", len(data)) + body + struct.pack(">I", zlib.crc32(body))
+
+    header = struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0)
+    pixels = zlib.compress(b"\x00\x2b\x6c\xb0")
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", header)
+        + chunk(b"IDAT", pixels)
+        + chunk(b"IEND", b"")
+    )
+
+
+def _fake_check(
+    page: Page,
+    base_url: str,
+    project: str,
+    exit_code: int,
+    output: str,
+    pictures: dict[str, bytes] | None = None,
+) -> dict:
+    """The fake worker takes the project's next job, the check of its setup,
+    and ends it as a check's worker does: the check ran with `exit_code` and
+    `output`, and, with `pictures`, the project's address taken at both sizes.
+    What it answered."""
+    result: dict = {
+        "outcome": "succeeded",
+        "report": None,
+        "failure": None,
+        "check": {"exit_code": exit_code, "output": output},
+        "auth_method": None,
+        "usage": {},
+        "duration_ms": 61000,
+        "stderr": "",
+    }
+    if pictures is not None:
+        result["screenshots"] = {"names": list(pictures), "note": None}
+        result["pictures"] = [
+            {"name": name, "png": base64.b64encode(content).decode()}
+            for name, content in pictures.items()
+        ]
+    ran = page.request.post(
+        "/devflow/api/fake/worker/run",
+        data={"project_id": project, "result": result, "for_check": True},
+        headers={"Origin": base_url},
+    )
+    assert ran.status == 200, ran.text()
+    return ran.json()
+
+
+def _with_setup(world: dict) -> None:
+    """Puts a project.json on the world's default branch, so a check of its
+    setup can be handed out; a project without one stays setting up."""
+    add_file(
+        world,
+        ".devflow/project.json",
+        json.dumps({"version": 1, "check": CHECK, "start": "", "url": ""}).encode(),
+    )
+
+
+def _registered(page: Page, base_url: str, project: str) -> None:
+    """The fake worker passes the check of the project's setup, so the project
+    is registered and its page shows its cards rather than its setup steps.
+    See "Setting up a project" in devflow/README.md. The project is read first,
+    since a project whose default branch was not watched lately hands out no
+    job."""
+    refreshed = page.request.post(
+        f"/devflow/api/projects/{project}/refresh", headers={"Origin": base_url}
+    )
+    assert refreshed.status == 204, refreshed.text()
+    passed = _fake_check(page, base_url, project, 0, "Tests  1 passed")
+    assert passed["kind"] == "check", passed
+
+
+def _pass_the_check(worker, key: str, worker_id: str) -> None:
+    """A worker on a version no check has passed is handed that check before
+    anything else: it takes it and ends it passed, as a working recipe's
+    worker does, so its next job is the one the test is about."""
+    asked = worker.post(
+        "/devflow/api/worker/jobs/next",
+        data={"worker_id": worker_id},
+        headers={"Authorization": f"Bearer {key}"},
+    )
+    assert asked.status == 200, asked.text()
+    job = asked.json()
+    assert (job["kind"], job["card"]) == ("check", None), job["kind"]
+    result = worker.post(
+        f"/devflow/api/worker/jobs/{job['job_id']}/result",
+        data={
+            "worker_id": worker_id,
+            "outcome": "succeeded",
+            "report": None,
+            "failure": None,
+            "check": {"exit_code": 0, "output": "Tests  1 passed"},
+            "branch": job["branch"],
+            "head_commit": None,
+            "auth_method": None,
+            "usage": {},
+            "duration_ms": 61000,
+            "stderr": "",
+        },
+        headers={"Authorization": f"Bearer {key}"},
+    )
+    assert result.status == 204, result.text()
+
+
+def test_a_project_is_checked_before_its_first_card(
+    page: Page, invite_code: str, base_url: str, viewport: str, devflow_world
+):
+    register_and_log_in(page, invite_code, base_url)
+    # A repository with its recipe and project.json on its default branch, and
+    # one card the owner labelled.
+    world = one_repository(name="Fodr")
+    add_issue(world, CARD, CARD_TITLE, labels=["devflow"])
+    add_file(world, ".devflow/Dockerfile", RECIPE)
+    add_file(
+        world,
+        ".devflow/project.json",
+        json.dumps(
+            {
+                "version": 1,
+                "check": CHECK,
+                "start": "npm run dev",
+                "url": "http://localhost:5173",
+            }
+        ).encode(),
+    )
+    _open_project(page, base_url, devflow_world, world)
+    project = page.url.rsplit("/", 1)[1]
+    given = page.request.put(
+        "/devflow/api/claude-login",
+        data={"token": CLAUDE_TOKEN},
+        headers={"Origin": base_url},
+    )
+    assert given.status == 200, given.text()
+    refreshed = page.request.post(
+        f"/devflow/api/projects/{project}/refresh", headers={"Origin": base_url}
+    )
+    assert refreshed.status == 204, refreshed.text()
+
+    # Setting up: its page shows the steps of setting it up in place of its
+    # cards, the recipe read and nothing else done yet.
+    page.reload()
+    setup = page.get_by_role("article", name="Setting up")
+    steps = setup.get_by_role("list", name="Setup steps").get_by_role("listitem")
+    expect(steps).to_have_count(3)
+    expect(steps.nth(0)).to_contain_text("Done")
+    expect(steps.nth(0)).to_contain_text("The recipe on the default branch")
+    expect(steps.nth(1)).to_contain_text("To do")
+    expect(steps.nth(2)).to_contain_text("To do")
+    expect(page.get_by_role("article", name="Cards")).to_have_count(0)
+    assert (
+        page.request.get(f"/devflow/api/projects/{project}/setup").json()["state"]
+        == "setting_up"
+    )
+
+    # Its worker's first job is the check, which fails: nothing else is handed
+    # out, and the page shows the output and Check again.
+    output = "\n".join(
+        ["> fodr@1.0.0 test", "> vitest run", ""]
+        + [f" ✓ src/habit-{n}.test.ts (3 tests)" for n in range(1, 9)]
+        + [" × src/list.test.ts > shows the empty state", "Tests  1 failed | 24 passed"]
+    )
+    failed = _fake_check(page, base_url, project, 1, output)
+    assert failed["kind"] == "check"
+    assert failed["card"] is None
+    nothing = page.request.post(
+        "/devflow/api/fake/worker/run",
+        data={"project_id": project, "keep_running": True},
+        headers={"Origin": base_url},
+    )
+    assert nothing.status == 204, nothing.text()
+    page.reload()
+    check = setup.get_by_role("region", name="The newest check")
+    expect(check.get_by_text("Failed", exact=True)).to_be_visible()
+    expect(check.get_by_text("exited with 1", exact=False)).to_be_visible()
+    expect(check.locator("pre")).to_contain_text("Tests  1 failed | 24 passed")
+    expect(steps.nth(1)).to_contain_text("Done")
+    expect(steps.nth(2)).to_contain_text("To do")
+    expect(setup.get_by_role("button", name="Check again")).to_be_visible()
+    assert _axe_violations(page) == []
+    capture(page, "devflow-project-setting-up")
+
+    # Waiting for you lists it under Setup.
+    waiting = page.request.get("/devflow/api/waiting").json()
+    (listed,) = waiting["setup_projects"]
+    assert listed["project_id"] == project
+    assert listed["state"] == "setting_up"
+
+    # Check again: the next check passes, and takes the project's address.
+    setup.get_by_role("button", name="Check again").click()
+    expect(
+        setup.get_by_text(
+            "Another check was asked for: the next worker on this version runs it."
+        )
+    ).to_be_visible()
+    picture = _png()
+    passed = _fake_check(
+        page,
+        base_url,
+        project,
+        0,
+        "Tests  25 passed",
+        {"home-desktop": picture, "home-phone": picture},
+    )
+    assert passed["kind"] == "check"
+    answered = page.request.get(f"/devflow/api/projects/{project}/setup").json()
+    assert answered["state"] == "registered"
+    assert [step["done"] for step in answered["steps"]] == [True, True, True]
+    shown = page.request.get(
+        f"/devflow/api/projects/{project}/setup/checks/{answered['check']['id']}"
+        "/pictures/home-desktop"
+    )
+    assert shown.status == 200
+    assert shown.headers["content-type"] == "image/png"
+    assert shown.body() == picture
+    assert page.request.get("/devflow/api/waiting").json()["setup_projects"] == []
+
+    # Registered: the labelled card is read next, and the page shows its cards.
+    read = _fake_read(page, base_url, project, [_ready(CARD)])
+    assert read["kind"] == "read"
+    assert read["card"] == CARD
+    page.reload()
+    expect(page.get_by_role("article", name="Cards")).to_be_visible()
+    expect(page.get_by_role("article", name="Setting up")).to_have_count(0)

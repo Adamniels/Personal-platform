@@ -115,6 +115,39 @@ public sealed partial class FakeCodeHost : ICodeHost, ICodeHostSignIn
             ? new FileAtCommit(file.Content.ToArray(), Convert.ToHexStringLower(SHA256.HashData(file.Content)))
             : null);
 
+    /// <summary>
+    /// The file on the repository's default branch, inside the folder, with the folder's version as
+    /// its commit, <see cref="FolderVersion"/> of every file of the folder on that branch: like the
+    /// newest commit that changed anything under it, it changes when any of them does and only
+    /// then. Not found when the file is not on the default branch.
+    /// </summary>
+    public Task<CodeHostResult<FileAtCommit>> FolderFile(Guid userId, Repository repository, string folder, string path, CancellationToken cancellationToken) =>
+        Answer(userId, repository, found =>
+        {
+            var prefix = folder.TrimEnd('/') + "/";
+            var inFolder = found.Files.Where(file => file.Branch == found.Default && file.Path.StartsWith(prefix, StringComparison.Ordinal)).ToList();
+            return inFolder.FirstOrDefault(file => file.Path == path) is { } file
+                ? new FileAtCommit(file.Content.ToArray(), FolderVersion([.. inFolder.Select(each => (each.Path, each.Content.ToArray()))]))
+                : null;
+        });
+
+    /// <summary>
+    /// The version the fake answers for a folder holding <paramref name="files"/>: the SHA-256, in
+    /// hex, of each file's path and content's SHA-256, in the order of their paths, the shape of a
+    /// commit id in a SHA-256 repository. A test computes it to know what to expect.
+    /// </summary>
+    public static string FolderVersion(IReadOnlyList<(string Path, byte[] Content)> files)
+    {
+        ArgumentNullException.ThrowIfNull(files);
+        var text = new System.Text.StringBuilder();
+        foreach (var (path, content) in files.OrderBy(file => file.Path, StringComparer.Ordinal))
+        {
+            text.Append(path).Append('\0').Append(Convert.ToHexStringLower(SHA256.HashData(content))).Append('\n');
+        }
+
+        return Convert.ToHexStringLower(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(text.ToString())));
+    }
+
     /// <summary>The open issues carrying the label, whatever its case as GitHub matches it, and the
     /// open pull requests carrying it, marked, as GitHub lists them; a pull request was made when
     /// it was last updated, since the fake keeps no other time for one.</summary>
@@ -183,6 +216,33 @@ public sealed partial class FakeCodeHost : ICodeHost, ICodeHostSignIn
     /// when it does not.</summary>
     public Task<CodeHostResult<string>> DefaultBranch(Guid userId, Repository repository, CancellationToken cancellationToken) =>
         Answer(userId, repository, found => found.Default);
+
+    /// <summary>
+    /// The commit the branch is at in the repository's git repository. The default branch with no
+    /// commit is given the fake's first commit first, by the app, as a real repository has one and
+    /// as <see cref="MakeBranch"/> gives it; any other branch with none is not found.
+    /// </summary>
+    public async Task<CodeHostResult<string>> BranchHead(Guid userId, Repository repository, string branch, CancellationToken cancellationToken)
+    {
+        var known = await DefaultBranch(userId, repository, cancellationToken);
+        if (known is not CodeHostResult<string>.Found { Value: var defaultBranch })
+        {
+            return known;
+        }
+
+        if (await CloneAddress(userId, repository, cancellationToken) is not CodeHostResult<Uri>.Found)
+        {
+            return new CodeHostResult<string>.Unavailable(RetryAt: null);
+        }
+
+        var head = await BranchCommit(userId, repository, branch, cancellationToken);
+        if (head is null && branch == defaultBranch)
+        {
+            head = await CommitOnBranch(userId, repository, branch, branch, "The first commit, by the fake", new Committer(AppLogin, AppEmail), cancellationToken);
+        }
+
+        return head is null ? new CodeHostResult<string>.NotFound() : new CodeHostResult<string>.Found(head);
+    }
 
     /// <summary>As GitHub compares two commits: unavailable when the account says so, not found
     /// for a repository the world does not hold or a commit its git repository does not; and

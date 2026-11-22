@@ -99,6 +99,16 @@ const projectApi: ProjectApi = {
 		client.get(
 			`/projects/${encodeURIComponent(id)}/cards` as "/projects/{id}/cards",
 		),
+	loadSetup: (id) =>
+		client.get(
+			`/projects/${encodeURIComponent(id)}/setup` as "/projects/{id}/setup",
+		),
+	checkAgain: async (id) => {
+		await client.send(
+			"POST",
+			`/projects/${encodeURIComponent(id)}/setup/check-again`,
+		);
+	},
 	saveSettings: (id, settings) =>
 		client.send<ProjectSettings>(
 			"PUT",

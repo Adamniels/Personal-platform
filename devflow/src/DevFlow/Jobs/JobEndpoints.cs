@@ -35,7 +35,7 @@ public static partial class JobEndpoints
 
         routes.MapPost(WorkerApi.ResultRoute, Result)
             .WorkerRoute("workerJobResult", "A job has ended",
-                "What the worker sends when its job ends, whatever happened: outcome, succeeded with the agent's report or failed with the failure's reason and whether it lies in the card; the check's exit code and the last 200 lines of its output, null when it did not run; the branch, which must be the job's, and its head commit; the auth method; Claude's usage as it came, an object; the duration in milliseconds; the last 200 lines of stderr; and permission_denials, the actions the agent was refused, an array or null. Each is stored on the run as it came. A build's report is read against contracts/devflow/report.schema.json, and one that does not match is a failure in the card; a review's report is its verdict, read against contracts/devflow/verdict.schema.json, and one that does not match is a failure in the run, never a verdict. A review's head_commit is the commit it was handed, or null on a failure; any other is 422. A failure outside the card puts the card back in queued, counting nothing against it; a failure in the card, a report that does not match, a report that stopped, a check that did not run or failed stop it with why; otherwise the card waits, checked, for its pull request. 204. Only for the worker holding the job while it runs, and once; 404 otherwise. 422 naming a field that is missing or breaks a rule.",
+                "What the worker sends when its job ends, whatever happened: outcome, succeeded with the agent's report or failed with the failure's reason and whether it lies in the card; the check's exit code and the last 200 lines of its output, null when it did not run; the branch, which must be the job's, and its head commit; the auth method; Claude's usage as it came, an object; the duration in milliseconds; the last 200 lines of stderr; and permission_denials, the actions the agent was refused, an array or null. Each is stored on the run as it came. A build's report is read against contracts/devflow/report.schema.json, and one that does not match is a failure in the card; a review's report is its verdict, read against contracts/devflow/verdict.schema.json, and one that does not match is a failure in the run, never a verdict. A review's head_commit is the commit it was handed, or null on a failure; any other is 422. A failure outside the card puts the card back in queued, counting nothing against it; a failure in the card, a report that does not match, a report that stopped, a check that did not run or failed stop it with why; otherwise the card waits, checked, for its pull request. A check runs no agent: its report is null, a success means the check ran and carries its result, which is the verdict on the version, and pictures, its address taken at both sizes as PNGs of at most 5 MB, base64, named as screenshots names them; pictures on any other job are 422. 204. Only for the worker holding the job while it runs, and once; 404 otherwise. 422 naming a field that is missing or breaks a rule.",
                 StatusCodes.Status404NotFound, StatusCodes.Status422UnprocessableEntity);
 
         return routes;
@@ -65,12 +65,17 @@ public static partial class JobEndpoints
 
     private static async Task<Results<NoContent, ProblemHttpResult>> Result(Guid id, ResultRequest request, HttpContext context, [FromServices] UserDb database, [FromServices] WorkerStore workers, [FromServices] WorkerStart start, [FromServices] MergeRequests merges, [FromServices] TimeProvider time)
     {
-        if (Read(request) is not { } result)
+        var caller = context.Worker();
+        // The rules depend on the job's kind, a check's being its own; a run the worker does not
+        // hold is judged as any other, and answered 404 below.
+        var kind = request.WorkerId is { } asking && asking != Guid.Empty
+            ? await RunStore.KindOf(database, caller.UserId, caller.ProjectId, id, asking, context.RequestAborted)
+            : null;
+        if (Read(request, kind) is not { } result)
         {
-            return WorkerEndpoints.Invalid(Errors(request));
+            return WorkerEndpoints.Invalid(Errors(request, kind));
         }
 
-        var caller = context.Worker();
         var worker = request.WorkerId!.Value;
         if (await workers.Seen(caller, worker, start.Image, context.RequestAborted) == WorkerState.Unknown)
         {
@@ -99,10 +104,10 @@ public static partial class JobEndpoints
     internal static Task<Recorded> Complete(UserDb database, WorkerCaller caller, Guid runId, Guid workerId, RunResult result, DateTimeOffset now, CancellationToken cancellationToken) =>
         RunStore.Record(database, caller.UserId, caller.ProjectId, runId, workerId, result, now, cancellationToken);
 
-    /// <summary>The result, when <paramref name="request"/> breaks no rule; null otherwise, and
-    /// <see cref="Errors"/> names each.</summary>
-    internal static RunResult? Read(ResultRequest request) =>
-        Errors(request).Count > 0
+    /// <summary>The result, when <paramref name="request"/> breaks no rule for a job of
+    /// <paramref name="kind"/>; null otherwise, and <see cref="Errors"/> names each.</summary>
+    internal static RunResult? Read(ResultRequest request, string? kind = null) =>
+        Errors(request, kind).Count > 0
             ? null
             : new RunResult(
                 request.Outcome == ResultRequest.Succeeded,
@@ -121,17 +126,38 @@ public static partial class JobEndpoints
                 request.Screenshots,
                 request.Failure?.TimedOut ?? false,
                 request.Failure?.ResetsAt,
-                request.RemergeDiff);
+                request.RemergeDiff,
+                request.Pictures);
 
-    /// <summary>Each field of <paramref name="request"/> that is missing or breaks a rule.</summary>
-    internal static Dictionary<string, string[]> Errors(ResultRequest request)
+    /// <summary>Each field of <paramref name="request"/> that is missing or breaks a rule, for a
+    /// job of <paramref name="kind"/>, or any job but a check when it is null.</summary>
+    internal static Dictionary<string, string[]> Errors(ResultRequest request, string? kind = null)
     {
         ArgumentNullException.ThrowIfNull(request);
         var errors = new Dictionary<string, string[]>();
         WorkerEndpoints.CheckId(request.WorkerId, errors);
         var hasReport = request.Report is { ValueKind: not JsonValueKind.Null };
+        var isCheck = kind == Job.RecipeCheck;
         switch (request.Outcome)
         {
+            case ResultRequest.Succeeded when isCheck:
+                // A check runs no agent: it succeeded when the check ran, and that is its result.
+                if (hasReport)
+                {
+                    errors["report"] = ["must be null for a check, which runs no agent"];
+                }
+
+                if (request.Check is null)
+                {
+                    errors["check"] = ["is required when a check succeeded, since the check ran"];
+                }
+
+                if (request.Failure is not null)
+                {
+                    errors["failure"] = ["must be null when the outcome is succeeded"];
+                }
+
+                break;
             case ResultRequest.Succeeded:
                 if (!hasReport)
                 {
@@ -214,7 +240,43 @@ public static partial class JobEndpoints
             CheckScreenshots(screenshots, errors);
         }
 
+        if (request.Pictures is { } pictures)
+        {
+            if (!isCheck)
+            {
+                errors["pictures"] = ["must be null for any job but a check"];
+            }
+            else
+            {
+                CheckPictures(pictures, request.Screenshots, errors);
+            }
+        }
+
         return errors;
+    }
+
+    /// <summary>What every PNG begins with.</summary>
+    private static readonly byte[] PngSignature = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+
+    /// <summary>
+    /// A check's pictures break no rule: at most one at each size, each named once, by a name the
+    /// result's screenshots list, and each a PNG of at most <see cref="Reading.ScreenshotEndpoints.MostBytes"/>.
+    /// </summary>
+    private static void CheckPictures(IReadOnlyList<ResultPicture> pictures, ResultScreenshots? screenshots, Dictionary<string, string[]> errors)
+    {
+        var named = screenshots?.Names ?? [];
+        if (pictures.Count > PageShots.Viewports.Count
+            || pictures.Any(picture => picture is null || !PageShots.IsName(picture.Name) || !named.Contains(picture.Name!, StringComparer.Ordinal))
+            || pictures.Select(picture => picture.Name).Distinct(StringComparer.Ordinal).Count() != pictures.Count)
+        {
+            errors["pictures"] = [$"must be at most {PageShots.Viewports.Count} pictures, each named once by a name screenshots.names lists"];
+            return;
+        }
+
+        if (pictures.Any(picture => picture.Png is not { } png || png.Length > Reading.ScreenshotEndpoints.MostBytes || !png.AsSpan().StartsWith(PngSignature)))
+        {
+            errors["pictures"] = ["must each hold a PNG of at most 5 MB"];
+        }
     }
 
     /// <summary>

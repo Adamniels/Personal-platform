@@ -77,15 +77,28 @@ internal sealed class Routes : IAsyncDisposable
     /// </summary>
     public bool CardsRead { get; set; } = true;
 
+    /// <summary>
+    /// Whether every setup version the project's workers report is taken as already checked and
+    /// passed, as a check job that passed would leave it, so a test of anything after setting up
+    /// hands out its work at once. True unless a test of setting up itself turns it off.
+    /// </summary>
+    public bool RecipesChecked { get; set; } = true;
+
     /// <summary>Reads the project as its user, as the loop would, then, with
     /// <see cref="CardsRead"/>, takes each card it picked that has no reading as read and
-    /// ready.</summary>
+    /// ready, and with <see cref="RecipesChecked"/>, each version its workers report as
+    /// checked.</summary>
     public async Task<ReadResult> Read(Guid project, Guid user)
     {
         var read = await Reader.Read(project, user, Reading.Ct);
         if (CardsRead)
         {
             await Readings.ReadingFixture.AllReady(Database, project, Reading.Ct);
+        }
+
+        if (RecipesChecked)
+        {
+            await Setup.SetupFixture.AllChecked(Database, project, Reading.Ct);
         }
 
         return read;

@@ -13,6 +13,7 @@ import { Inline } from "./format";
 import { QuestionCard } from "./question-card";
 import { RefusedCard } from "./refused-card";
 import { Screenshots, waitingScreenshot } from "./screenshots";
+import { type SetupProjectItem, WaitingSetup } from "./setup";
 import { StoppedProject } from "./stopped";
 import { FailingProject, StoppedCard } from "./stopped-card";
 import styles from "./waiting.module.css";
@@ -77,6 +78,8 @@ type Group = {
 	/** Dev flow's own features ready for the owner's review, or waiting for
 	 * him. */
 	features?: FeatureItem[];
+	/** Dev flow's projects whose newest check of their setup failed. */
+	setup?: SetupProjectItem[];
 	muted?: boolean;
 	/** Whether the first item's Merge is the view's one primary button,
 	 * design/DESIGN.md's rule; the others are secondary. */
@@ -90,14 +93,14 @@ type Act = {
 	reload: () => Promise<unknown>;
 };
 
-/** The seven groups, in their order: Dev flow's cards that wait for the
+/** The eight groups, in their order: Dev flow's cards that wait for the
  * owner's answers before they start; Dev flow's waiting cards and the
  * waiting items not sent back; Dev flow's features ready for the owner's
  * review, or waiting for him; what stopped, Dev flow's stopped projects
  * first, then the projects that cannot run their cards, its stopped cards and
- * the runner's stopped items not sent back; Dev flow's cards refused as too
- * thin; the decisions to look at on cards Dev flow merged; and every item
- * sent back. */
+ * the runner's stopped items not sent back; Dev flow's projects whose newest
+ * check of their setup failed; Dev flow's cards refused as too thin; the
+ * decisions to look at on cards Dev flow merged; and every item sent back. */
 function groups(list: WaitingList, name: (item: WaitingItem) => string) {
 	const { items, own_items: own, cards, decisions: decided } = list;
 	const sorted = [...items].sort(
@@ -131,6 +134,7 @@ function groups(list: WaitingList, name: (item: WaitingItem) => string) {
 			failing: list.failing_projects,
 			stopped: list.stopped_cards,
 		},
+		{ label: "Setup", items: [], setup: list.setup_projects },
 		{ label: "Refused", items: [], refused: list.refused_cards },
 		{ label: "Decisions to look at", items: [], decided },
 		{
@@ -152,7 +156,8 @@ const size = (group: Group) =>
 	(group.refused?.length ?? 0) +
 	(group.asked?.length ?? 0) +
 	(group.decided?.length ?? 0) +
-	(group.features?.length ?? 0);
+	(group.features?.length ?? 0) +
+	(group.setup?.length ?? 0);
 
 const compare = new Intl.Collator("en", { sensitivity: "base" }).compare;
 
@@ -236,6 +241,7 @@ export function Waiting({
 					list.refused_cards.length === 0 &&
 					list.question_cards.length === 0 &&
 					list.failing_projects.length === 0 &&
+					list.setup_projects.length === 0 &&
 					list.decisions.length === 0 &&
 					list.features.length === 0 ? (
 						<EmptyState
@@ -392,6 +398,9 @@ function GroupSection({
 			))}
 			{(group.failing ?? []).map((project) => (
 				<FailingProject key={project.project_id} project={project} />
+			))}
+			{(group.setup ?? []).map((project) => (
+				<WaitingSetup key={project.project_id} project={project} />
 			))}
 			{(group.stopped ?? []).map((card) => (
 				<StoppedCard

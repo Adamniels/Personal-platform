@@ -70,6 +70,7 @@ function list(overrides: Partial<WaitingList> = {}): WaitingList {
 		refused_cards: [],
 		question_cards: [],
 		failing_projects: [],
+		setup_projects: [],
 		features: [],
 		items,
 		projects: [project()],
@@ -217,6 +218,40 @@ describe("the list and its groups", () => {
 				"Edit the card or comment on it on GitHub, and it is read again.",
 			),
 		).toBeTruthy();
+	});
+
+	test("a project whose setup failed its check is listed under Setup", async () => {
+		openWith(
+			answering(
+				list({
+					count: 1,
+					setup_projects: [
+						{
+							project_id: PROJECT,
+							project_name: "fodr",
+							owner: "Adamniels",
+							state: "setting_up",
+							version: "4f6c1c36b0bd2c24e3d5a8f5d8c0e0a3a0e3b9a1",
+							exit_code: 1,
+							checked_at: minutesAgo(5),
+						},
+					],
+				}),
+			),
+		);
+
+		const group = await screen.findByRole("region", { name: "Setup" });
+		const item = within(group).getByRole("article", {
+			name: "fodr's setup failed its check",
+		});
+		expect(within(item).getByText("Check failed")).toBeTruthy();
+		expect(within(item).getByText(/exited with 1/)).toBeTruthy();
+		expect(
+			within(item)
+				.getByRole("link", { name: "See its output on the project's page" })
+				.getAttribute("href"),
+		).toBe(`/devflow/projects/${PROJECT}`);
+		expect(screen.queryByText("Nothing waits for you")).toBeNull();
 	});
 
 	test("an empty group is not shown", async () => {

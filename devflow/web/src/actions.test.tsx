@@ -58,6 +58,7 @@ function list(items: WaitingItem[]): WaitingList {
 		refused_cards: [],
 		question_cards: [],
 		failing_projects: [],
+		setup_projects: [],
 		features: [],
 		items,
 		projects: [
