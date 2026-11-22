@@ -96,7 +96,7 @@ export function SetupPanel({
 			}
 			footer={
 				canAsk ? (
-					<Button kind="primary" disabled={asking} onClick={ask}>
+					<Button kind="secondary" disabled={asking} onClick={ask}>
 						Check again
 					</Button>
 				) : undefined

@@ -697,7 +697,15 @@ does. Its read side:
   default branch, then the file raw at exactly that commit; in the fake, the file on the
   repository's default branch, its commit the SHA-256 of its content in hex, since the fake keeps
   no history;
+- `FolderFile(user, repository, folder, path)`: the file at `path`, inside `folder`, on the default
+  branch, read at the newest commit of that branch that changed anything under the folder, and
+  that commit's id, a project's setup version for `.devflow`; on GitHub the same two reads with
+  `path=<folder>`, and in the fake, its commit the SHA-256 of each of the folder's files' path and
+  content's SHA-256, in the order of their paths, `FakeCodeHost.FolderVersion`;
 - `DefaultBranch(user, repository)`: the repository's default branch, as the host says it now;
+- `BranchHead(user, repository, branch)`: the commit a branch is at now, the commit a check is
+  handed; on GitHub `GET /repos/{owner}/{repo}/git/ref/heads/{branch}`, and in the fake the branch
+  in its git repository, the default branch given the fake's first commit when it has none;
 - `ChangedFiles(user, repository, from, head)`: the paths of the files `head` changed since its
   merge base with `from`, both full commit ids, at most 300, each once, a renamed file by its new
   path. On GitHub it is `GET /repos/{owner}/{repo}/compare/{from}...{head}?per_page=1`, each
@@ -1855,9 +1863,12 @@ bash devflow/tests/image/base-image.test.sh
   what `start` must do, is "Screenshots".
 
 **The recipe route**, `GET /devflow/api/worker/recipe`, in `src/DevFlow/Recipes/`, under the
-worker scheme: the key's project's `.devflow/Dockerfile`, from `DefaultBranchFile`, read as the app,
-as `text/plain` with `X-Devflow-Recipe-Version: <the commit>`, `X-Content-Type-Options: nosniff` and
-`Cache-Control: no-store`. It records the commit as the project's `recipe_version`. A line beginning
+worker scheme: the key's project's `.devflow/Dockerfile`, from `FolderFile`, read as the app at the
+project's setup version, the newest commit of the default branch that changed anything under
+`.devflow/`, its recipe or its `project.json`, as `text/plain` with
+`X-Devflow-Recipe-Version: <that commit>`, `X-Content-Type-Options: nosniff` and
+`Cache-Control: no-store`. It records the commit as the project's `recipe_version`, whose column
+keeps its name though it is the version of the whole folder. A line beginning
 `COPY` or `ADD`, in any case, alone or after `ONBUILD`, after continued lines are joined, comment
 lines inside them dropped and the `escape` directive honoured, is `422` with `line` and a detail
 naming it; text that is not UTF-8, or over 64 KB, is `422` too; no file is `404` "This repository
@@ -1897,11 +1908,78 @@ memory has been measured.
 **A worker that needs a rebuild** runs another version of the recipe than Dev flow last read, or
 another base image than `DEVFLOW_WORKER_IMAGE`. It gets `204` from `jobs/next`, so no new work, a
 card it is on finishes, and its row on the page shows "<project>'s recipe has changed: run the
-command again" or "A new base image was released: run the command again". The recipe's version is
+command again" or "A new base image was released: run the command again". The recipe's version,
+the setup version, so a commit changing only `project.json` asks for a rebuild too, is
 recorded by the recipe route and by the loop each time it reads the project; GitHub not answering
 keeps the last, and a default branch without the recipe clears it. A project whose recipe has not
 been read judges its workers by their base image alone. The comparison is in SQL, in
 `WorkerStore`, so the workers' namespace compares no strings, which the constant time test checks.
+
+## Setting up a project
+
+A project hands out no card until its setup has been tried. Every version of its `.devflow/`, the
+newest commit of the default branch that changed anything under it, is checked once, by a job a
+worker built from that version runs, before that worker takes any other job. Why it is built so is
+"Setting up a project" in `docs/devflow-architecture.md`. The code is `src/DevFlow/Setup/`, the
+worker's side `src/DevFlow.Worker/Build/BuildJob.Checking.cs`.
+
+**The check job**, kind `check`, handed out by `jobs/next` to a worker whose version has no check
+that passed, when no check of that version is running and its newest check, if any, failed and
+the owner asked for another; a worker on a version whose newest check failed gets `204` until then
+or until the version changes. It comes before the Claude login is looked at, since it runs no
+agent: its `card` is null, its `brief` and `model` empty, its `claude_token` empty and its
+`report_schema` null; `branch` and `base` are the default branch, `to_check` holds `version`, the
+worker's, and `commit`, the default branch's head as read with `BranchHead` when it was handed out,
+and `check`, `start` and `url` come from the default branch's `project.json`, with a key that only
+fetches and `limits.minutes` 30. The worker clones the repository, names `to_check.commit` as the
+branch in its own repository, runs the check as `agent` on a clean clone of it with `CI=true`, as a
+build's check runs, for at most 30 minutes, and, when it passed and `start` and `url` are set,
+starts the project from another clean clone and takes its address at both sizes as "Screenshots"
+takes a page, named `<page>-desktop` and `<page>-phone` from the address's path. Its result is
+`succeeded` when the check ran, whatever its exit code, with `report` null, `check` required and
+`head_commit` null, and `pictures`, each `{"name", "png"}`, a PNG of at most 5 MB in base64, at most
+two, each named in `screenshots.names`; a key that only fetches pushes nothing, so the pictures go
+to Dev flow. `pictures` on any other job is `422`. Anything that stopped the check from running is
+`failed`, outside: the run is `failed_outside_card`, nothing is recorded for the version, and the
+project waits as "Stops" has it; a check lost with its worker is put back the same way. A check
+that ran with `0` ends `succeeded`, any other exit code `check_failed`.
+
+**What is recorded**: `recipe_checks`, one row per check that ran, its run's id, the project, the
+version, the commit, whether it passed, its exit code, its last 200 lines, its pictures' names or
+why there are none, when, and `again_at`, when the owner asked for another after it failed; and
+`recipe_check_pictures`, each picture's bytes under its check and name. A version counts as checked
+once one check of it passed. A project is `setting_up` until any version has passed, then
+`registered`; a later version that fails holds back only its own workers. Every project connected
+before this, Fodr among them, starts `setting_up` and is checked once. The migration is
+`migrations/0042_recipe_checks.sql`, which also lets a run of kind `check` name neither card nor
+feature and adds `runs.recipe_version` with one check of a version under way at a time.
+
+**The routes**, under the `Api` policy:
+
+- `GET /devflow/api/projects/{id}/setup`: `{"state": "setting_up" or "registered", "steps": [{"step", "done"}], "check": … or null, "checking"}`.
+  The steps in their order: `recipe`, a version of `.devflow/` read from the default branch;
+  `worker`, a worker built from that version said hello; `check`, a check of that version passed.
+  The later slices of part 6 add the setup run before the first, and the settings and the values
+  before the second. `check` is the newest check of the project's version, or of any before it is
+  known, with `id`, `version`, `commit`, `passed`, `exit_code`, `output`, `pictures`,
+  `pictures_note`, `checked_at` and `again_asked`; `checking` says a check of that version runs.
+- `POST /devflow/api/projects/{id}/setup/check-again`: `204`, and the next worker on that version
+  that asks is handed another check; `409` when the newest check did not fail or another was
+  already asked for.
+- `GET /devflow/api/projects/{id}/setup/checks/{check}/pictures/{name}`: the PNG as stored, as
+  `image/png` with `nosniff`, `default-src 'none'` and `private, max-age=3600`; `404` otherwise.
+
+**On the page**: while the project is setting up, its Setup panel stands in place of its Cards
+panel, with the steps, each done or to do, the newest check with its output and its pictures, and
+"Check again" when it failed; a registered project whose newest check failed shows the panel above
+its cards. "Waiting for you" lists under "Setup" a project whose newest check failed with no other
+asked for, and counts it; a project merely setting up is not listed, since a project connected only
+so Dev flow reads this repository's runner would sit there for good.
+
+**In the fake mode**, the fake worker passes a check it is handed unasked, so a test of anything
+after setting up never meets it; with `for_check`, its prepared result ends the check instead. The
+tests' harness takes every version its workers report as checked, `RecipesChecked`, unless a test of
+setting up turns it off.
 
 ## The worker
 

@@ -114,7 +114,7 @@ features" in `High-level/docs/platform-architecture.md`.
 - `devflow/README.md` — what Dev flow serves, its pages and its two tabs, what Waiting for you
   shows, the schema it pins, how to run it and its tests, its settings, its database and roles, migrating, the door, the vault that
   seals a user's secrets and its key, the code host's interface, its fake and how a test stages a
-  world in it, linking a user's GitHub account and the one way to a token that acts as them,
+  world in it, setting up a project, with the check at registration, its steps and its routes, linking a user's GitHub account and the one way to a token that acts as them,
   connecting a repository with its routes and tables, a project's settings and its cards with
   their routes and tables, its features, labelled parents with their sub-issues as cards, with
   their table, watching each project's default branch and each open feature's with the resume
@@ -156,7 +156,9 @@ features" in `High-level/docs/platform-architecture.md`.
   and a feature's branch, watched from its creation, with why a job's own push is judged when its
   run ends and why a stop on one branch is never replaced by another's, workers
   and how a worker's key leads to its project's user, the worker
-  program, the agent interface and the rule a run succeeds by, a build job's two users, why its
+  program, the agent interface and the rule a run succeeds by, setting up a project, with why it is a
+  worker's job, why every version of `.devflow/` is checked once and first and why the version covers
+  `project.json`, a build job's two users, why its
   check runs on a clean copy, why its branch is pushed whatever the check said and why a worker
   running a check stays seen, the Claude login Dev flow holds for
   a user's runs, handing out work, with the lock that takes a card, a feature's cards one at a time and why a card waits for every earlier one not done, stopped or held, a feature's branch and why one Dev flow did not make is never taken, why nothing is read from GitHub
