@@ -11,7 +11,7 @@ This brief is the same for every project; only the cards and the project below d
 Each card is work the owner of this project wrote, quoted between the fences exactly as it was
 picked, its number and title first, then its body. Answer for each of them, and for no other:
 
-{{cards}}
+{{cards}}{{again}}
 
 ## Where everything is
 

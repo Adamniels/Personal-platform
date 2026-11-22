@@ -1,8 +1,13 @@
+using System.Text.Json.Nodes;
 
 using Dapper;
 
+using DevFlow.CodeHost;
 using DevFlow.Protocol;
 using DevFlow.Readings;
+using DevFlow.Tests.Fixing;
+using DevFlow.Tests.Jobs;
+using DevFlow.Tests.PullRequests;
 
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
@@ -20,6 +25,10 @@ namespace DevFlow.Tests.Readings;
 /// </summary>
 public sealed class RefusalTests
 {
+    private const int Parent = Features.FeaturePage.Parent;
+    private const int First = Features.FeaturePage.First;
+    private const int Second = Features.FeaturePage.Second;
+
     private static CancellationToken Ct => Jobs.Jobs.Ct;
 
     private static Guid User => Jobs.Jobs.User;
@@ -44,6 +53,29 @@ public sealed class RefusalTests
             "SELECT comment_id FROM card_readings WHERE project_id = @project AND card_number = @number AND outcome IS NOT NULL ORDER BY read_at",
             new { project = jobs.Project, number },
             cancellationToken: Ct))];
+    }
+
+    /// <summary>The issue edited by <paramref name="editor"/> now: its body, or its title, replaced,
+    /// with the edit in its history.</summary>
+    internal static void Edit(Jobs.Jobs jobs, int number, string editor, string? body = null, string? title = null)
+    {
+        var world = jobs.Fake.World(User);
+        var at = jobs.Routes.Time.GetUtcNow();
+        jobs.Fake.Replace(User, world with
+        {
+            Installations = [.. world.Installations.Select(installation => installation with
+            {
+                Repositories = [.. installation.Repositories.Select(repository => repository with
+                {
+                    Issues = [.. repository.Issues.Select(issue => issue.Number != number ? issue : issue with
+                    {
+                        Body = body ?? issue.Body,
+                        Title = title ?? issue.Title,
+                        Edits = [.. issue.Edits, new IssueEdit($"edit-{number}-{issue.Edits.Count + 1}", editor, at, title is null ? EditKind.Body : EditKind.Title)],
+                    })],
+                })],
+            })],
+        });
     }
 
     [Fact]
@@ -98,5 +130,112 @@ public sealed class RefusalTests
         // Its own comment never reads it again.
         Assert.Equal("refused", (await jobs.Card(1)).State);
         Assert.DoesNotContain(jobs.Fake.Writes(User), write => write.Kind is "issue" or "pull_request");
+    }
+
+    [Fact]
+    public async Task MyEditReadsItAgain()
+    {
+        await using var jobs = await RefusedCard();
+
+        // Read again with nothing changed, it stays refused.
+        jobs.Routes.Time.Advance(TimeSpan.FromMinutes(1));
+        await jobs.Routes.Read(jobs.Project, User);
+        Assert.Equal("refused", (await jobs.Card(1)).State);
+        Assert.Equal(StatusCodes.Status204NoContent, (await jobs.Next()).Response.StatusCode);
+
+        // His edit of its body queues it to be read again, alone, as it is now.
+        const string Body = "Show \"No habits yet\" on the habits list when it is empty.";
+        Edit(jobs, 1, Jobs.Jobs.Owner, body: Body);
+        await jobs.Routes.Read(jobs.Project, User);
+        var card = await jobs.Card(1);
+        Assert.Equal(("queued", Refusals.Edited), (card.State, card.Reason));
+        var job = await jobs.Job();
+        Assert.Equal((Job.Read, 1), ((string)job["kind"]!, (int)job["card"]!["number"]!));
+        var read = Assert.Single(job["to_read"]!["cards"]!.AsArray())!;
+        Assert.Equal(Body, (string)read["body"]!);
+        var brief = (string)job["brief"]!;
+        Assert.Contains("## Read again", brief, StringComparison.Ordinal);
+        Assert.Contains("Which page shows the list", brief[brief.IndexOf("## Read again", StringComparison.Ordinal)..], StringComparison.Ordinal);
+
+        // Ready, it is queued with nothing to say, the attention label comes off and it is built.
+        var result = Jobs.Jobs.Result(Jobs.Jobs.FirstWorker, (string)job["branch"]!, ReadJobTests.Reading(Ready(1)), checkExit: null);
+        result["head_commit"] = null;
+        Assert.Equal(StatusCodes.Status204NoContent, (await jobs.Post(WorkerApi.ResultPath((Guid)job["job_id"]!), result)).Response.StatusCode);
+        Assert.Equal(("queued", (string?)null), ((await jobs.Card(1)).State, (await jobs.Card(1)).Reason));
+        await Stops.Stop.Mark(jobs);
+        await Mark(jobs);
+        Assert.Single(Stops.Stop.ByApp(jobs, "label_removed", 1));
+        Assert.False((await Stops.Stop.Card(jobs, 1)).AttentionLabelled);
+        Assert.Single(Stops.Stop.ByApp(jobs, "comment", 1));
+        var build = await jobs.Job();
+        Assert.Equal((Job.Build, 1), ((string)build["kind"]!, (int)build["card"]!["number"]!));
+
+        // An edit of its title reads a refused card again too, and too thin it is refused again with
+        // a comment of its own.
+        await using var again = await RefusedCard();
+        again.Routes.Time.Advance(TimeSpan.FromMinutes(1));
+        Edit(again, 1, Jobs.Jobs.Owner, title: "Add the empty state to the habits list");
+        await again.Routes.Read(again.Project, User);
+        Assert.Equal(("queued", Refusals.Edited), ((await again.Card(1)).State, (await again.Card(1)).Reason));
+        await Read(again, Prepared(ReadJobTests.Reading(Thin(1, "What an empty list says"))));
+        Assert.Equal("refused", (await again.Card(1)).State);
+        Assert.Equal(2, Stops.Stop.ByApp(again, "comment", 1).Count);
+        Assert.All(await CommentIds(again, 1), id => Assert.NotNull(id));
+    }
+
+    [Fact]
+    public async Task MyCommentReadsItAgain()
+    {
+        // A feature whose first card is read as too thin and whose second as ready.
+        await using var jobs = await Jobs.Jobs.Start(
+        [
+            FeatureJobs.Parent(Parent, "Dev flow: features", [First, Second]),
+            FeatureJobs.Sub(First, "Read the sub-issues"),
+            FeatureJobs.Sub(Second, "Show each feature"),
+        ], read: false);
+        await FeatureJobs.FirstCommit(jobs);
+        await Read(jobs, Prepared(ReadJobTests.Reading(Thin(First, "Where the sub-issues come from"), Ready(Second))));
+        Assert.Equal("refused", (await jobs.Card(First)).State);
+        var refusedAt = jobs.Routes.Time.GetUtcNow().AddMinutes(-1);
+
+        // A comment from before the refusal, one by a login off the list, and the app's own do not
+        // read it again.
+        Fixed.Later(jobs);
+        Fixed.Comment(jobs, First, Jobs.Jobs.Owner, "Written while it was read.", at: refusedAt.AddSeconds(-1));
+        Fixed.Comment(jobs, First, "someone-else", "Just build it.");
+        await jobs.Routes.Read(jobs.Project, User);
+        Assert.Equal("refused", (await jobs.Card(First)).State);
+
+        // His comment after it does: queued to be read again.
+        Fixed.Comment(jobs, First, Jobs.Jobs.Owner, "They come from GitHub's sub-issues API, a hundred at a time.");
+        await jobs.Routes.Read(jobs.Project, User);
+        Assert.Equal(("queued", Refusals.Commented), ((await jobs.Card(First)).State, (await jobs.Card(First)).Reason));
+
+        // Read alone, not with the feature's other cards, with the feature's note and his comment in
+        // the reader's brief, fenced as his input; the others' are not.
+        var job = await jobs.Job();
+        Assert.Equal(Job.Read, (string)job["kind"]!);
+        Assert.Equal(First, (int)job["card"]!["number"]!);
+        Assert.Equal([First], job["to_read"]!["cards"]!.AsArray().Select(card => (int)card!["number"]!));
+        var brief = (string)job["brief"]!;
+        var again = brief[brief.IndexOf("## Read again", StringComparison.Ordinal)..];
+        Assert.Contains("Where the sub-issues come from", again, StringComparison.Ordinal);
+        Assert.Contains($"### A comment by {Jobs.Jobs.Owner}", again, StringComparison.Ordinal);
+        Assert.Contains("```text\nThey come from GitHub's sub-issues API, a hundred at a time.\n```", again, StringComparison.Ordinal);
+        Assert.DoesNotContain("Written while it was read.", brief, StringComparison.Ordinal);
+        Assert.DoesNotContain("Just build it.", brief, StringComparison.Ordinal);
+        Assert.Contains("## The code this feature touches", brief, StringComparison.Ordinal);
+        Assert.Contains("devflow/src/DevFlow/Jobs/Dispatcher.cs", brief, StringComparison.Ordinal);
+        var run = Assert.Single(await Features.Reviewing.Runs(jobs, Job.Read), each => each.FinishedAt is null);
+        Assert.Equal(((int?)First, (int?)null), (run.CardNumber, run.FeatureNumber));
+
+        // Ready, it is queued; the comment that read it again is not read twice.
+        var result = Jobs.Jobs.Result(Jobs.Jobs.FirstWorker, (string)job["branch"]!, ReadJobTests.Reading(Ready(First)), checkExit: null);
+        result["head_commit"] = null;
+        Assert.Equal(StatusCodes.Status204NoContent, (await jobs.Post(WorkerApi.ResultPath((Guid)job["job_id"]!), result)).Response.StatusCode);
+        Assert.Equal("queued", (await jobs.Card(First)).State);
+        await jobs.Routes.Read(jobs.Project, User);
+        Assert.Equal("queued", (await jobs.Card(First)).State);
+        Assert.Equal(Job.Build, (string)(await jobs.Job())["kind"]!);
     }
 }

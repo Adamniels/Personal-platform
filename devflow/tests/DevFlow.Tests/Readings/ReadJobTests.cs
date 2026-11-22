@@ -349,9 +349,10 @@ public sealed class ReadJobTests
         await using var jobs = await Jobs.Jobs.Start(read: false);
         await Read(jobs, Prepared(Reading(Thin(1, "Which page shows the list"))));
 
-        // Queued again by whatever path, its newest reading still says too thin: nothing is built.
+        // Queued again by whatever path, its newest reading still says too thin: it is read again,
+        // never built.
         await FeatureJobs.SetState(jobs, 1, "queued");
-        Assert.Equal(StatusCodes.Status204NoContent, (await jobs.Next()).Response.StatusCode);
+        Assert.Equal(Job.Read, (string)(await jobs.Job())["kind"]!);
         Assert.DoesNotContain(await jobs.Runs(), run => run.Kind == Job.Build);
     }
 
