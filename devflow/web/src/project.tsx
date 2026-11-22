@@ -30,6 +30,7 @@ import {
 	type SetupProposal,
 	setupShows,
 } from "./setup";
+import type { ValuesApi } from "./values";
 import { duration } from "./waiting";
 
 export type WorkerList = GetAnswer<"/projects/{id}/workers">;
@@ -76,7 +77,8 @@ export const QUIET_MS = 10 * 60 * 1000;
  * the page and a test's own in a test. */
 export type ProjectApi = SettingsApi &
 	CardsApi &
-	SetupApi & {
+	SetupApi &
+	ValuesApi & {
 		loadProjects: () => Promise<Project[]>;
 		loadWorkers: (id: string) => Promise<WorkerList>;
 		/** Makes the project's key, replacing its last, and answers it with
@@ -116,6 +118,9 @@ export function ProjectPage({
 	mergeSetup,
 	runSetupAgain,
 	sendSetupBack,
+	loadValues,
+	giveValue,
+	removeValue,
 }: ProjectPageProps) {
 	const [project, setProject] = useState<Project | null>();
 	const [failed, setFailed] = useState(false);
@@ -254,6 +259,7 @@ export function ProjectPage({
 							acceptProposal={acceptProposal}
 							copy={copy}
 							reload={reloadSetup}
+							values={{ loadValues, giveValue, removeValue }}
 						/>
 					) : null}
 					{setup?.state === "setting_up" ? null : (

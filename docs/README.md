@@ -2,7 +2,7 @@
 
 Status: exploratory. The walking skeleton is being built.
 
-Last updated: 2026 11 21
+Last updated: 2026 11 22
 
 These are planning notes, not specifications. Everything here is the current best idea with the
 reasoning attached, and it is expected to change as building teaches things planning could not.
@@ -114,7 +114,7 @@ features" in `High-level/docs/platform-architecture.md`.
 - `devflow/README.md` — what Dev flow serves, its pages and its two tabs, what Waiting for you
   shows, the schema it pins, how to run it and its tests, its settings, its database and roles, migrating, the door, the vault that
   seals a user's secrets and its key, the code host's interface, its fake and how a test stages a
-  world in it, setting up a project, with the setup run, its command, its report and its pull request, the check at registration, the settings step, sending a failed check back, its steps and its routes, linking a user's GitHub account and the one way to a token that acts as them,
+  world in it, setting up a project, with the setup run, its command, its report and its pull request, the check at registration, the settings step, sending a failed check back, a project's values, sealed in the vault, their step and routes, carried by the jobs that run its code and scrubbed from what is stored and posted, its steps and its routes, linking a user's GitHub account and the one way to a token that acts as them,
   connecting a repository with its routes and tables, a project's settings and its cards with
   their routes and tables, its features, labelled parents with their sub-issues as cards, with
   their table, watching each project's default branch and each open feature's with the resume
@@ -158,7 +158,7 @@ features" in `High-level/docs/platform-architecture.md`.
   and how a worker's key leads to its project's user, the worker
   program, the agent interface and the rule a run succeeds by, setting up a project, with why it is a
   worker's job, why every version of `.devflow/` is checked once and first and why the version covers
-  `project.json`, a build job's two users, why its
+  `project.json`, why a project's values are a step that holds nothing back, sealed in their project's own table and scrubbed in two places with one function, a build job's two users, why its
   check runs on a clean copy, why its branch is pushed whatever the check said and why a worker
   running a check stays seen, the Claude login Dev flow holds for
   a user's runs, handing out work, with the lock that takes a card, a feature's cards one at a time and why a card waits for every earlier one not done, stopped or held, a feature's branch and why one Dev flow did not make is never taken, why nothing is read from GitHub
@@ -184,7 +184,7 @@ features" in `High-level/docs/platform-architecture.md`.
   again, why a stop is marked on the card, running it again on his comment and reading the usage
   limit's reset, and its security decisions and accepted risks, kept for an audit,
   the vault's, the fake's, the worker key's, the agent run's environment and token, the Claude
-  token's and a job's, the brief's, the report's text in a pull request body, push keys before the watch, the project run as `agent` in a clean copy, its test mode off
+  token's and a job's, a project's values' and their scrubbing, with the risk accepted, the brief's, the report's text in a pull request body, push keys before the watch, the project run as `agent` in a clean copy, its test mode off
   without `DEVFLOW=1`, pictures served through part 1's checks, root never running git in the
   agent's copy, the copy without credentials, a push never forced, the reviewer that cannot write, a fix started only from the commit handed, only the owner's comment read,
   a verdict that is never a comment, no language model deciding a merge, CI that never reports not

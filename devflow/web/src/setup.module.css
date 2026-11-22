@@ -191,3 +191,33 @@
 	align-items: center;
 	gap: var(--space-2);
 }
+
+/* The values step: each name on an inset, hard rule 3, its name in the mono
+ * font, wrapping at phone width, hard rule 13. */
+.values {
+	display: flex;
+	flex-direction: column;
+	gap: var(--inset-gap);
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.value {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-2);
+	min-width: 0;
+	padding: 8px 12px;
+	border-radius: var(--radius-md);
+	background: var(--surface-2);
+	overflow-wrap: anywhere;
+}
+
+/* The field a value is given in, with its buttons below it. */
+.give {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-2);
+	min-width: 0;
+}

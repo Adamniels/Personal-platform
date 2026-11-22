@@ -639,6 +639,13 @@ A purpose is a short fixed name the caller chooses, such as `github.access` or `
 matching `^[a-z][a-z0-9.-]*$`; anything else is an `ArgumentException`. The hyphen arrived with
 `claude-login`, in `migrations/0008_claude_logins.sql`, which changes the table's check with it.
 
+A project's values are sealed the same way but kept in their own table, so they go with their
+project: `SealProjectValue(userId, projectId, name, value)` answers a `SealedValue`, the key's id,
+the nonce and the ciphertext, for `project_values` to store, and `OpenProjectValue` opens one. Their
+associated data is `devflow:v1:<user id>:project-value:<project id>:<name>`; a purpose never holds a
+colon, so no secret's binding is ever a value's, and a value moved to another user, project or name
+does not open. See "A project's values" under "Setting up a project".
+
 Each row of `secrets` is one user's secret for one purpose: `key_id`, `nonce` and `ciphertext`,
 with `updated_at`. A put seals with AES-256-GCM, from .NET's own `AesGcm`, under the current key, a
 random 12 byte nonce every time and the 16 byte tag appended to the ciphertext. The associated data
@@ -2051,13 +2058,56 @@ once. The migration is
 `migrations/0042_recipe_checks.sql`, which also lets a run of kind `check` name neither card nor
 feature and adds `runs.recipe_version` with one check of a version under way at a time.
 
+**A project's values.** What the project's tests or its start need, a throwaway value or a key made
+for the automation with a low limit, never production's, as the spec's round 3 has it, which the
+owner gives on its page; the setup run lists them in its report's `variables`. Each is a row of
+`project_values`, from `migrations/0046_project_values.sql`: the project, its user, the name, the
+value sealed by the vault, `Vault.SealProjectValue`, bound to the user, the project and the name, and
+`set_at`, when it was last given; guarded like every scoped table, and gone with its project. No
+route ever answers a value once given. The code is `src/DevFlow/Values/`.
+
+- **A name** is `[A-Z_][A-Z0-9_]*`, at most 100 characters, and not reserved: not beginning with
+  `DEVFLOW_`, `CLAUDE_`, `ANTHROPIC_`, `GIT_` or `PLAYWRIGHT_`, nor `PATH`, `HOME`, `LANG`, `USER`,
+  `SHELL` or `TERM`. The worker's own variables, such as `CI` for the check and `DEVFLOW` for the
+  start, win over a value of the same name.
+- **A value** is 8 to 4,096 characters with no line break or NUL, kept exactly as given: a shorter
+  one could not be scrubbed without scrubbing ordinary words, so the field says to choose a longer
+  throwaway value.
+- **The values step**, `values`, after the settings and before a worker on the recipe, is done when
+  each variable the newest setup run that succeeded listed has a value, and when it listed none, as
+  for a project whose `.devflow/` was valid when it was connected. A listed name the values do not
+  take, lowercase or reserved, is shown with why and does not hold the step back. The owner may give
+  values it did not list. The step holds nothing back: a check runs whether or not it is done, and
+  fails, to be sent back or checked again, when its tests need a value not given.
+- **Carried** by every job that runs the project's code, a build, a fix, a conflict, a feature's
+  fix, a setup and a check, in its `values` beside the Claude token, opened in the transaction that
+  takes the work, `ProjectValues.Open`; a reading and a review run none of it and carry an empty
+  list, see "Jobs" and "The worker".
+- **Scrubbed** from everything Dev flow stores and posts by `ValueScrub`, in `DevFlow.Protocol`, the
+  one function Dev flow and the worker both use: each known value, as itself, URL-encoded, with its
+  hex in either case and a space as `+`, and in standard and URL-safe base64, whole and at each of the
+  three alignments it can have inside a longer encoding, such as `user:value` in a Basic header,
+  becomes `[value of NAME]`. Dev flow scrubs everything a worker sends before storing it, in
+  `JobEndpoints.Complete`, which the result route and the fake worker both record through, with the
+  project's values as they are when the result comes: the report, a reading's and a verdict's among
+  them, the failure's reason, the check's output, the auth method, Claude's usage, the standard
+  error, the refused actions, the pictures' note and a conflict's remerge diff, a text with a limit
+  cut to it after. Everything it posts on GitHub goes through `ScrubbingCodeHost`, the `ICodeHost`
+  every part of Dev flow is given, the code host itself behind it under the key `unscrubbed`: a pull
+  request's title and body, a comment, as the app or as the owner, an issue's title and body and a
+  bringing in's commit message are scrubbed with the values of the user's projects on that
+  repository before they are posted. The worker scrubs what it sends and logs as well, with the
+  values its job carried. A picture's bytes are not text and are not scrubbed. Why, and the risk
+  accepted, is "Security decisions and accepted risks" in `docs/devflow-architecture.md`.
+
 **The routes**, under the `Api` policy:
 
 - `GET /devflow/api/projects/{id}/setup`: `{"state": "setting_up" or "registered", "steps": [{"step", "done"}], "check": … or null, "checking"}`.
   The steps in their order: `setup`, a valid `.devflow/` on the default branch; `recipe`, a version
   of `.devflow/` read from the default branch; `settings`, the settings accepted or saved once;
-  `worker`, a worker built from that version said hello; `check`, a check of that version passed.
-  The values' slice of part 6 adds its step before `worker`. It also answers `proposal`, the
+  `values`, each variable the newest setup run that succeeded listed has a value, see "A project's
+  values" above; `worker`, a worker built from that version said hello; `check`, a check of that
+  version passed. It also answers `proposal`, the
   `preset`, `why` and `paths` the newest setup run that succeeded proposed, or null, and
   `can_send_back`. It also answers `problem`, why `.devflow/` is not valid, or null;
   `setup_command`; and `setup`, the newest setup run with its state, reason, pull request, head,
@@ -2079,6 +2129,16 @@ feature and adds `runs.recipe_version` with one check of a version under way at 
   when GitHub did not answer for the files.
 - `GET /devflow/api/projects/{id}/setup/checks/{check}/pictures/{name}`: the PNG as stored, as
   `image/png` with `nosniff`, `default-src 'none'` and `private, max-age=3600`; `404` otherwise.
+- `GET /devflow/api/projects/{id}/values`: `{"values": [{"name", "why", "asked", "set_at", "problem"}], "done"}`,
+  the names the newest setup run that succeeded listed, in its order, then every other name given,
+  by name: `why` as the setup said, or null for one it did not list; `asked`; `set_at`, or null
+  while it has no value; `problem`, why a listed name cannot be given, or null; never a value.
+  `done` is the step's. `404` for a project the caller does not have.
+- `PUT /devflow/api/projects/{id}/values/{name}` with `{"value"}`: `204` once sealed, replacing any
+  before it. In order: `404` for a project the caller does not have; `422` naming `name` or `value`
+  for one that breaks its rule.
+- `DELETE /devflow/api/projects/{id}/values/{name}`: `204`, and jobs handed out after carry it no
+  more; `404` for a project the caller does not have, or a name with no value.
 
 **On the page**: while the project is setting up, its Setup panel stands in place of its Cards
 panel, with the steps, each done or to do, the settings step while it waits, with the proposal, its preset, why
@@ -2089,7 +2149,12 @@ its cards; while the setup step is due it shows why, the setup command to copy, 
 where it is, its pull request, its review, what it could not settle by kind, what it proposes, the
 values its tests need, "Merge" when it waits for me, and, when it stopped, "Comment on its pull
 request, and it runs again." or, with no pull request, "Comment to run again", which opens a box
-labelled "A comment runs it again." with Send. "Waiting for you" lists under "Setup" a project
+labelled "A comment runs it again." with Send. Once the setup run is behind the project and the
+settings step does not wait, the panel shows "The values", `src/values.tsx`: each name with why,
+or "You added it.", "Missing", "Given" with when, or "Cannot be given" with why; a password field
+"The value of NAME", which the browser does not keep, with Give, for one missing, and Replace and
+Remove for one given; and "Add a value", with its name and the value. A value is cleared from the
+field once sent and never shown again. "Waiting for you" lists under "Setup" a project
 whose newest check failed with no other asked for, and one whose setup run waits for me or stopped
 while its `.devflow/` is not valid, `setup_runs`, `src/setup.tsx`'s `WaitingSetupRun`, and counts
 each; a project merely setting up is not listed, since a project connected only so Dev flow reads
@@ -2178,7 +2243,9 @@ standard error, and how it was logged in. Two implementations:
   nothing: `HOME`, the agent's home, `/home/agent`; `PATH`; `LANG`; `CLAUDE_CONFIG_DIR`, `.claude`
   in that home; `CLAUDE_CODE_OAUTH_TOKEN`; and `PLAYWRIGHT_BROWSERS_PATH`, `/ms-playwright`, the
   image's Chromium, so the pictures the developer takes of its own pages find a browser, see
-  "Screenshots". The arguments are a list, never through a shell.
+  "Screenshots". The run, not the login check, also gets the project's values its job carried,
+  beneath these, which win over a value of the same name. The arguments are a list, never through
+  a shell.
 
 **When a run succeeds**: only when every one of these holds: exit `0`; standard output is valid
 JSON; `is_error` is false; `terminal_reason` is `completed`; `structured_output` is present and an
@@ -2221,6 +2288,14 @@ logs it or sends it back: `AgentCredential` prints as redacted, and the token's 
 by `[redacted]` in Claude Code's standard output and standard error before anything reads them, so
 neither the report, the stderr kept nor a reason can carry it out.
 
+**The project's values** its job carried, `values`, are handed to three processes only, in their
+environment, beneath the worker's own variables: the agent's run, the check and the start,
+`AgentUser.WithValues`. Git, the copies, the pictures, the clean up and the login check get none,
+and the worker's own process never has them. It keeps them only for the job, as it keeps the
+token, and scrubs each, with `ValueScrub`, from everything it sends, the result's every text,
+before it leaves, and from every line it logs while the job runs, `WorkerLog.Hiding`; Dev flow
+scrubs what comes again, see "Setting up a project". A picture's bytes are sent as they are.
+
 **Its own user.** The process starter, `SystemProcessStarter`, takes the user to run as, `agent`
 in the image, and starts Claude Code, the check and every git command in the agent's copy through
 `setpriv --reuid agent --regid agent --init-groups`, which keeps the environment as built; Claude
@@ -2261,8 +2336,8 @@ and `/work/<job>/`, the agent's, where root writes nothing:
    every 5 minutes while the check runs, so Dev flow keeps seeing it; root bundles the fetched
    head into the handover folder, `check.bundle`, the agent clones it into `/work/<job>/check`, and
    the job's `check` runs there as `agent`, `sh -c` with standard error joined to standard output,
-   in an environment of
-   `HOME`, `PATH`, `LANG` and `CI=true`, for at most 30 minutes. Its exit code and the last 200
+   in an environment of the project's values the job carried, then
+   `HOME`, `PATH`, `LANG` and `CI=true`, which win, for at most 30 minutes. Its exit code and the last 200
    lines of its output go in the result; past 30 minutes it is ended and its output says so. When
    the agent failed the check does not run, since Dev flow judges the failure first.
 8. **The push**, whatever the check said: a fresh key from the push key route, and
@@ -2475,6 +2550,7 @@ queued; moves it to `building`; records a run for the worker; and answers `200` 
 | `report_schema` | `contracts/devflow/report.schema.json`, the report's form; for a review the verdict's, and for a reading `contracts/devflow/reading.schema.json`, the reading's |
 | `check` | `check` from the project's `.devflow/project.json` on its default branch, read as the app; empty for a reading, which runs none |
 | `claude_token` | The run's user's Claude token, see "Claude login" |
+| `values` | The project's values, each `name` and `value`, opened in the transaction that takes the work, on every job that runs the project's code, a build, a fix, a conflict, a feature's fix, a setup and a check; an empty list on a reading and a review, of a card, a feature or a setup, which run none of it. See "Setting up a project" and "The worker" |
 | `push_key`, `push_key_expires_at` | A key the app made for this job, narrowed to fetching and pushing the repository's code, and when it stops working, an hour on |
 | `committer` | `name` and `email`, the app's bot, `<app-slug>[bot]` and `<id>+<app-slug>[bot]@users.noreply.github.com`, read once from GitHub's `GET /users/<app-slug>[bot]` and kept; `devflow-fake[bot]` with a fixed address in the fake mode |
 | `limits` | `turns` and `minutes`, the project's `run_turns` and `run_minutes` when the job was handed out, 200 and 90 by default, and `budget_usd`, 25 for every job until part 8's budget |
@@ -2950,7 +3026,8 @@ succeeds by its check whatever they show. Why it is built so is "The worker's pi
 
 Either empty means the project has no pages to show, and no pictures are taken. **Login is the
 project's business.** `DEVFLOW=1` is the one thing Dev flow sets in `start`'s environment, which
-is otherwise built from nothing: the agent's `HOME`, `PATH` and `LANG`. A project whose pages need
+is otherwise built from nothing: the project's values the job carried, then the agent's `HOME`,
+`PATH` and `LANG`. A project whose pages need
 a login uses it to come up so they open without one, for example by seeding a test user and
 signing every request in as it, and that mode must be off whenever `DEVFLOW` is not set, since the
 same code runs in production. Nothing a test mode can reach should be real: the copy is a clean
