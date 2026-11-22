@@ -1710,6 +1710,9 @@ def test_a_feature_is_read_before_it_is_built(
     add_issue(world, 60, "The reading job", labels=["devflow"], sub_issues=[61, 62])
     add_issue(world, 61, "Add the reading form")
     add_issue(world, 62, "Show the reading")
+    # A valid .devflow/, so saving the settings once it is read does the
+    # settings step, as after the setup's pull request.
+    add_file(world, ".devflow/Dockerfile", RECIPE)
     add_file(
         world,
         ".devflow/project.json",
@@ -1723,10 +1726,10 @@ def test_a_feature_is_read_before_it_is_built(
         headers={"Origin": base_url},
     )
     assert given.status == 200, given.text()
+    _read(page, base_url, project)
     # Questions off, so the card with a question goes on the recommendation;
     # with them on, it waits for my answers, test_i_answer_a_cards_questions.
     _waits_for_me(page, base_url, project, "never", questions=False)
-    _read(page, base_url, project)
 
     # A worker on the image released asks for work and is handed the reading
     # of the whole feature, before any build: the parent as its card, and both
@@ -1739,6 +1742,11 @@ def test_a_feature_is_read_before_it_is_built(
     )
     image = re.search(r"--build-arg DEVFLOW_BASE=(\S+) ", command).group(1)
     worker_id = "0190a8f0-0000-7000-8000-0000000000f4"
+    # The worker is built from the recipe as Dev flow read it.
+    version = page.request.get(f"/devflow/api/projects/{project}/workers").json()[
+        "recipe_version"
+    ]
+    assert version is not None
     worker = playwright.request.new_context(base_url=base_url, ignore_https_errors=True)
     try:
         hello = worker.post(
@@ -1746,7 +1754,7 @@ def test_a_feature_is_read_before_it_is_built(
             data={
                 "worker_id": worker_id,
                 "name": "reader-worker-1",
-                "recipe_version": "1",
+                "recipe_version": version,
                 "base_image": image,
             },
             headers={"Authorization": f"Bearer {key}"},
