@@ -34,20 +34,14 @@ public static class SetupText
     };
 
     /// <summary>The body for <paramref name="report"/>, from run <paramref name="runId"/> of setup
-    /// <paramref name="number"/>, which pushed <paramref name="commit"/>; with why it stopped when
-    /// <paramref name="stopped"/> is given.</summary>
-    public static string Body(SetupReport report, int number, Guid runId, string commit, string? stopped = null)
+    /// <paramref name="number"/>, which pushed <paramref name="commit"/>.</summary>
+    public static string Body(SetupReport report, int number, Guid runId, string commit)
     {
         ArgumentNullException.ThrowIfNull(report);
         ArgumentNullException.ThrowIfNull(commit);
         var body = new StringBuilder();
         body.Append("## Summary\n\n").Append(PullRequestText.Text(report.Summary)).Append("\n\n");
         body.Append("This pull request writes `.devflow/Dockerfile`, the recipe every worker of this project is built from, and `.devflow/project.json`. It always waits for you to merge it, whatever the project's settings: the recipe decides what runs as root in your containers.\n\n");
-        if (stopped is not null)
-        {
-            body.Append("**Stopped.** ").Append(PullRequestText.Text(stopped)).Append(". Comment here, and it runs again.\n\n");
-        }
-
         body.Append("## What it could not settle\n\n");
         List(body, report.Unsettled.Select(each => $"**{Kind(each.Kind)}.** {PullRequestText.Text(each.Detail)}"));
         body.Append("## What it proposes\n\n")

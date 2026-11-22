@@ -793,9 +793,14 @@ containers on his machine, so whatever the project's settings, Dev flow never me
 check reads only cards, so no setting can reach it. It is reviewed and fixed like a card's first,
 so what he reads is a reviewed recipe with what it could not settle said plainly.
 
-**A setup that stopped gets its pull request.** The owner's comment on its pull request is what runs
-a stopped setup again, as it is for a stopped card; one that stopped before its pull request opened
-would leave nothing to comment on, so its pull request is opened all the same, saying why it stopped.
+**A setup that stopped before its pull request is run again from its step.** The owner's comment
+on its pull request is what runs a stopped setup again, as it is for a stopped card on its issue.
+A setup has no issue, and one that stopped before its pull request opened has nothing on GitHub to
+comment on. Opening its pull request all the same covers only some stops: a run that failed, timed
+out or pushed nothing may leave no commit beyond the default branch, and GitHub opens no pull
+request for that. So the page takes his comment instead, the same input a comment on GitHub would
+be, and the setup runs again with it, whatever stopped it. A pull request opens only for what is
+valid, so he never reads a broken setup on GitHub.
 
 **"Waiting for you" lists only a check that failed.** The feature has a project setting up shown
 there, but a project connected only so Dev flow reads this repository's runner, the platform

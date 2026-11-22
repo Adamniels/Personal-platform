@@ -57,7 +57,7 @@ public sealed partial class SetupLoop(UserDb database, ICodeHost host, TimeProvi
                 continue;
             }
 
-            var body = SetupText.Body(report, setup.Number, setup.RunId, setup.HeadCommit, setup.State == "stopped" ? setup.Reason : null);
+            var body = SetupText.Body(report, setup.Number, setup.RunId, setup.HeadCommit);
             if (setup.PullRequestNumber is { } number)
             {
                 if (await host.EditPullRequestBody(userId, key, repository, number, body, cancellationToken) is WriteResult<PullRequest>.Written)

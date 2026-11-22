@@ -7,6 +7,7 @@ import {
 	within,
 } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
+import { ApiError } from "./api/client";
 import {
 	heldNotice,
 	NO_WORKER,
@@ -24,7 +25,10 @@ import {
 import type { Project } from "./projects";
 import {
 	CHECK_RUNNING,
+	COMMENT_ON_PULL,
+	COMMENT_RUNS_AGAIN,
 	type ProjectSetup,
+	RUN_SETUP_AGAIN,
 	SETTING_UP,
 	type SetupCheck,
 } from "./setup";
@@ -141,6 +145,7 @@ function renderPage(
 		loadCards: vi.fn(() => Promise.resolve({ cards: [], features: [] })),
 		loadSetup: vi.fn(() => Promise.resolve(setup)),
 		mergeSetup: vi.fn(() => Promise.resolve()),
+		runSetupAgain: vi.fn(() => Promise.resolve()),
 		checkAgain: vi.fn(() => {
 			if (setup.check)
 				setup = { ...setup, check: { ...setup.check, again_asked: true } };
@@ -280,6 +285,84 @@ describe("a project's setup", () => {
 		// Merged from the step as the owner, at the commit shown.
 		fireEvent.click(within(run).getByRole("button", { name: "Merge" }));
 		await waitFor(() => expect(mergeSetup).toHaveBeenCalledWith(ID, HEAD));
+	});
+
+	/** The setup stopped before it had a pull request, twice in a row. */
+	const stoppedSetup = (pull: number | null): ProjectSetup => ({
+		...waiting,
+		setup: {
+			...(waiting.setup as NonNullable<ProjectSetup["setup"]>),
+			state: "stopped",
+			reason:
+				"Failed twice in a row: The setup failed: it reached the most turns",
+			pull_request_number: pull,
+			pull_request_url:
+				pull === null ? null : `https://github.com/Adamniels/fodr/pull/${pull}`,
+			head_commit: null,
+			report: null,
+			review: null,
+		},
+	});
+
+	test("a setup stopped before it had a pull request runs again on a comment from its step", async () => {
+		const { runSetupAgain, loadSetup } = renderPage({
+			setup: stoppedSetup(null),
+		});
+
+		const panel = await screen.findByRole("article", { name: "Setting up" });
+		const run = within(panel).getByRole("region", { name: "The setup run" });
+		expect(within(run).getByText("Stopped")).toBeTruthy();
+		expect(
+			within(run).getByText(
+				"Failed twice in a row: The setup failed: it reached the most turns.",
+			),
+		).toBeTruthy();
+		expect(within(run).queryByRole("button", { name: "Merge" })).toBeNull();
+		fireEvent.click(within(run).getByRole("button", { name: RUN_SETUP_AGAIN }));
+		const send = within(run).getByRole("button", { name: "Send" });
+		expect((send as HTMLButtonElement).disabled).toBe(true);
+		fireEvent.change(within(run).getByLabelText(COMMENT_RUNS_AGAIN), {
+			target: { value: "Use Postgres 16." },
+		});
+		fireEvent.click(send);
+		await waitFor(() =>
+			expect(runSetupAgain).toHaveBeenCalledWith(ID, "Use Postgres 16."),
+		);
+		await waitFor(() => expect(loadSetup).toHaveBeenCalledTimes(2));
+	});
+
+	test("a refused comment from the step says why", async () => {
+		const { runSetupAgain } = renderPage({ setup: stoppedSetup(null) });
+		runSetupAgain.mockImplementation(() =>
+			Promise.reject(
+				new ApiError({
+					status: 409,
+					title: "This setup is not run again from here",
+					detail:
+						"It has a pull request; comment on it on GitHub to run it again.",
+				}),
+			),
+		);
+
+		const run = await screen.findByRole("region", { name: "The setup run" });
+		fireEvent.click(within(run).getByRole("button", { name: RUN_SETUP_AGAIN }));
+		fireEvent.change(within(run).getByLabelText(COMMENT_RUNS_AGAIN), {
+			target: { value: "Again." },
+		});
+		fireEvent.click(within(run).getByRole("button", { name: "Send" }));
+		expect((await within(run).findByRole("alert")).textContent).toBe(
+			"This setup is not run again from here. It has a pull request; comment on it on GitHub to run it again.",
+		);
+	});
+
+	test("a setup stopped with a pull request is run again by a comment on it", async () => {
+		renderPage({ setup: stoppedSetup(9) });
+
+		const run = await screen.findByRole("region", { name: "The setup run" });
+		expect(within(run).getByText(COMMENT_ON_PULL)).toBeTruthy();
+		expect(
+			within(run).queryByRole("button", { name: RUN_SETUP_AGAIN }),
+		).toBeNull();
 	});
 
 	test("a project setting up shows its steps in place of its features", async () => {

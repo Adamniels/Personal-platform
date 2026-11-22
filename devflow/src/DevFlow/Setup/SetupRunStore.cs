@@ -64,7 +64,7 @@ public sealed record SetupReview(string Verdict, string Summary, int Blocking, s
 public sealed record SetupRun(int Number, string Branch, string State, string? Reason, int? PullRequestNumber, string? PullRequestUrl, bool Running, string? HeadCommit, SetupReport? Report, SetupReview? Review);
 
 /// <summary>A setup whose pull request is to be opened, or whose body is to be written again.</summary>
-public sealed record PendingSetup(int Number, string Branch, string State, int? PullRequestNumber, Guid RunId, string Report, string HeadCommit, string? Reason);
+public sealed record PendingSetup(int Number, string Branch, string State, int? PullRequestNumber, Guid RunId, string Report, string HeadCommit);
 
 /// <summary>A setup whose pull request is followed on the minute: merged, closed, or commented.</summary>
 public sealed record FollowedSetup(int Number, string State, string? Reason, int PullRequestNumber, long? ReadThrough, bool Running, DateTime ChangedAt);
@@ -101,6 +101,9 @@ public static class SetupRunStore
 
     /// <summary>What a setup the owner commented on says until its run begins.</summary>
     public const string CommentedReason = "You commented on its pull request; it runs again next";
+
+    /// <summary>What a setup the owner commented on from its step says until its run begins.</summary>
+    public const string RunAgainReason = "You commented on it; it runs again next";
 
     /// <summary>What a merged setup says.</summary>
     public const string Merged = "Merged; .devflow/ is on the default branch";
@@ -516,24 +519,23 @@ public static class SetupRunStore
             cancellationToken: cancellationToken));
     }
 
-    /// <summary>The setups of the project whose pull request is to be opened: one written and valid,
-    /// and one stopped before it had one whose branch was pushed, so the owner has a pull request to
-    /// comment on; and those whose body was written from an older run than their newest that
-    /// succeeded. Each with that run's report, as stored.</summary>
+    /// <summary>The setups of the project whose pull request is to be opened, one written and valid,
+    /// and those whose body was written from an older run than their newest that succeeded. Each
+    /// with that run's report, as stored. A setup that stopped before it had a pull request gets
+    /// none: it is run again from its step, see <see cref="RunAgain"/>.</summary>
     public static async Task<IReadOnlyList<PendingSetup>> Pending(UserDb database, Guid userId, Guid projectId, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(database);
         return [.. await database.InUserTransaction(userId, transaction => transaction.Connection!.QueryAsync<PendingSetup>(new CommandDefinition(
             """
             SELECT s.number AS Number, s.branch AS Branch, s.state AS State, s.pull_request_number AS PullRequestNumber,
-                   b.id AS RunId, b.report::text AS Report, b.head_commit AS HeadCommit, s.reason AS Reason
+                   b.id AS RunId, b.report::text AS Report, b.head_commit AS HeadCommit
             FROM setups s
             JOIN LATERAL (SELECT * FROM runs WHERE runs.project_id = s.project_id AND runs.setup_number = s.number AND runs.kind = 'setup'
-                          AND runs.report IS NOT NULL AND runs.head_commit IS NOT NULL
-                          AND (runs.result = 'succeeded' OR s.state = 'stopped')
+                          AND runs.report IS NOT NULL AND runs.head_commit IS NOT NULL AND runs.result = 'succeeded'
                           ORDER BY runs.started_at DESC, runs.id DESC LIMIT 1) b ON true
             WHERE s.project_id = @projectId
-              AND ((s.pull_request_number IS NULL AND s.state IN ('checking', 'stopped'))
+              AND ((s.pull_request_number IS NULL AND s.state = 'checking')
                    OR (s.pull_request_number IS NOT NULL AND s.state IN ('reviewing', 'fixing', 'waiting_for_owner') AND s.body_run_id IS DISTINCT FROM b.id))
             ORDER BY s.number
             """,
@@ -543,7 +545,7 @@ public static class SetupRunStore
     }
 
     /// <summary>Records the setup's pull request, opened or found, with the run its body was written
-    /// from: a setup written and valid moves to review, one stopped stays stopped.</summary>
+    /// from; the setup, written and valid, moves to review.</summary>
     public static async Task Opened(UserDb database, Guid userId, Guid projectId, int number, int pullRequest, Uri url, Guid bodyRunId, DateTimeOffset now, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(database);
@@ -551,10 +553,8 @@ public static class SetupRunStore
         await database.InUserTransaction(userId, transaction => transaction.Connection!.ExecuteAsync(new CommandDefinition(
             """
             UPDATE setups SET pull_request_number = @pullRequest, pull_request_url = @url, body_run_id = @bodyRunId,
-                              state = CASE WHEN state = 'checking' THEN 'reviewing' ELSE state END,
-                              reason = CASE WHEN state = 'checking' THEN @toReview ELSE reason END,
-                              changed_at = @now
-            WHERE project_id = @projectId AND number = @number AND state IN ('checking', 'stopped') AND pull_request_number IS NULL
+                              state = 'reviewing', reason = @toReview, changed_at = @now
+            WHERE project_id = @projectId AND number = @number AND state = 'checking' AND pull_request_number IS NULL
             """,
             new { projectId, number, pullRequest, url = url.ToString(), bodyRunId, toReview = ToReviewReason, now },
             transaction,
@@ -644,6 +644,31 @@ public static class SetupRunStore
                 transaction,
                 cancellationToken: cancellationToken));
         }, cancellationToken);
+    }
+
+    /// <summary>
+    /// The owner's comment from the step of a setup that stopped before it had a pull request, the
+    /// one he would otherwise write on it: the setup runs again with it, as <see cref="Commented"/>
+    /// runs one again, a fix of its branch that is not a round, or a first run again when nothing was
+    /// ever pushed. Only while it is stopped with no pull request and no run under way, and its
+    /// project still needs a setup. Whether it was taken.
+    /// </summary>
+    public static async Task<bool> RunAgain(UserDb database, Guid userId, Guid projectId, string comment, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(database);
+        ArgumentNullException.ThrowIfNull(comment);
+        return await database.InUserTransaction(userId, transaction => transaction.Connection!.ExecuteAsync(new CommandDefinition(
+            $"""
+            UPDATE setups s SET
+                state = CASE WHEN {BranchHeadOf} IS NULL THEN 'queued' ELSE 'fixing' END,
+                reason = @reason, fix_round = NULL, fix_review_id = NULL, failures = 0,
+                fix_comments = coalesce(s.fix_comments, '[]'::jsonb) || @comments::jsonb,
+                changed_at = @now
+            WHERE s.project_id = @projectId AND s.state = 'stopped' AND s.pull_request_number IS NULL AND NOT {Running} AND {NeedsSetup}
+            """,
+            new { projectId, reason = RunAgainReason, comments = JsonSerializer.Serialize(new[] { comment }), now },
+            transaction,
+            cancellationToken: cancellationToken)), cancellationToken) == 1;
     }
 
     /// <summary>The project's newest setup as its step shows it, or null before it has one, read

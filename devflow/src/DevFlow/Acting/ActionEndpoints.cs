@@ -442,7 +442,7 @@ public static class ActionEndpoints
 
     /// <summary>Why a comment from the page is refused, or null when it is one to post: missing,
     /// empty once trimmed, or longer than <see cref="MostComment"/>.</summary>
-    private static ProblemHttpResult? Comment(string? written, string what)
+    internal static ProblemHttpResult? Comment(string? written, string what)
     {
         var comment = written?.Trim();
         return comment is null ? Invalid("comment", "is missing")

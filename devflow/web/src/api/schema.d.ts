@@ -546,6 +546,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/devflow/api/projects/{id}/setup/run-again": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Run a stopped setup again with a comment
+         * @description Takes comment, trimmed, as the owner's comment on a setup run that stopped before it had a pull request, which has nothing on GitHub to comment on: the setup runs again with it, a fix of its branch, or a first run when nothing was pushed, with comment in its brief to be answered, as his comment on a setup's pull request runs one again. In order: 404 for a project the caller does not have; 422 when comment is missing, empty once trimmed, or longer than 10,000 characters; 409 when the project's newest setup has not stopped, has a pull request, which his comment on GitHub runs again, or is running, or the project no longer needs a setup. 204 once taken. Without a valid token, 401 with an empty body; a change from another origin, 403.
+         */
+        post: operations["runProjectSetupAgain"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/devflow/api/projects/{id}/worker-key": {
         parameters: {
             query?: never;
@@ -1713,6 +1733,9 @@ export interface components {
             review: null | components["schemas"]["SetupReview"];
             running: boolean;
             state: string;
+        };
+        SetupRunAgainRequest: {
+            comment: null | string;
         };
         SetupRunItem: {
             /** Format: date-time */
@@ -3308,6 +3331,64 @@ export interface operations {
             };
             /** @description Service Unavailable */
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    runProjectSetupAgain: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetupRunAgainRequest"];
+            };
+        };
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };

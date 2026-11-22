@@ -579,9 +579,7 @@ public static class Brief
     {
         var opening = fix.Round is { } round
             ? string.Create(CultureInfo.InvariantCulture, $"The setup was written before, and its pull request is open. You continue its branch from where the last run left it: fix what is asked below, and do not start again. This is fix round {round} of {fix.Rounds}: the reviewer asked for changes.\n\n")
-            : fix.Report is null
-                ? "An earlier setup of this project stopped, and the owner commented on it. You start the setup afresh on a new branch, with his comment below as your input.\n\n"
-                : "The setup was written before, and its pull request is open. You continue its branch from where the last run left it. The owner sent it back with his comment below, which is not one of the review's rounds.\n\n";
+            : "The setup ran before, and the owner commented on it, on its pull request or, when it stopped before it had one, on its step. His comment below is your input, and it is not one of the review's rounds. Where the branch already holds an earlier run's work, continue from it rather than start again.\n\n";
         var section = new StringBuilder(WhatToFix(fix, opening, "setup"));
         var replies = section.ToString().LastIndexOf("Every finding gets a reply in `replies`", StringComparison.Ordinal);
         if (replies >= 0)

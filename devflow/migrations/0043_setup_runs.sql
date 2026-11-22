@@ -42,7 +42,9 @@ CREATE TABLE setups (
     changed_at timestamptz NOT NULL,
     PRIMARY KEY (project_id, number),
     CHECK ((pull_request_number IS NULL) = (pull_request_url IS NULL)),
-    CHECK (state NOT IN ('reviewing', 'fixing', 'waiting_for_owner', 'done') OR pull_request_number IS NOT NULL),
+    -- A fix may run with no pull request: the owner's comment runs one again on a setup that stopped
+    -- before it had one, or whose pull request was closed, and its pull request opens once it is valid.
+    CHECK (state NOT IN ('reviewing', 'waiting_for_owner', 'done') OR pull_request_number IS NOT NULL),
     FOREIGN KEY (project_id, user_id) REFERENCES projects (id, user_id) ON DELETE CASCADE ON UPDATE CASCADE
 );
 

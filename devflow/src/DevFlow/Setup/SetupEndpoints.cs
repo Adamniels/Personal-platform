@@ -12,7 +12,8 @@ namespace DevFlow.Setup;
 /// <summary>
 /// A project's setup over HTTP, every route under the <c>Api</c> policy and the origin check: its
 /// steps and its newest check, asking for another check of a version whose check failed, a check's
-/// pictures, and the owner's merge of his setup's pull request. See "Setting up a project" in
+/// pictures, the owner's merge of his setup's pull request, and his comment that runs a setup
+/// stopped before it had a pull request again. See "Setting up a project" in
 /// devflow/README.md.
 /// </summary>
 public static class SetupEndpoints
@@ -45,6 +46,11 @@ public static class SetupEndpoints
             .Route("checkProjectAgain", "Check a project's setup again",
                 "Asks for another check of the version whose newest check, the one getProjectSetup answers, failed: the next worker on that version that asks is handed it. 204. 409 when that check did not fail or another was already asked for; 404 for a project the caller does not have.",
                 StatusCodes.Status404NotFound, StatusCodes.Status409Conflict);
+
+        setup.MapPost("/run-again", RunAgain)
+            .Route("runProjectSetupAgain", "Run a stopped setup again with a comment",
+                "Takes comment, trimmed, as the owner's comment on a setup run that stopped before it had a pull request, which has nothing on GitHub to comment on: the setup runs again with it, a fix of its branch, or a first run when nothing was pushed, with comment in its brief to be answered, as his comment on a setup's pull request runs one again. In order: 404 for a project the caller does not have; 422 when comment is missing, empty once trimmed, or longer than 10,000 characters; 409 when the project's newest setup has not stopped, has a pull request, which his comment on GitHub runs again, or is running, or the project no longer needs a setup. 204 once taken.",
+                StatusCodes.Status404NotFound, StatusCodes.Status409Conflict, StatusCodes.Status422UnprocessableEntity);
 
         setup.MapGet("/checks/{check:guid}/pictures/{name}", async Task<Results<FileContentHttpResult, ProblemHttpResult>> (Guid id, Guid check, string name, HttpContext context, [FromServices] UserDb database) =>
                 {
@@ -144,6 +150,41 @@ public static class SetupEndpoints
         };
     }
 
+    /// <summary>
+    /// The owner's comment on a setup that stopped before it had a pull request, from its step: with
+    /// nothing on GitHub to comment on, his comment is taken here as one on its pull request would
+    /// be, and the setup runs again with it. A stopped setup with a pull request is run again by his
+    /// comment there, as a stopped card's is by his comment on its issue.
+    /// </summary>
+    private static async Task<Results<NoContent, ProblemHttpResult>> RunAgain(
+        Guid id,
+        SetupRunAgainRequest request,
+        HttpContext context,
+        [FromServices] UserDb database,
+        [FromServices] Recipes.WorkerStart start,
+        [FromServices] TimeProvider time)
+    {
+        var userId = context.UserId();
+        var cancellationToken = context.RequestAborted;
+        if (await SetupStore.Of(database, userId, id, start, cancellationToken) is not { } project)
+        {
+            return NoSuchProject();
+        }
+
+        if (Acting.ActionEndpoints.Comment(request.Comment, "write what the agent should do differently") is { } invalid)
+        {
+            return invalid;
+        }
+
+        return await SetupRunStore.RunAgain(database, userId, id, request.Comment!.Trim(), Now(time), cancellationToken)
+            ? TypedResults.NoContent()
+            : Acting.ActionEndpoints.Conflict(
+                "This setup is not run again from here",
+                project.Setup is { State: "stopped", PullRequestNumber: not null }
+                    ? "It has a pull request; comment on it on GitHub to run it again."
+                    : "Only a setup that stopped before it had a pull request is run again from its step.");
+    }
+
     private static ProblemHttpResult NoSuchProject() =>
         TypedResults.Problem(statusCode: StatusCodes.Status404NotFound, title: "No such project", detail: "the project does not exist");
 
@@ -173,3 +214,7 @@ public static class SetupEndpoints
 }
 /// <summary>What the page sends to merge a project's setup: the commit it showed.</summary>
 public sealed record SetupMergeRequest(string? HeadCommit);
+
+/// <summary>What the step sends to run a stopped setup again.</summary>
+/// <param name="Comment">What the owner wrote, taken trimmed and quoted in the setup's brief.</param>
+public sealed record SetupRunAgainRequest(string? Comment);

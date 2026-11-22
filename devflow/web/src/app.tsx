@@ -116,6 +116,13 @@ const projectApi: ProjectApi = {
 			{ head_commit: head },
 		);
 	},
+	runSetupAgain: async (id, comment) => {
+		await client.send(
+			"POST",
+			`/projects/${encodeURIComponent(id)}/setup/run-again`,
+			{ comment },
+		);
+	},
 	saveSettings: (id, settings) =>
 		client.send<ProjectSettings>(
 			"PUT",

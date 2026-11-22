@@ -41,6 +41,7 @@ function openAt(path: string) {
 				loadSetup: () => new Promise(() => {}),
 				checkAgain: () => Promise.resolve(),
 				mergeSetup: () => Promise.resolve(),
+				runSetupAgain: () => Promise.resolve(),
 			}}
 			projects={{
 				loadProjects: () => Promise.resolve([]),

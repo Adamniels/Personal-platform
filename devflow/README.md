@@ -1961,8 +1961,8 @@ recipe does; it is never handed a check. Its jobs need the Claude login, as a ca
 - **Its pull request**, on the minute, `SetupLoop`: opened as the app from its branch into the
   default branch, titled "Set up Dev flow", its body `SetupText` with the summary, what it could not
   settle, what it proposes, the values its tests need, its decisions and the validation, every text
-  made safe as a card's is, and rewritten after each fix. One stopped before it had a pull request
-  gets one all the same, saying why it stopped, so there is one to comment on.
+  made safe as a card's is, and rewritten after each fix. It opens only once what it wrote is
+  valid: one that stopped before then has none, and is run again from its step.
 - **Reviewed and fixed like a card's**: a `review` job, the setup's pull request as its card,
   `Briefs/setup-reviewer.md`, which also asks whether the recipe installs only what the check and
   the start need, the reviewing model, a key that only fetches; `changes` starts a fix round, a
@@ -1975,12 +1975,17 @@ recipe does; it is never handed a check. Its jobs need the Claude login, as a ca
   is stopped, "The pull request was closed".
 - **Stopped**, my comment on its pull request, by a trusted account, after it stopped, runs it again
   as a fix with the comment, or opens a new pull request from the same branch when the old one
-  closed.
+  closed. One that stopped before it had a pull request, whatever stopped it, has nothing on GitHub
+  to comment on, so my comment from its step, `POST /devflow/api/projects/{id}/setup/run-again`,
+  runs it again the same way: a fix of its branch when a run pushed to it, a first run again when
+  none did, with the comment in its brief, its failures counted afresh, "You commented on it; it
+  runs again next".
 
 The table, `setups`, guarded like every scoped one: one row per setup, `(project_id, number)`,
 its branch, state (`queued`, `checking`, `reviewing`, `fixing`, `waiting_for_owner`, `stopped`,
-`done`), reason, pull request, fix rounds, the comments its next run answers, and its failures in a
-row; at most one not done per project. `runs.setup_number` names a setup's runs.
+`done`), reason, pull request, which every state but `queued`, `checking`, `fixing` and `stopped`
+has, fix rounds, the comments its next run answers, and its failures in a row; at most one not done
+per project. `runs.setup_number` names a setup's runs.
 
 **The check job**, kind `check`, handed out by `jobs/next` to a worker whose version has no check
 that passed, when no check of that version is running and its newest check, if any, failed and
@@ -2021,12 +2026,17 @@ feature and adds `runs.recipe_version` with one check of a version under way at 
   hello; `check`, a check of that version passed. The later slices of part 6 add the settings and
   the values before `worker`. It also answers `problem`, why `.devflow/` is not valid, or null;
   `setup_command`; and `setup`, the newest setup run with its state, reason, pull request, head,
-  newest report in its form and the review of its head, or null. `check` is the newest check of the project's version, or of any before it is
-  known, with `id`, `version`, `commit`, `passed`, `exit_code`, `output`, `pictures`,
-  `pictures_note`, `checked_at` and `again_asked`; `checking` says a check of that version runs.
+  newest report in its form and the review of its head, or null. `check` is the newest check of
+  the project's version, or of any before it is known, with `id`, `version`, `commit`, `passed`,
+  `exit_code`, `output`, `pictures`, `pictures_note`, `checked_at` and `again_asked`; `checking`
+  says a check of that version runs.
 - `POST /devflow/api/projects/{id}/setup/check-again`: `204`, and the next worker on that version
   that asks is handed another check; `409` when the newest check did not fail or another was
   already asked for.
+- `POST /devflow/api/projects/{id}/setup/run-again` with `{"comment"}`: `204`, and the setup that
+  stopped before it had a pull request runs again with the comment; `422` for a comment missing,
+  empty or over 10,000 characters, as a send back's; `409` when the newest setup has not stopped, has
+  a pull request, is running, or the project no longer needs one.
 - `GET /devflow/api/projects/{id}/setup/checks/{check}/pictures/{name}`: the PNG as stored, as
   `image/png` with `nosniff`, `default-src 'none'` and `private, max-age=3600`; `404` otherwise.
 
@@ -2035,10 +2045,13 @@ panel, with the steps, each done or to do, the newest check with its output and 
 "Check again" when it failed; a registered project whose newest check failed shows the panel above
 its cards; while the setup step is due it shows why, the setup command to copy, and the setup run,
 where it is, its pull request, its review, what it could not settle by kind, what it proposes, the
-values its tests need and "Merge" when it waits for me. "Waiting for you" lists under "Setup" a
-project whose newest check failed with no other asked for, and one whose setup run waits for me or
-stopped, `setup_runs`, `src/setup.tsx`'s `WaitingSetupRun`, and counts each; a project merely setting up is not listed, since a project connected only
-so Dev flow reads this repository's runner would sit there for good.
+values its tests need, "Merge" when it waits for me, and, when it stopped, "Comment on its pull
+request, and it runs again." or, with no pull request, "Comment to run again", which opens a box
+labelled "A comment runs it again." with Send. "Waiting for you" lists under "Setup" a project
+whose newest check failed with no other asked for, and one whose setup run waits for me or stopped
+while its `.devflow/` is not valid, `setup_runs`, `src/setup.tsx`'s `WaitingSetupRun`, and counts
+each; a project merely setting up is not listed, since a project connected only so Dev flow reads
+this repository's runner would sit there for good.
 
 **In the fake mode**, the fake worker passes a check it is handed unasked, so a test of anything
 after setting up never meets it; with `for_check`, its prepared result ends the check instead. The

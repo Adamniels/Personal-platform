@@ -447,7 +447,9 @@ public sealed class WaitingStore(UserDb database, TimeProvider time)
                 """,
                 transaction: transaction,
                 cancellationToken: cancellationToken));
-            // A project's newest setup run that waits for the owner or stopped.
+            // A project's newest setup run that waits for the owner or stopped, while the project
+            // still needs one: once .devflow/ on its default branch is valid, written by hand among
+            // other ways, nothing of the setup is asked of him.
             var setupRuns = await transaction.Connection!.QueryAsync<SetupRunRow>(new CommandDefinition(
                 $"""
                 SELECT p.id AS ProjectId, p.name AS ProjectName, p.owner AS Owner, s.state AS State, s.reason AS Reason,
@@ -455,7 +457,7 @@ public sealed class WaitingStore(UserDb database, TimeProvider time)
                        {Setup.SetupRunStore.HeadOf} AS HeadCommit, s.changed_at AS ChangedAt
                 FROM projects p
                 JOIN LATERAL (SELECT * FROM setups WHERE setups.project_id = p.id ORDER BY setups.number DESC LIMIT 1) s ON true
-                WHERE s.state IN ('waiting_for_owner', 'stopped')
+                WHERE s.state IN ('waiting_for_owner', 'stopped') AND p.devflow_valid IS NOT TRUE
                 ORDER BY lower(p.owner), lower(p.name), p.id
                 """,
                 transaction: transaction,

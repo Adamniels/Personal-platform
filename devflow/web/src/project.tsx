@@ -111,6 +111,7 @@ export function ProjectPage({
 	loadSetup,
 	checkAgain,
 	mergeSetup,
+	runSetupAgain,
 }: ProjectPageProps) {
 	const [project, setProject] = useState<Project | null>();
 	const [failed, setFailed] = useState(false);
@@ -222,6 +223,7 @@ export function ProjectPage({
 							setup={setup}
 							checkAgain={checkAgain}
 							mergeSetup={mergeSetup}
+							runSetupAgain={runSetupAgain}
 							copy={copy}
 							reload={reloadSetup}
 						/>

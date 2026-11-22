@@ -287,15 +287,125 @@ public sealed class SetupRunTests
         Assert.StartsWith("Failed twice in a row: What it wrote is not valid: .devflow/project.json does not follow its schema", setup.Reason, StringComparison.Ordinal);
         Assert.Equal(StatusCodes.Status204NoContent, (await jobs.Next(SetupWorker)).Response.StatusCode);
 
-        // Stopped before its pull request opened, it gets one all the same, saying it stopped, so
-        // there is a pull request to comment on; and it stays stopped.
+        // Stopped before its pull request opened, it gets none: what it wrote is not valid, and his
+        // comment from its step runs it again, see EveryStopRunsAgainOnMyComment.
         await Tend(jobs);
-        var opened = Assert.Single(jobs.Fake.Writes(Jobs.User), write => write.Kind == "pull_request");
-        Assert.Contains("**Stopped.**", opened.Body, StringComparison.Ordinal);
-        Assert.Equal(("stopped", (int?)opened.Number), ((await Setup(jobs)).State, (await Setup(jobs)).PullRequest));
+        Assert.DoesNotContain(jobs.Fake.Writes(Jobs.User), write => write.Kind == "pull_request");
+        Assert.Equal(("stopped", (int?)null), ((await Setup(jobs)).State, (await Setup(jobs)).PullRequest));
 
         // A report out of its form is a failure in the setup too.
         Assert.Equal("report_invalid", DevFlow.Setup.SetupRunStore.Judge(DevFlow.Setup.SetupRunStore.SetupKind, Read(Result(new string('0', 40), new JsonObject { ["summary"] = "no form" })), null, 0, 3).Result);
+    }
+
+    /// <summary>Every way a setup stops before its pull request opened, each with whether its branch
+    /// was pushed: a failure in it, a time limit, a report out of its form, nothing pushed, and what
+    /// it wrote not valid.</summary>
+    public static TheoryData<string, bool> Stops => new()
+    {
+        { "failed", true },
+        { "timed_out", false },
+        { "out_of_form", true },
+        { "nothing_pushed", false },
+        { "not_valid", true },
+    };
+
+    /// <summary>The result a setup's run sends for <paramref name="stop"/>, pushing to its branch
+    /// first when that stop pushes.</summary>
+    private static async Task<JsonObject> Stopping(Jobs jobs, string stop)
+    {
+        async Task<string> Pushed() =>
+            await Push(jobs, from: await jobs.Fake.BranchHead(Jobs.User, Repo, "devflow/setup", Ct) is CodeHostResult<string>.Found ? "devflow/setup" : "main");
+
+        switch (stop)
+        {
+            case "failed":
+                var failed = Jobs.Failure(SetupWorker, "devflow/setup", inCard: true, "The run failed: it reached the most turns, 200 turns.");
+                failed["head_commit"] = await Pushed();
+                return failed;
+            case "timed_out":
+                var timedOut = Jobs.Failure(SetupWorker, "devflow/setup", inCard: true, "The run reached its time limit.");
+                timedOut["failure"]!["timed_out"] = true;
+                return timedOut;
+            case "out_of_form":
+                return Result(await Pushed(), new JsonObject { ["summary"] = "no form" });
+            case "nothing_pushed":
+                var nothing = Result(new string('0', 40));
+                nothing["head_commit"] = null;
+                return nothing;
+            default:
+                Stage(jobs, (".devflow/Dockerfile", "devflow/setup", "ARG DEVFLOW_BASE\nFROM ${DEVFLOW_BASE}\nCOPY . /app\n"), (".devflow/project.json", "devflow/setup", Jobs.ProjectFile()));
+                return Result(await Pushed());
+        }
+    }
+
+    /// <summary>The setup stopped by <paramref name="stop"/>: once for a time limit, which stops it
+    /// at once, and twice in a row for every other.</summary>
+    private static async Task Stop(Jobs jobs, string stop)
+    {
+        for (var run = 0; run < (stop == "timed_out" ? 1 : 2); run++)
+        {
+            var job = await Next(jobs);
+            Assert.Equal(Job.Setup, (string)job["kind"]!);
+            Assert.Equal(StatusCodes.Status204NoContent, (await Send(jobs, job, await Stopping(jobs, stop))).Response.StatusCode);
+        }
+
+        Assert.Equal(("stopped", (int?)null), ((await Setup(jobs)).State, (await Setup(jobs)).PullRequest));
+    }
+
+    /// <summary>The owner's comment from the setup's step.</summary>
+    private static Task<HttpContext> RunAgain(Jobs jobs, string? comment) =>
+        jobs.Routes.App.SendJson("POST", $"/devflow/api/projects/{jobs.Project}/setup/run-again", Contract.Token,
+            new JsonObject { ["comment"] = comment }.ToJsonString());
+
+    [Theory]
+    [MemberData(nameof(Stops))]
+    public async Task EveryStopRunsAgainOnMyComment(string stop, bool pushed)
+    {
+        await using var jobs = await Unset();
+        await Stop(jobs, stop);
+
+        // Stopped before its pull request opened, by any of them: nothing is handed out, no pull
+        // request is opened, and it shows on its step and on "Waiting for you" with why.
+        Assert.Equal(StatusCodes.Status204NoContent, (await jobs.Next(SetupWorker)).Response.StatusCode);
+        await Tend(jobs);
+        Assert.DoesNotContain(jobs.Fake.Writes(Jobs.User), write => write.Kind == "pull_request");
+        var step = (await Steps(jobs))["setup"]!;
+        Assert.Equal("stopped", (string)step["state"]!);
+        Assert.Null(step["pull_request_url"]);
+        Assert.False(string.IsNullOrEmpty((string?)step["reason"]));
+        var waiting = JsonNode.Parse(await Harness.Body(await jobs.Routes.App.Get("/devflow/api/waiting", Contract.Token)))!;
+        Assert.Equal("stopped", (string)Assert.Single(waiting["setup_runs"]!.AsArray())!["state"]!);
+
+        // His comment from the step runs it again: a fix of its branch when it was pushed, a first
+        // run again otherwise, with his comment in its brief; still the same setup.
+        Assert.Equal(StatusCodes.Status422UnprocessableEntity, (await RunAgain(jobs, "  ")).Response.StatusCode);
+        Assert.Equal(StatusCodes.Status204NoContent, (await RunAgain(jobs, " Use Postgres 16, as the README says. ")).Response.StatusCode);
+        Assert.Equal((pushed ? "fixing" : "queued", DevFlow.Setup.SetupRunStore.RunAgainReason, 0), ((await Setup(jobs)).State, (await Setup(jobs)).Reason, (await Setup(jobs)).Failures));
+        Assert.Equal(StatusCodes.Status409Conflict, (await RunAgain(jobs, "Again.")).Response.StatusCode);
+        var again = await Next(jobs);
+        Assert.Equal(Job.Setup, (string)again["kind"]!);
+        Assert.Equal("devflow/setup", (string)again["branch"]!);
+        Assert.Equal(pushed, again["to_fix"] is not null);
+        var brief = (string)again["brief"]!;
+        Assert.Contains("The setup ran before, and the owner commented on it", brief, StringComparison.Ordinal);
+        Assert.Contains("Use Postgres 16, as the README says.", brief, StringComparison.Ordinal);
+        await using var admin = await jobs.Routes.Database.OpenAdmin(Ct);
+        Assert.Equal(1, await admin.ExecuteScalarAsync<int>(new CommandDefinition("SELECT count(*) FROM setups WHERE project_id = @project", new { project = jobs.Project }, cancellationToken: Ct)));
+    }
+
+    [Fact]
+    public async Task AStoppedSetupIsForgottenOnceDevflowIsValid()
+    {
+        await using var jobs = await Unset();
+        await Stop(jobs, "timed_out");
+
+        // .devflow/ written on the default branch some other way: nothing of the setup is asked of
+        // him any more, and it is not run again.
+        Stage(jobs, (".devflow/Dockerfile", "main", GoodRecipe), (".devflow/project.json", "main", Jobs.ProjectFile()));
+        Assert.Equal(DevFlow.Reading.ReadResult.Read, await jobs.Routes.Read(jobs.Project, Jobs.User));
+        var waiting = JsonNode.Parse(await Harness.Body(await jobs.Routes.App.Get("/devflow/api/waiting", Contract.Token)))!;
+        Assert.Empty(waiting["setup_runs"]!.AsArray());
+        Assert.Equal(StatusCodes.Status409Conflict, (await RunAgain(jobs, "Run it again.")).Response.StatusCode);
     }
 
     /// <summary>The setup run through to its approved pull request, valid and reviewed; the commit

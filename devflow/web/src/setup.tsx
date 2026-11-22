@@ -3,8 +3,9 @@
 // pictures of the project's address, and "Check again" when it failed; and above the cards of a
 // registered project whose newer version failed its check. See "Setting up a project" in
 // devflow/README.md.
-import { Button, Card, Status } from "@platform/ui";
-import { useState } from "react";
+import { Button, Card, Status, TextArea } from "@platform/ui";
+import { type FormEvent, useState } from "react";
+import { describe } from "./actions";
 import { navigate, plainClick } from "./address";
 import type { GetAnswer } from "./api/client";
 import { Command } from "./project";
@@ -22,6 +23,9 @@ export type SetupApi = {
 	checkAgain: (id: string) => Promise<void>;
 	/** Merges the setup's pull request as the owner, at the commit shown. */
 	mergeSetup: (id: string, head: string) => Promise<void>;
+	/** Runs a setup that stopped before it had a pull request again, with the
+	 * owner's comment. */
+	runSetupAgain: (id: string, comment: string) => Promise<void>;
 };
 
 export type SetupRunInfo = NonNullable<ProjectSetup["setup"]>;
@@ -47,6 +51,10 @@ export const NO_DEVFLOW =
 	"An agent writes this project's .devflow/ on a branch and opens a pull request with it. Start its worker on the machine that runs your workers with this command, after saving the project's key below:";
 export const NOT_MERGED =
 	"It was not merged. Look at it on GitHub, or try again.";
+export const RUN_SETUP_AGAIN = "Comment to run again";
+export const COMMENT_RUNS_AGAIN = "A comment runs it again.";
+export const COMMENT_ON_PULL =
+	"Comment on its pull request, and it runs again.";
 
 /** Each setup state as its step shows it, with its status's tone. */
 const SETUP_STATES: Record<
@@ -103,6 +111,7 @@ export function SetupPanel({
 	setup,
 	checkAgain,
 	mergeSetup,
+	runSetupAgain,
 	copy,
 	reload,
 }: {
@@ -110,6 +119,7 @@ export function SetupPanel({
 	setup: ProjectSetup;
 	checkAgain: SetupApi["checkAgain"];
 	mergeSetup: SetupApi["mergeSetup"];
+	runSetupAgain: SetupApi["runSetupAgain"];
 	/** Copies the setup command to the clipboard. */
 	copy: (text: string) => Promise<void>;
 	/** Reads the setup again, after another check was asked for. */
@@ -173,6 +183,7 @@ export function SetupPanel({
 						id={id}
 						setup={setup}
 						mergeSetup={mergeSetup}
+						runSetupAgain={runSetupAgain}
 						copy={copy}
 						reload={reload}
 					/>
@@ -196,17 +207,20 @@ export function SetupPanel({
 /** The setup run's part of the step: why it is due, the command that starts
  * its worker, and its newest run, where it is, its pull request, its review,
  * what it proposes, the values its tests need and what it could not settle,
- * and Merge when it waits for the owner. */
+ * Merge when it waits for the owner, and, when it stopped before it had a pull
+ * request, the comment that runs it again. */
 function SetupRunSection({
 	id,
 	setup,
 	mergeSetup,
+	runSetupAgain,
 	copy,
 	reload,
 }: {
 	id: string;
 	setup: ProjectSetup;
 	mergeSetup: SetupApi["mergeSetup"];
+	runSetupAgain: SetupApi["runSetupAgain"];
 	copy: (text: string) => Promise<void>;
 	reload: () => Promise<unknown>;
 }) {
@@ -215,6 +229,26 @@ function SetupRunSection({
 	const run = setup.setup;
 	const shown = run === null ? null : (SETUP_STATES[run.state] ?? null);
 	const report = run?.report ?? null;
+	const [writing, setWriting] = useState(false);
+	const [text, setText] = useState("");
+	const [sending, setSending] = useState(false);
+	const stopped = run !== null && run.state === "stopped" && !run.running;
+
+	const send = async (event: FormEvent) => {
+		event.preventDefault();
+		if (text.trim() === "") return;
+		setSending(true);
+		try {
+			await runSetupAgain(id, text);
+			setError(null);
+			setWriting(false);
+			setText("");
+			await reload();
+		} catch (failure) {
+			setError(describe(failure));
+		}
+		setSending(false);
+	};
 
 	const merge = async (head: string) => {
 		setMerging(true);
@@ -326,6 +360,44 @@ function SetupRunSection({
 							{error}
 						</p>
 					)}
+					{stopped && run.pull_request_number !== null ? (
+						<p className={styles.muted}>{COMMENT_ON_PULL}</p>
+					) : null}
+					{stopped && run.pull_request_number === null ? (
+						writing ? (
+							<form className={styles.comment} onSubmit={send}>
+								<TextArea
+									label={COMMENT_RUNS_AGAIN}
+									value={text}
+									rows={4}
+									onChange={(event) => setText(event.target.value)}
+								/>
+								<div className={styles.actions}>
+									<Button
+										type="submit"
+										disabled={sending || text.trim() === ""}
+									>
+										Send
+									</Button>
+									<Button
+										kind="ghost"
+										onClick={() => {
+											setWriting(false);
+											setText("");
+										}}
+									>
+										Cancel
+									</Button>
+								</div>
+							</form>
+						) : (
+							<div>
+								<Button onClick={() => setWriting(true)}>
+									{RUN_SETUP_AGAIN}
+								</Button>
+							</div>
+						)
+					) : null}
 					{run.state === "waiting_for_owner" && run.head_commit !== null ? (
 						<div>
 							<Button
