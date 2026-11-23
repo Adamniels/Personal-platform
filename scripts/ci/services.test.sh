@@ -41,7 +41,7 @@ problems() {
       ("entry \($i)" + (if ($s | type == "object") and ($s.name | str) then " (\($s.name))" else "" end)) as $at |
       if ($s | type) != "object" then "\($at): not an object"
       else
-        (($s | keys) - ["name", "dir", "port", "health", "language", "area", "migrate", "start", "database", "ci"]
+        (($s | keys) - ["name", "dir", "port", "health", "language", "area", "migrate", "start", "public_origin", "database", "ci"]
           | .[] | "\($at): unknown field \(.)"),
         (if ($s | has("language")) and ($s | has("area")) and (($s.language == "dotnet") != ($s.area == "dotnet"))
           then "\($at): a C# service, and only one, has area dotnet" else empty end),
@@ -66,6 +66,8 @@ problems() {
         (if ($s | has("area")) and ($s.area | str | not) then "\($at): area is not a string" else empty end),
         (if ($s | has("migrate")) and ($s.migrate | str | not) then "\($at): migrate is not a command" else empty end),
         (if ($s | has("start")) and ($s.start | str | not) then "\($at): start is not a command" else empty end),
+        (if ($s | has("public_origin")) and ($s.public_origin | var | not)
+          then "\($at): public_origin is not a variable name" else empty end),
         (if ($s | has("database")) then
           $s.database as $d |
           if ($d | type) != "object" then "\($at): database is not an object"
@@ -222,6 +224,7 @@ expect "an unknown language" "language is not" '.services[0].language = "go"'
 expect "an area changed-areas.sh does not print" "does not set area nowhere" '.services[0].area = "nowhere"'
 expect "an area changed-areas.sh prints but never sets for a folder" "does not set area web" '.services[0].area = "web"'
 expect "a misspelt field" "unknown field heath" '.services[2].heath = "/x"'
+expect "a public_origin that is not a variable" "public_origin is not a variable" '.services[0].public_origin = "core origin"'
 expect "a database without its owner's variable" "database misses owner_url" 'del(.services[0].database.owner_url)'
 expect "a database role that is not an identifier" "database owner is not" '.services[0].database.owner = "core owner; drop"'
 expect "a duplicate name" "name not unique" '.services[1].name = "core"'

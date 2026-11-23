@@ -25,9 +25,11 @@ services:
     # the Caddyfile proxies to it.
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    # Caddy listens on 443 inside the container either way; PLATFORM_HTTPS_PORT
+    # in .env moves it on the machine, see "The HTTPS port" in README.md.
     ports:
       - "127.0.0.1:80:80"
-      - "127.0.0.1:443:443"
+      - "127.0.0.1:${PLATFORM_HTTPS_PORT:-443}:443"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       # Served at /design/, only the paths the Caddyfile names.
