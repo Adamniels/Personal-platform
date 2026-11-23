@@ -322,8 +322,10 @@ and in the same order. Read the workflows each run; today they are:
 - **e2e** (`e2e.yml`): whenever `e2e=true`, always, against the running stack. Start the platform
   from the branch's code first, as below. Then, from `e2e/`:
   `UV_LOCKED=1 uv run playwright install chromium` (a no op once installed),
-  `UV_LOCKED=1 uv run pytest`, `UV_LOCKED=1 uv run ruff check`,
-  `UV_LOCKED=1 uv run ruff format --check`.
+  `UV_LOCKED=1 uv run pytest --base-url "$(bash ../scripts/agent/services.sh origin)"`,
+  `UV_LOCKED=1 uv run ruff check`, `UV_LOCKED=1 uv run ruff format --check`. The origin is
+  `https://platform.test` with the port `PLATFORM_HTTPS_PORT` in `infra/.env` sets, 8443 on the Mac
+  mini, where Tailscale serve holds 443; see "The HTTPS port" in `infra/README.md`.
 - **hosted** (`hosted.yml`): whenever `hosted=true`, run `bash infra/hosted/check.sh` from the
   repository root, with Docker running; it uses its own project and ports, so the dev stack stays
   up. Its suite needs Playwright's Chromium and `design/ui`'s packages, which it never installs:
@@ -342,13 +344,14 @@ from the repository root, each in the background with its own log:
 `for name in $(bash scripts/agent/services.sh names); do bash scripts/agent/services.sh run "$name" start > <tmp>/$name.log 2>&1 & done`.
 `services.sh` runs each entry's `start` from its folder on 127.0.0.1, with its app role's string
 set for that process and written nowhere. Wait at most three minutes for every service with a
-`health` path to answer through Caddy:
+`health` path to answer through Caddy, at the dev stack's origin:
 
 ```
+origin="$(bash scripts/agent/services.sh origin)"
 for _ in $(seq 1 90); do
   up=true
   for health_path in $(bash scripts/agent/services.sh health); do
-    [ "$(curl --cacert ~/caddy-root.crt -s -o /dev/null -w '%{http_code}' "https://platform.test$health_path")" = 200 ] || { up=false; break; }
+    [ "$(curl --cacert ~/caddy-root.crt -s -o /dev/null -w '%{http_code}' "$origin$health_path")" = 200 ] || { up=false; break; }
   done
   [ "$up" = true ] && break
   sleep 2
@@ -360,7 +363,7 @@ variable is not `path`, which zsh ties to `PATH`.
 
 If one never answers `200`, read the tail of every service's log. A service that fails because of
 the branch's code is a failing step, fixed like any other. Anything else ends the run with
-`ENVIRONMENT: platform.test never answered 200 (<the log line that says why>)`.
+`ENVIRONMENT: <origin> never answered 200 (<the log line that says why>)`.
 
 A failing step is fixed before going on, never skipped, weakened or marked as expected to fail.
 Loop until every step is green. Keep each command and its result for Verification. Leave the

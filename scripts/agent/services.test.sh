@@ -36,6 +36,7 @@ cat > "$repo/infra/services.json" <<EOF
       "area": "core",
       "migrate": "$tmp/record migrate",
       "start": "$tmp/record start",
+      "public_origin": "ALPHA_PUBLIC_ORIGIN",
       "database": {
         "name": "alpha", "owner": "alpha_owner", "app": "alpha_app",
         "owner_password": "ALPHA_OWNER_PASSWORD", "app_password": "ALPHA_APP_PASSWORD",
@@ -170,6 +171,54 @@ same "start without app_url sets no app URL" "$(var GAMMA_APP_DATABASE_URL)" "(u
 svc run beta start
 same "start works for an entry without a database" "$rc $(var step) $(var PORT)" "0 start 9002"
 
+# The origin, and the public_origin variable start sets from it.
+svc origin
+same "origin is https://platform.test without PLATFORM_HTTPS_PORT" "$rc $out" "0 https://platform.test"
+
+svc run alpha start
+same "start sets the entry's public_origin variable to the origin" "$(var ALPHA_PUBLIC_ORIGIN)" "https://platform.test"
+
+svc run gamma start
+same "start without public_origin sets no origin variable" "$(printf '%s\n' "$rec" | grep -c '_PUBLIC_ORIGIN=')" "0"
+
+cp "$repo/infra/.env" "$tmp/env-before-port"
+echo 'PLATFORM_HTTPS_PORT=8443' >> "$repo/infra/.env"
+svc origin
+same "origin carries PLATFORM_HTTPS_PORT from infra/.env" "$rc $out" "0 https://platform.test:8443"
+
+svc run alpha start
+same "start's origin carries the port" "$(var ALPHA_PUBLIC_ORIGIN)" "https://platform.test:8443"
+
+rm -f "$tmp/rec"
+out="$(cd / && ALPHA_PUBLIC_ORIGIN=https://elsewhere.test RECORD_TO="$tmp/rec" bash "$services" run alpha start 2>&1)"
+printf '%s\n' "$out" >> "$all_output"
+rec="$(cat "$tmp/rec" 2>/dev/null)"
+same "start keeps an origin the caller sets" "$(var ALPHA_PUBLIC_ORIGIN)" "https://elsewhere.test"
+
+# port <value>: infra/.env as it was, with PLATFORM_HTTPS_PORT=<value> as its last line.
+port() { cp "$tmp/env-before-port" "$repo/infra/.env" && echo "PLATFORM_HTTPS_PORT=$1" >> "$repo/infra/.env"; }
+
+port 443
+svc origin
+same "origin leaves out 443, the default port" "$rc $out" "0 https://platform.test"
+
+port ""
+svc origin
+same "an empty PLATFORM_HTTPS_PORT is the default" "$rc $out" "0 https://platform.test"
+
+for value in abc 0443 0 65536 123456 "84 43"; do
+  port "$value"
+  svc origin
+  same "origin refuses PLATFORM_HTTPS_PORT=$value" "$rc" "1"
+done
+case "$out" in *PLATFORM_HTTPS_PORT*) ok "a bad port is named" ;; *) bad "a bad port is named" "$out" ;; esac
+
+port abc
+svc run alpha start
+same "start with a bad port exits 1 without running the command" "$rc ${rec:-(not run)}" "1 (not run)"
+
+cp "$tmp/env-before-port" "$repo/infra/.env"
+
 # Errors.
 svc run nope start
 same "an unknown name exits 2" "$rc" "2"
@@ -192,6 +241,9 @@ case "$out" in *ALPHA_OWNER_PASSWORD*) ok "says which variable is missing" ;; *)
 rm -f "$repo/infra/.env"
 svc run alpha start
 same "a missing infra/.env exits 1" "$rc ${rec:-(not run)}" "1 (not run)"
+
+svc origin
+same "origin without infra/.env is the default" "$rc $out" "0 https://platform.test"
 
 echo 'not json' > "$repo/infra/services.json"
 svc names

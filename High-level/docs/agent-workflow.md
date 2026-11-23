@@ -357,7 +357,8 @@ it was.
 
 ## One agent at a time
 
-Slices are worked one at a time. The gate needs the whole stack, Caddy on 80 and 443, Postgres on
+Slices are worked one at a time. The gate needs the whole stack, Caddy on 80 and its HTTPS port, 443 or the one `PLATFORM_HTTPS_PORT`
+sets (see "The HTTPS port" in `infra/README.md`), Postgres on
 5432 and every service on the port `infra/services.json` gives it, and two runs would collide on
 every one of them. Running
 several at once would need a stack per run, separate ports and compose projects, and a git worktree
