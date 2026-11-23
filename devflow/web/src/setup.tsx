@@ -2,7 +2,8 @@
 // steps of setting it up, each done or not, the settings its setup run proposed with "Accept" while
 // the settings step waits, and its newest check, with the check's output, its pictures of the
 // project's address, and "Check again" and "Send back with a comment" when it failed; and above the
-// cards of a registered project whose newer version failed its check. See "Setting up a project" in
+// cards of a registered project whose newer version failed its check; and the values step, where
+// the owner gives the values its tests need. See "Setting up a project" in
 // devflow/README.md.
 import { Button, Card, Status, TextArea } from "@platform/ui";
 import { type FormEvent, useState } from "react";
@@ -12,6 +13,7 @@ import type { GetAnswer } from "./api/client";
 import { CommentBox } from "./comment-box";
 import { Command } from "./project";
 import styles from "./setup.module.css";
+import { type ValuesApi, ValuesSection } from "./values";
 
 export type ProjectSetup = GetAnswer<"/projects/{id}/setup">;
 export type SetupCheck = NonNullable<ProjectSetup["check"]>;
@@ -42,6 +44,7 @@ export const STEP_NAMES: Record<string, string> = {
 	setup: "A valid .devflow/ on the default branch",
 	recipe: "The recipe on the default branch",
 	settings: "The settings accepted",
+	values: "The values its tests need",
 	worker: "A worker on the recipe",
 	check: "The check passed",
 };
@@ -132,9 +135,12 @@ export function SetupPanel({
 	acceptProposal,
 	copy,
 	reload,
+	values,
 }: {
 	id: string;
 	setup: ProjectSetup;
+	/** Reads and gives the project's values, for the values step. */
+	values: ValuesApi;
 	checkAgain: SetupApi["checkAgain"];
 	mergeSetup: SetupApi["mergeSetup"];
 	runSetupAgain: SetupApi["runSetupAgain"];
@@ -220,6 +226,15 @@ export function SetupPanel({
 						acceptProposal={acceptProposal}
 					/>
 				) : null}
+				{setupDue || settingsWait ? null : (
+					<ValuesSection
+						id={id}
+						loadValues={values.loadValues}
+						giveValue={values.giveValue}
+						removeValue={values.removeValue}
+						onChanged={reload}
+					/>
+				)}
 				{setup.checking ? (
 					<p className={styles.line}>
 						<Status tone="running">Running</Status> {CHECK_RUNNING}

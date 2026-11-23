@@ -28,7 +28,8 @@ public enum VersionCheck
 
 /// <summary>A step of setting a project up, and whether it is done.</summary>
 /// <param name="Step"><see cref="SetupRunStore.SetupStep"/>, <see cref="SetupStore.RecipeStep"/>,
-/// <see cref="SetupStore.SettingsStep"/>, <see cref="SetupStore.WorkerStep"/> or
+/// <see cref="SetupStore.SettingsStep"/>, <see cref="SetupStore.ValuesStep"/>,
+/// <see cref="SetupStore.WorkerStep"/> or
 /// <see cref="SetupStore.CheckStep"/>.</param>
 /// <param name="Done">Whether it is done.</param>
 public sealed record SetupStep(string Step, bool Done);
@@ -131,6 +132,12 @@ public static class SetupStore
     /// its settings are accepted.</summary>
     internal const string RegisteredSql = $"(EXISTS (SELECT 1 FROM recipe_checks rc WHERE rc.project_id = p.id AND rc.passed) AND {AcceptedSql})";
 
+    /// <summary>The step of the values: each variable the project's newest setup run that succeeded
+    /// listed has a value the owner gave, <see cref="Values.ProjectValues.Listed"/>; done when it
+    /// listed none. It comes after the settings and before a worker on the recipe, and holds
+    /// nothing back.</summary>
+    public const string ValuesStep = "values";
+
     /// <summary>The step of a worker on the recipe: one has said hello built from that version.</summary>
     public const string WorkerStep = "worker";
 
@@ -148,7 +155,8 @@ public static class SetupStore
 
     /// <summary>
     /// The project's setup: whether it is setting up or registered, its steps in their order, the
-    /// recipe on the default branch, its settings accepted, a worker on it and its check passed, its
+    /// recipe on the default branch, its settings accepted, its values given, a worker on it and its
+    /// check passed, its
     /// newest check, and the settings its newest setup run that succeeded proposed; or null when the
     /// user has no such project. The later parts of setting up add their steps among these.
     /// </summary>
@@ -199,6 +207,7 @@ public static class SetupStore
                 row.Registered ? Registered : SettingUp,
                 [
                     new SetupStep(SetupRunStore.SetupStep, row.Setup), new SetupStep(RecipeStep, row.Recipe), new SetupStep(SettingsStep, row.Settings),
+                    new SetupStep(ValuesStep, (await Values.ProjectValues.Listed(transaction, projectId, cancellationToken)).Done),
                     new SetupStep(WorkerStep, row.Worker), new SetupStep(CheckStep, row.Passed),
                 ],
                 check,

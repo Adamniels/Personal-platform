@@ -8,8 +8,8 @@ namespace DevFlow.Protocol;
 /// to review or to fix, a feature's conflict to resolve, the cards of a feature or a card on its
 /// own to read, a version of the project's <c>.devflow/</c> to check, or the project to set up,
 /// with everything the worker
-/// needs for it and nothing more. The Claude token and the
-/// key leave Dev flow only here, to the worker holding the job. See "Jobs", "Review" and
+/// needs for it and nothing more. The Claude token, the
+/// key and the project's values leave Dev flow only here, to the worker holding the job. See "Jobs", "Review" and
 /// "Fixing" in devflow/README.md.
 /// </summary>
 /// <param name="JobId">The run's id, which the job's other routes take.</param>
@@ -58,6 +58,11 @@ namespace DevFlow.Protocol;
 /// <param name="ToRead">For a reading, the cards it reads; null on any other job.</param>
 /// <param name="ToCheck">For a check, the version it checks and the commit it checks it at; null on
 /// any other job.</param>
+/// <param name="Values">The project's values, by name, for the environment of the agent's process,
+/// the check and the start, and nowhere else, carried by every job that runs the project's code, a
+/// build, a fix, a conflict, a feature's fix, a setup and a check, beside the Claude token; empty on
+/// a reading and a review, which run none of it, and null from a Dev flow that sends none. The worker
+/// keeps them only for the job, and scrubs each from everything it sends and logs.</param>
 public sealed record Job(
     Guid JobId,
     string Kind,
@@ -81,7 +86,8 @@ public sealed record Job(
     JobConflict? ToResolve = null,
     JobFeatureReview? ToReviewFeature = null,
     JobRead? ToRead = null,
-    JobCheck? ToCheck = null)
+    JobCheck? ToCheck = null,
+    IReadOnlyList<JobValue>? Values = null)
 {
     /// <summary>Building a card.</summary>
     public const string Build = "build";
@@ -134,7 +140,7 @@ public sealed record Job(
     /// request, from that commit. See "Setting up a project" in devflow/README.md.</summary>
     public const string Setup = "setup";
 
-    /// <summary>Its kind and card, never the token or the key.</summary>
+    /// <summary>Its kind and card, never the token, the key or a value.</summary>
     public override string ToString() =>
         string.Create(CultureInfo.InvariantCulture, $"Job {{ JobId = {JobId}, Kind = {Kind}, Card = {Card?.Number}, Branch = {Branch} }}");
 }

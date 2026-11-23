@@ -40,6 +40,7 @@ import {
 	SETTINGS_SAVE_ONCE,
 	type SetupCheck,
 } from "./setup";
+import { NOTHING_LISTED, type ProjectValueList, VALUES_LINE } from "./values";
 
 // jsdom has HTMLDialogElement and its `open` attribute, but neither showModal
 // nor close, as in projects.test.tsx.
@@ -100,6 +101,7 @@ const REGISTERED: ProjectSetup = {
 		{ step: "setup", done: true },
 		{ step: "recipe", done: true },
 		{ step: "settings", done: true },
+		{ step: "values", done: true },
 		{ step: "worker", done: true },
 		{ step: "check", done: true },
 	],
@@ -115,12 +117,16 @@ const REGISTERED: ProjectSetup = {
 
 function renderPage(
 	props: Partial<ProjectPageProps> & {
+		values?: ProjectValueList;
 		list?: Partial<WorkerList>;
 		setup?: ProjectSetup;
 	} = {},
 ) {
 	let list: WorkerList = { ...EMPTY, ...props.list };
 	let setup: ProjectSetup = props.setup ?? REGISTERED;
+	// The values as Dev flow holds them: a given value is answered as its
+	// name and when, never the value, as the route answers it.
+	let values: ProjectValueList = props.values ?? { values: [], done: true };
 	const api = {
 		loadProjects: vi.fn(() => Promise.resolve([PLATFORM])),
 		loadWorkers: vi.fn(() => Promise.resolve(list)),
@@ -165,10 +171,46 @@ function renderPage(
 				setup = { ...setup, check: { ...setup.check, again_asked: true } };
 			return Promise.resolve();
 		}),
+		loadValues: vi.fn(() => Promise.resolve(values)),
+		giveValue: vi.fn((_id: string, name: string, _value: string) => {
+			const given = {
+				name,
+				why: null,
+				asked: false,
+				set_at: "2026-11-17T12:30:00+00:00",
+				problem: null,
+			};
+			const listed = values.values.some((value) => value.name === name)
+				? values.values.map((value) =>
+						value.name === name ? { ...value, set_at: given.set_at } : value,
+					)
+				: [...values.values, given];
+			values = {
+				values: listed,
+				done: listed.every(
+					(value) =>
+						!value.asked || value.problem !== null || value.set_at !== null,
+				),
+			};
+			return Promise.resolve();
+		}),
+		removeValue: vi.fn((_id: string, name: string) => {
+			values = {
+				...values,
+				values: values.values.flatMap((value) =>
+					value.name !== name
+						? [value]
+						: value.asked
+							? [{ ...value, set_at: null }]
+							: [],
+				),
+			};
+			return Promise.resolve();
+		}),
 		copy: vi.fn(() => Promise.resolve()),
 		back: vi.fn(),
 	};
-	const { list: _, setup: __, ...rest } = props;
+	const { list: _, setup: __, values: ___, ...rest } = props;
 	render(<ProjectPage id={ID} now={() => NOW} {...api} {...rest} />);
 	return api;
 }
@@ -195,6 +237,7 @@ describe("a project's setup", () => {
 			{ step: "setup", done: true },
 			{ step: "recipe", done: true },
 			{ step: "settings", done: true },
+			{ step: "values", done: true },
 			{ step: "worker", done: true },
 			{ step: "check", done: false },
 		],
@@ -217,6 +260,7 @@ describe("a project's setup", () => {
 			{ step: "setup", done: false },
 			{ step: "recipe", done: false },
 			{ step: "settings", done: true },
+			{ step: "values", done: true },
 			{ step: "worker", done: false },
 			{ step: "check", done: false },
 		],
@@ -403,6 +447,7 @@ describe("a project's setup", () => {
 			"DoneA valid .devflow/ on the default branch",
 			"DoneThe recipe on the default branch",
 			"DoneThe settings accepted",
+			"DoneThe values its tests need",
 			"DoneA worker on the recipe",
 			"To doThe check passed",
 		]);
@@ -434,6 +479,7 @@ describe("a project's setup", () => {
 			{ step: "setup", done: true },
 			{ step: "recipe", done: true },
 			{ step: "settings", done: false },
+			{ step: "values", done: true },
 			{ step: "worker", done: true },
 			{ step: "check", done: true },
 		],
@@ -1103,5 +1149,175 @@ describe("the workers", () => {
 		const list = await screen.findByRole("list", { name: "Workers" });
 		expect(within(list).getAllByText(markup)).toHaveLength(2);
 		expect(list.querySelector("img")).toBeNull();
+	});
+});
+
+describe("a project's values", () => {
+	const VALUE = "sk_test_throwaway-4f9a1c7e2b";
+
+	/** A project set up, its settings accepted, its values step waiting. */
+	const valuesDue: ProjectSetup = {
+		...REGISTERED,
+		state: "setting_up",
+		steps: [
+			{ step: "setup", done: true },
+			{ step: "recipe", done: true },
+			{ step: "settings", done: true },
+			{ step: "values", done: false },
+			{ step: "worker", done: false },
+			{ step: "check", done: false },
+		],
+	};
+
+	const listed: ProjectValueList = {
+		values: [
+			{
+				name: "STRIPE_TEST_KEY",
+				why: "The payment tests call Stripe's test mode.",
+				asked: true,
+				set_at: null,
+				problem: null,
+			},
+			{
+				name: "PATH",
+				why: "A name the values do not take.",
+				asked: true,
+				set_at: null,
+				problem: "is reserved: the worker sets it itself",
+			},
+		],
+		done: false,
+	};
+
+	const step = () => screen.findByRole("region", { name: "The values" });
+
+	test("the step lists what the setup asked for, and a value given is never shown", async () => {
+		const { giveValue, loadSetup } = renderPage({
+			setup: valuesDue,
+			values: listed,
+		});
+
+		const values = await step();
+		expect(within(values).getByText(VALUES_LINE)).toBeTruthy();
+		const steps = screen.getByRole("list", { name: "Setup steps" });
+		expect(within(steps).getByText("The values its tests need")).toBeTruthy();
+		const rows = within(values).getAllByRole("listitem") as [
+			HTMLElement,
+			HTMLElement,
+		];
+		expect(rows).toHaveLength(2);
+		expect(within(rows[0]).getByText("Missing")).toBeTruthy();
+		expect(within(rows[0]).getByText("STRIPE_TEST_KEY")).toBeTruthy();
+		expect(
+			within(rows[0]).getByText("The payment tests call Stripe's test mode."),
+		).toBeTruthy();
+		expect(within(rows[1]).getByText("Cannot be given")).toBeTruthy();
+		expect(within(rows[1]).queryByLabelText("The value of PATH")).toBeNull();
+
+		// Typed as a password is, given, and gone from the page.
+		const field = within(rows[0]).getByLabelText(
+			"The value of STRIPE_TEST_KEY",
+		);
+		expect(field.getAttribute("type")).toBe("password");
+		expect(field.getAttribute("autocomplete")).toBe("off");
+		fireEvent.change(field, { target: { value: VALUE } });
+		const setupReads = loadSetup.mock.calls.length;
+		fireEvent.click(within(rows[0]).getByRole("button", { name: "Give" }));
+
+		await waitFor(() =>
+			expect(giveValue).toHaveBeenCalledWith(ID, "STRIPE_TEST_KEY", VALUE),
+		);
+		const given = (await step()).querySelector("li") as HTMLElement;
+		await waitFor(() => expect(within(given).getByText("Given")).toBeTruthy());
+		expect(
+			within(given).queryByLabelText("The value of STRIPE_TEST_KEY"),
+		).toBeNull();
+		expect(document.body.innerHTML).not.toContain(VALUE);
+		await waitFor(() =>
+			expect(loadSetup.mock.calls.length).toBeGreaterThan(setupReads),
+		);
+	});
+
+	test("a value refused says why, and is kept to correct", async () => {
+		const { giveValue } = renderPage({ setup: valuesDue, values: listed });
+		giveValue.mockImplementation(() =>
+			Promise.reject(
+				new ApiError({
+					status: 422,
+					title: "The request breaks a rule",
+					detail: "value has 5 characters; it needs at least 8",
+					errors: { value: ["has 5 characters; it needs at least 8"] },
+				}),
+			),
+		);
+
+		const row = (await step()).querySelector("li") as HTMLElement;
+		const field = within(row).getByLabelText("The value of STRIPE_TEST_KEY");
+		fireEvent.change(field, { target: { value: "short" } });
+		fireEvent.click(within(row).getByRole("button", { name: "Give" }));
+
+		expect(
+			await within(row).findByText(
+				/The request breaks a rule\. value has 5 characters; it needs at least 8/,
+			),
+		).toBeTruthy();
+		expect((field as HTMLInputElement).value).toBe("short");
+	});
+
+	test("a value it did not list is added, replaced and removed", async () => {
+		const { giveValue, removeValue } = renderPage({
+			setup: valuesDue,
+			values: { values: [], done: true },
+		});
+
+		const values = await step();
+		expect(within(values).getByText(NOTHING_LISTED)).toBeTruthy();
+		fireEvent.click(
+			within(values).getByRole("button", { name: "Add a value" }),
+		);
+		const form = within(values).getByRole("form", { name: "Add a value" });
+		fireEvent.change(within(form).getByLabelText("Its name"), {
+			target: { value: " DATABASE_URL " },
+		});
+		fireEvent.change(within(form).getByLabelText("The value"), {
+			target: { value: VALUE },
+		});
+		fireEvent.click(within(form).getByRole("button", { name: "Give" }));
+		await waitFor(() =>
+			expect(giveValue).toHaveBeenCalledWith(ID, "DATABASE_URL", VALUE),
+		);
+
+		const row = await within(values).findByRole("listitem");
+		expect(within(row).getByText("DATABASE_URL")).toBeTruthy();
+		expect(within(row).getByText("You added it.")).toBeTruthy();
+		fireEvent.click(within(row).getByRole("button", { name: "Replace" }));
+		expect(
+			within(row).getByLabelText("The value of DATABASE_URL"),
+		).toBeTruthy();
+		fireEvent.click(within(row).getByRole("button", { name: "Cancel" }));
+		fireEvent.click(within(row).getByRole("button", { name: "Remove" }));
+		await waitFor(() =>
+			expect(removeValue).toHaveBeenCalledWith(ID, "DATABASE_URL"),
+		);
+		await waitFor(() =>
+			expect(within(values).queryAllByRole("listitem")).toHaveLength(0),
+		);
+		expect(document.body.innerHTML).not.toContain(VALUE);
+	});
+
+	test("the step waits for the setup run and the settings", async () => {
+		renderPage({
+			setup: {
+				...valuesDue,
+				settings_waits: true,
+				steps: valuesDue.steps.map((each) =>
+					each.step === "settings" ? { ...each, done: false } : each,
+				),
+			},
+			values: listed,
+		});
+
+		await screen.findByRole("region", { name: "The settings" });
+		expect(screen.queryByRole("region", { name: "The values" })).toBeNull();
 	});
 });

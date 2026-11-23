@@ -801,8 +801,14 @@ public static class SetupRunStore
 
     /// <summary>The settings the project's newest setup run that succeeded proposed, read inside
     /// <paramref name="transaction"/> as the project's user; null before one did.</summary>
-    internal static async Task<SetupProposal?> Proposal(NpgsqlTransaction transaction, Guid projectId, CancellationToken cancellationToken)
+    internal static async Task<SetupProposal?> Proposal(NpgsqlTransaction transaction, Guid projectId, CancellationToken cancellationToken) =>
+        (await NewestReport(transaction, projectId, cancellationToken))?.Proposed;
+
+    /// <summary>The report of the project's newest setup run that succeeded, in its form; null
+    /// without one. What its settings step offers and its values step lists are read from it.</summary>
+    internal static async Task<SetupReport?> NewestReport(NpgsqlTransaction transaction, Guid projectId, CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(transaction);
         var text = await transaction.Connection!.QuerySingleOrDefaultAsync<string?>(new CommandDefinition(
             """
             SELECT r.report::text FROM runs r
@@ -818,7 +824,7 @@ public static class SetupRunStore
         }
 
         using var document = JsonDocument.Parse(text);
-        return SetupReport.TryRead(document.RootElement, out var report, out _) ? report.Proposed : null;
+        return SetupReport.TryRead(document.RootElement, out var report, out _) ? report : null;
     }
 
     private sealed record ToFix(int Number, string Branch, string FromCommit, int? Round, Guid? ReviewId, string Comments, string? Report, string? Verdict);

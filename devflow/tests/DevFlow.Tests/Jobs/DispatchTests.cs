@@ -212,8 +212,10 @@ public sealed class DispatchTests
         var job = await jobs.Job();
 
         Assert.Equal(
-            ["base", "branch", "brief", "card", "check", "claude_token", "committer", "job_id", "kind", "limits", "model", "push_key", "push_key_expires_at", "report_schema", "repository", "start", "to_check", "to_fix", "to_read", "to_resolve", "to_review", "to_review_feature", "url"],
+            ["base", "branch", "brief", "card", "check", "claude_token", "committer", "job_id", "kind", "limits", "model", "push_key", "push_key_expires_at", "report_schema", "repository", "start", "to_check", "to_fix", "to_read", "to_resolve", "to_review", "to_review_feature", "url", "values"],
             job.Select(pair => pair.Key).Order(StringComparer.Ordinal));
+        // The project has no values, so a build carries an empty list of them.
+        Assert.Empty(job["values"]!.AsArray());
         // How the worker starts the project for its pictures, from the same project.json as the
         // check.
         Assert.Equal("npm ci && npm run dev", (string)job["start"]!);

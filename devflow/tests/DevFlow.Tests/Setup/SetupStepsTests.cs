@@ -38,7 +38,7 @@ public sealed class SetupStepsTests
         await using var jobs = await Jobs.Start([Jobs.Card(1)], checkedRecipe: false);
         var setup = await Setup(jobs);
         Assert.Equal("setting_up", (string)setup["state"]!);
-        Assert.Equal([("setup", false), ("recipe", false), ("settings", true), ("worker", false), ("check", false)], Steps(setup));
+        Assert.Equal([("setup", false), ("recipe", false), ("settings", true), ("values", true), ("worker", false), ("check", false)], Steps(setup));
         Assert.Null(setup["check"]);
         Assert.False((bool)setup["checking"]!);
 
@@ -57,13 +57,13 @@ public sealed class SetupStepsTests
             }],
         });
         await jobs.Routes.Read(jobs.Project, Jobs.User);
-        Assert.Equal([("setup", true), ("recipe", true), ("settings", true), ("worker", false), ("check", false)], Steps(await Setup(jobs)));
+        Assert.Equal([("setup", true), ("recipe", true), ("settings", true), ("values", true), ("worker", false), ("check", false)], Steps(await Setup(jobs)));
 
         // A worker built from that version says hello.
         var version = FakeCodeHost.FolderVersion([(".devflow/Dockerfile", recipe), (".devflow/project.json", projectFile)]);
         var hello = new JsonObject { ["worker_id"] = Jobs.FirstWorker, ["name"] = "fodr-worker", ["recipe_version"] = version, ["base_image"] = Jobs.Image };
         await Workers.Workers.AsWorker(jobs.Routes.App, Workers.Workers.HelloPath, hello.ToJsonString(), null, Workers.Workers.Bearer(jobs.Key));
-        Assert.Equal([("setup", true), ("recipe", true), ("settings", true), ("worker", true), ("check", false)], Steps(await Setup(jobs)));
+        Assert.Equal([("setup", true), ("recipe", true), ("settings", true), ("values", true), ("worker", true), ("check", false)], Steps(await Setup(jobs)));
 
         // Its check runs, and passes: every step is done, and the project is registered.
         var job = await jobs.Job();
@@ -86,7 +86,7 @@ public sealed class SetupStepsTests
         Assert.Equal(StatusCodes.Status204NoContent, (await jobs.Post(WorkerApi.ResultPath((Guid)job["job_id"]!), passed)).Response.StatusCode);
         setup = await Setup(jobs);
         Assert.Equal("registered", (string)setup["state"]!);
-        Assert.Equal([("setup", true), ("recipe", true), ("settings", true), ("worker", true), ("check", true)], Steps(setup));
+        Assert.Equal([("setup", true), ("recipe", true), ("settings", true), ("values", true), ("worker", true), ("check", true)], Steps(setup));
         Assert.Equal(version, (string)setup["check"]!["version"]!);
         Assert.Empty(setup["check"]!["pictures"]!.AsArray());
     }

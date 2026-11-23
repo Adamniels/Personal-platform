@@ -204,8 +204,8 @@ public sealed class SetupRunTests
         // next is a worker on the recipe; no setup is made, and a worker with no recipe is told to
         // rebuild.
         var steps = (await Steps(jobs))["steps"]!.AsArray();
-        Assert.Equal(["setup", "recipe", "settings", "worker", "check"], steps.Select(step => (string)step!["step"]!));
-        Assert.Equal([true, true, true, false, false], steps.Select(step => (bool)step!["done"]!));
+        Assert.Equal(["setup", "recipe", "settings", "values", "worker", "check"], steps.Select(step => (string)step!["step"]!));
+        Assert.Equal([true, true, true, true, false, false], steps.Select(step => (bool)step!["done"]!));
         await Hello(jobs);
         Assert.Equal(StatusCodes.Status204NoContent, (await jobs.Next(SetupWorker)).Response.StatusCode);
         await using var admin = await jobs.Routes.Database.OpenAdmin(Ct);
@@ -531,7 +531,7 @@ public sealed class SetupRunTests
         Assert.Equal(DevFlow.Reading.ReadResult.Read, await jobs.Routes.Read(jobs.Project, Jobs.User));
         Assert.Equal("done", (await Setup(jobs)).State);
         var steps = (await Steps(jobs))["steps"]!.AsArray();
-        Assert.Equal([true, true, true, false, false], steps.Select(step => (bool)step!["done"]!));
+        Assert.Equal([true, true, true, false, false, false], steps.Select(step => (bool)step!["done"]!));
         waiting = JsonNode.Parse(await Harness.Body(await jobs.Routes.App.Get("/devflow/api/waiting", Contract.Token)))!;
         Assert.Empty(waiting["setup_runs"]!.AsArray());
     }

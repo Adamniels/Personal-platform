@@ -20,7 +20,8 @@ internal sealed record ClaudeCodeOptions(string Executable, string Home, string 
 /// <list type="bullet">
 /// <item>The environment is built from nothing: <c>HOME</c>, <c>PATH</c>, <c>LANG</c>,
 /// <c>CLAUDE_CONFIG_DIR</c> in that home, <c>CLAUDE_CODE_OAUTH_TOKEN</c>, and
-/// <c>PLAYWRIGHT_BROWSERS_PATH</c>, the image's Chromium, for the developer's own pictures. An
+/// <c>PLAYWRIGHT_BROWSERS_PATH</c>, the image's Chromium, for the developer's own pictures; the run,
+/// not the login check, gets the project's values its job carried too, beneath these. An
 /// <c>ANTHROPIC_API_KEY</c> would silently win over the token and bill the API, so none is ever
 /// passed; nor is <c>--bare</c>, which refuses the token.</item>
 /// <item>The login is checked first, with <c>claude auth status --json</c>, which must answer
@@ -48,7 +49,7 @@ internal sealed class ClaudeCodeAgent(IProcessStarter starter, ClaudeCodeOptions
     {
         ArgumentNullException.ThrowIfNull(run);
         var token = run.Credential.Reveal();
-        var environment = Environment(token);
+        var environment = Environment(token, null);
 
         var login = Scrubbed(await starter.Run(
             new ProcessSpec(options.Executable, ["auth", "status", "--json"], run.WorkingDirectory, environment),
@@ -68,7 +69,7 @@ internal sealed class ClaudeCodeAgent(IProcessStarter starter, ClaudeCodeOptions
 
         log.Write($"Claude Code is logged in by {method}; starting the run.");
         var answer = Scrubbed(await starter.Run(
-            new ProcessSpec(options.Executable, Arguments(run), run.WorkingDirectory, environment),
+            new ProcessSpec(options.Executable, Arguments(run), run.WorkingDirectory, Environment(token, run.Values)),
             run.Limits.Time,
             cancellationToken), token);
         var result = Judge(answer, run.Limits, method, run.Access, _time.GetUtcNow());
@@ -78,15 +79,25 @@ internal sealed class ClaudeCodeAgent(IProcessStarter starter, ClaudeCodeOptions
         return result;
     }
 
-    private Dictionary<string, string> Environment(string token) => new()
+    /// <summary>The environment of a Claude Code process: the project's <paramref name="values"/>,
+    /// for the run that works on its code, then Claude Code's own, which win over a value of the
+    /// same name; the login check gets none.</summary>
+    private Dictionary<string, string> Environment(string token, IReadOnlyList<DevFlow.Protocol.JobValue>? values)
     {
-        ["HOME"] = options.Home,
-        ["PATH"] = options.Path,
-        ["LANG"] = options.Lang,
-        ["CLAUDE_CONFIG_DIR"] = $"{options.Home.TrimEnd('/')}/.claude",
-        [TokenVariable] = token,
-        ["PLAYWRIGHT_BROWSERS_PATH"] = options.BrowsersPath,
-    };
+        var environment = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var value in values ?? [])
+        {
+            environment[value.Name] = value.Value;
+        }
+
+        environment["HOME"] = options.Home;
+        environment["PATH"] = options.Path;
+        environment["LANG"] = options.Lang;
+        environment["CLAUDE_CONFIG_DIR"] = $"{options.Home.TrimEnd('/')}/.claude";
+        environment[TokenVariable] = token;
+        environment["PLAYWRIGHT_BROWSERS_PATH"] = options.BrowsersPath;
+        return environment;
+    }
 
     /// <summary>
     /// The run's arguments, with the model, the turns and the spend its job carried. A developer may

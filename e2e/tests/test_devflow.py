@@ -5304,14 +5304,17 @@ def test_a_project_is_checked_before_its_first_card(
     page.reload()
     setup = page.get_by_role("article", name="Setting up")
     steps = setup.get_by_role("list", name="Setup steps").get_by_role("listitem")
-    expect(steps).to_have_count(5)
+    expect(steps).to_have_count(6)
     expect(steps.nth(0)).to_contain_text("Done")
     expect(steps.nth(0)).to_contain_text("A valid .devflow/ on the default branch")
     expect(steps.nth(1)).to_contain_text("Done")
     expect(steps.nth(1)).to_contain_text("The recipe on the default branch")
     expect(steps.nth(2)).to_contain_text("To do")
-    expect(steps.nth(3)).to_contain_text("To do")
+    # No setup run listed a value, so the values step is done.
+    expect(steps.nth(3)).to_contain_text("Done")
+    expect(steps.nth(3)).to_contain_text("The values its tests need")
     expect(steps.nth(4)).to_contain_text("To do")
+    expect(steps.nth(5)).to_contain_text("To do")
     expect(page.get_by_role("article", name="Cards")).to_have_count(0)
     assert (
         page.request.get(f"/devflow/api/projects/{project}/setup").json()["state"]
@@ -5343,7 +5346,8 @@ def test_a_project_is_checked_before_its_first_card(
     expect(check.locator("pre")).to_contain_text("Tests  1 failed | 24 passed")
     expect(steps.nth(2)).to_contain_text("Done")
     expect(steps.nth(3)).to_contain_text("Done")
-    expect(steps.nth(4)).to_contain_text("To do")
+    expect(steps.nth(4)).to_contain_text("Done")
+    expect(steps.nth(5)).to_contain_text("To do")
     expect(setup.get_by_role("button", name="Check again")).to_be_visible()
     assert _axe_violations(page) == []
     capture(page, "devflow-project-setting-up")
@@ -5373,7 +5377,7 @@ def test_a_project_is_checked_before_its_first_card(
     assert passed["kind"] == "check"
     answered = page.request.get(f"/devflow/api/projects/{project}/setup").json()
     assert answered["state"] == "registered"
-    assert [step["done"] for step in answered["steps"]] == [True] * 5
+    assert [step["done"] for step in answered["steps"]] == [True] * 6
     shown = page.request.get(
         f"/devflow/api/projects/{project}/setup/checks/{answered['check']['id']}"
         "/pictures/home-desktop"
@@ -5478,7 +5482,7 @@ def test_a_project_is_set_up_by_an_agent(
     page.reload()
     setup = page.get_by_role("article", name="Setting up")
     steps = setup.get_by_role("list", name="Setup steps").get_by_role("listitem")
-    expect(steps).to_have_count(5)
+    expect(steps).to_have_count(6)
     expect(steps.nth(0)).to_contain_text("To do")
     expect(steps.nth(0)).to_contain_text("A valid .devflow/ on the default branch")
     run = setup.get_by_role("region", name="The setup run")
@@ -5528,14 +5532,17 @@ def test_a_project_is_set_up_by_an_agent(
     assert listed["project_id"] == project
     assert listed["state"] == "waiting_for_owner"
 
-    # I merge it, and the next step is a worker on the recipe, the settings
-    # taken as accepted by the fake worker.
+    # I merge it, and the next step is the value its tests need, the
+    # settings taken as accepted by the fake worker; then a worker on the
+    # recipe.
     run.get_by_role("button", name="Merge").click()
     expect(steps.nth(0)).to_contain_text("Done")
     expect(steps.nth(1)).to_contain_text("Done")
     expect(steps.nth(2)).to_contain_text("Done")
     expect(steps.nth(3)).to_contain_text("To do")
-    expect(steps.nth(3)).to_contain_text("A worker on the recipe")
+    expect(steps.nth(3)).to_contain_text("The values its tests need")
+    expect(steps.nth(4)).to_contain_text("To do")
+    expect(steps.nth(4)).to_contain_text("A worker on the recipe")
     assert page.request.get("/devflow/api/waiting").json()["setup_runs"] == []
 
 
@@ -5706,6 +5713,111 @@ def test_i_accept_the_proposed_settings(
     saved = page.request.get(f"/devflow/api/projects/{project}/settings").json()
     assert saved["preset"] == "guided"
     assert saved["wait_paths"] == ["migrations/**"]
+
+
+def test_i_give_a_projects_values(
+    page: Page, invite_code: str, base_url: str, viewport: str, devflow_world
+):
+    register_and_log_in(page, invite_code, base_url)
+    # A repository with no .devflow/; what its setup run writes is staged on
+    # the setup's branch.
+    world = one_repository(name="Fodr")
+    add_file(world, ".devflow/Dockerfile", RECIPE, branch="devflow/setup")
+    add_file(
+        world,
+        ".devflow/project.json",
+        json.dumps({"version": 1, "check": CHECK, "start": "", "url": ""}).encode(),
+        branch="devflow/setup",
+    )
+    _open_project(page, base_url, devflow_world, world)
+    project = page.url.rsplit("/", 1)[1]
+    given = page.request.put(
+        "/devflow/api/claude-login",
+        data={"token": CLAUDE_TOKEN},
+        headers={"Origin": base_url},
+    )
+    assert given.status == 200, given.text()
+    refreshed = page.request.post(
+        f"/devflow/api/projects/{project}/refresh", headers={"Origin": base_url}
+    )
+    assert refreshed.status == 204, refreshed.text()
+
+    # The setup run lists one variable its tests need, and is reviewed; the
+    # fake worker takes the settings as accepted.
+    for result, kind in (
+        (_setup_result(_setup_report()), "setup"),
+        (_setup_result(_verdict("approve")), "review"),
+    ):
+        ran = page.request.post(
+            "/devflow/api/fake/worker/run",
+            data={"project_id": project, "setup": True, "result": result},
+            headers={"Origin": base_url},
+        )
+        assert ran.status == 200, ran.text()
+        assert ran.json()["kind"] == kind
+    page.reload()
+    setup = page.get_by_role("article", name="Setting up")
+    setup.get_by_role("region", name="The setup run").get_by_role(
+        "button", name="Merge"
+    ).click()
+
+    # The values step lists the one variable, with why, missing.
+    steps = setup.get_by_role("list", name="Setup steps").get_by_role("listitem")
+    expect(steps.nth(3)).to_contain_text("The values its tests need")
+    expect(steps.nth(3)).to_contain_text("To do")
+    values = setup.get_by_role("region", name="The values")
+    rows = values.get_by_role("list", name="Values").get_by_role("listitem")
+    expect(rows).to_have_count(1)
+    expect(rows.nth(0)).to_contain_text("STRIPE_TEST_KEY")
+    expect(rows.nth(0)).to_contain_text("The payment tests call Stripe.")
+    expect(rows.nth(0).get_by_text("Missing", exact=True)).to_be_visible()
+
+    # A value it did not list, which I add, does not do the step.
+    values.get_by_role("button", name="Add a value").click()
+    adding = values.get_by_role("form", name="Add a value")
+    adding.get_by_label("Its name").fill("MAPS_TEST_KEY")
+    adding.get_by_label("The value", exact=True).fill(MAPS_VALUE)
+    adding.get_by_role("button", name="Give").click()
+    expect(rows).to_have_count(2)
+    expect(rows.nth(1)).to_contain_text("MAPS_TEST_KEY")
+    expect(rows.nth(1).get_by_text("Given", exact=True)).to_be_visible()
+    expect(steps.nth(3)).to_contain_text("To do")
+    assert _axe_violations(page) == []
+    capture(page, "devflow-project-values")
+
+    # I give the one it listed: the step is done.
+    field = rows.nth(0).get_by_label("The value of STRIPE_TEST_KEY")
+    expect(field).to_have_attribute("type", "password")
+    field.fill(STRIPE_VALUE)
+    rows.nth(0).get_by_role("button", name="Give").click()
+    expect(rows.nth(0).get_by_text("Given", exact=True)).to_be_visible()
+    expect(steps.nth(3)).to_contain_text("Done")
+
+    # The page never shows a value again, nor does any route it reads.
+    page.reload()
+    expect(steps.nth(3)).to_contain_text("Done")
+    expect(rows).to_have_count(2)
+    for value in (STRIPE_VALUE, MAPS_VALUE):
+        assert value not in page.content()
+    listed = page.request.get(f"/devflow/api/projects/{project}/values")
+    assert listed.status == 200, listed.text()
+    assert [(each["name"], each["asked"]) for each in listed.json()["values"]] == [
+        ("STRIPE_TEST_KEY", True),
+        ("MAPS_TEST_KEY", False),
+    ]
+    for path in (
+        f"/devflow/api/projects/{project}/values",
+        f"/devflow/api/projects/{project}/setup",
+        "/devflow/api/projects",
+        "/devflow/api/waiting",
+    ):
+        text = page.request.get(path).text()
+        for value in (STRIPE_VALUE, MAPS_VALUE):
+            assert value not in text, path
+
+
+STRIPE_VALUE = "sk_test_throwaway-4f9a1c7e2b"
+MAPS_VALUE = "maps-key-made-for-the-tests-71"
 
 
 def test_i_send_a_failed_check_back(

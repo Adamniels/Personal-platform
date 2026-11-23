@@ -22,7 +22,9 @@ internal interface IAgent
 /// <param name="Credential">What it logs in with.</param>
 /// <param name="Access">Whether it may change files and run commands, as a build's developer
 /// does, or only read, as a review's reviewer does.</param>
-internal sealed record AgentRun(string WorkingDirectory, string Brief, string ReportSchema, string Model, AgentLimits Limits, AgentCredential Credential, AgentAccess Access = AgentAccess.Write);
+/// <param name="Values">The project's values its job carried, for the run's environment and
+/// nowhere else; null or empty when it carried none.</param>
+internal sealed record AgentRun(string WorkingDirectory, string Brief, string ReportSchema, string Model, AgentLimits Limits, AgentCredential Credential, AgentAccess Access = AgentAccess.Write, IReadOnlyList<DevFlow.Protocol.JobValue>? Values = null);
 
 /// <summary>What an agent may do in its run.</summary>
 internal enum AgentAccess

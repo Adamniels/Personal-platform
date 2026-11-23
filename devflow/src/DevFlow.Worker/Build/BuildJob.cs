@@ -54,6 +54,9 @@ internal sealed partial class BuildJob(DevFlowClient devFlow, Guid workerId, Job
             job = null;
         }
 
+        // The project's values the job carried are scrubbed from every line logged while it runs,
+        // and forgotten with it.
+        using var hidden = Log.Hiding(job?.Values);
         if (job is { Kind: Job.RecipeCheck, ToCheck: { } toCheck })
         {
             await RunCheck(job, toCheck, stopping);
@@ -412,7 +415,7 @@ internal sealed partial class BuildJob(DevFlowClient devFlow, Guid workerId, Job
         var check = await WhileSeen(
             job,
             () => Tools.AsAgent.Run(
-                new ProcessSpec("sh", ["-c", $"exec 2>&1\n{job.Check}"], paths.Check, Tools.User.Environment(("CI", "true"))),
+                new ProcessSpec("sh", ["-c", $"exec 2>&1\n{job.Check}"], paths.Check, Tools.User.WithValues(job.Values, ("CI", "true"))),
                 CheckLimit,
                 stopping),
             stopping);

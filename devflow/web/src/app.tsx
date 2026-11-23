@@ -136,6 +136,23 @@ const projectApi: ProjectApi = {
 			`/projects/${encodeURIComponent(id)}/settings`,
 			settings,
 		),
+	loadValues: (id) =>
+		client.get(
+			`/projects/${encodeURIComponent(id)}/values` as "/projects/{id}/values",
+		),
+	giveValue: async (id, name, value) => {
+		await client.send(
+			"PUT",
+			`/projects/${encodeURIComponent(id)}/values/${encodeURIComponent(name)}`,
+			{ value },
+		);
+	},
+	removeValue: async (id, name) => {
+		await client.send(
+			"DELETE",
+			`/projects/${encodeURIComponent(id)}/values/${encodeURIComponent(name)}`,
+		);
+	},
 };
 
 /** A card's story, through Dev flow's API; a card the caller does not have

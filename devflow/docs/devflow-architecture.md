@@ -729,8 +729,8 @@ the check's 30 can pass that. So while the check runs the worker says `progress`
 minutes, which the route takes as often as it comes and which marks the worker seen, so a worker
 that is still working is never taken for gone.
 
-**A run's one credential is the Claude login, and Dev flow holds it**, as the spec's rounds 3 and
-4b have it. The owner runs `claude setup-token` once and pastes the token on the Projects tab, so a
+**A run's credentials are the Claude login and the project's values, and Dev flow holds both**, as
+the spec's rounds 3 and 4b have it. The owner runs `claude setup-token` once and pastes the token on the Projects tab, so a
 new worker needs no login step of its own: the program hands the token to each run inside the job,
 as `CLAUDE_CODE_OAUTH_TOKEN`, see "Handing out work" below. It is one per
 user, not per project, since the subscription is the user's, and it is sealed in the vault like
@@ -740,6 +740,14 @@ through the Projects tab, the nav's dot and the front page's card, which say it 
 waits rather than counting it. It checks only that what is pasted looks like a setup token; whether
 it works is the worker's check before every run. The routes, the table and the section are "Claude
 login" and "The pages" in `devflow/README.md`.
+
+The project's values, what its tests or its start need, are the other: throwaway values or keys
+made for the automation, never production's, which the owner gives on the project's page, so they
+are in no repository and never copied to a machine by hand. Every job that runs the project's code
+carries them beside the token, and the worker puts them in the environment of the agent's run, the
+check and the start, and nowhere else. Why each is safe, and the risk accepted, is under "Security
+decisions and accepted risks" below; how they are given and carried is "A project's values" in
+`devflow/README.md`.
 
 ## Setting up a project
 
@@ -836,6 +844,30 @@ project's, so a recipe fixed by hand ends the need. A setup not done that the pr
 needs, one whose pull request was closed after `.devflow/` was fixed by hand, still holds the one
 open setup a project may have, and so stops a later send back until it is done; that is accepted for
 now as rare.
+
+**A project's values are a step of setting up, and hold nothing back.** The setup run is what reads
+the project and finds what its tests need, so it lists the variables and the step asks for each,
+after the settings and before a worker on the recipe, the order the owner meets them in. The step
+does not stop the check or any card: a check that runs without a value its tests need fails like any
+other, and is sent back or checked again, which a hold would only make the owner wait for. A name
+the setup listed that the values do not take, lowercase or reserved, is shown with why and does not
+hold the step back, since the owner could never do it, and the check says whether the project really
+needs it.
+
+**A value is sealed in its project's own table.** The Claude login keeps its sealed token in
+`secrets`, beside a table that points at it; a value kept that way would outlive its project, since
+disconnecting removes the project's rows and not a secret's. So the vault seals a value bound to the
+user, the project and the name, and `project_values` keeps it, gone with the project by its foreign
+key. A value is at least 8 characters, so that scrubbing it from text never takes out ordinary
+words, and the field asks for a longer throwaway value instead.
+
+**A value is scrubbed in two places, with one function.** Dev flow scrubs what every worker sends
+and what it posts, since it cannot trust a worker or an agent to have done it, and the worker scrubs
+what it sends and logs, so a value never leaves the container in clear even to Dev flow. Both use
+`ValueScrub`, in `DevFlow.Protocol`, so the forms found cannot drift apart. Dev flow scrubs with the
+values as they are when the result comes, and the worker with the values its job carried, so a value
+changed or removed while a job runs is still found by one of them. Posting is scrubbed in front of the
+code host, so a poster added later cannot forget it.
 
 **"Waiting for you" lists only a check that failed.** The feature has a project setting up shown
 there, but a project connected only so Dev flow reads this repository's runner, the platform
@@ -2152,8 +2184,9 @@ its reason, or a risk accepted on purpose; each slice adds the ones it builds.
   server from the card's own number and stored commit.
 - **An agent's run gets an environment built from nothing.** Claude Code is started with exactly
   `HOME`, `PATH`, `LANG`, `CLAUDE_CONFIG_DIR`, `CLAUDE_CODE_OAUTH_TOKEN` and
-  `PLAYWRIGHT_BROWSERS_PATH`, a path to the image's Chromium, which holds no secret, and the process starter
-  clears everything else, rather than passing the worker's environment and taking out what is
+  `PLAYWRIGHT_BROWSERS_PATH`, a path to the image's Chromium, which holds no secret, and the
+  project's values its job carried, beneath these so none of them can be overridden, and the
+  process starter clears everything else, rather than passing the worker's environment and taking out what is
   known to be dangerous. The experiment found that an `ANTHROPIC_API_KEY` in the environment
   silently wins over the subscription token and bills the API, and a list of what to take out
   misses the next such variable, where a list of what to put in cannot. `--bare` is never passed,
@@ -2225,7 +2258,7 @@ its reason, or a risk accepted on purpose; each slice adds the ones it builds.
   with `DEVFLOW_CODE_HOST=github` Dev flow refuses to start. How it works is "The vault" in
   `devflow/README.md`.
 - **The Claude token is sealed per user, never answered, and leaves Dev flow only inside a job.**
-  It is the one credential a run holds, and it can spend the owner's subscription, so: it is put
+  It is the credential a run holds that can spend the owner's subscription, so: it is put
   in the vault under `claude-login`, bound to its user, and nothing else in the database holds it;
   no route answers it or any part of it, the status route says only whether one is set and when,
   and a refused one is not repeated in the error; the page never reads it back, and its field is a
@@ -2435,13 +2468,39 @@ its reason, or a risk accepted on purpose; each slice adds the ones it builds.
   or by putting the pick-up label on a trusted account's issue it was not on, and can hold a card
   by the hold label; they can no longer start, release or switch on anything. GitHub's edit history
   does not cover a comment, which no card is read from yet.
-- **The Claude token and a push key leave Dev flow only inside a job, to the worker holding it.**
+- **A project's values are sealed per project, never answered, and carried only by jobs that run its
+  code.** A value can reach whatever it is a key for, so: it is sealed by the vault bound to its
+  user, its project and its name, in `project_values`, and nothing else in the database holds it;
+  no route answers it, the values route names each with when it was set, and a refused one is not
+  repeated in the error; the page's field is a password field the browser does not keep, cleared once
+  sent; and it is opened only in the transaction that hands out a build, a fix, a conflict, a
+  feature's fix, a setup or a check, so a reading or a review, whose agent runs none of the project's
+  code, never holds one. The worker puts it in the environment of the agent's run, the check and the
+  start and of nothing else, beneath its own variables, and keeps it only for the job; a name the
+  worker, Claude Code, git or Playwright reads is refused, so a value cannot steer them. Tests hold
+  each, in `ProjectValuesTests` and `WorkerValuesTests`. Accepted: inside the container, the agent and
+  the project's code can read every value, which is what they are for, as the Claude token is.
+- **Every known value is scrubbed from what Dev flow stores and posts, and from what the worker
+  sends.** Each value of the project, as itself, URL-encoded, and in standard and URL-safe base64,
+  whole or inside a longer encoding, becomes `[value of NAME]`, by `ValueScrub`: Dev flow scrubs every
+  text of every result before it is stored, `JobEndpoints.Complete`, and every title, body, comment
+  and commit message it posts, `ScrubbingCodeHost`, the code host every part of it is given; the
+  worker scrubs every text it sends and every line it logs while the job runs. `ScrubTests` holds
+  each side. Accepted, as the slice "A project's values" records it: scrubbing finds only these forms,
+  so an agent that uses a value, or prints it transformed in another way, is not caught; a picture's
+  bytes are not text and are not scrubbed, so a page that shows a value shows it in its picture. That
+  is why a value must be a throwaway or a key made for the automation with a low limit, never
+  production's, as the spec's round 3 has it.
+- **The Claude token, the project's values and a push key leave Dev flow only inside a job, to the
+  worker holding it.**
   A job is answered only to a worker of the key's own project, through the door as its user, so
-  the token is that user's and the push key reaches that project's repository alone, narrowed to
+  the token is that user's, the values that project's, and the push key reaches that project's
+  repository alone, narrowed to
   fetching and pushing code; the answer carries `Cache-Control: no-store`. A fresh push key is
   answered only to the worker holding that job while it runs, and every other asker gets the same
   `404`, so it cannot tell another's job from none. The token is opened only after the login's
-  status allows a run; the push key is never stored; and `Job` and `PushKeyAnswer` print neither.
+  status allows a run; the push key is never stored; and `Job`, `JobValue` and `PushKeyAnswer` print
+  none of them.
   Accepted: a worker's id is not a secret among the workers of one project, which share one key,
   so a worker of the project that learned another's id could ask a fresh key for its job; it holds
   the same key and could take a job of its own, so it gains nothing.
