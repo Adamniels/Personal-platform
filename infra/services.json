@@ -9,6 +9,7 @@
       "area": "core",
       "migrate": "SQLX_OFFLINE=true cargo run --locked -- migrate",
       "start": "cargo run --locked -q",
+      "public_origin": "CORE_PUBLIC_ORIGIN",
       "database": {
         "name": "core",
         "owner": "core_owner",
@@ -24,7 +25,8 @@
       "port": 8081,
       "language": "python",
       "area": "canary",
-      "start": "UV_LOCKED=1 uv run uvicorn canary.app:app --host \"$HOST\" --port \"$PORT\""
+      "start": "UV_LOCKED=1 uv run uvicorn canary.app:app --host \"$HOST\" --port \"$PORT\"",
+      "public_origin": "CANARY_PUBLIC_ORIGIN"
     },
     {
       "name": "brain",
@@ -35,6 +37,7 @@
       "area": "brain",
       "migrate": "UV_LOCKED=1 uv run brain migrate",
       "start": "UV_LOCKED=1 uv run uvicorn brain.app:app --host \"$HOST\" --port \"$PORT\"",
+      "public_origin": "BRAIN_PUBLIC_ORIGIN",
       "database": {
         "name": "brain",
         "owner": "brain_owner",
@@ -54,6 +57,7 @@
       "area": "dotnet",
       "migrate": "dotnet run --project src/Review -c Release --no-launch-profile -- migrate",
       "start": "REVIEW_LISTEN_ADDR=\"$HOST:$PORT\" dotnet run --project src/Review -c Release --no-launch-profile",
+      "public_origin": "REVIEW_PUBLIC_ORIGIN",
       "database": {
         "name": "review",
         "owner": "review_owner",
@@ -76,6 +80,7 @@
       "area": "dotnet",
       "migrate": "dotnet run --project src/DevFlow -c Release --no-launch-profile -- migrate",
       "start": "DEVFLOW_LISTEN_ADDR=\"$HOST:$PORT\" dotnet run --project src/DevFlow -c Release --no-launch-profile",
+      "public_origin": "DEVFLOW_PUBLIC_ORIGIN",
       "database": {
         "name": "devflow",
         "owner": "devflow_owner",
