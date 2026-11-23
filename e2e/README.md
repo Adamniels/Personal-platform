@@ -34,7 +34,9 @@ Screenshots land in `screenshots/`, which is git ignored.
 ## Fixtures
 
 - `base_url` is the one address the suite uses: `https://platform.test` by default, set in
-  `pyproject.toml`, and another with pytest's `--base-url`. A test that needs the address takes the
+  `pyproject.toml`, and another with pytest's `--base-url`. The agents' run passes the dev stack's
+  origin, `bash scripts/agent/services.sh origin`, which carries a port on the Mac mini, see "The
+  HTTPS port" in `infra/README.md`. A test that needs the address takes the
   `base_url` fixture and compares against it, as in `expect(page).to_have_url(f"{base_url}/review")`;
   none spells it out, which `tests/test_base_url.py` checks, and none reads it from an environment
   variable. The browser context ignores HTTPS errors, so the suite does not depend on the laptop's

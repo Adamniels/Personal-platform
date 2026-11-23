@@ -46,7 +46,8 @@ docker compose up -d caddy
 The upstreams are `host.docker.internal`, which only Docker Desktop provides. It reaches services
 bound to `127.0.0.1` on the Mac, tested, but on Linux neither holds, so this setup is Mac only.
 Ports 80 and 443 are published on `127.0.0.1` only, as Postgres is, so the platform is not
-reachable from the network. Port 80 only redirects to HTTPS.
+reachable from the network. Port 80 only redirects to HTTPS. The HTTPS port can be another, see
+"The HTTPS port" below.
 
 Caddy's local certificate authority signs the certificate, through `tls internal`, since `.test`
 is not a name Caddy treats as local. Its root, intermediate and private keys live in the
@@ -60,6 +61,31 @@ container reading the old one. After editing it, recreate the container rather t
 docker compose run --rm caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
 docker compose up -d --force-recreate caddy
 ```
+
+## The HTTPS port
+
+Caddy is published on 443 unless `PLATFORM_HTTPS_PORT` in `.env` names another. Inside the
+container it listens on 443 either way. The dev stack's origin is then
+`https://platform.test:<port>`, or `https://platform.test` on 443, and
+`bash scripts/agent/services.sh origin` prints it. That one script is where everything else reads
+it. `services.sh run <name> start` sets each service's origin variable to it, the variable the
+entry's `public_origin` names in `services.json`, so the services' check of the browser's `Origin`
+accepts the port. A host matcher in the Caddyfile ignores the port, so `platform.test` is served on
+any.
+
+Leave it unset on a laptop and in CI. Set it on a machine where something else holds 443. The Mac
+mini is one: Tailscale serve, which puts the hosted platform on the tailnet, listens on `*:443`
+there. Whichever binds first keeps the port: Caddy did for a while, until a recreate released it
+for a moment and Tailscale took it, after which Caddy failed with "address already in use" on every
+start. There it is `PLATFORM_HTTPS_PORT=8443`. `lsof` shows nothing on 443 to a user without root,
+since Tailscale's network extension runs as root; this shows the holder:
+
+```zsh
+netstat -anv -p tcp | grep '\.443 .*LISTEN'
+```
+
+The last field names the process, `io.tailscale.ipn` for Tailscale. After changing the port,
+recreate Caddy with `docker compose up -d --wait caddy`.
 
 ## The databases
 
