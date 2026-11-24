@@ -1,0 +1,114 @@
+/* "Step list" in section 4 of design/DESIGN.md. Colours and sizes are
+ * tokens; the 32px circle is the one that section gives. */
+
+.list {
+	--mark: 32px;
+
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-4);
+	margin: 0;
+	padding: 0;
+	list-style: none;
+	color: var(--text);
+	font-family: var(--font-ui);
+}
+
+/* The circle, then the step's title and content, space-3 apart. */
+.step {
+	display: grid;
+	grid-template-columns: var(--mark) minmax(0, 1fr);
+	column-gap: var(--space-3);
+}
+
+/* The 32px circle, its number in the mono font, hard rule 8. */
+.mark {
+	box-sizing: border-box;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 32px;
+	height: 32px;
+	border-radius: var(--radius-full);
+	font-family: var(--font-mono);
+	font-size: var(--text-mono-size);
+	line-height: var(--text-mono-line);
+	font-variant-numeric: tabular-nums;
+	font-weight: 600;
+}
+
+.check {
+	display: block;
+}
+
+.body {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-2);
+	min-width: 0;
+	/* The title's line sits centred on the circle. */
+	padding-top: calc((var(--mark) - var(--text-body-line)) / 2);
+}
+
+.head {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-2);
+	min-width: 0;
+}
+
+.title {
+	font-size: var(--text-body-size);
+	line-height: var(--text-body-line);
+	font-weight: 500;
+	overflow-wrap: anywhere;
+}
+
+.content {
+	min-width: 0;
+	font-size: var(--text-body-size);
+	line-height: var(--text-body-line);
+	color: var(--text-2);
+	overflow-wrap: anywhere;
+}
+
+/* Done: ok-soft with the check in ok, the title at weight 600. */
+[data-state="done"] .mark {
+	background: var(--ok-soft);
+	color: var(--ok);
+}
+
+[data-state="done"] .title {
+	font-weight: 600;
+}
+
+/* Current: the accent with its number, the title at weight 600, its
+ * content in the body's colour, since it is open. */
+[data-state="current"] .mark {
+	background: var(--accent);
+	color: var(--on-accent);
+}
+
+[data-state="current"] .title {
+	font-weight: 600;
+}
+
+[data-state="current"] .content {
+	color: var(--text);
+}
+
+/* To come: surface-3 with its number, the title in text-2 and its line in
+ * text-3. */
+[data-state="to-come"] .mark {
+	background: var(--surface-3);
+	color: var(--text-2);
+}
+
+[data-state="to-come"] .title {
+	color: var(--text-2);
+}
+
+[data-state="to-come"] .content {
+	color: var(--text-3);
+}

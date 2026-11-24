@@ -38,6 +38,8 @@ import {
 	type SetupApi,
 	SetupPanel,
 	type SetupProposal,
+	settingUpLine,
+	setupProgress,
 	setupShows,
 } from "./setup";
 import type { ValuesApi } from "./values";
@@ -299,6 +301,13 @@ export function ProjectPage({
 
 	const counts = cardsShown && cards ? countCards(cards) : undefined;
 	const preset = settings?.preset;
+	// While it is setting up, the header says how far, and whether the next
+	// step is the owner's.
+	const progress =
+		setup?.state === "setting_up" ? setupProgress(setup) : undefined;
+	// A setup card holds the page's one primary, its current step's, so the
+	// Workers card's offer to make a key steps back to a secondary.
+	const setupShown = setup !== undefined && setup !== null && setupShows(setup);
 	return (
 		<>
 			<header className={styles.header}>
@@ -307,12 +316,19 @@ export function ProjectPage({
 					<div className={styles.titles}>
 						<div className={styles.captionRow}>
 							<p className={styles.caption}>{caption(project, now())}</p>
+							{progress === undefined ? null : (
+								<Status tone={progress.mine ? "needs-you" : "running"}>
+									Setting up
+								</Status>
+							)}
 							{preset === undefined ? null : (
 								<Badge>{PRESET_NAMES[preset]}</Badge>
 							)}
 						</div>
 						<h2 className={styles.name}>{project.name}</h2>
-						{counts === undefined ? null : (
+						{progress !== undefined ? (
+							<p className={styles.summary}>{settingUpLine(progress)}</p>
+						) : counts === undefined ? null : (
 							<p className={styles.summary}>{summaryLine(counts)}</p>
 						)}
 					</div>
@@ -351,10 +367,12 @@ export function ProjectPage({
 					    its cards; a registered project whose newer version failed its
 					    check shows them above its cards. Nothing before the setup
 					    answers. */}
-					{setup !== undefined && setup !== null && setupShows(setup) ? (
+					{setupShown ? (
 						<SetupPanel
 							id={id}
 							setup={setup}
+							editSettings={() => setEditing((open) => !open)}
+							editing={editing}
 							checkAgain={checkAgain}
 							mergeSetup={mergeSetup}
 							runSetupAgain={runSetupAgain}
@@ -375,6 +393,7 @@ export function ProjectPage({
 						copy={copy}
 						loadWorkers={loadWorkers}
 						makeKey={makeKey}
+						primary={!setupShown}
 					/>
 					<SettingsSummary
 						settings={settings}
@@ -457,6 +476,9 @@ type WorkersPanelProps = Pick<
 	/** The repository's name, as the rebuild notice names the project. */
 	project: string;
 	copy: (text: string) => Promise<void>;
+	/** Whether "Make a key" may be the page's primary: not while a setup
+	 * card holds it. */
+	primary: boolean;
 };
 
 /** The Workers card: Running while a worker was seen in the last ten
@@ -472,6 +494,7 @@ function WorkersPanel({
 	copy,
 	loadWorkers,
 	makeKey,
+	primary,
 }: WorkersPanelProps) {
 	const [list, setList] = useState<WorkerList>();
 	const [readFailed, setReadFailed] = useState(false);
@@ -552,7 +575,11 @@ function WorkersPanel({
 						Make a new key
 					</Button>
 				) : (
-					<Button kind="primary" disabled={making} onClick={make}>
+					<Button
+						kind={primary ? "primary" : "secondary"}
+						disabled={making}
+						onClick={make}
+					>
 						Make a key
 					</Button>
 				)}

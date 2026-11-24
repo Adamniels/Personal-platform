@@ -89,7 +89,7 @@
 }
 
 /* "Steps" of "Progress bar and meter" in section 4 of design/DESIGN.md: one
- * 8px pill per card, 4px apart; landed in the accent, the current one with
+ * 8px pill per step, 4px apart; done in the accent, the current one with
  * no fill and an accent border, the rest on --surface-3. */
 .steps {
 	display: flex;
@@ -105,7 +105,7 @@
 	background: var(--surface-3);
 }
 
-.step[data-step="landed"] {
+.step[data-step="done"] {
 	background: var(--accent);
 }
 

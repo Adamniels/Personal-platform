@@ -1,13 +1,14 @@
 """Dev flow's pages in the platform's look: the crumb in the top bar, the page
 header, the item as a card and the rows inside it as inset rows, the
-screenshots' row, the Projects tab, a project's page with its cards first, and
-the three look checks of look.py.
+screenshots' row, the Projects tab, a project's page with its cards first, a
+project setting up, and the three look checks of look.py.
 See "The pages" in devflow/README.md.
 
 Colours and sizes are compared with the token as the page resolves it, as
 test_review_look.py does, so no value is written here but those DESIGN.md
 gives in pixels: an inset row's padding and the 1px borders."""
 
+import json
 import re
 from itertools import pairwise
 
@@ -23,8 +24,10 @@ from conftest import (
     sections,
 )
 from devflow_worlds import (
+    CHECK,
     INSTALLATION,
     REPOSITORY,
+    add_file,
     add_issue,
     add_pull_request,
     add_screenshot,
@@ -469,6 +472,174 @@ def test_a_project_page_follows_the_look(
 
     assert_the_look(page, "a project's page")
     capture(page, "devflow-project")
+
+
+def setup_result(report: dict) -> dict:
+    """A setup job's result, or its review's, as its worker sends one:
+    `report`, and no check."""
+    return {
+        "outcome": "succeeded",
+        "report": report,
+        "failure": None,
+        "check": None,
+        "auth_method": "oauth_token",
+        "usage": {},
+        "duration_ms": 61000,
+        "stderr": "",
+    }
+
+
+SETUP_REPORT = {
+    "summary": "Wrote a recipe with Postgres, and a check that starts it.",
+    "proposed": {
+        "preset": "guided",
+        "why": "Its migrations are worth a look before they merge.",
+        "paths": ["migrations/**", ".github/"],
+    },
+    "variables": [{"name": "STRIPE_TEST_KEY", "why": "The payment tests call Stripe."}],
+    "unsettled": [
+        {
+            "kind": "containers_in_tests",
+            "detail": "The integration tests start Redis with Testcontainers.",
+        }
+    ],
+    "decisions": [],
+    "handover": "The check starts Postgres before the tests.",
+}
+
+SETUP_VERDICT = {
+    "verdict": "approve",
+    "summary": "The recipe installs only Postgres.",
+    "findings": [],
+    "for_owner": [],
+}
+
+CLAUDE_TOKEN = "sk-ant-oat01-ZTJlLXRlc3RzLW9ubHktbm90LWEtcmVhbC10b2tlbg_AAAAAA"
+
+
+def test_a_project_setting_up_follows_the_look(
+    page: Page, invite_code: str, base_url: str, viewport: str, devflow_world
+):
+    register_and_log_in(page, invite_code, base_url)
+    # A repository with no .devflow/; what its setup run writes is staged on
+    # the setup's branch. Its run proposes guided and lists a value, and is
+    # approved, leaving the settings for me; I merge it, so two steps are done
+    # and the settings step is open.
+    world = one_repository()
+    add_file(
+        world,
+        ".devflow/Dockerfile",
+        b"ARG DEVFLOW_BASE\nFROM ${DEVFLOW_BASE}\nRUN apt-get update\n",
+        branch="devflow/setup",
+    )
+    add_file(
+        world,
+        ".devflow/project.json",
+        json.dumps({"version": 1, "check": CHECK, "start": "", "url": ""}).encode(),
+        branch="devflow/setup",
+    )
+    devflow_world(world)
+    project = connect_and_read(page, base_url)
+    given = page.request.put(
+        "/devflow/api/claude-login",
+        data={"token": CLAUDE_TOKEN},
+        headers={"Origin": base_url},
+    )
+    assert given.status == 200, given.text()
+    read(page, base_url, project)
+    for report, kind in ((SETUP_REPORT, "setup"), (SETUP_VERDICT, "review")):
+        ran = page.request.post(
+            "/devflow/api/fake/worker/run",
+            data={
+                "project_id": project,
+                "setup": True,
+                "settings_wait": True,
+                "result": setup_result(report),
+            },
+            headers={"Origin": base_url},
+        )
+        assert ran.status == 200, ran.text()
+        assert ran.json()["kind"] == kind
+
+    page.goto(f"/devflow/projects/{project}")
+    card = page.get_by_role("article", name="Setting it up", exact=True)
+    steps = card.get_by_role("list", name="Setup steps").locator(":scope > li")
+    expect(steps).to_have_count(6)
+    steps.nth(0).get_by_role("button", name="Merge").click()
+    expect(steps.nth(2)).to_have_attribute("aria-current", "step")
+    expect(
+        page.get_by_text(
+            "No card runs until setup is done: 2 of 6 steps, and the next one is yours"
+        )
+    ).to_be_visible()
+    expect(steps.nth(2).get_by_role("region", name="The settings")).to_be_visible()
+
+    # The steps card where the cards would be: no cards, and the side column
+    # beside it on desktop, under it on phone.
+    expect(page.get_by_role("region", name="Cards", exact=True)).to_have_count(0)
+    workers = page.get_by_role("article", name="Workers", exact=True)
+    main = card.bounding_box()
+    side = workers.bounding_box()
+    if viewport == "desktop":
+        assert side["x"] >= main["x"] + main["width"], (main, side)
+        assert abs(side["y"] - main["y"]) < 1, (main, side)
+    else:
+        assert side["y"] >= main["y"] + main["height"], (main, side)
+
+    # It needs me: the accent border.
+    accent_border = resolve(page, "--accent-border", "border-top-color")
+    assert style(card)["borderColors"] == [accent_border] * 4
+
+    # Its step bar: one 8px pill per step, 4px apart; the done ones accent,
+    # the current one no fill with an accent border, the rest surface-3.
+    bar = card.get_by_role("img", name="2 of 6 steps done")
+    pills = bar.locator(":scope > span")
+    expect(pills).to_have_count(6)
+    accent = resolve(page, "--accent", "background-color")
+    surface_3 = resolve(page, "--surface-3", "background-color")
+    looks = [style(pill) for pill in pills.all()]
+    assert [look["background"] for look in looks] == [
+        accent,
+        accent,
+        "rgba(0, 0, 0, 0)",
+        surface_3,
+        surface_3,
+        surface_3,
+    ], looks
+    assert looks[2]["borderColors"] == [accent_border] * 4
+    boxes = [pill.bounding_box() for pill in pills.all()]
+    for box in boxes:
+        assert abs(box["height"] - 8) < 0.5, box
+    for left, right in pairwise(boxes):
+        assert abs(right["x"] - (left["x"] + left["width"]) - 4) < 0.5, boxes
+
+    # Each step's 32px circle: ok-soft when done, accent when current,
+    # surface-3 to come.
+    fills = {
+        "done": resolve(page, "--ok-soft", "background-color"),
+        "current": accent,
+        "to-come": surface_3,
+    }
+    for at, state in enumerate(
+        ["done", "done", "current", "to-come", "to-come", "to-come"]
+    ):
+        step = steps.nth(at)
+        expect(step).to_have_attribute("data-state", state)
+        mark = step.locator(":scope > [aria-hidden='true']").first
+        box = mark.bounding_box()
+        assert abs(box["width"] - 32) < 0.5 and abs(box["height"] - 32) < 0.5, box
+        assert style(mark)["background"] == fills[state], (at, state)
+
+    # One primary on the page: the current step's Accept.
+    primaries = [
+        button
+        for button in page.get_by_role("button").all()
+        if button.is_visible() and style(button)["background"] == accent
+    ]
+    assert [button.inner_text() for button in primaries] == ["Accept"]
+
+    assert_the_look(page, "a project setting up")
+    capture(page, "devflow-project-setting-up")
 
 
 def assert_the_look(page: Page, where: str) -> None:

@@ -140,6 +140,9 @@ The inset list row, with a category. `--radius-md`, padding 8px 12px, soft fill 
 ### Timeline entry
 A 10px wide rail with an 8px ring (2px `--border-strong`, `--surface` fill) and a 1px `--border` line down to the next entry; no line after the last entry. Content: a mono timestamp in `--text-3`, one body line, an optional small detail line in `--text-2`. Gap between rail and content `--space-3`, 14px between entries. An entry that needs the user has a filled `--accent` dot with an `--accent-border` ring.
 
+### Step list
+Steps in their order, `--space-4` apart, each a 32px round circle and its content beside it, `--space-3` away, the title's line centred on the circle. Done: `--ok-soft` with a check in `--ok`, the title at weight 600 and one line of what happened in `--text-2`. Current: `--accent` with its number in `--on-accent`, the title at weight 600 with a status label beside it when the step needs the user, and its content open. To come: `--surface-3` with its number in `--text-2`, the title in `--text-2` and one line in `--text-3` of what comes there. Numbers are in the mono font. A step that is not current holds no button. The state is said in words to assistive technology, never by the circle's colour alone.
+
 ### Progress bar and meter
 * Bar: track 6px high, `--radius-full`, `--surface-3` fill, no border. Fill: `--accent` for progress and for context used; `--info` for budget used.
 * Tick bar: one tick per item in a row 44px high, each `--radius-xs`, equal widths, 4px apart; `--accent` for the items that need the user and `--text-2` for the rest.

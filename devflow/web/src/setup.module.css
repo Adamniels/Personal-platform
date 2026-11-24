@@ -1,5 +1,6 @@
-/* A project's Setup panel: the steps of setting it up and its newest check.
- * Tokens only, as the project's other panels. */
+/* A project's setup: the "Setting it up" card with its steps bar and its
+ * step list, and the "Check failed" card. Tokens only, as the project's
+ * other panels. */
 
 .card {
 	margin: 0;
@@ -31,24 +32,60 @@
 	font-weight: 600;
 }
 
-/* The steps, each on an inset, hard rule 3, in their order. */
-.steps {
-	display: flex;
-	flex-direction: column;
-	gap: var(--inset-gap);
-	margin: 0;
-	padding: 0;
-	list-style: none;
+/* The steps bar on the right of the card's label, as wide as a few
+ * buttons, so its pills read as steps rather than a progress bar. */
+.bar {
+	width: 220px;
+	max-width: 40vw;
 }
 
-.step {
+/* The step list, the card's body. */
+.steps {
+	margin: 0;
+}
+
+/* The pull request a done setup run merged, in its line. */
+.link {
+	color: inherit;
+	text-decoration: underline;
+	text-underline-offset: 2px;
+}
+
+.link:focus-visible {
+	outline: var(--focus-ring);
+	outline-offset: var(--focus-offset);
+}
+
+/* The settings the setup run proposes: its preset as a section heading,
+ * hard rule 12, what it means, why, and the paths on an inset in the mono
+ * font. */
+.proposal {
 	display: flex;
-	flex-wrap: wrap;
-	align-items: center;
-	gap: var(--space-2) var(--space-3);
+	flex-direction: column;
+	gap: var(--space-3);
+	min-width: 0;
+}
+
+.preset {
+	margin: 0;
+	font-family: var(--font-heading);
+	font-size: var(--text-h2-size);
+	line-height: var(--text-h2-line);
+	font-weight: 600;
+	text-transform: uppercase;
+	color: var(--text);
+}
+
+.paths {
+	margin: 0;
 	padding: 8px 12px;
+	list-style: none;
 	border-radius: var(--radius-md);
 	background: var(--surface-2);
+	font-family: var(--font-mono);
+	font-size: var(--text-mono-size);
+	line-height: var(--text-mono-line);
+	overflow-wrap: anywhere;
 }
 
 .check {
