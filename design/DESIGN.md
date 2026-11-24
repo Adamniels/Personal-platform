@@ -79,7 +79,7 @@ Label above the field in caption style (12/16, weight 500, `--text-2`), gap `--s
 Native checkbox, 18px box, `accent-color: var(--info)`. The whole label row is the target: `--row-h` tall, gap 10px between box and text. Completed to do items get `--text-3` and a line through.
 
 ### Switch
-A 44 by 26px track with `--radius-full` and an 18px round thumb, 3px from the edge. On: `--ok` fill and border, thumb in `--surface`, at the right. Off: no fill, 1px `--border-strong`, thumb in `--border-strong`, at the left. It is a real `button` with `role="switch"` and `aria-checked`, and the whole label row is the target, as for the checkbox.
+A 44 by 26px track with `--radius-full` and an 18px round thumb, 3px from the edge. On: `--ok` fill and border, thumb in `--surface`, at the right. Off: no fill, 1px `--border-strong`, thumb in `--border-strong`, at the left. It is a native checkbox with `role="switch"`, so it is a real form control that is said as on and off, and the whole label row is the target, as for the checkbox.
 
 ### Badge and status label
 Both: height 26px, padding 0 10px, `--radius-full`, caption style.
