@@ -9,6 +9,7 @@ import struct
 import zlib
 from pathlib import Path
 
+import pytest
 from playwright.sync_api import Browser, Locator, Page, expect
 
 from conftest import (
@@ -6071,3 +6072,239 @@ def test_i_send_a_failed_check_back(
     answered = page.request.get(f"/devflow/api/projects/{project}/setup").json()
     assert answered["setup"]["sent_back"] is True
     assert answered["setup"]["state"] == "reviewing"
+
+
+# An item's detail, by kind: every kind in the same frame. See "What waits" in
+# devflow/README.md.
+
+
+def _claude_login_given(page: Page, base_url: str) -> None:
+    given = page.request.put(
+        "/devflow/api/claude-login",
+        data={"token": CLAUDE_TOKEN},
+        headers={"Origin": base_url},
+    )
+    assert given.status == 200, given.text()
+
+
+def _read_card(page: Page, base_url: str, devflow_world, card: dict) -> str:
+    """Connects a repository with one labelled card and its project.json,
+    gives Dev flow a Claude login, and has the fake worker read the card as
+    `card` says. The project's id."""
+    world = one_repository()
+    add_issue(world, CARD, CARD_TITLE, labels=["devflow"])
+    add_file(
+        world,
+        ".devflow/project.json",
+        json.dumps({"version": 1, "check": CHECK, "start": "", "url": ""}).encode(),
+    )
+    _open_project(page, base_url, devflow_world, world)
+    project = page.url.rsplit("/", 1)[1]
+    _claude_login_given(page, base_url)
+    _read(page, base_url, project)
+    _fake_read(page, base_url, project, [card])
+    return project
+
+
+def _a_waiting_card(page: Page, base_url: str, devflow_world) -> str:
+    _built_card(page, base_url, devflow_world)
+    return CARD_TITLE
+
+
+def _a_runner_item(page: Page, base_url: str, devflow_world) -> str:
+    world = one_repository()
+    _decision(world)
+    devflow_world(world)
+    _connect_and_read(page, base_url)
+    return "The vault"
+
+
+def _a_feature(page: Page, base_url: str, devflow_world) -> str:
+    """A feature whose review approved its head, with CI passed there, so
+    it is ready and its merge is offered."""
+    project, _ = _published_feature(page, base_url, devflow_world)
+    reviewed = _fake_job(page, base_url, project, _verdict("approve"), None)
+    assert reviewed["kind"] == "feature_review", reviewed
+    _stage_ci(page, devflow_world, reviewed["head_commit"], [check_run("ci")])
+    asked = page.request.post(
+        "/devflow/api/fake/worker/run",
+        data={"project_id": project, "keep_running": True},
+        headers={"Origin": base_url},
+    )
+    assert asked.status == 204, asked.text()
+    return "The feature's branch"
+
+
+def _a_question_card(page: Page, base_url: str, devflow_world) -> str:
+    _read_card(
+        page,
+        base_url,
+        devflow_world,
+        {"number": CARD, "outcome": "questions", "questions": QUESTIONS, "missing": []},
+    )
+    return CARD_TITLE
+
+
+def _a_stopped_card(page: Page, base_url: str, devflow_world) -> str:
+    project = _card_project(page, base_url, devflow_world)
+    for _ in range(2):
+        _fake_run(page, base_url, project, _failure(True, TURNS), leave_no_commit=True)
+    return CARD_TITLE
+
+
+def _a_stopped_project(page: Page, base_url: str, devflow_world) -> str:
+    devflow_world(one_repository())
+    project = _connect_and_read(page, base_url)
+    staged = page.request.get("/devflow/api/fake/world").json()
+    add_activity(staged, 1, after=LANDED, at=LATER)
+    devflow_world(staged)
+    _read(page, base_url, project)
+    return "Something landed on main that Dev flow did not put there"
+
+
+def _a_decision(page: Page, base_url: str, devflow_world) -> str:
+    _built_card(page, base_url, devflow_world, green=True)
+    return "Show it on every list"
+
+
+def _a_refused_card(page: Page, base_url: str, devflow_world) -> str:
+    _read_card(page, base_url, devflow_world, _thin(CARD, THIN))
+    return CARD_TITLE
+
+
+def _a_failing_project(page: Page, base_url: str, devflow_world) -> str:
+    project = _card_project(page, base_url, devflow_world)
+    for failure in range(6):
+        if failure > 0:
+            ended = page.request.post(
+                "/devflow/api/fake/end-wait",
+                data={"project_id": project},
+                headers={"Origin": base_url},
+            )
+            assert ended.status == 204, ended.text()
+        _fake_run(page, base_url, project, _failure(False, LOGGED_OUT))
+    return f"Dev flow cannot run {NAME}'s cards: {LOGGED_OUT}"
+
+
+def _a_setup_item(page: Page, base_url: str, devflow_world) -> str:
+    """A setup run that stopped before it had a pull request."""
+    _open_project(page, base_url, devflow_world, one_repository())
+    project = page.url.rsplit("/", 1)[1]
+    _claude_login_given(page, base_url)
+    _read(page, base_url, project)
+    stopped = page.request.post(
+        "/devflow/api/fake/worker/run",
+        data={
+            "project_id": project,
+            "setup": True,
+            "leave_no_commit": True,
+            "result": {
+                **_failure(True, "The run reached its time limit, 90 minutes"),
+                "failure": {
+                    "reason": "The run reached its time limit, 90 minutes",
+                    "in_card": True,
+                    "timed_out": True,
+                },
+                "duration_ms": 5400000,
+            },
+        },
+        headers={"Origin": base_url},
+    )
+    assert stopped.status == 200, stopped.text()
+    return f"{NAME}'s setup stopped"
+
+
+# Each kind: how it is staged, how many primary buttons its detail has, and
+# the screenshot it is captured as at desktop and phone width, if any.
+DETAIL_KINDS = {
+    "waiting-card": (_a_waiting_card, 1, "devflow-item-card"),
+    "runner-item": (_a_runner_item, 1, None),
+    "feature": (_a_feature, 1, "devflow-item-feature"),
+    "question-card": (_a_question_card, 1, "devflow-item-questions"),
+    "stopped-card": (_a_stopped_card, 1, "devflow-item-stopped"),
+    "stopped-project": (_a_stopped_project, 1, None),
+    "decision": (_a_decision, 0, None),
+    "refused-card": (_a_refused_card, 0, None),
+    "failing-project": (_a_failing_project, 0, None),
+    "setup-item": (_a_setup_item, 0, None),
+}
+
+DETAIL_STYLE = """element => {
+    const style = getComputedStyle(element);
+    const family = value => value.split(",")[0].trim().replace(/^["']|["']$/g, "");
+    const probe = document.createElement("div");
+    document.body.append(probe);
+    const token = (name, property) => {
+        probe.style.setProperty(property, `var(${name})`);
+        return getComputedStyle(probe).getPropertyValue(property);
+    };
+    const resolved = {
+        heading: family(token("--font-heading", "font-family")),
+        mono: family(token("--font-mono", "font-family")),
+        hero: token("--text-hero-size", "font-size"),
+    };
+    probe.remove();
+    return {
+        family: family(style.fontFamily),
+        size: style.fontSize,
+        transform: style.textTransform,
+        weight: style.fontWeight,
+        resolved,
+    };
+}"""
+
+
+@pytest.mark.parametrize("kind", list(DETAIL_KINDS))
+def test_every_item_kind_follows_the_detail_rule(
+    page: Page, invite_code: str, base_url: str, devflow_world, kind: str
+):
+    page.set_viewport_size(VIEWPORTS["desktop"])
+    register_and_log_in(page, invite_code, base_url)
+    stage, primaries, shot = DETAIL_KINDS[kind]
+    title = stage(page, base_url, devflow_world)
+
+    for viewport in ("desktop", "phone") if shot else ("desktop",):
+        page.set_viewport_size(VIEWPORTS[viewport])
+        page.goto("/devflow")
+        item = _item(page, title)
+        expect(item).to_be_visible()
+
+        # The where line in the mono font, naming the repository, above the
+        # title, which is the hero label: the heading font at the hero size.
+        where = item.locator(":scope > header > p").first
+        expect(where).to_contain_text(f"{OWNER}/{NAME}")
+        hero = item.get_by_role("heading", level=2, name=title)
+        expect(hero).to_be_visible()
+        look = where.evaluate(DETAIL_STYLE)
+        assert look["family"] == look["resolved"]["mono"], (kind, look)
+        look = hero.evaluate(DETAIL_STYLE)
+        assert look["family"] == look["resolved"]["heading"], (kind, look)
+        assert look["size"] == look["resolved"]["hero"], (kind, look)
+        assert (look["transform"], look["weight"]) == ("uppercase", "600"), kind
+        assert where.bounding_box()["y"] < hero.bounding_box()["y"], kind
+
+        # Exactly one primary button where the kind acts, none where it
+        # does not.
+        accent = page.evaluate(
+            """() => {
+                const probe = document.createElement("div");
+                probe.style.backgroundColor = "var(--accent)";
+                document.body.append(probe);
+                const value = getComputedStyle(probe).backgroundColor;
+                probe.remove();
+                return value;
+            }"""
+        )
+        filled = [
+            button.inner_text()
+            for button in item.get_by_role("button").all()
+            if button.is_visible()
+            and button.evaluate("b => getComputedStyle(b).backgroundColor") == accent
+        ]
+        assert len(filled) == primaries, (kind, viewport, filled)
+
+        page.evaluate("document.fonts.ready.then(() => null)")
+        for check in (assert_headings_are_capitals, assert_nothing_scrolls_sideways):
+            check(page)
+        if shot:
+            capture(page, shot)

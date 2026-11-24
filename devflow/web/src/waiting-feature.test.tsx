@@ -9,7 +9,7 @@ import {
 import { afterEach, describe, expect, test, vi } from "vitest";
 import type { ActionsApi } from "./actions";
 import { App } from "./app";
-import { choose } from "./inbox.testing";
+import { choose, tiles } from "./inbox.testing";
 import type { WaitingApi, WaitingList } from "./waiting";
 import type { FeatureItem } from "./waiting-feature";
 
@@ -214,6 +214,66 @@ describe("features ready for your review", () => {
 		expect(
 			item.getByRole("link", { name: "Open on GitHub" }).getAttribute("href"),
 		).toBe("https://github.com/Adamniels/Fodr/pull/51");
+	});
+
+	test("a feature shows CI, the review and the unanswered decisions as tiles, and Open the feature", async () => {
+		openLinked(
+			list([feature({ merge: { into: "main", head_commit: HEAD } })]),
+			() => Promise.resolve(),
+		);
+
+		const item = await panel().findByRole("article", {
+			name: "Feeding plan, version 2",
+		});
+		expect(tiles(item)).toEqual([
+			["CI", "Passed", "on 9999999"],
+			["The review", "Approved", "on 9999999 · 0 blocking"],
+			["Decisions", "2 for you", "not answered yet"],
+		]);
+		// Open the feature, an arrow link under the tiles, to its page.
+		const open = within(item).getByRole("link", { name: "Open the feature" });
+		expect(open.getAttribute("href")).toBe(
+			`/devflow/projects/${PROJECT}/features/38`,
+		);
+		const glance = within(item).getByRole("list", { name: "At a glance" });
+		expect(glance.compareDocumentPosition(open)).toBe(
+			Node.DOCUMENT_POSITION_FOLLOWING,
+		);
+		// Merge into the default branch is the one primary, before sending
+		// the whole feature back.
+		const merge = await within(item).findByRole("button", {
+			name: "Merge into main",
+		});
+		expect(merge.className).toMatch(/primary/);
+		const back = within(item).getByRole("button", {
+			name: "Send the whole feature back",
+		});
+		expect(back.className).not.toMatch(/primary/);
+		expect(merge.compareDocumentPosition(back)).toBe(
+			Node.DOCUMENT_POSITION_FOLLOWING,
+		);
+	});
+
+	test("a feature without CI passed and without a review says so in its tiles", async () => {
+		openWith(
+			list([
+				feature({
+					state: "waiting_for_owner",
+					merge: null,
+					review: null,
+					unanswered: 0,
+				}),
+			]),
+		);
+
+		const item = await panel().findByRole("article", {
+			name: "Feeding plan, version 2",
+		});
+		expect(tiles(item)).toEqual([
+			["CI", "Not passed", "merging waits for it"],
+			["The review", "Not reviewed", "the whole feature, not yet"],
+			["Decisions", "Answered", "every one marked for you"],
+		]);
 	});
 
 	test("its page is one click away, inside the app", async () => {

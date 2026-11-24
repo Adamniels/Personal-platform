@@ -169,6 +169,39 @@ describe("a stopped card", () => {
 		expect(card.queryByRole("button", { name: "Merge" })).toBeNull();
 	});
 
+	test("a stopped card shows why on a danger inset and Comment to run again as the primary", async () => {
+		open(list([stopped()]));
+
+		const group = await stoppedTab();
+		const card = group.getByRole("article", { name: "Show the empty state" });
+		// Why it stopped, its label and the reason, on one danger inset.
+		const why = within(card).getByText(REASON).parentElement as HTMLElement;
+		expect(why.className).toMatch(/danger/);
+		expect(within(why).getByText("Why it stopped")).toBeTruthy();
+		// The comment is the one primary; pressing it opens the box and its
+		// Send, as today, and Send takes its place as the primary.
+		const comment = within(card).getByRole("button", { name: RUN_AGAIN });
+		await waitFor(() => expect(comment).toHaveProperty("disabled", false));
+		expect(comment.className).toMatch(/primary/);
+		expect(
+			within(card)
+				.getAllByRole("button")
+				.filter((button) => /primary/.test(button.className)),
+		).toHaveLength(1);
+		fireEvent.click(comment);
+		expect(
+			within(card).getByLabelText("A comment runs it again."),
+		).toBeTruthy();
+		expect(within(card).queryByRole("button", { name: RUN_AGAIN })).toBeNull();
+		const send = within(card).getByRole("button", { name: "Send" });
+		expect(send.className).toMatch(/primary/);
+		expect(
+			within(card)
+				.getAllByRole("button")
+				.filter((button) => /primary/.test(button.className)),
+		).toHaveLength(1);
+	});
+
 	test("Comment to run again posts the owner's comment on the card, and the list is read again", async () => {
 		const { sendBackCard } = open(list([stopped()]), { after: list([]) });
 

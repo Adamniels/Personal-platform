@@ -10,7 +10,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import type { ActionsApi } from "./actions";
 import { ApiError } from "./api/client";
 import { App } from "./app";
-import { choose } from "./inbox.testing";
+import { choose, tiles } from "./inbox.testing";
 import type { Status } from "./status";
 import type { CardItem, WaitingApi, WaitingItem, WaitingList } from "./waiting";
 
@@ -211,6 +211,60 @@ describe("a card of Dev flow's that waits", () => {
 		const back = shown.getByRole("button", { name: "Send back" });
 		expect(back.className).not.toMatch(/primary/);
 		expect(back).toHaveProperty("disabled", false);
+	});
+
+	test("a waiting card shows the check, the review and the decisions as tiles", async () => {
+		open([
+			card({
+				review: {
+					verdict: "approve",
+					summary: "The empty state is there and tested.",
+					blocking: 0,
+					commit: HEAD,
+				},
+			}),
+		]);
+
+		const shown = await screen.findByRole("article", { name: TITLE });
+		// The frame: the title as the detail's heading, then the tiles.
+		expect(
+			within(shown).getByRole("heading", { level: 2, name: TITLE }),
+		).toBeTruthy();
+		expect(tiles(shown)).toEqual([
+			["The check", "Passed", "npm ci && npm test · exit 0"],
+			["The review", "Approved", "on abc1234 · 0 blocking"],
+			["Decisions", "1 for you", "+2 it did not need you for"],
+		]);
+		// The decisions are insets under the tiles, and Merge says what it
+		// confirms in a mono line beside it.
+		const decided = within(shown).getByRole("list", {
+			name: "The agent decided",
+		});
+		const glance = within(shown).getByRole("list", { name: "At a glance" });
+		expect(glance.compareDocumentPosition(decided)).toBe(
+			Node.DOCUMENT_POSITION_FOLLOWING,
+		);
+		expect(
+			within(shown).getByText("Merging confirms the 1 decision"),
+		).toBeTruthy();
+	});
+
+	test("a failed check, no review and no decisions read so in their tiles", async () => {
+		open([
+			card({
+				check: { command: null, exit_code: 2, commit: HEAD },
+				decisions: [],
+				other_decisions: 0,
+			}),
+		]);
+
+		const shown = await screen.findByRole("article", { name: TITLE });
+		expect(tiles(shown)).toEqual([
+			["The check", "Failed", "the project's check · exit 2"],
+			["The review", "Not reviewed", "no review of this commit yet"],
+			["Decisions", "None for you", "none it decided alone"],
+		]);
+		expect(within(shown).queryByText(/^Merging confirms/)).toBeNull();
 	});
 
 	test("says why it waits, in words", async () => {
