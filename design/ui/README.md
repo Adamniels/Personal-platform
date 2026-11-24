@@ -88,6 +88,12 @@ included, and each follows its entry in section 4 of `DESIGN.md`.
   accent border, with a visually hidden "Needs you" so the mark is not colour alone; and its body
   as children. It is an `article`. The design's one key fact and at most three rows are the page's
   to keep to; the card does not count them.
+- `NeedsYouBanner`: `message`, the question or what is missing, at weight 600; `detail`, an
+  optional line of consequence in `--text-2`; and `action`, at most one element, the recommended
+  one, under the words. It draws the warning icon, hidden from assistive technology, and the
+  words "Needs you" before the message, so it is never colour alone. It is a `div` on
+  `--accent-soft` with the accent border; one per view, and the card holding it takes the accent
+  border itself, through the card's `attention`.
 - `EmptyState`: `title`, the line that says what is empty; `detail`, the line that says what
   happens next; and an optional `action`, one element, normally a secondary `Button`. It is a
   `div`, with no illustration.
@@ -170,7 +176,7 @@ rule 3 of `DESIGN.md` says. `Dialog` takes everything a `dialog` takes apart fro
 itself: `open`, `aria-labelledby`, and the `onCancel`, `onClose`, `onClick`, `onMouseDown` and
 `onKeyDown` it handles. `ToastProvider` renders no element of its own beside the stack.
 
-`Status`, `Badge`, `Chip`, `Progress`, `Meter`, `Card`, `EmptyState`, `Timeline`,
+`Status`, `Badge`, `Chip`, `Progress`, `Meter`, `Card`, `NeedsYouBanner`, `EmptyState`, `Timeline`,
 `TimelineEntry`, `TabPanel`, `Table`, `FilterRow`, `FilterPill` and `Paging` render a `span`, a
 `div`, an `article`, an `ol`, an `li`, a `section` or a `nav`, the table's being its wrapper, and
 take everything that element takes, apart from the props they set themselves, such as a panel's `id`,
