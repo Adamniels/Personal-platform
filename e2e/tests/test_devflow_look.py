@@ -1,6 +1,7 @@
 """Dev flow's pages in the platform's look: the crumb in the top bar, the page
 header, the item as a card and the rows inside it as inset rows, the
-screenshots' row, the Projects tab, and the three look checks of look.py.
+screenshots' row, the Projects tab, a project's page with its cards first, and
+the three look checks of look.py.
 See "The pages" in devflow/README.md.
 
 Colours and sizes are compared with the token as the page resolves it, as
@@ -18,11 +19,13 @@ from conftest import (
     link_github,
     open_section,
     register_and_log_in,
+    registered,
     sections,
 )
 from devflow_worlds import (
     INSTALLATION,
     REPOSITORY,
+    add_issue,
     add_pull_request,
     add_screenshot,
     check_run,
@@ -31,6 +34,7 @@ from devflow_worlds import (
     png,
     reviewer_comment,
     status,
+    with_setup,
 )
 from look import (
     assert_active_is_inverted,
@@ -399,6 +403,72 @@ def test_the_projects_tab_follows_the_look(
     expect(github.get_by_text("Your GitHub link has expired.")).to_be_visible()
     expect(github.get_by_text("Needs you")).to_be_attached()
     assert style(github)["borderColors"] == [accent] * 4
+
+
+def test_a_project_page_follows_the_look(
+    page: Page, invite_code: str, base_url: str, viewport: str, devflow_world
+):
+    register_and_log_in(page, invite_code, base_url)
+    # A feature of three cards, five cards on their own, and, once the fake
+    # worker has passed the setup's check, a worker.
+    world = one_repository()
+    add_issue(
+        world,
+        40,
+        "Export the feeding plan",
+        labels=["devflow"],
+        sub_issues=[41, 42, 43],
+    )
+    add_issue(world, 41, "Print layout for the plan")
+    add_issue(world, 42, "Export the feeding plan as PDF")
+    add_issue(world, 43, "Email the plan to the owner")
+    for number, title in (
+        (50, "Show the plan's date in the header"),
+        (51, "Chart colours in dark mode"),
+        (52, "Check the hay analysis units"),
+        (53, "Translate the plan to English"),
+        (54, "Remove the hackathon banner"),
+    ):
+        add_issue(world, number, title, labels=["devflow"])
+    with_setup(world)
+    devflow_world(world)
+    project = connect_and_read(page, base_url)
+    registered(page, base_url, project)
+    read(page, base_url, project)
+
+    page.goto(f"/devflow/projects/{project}")
+    cards = page.get_by_role("region", name="Cards", exact=True)
+    expect(cards.get_by_role("article", name="Feature #40")).to_be_visible()
+    own = cards.get_by_role("table", name="Cards on their own")
+    expect(own.locator("tbody tr")).to_have_count(5)
+    workers = page.get_by_role("article", name="Workers", exact=True)
+    expect(
+        workers.get_by_role("list", name="Workers").get_by_role("listitem")
+    ).to_have_count(1)
+    settings = page.get_by_role("article", name="Settings", exact=True)
+    expect(settings.get_by_role("term")).to_have_count(7)
+    expect(page.get_by_text("8 cards: 8 queued.")).to_be_visible()
+
+    # The cards column first; on desktop the side column beside it, on phone
+    # under it, where the table keeps its priority 1 columns and the stat
+    # pills give way to the summary line.
+    main = cards.bounding_box()
+    side = workers.bounding_box()
+    changed = own.get_by_role("columnheader", name="Changed")
+    pills = page.get_by_role("list", name="Cards by group")
+    if viewport == "desktop":
+        assert side["x"] >= main["x"] + main["width"], (main, side)
+        assert abs(side["y"] - main["y"]) < 1, (main, side)
+        expect(changed).to_be_visible()
+        expect(pills).to_be_visible()
+    else:
+        assert side["y"] >= main["y"] + main["height"], (main, side)
+        expect(changed).to_be_hidden()
+        expect(pills).to_be_hidden()
+    assert settings.bounding_box()["y"] > side["y"]
+
+    assert_the_look(page, "a project's page")
+    capture(page, "devflow-project")
 
 
 def assert_the_look(page: Page, where: str) -> None:

@@ -14,11 +14,14 @@ from playwright.sync_api import Browser, Page, expect
 from conftest import (
     account_in_access_cookie,
     capture,
+    fake_check,
     link_github,
     register_and_log_in,
+    registered,
 )
 from devflow_worlds import (
     APP_LOGIN,
+    CHECK,
     INSTALLATION,
     NAME,
     OWNER,
@@ -38,6 +41,7 @@ from devflow_worlds import (
     repository,
     reviewer_comment,
     status,
+    with_setup,
 )
 from look import (
     assert_active_is_inverted,
@@ -1356,10 +1360,10 @@ def test_i_trust_another_account(
     # trusted.
     world = one_repository()
     add_issue(world, 12, "The friend's card", author="octo-friend", labels=["devflow"])
-    _with_setup(world)
+    with_setup(world)
     _open_project(page, base_url, devflow_world, world)
     project = page.url.rsplit("/", 1)[1]
-    _registered(page, base_url, project)
+    registered(page, base_url, project)
 
     def read_again():
         refreshed = page.request.post(
@@ -1433,10 +1437,10 @@ def test_a_card_i_label_shows_as_queued(
         edits=[edit("UCE_17", "octo-stranger")],
     )
     add_pull_request(world, 18, labels=["devflow"])
-    _with_setup(world)
+    with_setup(world)
     _open_project(page, base_url, devflow_world, world)
     project = page.url.rsplit("/", 1)[1]
-    _registered(page, base_url, project)
+    registered(page, base_url, project)
 
     refreshed = page.request.post(
         f"/devflow/api/projects/{project}/refresh", headers={"Origin": base_url}
@@ -1507,10 +1511,10 @@ def test_a_strangers_label_starts_nothing(
             label_event("devflow-hold", "octo-stranger", change="removed"),
         ],
     )
-    _with_setup(world)
+    with_setup(world)
     _open_project(page, base_url, devflow_world, world)
     project = page.url.rsplit("/", 1)[1]
-    _registered(page, base_url, project)
+    registered(page, base_url, project)
 
     refreshed = page.request.post(
         f"/devflow/api/projects/{project}/refresh", headers={"Origin": base_url}
@@ -1558,10 +1562,10 @@ def test_a_labelled_feature_shows_its_cards_in_order(
     add_issue(world, 43, "Store the feature")
     add_issue(world, 44, "A plain issue it waits for")
     add_issue(world, 50, "A card on its own", labels=["devflow"])
-    _with_setup(world)
+    with_setup(world)
     _open_project(page, base_url, devflow_world, world)
     project = page.url.rsplit("/", 1)[1]
-    _registered(page, base_url, project)
+    registered(page, base_url, project)
 
     refreshed = page.request.post(
         f"/devflow/api/projects/{project}/refresh", headers={"Origin": base_url}
@@ -2074,7 +2078,6 @@ def test_dev_flow_tells_me_when_my_claude_login_is_due(
 
 CARD = 21
 CARD_TITLE = "Add the empty state"
-CHECK = "npm ci && npm test"
 
 
 def _reading(cards: list[dict]) -> dict:
@@ -5172,67 +5175,6 @@ def _png() -> bytes:
     )
 
 
-def _fake_check(
-    page: Page,
-    base_url: str,
-    project: str,
-    exit_code: int,
-    output: str,
-    pictures: dict[str, bytes] | None = None,
-) -> dict:
-    """The fake worker takes the project's next job, the check of its setup,
-    and ends it as a check's worker does: the check ran with `exit_code` and
-    `output`, and, with `pictures`, the project's address taken at both sizes.
-    What it answered."""
-    result: dict = {
-        "outcome": "succeeded",
-        "report": None,
-        "failure": None,
-        "check": {"exit_code": exit_code, "output": output},
-        "auth_method": None,
-        "usage": {},
-        "duration_ms": 61000,
-        "stderr": "",
-    }
-    if pictures is not None:
-        result["screenshots"] = {"names": list(pictures), "note": None}
-        result["pictures"] = [
-            {"name": name, "png": base64.b64encode(content).decode()}
-            for name, content in pictures.items()
-        ]
-    ran = page.request.post(
-        "/devflow/api/fake/worker/run",
-        data={"project_id": project, "result": result, "for_check": True},
-        headers={"Origin": base_url},
-    )
-    assert ran.status == 200, ran.text()
-    return ran.json()
-
-
-def _with_setup(world: dict) -> None:
-    """Puts a project.json on the world's default branch, so a check of its
-    setup can be handed out; a project without one stays setting up."""
-    add_file(
-        world,
-        ".devflow/project.json",
-        json.dumps({"version": 1, "check": CHECK, "start": "", "url": ""}).encode(),
-    )
-
-
-def _registered(page: Page, base_url: str, project: str) -> None:
-    """The fake worker passes the check of the project's setup, so the project
-    is registered and its page shows its cards rather than its setup steps.
-    See "Setting up a project" in devflow/README.md. The project is read first,
-    since a project whose default branch was not watched lately hands out no
-    job."""
-    refreshed = page.request.post(
-        f"/devflow/api/projects/{project}/refresh", headers={"Origin": base_url}
-    )
-    assert refreshed.status == 204, refreshed.text()
-    passed = _fake_check(page, base_url, project, 0, "Tests  1 passed")
-    assert passed["kind"] == "check", passed
-
-
 def _pass_the_check(worker, key: str, worker_id: str) -> None:
     """A worker on a version no check has passed is handed that check before
     anything else: it takes it and ends it passed, as a working recipe's
@@ -5330,7 +5272,7 @@ def test_a_project_is_checked_before_its_first_card(
         + [f" ✓ src/habit-{n}.test.ts (3 tests)" for n in range(1, 9)]
         + [" × src/list.test.ts > shows the empty state", "Tests  1 failed | 24 passed"]
     )
-    failed = _fake_check(page, base_url, project, 1, output)
+    failed = fake_check(page, base_url, project, 1, output)
     assert failed["kind"] == "check"
     assert failed["card"] is None
     nothing = page.request.post(
@@ -5366,7 +5308,7 @@ def test_a_project_is_checked_before_its_first_card(
         )
     ).to_be_visible()
     picture = _png()
-    passed = _fake_check(
+    passed = fake_check(
         page,
         base_url,
         project,
@@ -5865,7 +5807,7 @@ def test_i_send_a_failed_check_back(
         " × src/cache.test.ts > connects to Redis\n"
         "Tests  1 failed | 24 passed"
     )
-    failed = _fake_check(page, base_url, project, 1, output)
+    failed = fake_check(page, base_url, project, 1, output)
     assert failed["kind"] == "check"
 
     # I send it back with a comment from the check.
