@@ -2052,10 +2052,9 @@ def test_a_feature_is_read_before_it_is_built(
         "Answer On the card's page, with its state on the list"
     )
     expect(questions).to_contain_text("Because The list stays one line a card")
-    runs = page.get_by_role("list", name="Runs").get_by_role("listitem")
-    expect(runs).to_have_count(1)
-    expect(runs.first).to_contain_text("Reading")
-    expect(runs.first).to_contain_text("Succeeded")
+    entries = _entries(page)
+    expect(entries.locator("h3")).to_have_text(["Reading", "Now"])
+    expect(entries.first).to_contain_text("Succeeded")
     _look(page, "devflow-card-reading")
 
 
@@ -2576,7 +2575,7 @@ def test_a_built_card_waits_for_me_with_its_pull_request(
     ):
         check(page)
     assert _axe_violations(page) == []
-    capture(page, "devflow-card-waiting")
+    capture(page, "devflow-inbox-waiting")
 
 
 def test_i_merge_a_card_from_the_list(
@@ -2613,11 +2612,29 @@ def test_i_merge_a_card_from_the_list(
     expect(row).to_contain_text("Done")
 
 
-def test_a_cards_page_tells_its_story(
+def _entries(page: Page):
+    """The entries of a card's timeline, How it got here, oldest first, its
+    own and none nested in them."""
+    return page.get_by_role("list", name="How it got here").locator(":scope > li")
+
+
+def test_a_card_page_tells_its_story(
     page: Page, invite_code: str, base_url: str, viewport: str, devflow_world
 ):
     register_and_log_in(page, invite_code, base_url)
-    project, ran = _built_card(page, base_url, devflow_world)
+    read_once = {
+        "blocking": True,
+        "file": "web/src/list.tsx",
+        "line": 42,
+        "what": "The empty state is read once",
+        "why": "A list emptied later shows nothing",
+    }
+    # A build, a review asking for changes, a fix, and a review approving it.
+    project, ran = _built_card(
+        page, base_url, devflow_world, verdict=_verdict("changes", [read_once])
+    )
+    fixed = _fake_fix(page, base_url, project, _fix_report())
+    _fake_review(page, base_url, project, _verdict("approve"))
     pull = _opened(page)
 
     # From the project's cards list to the card's page.
@@ -2626,14 +2643,13 @@ def test_a_cards_page_tells_its_story(
         "link", name=CARD_TITLE
     ).click()
     expect(page).to_have_url(f"{base_url}/devflow/projects/{project}/cards/{CARD}")
-    expect(page.get_by_role("heading", name=CARD_TITLE)).to_be_visible()
     expect(page.get_by_role("tab", name="Projects", selected=True)).to_be_visible()
 
-    # Its state with its reason, and links to the issue and the pull request:
-    # approved, and with nothing from CI on its commit yet the merge check
-    # waits for it.
-    expect(page.get_by_text("Waiting for you", exact=True).first).to_be_visible()
-    expect(page.get_by_text("Waiting for CI to report on its commit")).to_be_visible()
+    # The header: its state, the mono line, the title and its links.
+    expect(page.get_by_role("heading", name=CARD_TITLE)).to_be_visible()
+    expect(
+        page.get_by_text(f"{OWNER}/{NAME} · CARD #{CARD} · NO FEATURE".upper())
+    ).to_be_visible()
     expect(page.get_by_role("link", name=f"Issue #{CARD}")).to_have_attribute(
         "href", f"https://github.com/{OWNER}/{NAME}/issues/{CARD}"
     )
@@ -2641,36 +2657,47 @@ def test_a_cards_page_tells_its_story(
         page.get_by_role("link", name=f"Pull request #{pull['number']}")
     ).to_have_attribute("href", pull["url"])
 
-    # Its runs, newest first: the review, then the build with its kind,
-    # worker, outcome, auth method, tokens and the check, with the output's
-    # tail behind Show, then the reading that read it before it was built.
-    runs = page.get_by_role("list", name="Runs")
-    expect(runs.get_by_role("listitem")).to_have_count(3)
-    expect(runs.get_by_role("listitem").first).to_contain_text("Review")
-    run = runs.get_by_role("listitem").nth(1)
-    expect(run).to_contain_text("Build")
-    expect(run).to_contain_text("devflow-fake-worker")
-    expect(run).to_contain_text("Succeeded")
-    expect(run).to_contain_text("oauth_token")
-    expect(run).to_contain_text("41 in, 6,113 out")
-    expect(run).to_contain_text(f"exit 0 on {ran['head_commit'][:7]}")
-    expect(runs.get_by_role("listitem").nth(2)).to_contain_text("Reading")
-    expect(run.get_by_text("Tests: 12 passed")).to_be_hidden()
-    run.get_by_role("button", name="Show").click()
-    expect(run.get_by_text("Tests: 12 passed")).to_be_visible()
-
-    # The latest report: summary, tasks, decisions, tests, pages and follow ups.
-    report = page.get_by_role("article", name="The latest report")
-    expect(report).to_contain_text("Added the empty state to the habits list")
-    expect(report.get_by_role("list", name="Tasks")).to_contain_text("Count the habits")
-    decisions = report.get_by_role("list", name="Decisions")
-    expect(decisions).to_contain_text("Show it on every list")
-    expect(decisions).to_contain_text("For you")
-    expect(report.get_by_role("list", name="Tests")).to_contain_text("list.test.tsx")
-    expect(report.get_by_role("list", name="Pages")).to_contain_text("/habits")
-    expect(report.get_by_role("list", name="Follow ups")).to_contain_text(
-        "Count the habits in the title"
+    # What the agent did, the fix's report, before how it got here.
+    did = page.get_by_role("article", name="What the agent did")
+    expect(did).to_contain_text(
+        "Read the empty state on every change, with a test that empties the list."
     )
+    expect(did.get_by_role("list", name="Decisions")).to_contain_text("For you")
+
+    # How it got here: the reading, then the build, the review asking for
+    # changes, the fix and the approval, oldest first, ending in now.
+    entries = _entries(page)
+    expect(entries.locator("h3")).to_have_text(
+        [
+            "Reading",
+            "Build",
+            f"Review of {ran['head_commit'][:7]}",
+            "Fix, round 1 of 3",
+            f"Review of {fixed['head_commit'][:7]}",
+            "Now",
+        ]
+    )
+    build = entries.nth(1)
+    expect(build).to_contain_text("devflow-fake-worker")
+    expect(build).to_contain_text("41 in / 6,113 out")
+    expect(build).to_contain_text("logged in with oauth_token")
+    expect(build).to_contain_text(f"exit 0 on {ran['head_commit'][:7]}")
+    expect(build.get_by_text("Tests: 12 passed")).to_be_hidden()
+    build.get_by_role("button", name="Show output").click()
+    expect(build.get_by_text("Tests: 12 passed")).to_be_visible()
+    expect(entries.nth(2).get_by_role("list", name="Findings")).to_contain_text(
+        "Blocking web/src/list.tsx:42 The empty state is read once"
+    )
+    expect(
+        entries.nth(3).get_by_role("list", name="The developer's replies")
+    ).to_contain_text("Fixed: it is read on every change")
+    expect(entries.nth(4)).to_contain_text("Approved")
+    expect(entries.nth(5)).to_contain_text("Waiting for you")
+
+    # At a glance: the check and the review of the head, and one round used.
+    glance = page.get_by_role("article", name="At a glance")
+    expect(glance).to_contain_text("Approved")
+    expect(glance.get_by_role("img", name="Fix rounds: 1 of 3 used")).to_be_visible()
 
     page.evaluate("document.fonts.ready.then(() => null)")
     for check in (
@@ -2681,7 +2708,14 @@ def test_a_cards_page_tells_its_story(
     ):
         check(page)
     assert _axe_violations(page) == []
-    capture(page, "devflow-card-page")
+    capture(page, "devflow-card-waiting")
+
+    # The banner's one link opens its item in the inbox.
+    page.get_by_role("link", name="Decide in Waiting for you").click()
+    expect(page).to_have_url(
+        re.compile(rf"/devflow\?item=card(/|%2F){project}(/|%2F){CARD}$")
+    )
+    expect(page.get_by_role("article", name=CARD_TITLE)).to_be_visible()
 
 
 def test_the_card_page_shows_which_pages_the_agent_looked_at(
@@ -2701,7 +2735,7 @@ def test_the_card_page_shows_which_pages_the_agent_looked_at(
 
     page.goto(f"/devflow/projects/{project}/cards/{CARD}")
     pages = (
-        page.get_by_role("article", name="The latest report")
+        page.get_by_role("article", name="What the agent did")
         .get_by_role("list", name="Pages")
         .get_by_role("listitem")
     )
@@ -2785,10 +2819,12 @@ def test_a_built_card_is_reviewed(
             "Round 1 of 3: the reviewer asked for changes; a fix runs next"
         )
     ).to_be_visible()
-    reviews = page.get_by_role("article", name="Reviews")
-    expect(reviews).to_contain_text(f"Review of {commit[:7]}")
+    reviews = _entries(page).filter(
+        has=page.get_by_role("heading", name=f"Review of {commit[:7]}")
+    )
+    expect(reviews).to_have_count(1)
     expect(reviews.get_by_text("Changes asked for")).to_be_visible()
-    expect(reviews).to_contain_text("For the pull request's head")
+    expect(reviews).to_contain_text("for the pull request's head")
     expect(reviews).to_contain_text(
         "The empty state shows on an empty list only after a reload."
     )
@@ -2802,9 +2838,9 @@ def test_a_built_card_is_reviewed(
     expect(reviews.get_by_role("list", name="For the owner")).to_contain_text(
         "Agreed: the lists share one component."
     )
-    runs = page.get_by_role("list", name="Runs").get_by_role("listitem")
-    expect(runs.first).to_contain_text("Review")
-    expect(runs.first).to_contain_text("Succeeded")
+    expect(_entries(page).locator("h3")).to_have_text(
+        ["Reading", "Build", f"Review of {commit[:7]}", "Now"]
+    )
 
     # The pull request in the fake world has the review's comment, by the app.
     conversation = [
@@ -2829,7 +2865,7 @@ def test_a_built_card_is_reviewed(
     expect(_waiting_row(page)).to_have_count(0)
 
     page.goto(f"/devflow/projects/{project}/cards/{CARD}")
-    expect(page.get_by_role("article", name="Reviews")).to_be_visible()
+    expect(_entries(page).nth(2)).to_contain_text("Changes asked for")
     page.evaluate("document.fonts.ready.then(() => null)")
     for check in (
         assert_headings_are_capitals,
@@ -3042,27 +3078,30 @@ def test_a_card_with_changes_is_fixed_and_reviewed_again(
             "Round 2 of 3: the reviewer asked for changes; a fix runs next"
         )
     ).to_be_visible()
-    rounds = page.get_by_role("list", name="Rounds")
-    one = rounds.get_by_role("listitem", name="Round 1 of 3")
+    one = page.get_by_role("listitem", name="Fix, round 1 of 3")
     expect(one).to_contain_text(
         f"The review of {ran['head_commit'][:7]} asked for changes."
     )
-    expect(one.get_by_role("list", name="Replies")).to_contain_text(
-        "The empty state is read once"
-    )
-    expect(one.get_by_role("list", name="Replies")).to_contain_text(
-        "Fixed: it is read on every change"
-    )
+    replies = one.get_by_role("list", name="The developer's replies")
+    expect(replies).to_contain_text("The empty state is read once")
+    expect(replies).to_contain_text("Fixed: it is read on every change")
     expect(one).to_contain_text(
         f"It left {first['head_commit'][:7]}, and the review of it asked for changes."
     )
-    reviews = page.get_by_role("article", name="Reviews")
-    expect(reviews).to_contain_text(f"Review of {first['head_commit'][:7]}")
-    expect(reviews).to_contain_text(f"Review of {ran['head_commit'][:7]}")
-    expect(reviews).to_contain_text("For an older commit, so it does not count")
-    runs = page.get_by_role("list", name="Runs").get_by_role("listitem")
-    expect(runs).to_have_count(5)
-    expect(runs.nth(1)).to_contain_text("Fix")
+    # Oldest first: the reading, the build, its review, round 1, its review.
+    expect(_entries(page).locator("h3")).to_have_text(
+        [
+            "Reading",
+            "Build",
+            f"Review of {ran['head_commit'][:7]}",
+            "Fix, round 1 of 3",
+            f"Review of {first['head_commit'][:7]}",
+            "Now",
+        ]
+    )
+    expect(_entries(page).nth(2)).to_contain_text(
+        "for an older commit, so it does not count"
+    )
 
     page.evaluate("document.fonts.ready.then(() => null)")
     for check in (
@@ -3081,8 +3120,12 @@ def test_a_card_with_changes_is_fixed_and_reviewed_again(
     _fake_review(page, base_url, project, _verdict("approve"))
     page.reload()
     expect(page.get_by_text("Waiting for you", exact=True).first).to_be_visible()
-    expect(rounds.get_by_role("listitem", name=re.compile("^Round"))).to_have_count(2)
-    expect(rounds.get_by_role("listitem", name="Round 2 of 3")).to_contain_text(
+    expect(
+        _entries(page).filter(
+            has=page.get_by_role("heading", name=re.compile("^Fix, round"))
+        )
+    ).to_have_count(2)
+    expect(page.get_by_role("listitem", name="Fix, round 2 of 3")).to_contain_text(
         f"It left {second['head_commit'][:7]}, and the review of it approved it."
     )
 
@@ -3151,9 +3194,12 @@ def test_a_stopped_card_tells_me_why_and_i_run_it_again(
 ):
     register_and_log_in(page, invite_code, base_url)
     project = _card_project(page, base_url, devflow_world)
-    # The fake worker fails twice in the card, with nothing pushed between.
+    # The fake worker fails twice in the card, with nothing pushed between,
+    # Claude Code's error output the last lines of each.
+    failed = _failure(True, TURNS)
+    failed["stderr"] = "Starting Claude Code\nError: Reached max turns (200)"
     for _ in range(2):
-        _fake_run(page, base_url, project, _failure(True, TURNS), leave_no_commit=True)
+        _fake_run(page, base_url, project, failed, leave_no_commit=True)
 
     # The app marked it on its issue: the attention label and one comment.
     world = repository(page.request.get("/devflow/api/fake/world").json())
@@ -3192,7 +3238,30 @@ def test_a_stopped_card_tells_me_why_and_i_run_it_again(
     ):
         check(page)
     assert _axe_violations(page) == []
+    capture(page, "devflow-inbox-stopped")
+
+    # The card's page says why, and links back to its item.
+    page.goto(f"/devflow/projects/{project}/cards/{CARD}")
+    expect(page.get_by_role("link", name="Decide in Waiting for you")).to_be_visible()
+    expect(page.locator("[data-banner]")).to_contain_text("Needs you")
+    expect(page.get_by_text(TWICE).first).to_be_visible()
+    error = page.get_by_role("button", name="Show Claude Code's error output").last
+    error.click()
+    expect(page.get_by_text("Error: Reached max turns (200)").last).to_be_visible()
+    page.evaluate("document.fonts.ready.then(() => null)")
+    for check in (
+        assert_headings_are_capitals,
+        assert_nothing_scrolls_sideways,
+        assert_active_is_inverted,
+        assert_nothing_active_is_amber,
+    ):
+        check(page)
+    assert _axe_violations(page) == []
     capture(page, "devflow-card-stopped")
+
+    # Back to its item through the banner's link, which opens it on phone too.
+    page.get_by_role("link", name="Decide in Waiting for you").click()
+    expect(stopped).to_be_visible()
 
     # "Comment to run again" posts his comment on the card's issue, which queues it.
     stopped.get_by_role("button", name="Comment to run again").click()
@@ -3432,15 +3501,13 @@ def test_an_edited_card_is_read_again(
     page.goto(f"/devflow/projects/{project}/cards/{CARD}")
     reading = page.get_by_role("article", name="The reading")
     expect(reading).to_contain_text("Ready to build")
+    reading.get_by_role("button", name="Show the earlier reading").click()
     earlier = reading.get_by_role("list", name="Earlier readings")
     expect(earlier.get_by_role("listitem", name=re.compile("^Read on "))).to_have_count(
         1
     )
     expect(earlier).to_contain_text("Ready")
-    runs = page.get_by_role("list", name="Runs").get_by_role("listitem")
-    expect(runs).to_have_count(2)
-    expect(runs.nth(0)).to_contain_text("Reading")
-    expect(runs.nth(1)).to_contain_text("Reading")
+    expect(_entries(page).locator("h3")).to_have_text(["Reading", "Reading", "Now"])
     _look(page, "devflow-card-read-again")
 
 
@@ -3664,8 +3731,9 @@ def test_an_approved_card_merges_by_itself(
     _fake_review(page, base_url, project, _verdict("approve"))
     page.reload()
     expect(page.get_by_text("Done", exact=True).first).to_be_visible()
-    merge = page.get_by_role("article", name="The merge")
-    expect(merge).to_contain_text(f"Dev flow merged #{pull['number']} into main")
+    merge = page.get_by_role("article", name="At a glance")
+    expect(merge.get_by_role("heading", name="The merge")).to_be_visible()
+    expect(merge).to_contain_text("Into main, by Dev flow as the app.")
     expect(merge).to_contain_text(f"approved {ran['head_commit'][:7]}")
 
     # The fake world shows the merge, by the app with a key for merging,
@@ -3682,7 +3750,8 @@ def test_an_approved_card_merges_by_itself(
     expect(_waiting_row(page)).to_have_count(0)
 
     page.goto(f"/devflow/projects/{project}/cards/{CARD}")
-    expect(page.get_by_role("article", name="The merge")).to_be_visible()
+    expect(page.get_by_role("heading", name="The merge")).to_be_visible()
+    expect(page.get_by_role("link", name="Decide in Waiting for you")).to_have_count(0)
     page.evaluate("document.fonts.ready.then(() => null)")
     for check in (
         assert_headings_are_capitals,
@@ -3700,7 +3769,7 @@ def test_i_choose_a_preset(
 ):
     register_and_log_in(page, invite_code, base_url)
     project, ran = _built_card(page, base_url, devflow_world, review=False, green=True)
-    pull = _opened(page)
+    _opened(page)
     # Back to what a new project starts as, questions on and always.
     _waits_for_me(page, base_url, project, "always", questions=True)
 
@@ -3764,8 +3833,8 @@ def test_i_choose_a_preset(
     _fake_review(page, base_url, project, _verdict("approve"))
     page.goto(f"/devflow/projects/{project}/cards/{CARD}")
     expect(page.get_by_text("Done", exact=True).first).to_be_visible()
-    expect(page.get_by_role("article", name="The merge")).to_contain_text(
-        f"Dev flow merged #{pull['number']} into main"
+    expect(page.get_by_role("article", name="At a glance")).to_contain_text(
+        "Into main, by Dev flow as the app."
     )
     merges = [write for write in _writes(page) if write["kind"] == "merge"]
     assert [merge["commit"] for merge in merges] == [ran["head_commit"]]

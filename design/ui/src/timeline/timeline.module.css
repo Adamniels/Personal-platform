@@ -75,6 +75,32 @@
 	font-variant-numeric: tabular-nums;
 }
 
+/* The title's line: the title at weight 500 and its status label, wrapping
+ * under it where it is narrow. */
+.head {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-1) var(--space-2);
+	margin-top: var(--space-1);
+}
+
+.title {
+	margin: 0;
+	font-family: var(--font-ui);
+	font-size: var(--text-body-size);
+	line-height: var(--text-body-line);
+	font-weight: 500;
+}
+
+/* A body under a title holds blocks, space-2 apart. */
+div.body {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-2);
+	margin-top: var(--space-2);
+}
+
 .body {
 	margin: 0;
 	font-size: var(--text-body-size);

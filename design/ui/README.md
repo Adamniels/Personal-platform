@@ -110,9 +110,12 @@ included, and each follows its entry in section 4 of `DESIGN.md`.
   `div`, with no illustration.
 - `Timeline`, with `TimelineEntry`: `Timeline` is an `ol`, so give it an `aria-label` where no
   heading names it, and its entries are its direct children, so it knows the last one, which draws
-  no line. Each `TimelineEntry` takes `time`, already formatted and shown in the mono font; its
-  line as children; an optional `detail`; and `attention`, the filled accent dot, with a visually
-  hidden "Needs you" as on the card. The rail is hidden from assistive technology.
+  no line. Each `TimelineEntry` takes `time`, already formatted and shown in the mono font, which
+  may carry more facts after the time; an optional `title`, an `h3` at weight 500 that names the
+  entry, with an optional `status`, a tone and a word drawn as a `Status` on the title's line; its
+  line as children, or with a title its body, a `div` that may hold blocks such as insets and
+  lists; an optional `detail`; and `attention`, the filled accent dot, with a visually hidden
+  "Needs you" as on the card. The rail is hidden from assistive technology.
 - `StepList`, with `StepListItem`: `StepList` is an `ol`, so give it an `aria-label` where no
   heading names it, and its items are its direct children, so each knows its number, from one.
   Each `StepListItem` takes `state`, one of `done`, `current` and `to-come`; `title`; an optional

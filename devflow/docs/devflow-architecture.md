@@ -1259,9 +1259,16 @@ nothing a stopped project produced is merged until he resumes it. Sending one ba
 back, his comment posted as him on its pull request, which the next read takes as the one input Dev
 flow reads from GitHub, see "Fixing".
 
-**A card's page is its whole story**, round 7 of the spec: its runs, newest first, with what each
-cost and why each ended, the latest report, and its reviews, read from what Dev flow stored, so it
-answers while GitHub is away.
+**A card's page is its whole story**, round 7 of the spec, read from what Dev flow stored, so it
+answers while GitHub is away. Since the redesign it tells it in order: what the agent did, from the
+latest report, then how it got here, its runs, reviews and fix rounds as one timeline, oldest first,
+so a review and the fix that answered it sit together rather than in three lists matched up by
+commit. It stays read only, and where the card needs the owner its banner links to its item on
+Waiting for you, the one place he acts. A failed run carries `stderr_tail` on the card's story
+route, the last 50 of the 200 lines of stderr the run keeps: enough to see why Claude Code failed
+without reading a whole log, which the page does not show. It is cut from what was stored scrubbed,
+so it is never scrubbed again, and a run that succeeded carries none, since its stderr explains
+nothing the owner acts on.
 
 ## Review
 

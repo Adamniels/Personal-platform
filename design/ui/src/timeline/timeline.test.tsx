@@ -103,3 +103,58 @@ describe("a timeline is a list, and the last entry draws no line", () => {
 		expect(within(second as HTMLElement).queryByText("Needs you")).toBeNull();
 	});
 });
+
+describe("an entry with a title", () => {
+	it("a timeline entry shows its mono time, its title with a status label and its body, the last with no line after it", () => {
+		render(
+			<Timeline aria-label="How it got here">
+				<TimelineEntry
+					time="20 Nov 14:02 · fodr-mini-1"
+					title="Build"
+					status={{ tone: "done", word: "Succeeded" }}
+				>
+					<p>Check exit 0 on 4c7d210</p>
+					<ul aria-label="Findings">
+						<li>The date ignores the locale</li>
+					</ul>
+				</TimelineEntry>
+				<TimelineEntry
+					time="Now"
+					title="Now"
+					status={{ tone: "needs-you", word: "Waiting for you" }}
+					attention
+				/>
+			</Timeline>,
+		);
+
+		// An entry with a title is named by it, so a page finds it by role.
+		const build = screen.getByRole("listitem", { name: "Build" });
+		const time = within(build).getByText("20 Nov 14:02 · fodr-mini-1");
+		const title = within(build).getByRole("heading", { name: "Build" });
+		const status = within(build).getByText("Succeeded");
+		const body = within(build).getByText("Check exit 0 on 4c7d210");
+		expect(time.classList.contains(styles.time as string)).toBe(true);
+		expect(title.classList.contains(styles.title as string)).toBe(true);
+		// The status label sits on the title's line, after the title.
+		expect(title.parentElement?.contains(status)).toBe(true);
+		expect(time.compareDocumentPosition(title)).toBe(
+			Node.DOCUMENT_POSITION_FOLLOWING,
+		);
+		expect(title.compareDocumentPosition(status)).toBe(
+			Node.DOCUMENT_POSITION_FOLLOWING,
+		);
+		expect(status.compareDocumentPosition(body)).toBe(
+			Node.DOCUMENT_POSITION_FOLLOWING,
+		);
+		// The body holds blocks, a list among them.
+		expect(body.closest(`.${styles.body}`)).not.toBeNull();
+		expect(within(build).getByRole("list", { name: "Findings" })).toBeTruthy();
+		expect(build.querySelector(`.${styles.line}`)).not.toBeNull();
+
+		// The last entry, a title and no body, draws no line.
+		const now = screen.getByRole("listitem", { name: "Now" });
+		expect(within(now).getByText("Waiting for you")).toBeTruthy();
+		expect(now.querySelector(`.${styles.line}`)).toBeNull();
+		expect(now.querySelector(`.${styles.body}`)).toBeNull();
+	});
+});

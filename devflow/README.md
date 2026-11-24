@@ -371,50 +371,80 @@ label becomes one, and one with sub-issues a feature."; cards that could not be 
 
 A card's page, `src/card.tsx`, is at `/devflow/projects/<id>/cards/<number>`, under the Projects
 tab, which stays selected there, read from `GET /devflow/api/projects/{id}/cards/{number}` as it
-loads. Its header is a link "Back to the project" over the card's title as a section heading; a
-card the caller does not have is the `EmptyState` "There is no such card", and one that cannot be
-read an alert. Under it the package's `Card`s: "The card", its state as the project's cards
-shows it with its reason beside it, and the links "Issue #<number>" and "Pull request #<number>",
-each in a new tab with `rel="noreferrer"` when its address is https and plain text otherwise, with,
-between them for a card of a feature, "Feature #<number>: <title>", to the feature's page;
-"The reading", once a reading of the card came back, see "Reading a card", its outcome as a
-status, "Ready to build" `done`, "Built on the recommendations" `idle` or "Too thin to build"
-`failed`, with "Read on <time>" beside it; for a card with questions, "The card leaves choices
-open that it does not settle, so it is built on the reader's recommendations." and "Dev flow posted
-them on the card." once its comment is there, "Dev flow posts them on the card." before, muted,
-and the list "Questions", each question an inset row with "Answer <the answer it is built on>"
-and "Because <why>" under it; and for one too thin, the list "Missing", what it lacks; for a card
-read again, "Earlier readings", muted "It was read again before it was built. The readings before
-are kept as they were, with any answers given to them, and none is carried into its build.", and
-the list "Earlier readings", newest first, from the story's `earlier_readings`, each an inset row
-named "Read on <time>" with its outcome as a status, "Ready", "Questions", "Answered" once the owner
-answered them, or "Too thin", the list "Questions then", each question with "Your answer <his
-answer>", "(recommended)" where he accepted it, or "Recommended <the recommendation>", and the list
-"Missing then"; every text the reader's, as text; "The merge", once Dev flow merged its pull request as the app, "Dev flow merged #<pull request>
-into <base> as the app, once every condition of the merge check held." and, muted, "Merge commit
-<commit> of the approved <commit>, on <time>.", both commits in the mono font; "Rounds", once the card has been sent back, the list "Rounds", newest first, each fix an inset row
-named "Round <n> of <m>", `m` the project's `fix_rounds_card` as it is now, or "Your comment" for one the owner's comment started, with its outcome as
-a status, "The review of <commit> asked for changes." or "You sent it back with a comment.", his
-words under "What you wrote" with their line breaks, the developer's answer to each finding under
-"Replies", and "It left <commit>", with what the review of it said, "not reviewed yet", or nothing
-more when the fix failed; "Reviews", once the card has one, the list "Reviews", newest first, each
-the commit, its verdict, whether it counts for the pull request's head, its summary, its findings,
-blocking first, and its view on each decision for the owner; "Runs", the list "Runs", newest first, each run an inset row with its kind and its outcome as a
-status, "Succeeded" `done`, "Running" `running`, and "Failed", "Check failed", "The agent
-stopped", "Report did not match" and "Lost" `failed`, then in the mono font its worker, when it
-started and how long it took, for a failure its reason and whether it lay in the card or outside
-it, "Logged in with <auth method>" and "Tokens <in> in, <out> out", and "Check exit <code> on
-<commit>" with a "Show" that opens the output's tail, kept as written and wrapped; or "No run has
-taken this card yet."; and, when a run has handed one back, "The latest report": its summary, then
-its tasks, decisions, tests, pages and follow ups, each a list under its label, each item on an
-inset, a decision for the owner marked "For you", a page the agent looked at itself marked
-"Looked at" and one it did not "The agent did not look at this page", a list with nothing left
-out. With
-`screenshots`, a `Card` "Screenshots" after "The card": "Taken by the worker of <commit>, after
-its check passed", the worker's note when it has one, and the pairs as part 1's, through
-`src/screenshots.tsx`, each read from the card's own route; a card's item on "Waiting for you"
-shows the same row after its review. Every text came from GitHub, a worker or an agent and is shown
-as text, through `src/format.tsx`.
+loads; a card the caller does not have is the `EmptyState` "There is no such card", and one that
+cannot be read an alert. It tells the card's story in order and holds no action: every action on a
+card is on Waiting for you. Top to bottom:
+
+- **The header**: the link "Back to the project"; the card's state as the project's cards show it,
+  as a status, beside a mono line in capitals, `OWNER/NAME · CARD #N · FEATURE #M`, or
+  `NO FEATURE` for a card on its own; the title as the page title, at most 18ch wide; and the
+  links "Issue #<number>" and "Pull request #<number>", each in a new tab with `rel="noreferrer"`
+  when its address is https and plain text otherwise, and for a card of a feature "Feature
+  #<number>: <title>", to the feature's page.
+- **The banner**, the package's `NeedsYouBanner`, only for a card that needs the owner, its one
+  primary "Decide in Waiting for you" linking its item by the parent's keys, `itemPath` of
+  `src/waiting.tsx`: `card/<project>/<n>` for `waiting_for_owner`, "It passed its check and its
+  review, and waits for you." with what merging confirms, the decisions the report marked for him,
+  and for `stopped`, "It stopped, and runs again on your comment." with its reason;
+  `refused/<project>/<n>`, "It is too thin to build." with what it lacks; and
+  `questions/<project>/<n>` for `needs_answers`, "It has <n> questions for you before it is
+  built." Every other state has none.
+- **The main column**, the package's `Card`s:
+  - "The reading", once a reading came back, see "Reading a card": its outcome as a status, "Ready
+    to build" `done`, "Built on the recommendations" `idle`, "Built on your answers" or "Too thin
+    to build" `failed`, with "Read on <time>" beside it; for a card with questions what they are
+    to it, muted, and the list "Questions", each an inset row with "Answer <the answer it is built
+    on>" and "Because <why>"; for one too thin, the list "Missing". For a card read again,
+    "Earlier readings", muted "It was read again before it was built. The readings before are kept
+    as they were, with any answers given to them, and none is carried into its build.", and a
+    button "Show the <n> earlier readings" opening the list "Earlier readings", newest first, each
+    an inset row named "Read on <time>" with its outcome, "Ready", "Questions", "Answered" or "Too
+    thin", the list "Questions then" and the list "Missing then".
+  - "What the agent did", once a run has handed back a report, captioned "latest report": its
+    summary in body large; "Tasks", with "<done> of <n> done", each marked "Done" or "Not done",
+    beside "Tests", with "<n> passed", each with its result, and "Pages", each marked "Looked at"
+    or "The agent did not look at this page", wrapping under each other where narrow; "Decisions",
+    with "<n> for you · <m> more", those the report marked for the owner first, each on an inset
+    marked "For you", and the others behind "Show the <m> it did not need you for"; and "Follow
+    ups". A list with nothing is left out.
+  - "How it got here", captioned "oldest first": the package's `Timeline` of every run, review and
+    fix round, oldest first, by when each started or was reviewed, each a `TimelineEntry` named by
+    its title, its facts on its mono line. A run, a read run among them, is its kind, "Build",
+    "Reading" and the others, with its outcome as a status, "Succeeded" `done`, "Running"
+    `running`, and "Failed", "Check failed", "The agent stopped", "Report did not match" and "Lost"
+    `failed`; its line says when it started, its worker, how long it took, its tokens in and out
+    and how it logged in; for a failure its reason and whether it lay in the card or outside it,
+    and, when its worker sent any, "Show Claude Code's error output", which opens `stderr_tail`
+    in the mono font, kept as written and wrapped; and "Check exit <code> on <commit>" with "Show
+    output", which opens the check's tail the same way. A review run that kept a verdict is its
+    review, "Review of <commit>" with its verdict, its line saying whether it is for the pull
+    request's head or an older commit and so does not count, and whether it is on the pull request
+    yet; its findings, blocking first, each on an inset with where it is, what and why; its
+    summary; and its view on each decision for the owner. A fix run is its round, "Fix, round <n>
+    of <m>", `m` the project's `fix_rounds_card` as it is now, or "Fix, for your comment", with its
+    outcome: "The review of <commit> asked for changes." or "You sent it back with a comment.", his
+    words under "What you wrote" with their line breaks, "The developer's replies" on insets, a
+    failure's reason and error output, "It left <commit>" with what the review of it said, "not
+    reviewed yet", or nothing more when the fix failed, and its check. The last entry is "Now",
+    the card's state as a status, with its reason under it, and the filled accent dot when it
+    needs the owner; while a run is under way its own entry says "Running". With no run yet, "No
+    run has taken this card yet." over "Now".
+- **The side column**, at a glance and its pictures, which stacks under the main column on phone:
+  - "At a glance": for a card Dev flow merged as the app, "The merge" first, "Into <base>, by Dev
+    flow as the app." and, muted, "Merge commit <commit> of the approved <commit>, on <time>.";
+    then label and value rows, the value in the mono font: "The check", the exit code of the
+    newest build's or fix's that succeeded and its commit; "The review", the head's review's
+    verdict and "head", or the newest one's and "older commit"; "Runs", their count and total time;
+    "Tokens", in and out over every run; and "Fix rounds", "<used> of <m> used", the highest round
+    number, over the steps bar of section 4 of `design/DESIGN.md`, one pill per round, named
+    "Fix rounds: <used> of <m> used".
+  - "Screenshots", with `screenshots`: "Taken by the worker of <commit>, after its check passed.",
+    the worker's note when it has one, and the pairs as part 1's, through `src/screenshots.tsx`,
+    each read from the card's own route; a card's item on "Waiting for you" shows the same row
+    after its review.
+
+Every text came from GitHub, a worker or an agent and is shown as text, through
+`src/format.tsx`.
 
 Waiting for you, `src/waiting.tsx`, is one list of what waits for the owner across his projects,
 read from `GET /devflow/api/waiting`, see "What waits", through React Query: as the page loads,
@@ -3354,13 +3384,16 @@ weigh it; it does not stop the card by itself. `TheAgentCanStartTheProjectAndTak
 
 `GET /devflow/api/projects/{id}/cards/{number}`, under the `Api` policy, answers a card's whole
 story so far, read from what Dev flow stored and never from GitHub, through the door as the caller:
-`number`, `title` as last read, `web_url`, `state`, `reason`, `pull_request`,
+`number`, `repository`, the project's as `owner/name`, `title` as last read, `web_url`, `state`, `reason`, `pull_request`,
 `{"number", "url"}` or null; `runs`, newest first, each `id`, `kind`, `worker`, the name it said
 hello with, `started_at`, `finished_at`, `duration_ms`, `result`, `reason`, `in_card`, for a
 failure whether it lay in the card, true for `failed_in_card`, `report_invalid`, `stopped` and
 `check_failed` and false for `failed_outside_card` and `lost`, null otherwise, `auth_method`,
 `input_tokens`, `output_tokens`, `check`, `{"exit_code", "output"}` or null when it did not run,
-and `head_commit`, for a review the commit it reviewed; a reading that read the card is among them,
+`head_commit`, for a review the commit it reviewed, and `stderr_tail`, for a run that failed the
+last 50 lines of the stderr its worker sent, stored scrubbed as "A project's values" says, so
+nothing is scrubbed again here, empty when it sent none, and null for a run that succeeded or
+still runs; a reading that read the card is among them,
 its feature's for a card of a feature; `report`, the latest build's or fix's
 report that reads in its form, or null; `reviews`, newest first, each `run_id`, `commit`,
 `verdict`, `summary`, `findings`, `for_owner`, `reviewed_at`, `posted`, and `current`, whether it

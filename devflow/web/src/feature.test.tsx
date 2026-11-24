@@ -336,6 +336,7 @@ describe("a feature's page", () => {
 								output_tokens: 3400,
 								check: { exit_code: 0, output: "Tests: 40 passed" },
 								head_commit: COMMIT,
+								stderr_tail: null,
 							},
 							{
 								id: "01a3185c-5000-7000-8000-000000000008",
@@ -352,6 +353,7 @@ describe("a feature's page", () => {
 								output_tokens: null,
 								check: null,
 								head_commit: null,
+								stderr_tail: "",
 							},
 						],
 					}),

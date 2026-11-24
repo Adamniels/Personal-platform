@@ -1,5 +1,6 @@
-/* A card's page under the Projects tab: its header, and its panels, the card,
- * its reviews, its runs and its latest report. Tokens only, design/DESIGN.md. */
+/* A card's page under the Projects tab: its header, its banner, its main
+ * column and its side column; and the run, review and round rows a feature's
+ * page shows. Tokens only, design/DESIGN.md. */
 
 /* The way back over the card's title, which reads as the section's heading,
  * as a project's page has it. */
@@ -22,6 +23,253 @@
 .header .name {
 	margin: 0;
 	overflow-wrap: anywhere;
+}
+
+/* On a card's page the title is the page title, the heading font at the
+ * display size, at most 18ch wide so a long one wraps into a block. */
+.header .title {
+	max-width: 18ch;
+	font-size: var(--text-display-size);
+	line-height: var(--text-display-line);
+	letter-spacing: var(--tracking-display);
+}
+
+/* The state's status label and the mono line, the line wrapping under the
+ * label where it leaves no room. */
+.captionRow {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-1) var(--space-3);
+	min-width: 0;
+}
+
+/* The repository, the card and its feature, hard rule 8, in capitals as a
+ * project's caption is; a repository's name has no spaces, so it may break
+ * anywhere rather than scroll sideways at phone width (hard rule 13). */
+.caption {
+	margin: 0;
+	color: var(--text-3);
+	font-family: var(--font-mono);
+	font-size: var(--text-mono-size);
+	line-height: var(--text-mono-line);
+	font-variant-numeric: tabular-nums;
+	overflow-wrap: anywhere;
+}
+
+/* The banner a section gap above the columns. */
+.banner {
+	margin-bottom: var(--space-4);
+}
+
+/* The banner's one link, to Waiting for you, drawn as section 4's primary
+ * button, since it is the view's one primary (hard rule 4). */
+.primary {
+	box-sizing: border-box;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	height: var(--control-h);
+	padding: 0 18px;
+	border: 1px solid var(--accent-border);
+	border-radius: var(--radius-full);
+	background: var(--accent);
+	color: var(--on-accent);
+	font-family: var(--font-ui);
+	font-size: var(--text-body-size);
+	line-height: var(--text-body-line);
+	font-weight: 600;
+	text-decoration: none;
+	white-space: nowrap;
+}
+
+.primary:focus-visible {
+	outline: var(--focus-ring);
+	outline-offset: var(--focus-offset);
+}
+
+/* "Main plus side panel" in section 2: the main column, then the side column,
+ * which wraps under it on phone. */
+.columns {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: flex-start;
+	gap: var(--space-4);
+}
+
+.main {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-4);
+	flex: 999 1 560px;
+	min-width: 0;
+}
+
+.side {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-4);
+	flex: 1 1 280px;
+	min-width: 0;
+}
+
+/* A card's caption on the right of its header, in the mono font. */
+.aside {
+	color: var(--text-3);
+	font-family: var(--font-mono);
+	font-size: var(--text-mono-size);
+	line-height: var(--text-mono-line);
+}
+
+/* The report's summary, in body large at the reading width. */
+.summary {
+	max-width: var(--reading-max);
+	margin: 0;
+	font-size: var(--text-body-lg-size);
+	line-height: var(--text-body-lg-line);
+	overflow-wrap: anywhere;
+}
+
+/* Tasks beside Tests and Pages, wrapping under each other where narrow. */
+.pair {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-4);
+}
+
+.pair > * {
+	flex: 1 1 240px;
+	min-width: 0;
+}
+
+.stack {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-4);
+}
+
+/* A list's plain rows, a label and a value, with no inset. */
+.plainItems {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-1);
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.plainItem {
+	overflow-wrap: anywhere;
+}
+
+/* A task with its mark before it, a test with its result after it. */
+.task {
+	display: flex;
+	align-items: baseline;
+	gap: var(--space-2);
+}
+
+.test {
+	display: flex;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: var(--space-2);
+}
+
+.task > :first-child,
+.test > :last-child {
+	flex: none;
+	font-size: var(--text-caption-size);
+	line-height: var(--text-caption-line);
+}
+
+.done {
+	color: var(--ok);
+	font-weight: 600;
+}
+
+.notDone {
+	color: var(--text-2);
+	font-weight: 600;
+}
+
+/* A label's count, in the mono font, hard rule 8. */
+.count {
+	color: var(--text-3);
+	font-family: var(--font-mono);
+	font-weight: 400;
+}
+
+/* A decision for the owner, marked as needing him. */
+.forYou {
+	display: inline-block;
+	padding: 0 var(--space-2);
+	border-radius: var(--radius-full);
+	background: var(--accent-soft);
+	color: var(--accent-text);
+	font-size: var(--text-caption-size);
+	line-height: var(--text-caption-line);
+	font-weight: 600;
+}
+
+.chosen {
+	font-weight: 600;
+}
+
+/* A blocking finding's mark. */
+.blocking {
+	color: var(--danger);
+	font-weight: 600;
+}
+
+/* What the merge was, first in At a glance. */
+.merge {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-1);
+}
+
+/* At a glance's facts: plain rows 36px high with a line under each, the
+ * label in --text-2 and the value in the mono font, as section 4's inset
+ * list row says of a label and a value. */
+.facts {
+	margin: 0;
+}
+
+.fact {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--space-1) var(--space-3);
+	min-height: 36px;
+	border-bottom: 1px solid var(--border);
+}
+
+.fact:last-child {
+	border-bottom: none;
+}
+
+.fact dt {
+	color: var(--text-2);
+}
+
+.fact dd {
+	display: inline-flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-2);
+	margin: 0;
+	font-family: var(--font-mono);
+	font-size: var(--text-mono-size);
+	line-height: var(--text-mono-line);
+	font-variant-numeric: tabular-nums;
+}
+
+/* The fix rounds' steps bar, `StepsBar` from cards.tsx, pulled up to the
+ * label above it. */
+.steps {
+	margin-top: calc(-1 * var(--space-2));
 }
 
 /* Each panel a section gap below the one before. */
@@ -145,8 +393,10 @@
 	min-width: 0;
 }
 
-/* Show reads as a link-styled control, so the inset keeps one weight. */
+/* Show reads as a link-styled control, so the inset keeps one weight; in a
+ * column it keeps its own width, at the start. */
 .show {
+	align-self: flex-start;
 	padding: 0;
 	border: none;
 	border-radius: var(--radius-sm);
