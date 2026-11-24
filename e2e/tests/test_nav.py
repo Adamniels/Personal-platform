@@ -16,7 +16,7 @@ import pytest
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import Locator, Page, expect
 
-from conftest import VIEWPORTS, capture, register_and_log_in
+from conftest import VIEWPORTS, WIDE, capture, register_and_log_in
 
 THEMES = ["light", "dark"]
 TOKENS = Path(__file__).parents[2] / "design/tokens.css"
@@ -25,7 +25,11 @@ STORAGE_KEY = "platform-theme"
 # The links of a fresh account, in registry order, which infra/features.toml
 # makes Canary, Review and Dev flow, after the two the bar holds itself.
 LINKS = ["Home", "Memory", "Canary", "Review", "Dev flow"]
-WIDE = {"width": 1920, "height": 1080}
+# The pages the shell is measured on: the core's, the brain's and two
+# features', each a frontend of its own around the same bar.
+SHELL_PAGES = ["/", "/brain", "/review", "/devflow"]
+# Desktop widths wider than the content column and the rail together.
+WIDE_WIDTHS = [1440, 1920]
 # The icons a link may draw, as lucide-react 1.72.0's icons/<name>.mjs gives
 # them without their React keys: what nav.js must draw, written here apart
 # from it so a test catches a copy that drifts.
@@ -696,26 +700,109 @@ def test_the_page_content_is_not_covered_by_the_rail_or_either_bar(
     assert box["y"] >= 0 and box["y"] + box["height"] <= bottom
 
 
-def test_the_shell_is_centred_on_a_wide_window(
-    page: Page, invite_code: str, base_url: str
-):
-    page.set_viewport_size(WIDE)
-    email = register_and_log_in(page, invite_code, base_url)
+def at_width(page: Page, width: int) -> None:
+    page.set_viewport_size({"width": width, "height": WIDE["height"]})
+
+
+def open_shell(page: Page, path: str, email: str) -> None:
+    page.goto(path)
     drawn(page, email)
+
+
+def test_rail_sits_at_the_window_left_edge(page: Page, invite_code: str, base_url: str):
+    email = register_and_log_in(page, invite_code, base_url)
+
+    for width in WIDE_WIDTHS:
+        at_width(page, width)
+        for path in SHELL_PAGES:
+            open_shell(page, path, email)
+            pad = size(page, "--page-pad")
+            side = rail(page).bounding_box()
+            assert side is not None
+            assert side["x"] == pad, (width, path)
+            assert side["y"] == pad, (width, path)
+
+    # Fixed to the window: scrolling leaves it where it is.
     add_tall_content(page)
-    pad = size(page, "--page-pad")
-
     side = rail(page).bounding_box()
-    content = page.locator("main").bounding_box()
-    assert side is not None and content is not None
-    assert content["width"] == size(page, "--content-max")
-    # As much room left of the rail as right of the content.
-    assert side["x"] == WIDE["width"] - (content["x"] + content["width"])
-    assert side["x"] > pad
-
     page.mouse.wheel(0, 600)
     page.wait_for_function("window.scrollY > 0")
     assert rail(page).bounding_box() == side
+
+
+def test_account_pill_sits_at_the_window_right_edge(
+    page: Page, invite_code: str, base_url: str
+):
+    email = register_and_log_in(page, invite_code, base_url)
+
+    for width in WIDE_WIDTHS:
+        at_width(page, width)
+        for path in SHELL_PAGES:
+            open_shell(page, path, email)
+            pad = size(page, "--page-pad")
+            side = rail(page).bounding_box()
+            top = top_bar(page).bounding_box()
+            account = pill(page, email).bounding_box()
+            name = crumb(page).bounding_box()
+            assert side and top and account and name
+            assert account["x"] + account["width"] == width - pad, (width, path)
+            # The top bar runs from right of the rail, a gap away, to the
+            # window's right edge less the pad, and the crumb comes first.
+            rail_right = side["x"] + side["width"]
+            assert top["x"] == rail_right + pad, (width, path)
+            assert top["x"] + top["width"] == width - pad, (width, path)
+            assert name["x"] == top["x"], (width, path)
+
+
+def test_content_is_centred_beside_the_rail(
+    page: Page, invite_code: str, base_url: str
+):
+    email = register_and_log_in(page, invite_code, base_url)
+
+    for width in [WIDE["width"], VIEWPORTS["desktop"]["width"]]:
+        at_width(page, width)
+        for path in SHELL_PAGES:
+            open_shell(page, path, email)
+            pad = size(page, "--page-pad")
+            side = rail(page).bounding_box()
+            content = page.get_by_role("main").bounding_box()
+            assert side is not None and content is not None
+            rail_right = side["x"] + side["width"]
+            left = content["x"] - rail_right
+            right = width - (content["x"] + content["width"])
+            if width == WIDE["width"]:
+                assert content["width"] == size(page, "--content-max"), path
+                # The same room either side, within the room right of the rail.
+                assert left == right, path
+                assert left > pad, path
+            else:
+                # Narrower than the column: it fills the room less the pad.
+                assert left == pad and right == pad, path
+            if width == WIDE["width"] and path in ("/", "/devflow"):
+                capture(page, "shell-home" if path == "/" else "shell-devflow")
+
+
+def test_phone_shell_is_unchanged(page: Page, invite_code: str, base_url: str):
+    email = register_and_log_in(page, invite_code, base_url)
+    phone = VIEWPORTS["phone"]
+    page.set_viewport_size(phone)
+
+    for path in ["/", "/devflow"]:
+        open_shell(page, path, email)
+        # No rail: it draws no box, and neither its mark nor its toggle shows.
+        assert rail(page).evaluate("el => el.getBoundingClientRect().width") == 0
+        expect(rail(page).locator(".mark")).to_be_hidden()
+        # The top bar, the window's full width, with the mark on its left.
+        top = top_bar(page).bounding_box()
+        assert top is not None
+        assert top["x"] == 0 and top["width"] == phone["width"], path
+        expect(top_bar(page).locator(".mark")).to_be_visible()
+        # The tab bar at the bottom, across the window.
+        tabs = links_bar(page).bounding_box()
+        assert tabs is not None
+        assert tabs["x"] == 0 and tabs["width"] == phone["width"], path
+        assert tabs["y"] + tabs["height"] == phone["height"], path
+        capture(page, "shell-home" if path == "/" else "shell-devflow")
 
 
 def test_the_page_keeps_the_rails_room_before_the_script_runs(

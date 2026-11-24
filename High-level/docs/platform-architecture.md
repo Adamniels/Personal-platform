@@ -2,7 +2,7 @@
 
 Status: exploratory. The walking skeleton is being built.
 
-Last updated: 2026 11 16
+Last updated: 2026 11 24
 
 The top of the documentation. What the platform is, what services exist, and the thinking that
 shapes more than one of them. Anything you only need when you sit down to write a particular
@@ -294,9 +294,10 @@ A feature includes these lines and nothing else, in whatever it is written in:
 The bar's styles live in its shadow root and use the tokens, which the page's root defines and the
 shadow root inherits, so a page that includes the bar links `tokens.css` and `fonts.css`.
 `page.css` holds the page shell of section 2 of `design/DESIGN.md` around the bar, for a page
-that includes `<platform-nav>` as a direct child of `body`: on desktop the room for the rail on the
-left and the top bar's height, with the shell centred on a wide window, and on phone the room for
-the tab bar at the bottom. The room is held before the script runs, so nothing moves when the bar
+that includes `<platform-nav>` as a direct child of `body`: on desktop the whole window, with the
+room for the rail at its left edge and the top bar's height, the bar running to the window's right
+edge and the content column centred in the room beside the rail, and on phone the room for the tab
+bar at the bottom. The room is held before the script runs, so nothing moves when the bar
 draws, and no page changes its markup for it. It also holds the page container
 from section 2 of `design/DESIGN.md`, with its headings and the mono font for ids, which a page
 opts into with `<main class="page">`, so a page written without a stylesheet of its own still

@@ -23,6 +23,10 @@ VIEWPORTS = {
     "desktop": {"width": 1280, "height": 800},
     "phone": {"width": 390, "height": 844},
 }
+# A wide desktop window, which a test sets itself where a criterion names it.
+# capture() names it too, but the viewport fixture never runs a test at it.
+WIDE = {"width": 1920, "height": 1080}
+CAPTURED = {**VIEWPORTS, "wide": WIDE}
 
 
 @pytest.fixture(scope="session")
@@ -150,10 +154,10 @@ def viewport(request, page) -> str:
 
 def _viewport_name(page) -> str:
     size = page.viewport_size
-    for name, dimensions in VIEWPORTS.items():
+    for name, dimensions in CAPTURED.items():
         if size == dimensions:
             return name
-    raise ValueError(f"page viewport {size} is not one of {list(VIEWPORTS)}")
+    raise ValueError(f"page viewport {size} is not one of {list(CAPTURED)}")
 
 
 def capture(page, name: str) -> Path:
