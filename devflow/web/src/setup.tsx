@@ -17,10 +17,10 @@ import {
 } from "@platform/ui";
 import { type FormEvent, type ReactNode, useState } from "react";
 import { describe } from "./actions";
-import { navigate, plainClick } from "./address";
 import type { GetAnswer } from "./api/client";
 import { StepsBar } from "./cards";
 import { CommentBox } from "./comment-box";
+import { ArrowLink, Detail, Tiles } from "./detail";
 import { Command, EditSettings } from "./project";
 import styles from "./setup.module.css";
 import { type ValuesApi, ValuesSection } from "./values";
@@ -809,47 +809,50 @@ export const setupRunTitle = (project: SetupRunItem) =>
 		: `${project.project_name}'s setup waits for you`;
 
 /** A project whose setup run waits for the owner or stopped, under "Setup"
- * on "Waiting for you"; its step, with Merge, is on its page. */
+ * on "Waiting for you", in the detail's frame: its state and its reason, and
+ * the way to its page, where its step, with Merge, is. It acts nowhere in
+ * the inbox. */
 export function WaitingSetupRun({ project }: { project: SetupRunItem }) {
 	const page = `/devflow/projects/${encodeURIComponent(project.project_id)}`;
 	const stopped = project.state === "stopped";
 	return (
-		<Card
+		<Detail
 			title={setupRunTitle(project)}
-			aside={
+			where={[`${project.owner}/${project.project_name}`, "setup run"]}
+			status={
 				stopped ? (
 					<Status tone="failed">Stopped</Status>
 				) : (
 					<Status tone="needs-you">Needs you</Status>
 				)
 			}
-			className={styles.item}
+			needsYou={!stopped}
+			lede={project.reason === null ? null : sentence(project.reason)}
 		>
-			<div className={styles.body}>
-				<p className={styles.muted}>
-					{project.owner}/{project.project_name}
-				</p>
-				{project.reason === null ? null : (
-					<p className={styles.line}>{sentence(project.reason)}</p>
-				)}
-				<p className={styles.line}>
-					<a
-						className={styles.open}
-						href={page}
-						onClick={(event) => {
-							if (plainClick(event)) {
-								event.preventDefault();
-								navigate(page);
-							}
-						}}
-					>
-						{stopped
-							? "See why on the project's page"
-							: "Merge it from the project's page"}
-					</a>
-				</p>
-			</div>
-		</Card>
+			<Tiles
+				tiles={[
+					{
+						label: "The setup run",
+						tone: stopped ? "failed" : "needs-you",
+						status: stopped ? "Stopped" : "Waits for you",
+						line:
+							project.pull_request_number === null
+								? "no pull request yet"
+								: [
+										`pull request #${project.pull_request_number}`,
+										...(project.head_commit === null
+											? []
+											: [project.head_commit.slice(0, 7)]),
+									].join(" · "),
+					},
+				]}
+			/>
+			<ArrowLink href={page}>
+				{stopped
+					? "See why on the project's page"
+					: "Merge it from the project's page"}
+			</ArrowLink>
+		</Detail>
 	);
 }
 
@@ -957,46 +960,42 @@ export const setupFailedTitle = (project: SetupProjectItem) =>
 	`${project.project_name}'s setup failed its check`;
 
 /** A project whose newest check of its setup failed, under "Setup" on
- * "Waiting for you". */
+ * "Waiting for you", in the detail's frame: the check's version, exit code
+ * and time, and the way to its page, where its output and "Check again"
+ * are. It acts nowhere in the inbox. */
 export function WaitingSetup({ project }: { project: SetupProjectItem }) {
 	const page = `/devflow/projects/${encodeURIComponent(project.project_id)}`;
 	return (
-		<Card
+		<Detail
 			title={setupFailedTitle(project)}
-			aside={<Status tone="failed">Check failed</Status>}
-			className={styles.item}
+			where={[`${project.owner}/${project.project_name}`, "setup check"]}
+			status={<Status tone="failed">Check failed</Status>}
+			needsYou={false}
+			lede={
+				project.state === "setting_up"
+					? "It starts no card's work until its setup passes its check."
+					: "Its workers on the newest version of its setup get no work until it passes its check."
+			}
 		>
-			<div className={styles.body}>
-				<p className={styles.muted}>
-					{project.owner}/{project.project_name}
-				</p>
-				<p className={styles.line}>
-					{project.state === "setting_up"
-						? "It starts no card's work until its setup passes its check."
-						: "Its workers on the newest version of its setup get no work until it passes its check."}{" "}
-					The check of version{" "}
-					<span className={styles.mono}>{project.version.slice(0, 7)}</span>{" "}
-					exited with {project.exit_code},{" "}
-					<time className={styles.mono} dateTime={project.checked_at}>
-						{DATE_TIME.format(new Date(project.checked_at))}
-					</time>
-					.
-				</p>
-				<p className={styles.line}>
-					<a
-						className={styles.open}
-						href={page}
-						onClick={(event) => {
-							if (plainClick(event)) {
-								event.preventDefault();
-								navigate(page);
-							}
-						}}
-					>
-						See its output on the project's page
-					</a>
-				</p>
-			</div>
-		</Card>
+			<Tiles
+				tiles={[
+					{
+						label: "The check",
+						tone: "failed",
+						status: "Failed",
+						line: (
+							<>
+								version {project.version.slice(0, 7)} · exit {project.exit_code}{" "}
+								·{" "}
+								<time dateTime={project.checked_at}>
+									{DATE_TIME.format(new Date(project.checked_at))}
+								</time>
+							</>
+						),
+					},
+				]}
+			/>
+			<ArrowLink href={page}>See its output on the project's page</ArrowLink>
+		</Detail>
 	);
 }

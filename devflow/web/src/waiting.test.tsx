@@ -203,7 +203,7 @@ describe("the list and its groups", () => {
 		const entry = within(await choose("Add the empty state"));
 		expect(entry.getByText("Refused", { selector: "span" })).toBeTruthy();
 		expect(entry.getByText("Adamniels/Personal-platform")).toBeTruthy();
-		expect(entry.getByText("#4")).toBeTruthy();
+		expect(entry.getByText("card #4")).toBeTruthy();
 
 		// What is missing, each a line of its own.
 		const missing = entry.getByRole("list", { name: "What is missing" });
@@ -251,7 +251,7 @@ describe("the list and its groups", () => {
 		expect(within(group).getAllByRole("link")).toHaveLength(1);
 		const item = await choose("fodr's setup failed its check");
 		expect(within(item).getByText("Check failed")).toBeTruthy();
-		expect(within(item).getByText(/exited with 1/)).toBeTruthy();
+		expect(within(item).getByText(/· exit 1 ·/)).toBeTruthy();
 		expect(
 			within(item)
 				.getByRole("link", { name: "See its output on the project's page" })
@@ -285,7 +285,8 @@ describe("the list and its groups", () => {
 		const group = await screen.findByRole("region", { name: "Setup" });
 		expect(within(group).getAllByRole("link")).toHaveLength(1);
 		const item = await choose("fodr's setup waits for you");
-		expect(within(item).getByText("Needs you")).toBeTruthy();
+		// Its status label, beside the words read out for the accent border.
+		expect(within(item).getAllByText("Needs you")).toHaveLength(2);
 		expect(
 			within(item).getByText("Approved; it waits for you to merge it."),
 		).toBeTruthy();
@@ -1159,8 +1160,8 @@ describe("questions before starting", () => {
 		expect(within(group).getAllByRole("link")).toHaveLength(1);
 		const entry = within(await choose("Add the habits list"));
 		expect(entry.getByText("Adamniels/Personal-platform")).toBeTruthy();
-		expect(entry.getByText("#9")).toBeTruthy();
-		expect(entry.getByText("#8 Habits")).toBeTruthy();
+		expect(entry.getByText("card #9")).toBeTruthy();
+		expect(entry.getByText("feature #8")).toBeTruthy();
 
 		// Each question with the recommendation and why; nothing is sent
 		// until every question has an answer.
@@ -1179,12 +1180,11 @@ describe("questions before starting", () => {
 
 		// Accept the first and third, write another answer for the second.
 		fireEvent.click(first.getByRole("button", { name: "Accept" }));
-		expect(
-			first
-				.getByRole("button", { name: "Accepted" })
-				.getAttribute("aria-pressed"),
-		).toBe("true");
-		fireEvent.change(second.getByLabelText("Or your own answer"), {
+		expect(first.getByText("Accepted")).toBeTruthy();
+		fireEvent.click(
+			second.getByRole("button", { name: "Write another answer" }),
+		);
+		fireEvent.change(second.getByLabelText("Another answer"), {
 			target: { value: "No, nothing at all" },
 		});
 		expect((send as HTMLButtonElement).disabled).toBe(true);
@@ -1197,10 +1197,9 @@ describe("questions before starting", () => {
 			"GitHub did not answer. Nothing was sent. Try again in a moment.",
 		);
 		expect(
-			(second.getByLabelText("Or your own answer") as HTMLTextAreaElement)
-				.value,
+			(second.getByLabelText("Another answer") as HTMLTextAreaElement).value,
 		).toBe("No, nothing at all");
-		expect(first.getByRole("button", { name: "Accepted" })).toBeTruthy();
+		expect(first.getByText("Accepted")).toBeTruthy();
 
 		// Sent again, the answers go in the order of the questions.
 		fireEvent.click(entry.getByRole("button", { name: "Send answers" }));

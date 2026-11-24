@@ -549,7 +549,8 @@ def test_the_waiting_list_shows_a_stopped_pull_request(
     page.goto("/devflow")
 
     stopped = _item(page, "Import a photo", "Stopped")
-    expect(stopped.get_by_text("Stopped", exact=True)).to_be_visible()
+    header = stopped.locator(":scope > header")
+    expect(header.get_by_text("Stopped", exact=True)).to_be_visible()
     expect(stopped.get_by_text("Why it stopped")).to_be_visible()
     expect(
         stopped.get_by_text(
@@ -3577,7 +3578,8 @@ def test_i_answer_a_cards_questions(
     expect(send).to_be_disabled()
 
     # One answer written; the look of the three questions with it.
-    questions.nth(1).get_by_label("Or your own answer").fill(
+    questions.nth(1).get_by_role("button", name="Write another answer").click()
+    questions.nth(1).get_by_label("Another answer").fill(
         "Nothing at all, the page hides the list"
     )
     _look(page, "devflow-waiting-questions")
@@ -4076,9 +4078,9 @@ def test_a_decision_for_me_becomes_an_issue(
     expect(decision).to_contain_text("The lists look the same")
     expect(decision).to_contain_text("Agreed: the lists share one component.")
     expect(decision).to_contain_text(f"{OWNER}/{NAME}")
-    expect(decision.get_by_role("link", name="Open on GitHub")).to_have_attribute(
-        "href", issue["url"]
-    )
+    expect(
+        decision.get_by_role("link", name="Open the issue on GitHub")
+    ).to_have_attribute("href", issue["url"])
     expect(page.get_by_role("tab", name="Waiting for you 1")).to_be_visible()
 
     page.evaluate("document.fonts.ready.then(() => null)")
@@ -6286,7 +6288,8 @@ def test_every_item_kind_follows_the_detail_rule(
         assert where.bounding_box()["y"] < hero.bounding_box()["y"], kind
 
         # Exactly one primary button where the kind acts, none where it
-        # does not.
+        # does not: a button of the primary kind, which has the accent fill
+        # while it can be pressed.
         accent = page.evaluate(
             """() => {
                 const probe = document.createElement("div");
@@ -6298,11 +6301,17 @@ def test_every_item_kind_follows_the_detail_rule(
             }"""
         )
         filled = [
-            button.inner_text()
+            button
             for button in item.get_by_role("button").all()
             if button.is_visible()
-            and button.evaluate("b => getComputedStyle(b).backgroundColor") == accent
+            and re.search(r"(^|\s)_?primary", button.get_attribute("class") or "")
         ]
+        for button in filled:
+            if button.is_enabled():
+                assert (
+                    button.evaluate("b => getComputedStyle(b).backgroundColor")
+                    == accent
+                ), (kind, button.inner_text())
         assert len(filled) == primaries, (kind, viewport, filled)
 
         page.evaluate("document.fonts.ready.then(() => null)")

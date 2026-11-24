@@ -159,7 +159,7 @@ describe("a stopped card", () => {
 		);
 		expect(card.getByText("Stopped")).toBeTruthy();
 		expect(card.getByText("Adamniels/Fodr")).toBeTruthy();
-		expect(card.getByText("#12")).toBeTruthy();
+		expect(card.getByText("card #12")).toBeTruthy();
 		expect(card.getByText("Why it stopped")).toBeTruthy();
 		expect(card.getByText(REASON)).toBeTruthy();
 		expect(card.getByRole("button", { name: RUN_AGAIN })).toBeTruthy();

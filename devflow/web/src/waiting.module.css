@@ -275,6 +275,20 @@
 	overflow-wrap: anywhere;
 }
 
+/* Why a card stopped: an inset on --danger-soft, its label in --danger as
+ * the Failed status label's word is on the same fill. */
+.danger {
+	box-sizing: border-box;
+	min-height: var(--row-h);
+	padding: 8px 12px;
+	border-radius: var(--radius-md);
+	background: var(--danger-soft);
+}
+
+.danger .label {
+	color: var(--danger);
+}
+
 /* The item's footer: a refusal, the comment box, the row of actions and why
  * one cannot be pressed, a step apart. */
 .footer {
@@ -516,33 +530,39 @@
 	overflow-wrap: anywhere;
 }
 
-/* A question to answer, on an inset row as a decision is: what it asks in
- * the chosen text's weight, the recommendation and why, Accept, then the box
- * for another answer, a step apart. A fieldset, so its legend names it; the
- * browser's own border and padding are replaced. */
+/* A question to answer, on an inset row as a decision is: its number and
+ * its state, what it asks in the chosen text's weight, the recommendation
+ * and why, the box for another answer when it is open, and what can be done
+ * with it, a step apart. */
 .question {
 	display: flex;
 	flex-direction: column;
 	gap: var(--space-2);
 	box-sizing: border-box;
 	min-width: 0;
-	margin: 0;
-	padding: 8px 12px 12px;
-	border: 0;
+	padding: 12px;
 	border-radius: var(--radius-md);
 	background: var(--surface-2);
 }
 
-/* A legend sits on the fieldset's edge unless it floats; this puts it in the
- * row's flow, as the first line of the question. */
-.asked {
-	float: left;
-	width: 100%;
-	padding: 0;
-	font-weight: 600;
-	overflow-wrap: anywhere;
+/* Its number on the left in the mono font, its state on the right. */
+.questionHead {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--space-2);
 }
 
-.asked + * {
-	clear: both;
+.number {
+	color: var(--text-3);
+	font-family: var(--font-mono);
+	font-size: var(--text-mono-size);
+	line-height: var(--text-mono-line);
+	font-variant-numeric: tabular-nums;
+}
+
+.asked {
+	margin: 0;
+	font-weight: 600;
+	overflow-wrap: anywhere;
 }
