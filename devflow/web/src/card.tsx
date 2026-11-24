@@ -512,7 +512,8 @@ function when(at: string): string {
 }
 
 /** One entry of the card's timeline, by when it started or was reviewed. */
-type Moment = { at: string; key: string; entry: React.ReactElement };
+/** Its entry carries its key, set when it is built. */
+type Moment = { at: string; entry: React.ReactElement };
 
 /** How it got here: every run, review and fix round as one timeline, oldest
  * first, ending in now. A fix run is told as its round, and a review run that
@@ -530,9 +531,9 @@ function HowItGotHere({ story }: { story: CardStory }) {
 		if (round !== undefined) {
 			moments.push({
 				at: run.started_at,
-				key: `round-${run.id}`,
 				entry: (
 					<RoundEntry
+						key={`round-${run.id}`}
 						run={run}
 						round={round}
 						reviews={story.reviews}
@@ -543,16 +544,20 @@ function HowItGotHere({ story }: { story: CardStory }) {
 		} else if (!reviews.has(run.id)) {
 			moments.push({
 				at: run.started_at,
-				key: `run-${run.id}`,
-				entry: <RunEntry run={run} />,
+				entry: <RunEntry key={`run-${run.id}`} run={run} />,
 			});
 		}
 	}
 	for (const review of story.reviews) {
 		moments.push({
 			at: review.reviewed_at,
-			key: `review-${review.run_id}`,
-			entry: <ReviewEntry review={review} run={runs.get(review.run_id)} />,
+			entry: (
+				<ReviewEntry
+					key={`review-${review.run_id}`}
+					review={review}
+					run={runs.get(review.run_id)}
+				/>
+			),
 		});
 	}
 	// Oldest first; the sort is stable, so equal times keep the story's order.
@@ -568,9 +573,7 @@ function HowItGotHere({ story }: { story: CardStory }) {
 					<p className={styles.muted}>No run has taken this card yet.</p>
 				) : null}
 				<Timeline aria-label="How it got here">
-					{moments.map((moment) => (
-						<Keyed key={moment.key}>{moment.entry}</Keyed>
-					))}
+					{moments.map((moment) => moment.entry)}
 					<TimelineEntry
 						key="now"
 						time="Now"
@@ -583,11 +586,6 @@ function HowItGotHere({ story }: { story: CardStory }) {
 			</div>
 		</Panel>
 	);
-}
-
-/** An entry as it is, under the key its moment gives it. */
-function Keyed({ children }: { children: React.ReactElement }) {
-	return children;
 }
 
 /** A run's facts on its entry's mono line: when, where it ran, how long it
