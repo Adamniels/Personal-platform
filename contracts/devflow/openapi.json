@@ -60,6 +60,33 @@
         ],
         "type": "object"
       },
+      "CardCounts": {
+        "properties": {
+          "done": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "in_progress": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "needs_you": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "queued": {
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "needs_you",
+          "in_progress",
+          "queued",
+          "done"
+        ],
+        "type": "object"
+      },
       "CardFeature": {
         "properties": {
           "number": {
@@ -1466,6 +1493,32 @@
         ],
         "type": "object"
       },
+      "FeatureProgress": {
+        "properties": {
+          "landed": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "number": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "title": {
+            "type": "string"
+          },
+          "total": {
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "number",
+          "title",
+          "landed",
+          "total"
+        ],
+        "type": "object"
+      },
       "FeatureStoryView": {
         "properties": {
           "branch": {
@@ -2282,6 +2335,53 @@
         ],
         "type": "object"
       },
+      "ListedProject": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "installation_id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "last_read_at": {
+            "format": "date-time",
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "owner": {
+            "type": "string"
+          },
+          "repository_id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/ProjectSummary"
+          }
+        },
+        "required": [
+          "id",
+          "installation_id",
+          "repository_id",
+          "owner",
+          "name",
+          "created_at",
+          "last_read_at",
+          "summary"
+        ],
+        "type": "object"
+      },
       "MergeRequest": {
         "properties": {
           "head_commit": {
@@ -2532,7 +2632,7 @@
         "properties": {
           "projects": {
             "items": {
-              "$ref": "#/components/schemas/Project"
+              "$ref": "#/components/schemas/ListedProject"
             },
             "type": "array"
           }
@@ -2712,6 +2812,43 @@
           "proposal",
           "can_send_back",
           "settings_waits"
+        ],
+        "type": "object"
+      },
+      "ProjectSummary": {
+        "properties": {
+          "cards": {
+            "$ref": "#/components/schemas/CardCounts"
+          },
+          "feature": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/FeatureProgress"
+              }
+            ]
+          },
+          "setting_up": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SetupProgress"
+              }
+            ]
+          },
+          "workers": {
+            "$ref": "#/components/schemas/WorkersHealth"
+          }
+        },
+        "required": [
+          "cards",
+          "workers",
+          "setting_up",
+          "feature"
         ],
         "type": "object"
       },
@@ -3645,6 +3782,23 @@
           "only_i_merge"
         ]
       },
+      "SetupProgress": {
+        "properties": {
+          "done": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "total": {
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "done",
+          "total"
+        ],
+        "type": "object"
+      },
       "SetupProject": {
         "properties": {
           "checked_at": {
@@ -4375,6 +4529,40 @@
           "held"
         ],
         "type": "object"
+      },
+      "WorkersHealth": {
+        "properties": {
+          "cannot_run": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "count": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "held": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "last_seen_at": {
+            "format": "date-time",
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "required": [
+          "count",
+          "last_seen_at",
+          "held",
+          "cannot_run"
+        ],
+        "type": "object"
       }
     }
   },
@@ -4713,7 +4901,7 @@
     },
     "/devflow/api/projects": {
       "get": {
-        "description": "Each connected repository, by owner and name. Without a valid token, 401 with an empty body; a change from another origin, 403.",
+        "description": "Each connected repository, by owner and name, with last_read_at, when its last read that succeeded was, null before any, and its summary, computed from what Dev flow stored: cards, its cards counted by group, needs_you (needs_answers, waiting_for_owner, stopped and refused), in_progress (reading, building, checking, reviewing and fixing), queued (queued and held) and done, an ignored card in none; workers, how many have said hello, last_seen_at, when the one seen last was seen, null with none, and held and cannot_run, the values listWorkers answers; setting_up, its setup steps done of total, six, while its state is setting_up, null once it is registered; and feature, its open feature, neither merged, closed nor ignored, with the most cards landed, the lowest number among equals, its number, title, landed, its cards in done, and total, its cards but an ignored one, null with none open. Without a valid token, 401 with an empty body; a change from another origin, 403.",
         "operationId": "listProjects",
         "responses": {
           "200": {

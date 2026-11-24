@@ -1,48 +1,189 @@
-/* The projects on the Projects tab, under the GitHub link. Tokens only. */
+/* The projects on the Projects tab, under Connections. Tokens only. */
 
-/* "Connect a repository", on its own row above the list. */
-.actions {
+/* The projects' section: the heading, the list to choose from when it is
+ * open, then the cards, --space-4 apart as the content column's sections
+ * are in section 2 of design/DESIGN.md. */
+.section {
 	display: flex;
-	justify-content: flex-end;
-	margin-bottom: var(--space-4);
+	flex-direction: column;
+	gap: var(--space-4);
 }
 
-/* The repository's full name, which may be long and has no spaces. */
-.name {
+/* "Projects" as a section heading, and "Connect a repository", the view's
+ * one primary, on its right; on phone it wraps under it. */
+.head {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--space-3);
+}
+
+/* A row of cards, section 2: wrapping, each card flex: 1 1 480px, so on
+ * phone they stack without a breakpoint. */
+.cards {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-4);
+}
+
+.card {
+	flex: 1 1 480px;
+}
+
+/* The arrow link, section 4: a 36px --surface-2 circle with an arrow up and
+ * to the right, in the card's header, its target grown to 44px on phone by
+ * hard rule 10. */
+.arrow {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 36px;
+	height: 36px;
+	border-radius: var(--radius-full);
+	background: var(--surface-2);
+	color: var(--text);
+}
+
+.arrow:focus-visible {
+	outline: var(--focus-ring);
+	outline-offset: var(--focus-offset);
+}
+
+@media (max-width: 639.98px) {
+	.arrow {
+		width: 44px;
+		height: 44px;
+	}
+}
+
+/* The body: the hero label and the count, then the rest, the card's inner
+ * gap apart. */
+.body {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-4);
+}
+
+.top {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: flex-end;
+	justify-content: space-between;
+	gap: var(--space-3);
+}
+
+/* The hero label: the project's name in the heading font, which is always
+ * 600 and in capitals (hard rule 12). A name has no spaces, so it may break
+ * anywhere rather than overflow at phone width. */
+.hero {
+	flex: 1 1 auto;
+	min-width: 0;
+	margin: 0;
+	color: var(--text);
+	font-family: var(--font-heading);
+	font-size: var(--text-hero-size);
+	line-height: var(--text-hero-line);
 	font-weight: 600;
+	text-transform: uppercase;
 	overflow-wrap: anywhere;
 }
 
-/* The name is the link to the project's page, in the text colour so the
- * row reads as before, underlined so it is seen to be one. */
-.open {
-	border-radius: var(--radius-sm);
-	color: var(--text);
-	text-decoration: underline;
-	text-underline-offset: 2px;
+/* How many cards need the owner, in thin numerals with its two line caption
+ * to its right, section 4's key number. */
+.key {
+	display: flex;
+	align-items: flex-end;
+	gap: var(--space-3);
+	margin: 0;
 }
 
-/* The name over the line saying how the project is read. */
-.repository {
+.count {
+	color: var(--text);
+	font-family: var(--font-ui);
+	font-size: var(--text-num-l-size);
+	line-height: var(--text-num-l-line);
+	font-weight: 300;
+	letter-spacing: var(--tracking-num);
+	font-variant-numeric: tabular-nums;
+}
+
+.caption {
 	display: flex;
 	flex-direction: column;
-	gap: var(--space-1);
-}
-
-.how {
 	color: var(--text-2);
-	font-size: var(--text-caption-size);
-	line-height: var(--text-caption-line);
+	font-size: var(--text-body-size);
+	line-height: var(--text-body-line);
 }
 
-/* The list to choose from sits --space-4 above the projects, as the content
- * column's sections are in section 2 of design/DESIGN.md, its tables a step
- * apart. */
+/* At most three inset rows, section 4's "Inset list row": --surface-2,
+ * --radius-md, 8px 12px, --row-h high, --inset-gap apart, no lines. */
+.glance {
+	display: flex;
+	flex-direction: column;
+	gap: var(--inset-gap);
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.row {
+	box-sizing: border-box;
+	display: flex;
+	align-items: center;
+	gap: var(--space-3);
+	min-height: var(--row-h);
+	padding: 8px 12px;
+	background: var(--surface-2);
+	border-radius: var(--radius-md);
+	list-style: none;
+}
+
+/* The row's label, mono and quiet, as wide for every row so the titles
+ * line up. */
+.label {
+	flex: none;
+	width: 64px;
+	color: var(--text-2);
+	font-family: var(--font-mono);
+	font-size: var(--text-mono-size);
+	line-height: var(--text-mono-line);
+}
+
+.title {
+	flex: 1 1 auto;
+	min-width: 0;
+	font-weight: 500;
+	overflow-wrap: anywhere;
+}
+
+.end {
+	flex: none;
+	display: flex;
+	align-items: center;
+}
+
+/* Counts on the right in mono, hard rule 8. */
+.meta {
+	color: var(--text-2);
+	font-family: var(--font-mono);
+	font-size: var(--text-mono-size);
+	line-height: var(--text-mono-line);
+	font-variant-numeric: tabular-nums;
+}
+
+/* The list to choose from, between the heading and the cards, its tables a
+ * step apart. */
 .chooser {
 	display: flex;
 	flex-direction: column;
 	gap: var(--space-3);
-	margin-bottom: var(--space-4);
+}
+
+/* A repository's full name, which may be long and has no spaces. */
+.name {
+	font-weight: 600;
+	overflow-wrap: anywhere;
 }
 
 .chooserHead {
@@ -70,14 +211,14 @@
 /* What did not happen: the attention text, read as an alert, as the link's
  * card says its own. */
 .error {
-	margin: 0 0 var(--space-3);
+	margin: 0;
 	color: var(--accent-text);
 	font-weight: 600;
 }
 
-/* The tab's tables, the projects and the repositories to choose from. Each
- * row holds more than a label and a value, a repository with how it is read
- * or whether it is connected, and an action, so by hard rule 3 of
+/* The tables of repositories to choose from. Each row holds more than a
+ * label and a value, a repository with whether it is connected, and an
+ * action, so by hard rule 3 of
  * design/DESIGN.md it is an inset row rather than a row between lines:
  * --surface-2, --radius-md, 8px 12px, --inset-gap apart, no line. The table
  * is the package's and its frame stays the card; its cells are reached by
@@ -107,4 +248,58 @@ section.rows {
 .rows tbody td:last-child {
 	border-top-right-radius: var(--radius-md);
 	border-bottom-right-radius: var(--radius-md);
+}
+
+/* The tick bar of section 4: one tick per card in a row 44px high, each
+ * --radius-xs, of equal widths, 4px apart; --accent for the cards that need
+ * the owner and --text-2 for the rest. Past DENSE cards they touch, so the
+ * bar still fits at phone width and nothing scrolls sideways. */
+.ticks {
+	display: flex;
+	gap: 4px;
+	height: 44px;
+}
+
+.dense {
+	gap: 0;
+}
+
+.tick {
+	flex: 1 1 0;
+	min-width: 0;
+	border-radius: var(--radius-xs);
+	background: var(--text-2);
+}
+
+.needsYou {
+	background: var(--accent);
+}
+
+/* The banner's one action, a link to the project's page drawn as section
+ * 4's secondary button, since it opens an address rather than acting. */
+.secondary {
+	box-sizing: border-box;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	height: var(--control-h);
+	padding: 0 18px;
+	border: 1px solid var(--border-strong);
+	border-radius: var(--radius-full);
+	background: transparent;
+	color: var(--text);
+	font-family: var(--font-ui);
+	font-size: var(--text-body-size);
+	line-height: var(--text-body-line);
+	font-weight: 500;
+	text-decoration: none;
+}
+
+.secondary:hover {
+	background: var(--surface-2);
+}
+
+.secondary:focus-visible {
+	outline: var(--focus-ring);
+	outline-offset: var(--focus-offset);
 }

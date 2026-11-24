@@ -1,9 +1,10 @@
-/* A project's page under the Projects tab: its header and the Workers panel.
- * Tokens only. */
+/* A project's page under the Projects tab: its header, its two columns, the
+ * Workers card and the settings summary. Tokens only. */
 
-/* The way back over the repository's name, which reads as the section's
- * heading, --space-4 above the panel as the content column's sections are in
- * section 2 of design/DESIGN.md. */
+/* The page header of section 2 of design/DESIGN.md: the way back, then the
+ * mono caption, the page title and the one summary line on the left, and the
+ * stat pills on the right, aligned to its bottom; --space-4 above the columns,
+ * as the content column's sections are. */
 .header {
 	display: flex;
 	flex-direction: column;
@@ -13,31 +14,239 @@
 }
 
 .back {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-1);
 	border-radius: var(--radius-sm);
 	color: var(--info);
 	font-weight: 600;
 }
 
-/* A repository's full name has no spaces, so it may break anywhere rather
- * than scroll sideways at phone width (hard rule 13). Two classes, to
- * outrank page.css's `.page h2`. */
-.header .name {
-	margin: 0;
-	overflow-wrap: anywhere;
+/* The arrow's stroke takes the link's colour. */
+.chevron {
+	flex: none;
+	fill: none;
+	stroke: currentColor;
+	stroke-width: 2;
+	stroke-linecap: round;
+	stroke-linejoin: round;
 }
 
-/* The name with the preset beside it, the badge going under the name where
- * a long name leaves no room. */
-.title {
+/* The titles and the pills, the pills wrapping under the titles where the
+ * row leaves no room. */
+.heading {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: flex-end;
+	justify-content: space-between;
+	gap: var(--space-3) var(--space-4);
+	align-self: stretch;
+	min-width: 0;
+}
+
+.titles {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-1);
+	min-width: 0;
+}
+
+/* The caption with the preset beside it, the badge going under the caption
+ * where a long name leaves no room. */
+.captionRow {
 	display: flex;
 	flex-wrap: wrap;
 	align-items: center;
-	gap: var(--space-2) var(--space-3);
+	gap: var(--space-1) var(--space-3);
+	min-width: 0;
+}
+
+/* The repository and when it was read, hard rule 8, in capitals as the top
+ * bar's crumb is; a repository's name has no spaces, so it may break
+ * anywhere rather than scroll sideways at phone width (hard rule 13). */
+.caption {
+	margin: 0;
+	color: var(--text-3);
+	font-family: var(--font-mono);
+	font-size: var(--text-mono-size);
+	line-height: var(--text-mono-line);
+	font-variant-numeric: tabular-nums;
+	text-transform: uppercase;
+	overflow-wrap: anywhere;
+}
+
+/* The name as the page title, the heading font at the display size. Two
+ * classes, to outrank page.css's `.page h2`. */
+.header .name {
+	margin: 0;
+	font-size: var(--text-display-size);
+	line-height: var(--text-display-line);
+	letter-spacing: var(--tracking-display);
+	overflow-wrap: anywhere;
+}
+
+/* The one summary line, body large in --text-2. */
+.summary {
+	margin: 0;
+	color: var(--text-2);
+	font-size: var(--text-body-lg-size);
+	line-height: var(--text-body-lg-line);
+}
+
+/* "Stat pill" in section 4 of design/DESIGN.md, a row that wraps. */
+.pills {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-2);
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.pill {
+	box-sizing: border-box;
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-2);
+	height: 36px;
+	padding: 0 14px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius-full);
+	background: var(--surface);
+}
+
+.dot {
+	flex: none;
+	width: 6px;
+	height: 6px;
+	border-radius: var(--radius-full);
+}
+
+.dot[data-tone="running"] {
+	background: var(--info);
+}
+
+.dot[data-tone="needs-you"] {
+	background: var(--accent);
+}
+
+.dot[data-tone="done"] {
+	background: var(--ok);
+}
+
+.pillLabel {
+	color: var(--text-3);
+}
+
+.pillValue {
+	color: var(--text);
+	font-family: var(--font-mono);
+	font-size: var(--text-mono-size);
+	line-height: var(--text-mono-line);
+	font-variant-numeric: tabular-nums;
+}
+
+/* On phone the summary line carries the counts, so the pills are not shown. */
+@media (max-width: 639.98px) {
+	.pills {
+		display: none;
+	}
+}
+
+/* "Main plus side panel" of section 2 of design/DESIGN.md: a wrapping row,
+ * the cards column taking the room and the side column at least 300px, both
+ * free to shrink, so the side column stacks under the cards on phone without
+ * a breakpoint. */
+.columns {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: flex-start;
+	gap: var(--space-4);
+}
+
+.main {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-4);
+	flex: 999 1 560px;
+	min-width: 0;
+}
+
+.side {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-4);
+	flex: 1 1 300px;
 	min-width: 0;
 }
 
 .card {
 	margin: 0;
+}
+
+/* A card's actions, wrapping in the narrow column rather than overflowing. */
+.actions {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-2);
+}
+
+/* The number the Workers card is about, in thin numerals, with its two line
+ * caption to its right, as "Card" in section 4 of design/DESIGN.md has it. */
+.counted {
+	display: flex;
+	align-items: center;
+	gap: var(--space-3);
+	margin: 0;
+}
+
+.count {
+	color: var(--text);
+	font-family: var(--font-ui);
+	font-size: var(--text-num-l-size);
+	line-height: var(--text-num-l-line);
+	font-weight: 300;
+	letter-spacing: var(--tracking-num);
+	font-variant-numeric: tabular-nums;
+}
+
+.countCaption {
+	max-width: 9rem;
+	color: var(--text-2);
+}
+
+/* The settings summary: a label and a value alone, so plain rows 36px high
+ * with a 1px --border under each, the label in --text-2 and the value in the
+ * mono font, as "Inset list row" in section 4 of design/DESIGN.md says. */
+.facts {
+	display: flex;
+	flex-direction: column;
+	margin: 0;
+}
+
+.fact {
+	box-sizing: border-box;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--space-3);
+	min-height: 36px;
+	border-bottom: 1px solid var(--border);
+}
+
+.factLabel {
+	color: var(--text-2);
+}
+
+.factValue {
+	margin: 0;
+	min-width: 0;
+	font-family: var(--font-mono);
+	font-size: var(--text-mono-size);
+	line-height: var(--text-mono-line);
+	text-align: right;
+	overflow-wrap: anywhere;
 }
 
 /* The panel's parts, a card's parts apart. */

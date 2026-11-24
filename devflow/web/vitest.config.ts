@@ -23,6 +23,10 @@ export default defineConfig({
 	},
 	test: {
 		environment: "jsdom",
+		// Vitest replaces CSS it does not process with an empty string, ?raw
+		// imports included, as design/ui's config says. The tests that check a
+		// rule of a page's stylesheet read it as text.
+		css: { include: [/\.css\?raw$/] },
 		include: ["src/**/*.test.{ts,tsx}"],
 		server: { deps: { inline: [/lucide-react/] } },
 	},

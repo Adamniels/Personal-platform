@@ -145,83 +145,144 @@ is `src/banner.tsx`, the page's own component, since no other feature needs it, 
 `GET /devflow/api/status` once as the page loads; before the answer, with `github`, or when the
 status cannot be read, it shows nothing.
 
-The Projects tab shows the GitHub link above its list, `src/projects-link.tsx`, as the package's
-`Card` titled "GitHub": with nothing linked, "Link your GitHub account to connect repositories and
-to merge and comment as yourself." and a primary "Link GitHub", which posts to
-`/devflow/api/github/link` and sends the browser to the address it answers; linked, "Linked as
-@<login>" and a ghost "Unlink" behind the package's `Dialog`, "Unlink GitHub?"; and with
-`needs_relink`, the card's attention style, "Your GitHub link has expired." and "Link again". At
-`?link=failed`, or when starting fails, it says "GitHub was not linked. Try again." as an alert.
-Before the status answers it shows nothing.
+The Projects tab is a dashboard: Connections, then the projects. Connections is a region named
+"Connections", a wrapping row of two items, each `flex: 1 1 360px`, so on phone they stack at the
+full width. An item, `src/connection.tsx`, is an `article` named by its name, a `--surface` card
+64px high on desktop: an icon, the name over a mono line, a status label and its one action. On
+phone the status and the action take a line of their own under the name. An item that needs the
+owner takes `--accent-border`, with "Needs you" for assistive technology.
 
-Under the link is the Claude login, `src/claude-login.tsx`, the package's `Card` titled "Claude
-login", read from `GET /devflow/api/claude-login` as the tab loads: "Agents run on your
-subscription with this. Make it with `claude setup-token`.", then where it stands, "Not set yet.",
-or "Set on <date>, renew by <date>.", the dates in the reader's own zone. From a month before it is
-due the card takes the attention style and says "Set on <date>. Renew it by <date>: agents cannot
-run once it runs out.", and once past it "Set on <date>. It ran out on <date>: agents cannot run
-until you replace it.", in `--accent-text` at weight 600. Under that, a password field labelled
-"Claude token" and a secondary "Save", or "Replace" once one is set, enabled only while the field
-holds something, and, once set, a ghost "Remove" behind a destructive `Dialog`, "Remove the Claude
-login?". Saving empties the field whatever the answer; a token the service refuses says "That is
-not a setup token. Make one with claude setup-token and paste all of it." on the field, and any
-other failure says so as an alert. The page never reads the token back, not even a part of it.
-The buttons are secondary, since the tab's one primary is "Link GitHub" or "Connect a repository".
+The first item is GitHub, `src/projects-link.tsx`, in three states: with nothing linked, "to
+connect repositories and act as you", the status "Not linked" and a secondary "Link GitHub", which
+posts to `/devflow/api/github/link` and sends the browser to the address it answers; linked,
+"linked as @<login>", "Linked" and a ghost "Unlink" behind the package's `Dialog`, "Unlink
+GitHub?"; and with `needs_relink`, "your link has expired", "Expired", the attention style and a
+secondary "Link again". At `?link=failed`, or when starting fails, "GitHub was not linked. Try
+again." is an alert on a line under the item. Before the status answers it shows nothing.
 
-Under it are the projects, `src/projects.tsx`. A primary "Connect a repository", enabled only
-while GitHub is linked, opens "Choose a repository": the repositories the app reaches for the
-owner, read from `GET /devflow/api/github/repositories`, as one package `Table` per account, named
-and headed by it, each repository a row with "Connect", or a `Badge` "Connected" when it is a
-project already; with the app installed nowhere he can reach, "The GitHub App is not installed on
-any repository you can reach." with a link "Install it on GitHub" to the answer's `install_url`.
-Connecting closes it and reads the projects again. The projects are a `Table` named "Projects",
-each row "<owner>/<name>" over "Read the way this repository's runner writes." with a ghost
-"Disconnect" behind a destructive `Dialog`, "Disconnect <owner>/<name>?", which says Dev flow
-forgets the project and everything it read for it and that nothing changes on GitHub; with none,
-and the choice closed, the `EmptyState` "No project connected yet". A read, a connect or a
-disconnect that fails says so as an alert. Each row's "<owner>/<name>" is a link to the project's
-page.
+The second is the Claude login, `src/claude-login.tsx`, read from `GET /devflow/api/claude-login`
+as the tab loads, in four states: not set, "make one with claude setup-token" and "Not set"; set,
+"given <date> · due <date>" and "Given"; from a month before it is due, the attention style and
+"Due"; and past it, "given <date> · ran out <date>", the attention style and "Expired"; the dates
+in the reader's own zone. Its action is a ghost "Give a token", or "Replace" once one is set, which
+opens a form below the line: a password field labelled "Claude token", its help "Agents run on
+your subscription with this. Make it with claude setup-token.", a secondary "Save", enabled only
+while the field holds something, a ghost "Cancel", and, once one is set, a ghost "Remove" behind a
+destructive `Dialog`, "Remove the Claude login?". Saving empties the field whatever the answer and
+closes it once saved; a token the service refuses says "That is not a setup token. Make one with
+claude setup-token and paste all of it." on the field, which stays open, and any other failure
+says so as an alert under the line. The page never reads the token back, not even a part of it.
+
+Under Connections are the projects, `src/projects.tsx`, a region named by its heading,
+"Projects", with a primary "Connect a repository" on its right, the view's one primary, enabled
+only while GitHub is linked. It opens "Choose a repository" below the heading: the repositories the
+app reaches for the owner, read from `GET /devflow/api/github/repositories`, as one package
+`Table` per account, named and headed by it, each repository a row with "Connect", or a `Badge`
+"Connected" when it is a project already; with the app installed nowhere he can reach, "The GitHub
+App is not installed on any repository you can reach." with a link "Install it on GitHub" to the
+answer's `install_url`. Connecting closes it and reads the projects again. With none, and the
+choice closed, the `EmptyState` "No project connected yet". A read, a connect or a disconnect that
+fails says so as an alert.
+
+Each project is the package's `Card`, in a wrapping row, `flex: 1 1 480px`, drawn from its
+`summary`, see "Connecting a repository". Its label is "<owner>/<name>", with an arrow link, "Open
+<owner>/<name>", to the project's page, a plain click opening it in place. Its hero label is the
+name. Beside it is how many of its cards need the owner, in thin numerals at `--text-num-l-size`,
+with "need you", or "needs you" for one, and "of N cards" to its right, and under it a tick bar,
+one tick per card, those that need the owner first in `--accent` and the rest in `--text-2`, an
+image named by its numbers, such as "2 of 9 cards need you"; past 48 cards the ticks touch, so the
+bar fits. Then at most three inset rows: Building,
+how many cards are in progress, or "Nothing in progress", and how many are queued; Feature, the
+open feature's title with "<landed> / <total> landed"; and Worker, how many and when the one seen
+last was seen, "Running" within ten minutes and "Not seen" after, as the project's page says it.
+A project with no card yet has one row, "Cards", "None yet". A project with a card that needs the
+owner takes the accent border. At its foot is a ghost "Disconnect" behind a destructive `Dialog`,
+"Disconnect <owner>/<name>?", which says Dev flow forgets the project and everything it read for
+it and that nothing changes on GitHub; "A project's settings page" will move it there.
+
+A project that cannot run yet shows the package's `NeedsYouBanner` in place of the count and the
+ticks, and takes the accent border, with one action, a link to the project's page drawn as a
+secondary button. The first that applies: no worker has said hello, "No worker yet, so no card can
+run.", "Make the project's key, then start a worker with the two commands on its page." and "Set
+up a worker", first since setting up runs on a worker too; setting up, "Setting up: <done> of <total>
+steps done.", "No card runs until it is set up." and "Continue setting up"; `held`, its reason in
+the workers list's words, see "Workers", and "Open the project"; and `cannot_run`, its message,
+and "Open the project". A registered project whose setup check failed is not a banner here: it
+waits in "Waiting for you" as a setup item. The summary names no card and no worker, so the rows
+say counts; the picture's card title and worker name would need the summary to carry them.
 
 A project's page, `src/project.tsx`, is at `/devflow/projects/<id>`, under the Projects tab, which
-stays selected there. Its header is a link "Back to Projects" over the repository's
-"<owner>/<name>" as a section heading, with beside it, once the settings are read, a `Badge`
-naming the preset they match, "Fully automatic", "Guided", "Only I merge" or "Custom", see
-"Presets" under "Settings": the settings as last read or saved, never the form while it is edited,
-the badge going under the name where a long name leaves no room. A project the caller does not have is the `EmptyState`
-"There is no such project". Under the header is the Settings panel, then the Cards panel, see
-"Cards", then the Workers panel, the package's `Card` titled "Workers",
-read from `GET /devflow/api/projects/{id}/workers` as the page loads: a line saying a worker holds
-the project's key and asks Dev flow for work with it, then the key, then the region "Start a
-worker", then the workers. With no key,
-"It has no key yet." and a primary "Make a key". Making one shows it once, in the region "The new
-key", on an inset in the mono font, with "Shown once. Copy it now: Dev flow keeps only a hash of it
-and cannot show it again." and a secondary "Copy the key", which copies it and then reads
-"Copied"; a copy that fails says so as an alert. The page never reads the key back: after a
-reload it says "Its key was made <date and time>.", and the button is a secondary "Make a new
-key", which opens a destructive `Dialog`, "Make a new key?", saying the old key stops working at
-once and every worker holding it is refused until it is given the new one, and makes nothing until
-it is confirmed. The workers are the list "Workers", each an inset row, by when it first said
-hello: its name, "Recipe <version> on <base image>" in the mono font, and "Last seen <time> ago",
-or, after ten minutes without a word, "Not seen since <date and time>", in `--text` at weight 600;
-with none, "No worker has said hello yet."
+stays selected there, and puts the project's cards first. Its header, the page header of section 2
+of `design/DESIGN.md`, is a link "Projects" with an arrow pointing back; a mono caption in capitals,
+"<owner>/<name> · read <age> ago", from the list's `last_read_at`, or "· not read yet", with beside
+it, once the settings are read, a `Badge` naming the preset they match, "Fully automatic",
+"Guided", "Only I merge" or "Custom", see "Presets" under "Settings", the settings as last read or
+saved, never the form while it is edited; the repository's name as the page's title, in the heading
+font at `--text-display-size`; and, once the cards are read, one summary line in body large, such as
+"9 cards: 2 being built, 2 need you, 2 queued, 3 done.", a group with none left out, or "No cards
+yet.", with on the right the stat pills "In progress", "Needs you" and "Done", the list "Cards by
+group", not shown on phone, where the line says the same. The line is counted in the page from its
+cards, features' and those on their own, in the four groups the projects list's `summary` counts,
+`CARD_GROUPS` in `src/cards.tsx` written after `ProjectSummaries.Groups`, an ignored card in none.
+While the project is setting up its cards are not read, and neither shows. A project the caller
+does not have is the `EmptyState` "There is no such project".
 
-The region "Start a worker" says to paste the commands in a terminal on the machine that runs the
-workers, and that running the second again replaces the worker. Right after "Make a key" it holds
-the region "Save the key", the command that saves it, with it; always, the region "Build and start
-the worker", the command from `start_command`; each in the mono font on an inset that wraps, with a
-secondary "Copy the save command" or "Copy the start command" that reads "Copied" once it has,
-and an alert when copying fails, see "Starting a worker". A worker that needs a rebuild shows, under
-its name, the `needs-you` status "Rebuild" and, in `--text` at weight 600, "<repository>'s recipe
-has changed: run the command again" or "A new base image was released: run the command again".
-When the list's `held` says the project hands out no work, the panel shows, under its first line,
-the `needs-you` status "No work" and, the same way, "No work is handed out until you give your
-Claude login on the Projects tab", or for `claude_login_expired` "No work is handed out: your
-Claude login is past its renewal. Give a new one on the Projects tab", see "Jobs". When its
-`cannot_run` is set, the panel shows, the same way, the `failed` status "Cannot run" and its text,
-see "Stops".
+Under the header are two columns, a wrapping row: the cards column, `flex: 999 1 560px`, and the
+side column, `flex: 1 1 300px`, both `min-width: 0`, so the side column stacks under the cards on
+phone. The cards column holds the region "Cards", see "Cards", or, while the project is setting up,
+the "Setting it up" card in its place, and above the cards the "Check failed" card when a
+registered project's newest check failed, as `setupShows` decides, see "Setting up a project"; and
+at its top, once "Edit settings" opens it, the Settings panel. The side column holds the Workers
+card and the settings summary. The page has one primary button at most: while a setup card shows,
+its current step's, "Accept", "Merge" or "Check again", and "Make a key" is a secondary; otherwise
+"Make a key" before the project has a key.
 
-The Settings panel, `src/settings.tsx`, the package's `Card` titled "Settings", read from
-`GET /devflow/api/projects/{id}/settings` as the page loads, is a form in three groups, each a
+The Workers card, the package's `Card` titled "Workers", is read from
+`GET /devflow/api/projects/{id}/workers` as the page loads. Beside its title is the `running`
+status "Running" while a worker was seen in the last ten minutes, else the `idle` status "Idle".
+When the list's `held` says the project hands out no work, it shows first the `needs-you` status
+"No work" and, in the attention box, "No work is handed out until you give your Claude login on the
+Projects tab", or for `claude_login_expired` "No work is handed out: your Claude login is past its
+renewal. Give a new one on the Projects tab", see "Jobs"; when its `cannot_run` is set, the
+`failed` status "Cannot run" and its text, see "Stops". Then how many workers have said hello, in
+thin numerals at `--text-num-l-size`, with "worker has said hello" or "workers have said hello"
+beside it, and the list "Workers", each an inset row, by when it first said hello: its name, in
+`--text` at weight 600, "Recipe <version> on <base image>" in the mono font, and "Last seen <time>
+ago", or, after ten minutes without a word, "Not seen since <date and time>", in `--text` at weight
+600; with none, "No worker has said hello yet." A worker that needs a rebuild shows, under its
+name, the `needs-you` status "Rebuild" and, in `--text` at weight 600, "<repository>'s recipe has
+changed: run the command again" or "A new base image was released: run the command again".
+
+Then the key: with none, "It has no key yet."; once made, "Key made <date and time>." The page
+never reads the key back. At the card's foot are a secondary "Start a worker" and, with no key, a
+primary "Make a key", or once there is one a ghost "Make a new key", which opens a destructive
+`Dialog`, "Make a new key?", saying the old key stops working at once and every worker holding it
+is refused until it is given the new one, and makes nothing until it is confirmed. Making one shows
+it once, in the region "The new key", on an inset in the mono font, with "Shown once. Copy it now:
+Dev flow keeps only a hash of it and cannot show it again." and a secondary "Copy the key", which
+copies it and then reads "Copied"; a copy that fails says so as an alert.
+
+"Start a worker", with `aria-expanded`, shows and hides the region "Start a worker": a line saying
+a worker holds the project's key and asks Dev flow for work with it, then that the commands are
+pasted in a terminal on the machine that runs the workers and that running the second again
+replaces the worker; right after "Make a key", the region "Save the key", the command that saves
+it; always, the region "Build and start the worker", the command from `start_command`; each in the
+mono font on an inset that wraps, with a secondary "Copy the save command" or "Copy the start
+command" that reads "Copied" once it has, and an alert when copying fails, see "Starting a worker".
+Making a key opens the region, so the save command, shown only then, is never left behind the
+button.
+
+The settings summary, the package's `Card` titled "Settings", read from
+`GET /devflow/api/projects/{id}/settings` as the page loads, is plain label and value rows 36px
+high, each with a 1px `--border` under it, the label in `--text-2` and the value in the mono font:
+"Preset", "Questions before starting", "On" or "Off", "Pull requests wait for you", "Never",
+"Sometimes" or "Always", and "Pick-up label", "Hold label", "Attention label" and "Review label".
+A secondary "Edit settings", with `aria-expanded`, opens the Settings panel at the top of the cards
+column and closes it again. A save there updates the summary and the preset's badge, as accepting a
+setup run's proposal does too; settings that could not be read are an alert.
+
+The Settings panel, `src/settings.tsx`, the package's `Card` titled "Edit settings", read from
+`GET /devflow/api/projects/{id}/settings` as "Edit settings" opens it, is a form in three groups, each a
 region with a heading and a line on what it holds, fields two by two at desktop width and one
 under another at phone width, each with a help line saying what it does:
 
@@ -245,30 +306,41 @@ under another at phone width, each with a help line saying what it does:
   model", "Building model" and "Reviewing model", then the four limits as number fields.
 
 Lines of "Paths" are trimmed and blank ones dropped as it is saved. A secondary "Save" puts all
-eighteen, never the preset, and then says "Saved."; the page's heading takes the preset the answer
-names. A value Dev flow refuses is shown under its field as the field's error, from the problem's
+eighteen, never the preset, and then says "Saved."; the page's caption and the settings summary
+take what the answer names. A value Dev flow refuses is shown under its field as the field's error, from the problem's
 `errors`; any other failure is the alert "The settings were not saved. Try again.", and what was
 typed is kept.
 
-The Cards panel, `src/cards.tsx`, the package's `Card` titled "Cards", read from
-`GET /devflow/api/projects/{id}/cards` as the page loads, is the list "Cards", in the order the
-answer gives, each card an inset row: its number, `#12` in the mono font, a link to the issue on
-GitHub in a new tab when its address is https and plain text otherwise; its title, as text, a link
-to the card's page; its
-state as a status, "Queued" and "Held" `idle`, "Ignored", "Stopped" and "Too thin to build",
-a card read as too thin, `failed`, "Reading", "Building", "Checking", "Reviewing" and "Fixing"
-`running`, "Waiting for you" and a feature's "Ready for you" `needs-you` and "Done" `done`;
-and its reason under them as a caption. With none, "No cards yet. An open issue you wrote with the
-pick-up label becomes one."; a list that could not be read is an alert. Features come first, in the
-list "Features", each its parent's number linked to the issue as a card's is, its title, a link to
-the feature's page, see "A feature's page", its state and reason, and its cards in their order in
-the list "Cards of #<number>".
+A project's cards, `src/cards.tsx`, are the region "Cards" in the cards column, read from
+`GET /devflow/api/projects/{id}/cards` as the page loads, unless the project is setting up. Each
+feature comes first, in the list "Features", in the order the answer gives, each the package's
+`Card` titled "Feature #<number>", its state as a status beside it; its title as the card's hero
+label, in the heading font at `--text-hero-size`, a link to the feature's page, see "A feature's
+page"; a mono line, "<landed> of <total> landed", its cards in `done` of its cards but an ignored
+one, with its parent's number linked to the issue as a card's is; its reason; the steps of
+"Progress bar and meter", one 8px pill per card counted, landed in `--accent`, the first not landed,
+the current one, with no fill and a 1px `--accent-border`, the rest `--surface-3`, an image named by
+the mono line; and its cards in their order, in the list "Cards of #<number>", each an inset row:
+its number, `#12` in the mono font, a link to the issue on GitHub in a new tab when its address is
+https and plain text otherwise; its title, as text, a link to the card's page; its state as a
+status, "Queued" and "Held" `idle`, "Ignored", "Stopped" and "Too thin to build", a card read as
+too thin, `failed`, "Reading", "Building", "Checking", "Reviewing" and "Fixing" `running`,
+"Waiting for you" and a feature's "Ready for you" `needs-you` and "Done" `done`; and its reason
+under them as a caption. A feature's fix rounds are on its own page, since the list carries none.
+
+The cards on their own follow, the package's `Table` "Cards on their own" in a card of its own of
+that label, saying "newest change first": "#", the number as above, "Card", its title linked to
+its page with its reason under it, and "State", priority 1, and "Changed", from `changed_at`, short,
+"now", "12m", "3h" or "2d", in the mono font, right aligned, priority 3 and so hidden on phone, the
+sorted column with `aria-sort`; pressing it turns the order round, "oldest change first". With no
+card and no feature, the `EmptyState` "No cards yet", "An open issue you wrote with the pick-up
+label becomes one, and one with sub-issues a feature."; cards that could not be read are an alert.
 
 A card's page, `src/card.tsx`, is at `/devflow/projects/<id>/cards/<number>`, under the Projects
 tab, which stays selected there, read from `GET /devflow/api/projects/{id}/cards/{number}` as it
 loads. Its header is a link "Back to the project" over the card's title as a section heading; a
 card the caller does not have is the `EmptyState` "There is no such card", and one that cannot be
-read an alert. Under it the package's `Card`s: "The card", its state as the Cards panel
+read an alert. Under it the package's `Card`s: "The card", its state as the project's cards
 shows it with its reason beside it, and the links "Issue #<number>" and "Pull request #<number>",
 each in a new tab with `rel="noreferrer"` when its address is https and plain text otherwise, with,
 between them for a card of a feature, "Feature #<number>: <title>", to the feature's page;
@@ -430,9 +502,9 @@ data" in `docs/devflow-architecture.md`.
 
 "Running now" and "Usage and history" join with the parts that build them, never as empty tabs. The address is the state,
 through the History API and no router library (`src/address.ts`): a tab pushes its section's
-address, an item in the inbox its own, see above, Back and Forward come back as `popstate`, and an address that names no section shows a
-not found state under the tabs; a project's name pushes its page's address, and "Back to Projects"
-the tab's. The list of sections and the project page's address live in `src/sections.ts`, and the
+address, an item in the inbox its own, see above, Back and Forward come back as `popstate`, and an
+address that names no section shows a not found state under the tabs; a project's name pushes its
+page's address, and its link "Projects" the tab's. The list of sections and the project page's address live in `src/sections.ts`, and the
 addresses the service answers the page for in `src/DevFlow/Pages/PageEndpoints.cs`; the two change
 together.
 
@@ -1189,7 +1261,21 @@ and the origin check:
   not list there, or an installation the caller cannot reach, is `404`; one already a project of
   theirs is `409`; a field missing or not a positive number is `422` naming it. Nothing is stored
   for any of them.
-- `GET /devflow/api/projects` answers `{"projects": [...]}`, each as above, by owner and name.
+- `GET /devflow/api/projects` answers `{"projects": [...]}`, each as above, by owner and name, with
+  `last_read_at`, when its last read that succeeded was, as the waiting list's `last_success_at`
+  says it, null before any, which a project's page puts in its caption, and its `summary`, which
+  the Projects tab draws each project's card from:
+  `{"cards": {"needs_you", "in_progress", "queued", "done"}, "workers": {"count", "last_seen_at", "held", "cannot_run"}, "setting_up": {"done", "total"} | null, "feature": {"number", "title", "landed", "total"} | null}`.
+  `cards` counts its cards by group, an ignored one in none; `workers` says how many have said
+  hello with its key, when the one seen last was seen, null with none, and `held` and `cannot_run`
+  as `GET /devflow/api/projects/{id}/workers` answers them, see "Workers"; `setting_up` is its
+  setup steps done of six while its state is `setting_up`, see "Setting up a project", and null
+  once it is registered; `feature` is its open feature, neither merged, closed nor ignored, with
+  the most cards landed, in `done`, the lowest number among equals, `total` counting its cards but
+  an ignored one, and null with none open. It is `ProjectStore.List`, computed as it is read from
+  the tables below and those of "Cards", "Features", "Workers" and "Stops", one query each for the
+  projects, the cards and the features, and nothing is stored for it. The groups, and why it is
+  computed, are "Projects" in `docs/devflow-architecture.md`.
 - `DELETE /devflow/api/projects/{id}` answers `204`, or `404` for a project the caller does not
   have, another user's among them.
 
@@ -1766,10 +1852,10 @@ never calls it. A project has a key and a worker its calls, which the worker pro
 below, makes; the image it runs in and the commands that start it are "Starting a worker". Why it
 is built so is "Workers" in `docs/devflow-architecture.md`.
 
-**As the owner does it.** On the Projects tab, open a project by its name, and in its Workers panel
-press "Make a key". Copy the key then, or the command under it that saves it: it is shown once and
-never again. A worker started with it, as "Starting a worker" says, says hello and is listed under
-the panel, with a notice when it needs building again. "Make a new key" replaces it, and every worker holding
+**As the owner does it.** On the Projects tab, open a project by the arrow on its card, and in its Workers card
+press "Make a key". Copy the key then, or the command that saves it, which "Start a worker" shows
+with it: it is shown once and never again. A worker started with it, as "Starting a worker" says,
+says hello and is listed in the card, with a notice when it needs building again. "Make a new key" replaces it, and every worker holding
 the old one is refused from then on.
 
 **The key.** One per project, shared by every worker of that project: 32 random bytes from .NET's
@@ -2030,7 +2116,7 @@ per project. `runs.setup_number` names a setup's runs.
 
 **The settings step.** After the setup's pull request and before a worker on the recipe, the
 owner accepts the settings the newest setup run that succeeded proposed, its `proposed` preset and
-paths, or saves the settings panel; either does the step, once, `project_settings.accepted_at`, from
+paths, or saves the settings panel under "Edit settings"; either does the step, once, `project_settings.accepted_at`, from
 `migrations/0044_settings_step.sql`. "Accept" fills in what the preset covers over the settings as
 saved, as the panel's preset buttons do, sets `wait_paths` to the proposed paths, and saves them
 through `PUT /devflow/api/projects/{id}/settings`; nothing is stored as a preset. The step waits,
@@ -2173,21 +2259,48 @@ route ever answers a value once given. The code is `src/DevFlow/Values/`.
 - `DELETE /devflow/api/projects/{id}/values/{name}`: `204`, and jobs handed out after carry it no
   more; `404` for a project the caller does not have, or a name with no value.
 
-**On the page**: while the project is setting up, its Setup panel stands in place of its Cards
-panel, with the steps, each done or to do, the settings step while it waits, with the proposal, its preset, why
-and paths, and "Accept", or without one the line asking to save the panel once, the newest check
-with its output and its pictures, and "Check again" when it failed, with "Send back with a comment"
-when it may be, which opens a box labelled "What should the setup do differently?"; a registered project whose newest check failed shows the panel above
-its cards; while the setup step is due it shows why, the setup command to copy, and the setup run,
-where it is, its pull request, its review, what it could not settle by kind, what it proposes, the
-values its tests need, "Merge" when it waits for me, and, when it stopped, "Comment on its pull
-request, and it runs again." or, with no pull request, "Comment to run again", which opens a box
-labelled "A comment runs it again." with Send. Once the setup run is behind the project and the
-settings step does not wait, the panel shows "The values", `src/values.tsx`: each name with why,
-or "You added it.", "Missing", "Given" with when, or "Cannot be given" with why; a password field
-"The value of NAME", which the browser does not keep, with Give, for one missing, and Replace and
-Remove for one given; and "Add a value", with its name and the value. A value is cleared from the
-field once sent and never shown again. "Waiting for you" lists under "Setup" a project
+**On the page**: while the project is setting up, the header's caption has the status "Setting up",
+`needs-you` when the current step is mine and `running` otherwise, and its summary line says how
+far, "No card runs until setup is done: 2 of 6 steps", with ", and the next one is yours" when the
+current step is mine. In place of its cards is the "Setting it up" card, `SetupPanel` in
+`src/setup.tsx`: a steps bar on the right of its label, `StepsBar` from `src/cards.tsx`, named
+"2 of 6 steps done", and the six steps in the route's order as the package's `StepList`, titled
+by `STEP_TITLES`. Each step is done by its own flag, since they need not finish in order, but the
+setup step stays not done while a setup run is under way, so one sent back from a failed check is
+open with its Merge though `.devflow/` on the default branch is still valid; `setupProgress` decides
+it. A done step shows one line of what happened, `STEP_DONE`, the setup run's naming its pull
+request; one still to come shows one line of what comes there, `STEP_TO_COME`, and no button. The
+first step not done is the current one and the only one open. It is mine, with the status "Needs
+you" beside its title and the card's accent border, when it is the settings, the values, a setup
+run that waits for me or stopped, or a check that failed with no other asked for or running; the
+setup run while it works, the recipe and the worker are not. The current step shows:
+
+- **The setup run**: why it is due, the setup command to copy, and the run, where it is, its pull
+  request, its review, what it could not settle by kind, what it proposes, the values its tests
+  need, "Merge" as the step's primary when it waits for me, and, when it stopped, "Comment on its
+  pull request, and it runs again." or, with no pull request, "Comment to run again", which opens a
+  box labelled "A comment runs it again." with Send.
+- **The recipe**: that it is not on the default branch yet, and why `.devflow/` is not valid.
+- **The settings**, while the step waits: the proposal, its preset as a section heading, what the
+  preset means, why and the paths on an inset, with "Accept" as the primary and "Edit settings",
+  which opens the Settings panel; or without one the line asking to save the settings once, with
+  "Edit settings".
+- **The values**, `src/values.tsx`: each name with why, or "You added it.", "Missing", "Given"
+  with when, or "Cannot be given" with why; a password field "The value of NAME", which the browser
+  does not keep, with Give, for one missing, and Replace and Remove for one given; and "Add a
+  value", with its name and the value. A value is cleared from the field once sent and never shown
+  again. Once the step is done it closes to its line, as every done step does.
+- **The worker**: where its commands are.
+- **The check**: that one is running, or who runs it, and the newest check with its output, the
+  last 200 lines, and its pictures, with "Check again" as the primary when it failed, and "Send back
+  with a comment" when it may be, which opens a box labelled "What should the setup do
+  differently?".
+
+A registered project whose newest check failed with no other asked for shows the "Check failed"
+card above its cards, with the line that its workers on that version get no work and the check as
+above, and no step list; it has the accent border while the check is mine.
+
+"Waiting for you" lists under "Setup" a project
 whose newest check failed with no other asked for, and one whose setup run waits for me or stopped
 while its `.devflow/` is not valid, `setup_runs`, `src/setup.tsx`'s `WaitingSetupRun`, and counts
 each; a project merely setting up is not listed, since a project connected only so Dev flow reads
@@ -2490,11 +2603,11 @@ The Claude login is the token the owner makes with `claude setup-token`, which e
 is handed so it runs on his subscription. Why it is held by Dev flow, and how it reaches a run, is
 "Workers" in `docs/devflow-architecture.md`.
 
-**As the owner does it.** In a normal terminal, run `claude setup-token`, and paste what it prints
-into "Claude login" on the Projects tab, then "Save". The field empties and the section says when
-it was given and when to renew it, a year later. A month before then the section, the nav's dot
-and the front page's card say it is due: make a new token the same way and "Replace" the old one.
-"Remove" forgets it.
+**As the owner does it.** In a normal terminal, run `claude setup-token`; on the Projects tab press
+"Give a token" on the Claude login's line, paste what it printed, then "Save". The field closes and
+the line says when it was given and when it is due, a year later. A month before then the line,
+the nav's dot and the front page's card say it is due: make a new token the same way and paste it
+after "Replace". "Remove", beside the field "Replace" opens, forgets it.
 
 **One per user**, not per project, since the subscription is the user's. The token is sealed in
 the vault, see "The vault", under the purpose `claude-login`, and nowhere else.
@@ -2600,7 +2713,7 @@ Everything the job needs from the code host is read before the card is taken, so
 held for one short transaction and never while GitHub answers; a push key made for a card another
 worker took first is dropped unused. The project's page says when the Claude login stops work:
 `GET /devflow/api/projects/{id}/workers` answers `held`, `no_claude_login`, `claude_login_expired`
-or null, and the Workers panel shows it, see "The pages".
+or null, and the Workers card shows it, see "The pages".
 
 **A feature's cards.** A card of a feature is let start only while its feature is `queued` or
 `building`, no card of the feature has a run under way, and every card before it in position
@@ -3251,7 +3364,7 @@ to the project" over the feature's title as a section heading; a feature the cal
 is the `EmptyState` "There is no such feature", and one that cannot be read an alert. Under it the
 package's `Card`s, top to bottom:
 
-- "The feature": its state, as the Cards panel says a state, "Merged" and "Closed" among them, with
+- "The feature": its state, as the project's cards say a state, "Merged" and "Closed" among them, with
   its reason beside it; the links "Issue #<number>" and, once there is one, "Pull request
   #<number>", in a new tab with `rel="noreferrer"` when their address is https and plain text
   otherwise; "<done> of <all> cards done"; while the feature is offered for merging, the primary
@@ -4391,7 +4504,7 @@ Then, on the app's page:
 3. **Install App**, on the repositories Dev flow is to read, only those.
 4. **Try the link on the laptop first.** Start Dev flow there with `DEVFLOW_CODE_HOST=github`, a
    `DEVFLOW_VAULT_KEY` made as "The vault" says, and the app's four settings, open the Projects
-   tab, press "Link GitHub", authorize on GitHub, and see "Linked as @<your login>"; then press
+   tab, press "Link GitHub", authorize on GitHub, and see "linked as @<your login>"; then press
    "Connect a repository" and see the repositories you installed it on. Then release
    the hosted copy, see `infra/hosted/README.md`.
 

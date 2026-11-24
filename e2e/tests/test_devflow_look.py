@@ -1,12 +1,14 @@
 """Dev flow's pages in the platform's look: the crumb in the top bar, the page
 header, the item as a card and the rows inside it as inset rows, the
-screenshots' row, the Projects tab, and the three look checks of look.py.
+screenshots' row, the Projects tab, a project's page with its cards first, a
+project setting up, and the three look checks of look.py.
 See "The pages" in devflow/README.md.
 
 Colours and sizes are compared with the token as the page resolves it, as
 test_review_look.py does, so no value is written here but those DESIGN.md
 gives in pixels: an inset row's padding and the 1px borders."""
 
+import json
 import re
 from itertools import pairwise
 
@@ -18,19 +20,25 @@ from conftest import (
     link_github,
     open_section,
     register_and_log_in,
+    registered,
     sections,
 )
 from devflow_worlds import (
+    CHECK,
     INSTALLATION,
     REPOSITORY,
+    add_file,
+    add_issue,
     add_pull_request,
     add_screenshot,
     check_run,
     comment,
     one_repository,
     png,
+    repository,
     reviewer_comment,
     status,
+    with_setup,
 )
 from look import (
     assert_active_is_inverted,
@@ -397,39 +405,220 @@ def test_screenshots_in_an_item_do_not_scroll_sideways(
     capture(page, "devflow-item-screenshots-wrapped")
 
 
+# The Projects tab's world: fodr, set up and running, and Personal-platform,
+# connected and nothing more. The shape of a setup token, never a real one.
+CLAUDE_TOKEN = "sk-ant-oat01-ZTJlLXRlc3RzLW9ubHktbm90LWEtcmVhbC10b2tlbg_AAAAAA"
+FODR = 1002
+
+
+def two_repositories() -> dict:
+    """fodr, with a recipe and a card on its own, and Personal-platform, empty,
+    on the one installation."""
+    world = one_repository(name="fodr")
+    fodr = world["installations"][0]["repositories"][0]
+    fodr["id"] = FODR
+    add_issue(world, 21, "Check the hay analysis units", labels=["devflow"])
+    add_file(
+        world,
+        ".devflow/project.json",
+        json.dumps(
+            {"version": 1, "check": "npm test", "start": "", "url": ""}
+        ).encode(),
+    )
+    world["installations"][0]["repositories"].append(repository(one_repository()))
+    return world
+
+
+def fake_run(page: Page, base_url: str, project: str, result: dict, **extra) -> dict:
+    """The fake worker takes the project's next job and ends it with `result`."""
+    ran = page.request.post(
+        "/devflow/api/fake/worker/run",
+        data={"project_id": project, "result": result, **extra},
+        headers={"Origin": base_url},
+    )
+    assert ran.status == 200, ran.text()
+    return ran.json()
+
+
+def stage_two_projects(page: Page, base_url: str, devflow_world) -> None:
+    """Connects both of two_repositories(). fodr is checked, so registered, by
+    the fake worker, which says hello as it does; its card is read as too thin,
+    so it needs me; and a feature of two cards is labelled after, so they wait
+    for their reading. Personal-platform has no worker."""
+    devflow_world(two_repositories())
+    page.goto("/devflow/projects")
+    link_github(page, base_url)
+    given = page.request.put(
+        "/devflow/api/claude-login",
+        data={"token": CLAUDE_TOKEN},
+        headers={"Origin": base_url},
+    )
+    assert given.status == 200, given.text()
+    ids = {}
+    for repository_id in (FODR, REPOSITORY):
+        connected = page.request.post(
+            "/devflow/api/projects",
+            data={"installation_id": INSTALLATION, "repository_id": repository_id},
+            headers={"Origin": base_url},
+        )
+        assert connected.status == 201, connected.text()
+        ids[repository_id] = connected.json()["id"]
+    fodr = ids[FODR]
+    read(page, base_url, fodr)
+    checked = fake_run(
+        page,
+        base_url,
+        fodr,
+        {
+            "outcome": "succeeded",
+            "report": None,
+            "failure": None,
+            "check": {"exit_code": 0, "output": "Tests  1 passed"},
+            "auth_method": None,
+            "usage": {},
+            "duration_ms": 61000,
+            "stderr": "",
+        },
+        for_check=True,
+    )
+    assert checked["kind"] == "check", checked
+    read(page, base_url, fodr)
+    reading = fake_run(
+        page,
+        base_url,
+        fodr,
+        {
+            "outcome": "succeeded",
+            "report": {
+                "cards": [
+                    {
+                        "number": 21,
+                        "outcome": "too_thin",
+                        "questions": [],
+                        "missing": ["Which units the analysis is in"],
+                    }
+                ],
+                "touches": "web/src/hay.tsx: the analysis the card checks.",
+            },
+            "failure": None,
+            "check": None,
+            "auth_method": "oauth_token",
+            "usage": {"num_turns": 4},
+            "duration_ms": 41000,
+            "stderr": "",
+        },
+    )
+    assert reading["kind"] == "read", reading
+    world = page.request.get("/devflow/api/fake/world").json()
+    add_issue(
+        world, 40, "Export the feeding plan", labels=["devflow"], sub_issues=[41, 42]
+    )
+    add_issue(world, 41, "Write the plan as a file")
+    add_issue(world, 42, "Offer the file on the plan's page")
+    devflow_world(world)
+    read(page, base_url, fodr)
+
+
 def test_the_projects_tab_follows_the_look(
-    page: Page, invite_code: str, base_url: str, devflow_world
+    page: Page, invite_code: str, base_url: str, viewport: str, devflow_world
 ):
     register_and_log_in(page, invite_code, base_url)
     devflow_world(one_repository())
     page.goto("/devflow/projects")
-    github = page.get_by_role("article", name="GitHub")
+    connections = page.get_by_role("region", name="Connections")
+    github = connections.get_by_role("article", name="GitHub")
+    login = connections.get_by_role("article", name="Claude login")
     border = resolve(page, "--border", "border-top-color")
     accent = resolve(page, "--accent-border", "border-top-color")
+    surface = resolve(page, "--surface", "background-color")
 
-    # Not linked: the state in words, on a plain card.
-    expect(github.get_by_text("Link your GitHub account")).to_be_visible()
+    # Not linked: the state in words, on a plain item, one line 64px high on
+    # desktop; on phone its status and action take a line of their own.
+    expect(github.get_by_text("Not linked", exact=True)).to_be_visible()
     assert style(github)["borderColors"] == [border] * 4
+    for item in (github, login):
+        look = style(item)
+        assert look["background"] == surface, look
+        assert look["boxShadow"] == "none", look
+        if viewport == "desktop":
+            assert round(item.bounding_box()["height"]) == 64
 
-    connect_and_read(page, base_url)
+    stage_two_projects(page, base_url, devflow_world)
     page.goto("/devflow/projects")
 
-    # Linked: the state in words, on a plain card.
-    expect(github.get_by_text("Linked as @octo-owner")).to_be_visible()
-    assert style(github)["borderColors"] == [border] * 4
+    # Linked, and the login given: each its state in words, on a plain item.
+    expect(github.get_by_text("linked as @octo-owner")).to_be_visible()
+    expect(login.get_by_text("Given", exact=True)).to_be_visible()
+    for item in (github, login):
+        assert style(item)["borderColors"] == [border] * 4
+        if viewport == "desktop":
+            assert round(item.bounding_box()["height"]) == 64
 
-    # Each project's row holds its name, how it is read and Disconnect, more
-    # than a label and a value, so it is an inset row, with no line.
+    # Connections, then the heading with Connect a repository, then the cards.
     projects = page.get_by_role("region", name="Projects")
-    expect(projects.get_by_text("Adamniels/Personal-platform")).to_be_visible()
-    fill = resolve(page, "--surface-2", "background-color")
-    cells = projects.locator("tbody td")
-    expect(cells).to_have_count(2)
-    for cell in cells.all():
-        look = style(cell)
-        assert look["boxShadow"] == "none", look
-        assert look["borderWidths"] == ["0px"] * 4, look
-        assert look["background"] == fill, look
+    heading = projects.get_by_role("heading", name="Projects", level=2)
+    connect = projects.get_by_role("button", name="Connect a repository")
+    fodr = projects.get_by_role("article", name="Adamniels/fodr")
+    platform = projects.get_by_role("article", name="Adamniels/Personal-platform")
+    expect(fodr).to_be_visible()
+    expect(platform).to_be_visible()
+    tops = [each.bounding_box()["y"] for each in (connections, heading, fodr, platform)]
+    assert tops == sorted(tops), tops
+    assert (
+        connections.bounding_box()["y"] + connections.bounding_box()["height"]
+        <= heading.bounding_box()["y"]
+    )
+    assert connect.bounding_box()["y"] < fodr.bounding_box()["y"]
+    # Connect a repository is the view's one primary: the one amber button.
+    fill = resolve(page, "--accent", "background-color")
+    amber = [
+        button.inner_text()
+        for button in page.get_by_role("button").all()
+        if button.is_visible() and style(button)["background"] == fill
+    ]
+    assert amber == ["Connect a repository"], amber
+
+    # fodr needs me: the accent outline, its count in thin numerals, a tick a
+    # card with the one that needs me in --accent, and its inset rows.
+    assert style(fodr)["borderColors"] == [accent] * 4
+    count = fodr.get_by_text("1", exact=True)
+    weight = count.evaluate("e => getComputedStyle(e).fontWeight")
+    assert weight == "300", weight
+    assert count.evaluate("e => getComputedStyle(e).fontSize") == resolve(
+        page, "--text-num-l-size", "font-size"
+    )
+    ticks = fodr.get_by_role("img", name="1 of 3 cards needs you")
+    colours = ticks.locator(":scope > *").evaluate_all(
+        "ticks => ticks.map(t => getComputedStyle(t).backgroundColor)"
+    )
+    assert colours == [
+        resolve(page, "--accent", "background-color"),
+        resolve(page, "--text-2", "background-color"),
+        resolve(page, "--text-2", "background-color"),
+    ], colours
+    assert_inset_rows(page, fodr.get_by_role("listitem"), 3, "fodr's rows")
+    expect(fodr.get_by_role("listitem").nth(0)).to_contain_text("Building")
+    expect(fodr.get_by_role("listitem").nth(1)).to_contain_text(
+        "Export the feeding plan"
+    )
+    expect(fodr.get_by_role("listitem").nth(2)).to_contain_text("Worker")
+
+    # Personal-platform cannot run yet: a Needs you banner and its one action,
+    # in place of the count and the ticks.
+    assert style(platform)["borderColors"] == [accent] * 4
+    expect(platform.get_by_text("No worker yet, so no card can run.")).to_be_visible()
+    expect(platform.get_by_role("img")).to_have_count(0)
+    expect(platform.get_by_role("link", name="Set up a worker")).to_be_visible()
+
+    # On phone the cards stack, and each Connections item is full width.
+    if viewport == "phone":
+        width = connections.bounding_box()["width"]
+        for item in (github, login):
+            assert abs(item.bounding_box()["width"] - width) < 1
+        assert fodr.bounding_box()["x"] == platform.bounding_box()["x"]
+
+    assert_the_look(page, "/devflow/projects with two projects")
+    capture(page, "devflow-projects")
 
     # Expired: the state in words, with the needs you outline and the words
     # "Needs you" for assistive technology, never the colour alone.
@@ -439,9 +628,243 @@ def test_the_projects_tab_follows_the_look(
     assert revoked.status == 204, revoked.text()
     assert page.request.get("/devflow/api/github/repositories").status == 409
     page.goto("/devflow/projects")
-    expect(github.get_by_text("Your GitHub link has expired.")).to_be_visible()
+    expect(github.get_by_text("your link has expired")).to_be_visible()
     expect(github.get_by_text("Needs you")).to_be_attached()
     assert style(github)["borderColors"] == [accent] * 4
+
+
+def test_a_project_page_follows_the_look(
+    page: Page, invite_code: str, base_url: str, viewport: str, devflow_world
+):
+    register_and_log_in(page, invite_code, base_url)
+    # A feature of three cards, five cards on their own, and, once the fake
+    # worker has passed the setup's check, a worker.
+    world = one_repository()
+    add_issue(
+        world,
+        40,
+        "Export the feeding plan",
+        labels=["devflow"],
+        sub_issues=[41, 42, 43],
+    )
+    add_issue(world, 41, "Print layout for the plan")
+    add_issue(world, 42, "Export the feeding plan as PDF")
+    add_issue(world, 43, "Email the plan to the owner")
+    for number, title in (
+        (50, "Show the plan's date in the header"),
+        (51, "Chart colours in dark mode"),
+        (52, "Check the hay analysis units"),
+        (53, "Translate the plan to English"),
+        (54, "Remove the hackathon banner"),
+    ):
+        add_issue(world, number, title, labels=["devflow"])
+    with_setup(world)
+    devflow_world(world)
+    project = connect_and_read(page, base_url)
+    registered(page, base_url, project)
+    read(page, base_url, project)
+
+    page.goto(f"/devflow/projects/{project}")
+    cards = page.get_by_role("region", name="Cards", exact=True)
+    expect(cards.get_by_role("article", name="Feature #40")).to_be_visible()
+    own = cards.get_by_role("table", name="Cards on their own")
+    expect(own.locator("tbody tr")).to_have_count(5)
+    workers = page.get_by_role("article", name="Workers", exact=True)
+    expect(
+        workers.get_by_role("list", name="Workers").get_by_role("listitem")
+    ).to_have_count(1)
+    settings = page.get_by_role("article", name="Settings", exact=True)
+    expect(settings.get_by_role("term")).to_have_count(7)
+    expect(page.get_by_text("8 cards: 8 queued.")).to_be_visible()
+
+    # The cards column first; on desktop the side column beside it, on phone
+    # under it, where the table keeps its priority 1 columns and the stat
+    # pills give way to the summary line.
+    main = cards.bounding_box()
+    side = workers.bounding_box()
+    changed = own.get_by_role("columnheader", name="Changed")
+    pills = page.get_by_role("list", name="Cards by group")
+    if viewport == "desktop":
+        assert side["x"] >= main["x"] + main["width"], (main, side)
+        assert abs(side["y"] - main["y"]) < 1, (main, side)
+        expect(changed).to_be_visible()
+        expect(pills).to_be_visible()
+    else:
+        assert side["y"] >= main["y"] + main["height"], (main, side)
+        expect(changed).to_be_hidden()
+        expect(pills).to_be_hidden()
+    assert settings.bounding_box()["y"] > side["y"]
+
+    assert_the_look(page, "a project's page")
+    capture(page, "devflow-project")
+
+
+def setup_result(report: dict) -> dict:
+    """A setup job's result, or its review's, as its worker sends one:
+    `report`, and no check."""
+    return {
+        "outcome": "succeeded",
+        "report": report,
+        "failure": None,
+        "check": None,
+        "auth_method": "oauth_token",
+        "usage": {},
+        "duration_ms": 61000,
+        "stderr": "",
+    }
+
+
+SETUP_REPORT = {
+    "summary": "Wrote a recipe with Postgres, and a check that starts it.",
+    "proposed": {
+        "preset": "guided",
+        "why": "Its migrations are worth a look before they merge.",
+        "paths": ["migrations/**", ".github/"],
+    },
+    "variables": [{"name": "STRIPE_TEST_KEY", "why": "The payment tests call Stripe."}],
+    "unsettled": [
+        {
+            "kind": "containers_in_tests",
+            "detail": "The integration tests start Redis with Testcontainers.",
+        }
+    ],
+    "decisions": [],
+    "handover": "The check starts Postgres before the tests.",
+}
+
+SETUP_VERDICT = {
+    "verdict": "approve",
+    "summary": "The recipe installs only Postgres.",
+    "findings": [],
+    "for_owner": [],
+}
+
+CLAUDE_TOKEN = "sk-ant-oat01-ZTJlLXRlc3RzLW9ubHktbm90LWEtcmVhbC10b2tlbg_AAAAAA"
+
+
+def test_a_project_setting_up_follows_the_look(
+    page: Page, invite_code: str, base_url: str, viewport: str, devflow_world
+):
+    register_and_log_in(page, invite_code, base_url)
+    # A repository with no .devflow/; what its setup run writes is staged on
+    # the setup's branch. Its run proposes guided and lists a value, and is
+    # approved, leaving the settings for me; I merge it, so two steps are done
+    # and the settings step is open.
+    world = one_repository()
+    add_file(
+        world,
+        ".devflow/Dockerfile",
+        b"ARG DEVFLOW_BASE\nFROM ${DEVFLOW_BASE}\nRUN apt-get update\n",
+        branch="devflow/setup",
+    )
+    add_file(
+        world,
+        ".devflow/project.json",
+        json.dumps({"version": 1, "check": CHECK, "start": "", "url": ""}).encode(),
+        branch="devflow/setup",
+    )
+    devflow_world(world)
+    project = connect_and_read(page, base_url)
+    given = page.request.put(
+        "/devflow/api/claude-login",
+        data={"token": CLAUDE_TOKEN},
+        headers={"Origin": base_url},
+    )
+    assert given.status == 200, given.text()
+    read(page, base_url, project)
+    for report, kind in ((SETUP_REPORT, "setup"), (SETUP_VERDICT, "review")):
+        ran = page.request.post(
+            "/devflow/api/fake/worker/run",
+            data={
+                "project_id": project,
+                "setup": True,
+                "settings_wait": True,
+                "result": setup_result(report),
+            },
+            headers={"Origin": base_url},
+        )
+        assert ran.status == 200, ran.text()
+        assert ran.json()["kind"] == kind
+
+    page.goto(f"/devflow/projects/{project}")
+    card = page.get_by_role("article", name="Setting it up", exact=True)
+    steps = card.get_by_role("list", name="Setup steps").locator(":scope > li")
+    expect(steps).to_have_count(6)
+    steps.nth(0).get_by_role("button", name="Merge").click()
+    expect(steps.nth(2)).to_have_attribute("aria-current", "step")
+    expect(
+        page.get_by_text(
+            "No card runs until setup is done: 2 of 6 steps, and the next one is yours"
+        )
+    ).to_be_visible()
+    expect(steps.nth(2).get_by_role("region", name="The settings")).to_be_visible()
+
+    # The steps card where the cards would be: no cards, and the side column
+    # beside it on desktop, under it on phone.
+    expect(page.get_by_role("region", name="Cards", exact=True)).to_have_count(0)
+    workers = page.get_by_role("article", name="Workers", exact=True)
+    main = card.bounding_box()
+    side = workers.bounding_box()
+    if viewport == "desktop":
+        assert side["x"] >= main["x"] + main["width"], (main, side)
+        assert abs(side["y"] - main["y"]) < 1, (main, side)
+    else:
+        assert side["y"] >= main["y"] + main["height"], (main, side)
+
+    # It needs me: the accent border.
+    accent_border = resolve(page, "--accent-border", "border-top-color")
+    assert style(card)["borderColors"] == [accent_border] * 4
+
+    # Its step bar: one 8px pill per step, 4px apart; the done ones accent,
+    # the current one no fill with an accent border, the rest surface-3.
+    bar = card.get_by_role("img", name="2 of 6 steps done")
+    pills = bar.locator(":scope > span")
+    expect(pills).to_have_count(6)
+    accent = resolve(page, "--accent", "background-color")
+    surface_3 = resolve(page, "--surface-3", "background-color")
+    looks = [style(pill) for pill in pills.all()]
+    assert [look["background"] for look in looks] == [
+        accent,
+        accent,
+        "rgba(0, 0, 0, 0)",
+        surface_3,
+        surface_3,
+        surface_3,
+    ], looks
+    assert looks[2]["borderColors"] == [accent_border] * 4
+    boxes = [pill.bounding_box() for pill in pills.all()]
+    for box in boxes:
+        assert abs(box["height"] - 8) < 0.5, box
+    for left, right in pairwise(boxes):
+        assert abs(right["x"] - (left["x"] + left["width"]) - 4) < 0.5, boxes
+
+    # Each step's 32px circle: ok-soft when done, accent when current,
+    # surface-3 to come.
+    fills = {
+        "done": resolve(page, "--ok-soft", "background-color"),
+        "current": accent,
+        "to-come": surface_3,
+    }
+    for at, state in enumerate(
+        ["done", "done", "current", "to-come", "to-come", "to-come"]
+    ):
+        step = steps.nth(at)
+        expect(step).to_have_attribute("data-state", state)
+        mark = step.locator(":scope > [aria-hidden='true']").first
+        box = mark.bounding_box()
+        assert abs(box["width"] - 32) < 0.5 and abs(box["height"] - 32) < 0.5, box
+        assert style(mark)["background"] == fills[state], (at, state)
+
+    # One primary on the page: the current step's Accept.
+    primaries = [
+        button
+        for button in page.get_by_role("button").all()
+        if button.is_visible() and style(button)["background"] == accent
+    ]
+    assert [button.inner_text() for button in primaries] == ["Accept"]
+
+    assert_the_look(page, "a project setting up")
+    capture(page, "devflow-project-setting-up")
 
 
 def assert_the_look(page: Page, where: str) -> None:

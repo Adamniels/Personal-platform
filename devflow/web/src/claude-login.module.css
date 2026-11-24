@@ -1,46 +1,20 @@
-/* The Claude login's card, between the GitHub link and the projects. Tokens only. */
-
-/* The list follows it a section gap below, as it follows the GitHub link. */
-.card {
-	margin-bottom: var(--space-4);
-}
-
-.line {
-	margin: 0 0 var(--space-2);
-	overflow-wrap: anywhere;
-}
-
-/* The command to run, in the mono font. */
-.command {
-	font-family: var(--font-mono);
-	font-size: var(--text-mono-size);
-	line-height: var(--text-mono-line);
-}
-
-/* Due within a month, or past it: the attention text, beside the card's
- * outline, so it is words and an outline and never colour alone. */
-.warning {
-	color: var(--accent-text);
-	font-weight: 600;
-}
-
-/* A save or a removal that did not happen, read as an alert. */
-.error {
-	margin: 0 0 var(--space-2);
-	color: var(--accent-text);
-	font-weight: 600;
-}
+/* The Claude login's token field, which opens below its line in Connections. Tokens only. */
 
 /* The field, then its buttons under it, at every width. */
 .form {
 	display: flex;
 	flex-direction: column;
 	gap: var(--space-3);
-	margin-top: var(--space-3);
+	padding-bottom: var(--space-2);
 }
 
 .actions {
 	display: flex;
 	flex-wrap: wrap;
 	gap: var(--space-2);
+}
+
+/* Remove sits apart from Save and Cancel, at the end of the row. */
+.remove {
+	margin-left: auto;
 }

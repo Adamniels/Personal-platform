@@ -1,8 +1,22 @@
-/* A project's Cards panel, between its Settings and its Workers. Tokens only. */
+/* A project's cards, in the cards column of its page: each feature a card,
+ * then the cards on their own as a table in a card. Tokens only. */
 
-/* The next panel follows it a section gap below, as Settings does. */
-.card {
-	margin: 0 0 var(--space-4);
+/* The features and the table, a section gap apart, as cards are in section 2
+ * of design/DESIGN.md. */
+.column {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-4);
+	min-width: 0;
+}
+
+.features {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-4);
+	margin: 0;
+	padding: 0;
+	list-style: none;
 }
 
 .muted {
@@ -11,22 +25,98 @@
 }
 
 /* What did not happen: the attention text, read as an alert, as the
- * Workers panel says its own. */
+ * Workers card says its own. */
 .error {
 	margin: 0;
 	color: var(--accent-text);
 	font-weight: 600;
 }
 
-/* The features above the cards on their own, a row's gap apart. */
-.lists {
-	display: flex;
-	flex-direction: column;
-	gap: var(--inset-gap);
+.feature {
+	margin: 0;
 }
 
-/* The cards, each on an inset, hard rule 3, as the workers are. */
-.cards {
+/* A card's parts, a card's gap apart. */
+.body {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-4);
+	min-width: 0;
+}
+
+/* The hero label with the mono line beside it, the line going under the
+ * label where the row leaves no room. */
+.lead {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: flex-end;
+	justify-content: space-between;
+	gap: var(--space-2) var(--space-4);
+	min-width: 0;
+}
+
+/* The feature's title, the card's one hero label: the heading font, weight
+ * 600, in capitals (hard rule 12), a link to the feature's page. */
+.hero {
+	min-width: 0;
+	border-radius: var(--radius-sm);
+	color: var(--text);
+	font-family: var(--font-heading);
+	font-size: var(--text-hero-size);
+	line-height: var(--text-hero-line);
+	font-weight: 600;
+	text-transform: uppercase;
+	text-decoration: none;
+	overflow-wrap: anywhere;
+}
+
+.hero:hover {
+	text-decoration: underline;
+}
+
+/* Landed of total and the parent's number, hard rule 8. */
+.progress {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	gap: var(--space-2);
+	margin: 0;
+	color: var(--text-2);
+	font-family: var(--font-mono);
+	font-size: var(--text-mono-size);
+	line-height: var(--text-mono-line);
+	font-variant-numeric: tabular-nums;
+}
+
+/* "Steps" of "Progress bar and meter" in section 4 of design/DESIGN.md: one
+ * 8px pill per step, 4px apart; done in the accent, the current one with
+ * no fill and an accent border, the rest on --surface-3. */
+.steps {
+	display: flex;
+	gap: 4px;
+}
+
+.step {
+	box-sizing: border-box;
+	flex: 1 1 0;
+	min-width: 0;
+	height: 8px;
+	border-radius: var(--radius-full);
+	background: var(--surface-3);
+}
+
+.step[data-step="done"] {
+	background: var(--accent);
+}
+
+.step[data-step="current"] {
+	background: transparent;
+	border: 1px solid var(--accent-border);
+}
+
+/* A feature's cards, each an inset row, hard rule 3. The list's own
+ * numbering is left out: each card says its number. */
+.rows {
 	display: flex;
 	flex-direction: column;
 	gap: var(--inset-gap);
@@ -35,35 +125,22 @@
 	list-style: none;
 }
 
+/* "Inset list row" in section 4 of design/DESIGN.md, --radius-sm for a row
+ * of one line. */
 .row {
+	box-sizing: border-box;
 	display: flex;
 	flex-direction: column;
+	justify-content: center;
 	gap: var(--space-1);
+	min-height: var(--row-h);
 	padding: 8px 12px;
 	border-radius: var(--radius-md);
 	background: var(--surface-2);
 }
 
-/* A feature's cards, in their order, inside its inset. The list's own
- * numbering is left out: each card says its number. */
-.featureCards {
-	display: flex;
-	flex-direction: column;
-	gap: var(--inset-gap);
-	margin: var(--space-1) 0 0;
-	padding: 0;
-	list-style: none;
-}
-
-/* A card of a feature, on the card's surface inside the feature's inset, so
- * the two levels read apart without a line between them. */
-.featureCard {
-	display: flex;
-	flex-direction: column;
-	gap: var(--space-1);
-	padding: 8px 12px;
-	border-radius: var(--radius-md);
-	background: var(--surface);
+.row[data-lines="1"] {
+	border-radius: var(--radius-sm);
 }
 
 /* The number, the title and the state on one line, wrapping at phone width
@@ -96,20 +173,89 @@ a.number {
 	overflow-wrap: anywhere;
 }
 
+/* The title leads to the card's page, a link as the way back is. */
+a.title {
+	border-radius: var(--radius-sm);
+	color: var(--info);
+}
+
 .state {
 	flex: none;
+	margin-left: auto;
 }
 
 .reason {
+	margin: 0;
 	color: var(--text-2);
 	font-size: var(--text-caption-size);
 	line-height: var(--text-caption-line);
 	overflow-wrap: anywhere;
 }
 
-/* The title leads to the card's page, a link as the way back on a project's
- * page is. */
-a.title {
+/* The cards on their own: "Table" in section 4 of design/DESIGN.md, in a card
+ * of its own, --surface, 1px --border, --radius-lg and no inner padding but
+ * its header's, which is the card's label and its order. */
+.tableCard {
+	box-sizing: border-box;
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+	overflow: hidden;
+	background: var(--surface);
+	border: 1px solid var(--border);
+	border-radius: var(--radius-lg);
+}
+
+.tableHead {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--space-2);
+	padding: var(--card-pad) var(--card-pad) var(--space-2);
+}
+
+/* The card's label, as the package's Card draws its own: quiet, in the UI
+ * font and never in capitals. Two classes, to outrank page.css's `.page h2`
+ * on its size. */
+.tableHead .label {
+	margin: 0;
+	color: var(--text-2);
+	font-family: var(--font-ui);
+	font-size: var(--text-label-size);
+	line-height: var(--text-label-line);
+	font-weight: 500;
+	letter-spacing: normal;
+	text-transform: none;
+}
+
+.order {
+	color: var(--text-3);
+	font-family: var(--font-mono);
+	font-size: var(--text-mono-size);
+	line-height: var(--text-mono-line);
+}
+
+/* Inside its card the table's own frame is the card's, so it draws none. Two
+ * classes, to outrank the package's frame whatever order the sheets load in. */
+.tableCard .table {
+	border: 0;
+	border-radius: 0;
+}
+
+/* A card's title with its reason under it. */
+.cardCell {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	min-width: 0;
+}
+
+/* The title in its cell: a link sized by its text, since the row's flex
+ * basis of .title would make it tall in this column. */
+a.cellTitle {
 	border-radius: var(--radius-sm);
 	color: var(--info);
+	font-weight: 600;
+	overflow-wrap: anywhere;
 }

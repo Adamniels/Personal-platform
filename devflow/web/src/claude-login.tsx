@@ -3,10 +3,13 @@
 // never shown again, not even in part: the page knows only whether one is set, when it was given
 // and when it is due, and shows the warning style from a month before. See "The pages" and
 // "Claude login" in devflow/README.md.
-import { Button, Card, Dialog, TextField } from "@platform/ui";
-import { type FormEvent, useEffect, useState } from "react";
+import { Button, Dialog, Status, TextField } from "@platform/ui";
+import { type FormEvent, type ReactElement, useEffect, useState } from "react";
 import { ApiError, type GetAnswer } from "./api/client";
 import styles from "./claude-login.module.css";
+import { Connection } from "./connection";
+import line from "./connection.module.css";
+import { KeyIcon } from "./icons";
 
 export type ClaudeLoginStatus = GetAnswer<"/claude-login">;
 
@@ -14,6 +17,8 @@ export const NOT_A_TOKEN =
 	"That is not a setup token. Make one with claude setup-token and paste all of it.";
 export const NOT_SAVED = "The Claude login was not saved. Try again.";
 export const NOT_REMOVED = "The Claude login was not removed. Try again.";
+export const PURPOSE =
+	"Agents run on your subscription with this. Make it with claude setup-token.";
 
 /** How the section reads and changes the login, Dev flow's API in the page
  * and a test's own in a test. */
@@ -23,15 +28,18 @@ export type ClaudeLoginApi = {
 	removeLogin: () => Promise<void>;
 };
 
-/** The login as a card of the package's: what it is for, where it stands,
- * and a password field to give or replace it, with "Remove" behind a
- * confirmation once one is set. Nothing before the status answers. */
+/** The login as one line of Connections: where it stands as a status label,
+ * its dates on the mono line, and "Give a token" or "Replace", which opens a
+ * password field below the line; "Remove", behind a confirmation, is beside
+ * the field once one is set. From a month before it is due, the item takes
+ * the attention style. Nothing before the status answers. */
 export function ClaudeLogin({
 	loadLogin,
 	saveLogin,
 	removeLogin,
 }: ClaudeLoginApi) {
 	const [status, setStatus] = useState<ClaudeLoginStatus>();
+	const [open, setOpen] = useState(false);
 	const [token, setToken] = useState("");
 	const [saving, setSaving] = useState(false);
 	const [invalid, setInvalid] = useState(false);
@@ -62,6 +70,7 @@ export function ClaudeLogin({
 			setStatus(await saveLogin(token));
 			setInvalid(false);
 			setError(null);
+			setOpen(false);
 		} catch (refused) {
 			const notAToken =
 				refused instanceof ApiError && refused.problem.status === 422;
@@ -73,11 +82,18 @@ export function ClaudeLogin({
 		setSaving(false);
 	};
 
+	const close = () => {
+		setOpen(false);
+		setToken("");
+		setInvalid(false);
+	};
+
 	const confirmRemove = async () => {
 		try {
 			await removeLogin();
 			setStatus({ set: false, given_at: null, renew_by: null, state: "none" });
 			setError(null);
+			setOpen(false);
 		} catch {
 			setError(NOT_REMOVED);
 		}
@@ -88,47 +104,63 @@ export function ClaudeLogin({
 
 	return (
 		<>
-			<Card title="Claude login" attention={due} className={styles.card}>
-				<p className={styles.line}>
-					Agents run on your subscription with this. Make it with{" "}
-					<code className={styles.command}>claude setup-token</code>.
-				</p>
-				<Standing status={status} />
+			<Connection
+				name="Claude login"
+				icon={<KeyIcon />}
+				line={dates(status)}
+				status={standing(status)}
+				action={
+					<Button
+						kind="ghost"
+						aria-expanded={open}
+						onClick={() => setOpen(true)}
+					>
+						{status.set ? "Replace" : "Give a token"}
+					</Button>
+				}
+				attention={due}
+			>
 				{error === null ? null : (
-					<p className={styles.error} role="alert">
+					<p className={line.error} role="alert">
 						{error}
 					</p>
 				)}
-				<form className={styles.form} onSubmit={save}>
-					<TextField
-						label="Claude token"
-						type="password"
-						autoComplete="off"
-						spellCheck={false}
-						value={token}
-						error={invalid ? NOT_A_TOKEN : undefined}
-						onChange={(event) => setToken(event.target.value)}
-					/>
-					<div className={styles.actions}>
-						<Button
-							kind="secondary"
-							type="submit"
-							disabled={saving || token.trim() === ""}
-						>
-							{status.set ? "Replace" : "Save"}
-						</Button>
-						{status.set ? (
+				{open ? (
+					<form className={styles.form} onSubmit={save}>
+						<TextField
+							label="Claude token"
+							type="password"
+							autoComplete="off"
+							spellCheck={false}
+							value={token}
+							help={PURPOSE}
+							error={invalid ? NOT_A_TOKEN : undefined}
+							onChange={(event) => setToken(event.target.value)}
+						/>
+						<div className={styles.actions}>
 							<Button
-								kind="ghost"
-								type="button"
-								onClick={() => setConfirming(true)}
+								kind="secondary"
+								type="submit"
+								disabled={saving || token.trim() === ""}
 							>
-								Remove
+								Save
 							</Button>
-						) : null}
-					</div>
-				</form>
-			</Card>
+							<Button kind="ghost" onClick={close}>
+								Cancel
+							</Button>
+							{status.set ? (
+								<Button
+									kind="ghost"
+									className={styles.remove}
+									onClick={() => setConfirming(true)}
+								>
+									Remove
+								</Button>
+							) : null}
+						</div>
+					</form>
+				) : null}
+			</Connection>
 			<Dialog
 				open={confirming}
 				title="Remove the Claude login?"
@@ -144,39 +176,28 @@ export function ClaudeLogin({
 	);
 }
 
-/** Where the login stands, in words, its dates in the reader's own zone:
- * not set, set and when it is due, or, from a month before, the warning. */
-function Standing({ status }: { status: ClaudeLoginStatus }) {
+/** Where the login stands, as a status label: not set, given, due within a
+ * month, or past it. */
+function standing(status: ClaudeLoginStatus): ReactElement {
+	if (!status.set) return <Status tone="idle">Not set</Status>;
+	if (status.state === "expired")
+		return <Status tone="needs-you">Expired</Status>;
+	if (status.state === "due_soon") return <Status tone="needs-you">Due</Status>;
+	return <Status tone="done">Given</Status>;
+}
+
+/** The mono line: how to make one when none is set, otherwise when it was
+ * given and when it is due or ran out, its days in the reader's own zone. */
+function dates(status: ClaudeLoginStatus): string {
 	const { given_at: given, renew_by: renewBy } = status;
 	if (!status.set || given === null || renewBy === null) {
-		return <p className={styles.line}>Not set yet.</p>;
+		return "make one with claude setup-token";
 	}
-	if (status.state === "expired") {
-		return (
-			<p className={`${styles.line} ${styles.warning}`}>
-				Set on <Day at={given} />. It ran out on <Day at={renewBy} />: agents
-				cannot run until you replace it.
-			</p>
-		);
-	}
-	if (status.state === "due_soon") {
-		return (
-			<p className={`${styles.line} ${styles.warning}`}>
-				Set on <Day at={given} />. Renew it by <Day at={renewBy} />: agents
-				cannot run once it runs out.
-			</p>
-		);
-	}
-	return (
-		<p className={styles.line}>
-			Set on <Day at={given} />, renew by <Day at={renewBy} />.
-		</p>
-	);
+	const end = status.state === "expired" ? "ran out" : "due";
+	return `given ${day(given)} · ${end} ${day(renewBy)}`;
 }
 
 const DATE = new Intl.DateTimeFormat("en-GB", { dateStyle: "medium" });
 
 /** A day, in the reader's own zone. */
-function Day({ at }: { at: string }) {
-	return <time dateTime={at}>{DATE.format(new Date(at))}</time>;
-}
+const day = (at: string) => DATE.format(new Date(at));

@@ -1057,6 +1057,47 @@ def test_the_empty_state_title_is_in_capitals(page: Page, theme: str):
 
 
 @pytest.mark.parametrize("theme", THEMES)
+def test_a_needs_you_banner_reads_its_values(page: Page, theme: str):
+    open_gallery(page, theme)
+    region = page.get_by_role("region", name="Needs you banner")
+
+    # --accent-soft fill, 1px --accent-border, --radius-md, padding 14px 16px.
+    message = region.get_by_text("No worker yet, so no card can run.", exact=True)
+    root = message.locator("../..")
+    style = root.evaluate(BOX_STYLE)
+    assert style["background"] == resolve(page, "--accent-soft", "background-color")
+    assert style["borders"] == [resolve(page, "--accent-border", "color")] * 4
+    assert style["borderWidths"] == ["1px"] * 4
+    assert style["radii"] == radii(page, "--radius-md")
+    assert style["padding"] == ["14px", "16px", "14px", "16px"]
+    assert style["shadow"] == "none"
+
+    # The warning icon and "Needs you" in --accent-text, the words in caption
+    # style at 600, then the message at 600 and the detail in --text-2.
+    icon = root.locator("svg").evaluate(BOX_STYLE)
+    assert icon["color"] == resolve(page, "--accent-text", "color")
+    words = root.get_by_text("Needs you", exact=True).evaluate(BOX_STYLE)
+    assert words["color"] == resolve(page, "--accent-text", "color")
+    assert words["fontSize"] == resolve(page, "--text-caption-size", "font-size")
+    assert words["weight"] == "600"
+    assert message.evaluate(BOX_STYLE)["weight"] == "600"
+    detail = root.get_by_text("Make the project's key", exact=False).evaluate(BOX_STYLE)
+    assert detail["color"] == resolve(page, "--text-2", "color")
+
+    # One action, and none on the banner given none.
+    expect(root.get_by_role("button")).to_have_count(1)
+    bare = region.get_by_text("The check of the setup failed.", exact=True)
+    expect(bare.locator("../..").get_by_role("button")).to_have_count(0)
+
+    # The card holding it takes the accent border.
+    card = region.get_by_role("article", name="adamniels/personal-platform")
+    assert (
+        card.evaluate(BOX_STYLE)["borders"]
+        == [resolve(page, "--accent-border", "color")] * 4
+    )
+
+
+@pytest.mark.parametrize("theme", THEMES)
 def test_a_timeline_entry_reads_its_values(page: Page, theme: str):
     open_gallery(page, theme)
     region = page.get_by_role("region", name="Timeline entry")
@@ -1109,6 +1150,52 @@ def test_a_timeline_entry_reads_its_values(page: Page, theme: str):
     dot = rails[0].locator("span").first.evaluate(BOX_STYLE)
     assert dot["background"] == resolve(page, "--accent", "background-color")
     assert dot["borders"] == [resolve(page, "--accent-border", "color")] * 4
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_a_step_list_reads_its_values(page: Page, theme: str):
+    open_gallery(page, theme)
+    region = page.get_by_role("region", name="Step list")
+    steps = region.get_by_role("list", name="Setting it up").locator(":scope > li")
+    expect(steps).to_have_count(5)
+    expect(steps.nth(2)).to_have_attribute("aria-current", "step")
+
+    # Each a 32px circle: ok-soft with the check in ok when done, the accent
+    # with its number in on-accent when current, surface-3 with its number in
+    # text-2 to come.
+    looks = {
+        0: ("--ok-soft", "--ok", ""),
+        2: ("--accent", "--on-accent", "3"),
+        3: ("--surface-3", "--text-2", "4"),
+    }
+    for at, (fill, ink, number) in looks.items():
+        mark = steps.nth(at).locator(":scope > [aria-hidden='true']")
+        circle = mark.evaluate(BOX_STYLE)
+        assert circle["width"] == circle["height"] == "32px", at
+        assert circle["radii"] == radii(page, "--radius-full"), at
+        assert circle["background"] == resolve(page, fill, "background-color"), at
+        assert circle["color"] == resolve(page, ink, "color"), at
+        assert mark.inner_text() == number, at
+    expect(steps.nth(0).locator("svg")).to_have_count(1)
+
+    # The title: weight 600 done and current, text-2 to come, with its line
+    # in text-3.
+    def title(at: int) -> dict:
+        return (
+            steps.nth(at)
+            .get_by_text(
+                ["The setup run", "", "The settings", "A worker on the recipe"][at],
+                exact=True,
+            )
+            .evaluate(BOX_STYLE)
+        )
+
+    assert title(0)["weight"] == "600"
+    assert title(2)["weight"] == "600"
+    assert title(3)["color"] == resolve(page, "--text-2", "color")
+    line = steps.nth(3).get_by_text("A worker built from the recipe says hello.")
+    assert line.evaluate(BOX_STYLE)["color"] == resolve(page, "--text-3", "color")
+    expect(steps.nth(2).get_by_text("Needs you", exact=True)).to_be_visible()
 
 
 # The "Table" of section 4 of design/DESIGN.md. The gallery's "Sessions"

@@ -16,6 +16,13 @@ const PROJECT = {
 	owner: "Adamniels",
 	name: "Personal-platform",
 	created_at: "2026-11-16T10:00:00+00:00",
+	last_read_at: "2026-11-17T11:58:00+00:00",
+	summary: {
+		cards: { needs_you: 0, in_progress: 0, queued: 0, done: 0 },
+		workers: { count: 0, last_seen_at: null, held: null, cannot_run: null },
+		setting_up: null,
+		feature: null,
+	},
 };
 
 function openAt(path: string) {
@@ -180,7 +187,7 @@ describe("the address decides the tab, and a tab changes the address", () => {
 		const panel = within(screen.getByRole("tabpanel"));
 		expect(
 			await panel.findByRole("heading", {
-				name: "Adamniels/Personal-platform",
+				name: "Personal-platform",
 			}),
 		).toBeTruthy();
 		expect(panel.getByRole("article", { name: "Workers" })).toBeTruthy();
@@ -191,7 +198,9 @@ describe("the address decides the tab, and a tab changes the address", () => {
 		openAt("/devflow/projects/0190a8f0-0000-7000-8000-000000000001");
 
 		fireEvent.click(
-			await screen.findByRole("link", { name: "Back to Projects" }),
+			await within(screen.getByRole("tabpanel")).findByRole("link", {
+				name: "Projects",
+			}),
 		);
 
 		expect(window.location.pathname).toBe("/devflow/projects");

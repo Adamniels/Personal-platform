@@ -7,6 +7,10 @@ export { EmptyState, type EmptyStateProps } from "./empty-state/empty-state";
 export { Select, type SelectProps } from "./field/select";
 export { TextArea, type TextAreaProps } from "./field/text-area";
 export { TextField, type TextFieldProps } from "./field/text-field";
+export {
+	NeedsYouBanner,
+	type NeedsYouBannerProps,
+} from "./needs-you-banner/needs-you-banner";
 export { Meter, type MeterProps } from "./progress/meter";
 export {
 	Progress,
@@ -16,6 +20,13 @@ export {
 export { Badge, type BadgeProps } from "./status/badge";
 export { Chip, type ChipProps } from "./status/chip";
 export { Status, type StatusProps, type StatusTone } from "./status/status";
+export {
+	StepList,
+	StepListItem,
+	type StepListItemProps,
+	type StepListProps,
+	type StepState,
+} from "./step-list/step-list";
 export {
 	FilterPill,
 	type FilterPillProps,

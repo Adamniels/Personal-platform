@@ -98,7 +98,8 @@ public static class DevFlowApp
         // A user's projects, connected from what the code host lists for them. See "Connecting a
         // repository" in devflow/README.md.
         builder.Services.AddSingleton(provider => new ProjectStore(
-            database, provider.GetRequiredService<UserTokens>(), provider.GetRequiredService<ICodeHost>(), provider.GetRequiredService<TimeProvider>()));
+            database, provider.GetRequiredService<UserTokens>(), provider.GetRequiredService<ICodeHost>(), provider.GetRequiredService<TimeProvider>(),
+            provider.GetRequiredService<ClaudeLogins>(), provider.GetRequiredService<WorkerStart>()));
         // A project's settings, made with it. See "Cards" in devflow/README.md.
         builder.Services.AddSingleton(new ProjectSettingsStore(database));
         // Reading each project into the snapshot the pages read, the one seam that asks for a read,

@@ -74,7 +74,12 @@ Screenshots land in `screenshots/`, which is git ignored.
   rgb)` makes a one colour PNG for it, with no image library. It works on the dev stack and in
   the hosted check, both of which fake GitHub. `link_github(page, base_url)` links the account's
   GitHub through the fake's sign in page, from Dev flow's Projects tab, which the page must be on,
-  as connecting a repository needs.
+  as connecting a repository needs. A project shows its setup steps in place of its cards until a check of
+  its setup has passed: `with_setup(world)` puts a `.devflow/project.json` naming `CHECK` on the
+  world's default branch, and `registered(page, base_url, project)` reads the project and has the
+  fake worker, which says hello as `devflow-fake-worker`, pass that check, through
+  `fake_check(page, base_url, project, exit_code, output)`, which a test of a failed check calls
+  itself.
 - `viewport` runs the test twice, `[desktop]` (1280x800) and `[phone]` (390x844), and sizes the page.
 - `capture(page, name)` writes a full page screenshot to `screenshots/<name>-<viewport>.png` and
   returns the path. It needs the page sized by the `viewport` fixture, or set to `WIDE` (1920x1080),
