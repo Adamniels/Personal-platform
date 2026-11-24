@@ -5,9 +5,10 @@ import {
 	screen,
 	within,
 } from "@testing-library/react";
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { afterEach, describe, expect, test } from "vitest";
 import {
 	type Card,
+	type CardList,
 	CardsPanel,
 	CardsTable,
 	type Feature,
@@ -50,12 +51,9 @@ const feature = (
 	cards,
 });
 
-function renderPanel(
-	load: (id: string) => Promise<{ cards: Card[]; features: Feature[] }>,
-) {
-	const loadCards = vi.fn(load);
-	render(<CardsPanel id={ID} loadCards={loadCards} />);
-	return loadCards;
+/** The panel with the cards the page read, null when they could not be. */
+function renderPanel(list: CardList | null) {
+	render(<CardsPanel id={ID} list={list} />);
 }
 
 const panel = async () =>
@@ -63,24 +61,21 @@ const panel = async () =>
 
 describe("the cards panel", () => {
 	test("lists each card with its number, title, state and reason, as the answer orders them", async () => {
-		const loadCards = renderPanel(() =>
-			Promise.resolve({
-				features: [],
-				cards: [
-					card(12, "queued", null),
-					card(13, "held", "Held by the label devflow-hold"),
-					card(14, "queued", "Waits for #12"),
-					card(
-						15,
-						"ignored",
-						"octo-stranger is not a trusted account of this project",
-					),
-				],
-			}),
-		);
+		renderPanel({
+			features: [],
+			cards: [
+				card(12, "queued", null),
+				card(13, "held", "Held by the label devflow-hold"),
+				card(14, "queued", "Waits for #12"),
+				card(
+					15,
+					"ignored",
+					"octo-stranger is not a trusted account of this project",
+				),
+			],
+		});
 		const cards = await panel();
 
-		expect(loadCards).toHaveBeenCalledWith(ID);
 		const rows = within(
 			await cards.findByRole("list", { name: "Cards" }),
 		).getAllByRole("listitem");
@@ -123,18 +118,16 @@ describe("the cards panel", () => {
 	});
 
 	test("an address that is not https is no link, and a title is shown as text", async () => {
-		renderPanel(() =>
-			Promise.resolve({
-				features: [],
-				cards: [
-					{
-						...card(16, "queued", null),
-						title: "<img src=x onerror=alert(1)>",
-						web_url: "javascript:alert(1)",
-					},
-				],
-			}),
-		);
+		renderPanel({
+			features: [],
+			cards: [
+				{
+					...card(16, "queued", null),
+					title: "<img src=x onerror=alert(1)>",
+					web_url: "javascript:alert(1)",
+				},
+			],
+		});
 		const cards = await panel();
 
 		expect(await cards.findByText("<img src=x onerror=alert(1)>")).toBeTruthy();
@@ -150,24 +143,22 @@ describe("the cards panel", () => {
 	});
 
 	test("says how a card is made when there is none", async () => {
-		renderPanel(() => Promise.resolve({ cards: [], features: [] }));
+		renderPanel({ cards: [], features: [] });
 
 		expect(await (await panel()).findByText(NO_CARDS)).toBeTruthy();
 	});
 
 	test("lists each feature above the cards on their own, with its cards in order and their states", async () => {
-		renderPanel(() =>
-			Promise.resolve({
-				features: [
-					feature(40, "held", "Held by the label devflow-hold", [
-						card(43, "held", "The feature is held by the label devflow-hold"),
-						card(41, "held", "The feature is held by the label devflow-hold"),
-					]),
-					feature(30, "queued", null, [card(31, "queued", "Waits for #9")]),
-				],
-				cards: [card(50, "queued", null)],
-			}),
-		);
+		renderPanel({
+			features: [
+				feature(40, "held", "Held by the label devflow-hold", [
+					card(43, "held", "The feature is held by the label devflow-hold"),
+					card(41, "held", "The feature is held by the label devflow-hold"),
+				]),
+				feature(30, "queued", null, [card(31, "queued", "Waits for #9")]),
+			],
+			cards: [card(50, "queued", null)],
+		});
 		const cards = await panel();
 
 		const features = await cards.findByRole("list", { name: "Features" });
@@ -214,12 +205,10 @@ describe("the cards panel", () => {
 	});
 
 	test("a feature alone needs no list of cards on their own", async () => {
-		renderPanel(() =>
-			Promise.resolve({
-				features: [feature(40, "queued", null, [card(41, "queued", null)])],
-				cards: [],
-			}),
-		);
+		renderPanel({
+			features: [feature(40, "queued", null, [card(41, "queued", null)])],
+			cards: [],
+		});
 		const cards = await panel();
 
 		expect(await cards.findByRole("list", { name: "Features" })).toBeTruthy();
@@ -228,7 +217,7 @@ describe("the cards panel", () => {
 	});
 
 	test("cards that could not be read say so", async () => {
-		renderPanel(() => Promise.reject(new Error("down")));
+		renderPanel(null);
 
 		expect((await (await panel()).findByRole("alert")).textContent).toBe(
 			NOT_READ,

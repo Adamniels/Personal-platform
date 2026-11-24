@@ -194,7 +194,8 @@ public sealed class ProjectStore(UserDb database, UserTokens tokens, ICodeHost h
                        (SELECT max(w.last_seen_at) FROM workers w WHERE w.project_id = p.id) AS LastSeenAt,
                        {WatchStore.HoldSql} AS Held,
                        {ProjectWaits.CannotRunReasonSql} AS CannotRunReason,
-                       {SetupStore.RegisteredSql} AS Registered
+                       {SetupStore.RegisteredSql} AS Registered,
+                       (SELECT r.last_success_at FROM project_reads r WHERE r.project_id = p.id) AS LastReadAt
                 FROM projects p
                 ORDER BY lower(p.owner), lower(p.name), p.id
                 """,
@@ -267,6 +268,7 @@ public sealed class ProjectStore(UserDb database, UserTokens tokens, ICodeHost h
                 row.Held ?? login,
                 row.CannotRunReason is { } reason ? ProjectWaits.CannotRun(row.Name, reason) : null);
             listed.Add(new ListedProject(row.Id, row.InstallationId, row.RepositoryId, row.Owner, row.Name, GitHubLink.Utc(row.CreatedAt),
+                row.LastReadAt is { } read ? GitHubLink.Utc(read) : null,
                 new ProjectSummary(counts, workers, settingUp, feature)));
         }
 
@@ -297,7 +299,7 @@ public sealed class ProjectStore(UserDb database, UserTokens tokens, ICodeHost h
     };
 
     private sealed record Row(Guid Id, long InstallationId, long RepositoryId, string Owner, string Name, DateTime CreatedAt,
-        int Workers, DateTime? LastSeenAt, string? Held, string? CannotRunReason, bool Registered);
+        int Workers, DateTime? LastSeenAt, string? Held, string? CannotRunReason, bool Registered, DateTime? LastReadAt);
 
     private sealed record CountsRow(Guid ProjectId, int NeedsYou, int InProgress, int Queued, int Done);
 

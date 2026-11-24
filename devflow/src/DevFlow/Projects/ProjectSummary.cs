@@ -8,8 +8,10 @@ namespace DevFlow.Projects;
 /// <param name="Owner">Its owner, as the code host named it when it was connected.</param>
 /// <param name="Name">Its name, as the code host named it when it was connected.</param>
 /// <param name="CreatedAt">When it was connected.</param>
+/// <param name="LastReadAt">When it was last read, the last read that succeeded, as the waiting
+/// list's freshness says it in <c>last_success_at</c>; null before any.</param>
 /// <param name="Summary">How it is doing, computed as it is listed.</param>
-public sealed record ListedProject(Guid Id, long InstallationId, long RepositoryId, string Owner, string Name, DateTimeOffset CreatedAt, ProjectSummary Summary);
+public sealed record ListedProject(Guid Id, long InstallationId, long RepositoryId, string Owner, string Name, DateTimeOffset CreatedAt, DateTimeOffset? LastReadAt, ProjectSummary Summary);
 
 /// <summary>How a project is doing, for its card on the Projects tab, computed from what Dev flow
 /// stored and never stored itself. See "Projects" in devflow/docs/devflow-architecture.md.</summary>

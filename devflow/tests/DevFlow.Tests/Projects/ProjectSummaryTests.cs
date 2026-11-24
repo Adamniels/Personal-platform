@@ -205,6 +205,34 @@ public sealed class ProjectSummaryTests
         Assert.Null(none["feature"]);
     }
 
+    /// <summary>Each project says when it was last read, its last read that succeeded, as the
+    /// waiting list's freshness says it; a read that failed since leaves it as it was, and a
+    /// project never read says null.</summary>
+    [Fact]
+    public async Task SaysWhenEachWasLastRead()
+    {
+        await using var routes = await Routes.Start();
+        var read = await routes.Project(User);
+        var never = await routes.Project(User, repository: 9002, name: "habit-tracker");
+        var readAt = routes.Time.GetUtcNow() - TimeSpan.FromMinutes(2);
+        await using (var admin = await routes.Database.OpenAdmin(Ct))
+        {
+            await admin.ExecuteAsync(new CommandDefinition(
+                """
+                INSERT INTO project_reads (project_id, user_id, last_attempt_at, last_success_at, last_error)
+                VALUES (@read, @user, @now, @readAt, 'GitHub answered 502')
+                """,
+                new { read, user = User, now = routes.Time.GetUtcNow(), readAt },
+                cancellationToken: Ct));
+        }
+
+        var listed = await List(routes);
+        JsonNode Of(Guid project) => listed.Single(p => Guid.Parse((string)p!["id"]!) == project)!;
+        Assert.Equal($"{readAt:yyyy-MM-ddTHH:mm:ss.FFFFFFF}+00:00", (string?)Of(read)["last_read_at"]);
+        Assert.True(Of(never).AsObject().ContainsKey("last_read_at"));
+        Assert.Null(Of(never)["last_read_at"]);
+    }
+
     [Fact]
     public async Task ReadsOnlyTheCallersProjects()
     {

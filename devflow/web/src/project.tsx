@@ -11,7 +11,14 @@ import { useCallback, useEffect, useState } from "react";
 import { plainClick } from "./address";
 import type { GetAnswer } from "./api/client";
 import type { components } from "./api/schema";
-import { type CardsApi, CardsPanel } from "./cards";
+import {
+	type CardCounts,
+	type CardList,
+	type CardsApi,
+	CardsPanel,
+	countCards,
+	summaryLine,
+} from "./cards";
 import styles from "./project.module.css";
 import type { Project } from "./projects";
 import {
@@ -98,6 +105,20 @@ export type ProjectPageProps = ProjectApi & {
 
 const fullName = (project: Project) => `${project.owner}/${project.name}`;
 
+/** The header's mono caption: the repository, and how long ago it was last
+ * read, or that it has not been yet. */
+const caption = (project: Project, now: number): string =>
+	project.last_read_at === null
+		? `${fullName(project)} · not read yet`
+		: `${fullName(project)} · read ${duration(Math.max(0, now - Date.parse(project.last_read_at)))} ago`;
+
+/** The stat pills, each a group of the summary line with its dot's tone. */
+const PILLS: { group: keyof CardCounts; label: string; tone: string }[] = [
+	{ group: "in_progress", label: "In progress", tone: "running" },
+	{ group: "needs_you", label: "Needs you", tone: "needs-you" },
+	{ group: "done", label: "Done", tone: "done" },
+];
+
 const clipboard = (text: string) => navigator.clipboard.writeText(text);
 
 /** The project's header, its Settings, Cards and Workers panels, or a not found state when the
@@ -124,6 +145,9 @@ export function ProjectPage({
 }: ProjectPageProps) {
 	const [project, setProject] = useState<Project | null>();
 	const [failed, setFailed] = useState(false);
+	// The project's cards, read by the page since its header counts them:
+	// undefined before they answer, null when they could not be read.
+	const [cards, setCards] = useState<CardList | null>();
 	// The project's setup, which decides whether its steps stand in place of
 	// its cards; null when it could not be read, and the cards are shown.
 	const [setup, setSetup] = useState<ProjectSetup | null>();
@@ -193,6 +217,25 @@ export function ProjectPage({
 		};
 	}, [id, loadSetup]);
 
+	// The cards are read once the setup says they are shown, and never while
+	// the project is setting up, when its steps stand in their place.
+	const cardsShown = setup !== undefined && setup?.state !== "setting_up";
+	useEffect(() => {
+		if (!cardsShown) return;
+		let current = true;
+		loadCards(id).then(
+			(answer) => {
+				if (current) setCards(answer);
+			},
+			() => {
+				if (current) setCards(null);
+			},
+		);
+		return () => {
+			current = false;
+		};
+	}, [id, loadCards, cardsShown]);
+
 	const backLink = (
 		<a
 			className={styles.back}
@@ -204,7 +247,16 @@ export function ProjectPage({
 				}
 			}}
 		>
-			Back to Projects
+			<svg
+				className={styles.chevron}
+				viewBox="0 0 24 24"
+				width="16"
+				height="16"
+				aria-hidden="true"
+			>
+				<path d="m15 18-6-6 6-6" />
+			</svg>
+			Projects
 		</a>
 	);
 
@@ -226,13 +278,39 @@ export function ProjectPage({
 		);
 	}
 
+	const counts = cardsShown && cards ? countCards(cards) : undefined;
 	return (
 		<>
 			<header className={styles.header}>
 				{backLink}
-				<div className={styles.title}>
-					<h2 className={styles.name}>{fullName(project)}</h2>
-					{preset === undefined ? null : <Badge>{PRESET_NAMES[preset]}</Badge>}
+				<div className={styles.heading}>
+					<div className={styles.titles}>
+						<div className={styles.captionRow}>
+							<p className={styles.caption}>{caption(project, now())}</p>
+							{preset === undefined ? null : (
+								<Badge>{PRESET_NAMES[preset]}</Badge>
+							)}
+						</div>
+						<h2 className={styles.name}>{project.name}</h2>
+						{counts === undefined ? null : (
+							<p className={styles.summary}>{summaryLine(counts)}</p>
+						)}
+					</div>
+					{counts === undefined ? null : (
+						<ul className={styles.pills} aria-label="Cards by group">
+							{PILLS.map(({ group, label, tone }) => (
+								<li key={group} className={styles.pill}>
+									<span
+										className={styles.dot}
+										data-tone={tone}
+										aria-hidden="true"
+									/>
+									<span className={styles.pillLabel}>{label}</span>
+									<span className={styles.pillValue}>{counts[group]}</span>
+								</li>
+							))}
+						</ul>
+					)}
 				</div>
 			</header>
 			<SettingsPanel
@@ -262,9 +340,7 @@ export function ProjectPage({
 							values={{ loadValues, giveValue, removeValue }}
 						/>
 					) : null}
-					{setup?.state === "setting_up" ? null : (
-						<CardsPanel id={id} loadCards={loadCards} />
-					)}
+					{cardsShown ? <CardsPanel id={id} list={cards} /> : null}
 				</>
 			)}
 			<WorkersPanel

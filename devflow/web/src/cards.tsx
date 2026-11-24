@@ -5,7 +5,6 @@
 // a link to the card's own page, its state and why it is there. Read from what Dev flow stored, never from GitHub. See "Cards"
 // and "Features" in devflow/README.md.
 import { Card as Panel, Status, type StatusTone } from "@platform/ui";
-import { useEffect, useState } from "react";
 import { navigate, plainClick } from "./address";
 import type { components } from "./api/schema";
 import styles from "./cards.module.css";
@@ -19,11 +18,67 @@ export const NOT_READ = "The cards could not be read. Try again.";
 export const NO_CARDS =
 	"No cards yet. An open issue you wrote with the pick-up label becomes one, and one with sub-issues a feature.";
 
-/** How the panel reads a project's cards, Dev flow's API in the page and a
+/** A project's features and its cards on their own, as the cards route
+ * answers them. */
+export type CardList = { cards: Card[]; features: Feature[] };
+
+/** How the page reads a project's cards, Dev flow's API in the page and a
  * test's own in a test. */
 export type CardsApi = {
-	loadCards: (id: string) => Promise<{ cards: Card[]; features: Feature[] }>;
+	loadCards: (id: string) => Promise<CardList>;
 };
+
+/** The groups a project's cards are counted in, by their states: the same
+ * four the projects list's summary counts, `ProjectSummaries.Groups` in the
+ * service, an ignored card in none. See "Projects" in
+ * devflow/docs/devflow-architecture.md. */
+export const CARD_GROUPS = {
+	in_progress: ["reading", "building", "checking", "reviewing", "fixing"],
+	needs_you: ["needs_answers", "waiting_for_owner", "stopped", "refused"],
+	queued: ["queued", "held"],
+	done: ["done"],
+} as const satisfies Record<string, readonly string[]>;
+
+export type CardGroup = keyof typeof CARD_GROUPS;
+export type CardCounts = Record<CardGroup, number>;
+
+const groupOf = (state: string): CardGroup | undefined =>
+	(Object.keys(CARD_GROUPS) as CardGroup[]).find((group) =>
+		(CARD_GROUPS[group] as readonly string[]).includes(state),
+	);
+
+/** Every card of the project, its features' and those on their own,
+ * counted by group. */
+export function countCards({ cards, features }: CardList): CardCounts {
+	const counts: CardCounts = {
+		in_progress: 0,
+		needs_you: 0,
+		queued: 0,
+		done: 0,
+	};
+	for (const card of [...features.flatMap((f) => f.cards), ...cards]) {
+		const group = groupOf(card.state);
+		if (group !== undefined) counts[group] += 1;
+	}
+	return counts;
+}
+
+/** The counts as the page's one summary line, "9 cards: 2 being built, 2
+ * need you, 2 queued, 3 done.", leaving out a group with none. */
+export function summaryLine(counts: CardCounts): string {
+	const total =
+		counts.in_progress + counts.needs_you + counts.queued + counts.done;
+	if (total === 0) return "No cards yet.";
+	const parts = [
+		counts.in_progress > 0 ? `${counts.in_progress} being built` : null,
+		counts.needs_you > 0
+			? `${counts.needs_you} ${counts.needs_you === 1 ? "needs" : "need"} you`
+			: null,
+		counts.queued > 0 ? `${counts.queued} queued` : null,
+		counts.done > 0 ? `${counts.done} done` : null,
+	].filter((part) => part !== null);
+	return `${total} ${total === 1 ? "card" : "cards"}: ${parts.join(", ")}.`;
+}
 
 const STATES: Record<string, { word: string; tone: StatusTone }> = {
 	queued: { word: "Queued", tone: "idle" },
@@ -53,43 +108,29 @@ export function stateWord(state: string): { word: string; tone: StatusTone } {
 }
 
 /** The Cards panel: the features, then the cards on their own, or why there
- * is none. Nothing is shown in it before the cards are read. */
-export function CardsPanel({ id, loadCards }: CardsApi & { id: string }) {
-	const [answer, setAnswer] = useState<{
-		cards: Card[];
-		features: Feature[];
-	}>();
-	const [failed, setFailed] = useState(false);
-
-	useEffect(() => {
-		let current = true;
-		loadCards(id).then(
-			(loaded) => {
-				if (current) setAnswer(loaded);
-			},
-			() => {
-				if (current) setFailed(true);
-			},
-		);
-		return () => {
-			current = false;
-		};
-	}, [id, loadCards]);
-
+ * is none, from the cards the page read: none yet before they answer, and
+ * null when they could not be read. */
+export function CardsPanel({
+	id,
+	list,
+}: {
+	id: string;
+	list?: CardList | null;
+}) {
 	return (
 		<Panel title="Cards" className={styles.card}>
-			{failed ? (
+			{list === null ? (
 				<p className={styles.error} role="alert">
 					{NOT_READ}
 				</p>
-			) : answer === undefined ? null : answer.cards.length === 0 &&
-				answer.features.length === 0 ? (
+			) : list === undefined ? null : list.cards.length === 0 &&
+				list.features.length === 0 ? (
 				<p className={styles.muted}>{NO_CARDS}</p>
 			) : (
 				<div className={styles.lists}>
-					{answer.features.length === 0 ? null : (
+					{list.features.length === 0 ? null : (
 						<ul className={styles.cards} aria-label="Features">
-							{answer.features.map((feature) => (
+							{list.features.map((feature) => (
 								<FeatureRow
 									key={feature.number}
 									project={id}
@@ -98,9 +139,9 @@ export function CardsPanel({ id, loadCards }: CardsApi & { id: string }) {
 							))}
 						</ul>
 					)}
-					{answer.cards.length === 0 ? null : (
+					{list.cards.length === 0 ? null : (
 						<ul className={styles.cards} aria-label="Cards">
-							{answer.cards.map((card) => (
+							{list.cards.map((card) => (
 								<CardRow key={card.number} project={id} card={card} />
 							))}
 						</ul>

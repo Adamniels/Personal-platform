@@ -723,23 +723,6 @@ describe("a project's setup", () => {
 });
 
 describe("a project's page", () => {
-	test("is headed by the repository's name, with the way back", async () => {
-		const { back } = renderPage();
-
-		expect(
-			(
-				await screen.findByRole("heading", {
-					level: 2,
-					name: "Adamniels/Personal-platform",
-				})
-			).textContent,
-		).toBe("Adamniels/Personal-platform");
-		const link = screen.getByRole("link", { name: "Back to Projects" });
-		expect(link.getAttribute("href")).toBe("/devflow/projects");
-		fireEvent.click(link);
-		expect(back).toHaveBeenCalledOnce();
-	});
-
 	test("its heading shows the preset the saved settings match", async () => {
 		const saved = {
 			pickup_label: "devflow",
@@ -1560,8 +1543,8 @@ describe("a project's page, cards first", () => {
 			saveSettings: vi.fn((_id: string, request: SettingsRequest) =>
 				Promise.resolve({
 					...saved,
-					...request,
-					trusted_logins: saved.trusted_logins,
+					questions: request.questions ?? saved.questions,
+					waits_for_owner: request.waits_for_owner ?? saved.waits_for_owner,
 					preset: "fully_automatic" as const,
 				}),
 			),
