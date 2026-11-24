@@ -8,6 +8,7 @@ import {
 	Card,
 	Dialog,
 	EmptyState,
+	NeedsYouBanner,
 	Status,
 	Table,
 } from "@platform/ui";
@@ -15,7 +16,7 @@ import { useCallback, useEffect, useId, useState } from "react";
 import { navigate, plainClick } from "./address";
 import type { GetAnswer } from "./api/client";
 import { ArrowUpRightIcon } from "./icons";
-import { QUIET_MS } from "./project";
+import { heldNotice, QUIET_MS } from "./project";
 import styles from "./projects.module.css";
 import { projectPath } from "./sections";
 import { duration } from "./waiting";
@@ -212,11 +213,12 @@ function ProjectCard({
 	const name = fullName(project);
 	const { cards } = project.summary;
 	const total = cards.needs_you + cards.in_progress + cards.queued + cards.done;
+	const blocked = cannotRunYet(project.summary);
 	return (
 		<Card
 			className={styles.card}
 			title={name}
-			attention={cards.needs_you > 0}
+			attention={cards.needs_you > 0 || blocked !== null}
 			aside={
 				<PageLink
 					to={projectPath(project.id)}
@@ -239,20 +241,103 @@ function ProjectCard({
 			<div className={styles.body}>
 				<div className={styles.top}>
 					<p className={styles.hero}>{project.name}</p>
-					<p className={styles.key}>
-						<span className={styles.count}>{cards.needs_you}</span>
-						<span className={styles.caption}>
-							<span>{cards.needs_you === 1 ? "needs you" : "need you"}</span>
-							<span>
-								of {total} {total === 1 ? "card" : "cards"}
+					{blocked === null ? (
+						<p className={styles.key}>
+							<span className={styles.count}>{cards.needs_you}</span>
+							<span className={styles.caption}>
+								<span>{needYou(cards.needs_you)}</span>
+								<span>of {cardsOf(total)}</span>
 							</span>
-						</span>
-					</p>
+						</p>
+					) : null}
 				</div>
+				{blocked !== null ? (
+					<NeedsYouBanner
+						message={blocked.message}
+						detail={blocked.detail}
+						action={
+							<PageLink
+								to={projectPath(project.id)}
+								className={styles.secondary}
+							>
+								{blocked.action}
+							</PageLink>
+						}
+					/>
+				) : total > 0 ? (
+					<Ticks needsYou={cards.needs_you} total={total} />
+				) : null}
 				<Rows project={project} total={total} now={now} />
 			</div>
 		</Card>
 	);
+}
+
+const needYou = (count: number) => (count === 1 ? "needs you" : "need you");
+const cardsOf = (count: number) => `${count} ${count === 1 ? "card" : "cards"}`;
+
+/** Past this many cards the ticks touch, so a long list still fits the card
+ * at phone width and reads as one bar split by how many need the owner. */
+const DENSE = 48;
+
+/** The tick bar of section 4: one tick per card, those that need the owner
+ * first and in --accent, the rest in --text-2; an image named by its numbers. */
+function Ticks({ needsYou, total }: { needsYou: number; total: number }) {
+	return (
+		<div
+			className={
+				total > DENSE ? `${styles.ticks} ${styles.dense}` : styles.ticks
+			}
+			role="img"
+			aria-label={`${needsYou} of ${cardsOf(total)} ${needYou(needsYou)}`}
+		>
+			{Array.from({ length: total }, (_, index) => (
+				<span
+					// The ticks are interchangeable; their place is their identity.
+					// biome-ignore lint/suspicious/noArrayIndexKey: see above.
+					key={index}
+					className={
+						index < needsYou ? `${styles.tick} ${styles.needsYou}` : styles.tick
+					}
+				/>
+			))}
+		</div>
+	);
+}
+
+/** Why a project cannot run a card yet, what the owner does next, and the
+ * words of the one action that opens its page; null when it can. The first
+ * that applies: no worker, since setting up runs on one too; setting up;
+ * held, in the workers list's words; and six runs failed outside their
+ * cards, in its words too. A registered project whose setup check failed is
+ * not here: it waits in Waiting for you. */
+function cannotRunYet(summary: Project["summary"]): {
+	message: string;
+	detail?: string;
+	action: string;
+} | null {
+	const { workers, setting_up: settingUp } = summary;
+	if (workers.count === 0)
+		return {
+			message: "No worker yet, so no card can run.",
+			detail:
+				"Make the project's key, then start a worker with the two commands on its page.",
+			action: "Set up a worker",
+		};
+	if (settingUp !== null)
+		return {
+			message: `Setting up: ${settingUp.done} of ${settingUp.total} steps done.`,
+			detail: "No card runs until it is set up.",
+			action: "Continue setting up",
+		};
+	if (workers.held !== null)
+		return {
+			message: `${heldNotice(workers.held)}.`,
+			action: "Open the project",
+		};
+	if (workers.cannot_run)
+		return { message: workers.cannot_run, action: "Open the project" };
+	return null;
 }
 
 /** At most three inset rows: what is building and what is queued, the open

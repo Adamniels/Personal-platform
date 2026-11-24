@@ -237,7 +237,8 @@ describe("the projects on the Projects tab", () => {
 			summary: {
 				...FODR.summary,
 				cards: { needs_you: 0, in_progress: 0, queued: 0, done: 0 },
-				workers: { count: 0, last_seen_at: null, held: null, cannot_run: null },
+				// A worker has said hello: without one, no worker is what it needs.
+				workers: { ...FODR.summary.workers, held: "unwatched" },
 				setting_up: { done: 2, total: 6 },
 				feature: null,
 			},

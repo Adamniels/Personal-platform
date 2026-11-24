@@ -249,3 +249,57 @@ section.rows {
 	border-top-right-radius: var(--radius-md);
 	border-bottom-right-radius: var(--radius-md);
 }
+
+/* The tick bar of section 4: one tick per card in a row 44px high, each
+ * --radius-xs, of equal widths, 4px apart; --accent for the cards that need
+ * the owner and --text-2 for the rest. Past DENSE cards they touch, so the
+ * bar still fits at phone width and nothing scrolls sideways. */
+.ticks {
+	display: flex;
+	gap: 4px;
+	height: 44px;
+}
+
+.dense {
+	gap: 0;
+}
+
+.tick {
+	flex: 1 1 0;
+	min-width: 0;
+	border-radius: var(--radius-xs);
+	background: var(--text-2);
+}
+
+.needsYou {
+	background: var(--accent);
+}
+
+/* The banner's one action, a link to the project's page drawn as section
+ * 4's secondary button, since it opens an address rather than acting. */
+.secondary {
+	box-sizing: border-box;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	height: var(--control-h);
+	padding: 0 18px;
+	border: 1px solid var(--border-strong);
+	border-radius: var(--radius-full);
+	background: transparent;
+	color: var(--text);
+	font-family: var(--font-ui);
+	font-size: var(--text-body-size);
+	line-height: var(--text-body-line);
+	font-weight: 500;
+	text-decoration: none;
+}
+
+.secondary:hover {
+	background: var(--surface-2);
+}
+
+.secondary:focus-visible {
+	outline: var(--focus-ring);
+	outline-offset: var(--focus-offset);
+}
