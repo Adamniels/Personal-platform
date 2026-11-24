@@ -533,14 +533,17 @@
 /* A question to answer, on an inset row as a decision is: its number and
  * its state, what it asks in the chosen text's weight, the recommendation
  * and why, the box for another answer when it is open, and what can be done
- * with it, a step apart. */
+ * with it, a step apart. A fieldset named by what it asks, the browser's
+ * own border and margin replaced. */
 .question {
 	display: flex;
 	flex-direction: column;
 	gap: var(--space-2);
 	box-sizing: border-box;
 	min-width: 0;
+	margin: 0;
 	padding: 12px;
+	border: 0;
 	border-radius: var(--radius-md);
 	background: var(--surface-2);
 }

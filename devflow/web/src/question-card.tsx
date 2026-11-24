@@ -171,7 +171,7 @@ function Question({
 	const askedId = useId();
 	const answer = given(draft);
 	return (
-		<section role="group" aria-labelledby={askedId} className={styles.question}>
+		<fieldset aria-labelledby={askedId} className={styles.question}>
 			<div className={styles.questionHead}>
 				<span className={styles.number}>{String(number).padStart(2, "0")}</span>
 				{answer === undefined ? (
@@ -228,6 +228,6 @@ function Question({
 					</Button>
 				)}
 			</div>
-		</section>
+		</fieldset>
 	);
 }
