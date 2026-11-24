@@ -201,10 +201,12 @@ does not have is the `EmptyState` "There is no such project".
 Under the header are two columns, a wrapping row: the cards column, `flex: 999 1 560px`, and the
 side column, `flex: 1 1 300px`, both `min-width: 0`, so the side column stacks under the cards on
 phone. The cards column holds the region "Cards", see "Cards", or, while the project is setting up,
-the Setup panel in its place, and above the cards when a registered project's newest check failed,
-as `setupShows` decides, see "Setting up a project"; and at its top, once "Edit settings" opens it,
-the Settings panel. The side column holds the Workers card and the settings summary. There is no
-primary button on the page but "Make a key" before the project has a key.
+the "Setting it up" card in its place, and above the cards the "Check failed" card when a
+registered project's newest check failed, as `setupShows` decides, see "Setting up a project"; and
+at its top, once "Edit settings" opens it, the Settings panel. The side column holds the Workers
+card and the settings summary. The page has one primary button at most: while a setup card shows,
+its current step's, "Accept", "Merge" or "Check again", and "Make a key" is a secondary; otherwise
+"Make a key" before the project has a key.
 
 The Workers card, the package's `Card` titled "Workers", is read from
 `GET /devflow/api/projects/{id}/workers` as the page loads. Beside its title is the `running`
@@ -2195,21 +2197,48 @@ route ever answers a value once given. The code is `src/DevFlow/Values/`.
 - `DELETE /devflow/api/projects/{id}/values/{name}`: `204`, and jobs handed out after carry it no
   more; `404` for a project the caller does not have, or a name with no value.
 
-**On the page**: while the project is setting up, its Setup panel stands in place of its Cards
-panel, with the steps, each done or to do, the settings step while it waits, with the proposal, its preset, why
-and paths, and "Accept", or without one the line asking to save the panel once, the newest check
-with its output and its pictures, and "Check again" when it failed, with "Send back with a comment"
-when it may be, which opens a box labelled "What should the setup do differently?"; a registered project whose newest check failed shows the panel above
-its cards; while the setup step is due it shows why, the setup command to copy, and the setup run,
-where it is, its pull request, its review, what it could not settle by kind, what it proposes, the
-values its tests need, "Merge" when it waits for me, and, when it stopped, "Comment on its pull
-request, and it runs again." or, with no pull request, "Comment to run again", which opens a box
-labelled "A comment runs it again." with Send. Once the setup run is behind the project and the
-settings step does not wait, the panel shows "The values", `src/values.tsx`: each name with why,
-or "You added it.", "Missing", "Given" with when, or "Cannot be given" with why; a password field
-"The value of NAME", which the browser does not keep, with Give, for one missing, and Replace and
-Remove for one given; and "Add a value", with its name and the value. A value is cleared from the
-field once sent and never shown again. "Waiting for you" lists under "Setup" a project
+**On the page**: while the project is setting up, the header's caption has the status "Setting up",
+`needs-you` when the current step is mine and `running` otherwise, and its summary line says how
+far, "No card runs until setup is done: 2 of 6 steps", with ", and the next one is yours" when the
+current step is mine. In place of its cards is the "Setting it up" card, `SetupPanel` in
+`src/setup.tsx`: a steps bar on the right of its label, `StepsBar` from `src/cards.tsx`, named
+"2 of 6 steps done", and the six steps in the route's order as the package's `StepList`, titled
+by `STEP_TITLES`. Each step is done by its own flag, since they need not finish in order, but the
+setup step stays not done while a setup run is under way, so one sent back from a failed check is
+open with its Merge though `.devflow/` on the default branch is still valid; `setupProgress` decides
+it. A done step shows one line of what happened, `STEP_DONE`, the setup run's naming its pull
+request; one still to come shows one line of what comes there, `STEP_TO_COME`, and no button. The
+first step not done is the current one and the only one open. It is mine, with the status "Needs
+you" beside its title and the card's accent border, when it is the settings, the values, a setup
+run that waits for me or stopped, or a check that failed with no other asked for or running; the
+setup run while it works, the recipe and the worker are not. The current step shows:
+
+- **The setup run**: why it is due, the setup command to copy, and the run, where it is, its pull
+  request, its review, what it could not settle by kind, what it proposes, the values its tests
+  need, "Merge" as the step's primary when it waits for me, and, when it stopped, "Comment on its
+  pull request, and it runs again." or, with no pull request, "Comment to run again", which opens a
+  box labelled "A comment runs it again." with Send.
+- **The recipe**: that it is not on the default branch yet, and why `.devflow/` is not valid.
+- **The settings**, while the step waits: the proposal, its preset as a section heading, what the
+  preset means, why and the paths on an inset, with "Accept" as the primary and "Edit settings",
+  which opens the Settings panel; or without one the line asking to save the settings once, with
+  "Edit settings".
+- **The values**, `src/values.tsx`: each name with why, or "You added it.", "Missing", "Given"
+  with when, or "Cannot be given" with why; a password field "The value of NAME", which the browser
+  does not keep, with Give, for one missing, and Replace and Remove for one given; and "Add a
+  value", with its name and the value. A value is cleared from the field once sent and never shown
+  again. Once the step is done it closes to its line, as every done step does.
+- **The worker**: where its commands are.
+- **The check**: that one is running, or who runs it, and the newest check with its output, the
+  last 200 lines, and its pictures, with "Check again" as the primary when it failed, and "Send back
+  with a comment" when it may be, which opens a box labelled "What should the setup do
+  differently?".
+
+A registered project whose newest check failed with no other asked for shows the "Check failed"
+card above its cards, with the line that its workers on that version get no work and the check as
+above, and no step list; it has the accent border while the check is mine.
+
+"Waiting for you" lists under "Setup" a project
 whose newest check failed with no other asked for, and one whose setup run waits for me or stopped
 while its `.devflow/` is not valid, `setup_runs`, `src/setup.tsx`'s `WaitingSetupRun`, and counts
 each; a project merely setting up is not listed, since a project connected only so Dev flow reads
