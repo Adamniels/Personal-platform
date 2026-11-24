@@ -2575,7 +2575,7 @@ def test_a_built_card_waits_for_me_with_its_pull_request(
     ):
         check(page)
     assert _axe_violations(page) == []
-    capture(page, "devflow-card-waiting")
+    capture(page, "devflow-inbox-waiting")
 
 
 def test_i_merge_a_card_from_the_list(
