@@ -1,12 +1,11 @@
 // The projects on the Projects tab, under Connections: the heading with "Connect a repository",
 // connecting one from those the GitHub App reaches for the owner, and a card per connected
-// repository drawn from its summary, with an arrow link to its page and Disconnect behind a
-// confirmation. See "The pages" and "Connecting a repository" in devflow/README.md.
+// repository drawn from its summary, with an arrow link to its page. Disconnecting a project is on
+// its settings page. See "The pages" and "Connecting a repository" in devflow/README.md.
 import {
 	Badge,
 	Button,
 	Card,
-	Dialog,
 	EmptyState,
 	NeedsYouBanner,
 	Status,
@@ -30,7 +29,6 @@ export const NOT_INSTALLED =
 	"The GitHub App is not installed on any repository you can reach.";
 export const NOT_READ = "Your repositories could not be read. Try again.";
 export const NOT_CONNECTED = "The repository was not connected. Try again.";
-export const NOT_DISCONNECTED = "The project was not disconnected. Try again.";
 
 /** How the tab reads and changes projects, Dev flow's API in the page and
  * a test's own in a test. */
@@ -38,7 +36,6 @@ export type ProjectsApi = {
 	loadProjects: () => Promise<Project[]>;
 	loadRepositories: () => Promise<Connectable>;
 	connect: (installationId: number, repositoryId: number) => Promise<void>;
-	disconnect: (id: string) => Promise<void>;
 };
 
 export type ProjectsProps = ProjectsApi & {
@@ -62,12 +59,9 @@ export function Projects({
 	loadProjects,
 	loadRepositories,
 	connect,
-	disconnect,
 }: ProjectsProps) {
 	const [projects, setProjects] = useState<Project[]>();
 	const [choosing, setChoosing] = useState(false);
-	const [leaving, setLeaving] = useState<Project | null>(null);
-	const [error, setError] = useState<string | null>(null);
 
 	const reload = useCallback(
 		() => loadProjects().then(setProjects, () => setProjects(undefined)),
@@ -88,18 +82,6 @@ export function Projects({
 			current = false;
 		};
 	}, [loadProjects]);
-
-	const confirmDisconnect = async () => {
-		if (leaving === null) return;
-		try {
-			await disconnect(leaving.id);
-			setError(null);
-			await reload();
-		} catch {
-			setError(NOT_DISCONNECTED);
-		}
-		setLeaving(null);
-	};
 
 	const heading = useId();
 
@@ -126,11 +108,6 @@ export function Projects({
 					close={() => setChoosing(false)}
 				/>
 			) : null}
-			{error === null ? null : (
-				<p className={styles.error} role="alert">
-					{error}
-				</p>
-			)}
 			{projects === undefined ? null : projects.length === 0 ? (
 				// While choosing, the list to choose from says what comes next.
 				choosing ? null : (
@@ -142,26 +119,10 @@ export function Projects({
 			) : (
 				<div className={styles.cards}>
 					{projects.map((project) => (
-						<ProjectCard
-							key={project.id}
-							project={project}
-							now={now()}
-							disconnect={() => setLeaving(project)}
-						/>
+						<ProjectCard key={project.id} project={project} now={now()} />
 					))}
 				</div>
 			)}
-			<Dialog
-				open={leaving !== null}
-				title={leaving === null ? "" : `Disconnect ${fullName(leaving)}?`}
-				confirmLabel="Disconnect"
-				kind="destructive"
-				onConfirm={confirmDisconnect}
-				onCancel={() => setLeaving(null)}
-			>
-				Dev flow forgets this project and everything it read for it. Nothing
-				changes on GitHub.
-			</Dialog>
 		</section>
 	);
 }
@@ -199,17 +160,9 @@ function PageLink({
 /** A project's card, from its summary: the full name as its label with the
  * arrow link to its page; the name as the hero label beside how many of its
  * cards need the owner; then at most three inset rows, what is building, its
- * open feature and its workers; and Disconnect at its foot. A project whose
+ * open feature and its workers. A project whose
  * card needs the owner takes the accent border. */
-function ProjectCard({
-	project,
-	now,
-	disconnect,
-}: {
-	project: Project;
-	now: number;
-	disconnect: () => void;
-}) {
+function ProjectCard({ project, now }: { project: Project; now: number }) {
 	const name = fullName(project);
 	const { cards } = project.summary;
 	const total = cards.needs_you + cards.in_progress + cards.queued + cards.done;
@@ -227,15 +180,6 @@ function ProjectCard({
 				>
 					<ArrowUpRightIcon size={18} />
 				</PageLink>
-			}
-			footer={
-				<Button
-					kind="ghost"
-					aria-label={`Disconnect ${name}`}
-					onClick={disconnect}
-				>
-					Disconnect
-				</Button>
 			}
 		>
 			<div className={styles.body}>

@@ -91,7 +91,6 @@ function openWith(waiting: WaitingApi, path = "/devflow") {
 				loadProjects: () => Promise.resolve([]),
 				loadRepositories: () => new Promise(() => {}),
 				connect: () => Promise.resolve(),
-				disconnect: () => Promise.resolve(),
 			}}
 			waiting={waiting}
 			now={() => NOW}
@@ -893,7 +892,6 @@ describe("questions before starting", () => {
 					loadProjects: () => Promise.resolve([]),
 					loadRepositories: () => new Promise(() => {}),
 					connect: () => Promise.resolve(),
-					disconnect: () => Promise.resolve(),
 				}}
 				waiting={answering(
 					list({

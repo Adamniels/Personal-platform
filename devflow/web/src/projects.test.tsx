@@ -10,25 +10,12 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import {
 	type Connectable,
 	NOT_CONNECTED,
-	NOT_DISCONNECTED,
 	NOT_INSTALLED,
 	NOT_READ,
 	type Project,
 	Projects,
 	type ProjectsProps,
 } from "./projects";
-
-// jsdom has HTMLDialogElement and its `open` attribute, but neither showModal
-// nor close, as in projects-link.test.tsx.
-HTMLDialogElement.prototype.showModal ??= function (this: HTMLDialogElement) {
-	this.open = true;
-	this.querySelector("button")?.focus();
-};
-HTMLDialogElement.prototype.close ??= function (this: HTMLDialogElement) {
-	if (!this.open) return;
-	this.open = false;
-	this.dispatchEvent(new Event("close"));
-};
 
 afterEach(cleanup);
 
@@ -129,10 +116,6 @@ function renderProjects(
 			];
 			return Promise.resolve();
 		}),
-		disconnect: vi.fn((id: string) => {
-			projects = projects.filter((project) => project.id !== id);
-			return Promise.resolve();
-		}),
 	};
 	render(<Projects linked={true} now={() => NOW} {...actions} {...props} />);
 	return actions;
@@ -212,7 +195,7 @@ describe("the projects on the Projects tab", () => {
 		).toBeNull();
 	});
 
-	test("a card's arrow link opens its project's page, and Disconnect sits at its foot", async () => {
+	test("a card's arrow link opens its project's page, and it has no Disconnect", async () => {
 		renderProjects({ projects: [PLATFORM] });
 
 		const card = await screen.findByRole("article", {
@@ -224,10 +207,10 @@ describe("the projects on the Projects tab", () => {
 		expect(open.getAttribute("href")).toBe(`/devflow/projects/${PLATFORM.id}`);
 		fireEvent.click(open);
 		expect(window.location.pathname).toBe(`/devflow/projects/${PLATFORM.id}`);
-		const disconnect = within(card).getByRole("button", {
-			name: "Disconnect Adamniels/Personal-platform",
-		});
-		expect(disconnect.className).toMatch(/ghost/);
+		// Disconnecting is on the project's settings page.
+		expect(
+			within(card).queryByRole("button", { name: /^Disconnect/ }),
+		).toBeNull();
 	});
 
 	test("a project that cannot run yet shows a Needs you banner and its one action", async () => {
@@ -406,69 +389,5 @@ describe("the projects on the Projects tab", () => {
 		);
 		expect((await screen.findByRole("alert")).textContent).toBe(NOT_CONNECTED);
 		expect(refused).toHaveBeenCalledWith(52, 9101);
-	});
-
-	test("disconnecting asks first, saying what is removed", async () => {
-		const { disconnect, loadProjects } = renderProjects({
-			projects: [PLATFORM],
-		});
-
-		fireEvent.click(
-			await screen.findByRole("button", {
-				name: "Disconnect Adamniels/Personal-platform",
-			}),
-		);
-		const dialog = screen.getByRole("dialog", {
-			name: "Disconnect Adamniels/Personal-platform?",
-		});
-		expect(dialog.textContent).toContain(
-			"Dev flow forgets this project and everything it read for it. Nothing changes on GitHub.",
-		);
-
-		// Cancelling keeps it.
-		fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
-		expect(disconnect).not.toHaveBeenCalled();
-
-		fireEvent.click(
-			screen.getByRole("button", {
-				name: "Disconnect Adamniels/Personal-platform",
-			}),
-		);
-		fireEvent.click(
-			within(
-				screen.getByRole("dialog", {
-					name: "Disconnect Adamniels/Personal-platform?",
-				}),
-			).getByRole("button", { name: "Disconnect" }),
-		);
-
-		await waitFor(() => expect(disconnect).toHaveBeenCalledWith(PLATFORM.id));
-		await waitFor(() => expect(loadProjects).toHaveBeenCalledTimes(2));
-		expect(await screen.findByText("No project connected yet")).toBeTruthy();
-	});
-
-	test("a failed disconnect says so and keeps the project", async () => {
-		renderProjects({
-			projects: [PLATFORM],
-			disconnect: vi.fn(() => Promise.reject(new Error("refused"))),
-		});
-
-		fireEvent.click(
-			await screen.findByRole("button", {
-				name: "Disconnect Adamniels/Personal-platform",
-			}),
-		);
-		fireEvent.click(
-			within(
-				screen.getByRole("dialog", {
-					name: "Disconnect Adamniels/Personal-platform?",
-				}),
-			).getByRole("button", { name: "Disconnect" }),
-		);
-
-		expect((await screen.findByRole("alert")).textContent).toBe(
-			NOT_DISCONNECTED,
-		);
-		expect(screen.getByText("Adamniels/Personal-platform")).toBeTruthy();
 	});
 });

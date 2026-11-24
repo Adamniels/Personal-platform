@@ -67,7 +67,6 @@ function openAt(path: string) {
 				loadProjects: () => Promise.resolve([]),
 				loadRepositories: () => new Promise(() => {}),
 				connect: () => Promise.resolve(),
-				disconnect: () => Promise.resolve(),
 			}}
 			waiting={{
 				loadWaiting: () =>

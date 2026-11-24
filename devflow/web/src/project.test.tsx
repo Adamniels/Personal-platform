@@ -753,8 +753,8 @@ describe("a project's setup", () => {
 		).toBeTruthy();
 
 		// Accept fills in the preset's settings and the paths over the settings
-		// as saved, and saves them through the settings route; the Settings
-		// panel and the steps are read again.
+		// as saved, read once more, and saves them through the settings route;
+		// the steps are read again, and the summary shows what was saved.
 		fireEvent.click(within(step).getByRole("button", { name: "Accept" }));
 		await waitFor(() => expect(saveSettings).toHaveBeenCalledTimes(1));
 		const [id, saved] = saveSettings.mock.calls[0] as unknown as [
@@ -774,7 +774,7 @@ describe("a project's setup", () => {
 		});
 		expect(saved).not.toHaveProperty("preset");
 		await waitFor(() => expect(loadSetup).toHaveBeenCalledTimes(2));
-		await waitFor(() => expect(loadSettings).toHaveBeenCalledTimes(3));
+		expect(loadSettings).toHaveBeenCalledTimes(2);
 	});
 
 	test("the settings step shows the proposal with Accept as the primary, or asks to save the settings once", async () => {
@@ -794,19 +794,15 @@ describe("a project's setup", () => {
 			),
 		).toBeTruthy();
 		expect(within(step).getByText("migrations/**")).toBeTruthy();
-		// Accept as the primary, Edit settings beside it, which opens the
-		// settings panel.
+		// Accept as the primary, Edit settings beside it, a link to the
+		// project's settings page.
 		expect(
 			within(step).getByRole("button", { name: "Accept" }).className,
 		).toMatch(/primary/);
-		const edit = within(step).getByRole("button", { name: "Edit settings" });
-		expect(edit.className).not.toMatch(/primary/);
-		expect(screen.queryByRole("article", { name: "Edit settings" })).toBeNull();
+		const edit = within(step).getByRole("link", { name: "Edit settings" });
+		expect(edit.getAttribute("href")).toBe(`/devflow/projects/${ID}/settings`);
 		fireEvent.click(edit);
-		expect(
-			await screen.findByRole("article", { name: "Edit settings" }),
-		).toBeTruthy();
-		expect(edit.getAttribute("aria-expanded")).toBe("true");
+		expect(window.location.pathname).toBe(`/devflow/projects/${ID}/settings`);
 		cleanup();
 
 		// Without a proposal: save the settings once, and Edit settings.
@@ -815,7 +811,7 @@ describe("a project's setup", () => {
 		expect(within(once).getByText(SETTINGS_SAVE_ONCE)).toBeTruthy();
 		expect(within(once).queryByRole("button", { name: "Accept" })).toBeNull();
 		expect(
-			within(once).getByRole("button", { name: "Edit settings" }),
+			within(once).getByRole("link", { name: "Edit settings" }),
 		).toBeTruthy();
 	});
 
@@ -1053,33 +1049,24 @@ describe("a project's page", () => {
 			questions: true,
 			preset: "only_i_merge" as const,
 		};
-		renderPage({
-			loadSettings: () => Promise.resolve(saved),
-			saveSettings: (_, settings) =>
-				Promise.resolve({
-					...saved,
-					questions: settings.questions ?? true,
-					waits_for_owner: settings.waits_for_owner ?? "",
-					preset: "fully_automatic" as const,
-				}),
-		});
+		// The settings as saved where the page reads them, changed by a save on
+		// the settings page while the project's page is not open.
+		let current: ProjectSettings = saved;
+		renderPage({ loadSettings: () => Promise.resolve(current) });
 		const header = () => document.querySelector("header");
 		await waitFor(() =>
 			expect(header()?.textContent).toContain("Only I merge"),
 		);
+		cleanup();
 
-		// The form's choice is not the project's until it is saved.
-		fireEvent.click(
-			within(
-				await screen.findByRole("article", { name: "Settings" }),
-			).getByRole("button", { name: "Edit settings" }),
-		);
-		const settings = within(
-			await screen.findByRole("article", { name: "Edit settings" }),
-		);
-		fireEvent.click(settings.getByRole("button", { name: "Fully automatic" }));
-		expect(header()?.textContent).toContain("Only I merge");
-		fireEvent.click(settings.getByRole("button", { name: "Save" }));
+		// Back on the project's page, it reads them again.
+		current = {
+			...saved,
+			questions: false,
+			waits_for_owner: "never",
+			preset: "fully_automatic",
+		};
+		renderPage({ loadSettings: () => Promise.resolve(current) });
 		await waitFor(() =>
 			expect(header()?.textContent).toContain("Fully automatic"),
 		);
@@ -1109,7 +1096,7 @@ describe("a project's page", () => {
 			workers.compareDocumentPosition(settings) &
 				Node.DOCUMENT_POSITION_FOLLOWING,
 		).toBeTruthy();
-		// The panel waits for "Edit settings".
+		// The settings are edited on their own page, never in a panel here.
 		expect(screen.queryByRole("article", { name: "Edit settings" })).toBeNull();
 	});
 
@@ -1958,36 +1945,17 @@ describe("a project's page, cards first", () => {
 		});
 		expect(rule(".fact")).toMatch(/min-height:\s*36px/);
 
-		// "Edit settings" opens today's panel, at the top of the cards column.
-		expect(screen.queryByRole("article", { name: "Edit settings" })).toBeNull();
-		const edit = summary.getByRole("button", { name: "Edit settings" });
-		expect(edit.getAttribute("aria-expanded")).toBe("false");
+		// "Edit settings" is a link to the project's settings page, drawn as a
+		// secondary button, and opens it in place; no panel opens here.
+		const edit = summary.getByRole("link", { name: "Edit settings" });
+		expect(edit.getAttribute("href")).toBe(`/devflow/projects/${ID}/settings`);
+		expect(rule(".editSettings")).toMatch(
+			/border:\s*1px solid var\(--border-strong\)/,
+		);
 		fireEvent.click(edit);
-		expect(edit.getAttribute("aria-expanded")).toBe("true");
-		const panelElement = await screen.findByRole("article", {
-			name: "Edit settings",
-		});
-		const cards = await screen.findByRole("region", { name: "Cards" });
-		expect(
-			panelElement.compareDocumentPosition(cards) &
-				Node.DOCUMENT_POSITION_FOLLOWING,
-		).toBeTruthy();
-
-		// A save there updates the summary and the preset badge.
-		const form = within(panelElement);
-		fireEvent.click(
-			await form.findByRole("button", { name: "Fully automatic" }),
-		);
-		fireEvent.click(form.getByRole("button", { name: "Save" }));
-		await waitFor(() => expect(saveSettings).toHaveBeenCalledOnce());
-		await waitFor(async () =>
-			expect((await rows()).Preset).toBe("Fully automatic"),
-		);
-		expect((await rows())["Pull requests wait for you"]).toBe("Never");
-		expect((await rows())["Questions before starting"]).toBe("Off");
-		expect(document.querySelector("header")?.textContent).toContain(
-			"Fully automatic",
-		);
+		expect(window.location.pathname).toBe(`/devflow/projects/${ID}/settings`);
+		expect(screen.queryByRole("article", { name: "Edit settings" })).toBeNull();
+		expect(saveSettings).not.toHaveBeenCalled();
 	});
 
 	test("setup shows in place of the cards while setting up, and above them after a failed check", async () => {

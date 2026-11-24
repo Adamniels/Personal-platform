@@ -77,7 +77,6 @@ function open(decisions: DecisionItem[]) {
 				loadProjects: () => Promise.resolve([]),
 				loadRepositories: () => new Promise(() => {}),
 				connect: () => Promise.resolve(),
-				disconnect: () => Promise.resolve(),
 			}}
 			waiting={{
 				loadWaiting: () => Promise.resolve(list(decisions)),

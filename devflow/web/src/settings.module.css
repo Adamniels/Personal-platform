@@ -1,140 +1,26 @@
-/* A project's Settings panel, between its page's header and the cards. Tokens only. */
-
-/* The next panel follows it a section gap below, as the content column's
- * sections do in section 2 of design/DESIGN.md. */
-.card {
-	margin: 0 0 var(--space-4);
-}
-
-.form {
-	display: flex;
-	flex-direction: column;
-	gap: var(--space-4);
-}
+/* A project's settings page, under the Projects tab. Tokens only. */
 
 /* What did not happen: the attention text, read as an alert, as the
- * Workers panel says its own. */
+ * Workers card says its own. */
 .error {
 	margin: 0;
 	color: var(--accent-text);
 	font-weight: 600;
 }
 
-/* The four fields two by two where there is room, one under another at
- * phone width. */
-.fields {
-	display: grid;
-	grid-template-columns: repeat(auto-fit, minmax(min(16rem, 100%), 1fr));
-	gap: var(--space-3) var(--space-4);
-}
-
-.actions {
-	display: flex;
-	flex-wrap: wrap;
-	align-items: center;
-	gap: var(--space-3);
-}
-
 .saved {
 	color: var(--text-2);
 }
 
-/* Each of the panel's three groups, how cards are picked, how much happens
- * alone, and the models and limits: a heading, a line on what it holds, then
- * its fields, one under another. */
-.group,
-.runs {
+/* A card's parts, one under another. */
+.group {
 	display: flex;
 	flex-direction: column;
 	gap: var(--space-3);
 }
 
-.heading {
-	margin: 0;
-	font-size: inherit;
-	font-weight: 600;
-}
-
-/* The trusted accounts' heading inside how cards are picked, quieter than
- * the group's own. */
-.subheading {
-	margin: var(--space-2) 0 0;
-	font-size: inherit;
-	font-weight: 600;
-	color: var(--text-2);
-}
-
-/* The presets and the one the form matches: the three buttons in a row that
- * wraps at phone width, and the name beside them where there is room. */
-.presets {
-	display: flex;
-	flex-wrap: wrap;
-	align-items: center;
-	gap: var(--space-3);
-}
-
-.choices {
-	display: flex;
-	flex-wrap: wrap;
-	gap: var(--space-2);
-	min-width: 0;
-	margin: 0;
-	padding: 0;
-	border: 0;
-}
-
-/* The preset the form matches: active means inverted (hard rule 11), as a
- * selected tab is, and stays so under the pointer, over the secondary
- * button's own hover. */
-.choices > button[aria-pressed="true"],
-.choices > button[aria-pressed="true"]:hover:not(:disabled) {
-	background: var(--text);
-	border-color: var(--text);
-	color: var(--bg);
-	font-weight: 600;
-}
-
-.matched {
-	margin: 0;
-	color: var(--text-2);
-}
-
-.matched > output {
-	color: var(--text);
-	font-weight: 600;
-}
-
-.help {
-	margin: 0;
-	color: var(--text-2);
-}
-
-/* A short list of a login and what can be done with it: plain rows 36px
- * high with a border under each, the login in the mono font, as section 4
- * of design/DESIGN.md has a short list. */
-.logins {
-	margin: 0;
-	padding: 0;
-	list-style: none;
-}
-
-.login {
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	gap: var(--space-3);
-	min-height: 36px;
-	border-bottom: 1px solid var(--border);
-}
-
-.name {
-	font-family: var(--font-mono);
-	overflow-wrap: anywhere;
-	min-width: 0;
-}
-
-/* The field and its button side by side, the button level with the input's
- * foot, and one under the other where there is no room. */
+/* The login field and its button side by side, the button level with the
+ * input's foot, and one under the other where there is no room. */
 .add {
 	display: flex;
 	flex-wrap: wrap;
@@ -145,50 +31,6 @@
 .add > :first-child {
 	flex: 1 1 16rem;
 }
-
-/* What "sometimes" waits for, under the fields while it is chosen: a group
- * with its heading, a line on what it does, the three conditions, and the
- * review label and the paths beside each other where there is room. */
-.sometimes {
-	display: flex;
-	flex-direction: column;
-	gap: var(--space-3);
-	min-width: 0;
-	margin: 0;
-	padding: 0;
-	border: 0;
-}
-
-/* A legend sits in its fieldset's border unless it is laid out as a block;
- * the presets' is read by a screen reader, the buttons saying the rest. */
-.legend {
-	float: left;
-	width: 100%;
-	padding: 0;
-	font-weight: 600;
-}
-
-.choices > .legend {
-	position: absolute;
-	width: 1px;
-	height: 1px;
-	overflow: hidden;
-	clip-path: inset(50%);
-	white-space: nowrap;
-}
-
-.conditions {
-	display: flex;
-	flex-direction: column;
-	gap: var(--space-2);
-}
-
-/* Patterns are paths, read in the mono font. */
-.paths {
-	font-family: var(--font-mono);
-}
-
-/* A project's settings page. */
 
 /* The page header of section 2 of design/DESIGN.md: the way back to the
  * project, the mono caption, the page title and one line of what the page is

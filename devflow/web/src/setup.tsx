@@ -21,7 +21,7 @@ import { navigate, plainClick } from "./address";
 import type { GetAnswer } from "./api/client";
 import { StepsBar } from "./cards";
 import { CommentBox } from "./comment-box";
-import { Command } from "./project";
+import { Command, EditSettings } from "./project";
 import styles from "./setup.module.css";
 import { type ValuesApi, ValuesSection } from "./values";
 
@@ -109,9 +109,9 @@ export const COMMENT_ON_PULL =
 export const SENT_BACK_RUN =
 	"You sent the failed check back: an agent writes .devflow/ again on a new branch and opens a pull request with it. Start its worker on the machine that runs your workers with this command, after saving the project's key below:";
 export const SETTINGS_PROPOSED =
-	"The setup run proposes these settings. Accept them, or change them under Edit settings and save them there.";
+	"The setup run proposes these settings. Accept them, or change them on the settings page, under Edit settings, and save them there.";
 export const SETTINGS_SAVE_ONCE =
-	"Look over the settings under Edit settings, and save them once. Until you do, this project hands out no reading or build.";
+	"Look over the settings on the settings page, under Edit settings, and save them once. Until you do, this project hands out no reading or build.";
 export const NOT_ACCEPTED = "The proposal was not saved.";
 export const SEND_BACK = "Send back with a comment";
 export const SEND_BACK_LABEL = "What should the setup do differently?";
@@ -268,8 +268,6 @@ export function SetupPanel({
 	runSetupAgain,
 	sendSetupBack,
 	acceptProposal,
-	editSettings,
-	editing,
 	copy,
 	reload,
 	values,
@@ -285,10 +283,6 @@ export function SetupPanel({
 	/** Saves the proposed preset's settings and paths through the settings
 	 * route, which does the settings step. */
 	acceptProposal: (proposal: SetupProposal) => Promise<void>;
-	/** Opens the settings panel, and closes it again. */
-	editSettings: () => void;
-	/** Whether the settings panel is open. */
-	editing: boolean;
 	/** Copies the setup command to the clipboard. */
 	copy: (text: string) => Promise<void>;
 	/** Reads the setup again, after another check was asked for. */
@@ -349,10 +343,9 @@ export function SetupPanel({
 				// does not do it.
 				return setup.settings_waits ? (
 					<SettingsSection
+						id={id}
 						proposal={setup.proposal}
 						acceptProposal={acceptProposal}
-						editSettings={editSettings}
-						editing={editing}
 					/>
 				) : (
 					<p className={styles.line}>{STEP_NOW.settings}</p>
@@ -511,18 +504,16 @@ function CheckStep({
 
 /** The settings step while it waits: the preset the setup run proposed as
  * a section heading, what it means, why and the paths, with "Accept" as the
- * step's primary and "Edit settings"; or, without a proposal, to save the
- * settings once, with "Edit settings". */
+ * step's primary and "Edit settings", a link to the settings page; or,
+ * without a proposal, to save the settings once, with "Edit settings". */
 function SettingsSection({
+	id,
 	proposal,
 	acceptProposal,
-	editSettings,
-	editing,
 }: {
+	id: string;
 	proposal: SetupProposal | null;
 	acceptProposal: (proposal: SetupProposal) => Promise<void>;
-	editSettings: () => void;
-	editing: boolean;
 }) {
 	const [accepting, setAccepting] = useState(false);
 	const [error, setError] = useState<string | null>(null);
@@ -538,11 +529,7 @@ function SettingsSection({
 		setAccepting(false);
 	};
 
-	const edit = (
-		<Button kind="secondary" aria-expanded={editing} onClick={editSettings}>
-			Edit settings
-		</Button>
-	);
+	const edit = <EditSettings id={id} />;
 
 	return (
 		<section className={styles.run} aria-label="The settings">

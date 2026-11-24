@@ -278,34 +278,6 @@ def test_i_connect_a_repository(
     ).to_have_count(0)
 
 
-def test_i_disconnect_a_project(
-    page: Page, invite_code: str, base_url: str, devflow_world
-):
-    register_and_log_in(page, invite_code, base_url)
-    devflow_world(one_repository())
-    page.goto("/devflow/projects")
-    link_github(page, base_url)
-    _choose(page)
-    page.get_by_role("button", name="Connect Adamniels/Personal-platform").click()
-    projects = page.get_by_role("region", name="Projects")
-    expect(projects.get_by_text("Adamniels/Personal-platform")).to_be_visible()
-
-    projects.get_by_role(
-        "button", name="Disconnect Adamniels/Personal-platform"
-    ).click()
-    dialog = page.get_by_role("dialog", name="Disconnect Adamniels/Personal-platform?")
-    expect(dialog).to_be_visible()
-    expect(dialog).to_contain_text("Nothing changes on GitHub.")
-    dialog.get_by_role("button", name="Disconnect", exact=True).click()
-
-    expect(dialog).to_be_hidden()
-    expect(page.get_by_text("No project connected yet")).to_be_visible()
-    expect(projects.get_by_role("article")).to_have_count(0)
-    assert page.request.get("/devflow/api/projects").json() == {"projects": []}
-    page.reload()
-    expect(page.get_by_text("No project connected yet")).to_be_visible()
-
-
 def test_without_an_installation_i_am_told_to_install_the_app(
     page: Page, invite_code: str, base_url: str
 ):
@@ -1225,17 +1197,25 @@ def _open_project(
 
 
 def _edit_settings(page: Page) -> Locator:
-    """Opens the Settings panel from the summary's "Edit settings", unless it
-    is open already, and answers it."""
-    edit = page.get_by_role("article", name="Settings", exact=True).get_by_role(
-        "button", name="Edit settings"
-    )
-    expect(edit).to_be_visible()
-    if edit.get_attribute("aria-expanded") == "false":
-        edit.click()
-    panel = page.get_by_role("article", name="Edit settings", exact=True)
-    expect(panel).to_be_visible()
-    return panel
+    """Opens the project's settings page from its page's "Edit settings",
+    unless it is open already, and answers the page's content once its form
+    is drawn."""
+    if not re.search(r"/settings/?$", page.url):
+        page.get_by_role("article", name="Settings", exact=True).get_by_role(
+            "link", name="Edit settings"
+        ).click()
+    expect(page).to_have_url(re.compile(r"/devflow/projects/[0-9a-f-]{36}/settings$"))
+    content = page.get_by_role("main")
+    expect(content.get_by_role("button", name="Save", exact=True)).to_be_visible()
+    return content
+
+
+def _back_to_project(page: Page) -> None:
+    """Goes from a project's settings page back to its page, by the header's
+    way back."""
+    page.locator("main header a").first.click()
+    expect(page).to_have_url(re.compile(r"/devflow/projects/[0-9a-f-]{36}$"))
+    expect(page.get_by_role("article", name="Workers", exact=True)).to_be_visible()
 
 
 def _start_a_worker(page: Page) -> Locator:
@@ -1396,7 +1376,7 @@ def test_i_trust_another_account(
             f"/devflow/api/projects/{project}/refresh", headers={"Origin": base_url}
         )
         assert refreshed.status == 204, refreshed.text()
-        page.reload()
+        page.goto(f"/devflow/projects/{project}")
 
     def card():
         return (
@@ -1416,7 +1396,7 @@ def test_i_trust_another_account(
     trusted = settings.get_by_role("list", name="Trusted accounts")
     expect(trusted.get_by_role("listitem")).to_have_count(1)
     expect(trusted.get_by_role("listitem").first).to_contain_text("octo-owner")
-    expect(trusted.get_by_role("listitem").first).to_contain_text("You")
+    expect(trusted.get_by_role("listitem").first).to_contain_text("you, always on")
     expect(settings.get_by_role("button", name="Remove octo-owner")).to_have_count(0)
     settings.get_by_label("Add a trusted account").fill("octo-friend")
     settings.get_by_role("button", name="Add").click()
@@ -3598,15 +3578,18 @@ def test_i_choose_a_preset(
     header = page.locator("header").filter(has=page.get_by_role("heading", level=2))
     expect(header).to_contain_text("Only I merge")
     settings = _edit_settings(page)
-    alone = settings.get_by_role("region", name="How much happens alone")
-    matched = alone.get_by_role("status", name="Preset")
+    alone = settings.get_by_role("article", name="How much happens alone")
+    matched = settings.get_by_role("article", name="These settings").locator("p").first
     expect(matched).to_have_text("Only I merge")
+    expect(alone.get_by_role("radio", name="Only I merge")).to_be_checked()
 
     # Guided fills in its settings in the form, and nothing is saved yet.
-    alone.get_by_role("button", name="Guided").click()
+    alone.get_by_role("radio", name="Guided").check()
     expect(matched).to_have_text("Guided")
     expect(alone.get_by_label("Pull requests wait for you")).to_have_value("sometimes")
-    expect(alone.get_by_label("Questions before starting")).not_to_be_checked()
+    expect(
+        alone.get_by_role("switch", name="Questions before starting")
+    ).not_to_be_checked()
     conditions = alone.get_by_role("group", name="Waits for you when")
     for condition in (
         "The card or its feature is marked for your review",
@@ -3614,28 +3597,33 @@ def test_i_choose_a_preset(
         "The agent made a decision for you",
     ):
         expect(conditions.get_by_label(condition)).to_be_checked()
-    expect(header).to_contain_text("Only I merge")
+    saved = page.request.get(f"/devflow/api/projects/{project}/settings").json()
+    assert saved["preset"] == "only_i_merge"
     page.evaluate("document.fonts.ready.then(() => null)")
     for check in (assert_headings_are_capitals, assert_nothing_scrolls_sideways):
         check(page)
     assert _axe_violations(page) == []
     capture(page, "devflow-settings")
 
-    # One covered setting changed by hand is Custom.
+    # One covered setting changed by hand is Custom, with no preset chosen.
     conditions.get_by_label("The agent made a decision for you").uncheck()
     expect(matched).to_have_text("Custom")
+    expect(alone.get_by_role("radio", checked=True)).to_have_count(0)
 
-    # Fully automatic, saved: the heading shows it, and so does a fresh load.
-    alone.get_by_role("button", name="Fully automatic").click()
+    # Fully automatic, saved: the project's heading shows it once back, and so
+    # does a fresh load.
+    alone.get_by_role("radio", name="Fully automatic").check()
     expect(matched).to_have_text("Fully automatic")
     settings.get_by_role("button", name="Save").click()
     expect(settings.get_by_text("Saved.")).to_be_visible()
+    _back_to_project(page)
     expect(header).to_contain_text("Fully automatic")
     page.reload()
     expect(header).to_contain_text("Fully automatic")
     expect(
         _edit_settings(page).get_by_label("Pull requests wait for you")
     ).to_have_value("never")
+    _back_to_project(page)
     page.evaluate("document.fonts.ready.then(() => null)")
     for check in (assert_headings_are_capitals, assert_nothing_scrolls_sideways):
         check(page)
@@ -3782,7 +3770,7 @@ def test_i_set_the_models_and_limits(
     register_and_log_in(page, invite_code, base_url)
     _card_project(page, base_url, devflow_world)
     settings = _edit_settings(page)
-    runs = settings.get_by_role("region", name="Models and limits")
+    runs = settings.get_by_role("article", name="Runs")
 
     # A new project's: opus for each job, 90 minutes, 200 turns, and 3 fix
     # rounds a card and 3 a feature.
@@ -3825,7 +3813,7 @@ def test_i_set_the_models_and_limits(
 
     # Kept: a fresh load reads them back.
     page.reload()
-    runs = _edit_settings(page).get_by_role("region", name="Models and limits")
+    runs = _edit_settings(page).get_by_role("article", name="Runs")
     for label, value in (
         ("Reading model", "opus"),
         ("Building model", "sonnet"),
@@ -3840,6 +3828,7 @@ def test_i_set_the_models_and_limits(
     # The next job carries them: a worker on the image released asks for work
     # and is handed the card's build on the building model, with the time and
     # the turns set, and the spend every run is given.
+    _back_to_project(page)
     key = _make_key(page)
     command = (
         page.get_by_role("region", name="Build and start the worker")
@@ -3895,20 +3884,18 @@ def test_i_set_sometimes(
     ):
         expect(conditions.get_by_label(condition)).to_be_checked()
     expect(settings.get_by_label("Review label")).to_have_value("devflow-review")
-    expect(conditions.get_by_label("Paths")).to_have_value("")
+    expect(settings.get_by_label("Paths")).to_have_value("")
 
     # A pattern Dev flow refuses is named under the list, and nothing is saved.
-    conditions.get_by_label("Paths").fill("!src/**")
+    settings.get_by_label("Paths").fill("!src/**")
     settings.get_by_role("button", name="Save").click()
-    expect(conditions.get_by_label("Paths")).to_have_attribute("aria-invalid", "true")
+    expect(settings.get_by_label("Paths")).to_have_attribute("aria-invalid", "true")
 
     conditions.get_by_label("The agent made a decision for you").uncheck()
-    conditions.get_by_label("Paths").fill("src/auth/**\ninfra/hosted/compose.yaml")
+    settings.get_by_label("Paths").fill("src/auth/**\ninfra/hosted/compose.yaml")
     settings.get_by_role("button", name="Save").click()
     expect(settings.get_by_text("Saved.")).to_be_visible()
-    expect(conditions.get_by_label("Paths")).not_to_have_attribute(
-        "aria-invalid", "true"
-    )
+    expect(settings.get_by_label("Paths")).not_to_have_attribute("aria-invalid", "true")
     page.evaluate("document.fonts.ready.then(() => null)")
     for check in (assert_headings_are_capitals, assert_nothing_scrolls_sideways):
         check(page)
@@ -3926,7 +3913,7 @@ def test_i_set_sometimes(
     expect(
         conditions.get_by_label("The agent made a decision for you")
     ).not_to_be_checked()
-    expect(conditions.get_by_label("Paths")).to_have_value(
+    expect(settings.get_by_label("Paths")).to_have_value(
         "src/auth/**\ninfra/hosted/compose.yaml"
     )
 
@@ -5752,13 +5739,17 @@ def test_i_accept_the_proposed_settings(
     assert _axe_violations(page) == []
     capture(page, "devflow-project-setup-settings")
 
-    # I accept: the step is done, and the Settings panel shows the preset and
+    # I accept: the step is done, and the settings page shows the preset and
     # the path.
     step.get_by_role("button", name="Accept").click()
     expect(steps.nth(2)).to_have_attribute("data-state", "done")
     expect(setup.get_by_role("region", name="The settings")).to_have_count(0)
     settings = _edit_settings(page)
-    expect(settings.locator("output")).to_have_text("Guided")
+    expect(
+        settings.get_by_role("article", name="These settings").get_by_text(
+            "Guided", exact=True
+        )
+    ).to_be_visible()
     expect(settings.get_by_label("Paths", exact=True)).to_have_value("migrations/**")
     saved = page.request.get(f"/devflow/api/projects/{project}/settings").json()
     assert saved["preset"] == "guided"

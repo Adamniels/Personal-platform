@@ -82,9 +82,6 @@ const projectsApi: ProjectsApi = {
 			repository_id: repositoryId,
 		});
 	},
-	disconnect: async (id) => {
-		await client.send("DELETE", `/projects/${encodeURIComponent(id)}`);
-	},
 };
 
 /** A project's page, through Dev flow's API. */
@@ -172,7 +169,9 @@ const settingsApi: SettingsPageApi = {
 	loadValues: projectApi.loadValues,
 	giveValue: projectApi.giveValue,
 	removeValue: projectApi.removeValue,
-	disconnect: projectsApi.disconnect,
+	disconnect: async (id) => {
+		await client.send("DELETE", `/projects/${encodeURIComponent(id)}`);
+	},
 };
 
 /** A card's story, through Dev flow's API; a card the caller does not have

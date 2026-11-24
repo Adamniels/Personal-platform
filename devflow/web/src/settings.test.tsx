@@ -18,13 +18,12 @@ import {
 	presetOf,
 	SAVED,
 	SettingsPage,
-	SettingsPanel,
 	type SettingsRequest,
 } from "./settings";
 import type { ProjectValueList } from "./values";
 
 // jsdom has HTMLDialogElement and its `open` attribute, but neither showModal
-// nor close, as in projects.test.tsx.
+// nor close, as in project.test.tsx.
 HTMLDialogElement.prototype.showModal ??= function (this: HTMLDialogElement) {
 	this.open = true;
 	this.querySelector("button")?.focus();
@@ -96,37 +95,17 @@ const answered = (settings: SettingsRequest): ProjectSettings => ({
 	}),
 });
 
-function renderPanel(
-	api: {
-		loadSettings?: (id: string) => Promise<ProjectSettings>;
-		saveSettings?: (
-			id: string,
-			settings: SettingsRequest,
-		) => Promise<ProjectSettings>;
-	} = {},
-) {
-	const calls = {
-		loadSettings: vi.fn(api.loadSettings ?? (() => Promise.resolve(DEFAULTS))),
-		saveSettings: vi.fn(
-			api.saveSettings ??
-				((_: string, settings: SettingsRequest) =>
-					Promise.resolve(answered(settings))),
-		),
-	};
-	render(<SettingsPanel id={ID} {...calls} />);
-	return calls;
-}
+/** The page's form once it is drawn, as the panel's tests read it. */
+const page = async () => {
+	await screen.findByRole("button", { name: "Save" });
+	return within(document.body);
+};
 
-const panel = async () =>
-	within(await screen.findByRole("article", { name: "Edit settings" }));
-
-describe("the settings panel", () => {
+describe("the settings page's form", () => {
 	test("shows the models and limits and saves them with the rest", async () => {
-		const { saveSettings } = renderPanel();
-		const settings = await panel();
-		const runs = within(
-			settings.getByRole("region", { name: "Models and limits" }),
-		);
+		const { saveSettings } = renderPage();
+		const settings = await page();
+		const runs = within(settings.getByRole("article", { name: "Runs" }));
 		const value = (label: string) =>
 			(runs.getByLabelText(label) as HTMLInputElement | HTMLSelectElement)
 				.value;
@@ -175,11 +154,9 @@ describe("the settings panel", () => {
 	});
 
 	test("a limit that is not a whole number is named, and nothing is sent", async () => {
-		const { saveSettings } = renderPanel();
-		const settings = await panel();
-		const runs = within(
-			settings.getByRole("region", { name: "Models and limits" }),
-		);
+		const { saveSettings } = renderPage();
+		const settings = await page();
+		const runs = within(settings.getByRole("article", { name: "Runs" }));
 		const turns = runs.getByLabelText(
 			"Turns a run may take",
 		) as HTMLInputElement;
@@ -195,7 +172,7 @@ describe("the settings panel", () => {
 	});
 
 	test("a limit Dev flow refuses is named under its field", async () => {
-		renderPanel({
+		renderPage({
 			saveSettings: () =>
 				Promise.reject(
 					new ApiError({
@@ -206,7 +183,7 @@ describe("the settings panel", () => {
 					}),
 				),
 		});
-		const settings = await panel();
+		const settings = await page();
 		const minutes = settings.getByLabelText(
 			"Minutes a run may take",
 		) as HTMLInputElement;
@@ -222,11 +199,11 @@ describe("the settings panel", () => {
 	});
 
 	test("sometimes shows its three conditions, the review label and the paths", async () => {
-		const { saveSettings } = renderPanel({
+		const { saveSettings } = renderPage({
 			loadSettings: () =>
 				Promise.resolve({ ...DEFAULTS, wait_paths: ["src/auth/**"] }),
 		});
-		const settings = await panel();
+		const settings = await page();
 		const waits = (await settings.findByLabelText(
 			"Pull requests wait for you",
 		)) as HTMLSelectElement;
@@ -238,7 +215,7 @@ describe("the settings panel", () => {
 		).toBeNull();
 		expect(
 			within(
-				settings.getByRole("region", { name: "How cards are picked" }),
+				settings.getByRole("article", { name: "How cards are picked" }),
 			).getByLabelText("Review label"),
 		).toBeTruthy();
 		expect(settings.queryByLabelText("Paths")).toBeNull();
@@ -263,7 +240,7 @@ describe("the settings panel", () => {
 		]);
 		const review = settings.getByLabelText("Review label") as HTMLInputElement;
 		expect(review.value).toBe("devflow-review");
-		const list = conditions.getByLabelText("Paths") as HTMLTextAreaElement;
+		const list = settings.getByLabelText("Paths") as HTMLTextAreaElement;
 		expect(list.value).toBe("src/auth/**");
 
 		// Changed, and saved with the rest: one pattern a line, blank lines dropped.
@@ -304,7 +281,7 @@ describe("the settings panel", () => {
 	});
 
 	test("a pattern or a condition Dev flow refuses is named under its field", async () => {
-		renderPanel({
+		renderPage({
 			loadSettings: () =>
 				Promise.resolve({ ...DEFAULTS, waits_for_owner: "sometimes" }),
 			saveSettings: () =>
@@ -322,7 +299,7 @@ describe("the settings panel", () => {
 					}),
 				),
 		});
-		const settings = await panel();
+		const settings = await page();
 		fireEvent.click(await settings.findByRole("button", { name: "Save" }));
 
 		const list = await settings.findByLabelText("Paths");
@@ -338,8 +315,8 @@ describe("the settings panel", () => {
 	});
 
 	test("shows the project's settings", async () => {
-		const { loadSettings } = renderPanel();
-		const settings = await panel();
+		const { loadSettings } = renderPage();
+		const settings = await page();
 
 		expect(loadSettings).toHaveBeenCalledWith(ID);
 		expect(
@@ -364,8 +341,8 @@ describe("the settings panel", () => {
 	});
 
 	test("saves all five, and says so", async () => {
-		const { saveSettings } = renderPanel();
-		const settings = await panel();
+		const { saveSettings } = renderPage();
+		const settings = await page();
 
 		fireEvent.change(await settings.findByLabelText("Pick-up label"), {
 			target: { value: "agent: go" },
@@ -385,10 +362,10 @@ describe("the settings panel", () => {
 	});
 
 	test("questions before starting is ticked, and saved off once unticked", async () => {
-		const { saveSettings } = renderPanel();
-		const settings = await panel();
+		const { saveSettings } = renderPage();
+		const settings = await page();
 
-		const questions = await settings.findByRole("checkbox", {
+		const questions = await settings.findByRole("switch", {
 			name: "Questions before starting",
 		});
 		expect((questions as HTMLInputElement).checked).toBe(true);
@@ -404,7 +381,7 @@ describe("the settings panel", () => {
 	});
 
 	test("a value Dev flow refuses is named under its field", async () => {
-		renderPanel({
+		renderPage({
 			saveSettings: () =>
 				Promise.reject(
 					new ApiError({
@@ -417,7 +394,7 @@ describe("the settings panel", () => {
 					}),
 				),
 		});
-		const settings = await panel();
+		const settings = await page();
 
 		fireEvent.change(await settings.findByLabelText("Hold label"), {
 			target: { value: "devflow" },
@@ -436,13 +413,13 @@ describe("the settings panel", () => {
 	});
 
 	test("a save that failed otherwise says so, and keeps what was typed", async () => {
-		renderPanel({
+		renderPage({
 			saveSettings: () =>
 				Promise.reject(
 					new ApiError({ status: 0, title: "unreachable", detail: null }),
 				),
 		});
-		const settings = await panel();
+		const settings = await page();
 
 		fireEvent.change(await settings.findByLabelText("Attention label"), {
 			target: { value: "look" },
@@ -456,7 +433,7 @@ describe("the settings panel", () => {
 	});
 
 	test("trusted accounts are listed, added and removed, and my own cannot be removed", async () => {
-		const { saveSettings } = renderPanel({
+		const { saveSettings } = renderPage({
 			loadSettings: () =>
 				Promise.resolve({
 					...DEFAULTS,
@@ -466,7 +443,7 @@ describe("the settings panel", () => {
 					],
 				}),
 		});
-		const settings = await panel();
+		const settings = await page();
 		const listed = () =>
 			within(settings.getByRole("list", { name: "Trusted accounts" }))
 				.getAllByRole("listitem")
@@ -477,7 +454,7 @@ describe("the settings panel", () => {
 		expect(
 			await settings.findByRole("list", { name: "Trusted accounts" }),
 		).toBeTruthy();
-		expect(listed()).toEqual(["octo-ownerYou", "octo-friendRemove"]);
+		expect(listed()).toEqual(["octo-owneryou, always on", "octo-friendRemove"]);
 		expect(
 			settings.queryByRole("button", { name: "Remove octo-owner" }),
 		).toBeNull();
@@ -493,7 +470,7 @@ describe("the settings panel", () => {
 		fireEvent.change(add, { target: { value: "Octo-Friend" } });
 		fireEvent.click(settings.getByRole("button", { name: "Add" }));
 		expect(listed()).toEqual([
-			"octo-ownerYou",
+			"octo-owneryou, always on",
 			"octo-friendRemove",
 			"octo-palRemove",
 			"octo-buddyRemove",
@@ -505,7 +482,7 @@ describe("the settings panel", () => {
 			settings.getByRole("button", { name: "Remove octo-friend" }),
 		);
 		expect(listed()).toEqual([
-			"octo-ownerYou",
+			"octo-owneryou, always on",
 			"octo-palRemove",
 			"octo-buddyRemove",
 		]);
@@ -518,7 +495,7 @@ describe("the settings panel", () => {
 	});
 
 	test("a login Dev flow refuses is named under the field", async () => {
-		renderPanel({
+		renderPage({
 			saveSettings: () =>
 				Promise.reject(
 					new ApiError({
@@ -529,7 +506,7 @@ describe("the settings panel", () => {
 					}),
 				),
 		});
-		const settings = await panel();
+		const settings = await page();
 
 		fireEvent.change(await settings.findByLabelText("Add a trusted account"), {
 			target: { value: "not a login" },
@@ -544,8 +521,8 @@ describe("the settings panel", () => {
 		).toBeTruthy();
 	});
 
-	test("a preset fills in its three settings and leaves the rest", async () => {
-		const { saveSettings } = renderPanel({
+	test("a preset fills in what it covers and leaves the rest", async () => {
+		const { saveSettings } = renderPage({
 			loadSettings: () =>
 				Promise.resolve({
 					...DEFAULTS,
@@ -554,13 +531,14 @@ describe("the settings panel", () => {
 					preset: "only_i_merge",
 				}),
 		});
-		const settings = await panel();
+		const settings = await page();
 		const alone = within(
-			settings.getByRole("region", { name: "How much happens alone" }),
+			settings.getByRole("article", { name: "How much happens alone" }),
 		);
-		const matched = () =>
-			alone.getByRole("status", { name: "Preset" }).textContent;
-		expect(matched()).toBe("Only I merge");
+		const summary = within(
+			settings.getByRole("article", { name: "These settings" }),
+		);
+		expect(summary.getByText("Only I merge")).toBeTruthy();
 
 		// Typed before choosing, and kept after.
 		fireEvent.change(settings.getByLabelText("Pick-up label"), {
@@ -569,19 +547,21 @@ describe("the settings panel", () => {
 		fireEvent.change(settings.getByLabelText("Minutes a run may take"), {
 			target: { value: "45" },
 		});
-		const guided = alone.getByRole("button", { name: "Guided" });
-		expect(guided.getAttribute("aria-pressed")).toBe("false");
+		const guided = alone.getByRole("radio", {
+			name: "Guided",
+		}) as HTMLInputElement;
+		expect(guided.checked).toBe(false);
 		fireEvent.click(guided);
 
-		expect(guided.getAttribute("aria-pressed")).toBe("true");
-		expect(matched()).toBe("Guided");
+		expect(guided.checked).toBe(true);
+		expect(summary.getByText("Guided")).toBeTruthy();
 		expect(
 			(alone.getByLabelText("Pull requests wait for you") as HTMLSelectElement)
 				.value,
 		).toBe("sometimes");
 		expect(
 			(
-				alone.getByRole("checkbox", {
+				alone.getByRole("switch", {
 					name: "Questions before starting",
 				}) as HTMLInputElement
 			).checked,
@@ -621,11 +601,11 @@ describe("the settings panel", () => {
 			wait_when_decision: true,
 			trusted_logins: ["octo-owner"],
 		});
-		expect(matched()).toBe("Guided");
+		expect(summary.getByText("Guided")).toBeTruthy();
 	});
 
 	test("the name follows the settings", async () => {
-		renderPanel({
+		renderPage({
 			loadSettings: () =>
 				Promise.resolve({
 					...DEFAULTS,
@@ -633,46 +613,45 @@ describe("the settings panel", () => {
 					preset: "only_i_merge",
 				}),
 		});
-		const settings = await panel();
+		const settings = await page();
 		const alone = within(
-			settings.getByRole("region", { name: "How much happens alone" }),
+			settings.getByRole("article", { name: "How much happens alone" }),
 		);
-		const matched = () =>
-			alone.getByRole("status", { name: "Preset" }).textContent;
-		const pressed = () =>
+		const summary = within(
+			settings.getByRole("article", { name: "These settings" }),
+		);
+		const chosen = () =>
 			["Fully automatic", "Guided", "Only I merge"].filter(
 				(name) =>
-					alone.getByRole("button", { name }).getAttribute("aria-pressed") ===
-					"true",
+					(alone.getByRole("radio", { name }) as HTMLInputElement).checked,
 			);
-		expect(matched()).toBe("Only I merge");
-		expect(pressed()).toEqual(["Only I merge"]);
+		expect(summary.getByText("Only I merge")).toBeTruthy();
+		expect(chosen()).toEqual(["Only I merge"]);
 
 		// One covered setting changed by hand matches no preset.
 		fireEvent.click(
-			alone.getByRole("checkbox", { name: "Questions before starting" }),
+			alone.getByRole("switch", { name: "Questions before starting" }),
 		);
-		expect(matched()).toBe("Custom");
-		expect(pressed()).toEqual([]);
+		expect(summary.getByText("Custom")).toBeTruthy();
+		expect(chosen()).toEqual([]);
 
-		fireEvent.click(alone.getByRole("button", { name: "Fully automatic" }));
-		expect(matched()).toBe("Fully automatic");
-		expect(pressed()).toEqual(["Fully automatic"]);
+		fireEvent.click(alone.getByRole("radio", { name: "Fully automatic" }));
+		expect(summary.getByText("Fully automatic")).toBeTruthy();
+		expect(chosen()).toEqual(["Fully automatic"]);
 
 		// On sometimes, every condition counts.
-		fireEvent.click(alone.getByRole("button", { name: "Guided" }));
+		fireEvent.click(alone.getByRole("radio", { name: "Guided" }));
 		fireEvent.click(
 			alone.getByLabelText("The change touches a path on the list"),
 		);
-		expect(matched()).toBe("Custom");
+		expect(summary.getByText("Custom")).toBeTruthy();
 	});
 
 	test("settings that could not be read say so", async () => {
-		renderPanel({ loadSettings: () => Promise.reject(new Error("down")) });
+		renderPage({ loadSettings: () => Promise.reject(new Error("down")) });
 
-		expect((await (await panel()).findByRole("alert")).textContent).toBe(
-			NOT_READ,
-		);
+		expect((await screen.findByRole("alert")).textContent).toBe(NOT_READ);
+		expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
 	});
 });
 
@@ -698,6 +677,10 @@ const PLATFORM: Project = {
 function renderPage(
 	api: {
 		loadSettings?: (id: string) => Promise<ProjectSettings>;
+		saveSettings?: (
+			id: string,
+			settings: SettingsRequest,
+		) => Promise<ProjectSettings>;
 		values?: ProjectValueList["values"];
 	} = {},
 ) {
@@ -705,8 +688,10 @@ function renderPage(
 	const calls = {
 		loadProjects: vi.fn(() => Promise.resolve([PLATFORM])),
 		loadSettings: vi.fn(api.loadSettings ?? (() => Promise.resolve(DEFAULTS))),
-		saveSettings: vi.fn((_: string, settings: SettingsRequest) =>
-			Promise.resolve(answered(settings)),
+		saveSettings: vi.fn(
+			api.saveSettings ??
+				((_: string, settings: SettingsRequest) =>
+					Promise.resolve(answered(settings))),
 		),
 		loadValues: vi.fn(() => Promise.resolve({ done: true, values })),
 		giveValue: vi.fn(async (_: string, name: string, _value: string) => {
